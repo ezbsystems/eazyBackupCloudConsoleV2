@@ -90,13 +90,21 @@
                              <span class="text-gray-400">Created:</span>
                              <span class="text-white font-mono">{$createdDate}</span>
               </div>
-                         <div class="flex justify-between">
-                             <span class="text-gray-400">TOTP:</span>
-                             {if $totpStatus == 'Active'}
-                                 <span class="text-green-400">{$totpStatus}</span>
-                             {else}
-                                 <span class="text-red-400">{$totpStatus}</span>
-                             {/if}
+                         <div class="flex justify-between items-center">
+                             <div>
+                                 <span class="text-gray-400 mr-2">TOTP:</span>
+                                 {if $totpStatus == 'Active'}
+                                     <span class="text-green-400">{$totpStatus}</span>
+                                 {else}
+                                     <span class="text-red-400">{$totpStatus}</span>
+                                 {/if}
+                             </div>
+                             <div class="flex items-center space-x-2">
+                                 <button id="totp-regenerate" class="bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold py-1.5 px-3 rounded">{if $totpStatus == 'Active'}Regenerate QR{else}Enable TOTP{/if}</button>
+                                 {if $totpStatus == 'Active'}
+                                 <button id="totp-disable" class="bg-gray-700 hover:bg-red-700 text-white text-xs font-semibold py-1.5 px-3 rounded">Disable</button>
+                                 {/if}
+                             </div>
               </div>
                           <div class="flex justify-between">
                              <span class="text-gray-400">Number of devices:</span>
@@ -511,6 +519,50 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 });
 </script>
+
+{* TOTP Modal *}
+<div id="totp-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70 hidden">
+  <div class="bg-slate-800/90 backdrop-blur-sm border border-slate-700 rounded-lg shadow-lg w-full max-w-md">
+    <div class="p-6">
+      <div class="flex justify-between items-center pb-4">
+        <h2 class="text-lg font-semibold text-slate-200">Two-Factor Authentication (TOTP)</h2>
+        <button id="totp-modal-close" type="button" class="text-slate-500 hover:text-slate-300">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="space-y-4">
+        <p id="totp-status" class="text-slate-300 text-sm"></p>
+        <div class="flex justify-center">
+          <img id="totp-qr-img" src="" alt="TOTP QR" class="rounded border border-slate-700 max-h-56" />
+        </div>
+        <div class="text-xs text-slate-400 break-words">
+          <a id="totp-otp-url" href="#" target="_blank" class="text-sky-400 hover:text-sky-300"></a>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-300 mb-1">Enter 6-digit code</label>
+          <input id="totp-code" type="text" inputmode="numeric" autocomplete="one-time-code" class="block w-full px-3 py-2 border border-slate-600 bg-slate-700 text-slate-200 rounded focus:outline-none focus:ring-2 focus:ring-sky-500" placeholder="123456" />
+        </div>
+        <div id="totp-error" class="hidden text-red-500 text-sm"></div>
+      </div>
+    </div>
+    <div class="flex justify-end items-center mt-2 bg-slate-800/80 px-6 py-4 rounded-b-lg border-t border-slate-700">
+      <button id="totp-confirm" class="inline-flex items-center px-4 py-2 text-sm font-medium rounded-md text-white bg-sky-600 hover:bg-sky-700">Confirm</button>
+    </div>
+  </div>
+</div>
+
+{* Expose endpoint + context for TOTP JS *}
+<script>
+window.EB_TOTP_ENDPOINT = '{$modulelink}&a=totp';
+</script>
+<script>
+// annotate body for JS context
+try {
+  document.body.setAttribute('data-eb-serviceid', '{$serviceid}');
+  document.body.setAttribute('data-eb-username', '{$username}');
+} catch (e) {}
+</script>
+<script src="modules/addons/eazybackup/assets/js/userProfileTotp.js"></script>
 
 {literal}
 <style>

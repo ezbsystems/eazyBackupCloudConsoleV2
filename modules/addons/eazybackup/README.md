@@ -3,6 +3,10 @@
 - I’m extending a WHMCS addon module called eazyBackup. It integrates with the Comet Server module (accounts\modules\servers\comet) which contains Comet PHP Software Development Kit. 
 - We are using this to manage cloud backup users and surface controls in the WHMCS client area.
 
+The goal of this project is to replicate all of the features form the Comet Backup web interface into our WHMCS client area by using the Comet Server API. Rather than having the customer leave our client area to log in to the Comet control panel, we want them to be able to fully manage their backup account using our addon module. 
+
+Whenever possible, try to create new files to keep concerns isolated. Use includes whenever possible rather than putting scripts into the template file. Use includes with the main module router file so that the main router file does not become filled with code for different features, keep each feature isolated. Put scripts in accounts\modules\addons\eazybackup\templates\assets\js. Create new folders and files whenver needed. 
+
 **Tech stack:**
 - Runtime: PHP 8.2
 - Templates: Smarty
@@ -14,6 +18,20 @@
 - Console/Profile UI (manage Comet users): templates/console/user-profile.tpl
 - Backend controller(s): pages/console/dashboard.php (plus handlers in eazybackup.php)
 - Helpers: lib/Helper.php, functions.php, lib/Vault.php
+
+We have several custom database table that have been added to the WHMCS database. 
+
+table comet_devices
+table comet_items
+table comet_jobs
+table comet_users
+table comet_vaults 
+table eb_devices_daily
+table eb_event_cursor
+table eb_items_daily
+table eb_jobs_live
+table eb_jobs_recent_24h 
+
 
 ## File Layout
 - All paths relative to the addon root: accounts/modules/addons/eazybackup/.

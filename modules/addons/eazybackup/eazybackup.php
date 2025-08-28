@@ -377,6 +377,10 @@ function eazybackup_clientarea(array $vars)
                 break;
         }
         exit;
+    } else if ($_REQUEST["a"] == "totp") {
+        // Isolated TOTP AJAX endpoint
+        require_once __DIR__ . "/pages/console/totp.php";
+        exit; // script handles output
     } else if ($_REQUEST["a"] == "dashboard") {
         // Load the dashboard backend logic.
         $clientId = $_SESSION['uid'];
