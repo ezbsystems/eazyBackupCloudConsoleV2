@@ -1,0 +1,102 @@
+<?php
+/**
+ * eazyBackup Addon Module Hooks
+ *
+ * @copyright (c) 2019 eazyBackup Systems Ltd.
+ */
+
+// Require any libraries needed for the module to function.
+require_once __DIR__ . "/functions.php";
+
+// Also, perform any initialization required by the service's library.
+
+/**
+ * Register hooks with WHMCS.
+ */
+
+add_hook('ClientLogin', 1, function($vars) {
+
+    $DASHBOARD_URL = 'https://app.eazybackup.ca';
+    $DASHBOARD_USERNAME = 'api@eazybackup.ca';
+    $DASHBOARD_PASSWORD = 'u7!83phIjfhACfd@83$rB%^556t4fYy&VU#qFql#u8lAoY*7wIQN3pSTZq&2pywP';
+
+    $client = \WHMCS\User\Client::find($vars['userid']);
+
+    $tenant = [];
+    $tenant['owner'] = "$client->firstname $client->lastname";
+    $tenant['name'] = $client->companyname ? $client->companyname : $tenant['owner'];
+    $tenant['email'] = $client->email;
+    $tenant['password'] = $client->password;
+    $tenant['services'] = [];
+
+    foreach ($client->services as $service) {
+        $s = [];
+        $s['server'] = $service->server;
+        $s['username'] = $service->username;
+        if ($service->server) $tenant['services'][] = $s;
+    }
+
+    $http = new \GuzzleHttp\Client(['base_uri' => $DASHBOARD_URL]);
+
+
+    $res = $http->post('/register', ['query' => ['user' => $DASHBOARD_USERNAME, 'key' => $DASHBOARD_PASSWORD],
+                                     'json' => $tenant,
+                                    ]);
+    return $vars;
+});
+
+/**
+ * Hides domain permissions from the Contacts/Sub-Accounts page.
+ */
+add_hook('ClientAreaPageContacts', 1, function ($vars) {
+    $permissionsToDrop = [
+        "managedomains", "productsso", "domains", "quotes", "affiliates"
+    ];
+
+    foreach ($vars["allPermissions"] as $i => $permission) {
+        if (in_array($permission, $permissionsToDrop)) {
+            unset($vars["allPermissions"][$i]);
+        }
+    }
+
+    return $vars;
+});
+
+/**
+ * Adds additional service information to submit ticket page.
+ */
+add_hook('ClientAreaPageSubmitTicket', 1, function ($vars) {
+    $clientsproducts = localAPI('GetClientsProducts', ['clientid' => $vars['client']->id])['products']['product'];
+    $relatedservices = [];
+
+    foreach ($clientsproducts as $product) {
+        $username = empty($product['domain']) ? $product['username'] : $product['domain'];
+        $relatedservices[$product['groupname']][] = [
+            'id' => 'S' . $product['id'],
+            'name' => $product['name'],
+            'username' => $username,
+            'status' => $product['status'],
+        ];
+    }
+
+    $vars['relatedservices'] = $relatedservices;
+    return $vars;
+});
+
+/**
+ * Adds additional service information to homepage.
+ */
+add_hook('ClientAreaPageHome', 1, function ($vars) {
+
+    global $_LANG;
+    $panels = $vars['panels'];
+    if ($panels) {
+        foreach ($panels->getChild('Active Products/Services')->getChildren() as $item) {
+            $item->setExtra('btn-manage', '<span class="btn btn-xs btn-info">' . $_LANG['manageproduct'] . '</span>');
+            $item->setClass('list-group-manage');
+        }
+    }
+
+    return $vars;
+});
+

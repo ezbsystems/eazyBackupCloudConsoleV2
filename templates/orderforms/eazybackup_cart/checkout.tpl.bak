@@ -1,0 +1,790 @@
+<script>
+    // Define state tab index value
+    var statesTab = 10;
+    // Do not enforce state input client side
+    var stateNotRequired = true;
+</script>
+{include file="orderforms/standard_cart/common.tpl"}
+<script type="text/javascript" src="{$BASE_PATH_JS}/StatesDropdown.js"></script>
+<script type="text/javascript" src="{$BASE_PATH_JS}/PasswordStrength.js"></script>
+<script>
+    window.langPasswordStrength = "{$LANG.pwstrength}";
+    window.langPasswordWeak = "{$LANG.pwstrengthweak}";
+    window.langPasswordModerate = "{$LANG.pwstrengthmoderate}";
+    window.langPasswordStrong = "{$LANG.pwstrengthstrong}";
+</script>
+<div id="order-standard_cart" class="bg-white min-h-screen py-8">
+
+    <div class="max-w-7xl mx-auto">
+
+        <!-- Top-Level Layout Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 border-solid border-2 rounded-md border-slate-100">
+        
+            <!-- Main Cart Body -->
+            <div class="lg:col-span-8 px-4 py-8">
+                <div class="space-y-6 w-full max-w-xl mx-auto">
+                        <div class="border-b border-gray-200 pb-4 mt-6">
+                            <h2 class="text-lg font-semibold text-gray-700 mb-2">{$LANG.orderForm.checkout}</h1>
+                        </div>
+                    
+                    
+
+                    <div class="already-registered clearfix">
+                        <div class="pull-right float-right">
+                            <button type="button" class="btn btn-info{if $loggedin || !$loggedin && $custtype eq "existing"} hidden{/if}" id="btnAlreadyRegistered">
+                                {$LANG.orderForm.alreadyRegistered}
+                            </button>
+                            <button type="button" class="btn btn-warning{if $loggedin || $custtype neq "existing"} hidden{/if}" id="btnNewUserSignup">
+                                {$LANG.orderForm.createAccount}
+                            </button>
+                        </div>
+
+                        <p class="text-sm-left overflow-hidden">{lang key='orderForm.enterPersonalDetails'}</p>
+                    </div>
+
+                    {if $errormessage}
+                        <div class="alert alert-danger checkout-error-feedback" role="alert">
+                            <p>{$LANG.orderForm.correctErrors}:</p>
+                            <ul>
+                                {$errormessage}
+                            </ul>
+                        </div>
+                        <div class="clearfix"></div>
+                    {/if}
+
+                    <form method="post" action="{$smarty.server.PHP_SELF}?a=checkout" name="orderfrm" id="frmCheckout">
+                        <input type="hidden" name="checkout" value="true" />
+                        <input type="hidden" name="custtype" id="inputCustType" value="{$custtype}" />
+
+                        {if $custtype neq "new" && $loggedin}
+                            <div class="sub-heading">
+                                <span class="primary-bg-color">
+                                    {lang key='switchAccount.title'}
+                                </span>
+                            </div>
+                            <div id="containerExistingAccountSelect" class="row account-select-container">
+                                {foreach $accounts as $account}
+                                    <div class="col-sm-{if $accounts->count() == 1}12{else}6{/if}">
+                                        <div class="account{if $selectedAccountId == $account->id} active{/if}">
+                                            <label class="radio-inline" for="account{$account->id}">
+                                                <input id="account{$account->id}" class="account-select{if $account->isClosed || $account->noPermission || $inExpressCheckout} disabled{/if}" type="radio" name="account_id" value="{$account->id}"{if $account->isClosed || $account->noPermission || $inExpressCheckout} disabled="disabled"{/if}{if $selectedAccountId == $account->id} checked="checked"{/if}>
+                                                <span class="address">
+                                                    <strong>
+                                                        {if $account->company}{$account->company}{else}{$account->fullName}{/if}
+                                                    </strong>
+                                                    {if $account->isClosed || $account->noPermission}
+                                                        <span class="label label-default">
+                                                            {if $account->isClosed}
+                                                                {lang key='closed'}
+                                                            {else}
+                                                                {lang key='noPermission'}
+                                                            {/if}
+                                                        </span>
+                                                    {elseif $account->currencyCode}
+                                                        <span class="label label-info">
+                                                            {$account->currencyCode}
+                                                        </span>
+                                                    {/if}
+                                                    <br>
+                                                    <span class="small">
+                                                        {$account->address1}{if $account->address2}, {$account->address2}{/if}<br>
+                                                        {if $account->city}{$account->city},{/if}
+                                                        {if $account->state} {$account->state},{/if}
+                                                        {if $account->postcode} {$account->postcode},{/if}
+                                                        {$account->countryName}
+                                                    </span>
+                                                </span>
+                                            </label>
+                                        </div>
+                                    </div>
+                                {/foreach}
+                                <div class="col-sm-12">
+                                    <div class="account border-bottom{if !$selectedAccountId || !is_numeric($selectedAccountId)} active{/if}">
+                                        <label class="radio-inline">
+                                            <input class="account-select" type="radio" name="account_id" value="new"{if !$selectedAccountId || !is_numeric($selectedAccountId)} checked="checked"{/if}{if $inExpressCheckout} disabled="disabled" class="disabled"{/if}>
+                                            {lang key='orderForm.createAccount'}
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        {/if}
+
+                        <div id="containerExistingUserSignin"{if $loggedin || $custtype neq "existing"} class="hidden{/if}">
+                            <div class="sub-heading">
+                                <span class="primary-bg-color">{$LANG.orderForm.existingCustomerLogin}</span>
+                            </div>
+
+                            <div class="alert alert-danger hidden" id="existingLoginMessage">
+                            </div>
+
+                            <div class="sm:col-span-3 space-y-4">
+                                <div class="col-sm-6">
+                                    <div class="form-group prepend-icon">                                        
+                                        <input type="text" name="loginemail" id="inputLoginEmail" class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6" placeholder="{$LANG.orderForm.emailAddress}" value="{$loginemail}">
+                                    </div>
+                                </div>
+                                <div class="col-sm-6">
+                                    <div class="form-group prepend-icon">                                        
+                                        <input type="password" name="loginpassword" id="inputLoginPassword" class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6" placeholder="{$LANG.clientareapassword}">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="text-center">
+                                <button type="button" id="btnExistingLogin" class="btn btn-primary btn-md">
+                                    <span id="existingLoginButton">{lang key='login'}</span>
+                                    <span id="existingLoginPleaseWait" class="hidden">{lang key='pleasewait'}</span>
+                                </button>
+                            </div>
+
+                            {include file="orderforms/standard_cart/linkedaccounts.tpl" linkContext="checkout-existing"}
+                        </div>
+
+                        <div id="containerNewUserSignup"{if $custtype === 'existing' || (is_numeric($selectedAccountId) && $selectedAccountId > 0) || ($loggedin && $accounts->count() > 0 && $selectedAccountId !== 'new')} class="w-hidden"{/if}>
+
+                            <div{if $loggedin} class="hidden"{/if}>
+                                {include file="orderforms/standard_cart/linkedaccounts.tpl" linkContext="checkout-new"}
+                            </div>
+
+                            <div class="sub-heading">
+                                <span class="primary-bg-color">{$LANG.orderForm.personalInformation}</span>
+                            </div>
+
+                            <div class="sm:col-span-3">
+                                <div class="col-sm-6">
+                                    <div class="form-group prepend-icon">
+                                        <label for="inputFirstName"
+                                            class="block text-sm/6 font-medium text-gray-700">{lang key='clientareafirstname'}</label>
+                                        <input type="text" name="firstname" id="inputFirstName" class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6" placeholder="{$LANG.orderForm.firstName}" value="{$clientsdetails.firstname}" autofocus>
+                                    </div>
+                                </div>
+                                <div class="sm:col-span-3">
+                                    <div class="form-group prepend-icon">
+                                        <label for="inputLastName"
+                                            class="block text-sm/6 font-medium text-gray-700">{lang key='clientarealastname'}</label>
+                                        <input type="text" name="lastname" id="inputLastName" class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6" placeholder="{$LANG.orderForm.lastName}" value="{$clientsdetails.lastname}">
+                                    </div>
+                                </div>
+                                <div class="sm:col-span-4">
+                                    <div class="form-group prepend-icon">
+                                        <label for="inputEmail"
+                                            class="blocktext-sm/6 font-medium text-gray-700">{lang key='clientareaemail'}</label>
+                                        <input type="email" name="email" id="inputEmail" class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6" placeholder="{$LANG.orderForm.emailAddress}" value="{$clientsdetails.email}">
+                                    </div>
+                                </div>
+                                <div class="sm:col-span-2 sm:col-start-1">
+                                    <label for="inputPhone" class="block text-sm/6 font-medium text-gray-700">
+                                        Phone Number
+                                    </label>
+                                    <div class="h-9 py-1 relative mt-1 flex items-center rounded-md outline outline-1 outline-gray-300 focus-within:outline-2 focus-within:outline-indigo-600 focus-within:ring-2 focus-within:ring-indigo-600">
+                                        <!-- Country Code Dropdown -->
+                                        <select id="countryCode" name="countryCode"
+                                            class="h-full rounded-l-md bg-white px-2 py-1 text-gray-700 focus:outline-none sm:text-sm">
+                                            <option value="+1">🇨🇦 +1</option>
+                                            <option value="+1">🇺🇸 +1</option>
+                                            <option value="+44">🇬🇧 +44</option>
+                                            <option value="+353">🇮🇪 +353</option>
+                                            <option value="+61">🇦🇺 +61</option>
+                                            <option value="+64">🇳🇿 +64</option>
+                                            <option value="+33">🇫🇷 +33</option>
+                                            <option value="+49">🇩🇪 +49</option>
+                                            <option value="+39">🇮🇹 +39</option>
+                                            <option value="+34">🇪🇸 +34</option>
+                                        </select>
+                                
+                                        <!-- Phone Number Input -->
+                                        <input type="tel" id="inputPhone" placeholder="Enter phone number"
+                                            class="flex-1 rounded-r-md border-0 bg-white px-3 py-1.5 text-gray-900 placeholder-gray-400 focus:outline-none sm:text-sm" />
+                                    </div>                
+                                    <!-- Hidden Combined Input -->
+                                    <input type="hidden" id="phonenumber" name="phonenumber" value="{$clientphonenumber}" />
+                                </div>
+                                <script>
+                                    document.addEventListener("DOMContentLoaded", function () {
+                                        const countryCodeDropdown = document.getElementById("countryCode");
+                                        const phoneInput = document.getElementById("inputPhone");
+                                        const phonenumberHidden = document.getElementById("phonenumber");
+                                
+                                        function populateFields() {
+                                            const fullPhoneNumber = phonenumberHidden.value;
+                                
+                                            // Regex to split the country code and the rest of the phone number
+                                            const phoneParts = fullPhoneNumber.match(/^(\+\d+)?(.*)$/);
+                                
+                                            if (phoneParts) {
+                                                const countryCode = phoneParts[1] || "+1"; // Default to +1 if no match
+                                                const phoneNumber = phoneParts[2].trim();
+                                
+                                                // Populate dropdown and phone input
+                                                countryCodeDropdown.value = countryCode;
+                                                phoneInput.value = phoneNumber;
+                                            }
+                                        }
+                                
+                                        function combinePhoneNumber() {
+                                            phonenumberHidden.value = countryCodeDropdown.value + phoneInput.value.replace(/\s+/g, '');
+                                        }
+                                
+                                        // Populate fields on page load
+                                        populateFields();
+                                
+                                        // Update hidden input when dropdown or phone number changes
+                                        countryCodeDropdown.addEventListener("change", combinePhoneNumber);
+                                        phoneInput.addEventListener("input", combinePhoneNumber);
+                                    });
+                                </script>
+                            </div>
+
+                            <div class="sub-heading">
+                                <span class="primary-bg-color">{$LANG.orderForm.billingAddress}</span>
+                            </div>
+
+                            <div class="sm:col-span-3">
+                                <div class="sm:col-span-4">
+                                    <label for="inputCompanyName"
+                                        class="block text-sm/6 font-medium text-gray-700">{lang key='clientareacompanyname'}</label>                                                                  
+                                    <input type="text" name="companyname" id="inputCompanyName" class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6" placeholder="{$LANG.orderForm.companyName} ({$LANG.orderForm.optional})" value="{$clientsdetails.companyname}">
+                                </div>
+                                <div class="col-span-full">
+                                    <label for="inputAddress1"
+                                        class="block text-sm/6 font-medium text-gray-700">{lang key='clientareaaddress1'}</label>
+                                    <input type="text" name="address1" id="inputAddress1" class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6" placeholder="{$LANG.orderForm.streetAddress}" value="{$clientsdetails.address1}">
+                                </div>                                
+                                <div class="sm:col-span-2 sm:col-start-1">
+                                    <label for="inputCity"
+                                        class="block text-sm/6 font-medium text-gray-700">{lang key='clientareacity'}</label>
+                                    <input type="text" name="city" id="inputCity" class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6" placeholder="{$LANG.orderForm.city}" value="{$clientsdetails.city}">
+                                </div>
+                                <div class="sm:col-span-2">
+                                    <div class="form-group prepend-icon">
+                                        <label for="inputState"
+                                            class="block text-sm/6 font-medium text-gray-700">{lang key='clientareastate'}</label>
+                                        <input type="text" name="state" id="inputState" class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6" placeholder="{$LANG.orderForm.state}" value="{$clientsdetails.state}">
+                                    </div>
+                                </div>
+                                <div class="sm:col-span-2">
+                                    <label for="inputPostcode"
+                                        class="block text-sm/6 font-medium text-gray-700">{lang key='clientareapostcode'}</label>
+                                        <input type="text" name="postcode" id="inputPostcode" class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6" placeholder="{$LANG.orderForm.postcode}" value="{$clientsdetails.postcode}">                                    
+                                </div>
+                                <div class="sm:col-span-3">
+                                    <div class="form-group prepend-icon">
+                                        <label for="country" class="block text-sm/6 font-medium text-gray-700">
+                                            {lang key='clientareacountry'}
+                                        </label>
+                                        <select name="country" id="inputCountry" class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6">
+                                            {foreach $countries as $countrycode => $countrylabel}
+                                                <option value="{$countrycode}"{if (!$country && $countrycode == $defaultcountry) || $countrycode eq $country} selected{/if}>
+                                                    {$countrylabel}
+                                                </option>
+                                            {/foreach}
+                                        </select>
+                                    </div>
+                                </div>
+                                {if $showTaxIdField}
+                                    <div class="col-sm-12">
+                                        <div class="form-group prepend-icon">
+                                            <label for="inputTaxId" class="field-icon">
+                                                <i class="fas fa-building"></i>
+                                            </label>
+                                            <input type="text" name="tax_id" id="inputTaxId" class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6" placeholder="{$taxLabel} ({$LANG.orderForm.optional})" value="{$clientsdetails.tax_id}">
+                                        </div>
+                                    </div>
+                                {/if}
+                            </div>
+
+                            {if $customfields}
+                                <div class="sub-heading">
+                                    <span class="primary-bg-color">{$LANG.orderadditionalrequiredinfo}<br><i><small>{lang key='orderForm.requiredField'}</small></i></span>
+                                </div>
+                                <div class="field-container">
+                                    <div class="sm:col-span-3">
+                                        {foreach $customfields as $customfield}
+                                            <div class="col-sm-6">
+                                                <div class="form-group">
+                                                    <label for="customfield{$customfield.id}">{$customfield.name} {$customfield.required}</label>
+                                                    {$customfield.input}
+                                                    {if $customfield.description}
+                                                        <span class="field-help-text">
+                                                            {$customfield.description}
+                                                        </span>
+                                                    {/if}
+                                                </div>
+                                            </div>
+                                        {/foreach}
+                                    </div>
+                                </div>
+                            {/if}
+
+                        </div>                        
+
+                        {if !$loggedin}
+
+                            <div id="containerNewUserSecurity"{if (!$loggedin && $custtype eq "existing") || ($remote_auth_prelinked && !$securityquestions)} class="hidden"{/if}>
+
+                                <div class="sub-heading">
+                                    <span class="primary-bg-color">{$LANG.orderForm.accountSecurity}</span>
+                                </div>
+
+                                <div id="containerPassword" class="row{if $remote_auth_prelinked && $securityquestions} hidden{/if}">
+                                    <div id="passwdFeedback" class="alert alert-info text-center col-sm-12 hidden"></div>
+                                    <div class="col-sm-6">
+                                        <div class="form-group prepend-icon">
+                                            <label for="inputNewPassword1" class="field-icon">
+                                                <i class="fas fa-lock"></i>
+                                            </label>
+                                            <input type="password" name="password" id="inputNewPassword1" data-error-threshold="{$pwStrengthErrorThreshold}" data-warning-threshold="{$pwStrengthWarningThreshold}" class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6" placeholder="{$LANG.clientareapassword}"{if $remote_auth_prelinked} value="{$password}"{/if}>
+                                        </div>
+                                    </div>
+                                    <div class="col-sm-6">
+                                        <div class="form-group prepend-icon">
+                                            <label for="inputNewPassword2" class="field-icon">
+                                                <i class="fas fa-lock"></i>
+                                            </label>
+                                            <input type="password" name="password2" id="inputNewPassword2" class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6" placeholder="{$LANG.clientareaconfirmpassword}"{if $remote_auth_prelinked} value="{$password}"{/if}>
+                                        </div>
+                                    </div>
+                                    <div class="col-sm-6">
+                                        <button type="button" class="btn btn-default btn-sm generate-password" data-targetfields="inputNewPassword1,inputNewPassword2">
+                                            {$LANG.generatePassword.btnLabel}
+                                        </button>
+                                    </div>
+                                    <div class="col-sm-6">
+                                        <div class="password-strength-meter">
+                                            <div class="progress">
+                                                <div class="progress-bar progress-bar-success progress-bar-striped" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" id="passwordStrengthMeterBar">
+                                                </div>
+                                            </div>
+                                            <p class="text-center small text-muted" id="passwordStrengthTextLabel">{$LANG.pwstrength}: {$LANG.pwstrengthenter}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+
+                            </div>
+
+                        {/if}
+
+                        {foreach $hookOutput as $output}
+                            <div>
+                                {$output}
+                            </div>
+                        {/foreach}
+
+                        <div class="border-b border-gray-200 pb-4 mt-6 max-w-xl mx-auto">
+                            <span class="text-lg font-semibold mb-2">{$LANG.orderForm.paymentDetails}</span>
+                        </div>
+
+                        <div class="alert alert-success text-center large-text" role="alert" id="totalDueToday">
+                            <span class="text-sm font-semibold">{$LANG.ordertotalduetoday}:</span> <span class="text-sm font-semibold text-indigo-600 ml-2" id="totalCartPrice">{$total}</span>
+                        </div>    
+                        
+                        <!-- ExpressCheckout starts here -->
+                        <!-- ExpressCheckout starts here -->
+                        <!-- ExpressCheckout starts here -->
+                        <!-- ExpressCheckout starts here -->
+                        <!-- ExpressCheckout starts here -->
+                        <!-- ExpressCheckout starts here -->
+                        <!-- ExpressCheckout starts here -->
+
+                        {if !$inExpressCheckout}
+                            <div 
+                                x-data="checkoutForm()"
+                                class="max-w-xl mx-auto mt-6"
+                            >
+        <!-- Payment Gateways Selection -->
+                                <div id="paymentGatewaysContainer" class="border-b border-gray-200 pb-4 mt-6 max-w-xl mx-auto">
+                                    <p class="font-medium text-gray-600 text-sm">{$LANG.orderForm.preferredPaymentMethod}</p>
+
+                                    <div class="text-center">
+                                        {foreach $gateways as $gateway}
+                                            <label class="inline-flex items-center space-x-2 mx-2">
+                                                <input 
+                                                    type="radio"
+                                                    name="paymentmethod"
+                                                    value="{$gateway.sysname}"
+                                                    data-payment-type="{$gateway.type}"
+                                                    data-show-local="{$gateway.show_local_cards}"
+                                                    data-remote-inputs="{$gateway.uses_remote_inputs}"
+                                                    class="form-radio h-5 w-5 text-indigo-600 payment-methods {if $gateway.type eq "CC"} is-credit-card{/if}"
+                                                    x-on:click="selectedPaymentType = $el.dataset.paymentType"
+                                                    {if $selectedgateway eq $gateway.sysname} checked{/if}
+                                                />
+                                                {$gateway.name}
+                                            </label>
+                                        {/foreach}
+                                    </div>
+                                </div>
+
+                                <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded text-center hidden gateway-errors"></div>                            
+
+                                <div id="paymentGatewayInput" class="mb-6"></div>
+
+                                <!-- Credit Card Input Fields -->
+<div 
+class="cc-input-container" 
+id="creditCardInputFields" 
+x-show="selectedPaymentType === 'CC'"
+x-transition
+>
+{if $client}
+    <div id="existingCardsContainer" class="grid grid-cols-1 gap-4 mb-4">
+        {if $selectedAccountId === $client->id}
+            {foreach $client->payMethods->validateGateways()->sortByExpiryDate() as $payMethod}
+                {assign "payMethodExpired" 0}
+                {assign "expiryDate" ""}
+                {if $payMethod->isCreditCard()}
+                    {if ($payMethod->payment->isExpired())}
+                        {assign "payMethodExpired" 1}
+                    {/if}
+                    {if $payMethod->payment->getExpiryDate()}
+                        {assign "expiryDate" $payMethod->payment->getExpiryDate()->format('m/Y')}
+                    {/if}
+                {/if}
+
+                {debug}
+
+                <div class="flex items-center space-x-2" data-paymethod-id="{$payMethod->id}">
+                    <!-- Existing Card Selection -->
+                    <input 
+                        type="radio"
+                        name="ccinfo"
+                        class="existing-card h-4 w-4 text-indigo-600 border-gray-300 focus:ring-indigo-500"
+                        {if $payMethodExpired}disabled{/if}
+                        data-payment-type="{$payMethod->getType()}"
+                        data-payment-gateway="{$payMethod->gateway_name}"
+                        data-order-preference="{$payMethod->order_preference}"
+                        value="{$payMethod->id}"
+                        x-model="selectedCCInfo" 
+                        x-on:change="selectedPayMethodId = '{$payMethod->id}'"
+                    />
+
+                    <!-- Card Icon -->
+                    <i class="{$payMethod->getFontAwesomeIcon()} text-gray-700"></i>
+
+                    <!-- Card Display Name or Masked Account Number -->
+                    <span class="text-gray-800">
+                        {if $payMethod->isCreditCard() || $payMethod->isRemoteBankAccount()}
+                            {$payMethod->payment->getDisplayName()}
+                        {else}
+                            <span class="type">{$payMethod->payment->getAccountType()}</span>
+                            ****{substr($payMethod->payment->getAccountNumber(), -4)}
+                        {/if}
+                    </span>
+
+                    <!-- Card Description -->
+                    <span class="text-sm text-gray-500">
+                        {$payMethod->getDescription()}
+                    </span>
+
+                    <!-- Expiry Date + Expired Label -->
+                    <span class="text-sm text-gray-500">
+                        {$expiryDate}
+                        {if $payMethodExpired}
+                            <br><small class="text-red-500">
+                                {$LANG.clientareaexpired}
+                            </small>
+                        {/if}
+                    </span>
+                </div>
+            {/foreach}
+        {/if}
+    </div>
+{/if}
+
+<!-- CVV for Existing Card -->
+<div 
+    class="mb-4"
+    x-show="selectedCCInfo !== 'new'"
+    x-transition
+>
+    
+    </label>
+    <input 
+        type="tel" 
+        name="cccvv" 
+        id="inputCardCVV2" 
+        class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6" 
+        placeholder="{$LANG.creditcardcvvnumbershort}" 
+        autocomplete="cc-cvc"
+        x-model="existingCard.cccvv"
+    />
+    <!-- Dynamically display error message -->
+    <p 
+        class="text-red-600 text-sm mt-1" 
+        x-show="errors.cccvv"
+        x-text="errors.cccvv"
+    ></p>
+</div>
+
+<!-- New Card Radio Option -->
+<ul class="mb-4">
+    <li>
+        <label class="inline-flex items-center space-x-2 cursor-pointer">
+            <input 
+                type="radio" 
+                name="ccinfo" 
+                value="new" 
+                id="new" 
+                class="h-4 w-4 text-indigo-600 border-gray-300 focus:ring-indigo-500"
+                {if !$client || $client->payMethods->count() === 0} checked{/if}
+                x-model="selectedCCInfo"
+            />
+            <span class="text-gray-800">
+                {lang key='creditcardenternewcard'}
+            </span>
+        </label>
+    </li>
+</ul>
+
+<!-- New Card Information -->
+<div 
+    class="sm:col-span-3 space-y-4"
+    id="newCardInfo"
+    x-show="selectedCCInfo === 'new'"
+    x-transition
+>
+    <!-- Card Number -->
+    <div>        
+        <input 
+            type="tel" 
+            name="ccnumber" 
+            id="inputCardNumber" 
+            class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6" 
+            placeholder="{$LANG.orderForm.cardNumber}"
+            autocomplete="cc-number"
+            data-message-unsupported="{lang key='paymentMethodsManage.unsupportedCardType'}"
+            data-message-invalid="{lang key='paymentMethodsManage.cardNumberNotValid'}"
+            data-supported-cards="{$supportedCardTypes}"
+            x-model="newCard.ccnumber"
+        />
+        <span 
+            class="text-red-600 text-sm mt-1 block"
+            x-show="errors.ccnumber"
+            x-text="errors.ccnumber"
+        ></span>
+    </div>
+
+    <!-- Expiry Date -->
+    <div>        
+        <input 
+            type="tel" 
+            name="ccexpirydate" 
+            id="inputCardExpiry" 
+            class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
+            placeholder="MM / YY"
+            autocomplete="cc-exp"
+            x-model="newCard.ccexpirydate"
+        />
+        <span 
+            class="text-red-600 text-sm mt-1 block"
+            x-show="errors.ccexpirydate"
+            x-text="errors.ccexpirydate"
+        ></span>
+    </div>
+
+    <!-- CVV Field -->
+    <div>        
+        <input 
+            type="tel" 
+            name="cccvv" 
+            id="inputCardCVV" 
+            class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
+            placeholder="{$LANG.creditcardcvvnumbershort}"
+            autocomplete="cc-cvc"
+            x-model="newCard.cccvv"
+        />
+        <span 
+            class="text-red-600 text-sm mt-1 block"
+            x-show="errors.cccvv"
+            x-text="errors.cccvv"
+        ></span>
+    </div>
+
+    {if $showccissuestart}
+        <!-- Start Date -->
+        <div>
+            <label 
+                for="inputCardStart" 
+                class="block text-sm font-medium text-gray-700 mb-1"
+            >
+                MM / YY ({$LANG.creditcardcardstart})
+            </label>
+            <input 
+                type="tel" 
+                name="ccstartdate" 
+                id="inputCardStart" 
+                class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
+                placeholder="MM / YY ({$LANG.creditcardcardstart})"
+                autocomplete="cc-exp"
+                x-model="newCard.ccstartdate"
+            />
+            <span 
+                class="text-red-600 text-sm mt-1 block"
+                x-show="errors.ccstartdate"
+                x-text="errors.ccstartdate"
+            ></span>
+        </div>
+
+        <!-- Issue Number -->
+        <div>
+            <label 
+                for="inputCardIssue" 
+                class="block text-sm font-medium text-gray-700 mb-1"
+            >
+                {$LANG.creditcardcardissuenum}
+            </label>
+            <input 
+                type="tel" 
+                name="ccissuenum" 
+                id="inputCardIssue" 
+                class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
+                placeholder="{$LANG.creditcardcardissuenum}"
+                x-model="newCard.ccissuenum"
+            />
+            <span 
+                class="text-red-600 text-sm mt-1 block"
+                x-show="errors.ccissuenum"
+                x-text="errors.ccissuenum"
+            ></span>
+        </div>
+    {/if}
+</div>                                
+</div>
+
+                            </div>
+                        {else}
+                            {if $expressCheckoutOutput}
+                                {$expressCheckoutOutput}
+                            {else}
+                                <p align="center">
+                                    {lang key='paymentPreApproved' gateway=$expressCheckoutGateway}
+                                </p>
+                            {/if}
+                        {/if}                        
+
+                        <div class="text-center">
+                            {if $accepttos}
+                                <p>
+                                    <label class="checkbox-inline">
+                                        <input type="checkbox" name="accepttos" id="accepttos" />
+                                        &nbsp;
+                                        {$LANG.ordertosagreement}
+                                        <a href="{$tosurl}" target="_blank">{$LANG.ordertos}</a>
+                                    </label>
+                                </p>
+                            {/if}
+                            {if $captcha}
+                                <div class="text-center margin-bottom">
+                                    {include file="$template/includes/captcha.tpl"}
+                                </div>
+                            {/if}
+
+                            <button type="submit"
+                                    id="btnCompleteOrder"
+                                    class="inline-flex items-center bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-3 px-6 rounded-md transition-colors duration-200 disable-on-click spinner-on-click{if $captcha}{$captcha->getButtonClass($captchaForm)}{/if}"
+                                    {if $cartitems==0}disabled="disabled"{/if}
+                            >
+                                {if $inExpressCheckout}{$LANG.confirmAndPay}{else}{$LANG.completeorder}{/if}                                
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-4 ml-2 fa-arrow-circle-right" id="submitButtonIcon">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
+                                </svg>
+                            </button>
+                        </div>
+                    </form>
+
+                 
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script type="text/javascript" src="{$BASE_PATH_JS}/jquery.payment.js"></script>
+<script>
+    var hideCvcOnCheckoutForExistingCard = '{if $canUseCreditOnCheckout && $applyCredit && ($creditBalance->toNumeric() >= $total->toNumeric())}1{else}0{/if}';
+</script>
+
+<script>
+    function checkoutForm() {
+        return {
+            // Tracks which payment method is selected overall, e.g. "CC" for credit card
+            selectedPaymentType: 'CC',
+
+            // Tracks whether the user chose "existing" or "new" credit card info
+            selectedCCInfo: '{if !$client || $client->payMethods->count() === 0}new{else}existing{/if}',
+
+            // For existing card CVV
+            existingCard: {
+                cccvv: '',
+            },
+
+            // For new card fields
+            newCard: {
+                ccnumber: '',
+                ccexpirydate: '',
+                cccvv: '',
+                ccstartdate: '',
+                ccissuenum: '',
+            },
+
+            // Error object to store field-specific validation messages
+            errors: {
+                ccnumber: '',
+                ccexpirydate: '',
+                cccvv: '',
+                ccstartdate: '',
+                ccissuenum: '',
+            },
+
+            // Example validation method
+            validateCardFields() {
+                // Clear previous errors
+                this.errors = {
+                    ccnumber: '',
+                    ccexpirydate: '',
+                    cccvv: '',
+                    ccstartdate: '',
+                    ccissuenum: '',
+                };
+
+                let isValid = true;
+
+                if (this.selectedCCInfo === 'existing') {
+                    // Validate existing card CVV
+                    if (!this.existingCard.cccvv) {
+                        this.errors.cccvv = 'CVV is required for existing card.';
+                        isValid = false;
+                    }
+                } else {
+                    // Validate new card fields
+                    if (!this.newCard.ccnumber) {
+                        this.errors.ccnumber = 'Card number is required.';
+                        isValid = false;
+                    }
+                    if (!this.newCard.ccexpirydate) {
+                        this.errors.ccexpirydate = 'Expiry date is required.';
+                        isValid = false;
+                    }
+                    if (!this.newCard.cccvv) {
+                        this.errors.cccvv = 'CVV is required.';
+                        isValid = false;
+                    }
+                    // Additional checks for start date and issue number
+                }
+
+                return isValid;
+            },
+
+            // Example on submit
+            submitForm() {
+                // Perform validation
+                if (this.validateCardFields()) {
+                    // Submit form or proceed
+                } else {
+                    // Error handling logic
+                }
+            }
+        }
+    }
+</script>
