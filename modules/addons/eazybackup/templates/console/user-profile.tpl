@@ -579,9 +579,14 @@ document.addEventListener('DOMContentLoaded', function () {
     document.getElementById('close-configure-modal').addEventListener('click', () => {
         configureVaultModal.classList.add('hidden');
     });
-    document.getElementById('close-configure-modal-button').addEventListener('click', () => {
-        configureVaultModal.classList.add('hidden');
-    });
+    (function(){
+        var closeBtn2 = document.getElementById('close-configure-modal-button');
+        if (closeBtn2) {
+            closeBtn2.addEventListener('click', () => {
+                configureVaultModal.classList.add('hidden');
+            });
+        }
+    })();
 
     // Handle Quota Unlimited Checkbox
     document.getElementById('vault-quota-unlimited').addEventListener('change', function () {
@@ -739,7 +744,7 @@ try {
       <div x-show="tab==='device'" class="px-4 py-4 space-y-4">
         <div class="grid grid-cols-2 gap-3">
           <button id="btn-run-backup" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded text-sm">Run Backup…</button>
-          <button id="open-restore" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded text-sm" disabled>Restore…</button>
+          <button id="open-restore" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded text-sm">Restore…</button>
           <button id="btn-update-software" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded text-sm">Update Software</button>
           <div class="flex items-center gap-2">
             <input id="inp-rename-device" type="text" placeholder="New device name" class="flex-1 px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"/>
@@ -779,7 +784,7 @@ try {
             </div>
           </div>
           <div class="mt-3 flex justify-end">
-            <button id="btn-run-backup" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded text-sm">Run Backup</button>
+            <button id="btn-run-backup-exec" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded text-sm">Run Backup</button>
           </div>
         </div>
       </div>
@@ -811,6 +816,87 @@ try {
 window.EB_DEVICE_ENDPOINT = '{$modulelink}&a=device-actions';
 </script>
 <script src="modules/addons/eazybackup/assets/js/device-actions.js"></script>
+
+<!-- Restore Wizard Modal -->
+<div id="restore-wizard" class="fixed inset-0 z-50 hidden">
+  <div class="absolute inset-0 bg-black bg-opacity-60"></div>
+  <div class="relative mx-auto my-6 w-full max-w-4xl bg-slate-900 border border-slate-700 rounded-lg shadow-xl">
+    <div class="flex items-center justify-between px-5 py-4 border-b border-slate-700">
+      <h3 class="text-slate-200 text-lg font-semibold">Restore Wizard</h3>
+      <button id="restore-close" class="text-slate-400 hover:text-slate-200">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="px-5 py-4">
+      <div id="restore-step1">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <div class="text-sm text-slate-300 mb-1">Select an online device to control</div>
+            <div class="text-xs text-slate-400">Using the device selected in the Manage panel.</div>
+          </div>
+          <div x-data="{ open:false }" class="relative">
+            <label class="block text-sm text-slate-300 mb-1">Select a Storage Vault to restore from</label>
+            <button id="rs-vault-menu-btn" type="button" @click="open=!open" class="w-full text-left px-3 py-2 bg-slate-800 border border-slate-600 rounded text-slate-200">
+              <span id="rs-vault-selected-label">Choose a vault…</span>
+            </button>
+            <div id="rs-vault-menu-list" x-show="open" x-transition class="absolute mt-1 w-full bg-slate-800 border border-slate-700 rounded shadow-lg max-h-56 overflow-y-auto z-10">
+              <ul class="py-1 text-sm text-slate-200">
+                {foreach from=$vaults item=vault key=vaultId}
+                  <li>
+                    <a href="#" class="block px-3 py-2 hover:bg-slate-700" data-rs-vault-id="{$vaultId}" data-rs-vault-name="{$vault.Description}" @click.prevent="open=false">{$vault.Description}</a>
+                  </li>
+                {/foreach}
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="restore-step2" class="hidden">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <div class="text-sm text-slate-300 mb-2">Protected Items</div>
+            <div id="rs-item-list" class="border border-slate-700 rounded bg-slate-900/40 max-h-60 overflow-y-auto text-sm text-slate-200"></div>
+          </div>
+          <div>
+            <div class="text-sm text-slate-300 mb-2">Snapshots</div>
+            <div id="rs-snapshots" class="border border-slate-700 rounded bg-slate-900/40 max-h-60 overflow-y-auto text-sm text-slate-200"></div>
+          </div>
+        </div>
+        <div id="rs-engine-hint" class="mt-3 text-xs text-slate-400"></div>
+        <div id="rs-methods" class="mt-3 hidden">
+          <div id="rs-method-options" class="space-y-2 text-sm text-slate-200"></div>
+          <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-sm text-slate-300 mb-1">Destination path</label>
+              <input id="rs-dest" type="text" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200" placeholder="e.g. C:\\Restore">
+            </div>
+            <div>
+              <label class="block text-sm text-slate-300 mb-1">Overwrite</label>
+              <select id="rs-overwrite" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200">
+                <option value="none">Do not overwrite</option>
+                <option value="ifNewer">If the restored file is newer</option>
+                <option value="ifDifferent">If the restored file is different</option>
+                <option value="always">Always overwrite</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="flex justify-between items-center mt-4 border-t border-slate-800 pt-3">
+        <button id="restore-back" class="px-4 py-2 text-slate-300">Back</button>
+        <div class="space-x-2">
+          <button id="restore-next" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded">Next</button>
+          <button id="restore-start" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded hidden">Start Restore</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <input type="hidden" id="rs-selected-vault" value="" />
+  <input type="hidden" id="rs-selected-item" value="" />
+  <input type="hidden" id="rs-selected-snapshot" value="" />
+  <input type="hidden" id="rs-selected-engine" value="" />
+  <input type="hidden" id="rs-device-id" value="" />
+</div>
 
 <!-- Toast container -->
 <div id="toast-container" class="fixed bottom-4 right-4 z-50 space-y-2"></div>

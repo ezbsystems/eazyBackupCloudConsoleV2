@@ -78,6 +78,17 @@ try {
             echo json_encode(['status'=>'success','items'=>$out]);
             break;
         }
+        case 'vaultSnapshots': {
+            $deviceId = (string)($post['deviceId'] ?? '');
+            $vaultId  = (string)($post['vaultId'] ?? '');
+            if ($deviceId === '' || $vaultId === '') { echo json_encode(['status'=>'error','message'=>'deviceId and vaultId required']); break; }
+            $targetId = $findTarget($server, $username, $deviceId);
+            if (!$targetId) { echo json_encode(['status'=>'error','message'=>'Device is not online (no live connection)']); break; }
+            $resp = $server->AdminDispatcherRequestVaultSnapshots($targetId, $vaultId);
+            // Response contains Snapshots array; return as-is for the UI to group by SourceGUID
+            echo json_encode(['status'=>'success','snapshots' => $resp ? $resp->toArray(true) : []]);
+            break;
+        }
         case 'updateSoftware': {
             $deviceId = (string)($post['deviceId'] ?? '');
             if ($deviceId === '') { echo json_encode(['status'=>'error','message'=>'deviceId required']); break; }
@@ -122,6 +133,50 @@ try {
             if (!$targetId) { echo json_encode(['status'=>'error','message'=>'Device is not online (no live connection)']); break; }
             $resp = $server->AdminDispatcherReindexStorageVault($targetId, $vaultId);
             echo json_encode(['status' => ($resp->Status < 400 ? 'success' : 'error'), 'message' => $resp->Message, 'code' => $resp->Status]);
+            break;
+        }
+        case 'runRestore': {
+            $deviceId  = (string)($post['deviceId'] ?? '');
+            $sourceId  = (string)($post['sourceId'] ?? '');
+            $vaultId   = (string)($post['vaultId'] ?? '');
+            $snapshot  = (string)($post['snapshot'] ?? '');
+            $type      = isset($post['type']) ? (int)$post['type'] : null; // RESTORETYPE_
+            $destPath  = (string)($post['destPath'] ?? '');
+            $overwrite = (string)($post['overwrite'] ?? 'none'); // none|ifNewer|ifDifferent|always
+            if ($deviceId === '' || $sourceId === '' || $vaultId === '' || $type === null) {
+                echo json_encode(['status'=>'error','message'=>'deviceId, sourceId, vaultId and type are required']); break;
+            }
+            $targetId = $findTarget($server, $username, $deviceId);
+            if (!$targetId) { echo json_encode(['status'=>'error','message'=>'Device is not online (no live connection)']); break; }
+
+            // Build RestoreJobAdvancedOptions
+            $opt = new \Comet\RestoreJobAdvancedOptions();
+            $opt->Type = $type;
+            if ($destPath !== '') { $opt->DestPath = $destPath; }
+            // Overwrite mapping
+            if ($overwrite === 'always') {
+                $opt->OverwriteExistingFiles = true;
+                $opt->OverwriteIfNewer = false;
+                $opt->OverwriteIfDifferentContent = false;
+            } else if ($overwrite === 'ifNewer') {
+                $opt->OverwriteExistingFiles = true;
+                $opt->OverwriteIfNewer = true;
+                $opt->OverwriteIfDifferentContent = false;
+            } else if ($overwrite === 'ifDifferent') {
+                $opt->OverwriteExistingFiles = true;
+                $opt->OverwriteIfNewer = false;
+                $opt->OverwriteIfDifferentContent = true;
+            } else { // none
+                $opt->OverwriteExistingFiles = false;
+                $opt->OverwriteIfNewer = false;
+                $opt->OverwriteIfDifferentContent = false;
+            }
+
+            // Paths (for now not selecting subpaths; pass null to restore all)
+            $paths = null;
+
+            $resp = $server->AdminDispatcherRunRestoreCustom($targetId, $sourceId, $vaultId, $opt, ($snapshot !== '' ? $snapshot : null), $paths, null, null, null);
+            echo json_encode(['status'=> ($resp->Status < 400 ? 'success' : 'error'), 'message'=>$resp->Message, 'code'=>$resp->Status]);
             break;
         }
         case 'runBackup': {

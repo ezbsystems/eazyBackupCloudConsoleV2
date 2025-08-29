@@ -666,3 +666,133 @@ To prevent abondoned backup jobs from getting stuck in eb_jobs_live, we will mon
 - No SEVT on cancel: Totally expected in some flows; that is why we fall back to polling AdminGetJobProperties. 
 - Device comes back after Abandon: Comet can “revive” the job if it detects it was actually still running. Your next WebSocket SEVT_JOB_COMPLETED will finish it properly; until then, the row will already be out of eb_jobs_live, which is what you want for the live view. 
 - Throttle API calls: Use LIMIT and last_checked_ts to avoid hammering big fleets; shard by server_id if you want to parallelize.
+
+## Device Management Feature – Run Backup, Update Software, Revoke, Uninstall
+
+These features live in the Profile → Devices tab. Each device row has a “Manage” button that opens a slide-over panel with two tabs (Device, Storage Vault).
+
+### Files involved
+- UI (client):
+  - `templates/console/user-profile.tpl` (Devices table, Manage slide-over)
+  - `modules/addons/eazybackup/assets/js/device-actions.js` (panel logic, menus, dispatcher calls, confirmations/toasts)
+- Backend (AJAX endpoint):
+  - `pages/console/device-actions.php` (isolated handlers)
+  - Router: `eazybackup.php` → `?a=device-actions`
+- Data helpers:
+  - `accounts/modules/servers/comet/summary_functions.php` (device list, protected items count)
+
+### Data sources & lookups
+- Device table rows: `getUserDevicesDetails($username, $serviceid)` enriches:
+  - Online status via `AdminDispatcherListActive`.
+  - Protected Items count via `UserProfile.Sources` filtered by `OwnerDevice == deviceId`.
+  - Platform, registration time, client version via `UserProfile.Devices[deviceId]`.
+- Manage panel Protected Items menu: reads `AdminGetUserProfileAndHash(Username)`, then filters `Profile.Sources` by `OwnerDevice == deviceId`. The user sees the `Description`; we keep the GUID for API calls.
+- Storage Vault menus: populated from `$vaults` already passed to the template.
+
+### Dispatcher TargetID vs DeviceID
+Admin Dispatcher APIs require a live connection GUID (TargetID), not the device GUID. We map DeviceID → TargetID by calling `AdminDispatcherListActive($username)` and matching on `LiveUserConnection.DeviceID`. If no live match, we return a friendly “device not online” message.
+
+### API methods used
+- Update Software
+  - `AdminDispatcherListActive(UserNameFilter)` → TargetID
+  - `AdminDispatcherUpdateSoftware(TargetID)`
+- Uninstall Software
+  - `AdminDispatcherListActive(UserNameFilter)`
+  - `AdminDispatcherUninstallSoftware(TargetID, RemoveConfigFile)`
+- Revoke Device
+  - `AdminRevokeDevice(Username, DeviceID)` (dispatcher not required)
+- Run Backup
+  - `AdminGetUserProfileAndHash(Username)` → enumerate `Profile.Sources` (filter by `OwnerDevice`)
+  - `AdminDispatcherListActive(UserNameFilter)` → TargetID
+  - `AdminDispatcherRunBackupCustom(TargetID, ProtectedItemGUID, StorageVaultGUID)`
+- Storage Vault tab actions
+  - `AdminDispatcherApplyRetentionRules(TargetID, DestinationGUID)`
+  - `AdminDispatcherReindexStorageVault(TargetID, DestinationGUID)`
+
+### UX notes
+- Tailwind confirmation modal replaces browser confirm for destructive actions (Revoke, Uninstall, Reindex, Update).
+- Global toasts (`#toast-container`) show success/error for all actions.
+- Run Backup controls are hidden until the user clicks “Run Backup…”, then the user selects Protected Item (by name; GUID is used under the hood) and a Storage Vault, and submits.
+
+### Security/scoping
+- `device-actions.php` verifies the logged-in WHMCS client owns the `serviceId` and normalizes the username from the service record.
+- All dispatcher calls are made using the configured server credentials for the WHMCS product’s server group.
+
+
+## Restore Backup Feature – Wizard (Client Area)
+
+This feature enables starting a restore from the WHMCS client area, modeled on Comet’s web UI. It currently supports selecting a Storage Vault, choosing a Protected Item and snapshot, and submitting a basic restore with initial engine-specific options.
+
+### Files involved
+- UI (client):
+  - `templates/console/user-profile.tpl`
+    - Contains the slide-over Manage panel and the Restore Wizard modal (`#restore-wizard`).
+    - The Restore Step 1 vault selector is an Alpine.js dropdown (not a `<select>`).
+  - `modules/addons/eazybackup/assets/js/device-actions.js`
+    - Wires the Manage panel actions and the Restore wizard steps (load items, load snapshots, method selection, submit restore).
+- Backend (AJAX endpoint):
+  - `pages/console/device-actions.php`
+    - Actions: `listProtectedItems`, `vaultSnapshots`, `runRestore`.
+  - Router: `eazybackup.php` → `?a=device-actions`.
+
+### Data sources & flow
+1) Device context:
+   - The Restore wizard acts on the device selected in the Manage slide-over. Dispatcher actions require the device to be online.
+   - DeviceID → TargetID mapping is resolved via `AdminDispatcherListActive($username)`; `TargetID` is required for dispatcher APIs.
+
+2) Step 1 – Select Storage Vault (Alpine dropdown):
+   - Vault list comes from `$vaults` already provided to `user-profile.tpl`.
+   - Selecting a vault stores the GUID and advances to Step 2.
+
+3) Step 2 – Protected Item & Snapshot:
+   - Protected items are loaded from the user profile (`AdminGetUserProfileAndHash`) and filtered by `OwnerDevice == current DeviceID`.
+   - Snapshots are read via `AdminDispatcherRequestVaultSnapshots(TargetID, VaultId)` and filtered client-side by the selected Protected Item (Source GUID).
+
+4) Step 3 – Method selection and options (initial coverage):
+   - Files & Folders (`engine1/file`):
+     - Methods: Files and Folders; Compressed archive; Simulate restore only.
+   - Disk Image (`engine1/windisk`):
+     - Method: Files and Folders (restore disk image files). More modes to be added.
+   - Microsoft Hyper‑V (`engine1/hyperv`):
+     - Method: Files and Folders (restore VM files). Hypervisor/VM-targeted restore to be added.
+   - Common options scaffolded: destination path (text), overwrite policy (`none | ifNewer | ifDifferent | always`).
+
+5) Submit:
+   - `runRestore` builds `RestoreJobAdvancedOptions` based on selection and calls `AdminDispatcherRunRestoreCustom(TargetID, ...)`.
+
+### API methods used
+- Online mapping:
+  - `AdminDispatcherListActive(UserNameFilter)` → `TargetID` (`LiveUserConnection`)
+- Enumerate:
+  - `AdminGetUserProfileAndHash(Username)` → `Profile.Sources` (Protected Items)
+  - `AdminDispatcherRequestVaultSnapshots(TargetID, DestinationGUID)` → `DispatcherVaultSnapshotsResponse`
+- Execute:
+  - `AdminDispatcherRunRestoreCustom(TargetID, ...)` with `RestoreJobAdvancedOptions`
+
+### UX details
+- The Restore wizard opens from the Manage panel’s “Restore…” button.
+- Step 1 uses an Alpine.js dropdown for vault selection. The label updates to the chosen vault and the wizard moves to Step 2.
+- Step 2 shows a two-pane list: Protected Items and Snapshots. Selecting both enables method options and the “Start Restore” action.
+- Toasts (global `#toast-container`) provide success/error feedback for all actions.
+- Robustness: If the template markup is ever missing, the JS includes a fallback minimal wizard to keep the feature usable (primarily for development).
+
+### Current status
+- Completed:
+  - Modal markup integrated into `user-profile.tpl`.
+  - Alpine-based vault dropdown in Step 1 with de-duplicated entries.
+  - Load and filter Protected Items (by device) and list snapshots per item.
+  - Engine-aware method options (initial set) and basic restore submission.
+  - TargetID mapping and online checks for dispatcher calls.
+
+- Remaining work (planned):
+  - Engine-specific advanced options:
+    - `engine1/hyperv`: direct restore to Hyper‑V (VM selection, storage path for VHDs).
+    - `engine1/windisk`: physical restore mapper (source partitions → destination disks/partitions UI).
+  - Device-side file browser for selecting destination paths.
+  - Persist and load recent choices in-session to streamline repeated restores.
+  - Progress/telemetry surfacing (restore job listing and status after submission).
+
+### Notes & edge cases
+- Dispatcher calls will fail with 403 if the device is offline or `TargetID` was not resolved; we return a friendly message in that case.
+- Snapshot lists are filtered client-side by Source GUID; when there are many snapshots, consider server-side filtering in a future iteration.
+- Concurrency: restore submission itself is not hash-protected; Protected Item and vault selection depend on a fresh profile read in the same flow.
