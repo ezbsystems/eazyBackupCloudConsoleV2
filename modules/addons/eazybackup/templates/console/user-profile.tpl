@@ -93,11 +93,11 @@
                          <div class="flex justify-between items-center">
                              <div>
                                  <span class="text-gray-400 mr-2">TOTP:</span>
-                                 {if $totpStatus == 'Active'}
-                                     <span class="text-green-400">{$totpStatus}</span>
-                                 {else}
-                                     <span class="text-red-400">{$totpStatus}</span>
-                                 {/if}
+                             {if $totpStatus == 'Active'}
+                                 <span class="text-green-400">{$totpStatus}</span>
+                             {else}
+                                 <span class="text-red-400">{$totpStatus}</span>
+                             {/if}
                              </div>
                              <div class="flex items-center space-x-2">
                                  <button id="totp-regenerate" class="bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold py-1.5 px-3 rounded">{if $totpStatus == 'Active'}Regenerate QR{else}Enable TOTP{/if}</button>
@@ -118,11 +118,119 @@
                 </div>
 
                  <div class="space-y-6">
-                     <div class="bg-gray-900/50 p-6 rounded-lg">
-                          <h3 class="text-lg font-semibold text-white mb-4">Reporting</h3>
-                          <div class="flex justify-between text-sm">
-                             <span class="text-gray-400">Email Reports:</span>
-                             <span class="text-red-400">Disabled</span>
+                    <div
+                      class="bg-gray-900/50 p-6 rounded-lg"
+                      x-data="{
+                        modulelink: '',
+                        serviceid: '',
+                        username: '',
+                        enabled: false,
+                        recipients: [],
+                        emailInput: '',
+                        emailError: '',
+                        mode: 'default',
+                        preset: 'warn_error',
+                        saving: false,
+                        ok: false,
+                        error: '',
+                        hash: null
+                      }"
+                      x-init="(() => {
+                        const opts = {
+                          modulelink: ($el.dataset.modulelink || '').replace(/&amp;/g, '&'),
+                          serviceid:  $el.dataset.serviceid || '',
+                          username:   $el.dataset.username || ''
+                        };
+                        const attach = () => {
+                          try {
+                            const make = window.emailReportsFactory || (window.emailReports && ((o)=>window.emailReports(o)));
+                            if (!make) return;
+                            const obj = make(opts);
+                            for (const k in obj) { $data[k] = obj[k]; }
+                            if (typeof $data.init === 'function') $data.init(opts);
+                          } catch (e) {}
+                        };
+                        if (window.emailReportsFactory || window.emailReports) attach();
+                        else document.addEventListener('emailReports:ready', attach, { once: true });
+                      })()"
+                      data-modulelink="{$modulelink}"
+                      data-serviceid="{$serviceid}"
+                      data-username="{$username}"
+                    >
+                      <h3 class="text-lg font-semibold text-white mb-4">Email reporting</h3>
+                      <div class="space-y-4 text-sm">
+                        <div class="flex items-center justify-between">
+                          <label for="er-enabled" class="text-gray-300">Enable reporting</label>
+                          <input id="er-enabled" type="checkbox" class="h-5 w-5 rounded border-slate-600 bg-slate-700 text-sky-600" :checked="enabled" @change="enabled = $event.target.checked" aria-describedby="er-enabled-help">
+                        </div>
+                        <div id="er-enabled-help" class="text-xs text-slate-400">Turn on to receive email updates after backups.</div>
+
+                        <div>
+                          <label class="block text-sm text-gray-300 mb-1">Recipients</label>
+                          <div class="rounded border border-slate-700 bg-slate-800/50 p-2">
+                            <div class="flex flex-wrap gap-2 mb-2">
+                              <template x-for="(em,i) in recipients" :key="em">
+                                <span class="inline-flex items-center gap-1 rounded-full bg-sky-400/10 border border-sky-400/30 px-2 py-1 text-slate-200">
+                                  <span class="font-mono text-xs" x-text="em"></span>
+                                  <button type="button" class="hover:text-rose-400" @click="remove(i)" aria-label="Remove recipient">&times;</button>
+                                </span>
+                              </template>
+                            </div>
+                            <div class="flex items-center gap-2">
+                              <input type="email" class="flex-1 px-3 py-2 rounded border border-slate-600 bg-slate-700 focus:outline-none focus:ring-0 focus:border-sky-600 text-slate-200" placeholder="name@example.com" x-model.trim="emailInput" @keydown.enter.prevent="add()" :disabled="!enabled">
+                              <button type="button" class="px-3 py-2 rounded bg-slate-700 hover:bg-slate-600 text-white disabled:opacity-50" @click="add()" :disabled="!enabled">Add</button>
+                            </div>
+                            <div class="mt-1 text-xs" :class="emailError ? 'text-rose-400' : 'text-slate-400'" x-text="emailError || 'Add one or more email addresses to receive reports.'"></div>
+                          </div>
+                        </div>
+
+                        <fieldset>
+                          <legend class="block text-sm text-gray-300 mb-1">Report rules</legend>
+                          <div class="space-y-2">
+                            <label class="flex items-center gap-2 text-slate-200 cursor-pointer">
+                              <input type="radio" name="er-mode" value="default" x-model="mode" class="rounded border-slate-600 bg-slate-700 text-sky-600">
+                              <span>Use system default</span>
+                            </label>
+                            <label class="flex items-center gap-2 text-slate-200 cursor-pointer">
+                              <input type="radio" name="er-mode" value="custom" x-model="mode" class="rounded border-slate-600 bg-slate-700 text-sky-600">
+                              <span>Customize for this user</span>
+                            </label>
+                          </div>
+                        </fieldset>
+
+                        <div x-show="mode === 'custom'" x-cloak>
+                          <label class="block text-sm text-gray-300 mb-1">Preset</label>
+                          <div class="relative" x-data="{ open:false, options:[
+                            { value: 'errors', label: 'Errors only' },
+                            { value: 'warn_error', label: 'Warnings and Errors' },
+                            { value: 'warn_error_missed', label: 'Warnings, Errors, and Missed' },
+                            { value: 'success', label: 'Success only' },
+                          ] }" @click.away="open=false">
+                            <button type="button" @click="open = !open" class="relative w-full px-3 py-2 text-left bg-slate-700 border border-slate-600 rounded-md shadow-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition">
+                              <span class="block truncate text-slate-200" x-text="(options.find(o=>o.value===preset)||{}).label || 'Select preset'"></span>
+                              <span class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2">
+                                <svg class="h-5 w-5 text-slate-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.24 4.5a.75.75 0 01-1.08 0l-4.24-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg>
+                              </span>
+                            </button>
+                            <div x-show="open" x-transition class="absolute z-10 mt-1 w-full bg-slate-700 shadow-lg rounded-md border border-slate-600">
+                              <ul class="py-1 max-h-64 overflow-auto">
+                                <template x-for="opt in options" :key="opt.value">
+                                  <li>
+                                    <a href="#" @click.prevent="preset = opt.value; open=false" class="block px-4 py-2 text-sm text-slate-200 hover:bg-sky-600 hover:text-white" :class="{ 'bg-sky-600 text-white': preset === opt.value }" x-text="opt.label"></a>
+                                  </li>
+                                </template>
+                              </ul>
+                            </div>
+                          </div>
+                          <div class="mt-2 text-xs text-slate-400">Immediate emails will be sent when a backup matches the selected statuses.</div>
+                        </div>
+
+                        <div class="flex items-center justify-end gap-2 pt-2">
+                          <button type="button" class="px-3 py-2 text-sm bg-slate-700 hover:bg-slate-600 rounded text-white disabled:opacity-50" x-show="mode === 'custom'" @click="preview()" :disabled="saving">Preview</button>
+                          <button type="button" class="px-4 py-2 text-sm bg-sky-600 hover:bg-sky-700 rounded text-white disabled:opacity-50" @click="save()" :disabled="saving">Save</button>
+                        </div>
+
+                        <div class="text-xs mt-1" :class="error ? 'text-rose-400' : 'text-emerald-400'" x-text="error || (ok ? 'Saved.' : '')"></div>
                 </div>
               </div>
                      <div class="bg-gray-900/50 p-6 rounded-lg">
@@ -207,29 +315,74 @@
          </div>
 
          <div x-show="activeSubTab === 'devices'" x-cloak x-transition>
-             <div class="bg-gray-900/50 rounded-lg overflow-hidden">
+            <div class="bg-gray-900/50 rounded-lg overflow-visible" x-data="{
+                open:false,
+                search:'',
+                cols:{ status:true, name:true, id:true, reg:true, ver:true, plat:true, rfa:true, items:true, actions:true },
+                matchesSearch(el){ const q=this.search.trim().toLowerCase(); if(!q) return true; return (el.textContent||'').toLowerCase().includes(q); }
+            }">
+                <div class="flex items-center justify-between px-4 pt-4 pb-2">
+                    <div class="relative" @click.away="open=false">
+                        <button type="button" class="inline-flex items-center px-3 py-2 text-sm bg-slate-700 hover:bg-slate-600 rounded text-white" @click="open=!open">
+                            View
+                            <svg class="ml-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                        </button>
+                        <div x-show="open" x-transition class="absolute mt-2 w-56 bg-slate-800 border border-slate-700 rounded shadow-lg z-10">
+                            <div class="p-3 space-y-2 text-slate-200 text-sm">
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.status"> Status</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.name"> Device Name</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.id"> Device ID</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.reg"> Registered</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.ver"> Version</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.plat"> Platform</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.rfa"> Remote File Access</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.items"> Protected Items</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.actions"> Actions</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="w-72">
+                        <input type="text" x-model.debounce.200ms="search" placeholder="Search devices..." class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-700 text-slate-200 focus:outline-none focus:ring-0 focus:border-sky-600">
+                    </div>
+                </div>
                  <table class="min-w-full divide-y divide-gray-700">
                      <thead class="bg-gray-800/50">
                          <tr>
-                             <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Status</th>
-                             <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Device Name</th>
+                            <th x-show="cols.status" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Status</th>
+                            <th x-show="cols.name" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Device Name</th>
+                            <th x-show="cols.id" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Device ID</th>
+                            <th x-show="cols.reg" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Registered</th>
+                            <th x-show="cols.ver" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Version</th>
+                            <th x-show="cols.plat" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Platform</th>
+                            <th x-show="cols.rfa" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Remote File Access</th>
+                            <th x-show="cols.items" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Protected Items</th>
+                            <th x-show="cols.actions" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
                      <tbody class="divide-y divide-gray-700">
                          {foreach from=$devices item=device}
-                             <tr class="hover:bg-gray-800/60">
-                                 <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
-                                     {if $device.is_active}
+                            <tr class="hover:bg-gray-800/60" x-show="matchesSearch($el)" x-cloak>
+                                <td x-show="cols.status" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
+                                    {if $device.status == 'Online'}
                                          <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-900/50 text-green-300">Online</span>
                                      {else}
                                          <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-700 text-gray-300">Offline</span>
                                      {/if}
                                  </td>
-                                 <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$device.name}</td>
+                                <td x-show="cols.name" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$device.device_name}</td>
+                                <td x-show="cols.id" class="px-4 py-4 whitespace-nowrap text-xs font-mono text-gray-400">{$device.device_id}</td>
+                                <td x-show="cols.reg" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$device.registered}</td>
+                                <td x-show="cols.ver" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$device.version}</td>
+                                <td x-show="cols.plat" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$device.platform}</td>
+                                <td x-show="cols.rfa" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$device.remote_file_access}</td>
+                                <td x-show="cols.items" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$device.protected_items}</td>
+                                <td x-show="cols.actions" class="px-4 py-4 whitespace-nowrap text-sm">
+                                    <button type="button" class="px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 rounded text-white" data-action="open-device-panel" data-device-id="{$device.device_id}" data-device-name="{$device.device_name}" data-device-online="{if $device.status == 'Online'}1{else}0{/if}">Manage</button>
+                                </td>
                              </tr>
                          {foreachelse}
                              <tr>
-                                 <td colspan="2" class="text-center py-6 text-sm text-gray-400">No devices found for this user.</td>
+                                <td colspan="9" class="text-center py-6 text-sm text-gray-400">No devices found for this user.</td>
                     </tr>
                   {/foreach}          
                 </tbody>
@@ -563,6 +716,104 @@ try {
 } catch (e) {}
 </script>
 <script src="modules/addons/eazybackup/assets/js/userProfileTotp.js"></script>
+
+<!-- Device slide-over panel -->
+<div id="device-slide-panel" class="fixed inset-y-0 right-0 z-50 w-full max-w-xl transform translate-x-full transition-transform duration-200 ease-out">
+  <div class="h-full bg-slate-900 border-l border-slate-700 shadow-xl flex flex-col">
+    <div class="flex items-center justify-between px-4 py-3 border-b border-slate-700">
+      <div>
+        <h3 id="device-panel-title" class="text-slate-200 text-lg font-semibold">Manage Device</h3>
+        <div class="text-slate-400 text-sm">Device: <span id="device-panel-name" class="text-slate-300 font-mono"></span></div>
+      </div>
+      <button id="device-panel-close" class="text-slate-400 hover:text-slate-200">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+      </button>
+    </div>
+    <div x-data="{ tab: 'device', vaultOpen:false }" class="flex-1 overflow-y-auto">
+      <div class="px-4 pt-3 border-b border-slate-800">
+        <nav class="flex space-x-4" aria-label="Tabs">
+          <a href="#" @click.prevent="tab='device'" :class="tab==='device' ? 'text-sky-400 border-sky-500' : 'text-slate-300 border-transparent hover:text-slate-100'" class="px-1 pb-2 border-b-2 text-sm font-medium">Device</a>
+          <a href="#" @click.prevent="tab='vault'"  :class="tab==='vault'  ? 'text-sky-400 border-sky-500' : 'text-slate-300 border-transparent hover:text-slate-100'" class="px-1 pb-2 border-b-2 text-sm font-medium">Storage Vault</a>
+        </nav>
+      </div>
+      <div x-show="tab==='device'" class="px-4 py-4 space-y-4">
+        <div class="grid grid-cols-2 gap-3">
+          <button id="btn-run-backup" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded text-sm">Run Backup…</button>
+          <button id="open-restore" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded text-sm" disabled>Restore…</button>
+          <button id="btn-update-software" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded text-sm">Update Software</button>
+          <div class="flex items-center gap-2">
+            <input id="inp-rename-device" type="text" placeholder="New device name" class="flex-1 px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"/>
+            <button id="btn-rename-device" class="px-3 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded text-sm">Rename</button>
+          </div>
+          <button id="btn-revoke-device" class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded text-sm">Revoke</button>
+          <button id="btn-uninstall-software" class="px-4 py-2 bg-red-600/80 hover:bg-red-700 text-white rounded text-sm">Uninstall Software</button>
+        </div>
+        <div class="text-xs text-slate-400">Note: Some actions require the device to be online.</div>
+
+        <div class="mt-3 border-t border-slate-800 pt-3 hidden" x-data="{ piOpen:false, piLabel:'Choose a protected item…', piId:'', vOpen:false }">
+          <h4 class="text-slate-200 font-semibold mb-2">Run Backup</h4>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div class="relative">
+              <label class="block text-sm text-slate-300 mb-1">Protected Item</label>
+              <button type="button" id="pi-menu-button" @click="piOpen=!piOpen" class="w-full text-left px-3 py-2 bg-slate-800 border border-slate-600 rounded text-slate-200">
+                <span id="pi-selected" x-text="piLabel"></span>
+              </button>
+              <div id="pi-menu" x-show="piOpen" x-transition class="absolute mt-1 w-full bg-slate-800 border border-slate-700 rounded shadow-lg max-h-56 overflow-y-auto z-10">
+                <ul id="pi-list" class="py-1 text-sm text-slate-200">
+                  <li><span class="block px-3 py-2 text-slate-400">Loading…</span></li>
+                </ul>
+              </div>
+            </div>
+            <div class="relative">
+              <label class="block text-sm text-slate-300 mb-1">Storage Vault</label>
+              <button id="vault-menu-button-2" type="button" @click="vOpen=!vOpen" class="w-full text-left px-3 py-2 bg-slate-800 border border-slate-600 rounded text-slate-200">
+                <span id="vault-selected-2">Choose a vault…</span>
+              </button>
+              <div id="vault-menu-2" x-show="vOpen" x-transition class="absolute mt-1 w-full bg-slate-800 border border-slate-700 rounded shadow-lg max-h-56 overflow-y-auto z-10">
+                <ul class="py-1 text-sm text-slate-200">
+                  {foreach from=$vaults item=vault key=vaultId}
+                    <li><a href="#" class="block px-3 py-2 hover:bg-slate-700" data-vault-id="{$vaultId}" data-vault-name="{$vault.Description}">{$vault.Description}</a></li>
+                  {/foreach}
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div class="mt-3 flex justify-end">
+            <button id="btn-run-backup" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded text-sm">Run Backup</button>
+          </div>
+        </div>
+      </div>
+      <div x-show="tab==='vault'" class="px-4 py-4 space-y-4">
+        <div class="relative">
+          <label class="block text-sm text-slate-300 mb-1">Select Storage Vault</label>
+          <button id="vault-menu-button" type="button" class="w-full text-left px-3 py-2 bg-slate-800 border border-slate-600 rounded text-slate-200">
+            <span id="vault-selected">Choose a vault…</span>
+          </button>
+          <div id="vault-menu" class="absolute mt-1 w-full bg-slate-800 border border-slate-700 rounded shadow-lg max-h-56 overflow-y-auto hidden z-10">
+            <ul class="py-1 text-sm text-slate-200">
+              {foreach from=$vaults item=vault key=vaultId}
+                <li><a href="#" class="block px-3 py-2 hover:bg-slate-700" data-vault-id="{$vaultId}" data-vault-name="{$vault.Description}">{$vault.Description}</a></li>
+              {/foreach}
+            </ul>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <button id="btn-apply-retention" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded text-sm">Apply retention rules now</button>
+          <button id="btn-reindex-vault" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded text-sm">Reindex (locks vault)</button>
+        </div>
+        <div class="text-xs text-slate-400">Warning: Reindex may take many hours and locks the vault.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+window.EB_DEVICE_ENDPOINT = '{$modulelink}&a=device-actions';
+</script>
+<script src="modules/addons/eazybackup/assets/js/device-actions.js"></script>
+
+<!-- Toast container -->
+<div id="toast-container" class="fixed bottom-4 right-4 z-50 space-y-2"></div>
 
 {literal}
 <style>

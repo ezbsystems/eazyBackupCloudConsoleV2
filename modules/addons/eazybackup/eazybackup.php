@@ -381,6 +381,14 @@ function eazybackup_clientarea(array $vars)
         // Isolated TOTP AJAX endpoint
         require_once __DIR__ . "/pages/console/totp.php";
         exit; // script handles output
+    } else if ($_REQUEST["a"] == "email-reports") {
+        // Isolated Email Reports AJAX endpoint
+        require_once __DIR__ . "/pages/console/email-reports.php";
+        exit; // script handles output
+    } else if ($_REQUEST["a"] == "device-actions") {
+        // Isolated Device Actions AJAX endpoint
+        require_once __DIR__ . "/pages/console/device-actions.php";
+        exit; // script handles output
     } else if ($_REQUEST["a"] == "dashboard") {
         // Load the dashboard backend logic.
         $clientId = $_SESSION['uid'];

@@ -151,10 +151,10 @@
           const headers = { 'Content-Type': 'application/json' };
           if (window.csrfToken) headers['X-CSRF-Token'] = window.csrfToken;
 
-          const res  = await fetch(`${modulelink}&a=api`, {
+          const res  = await fetch(`${modulelink}&a=email-reports`, {
             method: 'POST',
             headers,
-            body: JSON.stringify({ action: 'piProfileGet', serviceId: serviceid })
+            body: JSON.stringify({ action: 'piProfileGet', serviceId: serviceid, username })
           });
           const data = await res.json();
           dbg('piProfileGet response', data);
@@ -186,7 +186,13 @@
       },
 
       remove(i) {
-        try { this.recipients.splice(i, 1); } catch (_) {}
+        try {
+          this.recipients.splice(i, 1);
+          if (Array.isArray(this.recipients) && this.recipients.length === 0) {
+            // If no recipients remain, auto-disable reporting so Save is allowed
+            this.enabled = false;
+          }
+        } catch (_) {}
       },
 
       async preview() {
@@ -194,7 +200,7 @@
           const headers = { 'Content-Type': 'application/json' };
           if (window.csrfToken) headers['X-CSRF-Token'] = window.csrfToken;
           const body = { action: 'previewEmailReport', serviceId: serviceid, username, preset: this.preset };
-          const res  = await fetch(`${modulelink}&a=api`, { method: 'POST', headers, body: JSON.stringify(body) });
+          const res  = await fetch(`${modulelink}&a=email-reports`, { method: 'POST', headers, body: JSON.stringify(body) });
           const data = await res.json();
           if (data.status === 'success') window.showToast?.('Preview generated.', 'success');
           else window.showToast?.(data.message || 'Preview not available.', 'warning');
@@ -206,9 +212,6 @@
       async save() {
         this.saving = true; this.ok = false; this.error = ''; this.emailError = '';
         try {
-          if (this.enabled && this.recipients.length === 0) {
-            this.error = 'Add at least one recipient.'; this.saving = false; return;
-          }
           const headers = { 'Content-Type': 'application/json' };
           if (window.csrfToken) headers['X-CSRF-Token'] = window.csrfToken;
 
@@ -225,15 +228,54 @@
           };
           dbg('updateEmailReports request', body);
 
-          const res  = await fetch(`${modulelink}&a=api`, { method: 'POST', headers, body: JSON.stringify(body) });
-          const data = await res.json();
-          dbg('updateEmailReports response', data);
+          const attempt = async () => {
+            const res  = await fetch(`${modulelink}&a=email-reports`, { method: 'POST', headers, body: JSON.stringify(body) });
+            const data = await res.json();
+            dbg('updateEmailReports response', data);
+            return data;
+          };
+
+          let data = await attempt();
+          const is409 = (d) => {
+            if (!d || d.status !== 'error') return false;
+            if (String(d.code) === '409') return true;
+            const msg = String(d.message || '');
+            return msg.indexOf('409') !== -1; // fallback when code is missing
+          };
+          if (is409(data)) {
+            // Refresh profile + hash and retry once
+            try {
+              const refRes = await fetch(`${modulelink}&a=email-reports`, { method: 'POST', headers, body: JSON.stringify({ action:'piProfileGet', serviceId: serviceid, username }) });
+              const ref = await refRes.json();
+              if (ref && ref.status === 'success' && ref.hash) {
+                this.hash = ref.hash;
+                body.hash = this.hash;
+                data = await attempt();
+              }
+            } catch (_) { /* ignore */ }
+          }
+
           if (data && data.status === 'success') {
             this.ok = true;
-            // Auto-hide the Saved message after 3 seconds
             try { if (this.okTimer) { clearTimeout(this.okTimer); } } catch (_) {}
             this.okTimer = setTimeout(() => { this.ok = false; this.okTimer = null; }, 3000);
             window.showToast?.('Email reporting saved.', 'success');
+            // Refresh profile/hash so subsequent saves use the latest version
+            try {
+              const refRes2 = await fetch(`${modulelink}&a=email-reports`, { method: 'POST', headers, body: JSON.stringify({ action:'piProfileGet', serviceId: serviceid, username }) });
+              const ref2 = await refRes2.json();
+              if (ref2 && ref2.status === 'success') {
+                this.hash = ref2.hash || this.hash;
+                if (ref2.profile) {
+                  const p = ref2.profile;
+                  this.enabled = !!p.SendEmailReports;
+                  this.recipients = Array.isArray(p.Emails) ? p.Emails.map(String) : [];
+                  const detected = detectModeAndPresetFromProfile(p);
+                  this.mode = detected.mode;
+                  this.preset = detected.preset;
+                }
+              }
+            } catch (_) { /* non-fatal */ }
           } else {
             this.error = (data && data.message) ? data.message : 'Failed to save.';
           }
