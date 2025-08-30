@@ -280,39 +280,156 @@
           </div>
 
          <div x-show="activeSubTab === 'storage'" x-cloak x-transition>
-             <div class="bg-gray-900/50 rounded-lg overflow-hidden">
-                 <table class="min-w-full divide-y divide-gray-700">
-                     <thead class="bg-gray-800/50">
-                         <tr>
-                             <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Vault Name</th>
-                             <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Size</th>
-                             <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Actions</th>
-                </tr>
-              </thead>
-                     <tbody class="divide-y divide-gray-700">
-                         {foreach from=$vaults item=vault key=vaultId}
-                             <tr class="hover:bg-gray-800/60">
-                                 <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$vault.Description}</td>
-                                 <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($vault.Size.Size)}</td>
-                                 <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
-                                     <button class="configure-vault-button bg-sky-600 hover:bg-sky-700 text-white font-bold py-2 px-4 rounded"
-                                             data-vault-id="{$vaultId}"
-                                             data-vault-name="{$vault.Description}"
-                                             data-vault-quota-enabled="{$vault.StorageLimitEnabled}"
-                                             data-vault-quota-bytes="{$vault.StorageLimitBytes}">
-                                         Configure
-                                     </button>
-                                 </td>
-                             </tr>
-                         {foreachelse}
-                             <tr>
-                                 <td colspan="3" class="text-center py-6 text-sm text-gray-400">No storage vaults found for this user.</td>
-                  </tr>
-                {/foreach}
-              </tbody>
-            </table>
-          </div>
-         </div>
+            <div class="bg-gray-900/50 rounded-lg overflow-visible" x-data="{
+                open:false,
+                search:'',
+                cols:{ name:true, id:true, type:true, init:true, stored:true, quota:true, usage:true, actions:true },
+                matchesSearch(el){ const q=this.search.trim().toLowerCase(); if(!q) return true; return (el.textContent||'').toLowerCase().includes(q); },
+                pctColor(p){ if(p===null) return 'bg-slate-700'; if(p<70) return 'bg-emerald-500'; if(p<90) return 'bg-amber-500'; return 'bg-rose-500'; }
+            }">
+                <div class="flex items-center justify-between px-4 pt-4 pb-2">
+                    <div class="relative" @click.away="open=false">
+                        <button type="button" class="inline-flex items-center px-3 py-2 text-sm bg-slate-700 hover:bg-slate-600 rounded text-white" @click="open=!open">
+                            View
+                            <svg class="ml-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                        </button>
+                        <div x-show="open" x-transition class="absolute mt-2 w-56 bg-slate-800 border border-slate-700 rounded shadow-lg z-10">
+                            <div class="p-3 space-y-2 text-slate-200 text-sm">
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.name"> Storage Vault</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.id"> Storage Vault ID</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.type"> Type</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.init"> Initialized</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.stored"> Stored</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.quota"> Quota</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.usage"> Usage</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.actions"> Actions</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="w-72">
+                        <input type="text" x-model.debounce.200ms="search" placeholder="Search vaults..." class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-700 text-slate-200 focus:outline-none focus:ring-0 focus:border-sky-600">
+                    </div>
+                </div>
+                <table class="min-w-full divide-y divide-gray-700">
+                    <thead class="bg-gray-800/50">
+                        <tr>
+                            <th x-show="cols.name" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Storage Vault</th>
+                            <th x-show="cols.id" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Storage Vault ID</th>
+                            <th x-show="cols.type" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Type</th>
+                            <th x-show="cols.init" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Initialized</th>
+                            <th x-show="cols.stored" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Stored</th>
+                            <th x-show="cols.quota" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Quota</th>
+                            <th x-show="cols.usage" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Usage</th>
+                            <th x-show="cols.actions" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-700">
+                        {foreach from=$vaults item=vault key=vaultId}
+                            {assign var=usedBytes value=$vault.Size.Size|default:0}
+                            {assign var=quotaEnabled value=$vault.StorageLimitEnabled|default:false}
+                            {assign var=quotaBytes value=$vault.StorageLimitBytes|default:0}
+                            {assign var=hasQuota value=($quotaEnabled && $quotaBytes>0)}
+                            {if $hasQuota}
+                                {assign var=pct value=(100*$usedBytes/$quotaBytes)}
+                            {else}
+                                {assign var=pct value=''}
+                            {/if}
+                            {assign var=typeCode value=$vault.Destination.Type|default:$vault.Type|default:''}
+                            {assign var=typeLabel value=$vault.TypeFriendly|default:''}
+                            <tr class="hover:bg-gray-800/60" x-show="matchesSearch($el)" x-cloak
+                                data-used-bytes="{$usedBytes}"
+                                data-quota-bytes="{$quotaBytes}">
+                                <td x-show="cols.name" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$vault.Description|default:'-'}</td>
+                                <td x-show="cols.id" class="px-4 py-4 whitespace-nowrap text-xs font-mono text-gray-400">{$vaultId}</td>
+                                <td x-show="cols.type" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
+                                    {if $typeLabel}
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-700 text-slate-200 text-xs">{$typeLabel}</span>
+                                    {elseif $typeCode ne ''}
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-700 text-slate-300 text-xs" title="Type code: {$typeCode}">{$typeCode}</span>
+                                    {else}
+                                        <span class="text-slate-400">-</span>
+                                    {/if}
+                                </td>
+                                <td x-show="cols.init" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
+                                    {if isset($vault.Initialized)}
+                                        {if $vault.Initialized}
+                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-900/40 text-emerald-300">Yes</span>
+                                        {else}
+                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-slate-300">No</span>
+                                        {/if}
+                                    {else}
+                                        <span class="text-slate-400">-</span>
+                                    {/if}
+                                </td>
+                                <td x-show="cols.stored" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
+                                    {if $usedBytes>0}
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-900/40 text-emerald-300">Yes</span>
+                                    {else}
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-slate-300">No</span>
+                                    {/if}
+                                </td>
+                                <td x-show="cols.quota" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
+                                    {if not $hasQuota}
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-slate-300">Unlimited</span>
+                                    {else}
+                                        <span class="inline-flex items-center gap-2">
+                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-slate-200" title="Storage quota">{\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($quotaBytes)}</span>
+                                            {if $quotaEnabled}
+                                                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-900/40 text-emerald-300">On</span>
+                                            {else}
+                                                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-700 text-slate-300">Off</span>
+                                            {/if}
+                                            <button type="button" class="configure-vault-button ml-1 p-1.5 rounded hover:bg-slate-700 text-slate-300"
+                                                title="Edit quota"
+                                                data-vault-id="{$vaultId}"
+                                                data-vault-name="{$vault.Description}"
+                                                data-vault-quota-enabled="{$quotaEnabled}"
+                                                data-vault-quota-bytes="{$quotaBytes}">
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232a2.5 2.5 0 113.536 3.536L7.5 20.036 3 21l.964-4.5L15.232 5.232z"/></svg>
+                                            </button>
+                                        </span>
+                                    {/if}
+                                </td>
+                                <td x-show="cols.usage" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
+                                    {if $hasQuota}
+                                        {assign var=pctClamped value=$pct}
+                                        {if $pctClamped > 100}
+                                            {assign var=pctClamped value=100}
+                                        {elseif $pctClamped < 0}
+                                            {assign var=pctClamped value=0}
+                                        {/if}
+                                        <div class="w-56">
+                                            <div class="h-2.5 w-full rounded bg-slate-800/70 overflow-hidden" title="{\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($usedBytes)} of {\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($quotaBytes)} ({$pctClamped|string_format:'%.1f'}%)">
+                                                <div class="h-full transition-[width] duration-500" :class="pctColor({$pctClamped})" style="width: {$pctClamped}%;"></div>
+                                            </div>
+                                            <div class="mt-1 text-xs text-slate-400">{\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($usedBytes)} / {\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($quotaBytes)} ({$pctClamped|string_format:'%.1f'}%)</div>
+                                        </div>
+                                    {else}
+                                        <div class="w-56">
+                                            <div class="h-2.5 w-full rounded bg-slate-800/70 overflow-hidden">
+                                                <div class="h-full w-1/3 bg-gradient-to-r from-slate-600/40 via-slate-500/40 to-slate-600/40 animate-pulse"></div>
+                                            </div>
+                                            <div class="mt-1 text-xs text-slate-500">Usage unavailable (no quota)</div>
+                                        </div>
+                                    {/if}
+                                </td>
+                                <td x-show="cols.actions" class="px-4 py-4 whitespace-nowrap text-sm">
+                                    <button class="configure-vault-button px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 rounded text-white"
+                                            data-vault-id="{$vaultId}"
+                                            data-vault-name="{$vault.Description}"
+                                            data-vault-quota-enabled="{$quotaEnabled}"
+                                            data-vault-quota-bytes="{$quotaBytes}">Configure</button>
+                                </td>
+                            </tr>
+                        {foreachelse}
+                            <tr>
+                                <td colspan="8" class="text-center py-6 text-sm text-gray-400">No storage vaults found for this user.</td>
+                            </tr>
+                        {/foreach}
+                    </tbody>
+                </table>
+            </div>
+        </div>
 
          <div x-show="activeSubTab === 'devices'" x-cloak x-transition>
             <div class="bg-gray-900/50 rounded-lg overflow-visible" x-data="{
@@ -815,6 +932,7 @@ try {
 <script>
 window.EB_DEVICE_ENDPOINT = '{$modulelink}&a=device-actions';
 </script>
+<script src="modules/addons/eazybackup/templates/assets/js/ui.js"></script>
 <script src="modules/addons/eazybackup/assets/js/device-actions.js"></script>
 
 <!-- Restore Wizard Modal -->
@@ -822,7 +940,12 @@ window.EB_DEVICE_ENDPOINT = '{$modulelink}&a=device-actions';
   <div class="absolute inset-0 bg-black bg-opacity-60"></div>
   <div class="relative mx-auto my-6 w-full max-w-4xl bg-slate-900 border border-slate-700 rounded-lg shadow-xl">
     <div class="flex items-center justify-between px-5 py-4 border-b border-slate-700">
-      <h3 class="text-slate-200 text-lg font-semibold">Restore Wizard</h3>
+      <h3 class="flex items-center gap-2 text-slate-200 text-lg font-semibold">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 9.75v6.75m0 0-3-3m3 3 3-3m-8.25 6a4.5 4.5 0 0 1-1.41-8.775 5.25 5.25 0 0 1 10.233-2.33 3 3 0 0 1 3.758 3.848A3.752 3.752 0 0 1 18 19.5H6.75Z" />
+        </svg>
+        Restore Wizard
+      </h3>
       <button id="restore-close" class="text-slate-400 hover:text-slate-200">
         <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
       </button>
@@ -852,23 +975,37 @@ window.EB_DEVICE_ENDPOINT = '{$modulelink}&a=device-actions';
         </div>
       </div>
       <div id="restore-step2" class="hidden">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <div class="text-sm text-slate-300 mb-2">Protected Items</div>
-            <div id="rs-item-list" class="border border-slate-700 rounded bg-slate-900/40 max-h-60 overflow-y-auto text-sm text-slate-200"></div>
+        <div class="space-y-3">
+          <div class="text-sm text-slate-300">Select a Protected Item to restore:</div>
+          <div class="relative" x-data="{ open:false }">
+            <label class="block text-sm text-slate-300 mb-1">Protected Item</label>
+            <button id="rs-item-menu-btn" type="button" @click="open=!open" class="w-full text-left px-3 py-2 bg-slate-800 border border-slate-600 rounded text-slate-200">
+              <span id="rs-item-selected-label">Choose a protected item…</span>
+            </button>
+            <div id="rs-item-menu-list" x-show="open" x-transition class="absolute mt-1 w-full bg-slate-800 border border-slate-700 rounded shadow-lg max-h-60 overflow-y-auto z-10">
+              <ul class="py-1 text-sm text-slate-200"></ul>
+            </div>
           </div>
           <div>
-            <div class="text-sm text-slate-300 mb-2">Snapshots</div>
+            <div class="text-sm text-slate-300 mb-1">Snapshots</div>
+            <div id="rs-engine-friendly" class="text-xs text-slate-400 mb-1"></div>
             <div id="rs-snapshots" class="border border-slate-700 rounded bg-slate-900/40 max-h-60 overflow-y-auto text-sm text-slate-200"></div>
           </div>
         </div>
         <div id="rs-engine-hint" class="mt-3 text-xs text-slate-400"></div>
-        <div id="rs-methods" class="mt-3 hidden">
+      </div>
+
+      <div id="restore-step3" class="hidden">
+        <div id="rs-methods" class="mt-1">
+          <div id="rs-method-title" class="text-sm text-slate-300 mb-2"></div>
           <div id="rs-method-options" class="space-y-2 text-sm text-slate-200"></div>
-          <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div class="mt-3 space-y-3">
             <div>
               <label class="block text-sm text-slate-300 mb-1">Destination path</label>
-              <input id="rs-dest" type="text" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200" placeholder="e.g. C:\\Restore">
+              <div class="flex gap-2">
+                <input id="rs-dest" type="text" class="flex-1 px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200" placeholder="e.g. C:\\Restore">
+                <button id="rs-browse" type="button" class="px-3 py-2 rounded bg-slate-700 hover:bg-slate-600 text-white">Browse…</button>
+              </div>
             </div>
             <div>
               <label class="block text-sm text-slate-300 mb-1">Overwrite</label>
@@ -884,7 +1021,7 @@ window.EB_DEVICE_ENDPOINT = '{$modulelink}&a=device-actions';
       </div>
       <div class="flex justify-between items-center mt-4 border-t border-slate-800 pt-3">
         <button id="restore-back" class="px-4 py-2 text-slate-300">Back</button>
-        <div class="space-x-2">
+        <div class="ml-auto space-x-2">
           <button id="restore-next" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded">Next</button>
           <button id="restore-start" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded hidden">Start Restore</button>
         </div>
@@ -900,6 +1037,39 @@ window.EB_DEVICE_ENDPOINT = '{$modulelink}&a=device-actions';
 
 <!-- Toast container -->
 <div id="toast-container" class="fixed bottom-4 right-4 z-50 space-y-2"></div>
+
+<!-- Remote Filesystem Browser Modal -->
+<div id="fs-browser" class="fixed inset-0 z-50 hidden">
+  <div class="absolute inset-0 bg-black/60"></div>
+  <div class="relative mx-auto my-6 w-full max-w-3xl bg-slate-900 border border-slate-700 rounded-lg shadow-xl">
+    <div class="flex items-center justify-between px-5 py-3 border-b border-slate-700">
+      <h3 class="text-slate-200 text-lg font-semibold">Browse Destination</h3>
+      <button id="fsb-close" class="text-slate-400 hover:text-slate-200">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="px-5 py-4">
+      <div class="flex items-center gap-2 mb-3">
+        <button id="fsb-up" class="px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-white rounded">Up</button>
+        <div id="fsb-path" class="flex-1 text-xs px-2 py-1 rounded bg-slate-800 border border-slate-700 text-slate-300 overflow-x-auto"></div>
+        <button id="fsb-refresh" class="px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-white rounded">Refresh</button>
+      </div>
+      <div class="border border-slate-700 rounded overflow-hidden">
+        <div class="grid grid-cols-12 gap-0 bg-slate-800/60 px-3 py-2 text-xs text-slate-300">
+          <div class="col-span-7">Name</div>
+          <div class="col-span-2">Type</div>
+          <div class="col-span-3 text-right">Modified</div>
+        </div>
+        <div id="fsb-list" class="max-h-80 overflow-y-auto divide-y divide-slate-800"></div>
+      </div>
+      <div class="mt-3 flex items-center gap-2">
+        <input id="fsb-selected" type="text" class="flex-1 px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200" placeholder="Selected path" readonly>
+        <button id="fsb-select" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded">Select</button>
+      </div>
+      <div class="text-xs text-slate-400 mt-2">Double-click folders to open. Click a folder, then Select to choose it.</div>
+    </div>
+  </div>
+</div>
 
 {literal}
 <style>

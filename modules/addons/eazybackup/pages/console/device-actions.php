@@ -89,6 +89,30 @@ try {
             echo json_encode(['status'=>'success','snapshots' => $resp ? $resp->toArray(true) : []]);
             break;
         }
+        case 'browseFs': {
+            $deviceId = (string)($post['deviceId'] ?? '');
+            $path     = isset($post['path']) ? (string)$post['path'] : null; // null or string
+            if ($deviceId === '') { echo json_encode(['status'=>'error','message'=>'deviceId required']); break; }
+            $targetId = $findTarget($server, $username, $deviceId);
+            if (!$targetId) { echo json_encode(['status'=>'error','message'=>'Device is not online (no live connection)']); break; }
+            $resp = $server->AdminDispatcherRequestFilesystemObjects($targetId, ($path === '' ? null : $path));
+            $entries = [];
+            if ($resp && is_array($resp->StoredObjects)) {
+                foreach ($resp->StoredObjects as $obj) {
+                    $isDir = (isset($obj->Subtree) && $obj->Subtree !== '');
+                    $entries[] = [
+                        'name' => (string)($obj->DisplayName ?: $obj->Name),
+                        'rawName' => (string)$obj->Name,
+                        'isDir' => $isDir,
+                        'subtree' => (string)($obj->Subtree ?: ''),
+                        'size' => (int)$obj->Size,
+                        'mtime' => (int)$obj->ModifyTime,
+                    ];
+                }
+            }
+            echo json_encode(['status'=>'success','path'=>$path, 'entries'=>$entries]);
+            break;
+        }
         case 'updateSoftware': {
             $deviceId = (string)($post['deviceId'] ?? '');
             if ($deviceId === '') { echo json_encode(['status'=>'error','message'=>'deviceId required']); break; }
