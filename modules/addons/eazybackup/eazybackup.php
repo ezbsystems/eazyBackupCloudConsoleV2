@@ -159,6 +159,27 @@ function eazybackup_activate()
     // (Removed) eazybackup_user_permissions schema creation
 }
 
+/**
+ * Module upgrade handler: add minimal indexes used by admin power panel queries.
+ */
+function eazybackup_upgrade($vars = [])
+{
+    try { Capsule::statement("ALTER TABLE comet_vaults ADD INDEX idx_bucket_server (bucket_server)"); } catch (\Throwable $e) { /* ignore if exists */ }
+    try { Capsule::statement("ALTER TABLE comet_vaults ADD INDEX idx_username (username)"); } catch (\Throwable $e) { /* ignore if exists */ }
+    try { Capsule::statement("ALTER TABLE comet_vaults ADD INDEX idx_type (type)"); } catch (\Throwable $e) { /* ignore if exists */ }
+    try { Capsule::statement("ALTER TABLE comet_vaults ADD INDEX idx_user_server_type (username, bucket_server, type)"); } catch (\Throwable $e) { /* ignore if exists */ }
+    // Host alias support table: comet_server_aliases
+    try {
+        Capsule::statement("CREATE TABLE IF NOT EXISTS comet_server_aliases (
+            id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            server_id INT UNSIGNED NOT NULL,
+            alias_host VARCHAR(255) NOT NULL,
+            UNIQUE KEY uniq_server_alias (server_id, alias_host),
+            KEY idx_server (server_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    } catch (\Throwable $e) { /* ignore */ }
+}
+
 // Ensure schema upgrades are applied on runtime paths as well
 function eazybackup_ensure_permissions_schema() { /* removed */ }
 
@@ -1185,6 +1206,151 @@ function eazybackup_clientarea(array $vars)
             ],
         ];
     }
+}
+
+/**
+ * Admin Area Output (WHMCS admin → addonmodules.php?module=eazybackup)
+ * Routes the eazyBackup Power Panel.
+ */
+function eazybackup_output($vars)
+{
+    $action = isset($_REQUEST['action']) ? (string) $_REQUEST['action'] : '';
+    if ($action === '') {
+        $_REQUEST['action'] = $action = 'powerpanel';
+        if (!isset($_REQUEST['view']) || $_REQUEST['view'] === '') {
+            $_REQUEST['view'] = 'storage';
+        }
+    }
+    if ($action === 'powerpanel') {
+        $view = isset($_REQUEST['view']) ? (string) $_REQUEST['view'] : 'storage';
+        switch ($view) {
+            case 'storage': {
+                $controller = __DIR__ . '/pages/admin/powerpanel/storage.php';
+                if (!is_file($controller)) {
+                    echo '<div class="alert alert-danger">Controller not found.</div>';
+                    return;
+                }
+                $data = require $controller;
+                $e = function ($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); };
+                $filters    = $data['filters'] ?? ['username' => '', 'server' => ''];
+                $servers    = $data['servers'] ?? [];
+                $rows       = $data['rows'] ?? [];
+                $sort       = $data['sort'] ?? 'username';
+                $dir        = $data['dir'] ?? 'asc';
+                $perPage    = (int)($data['perPage'] ?? 25);
+                $pagination = $data['pagination'] ?? '';
+                $totalRows  = (int)($data['totalRows'] ?? count($rows));
+                $sortLinks  = $data['sortLinks'] ?? [
+                    'username' => '#', 'server' => '#', 'bytes' => '#', 'units' => '#'
+                ];
+
+                $html = '';
+                $html .= '<div class="container-fluid">';
+                $html .= '<ul class="nav nav-tabs mb-3">'
+                      . '<li class="nav-item"><a class="nav-link active" href="#">Storage</a></li>'
+                      . '<li class="nav-item"><a class="nav-link disabled" href="#" tabindex="-1" aria-disabled="true">Devices</a></li>'
+                      . '<li class="nav-item"><a class="nav-link disabled" href="#" tabindex="-1" aria-disabled="true">Protected Items</a></li>'
+                      . '</ul>';
+
+                $html .= '<form method="get" class="mb-3 form-inline" style="margin-bottom:15px">'
+                      . '<input type="hidden" name="module" value="eazybackup"/>'
+                      . '<input type="hidden" name="action" value="powerpanel"/>'
+                      . '<input type="hidden" name="view" value="storage"/>'
+                      . '<div class="form-group" style="margin-right:15px;margin-bottom:10px">'
+                      . '<label for="filter-username" class="mr-2">Username</label>'
+                      . '<input id="filter-username" type="text" class="form-control" name="username" value="' . $e($filters['username'] ?? '') . '" placeholder="Contains…"/>'
+                      . '</div>'
+                      . '<div class="form-group" style="margin-right:15px;margin-bottom:10px">'
+                      . '<label for="filter-server" class="mr-2">Comet Server</label>'
+                      . '<select id="filter-server" class="form-control" name="server">'
+                      . '<option value="">All</option>';
+                foreach ($servers as $srv) {
+                    $sel = (($filters['server'] ?? '') === $srv) ? ' selected' : '';
+                    $html .= '<option value="' . $e($srv) . '"' . $sel . '>' . $e($srv) . '</option>';
+                }
+                $html .= '</select>'
+                      . '</div>'
+                      . '<div class="form-group" style="margin-right:15px;margin-bottom:10px">'
+                      . '<label for="perPage" class="mr-2">Per Page</label>'
+                      . '<select id="perPage" class="form-control" name="perPage">';
+                foreach ([25,50,100,250] as $pp) {
+                    $sel = ($perPage === $pp) ? ' selected' : '';
+                    $html .= '<option value="' . $pp . '"' . $sel . '>' . $pp . '</option>';
+                }
+                $html .= '</select>'
+                      . '</div>'
+                      . '<button type="submit" class="btn btn-primary mb-2 mr-2">Filter</button>'
+                      . '<a href="addonmodules.php?module=eazybackup&action=powerpanel&view=storage" class="btn btn-default mb-2">Reset</a>'
+                      . '</form>';
+
+                // Header toolbar: total users and top pagination
+                $html .= '<div class="clearfix" style="margin:10px 0 15px 0">'
+                      .   '<div class="pull-left" style="padding-top:7px; font-weight:600;">Total Users: ' . (int)$totalRows . '</div>'
+                      .   '<div class="pull-right">' . $pagination . '</div>'
+                      . '</div>';
+
+                $html .= '<div class="table-responsive">'
+                      . '<table class="table table-striped table-condensed">'
+                      . '<thead><tr>'
+                      . '<th><a href="' . $e($sortLinks['username']) . '">Username' . ($sort==='username' ? ' <span class="text-muted">(' . strtoupper($e($dir)) . ')</span>' : '') . '</a></th>'
+                      . '<th><a href="' . $e($sortLinks['server'])   . '">Comet Server' . ($sort==='server'   ? ' <span class="text-muted">(' . strtoupper($e($dir)) . ')</span>' : '') . '</a></th>'
+                      . '<th class="text-right"><a href="' . $e($sortLinks['bytes']) . '">Storage Size' . ($sort==='bytes' ? ' <span class="text-muted">(' . strtoupper($e($dir)) . ')</span>' : '') . '</a></th>'
+                      . '<th class="text-right"><a href="' . $e($sortLinks['units']) . '">Storage Billing Units' . ($sort==='units' ? ' <span class="text-muted">(' . strtoupper($e($dir)) . ')</span>' : '') . '</a></th>'
+                      . '<th class="text-right">Adjustment</th>'
+                      . '</tr></thead><tbody>';
+                if (!empty($rows)) {
+                    foreach ($rows as $r) {
+                        // Compute expected billed units using TiB (2^40) thresholds, min 1
+                        $tbDivisor = pow(1024, 4); // 1 TiB
+                        $computedUnits = max(1, (int)ceil(((float)$r['total_bytes']) / $tbDivisor));
+                        $billedUnits = (int)$r['billed_units'];
+                        $labelStart = '';
+                        $labelEnd = '';
+                        if ($computedUnits > $billedUnits) { $labelStart = '<span class="label label-danger" style="display:inline-block;padding:4px 6px">'; $labelEnd = '</span>'; }
+                        else if ($computedUnits < $billedUnits) { $labelStart = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">'; $labelEnd = '</span>'; }
+                        $delta = $computedUnits - $billedUnits;
+                        $deltaText = '-';
+                        if ($delta > 0) { $deltaText = 'Increase +' . $delta . ' TB'; }
+                        else if ($delta < 0) { $deltaText = 'Decrease ' . abs($delta) . ' TB'; }
+                        $serviceLink = 'clientsservices.php?userid=' . (int)$r['user_id'] . '&id=' . (int)$r['service_id'];
+                        $html .= '<tr>'
+                              . '<td><a href="' . $e($serviceLink) . '">' . $e($r['username']) . '</a></td>'
+                              . '<td>' . $e($r['comet_server_url']) . '</td>'
+                              . '<td class="text-right">' . $e($r['total_bytes_hr']) . '<div class="text-muted small">' . $e($r['total_bytes']) . ' bytes</div></td>'
+                              . '<td class="text-right">' . ($labelStart ?: '') . $billedUnits . ($labelEnd ?: '') . '</td>'
+                              . '<td class="text-right">' . ($delta !== 0 ? ($labelStart ?: '') . $deltaText . ($labelEnd ?: '') : '-') . '</td>'
+                              . '</tr>';
+                    }
+                } else {
+                    $html .= '<tr><td colspan="5" class="text-center text-muted">No results</td></tr>';
+                }
+                $html .= '</tbody></table></div>';
+                $html .= '<div class="mt-2">' . $pagination . '</div>';
+                $html .= '</div>';
+                echo $html;
+                return;
+            }
+            default:
+                echo '<div class="alert alert-info">This section is under construction.</div>';
+                return;
+        }
+    }
+
+    $link = 'addonmodules.php?module=eazybackup&action=powerpanel&view=storage';
+    echo '<div class="alert alert-info">eazyBackup Power Panel: <a class="btn btn-primary" href="' . $link . '">Open Storage</a></div>';
+}
+
+function eazybackup_sidebar($vars)
+{
+    $base = $_SERVER['PHP_SELF'] . '?module=eazybackup';
+    $sidebar = '<div class="list-group">'
+        . '<a href="' . $base . '&action=powerpanel&view=storage" class="list-group-item">'
+        . '<i class="fa fa-database"></i> Power Panel: Storage'
+        . '</a>'
+        . '<a href="#" class="list-group-item disabled"><i class="fa fa-hdd"></i> Power Panel: Devices</a>'
+        . '<a href="#" class="list-group-item disabled"><i class="fa fa-shield-alt"></i> Power Panel: Protected Items</a>'
+        . '</div>';
+    return $sidebar;
 }
 
 

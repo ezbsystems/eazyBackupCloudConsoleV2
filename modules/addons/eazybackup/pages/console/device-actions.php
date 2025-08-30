@@ -78,6 +78,22 @@ try {
             echo json_encode(['status'=>'success','items'=>$out]);
             break;
         }
+        case 'listAllProtectedItems': {
+            $ph = $server->AdminGetUserProfileAndHash($username);
+            if (!$ph || !$ph->Profile) { echo json_encode(['status'=>'error','message'=>'Profile not found']); break; }
+            $profile = $ph->Profile;
+            $out = [];
+            if (isset($profile->Sources)) {
+                foreach ((array)$profile->Sources as $sid => $src) {
+                    if (is_object($src)) {
+                        $name = isset($src->Description) ? (string)$src->Description : (string)$sid;
+                        $out[] = [ 'id' => (string)$sid, 'name' => $name ];
+                    }
+                }
+            }
+            echo json_encode(['status'=>'success','items'=>$out]);
+            break;
+        }
         case 'vaultSnapshots': {
             $deviceId = (string)($post['deviceId'] ?? '');
             $vaultId  = (string)($post['vaultId'] ?? '');

@@ -325,7 +325,22 @@
                     </thead>
                     <tbody class="divide-y divide-gray-700">
                         {foreach from=$vaults item=vault key=vaultId}
-                            {assign var=usedBytes value=$vault.Size.Size|default:0}
+                            {assign var=usedBytes value=0}
+                            {if isset($vault.Statistics.ClientProvidedSize.Size)}
+                                {assign var=usedBytes value=$vault.Statistics.ClientProvidedSize.Size}
+                            {elseif isset($vault.ClientProvidedSize.Size)}
+                                {assign var=usedBytes value=$vault.ClientProvidedSize.Size}
+                            {elseif isset($vault.Size.Size)}
+                                {assign var=usedBytes value=$vault.Size.Size}
+                            {elseif isset($vault.Size)}
+                                {assign var=usedBytes value=$vault.Size}
+                            {/if}
+                            {assign var=usedMeasuredEnd value=0}
+                            {if isset($vault.Statistics.ClientProvidedSize.MeasureCompleted)}
+                                {assign var=usedMeasuredEnd value=$vault.Statistics.ClientProvidedSize.MeasureCompleted}
+                            {elseif isset($vault.ClientProvidedSize.MeasureCompleted)}
+                                {assign var=usedMeasuredEnd value=$vault.ClientProvidedSize.MeasureCompleted}
+                            {/if}
                             {assign var=quotaEnabled value=$vault.StorageLimitEnabled|default:false}
                             {assign var=quotaBytes value=$vault.StorageLimitBytes|default:0}
                             {assign var=hasQuota value=($quotaEnabled && $quotaBytes>0)}
@@ -342,31 +357,54 @@
                                 <td x-show="cols.name" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$vault.Description|default:'-'}</td>
                                 <td x-show="cols.id" class="px-4 py-4 whitespace-nowrap text-xs font-mono text-gray-400">{$vaultId}</td>
                                 <td x-show="cols.type" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
-                                    {if $typeLabel}
-                                        <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-700 text-slate-200 text-xs">{$typeLabel}</span>
-                                    {elseif $typeCode ne ''}
-                                        <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-700 text-slate-300 text-xs" title="Type code: {$typeCode}">{$typeCode}</span>
+                                    {assign var=destType value=$vault.DestinationType|default:''}
+                                    {if $destType ne ''}
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-700 text-slate-200 text-xs">{\WHMCS\Module\Addon\Eazybackup\Helper::vaultTypeLabel($destType)}</span>
                                     {else}
                                         <span class="text-slate-400">-</span>
                                     {/if}
                                 </td>
                                 <td x-show="cols.init" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
-                                    {if isset($vault.Initialized)}
-                                        {if $vault.Initialized}
-                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-900/40 text-emerald-300">Yes</span>
-                                        {else}
-                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-slate-300">No</span>
-                                        {/if}
+                                    {assign var=ri value=$vault.RepoInitTimestamp|default:0}
+                                    {if $ri>0}
+                                        <span class="font-mono text-xs">{\WHMCS\Module\Addon\Eazybackup\Helper::formatDateTime($ri)}</span>
                                     {else}
                                         <span class="text-slate-400">-</span>
                                     {/if}
                                 </td>
                                 <td x-show="cols.stored" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
-                                    {if $usedBytes>0}
-                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-900/40 text-emerald-300">Yes</span>
-                                    {else}
-                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-slate-300">No</span>
+                                    {assign var=cpSize value=0}
+                                    {if isset($vault.Statistics.ClientProvidedSize.Size)}
+                                        {assign var=cpSize value=$vault.Statistics.ClientProvidedSize.Size}
+                                    {elseif isset($vault.ClientProvidedSize.Size)}
+                                        {assign var=cpSize value=$vault.ClientProvidedSize.Size}
+                                    {elseif isset($vault.Size.Size)}
+                                        {assign var=cpSize value=$vault.Size.Size}
+                                    {elseif isset($vault.Size)}
+                                        {assign var=cpSize value=$vault.Size}
                                     {/if}
+                                    {assign var=cpStart value=0}
+                                    {assign var=cpEnd value=0}
+                                    {if isset($vault.Statistics.ClientProvidedSize.MeasureStarted)}
+                                        {assign var=cpStart value=$vault.Statistics.ClientProvidedSize.MeasureStarted}
+                                    {elseif isset($vault.ClientProvidedSize.MeasureStarted)}
+                                        {assign var=cpStart value=$vault.ClientProvidedSize.MeasureStarted}
+                                    {/if}
+                                    {if isset($vault.Statistics.ClientProvidedSize.MeasureCompleted)}
+                                        {assign var=cpEnd value=$vault.Statistics.ClientProvidedSize.MeasureCompleted}
+                                    {elseif isset($vault.ClientProvidedSize.MeasureCompleted)}
+                                        {assign var=cpEnd value=$vault.ClientProvidedSize.MeasureCompleted}
+                                    {/if}
+                                    <button type="button" class="eb-stats-btn inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-700 hover:bg-slate-600 text-slate-200"
+                                        title="View vault usage breakdown"
+                                        data-vault-id="{$vaultId}"
+                                        data-vault-name="{$vault.Description|escape}"
+                                        data-size-bytes="{$cpSize}"
+                                        data-measure-start="{$cpStart}"
+                                        data-measure-end="{$cpEnd}">
+                                        {\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($cpSize, 2)}
+                                    </button>
+                                    <script type="application/json" class="eb-components">{if isset($vault.ClientProvidedContent.Components)}{$vault.ClientProvidedContent.Components|@json_encode}{elseif isset($vault.Statistics.ClientProvidedContent.Components)}{$vault.Statistics.ClientProvidedContent.Components|@json_encode}{else}[]{/if}</script>
                                 </td>
                                 <td x-show="cols.quota" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
                                     {if not $hasQuota}
@@ -399,10 +437,10 @@
                                             {assign var=pctClamped value=0}
                                         {/if}
                                         <div class="w-56">
-                                            <div class="h-2.5 w-full rounded bg-slate-800/70 overflow-hidden" title="{\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($usedBytes)} of {\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($quotaBytes)} ({$pctClamped|string_format:'%.1f'}%)">
+                                            <div class="h-2.5 w-full rounded bg-slate-800/70 overflow-hidden" title="{\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($usedBytes, 2)} of {\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($quotaBytes, 2)} ({$pctClamped|string_format:'%.1f'}%) — measured {\WHMCS\Module\Addon\Eazybackup\Helper::formatDateTime($usedMeasuredEnd)}">
                                                 <div class="h-full transition-[width] duration-500" :class="pctColor({$pctClamped})" style="width: {$pctClamped}%;"></div>
                                             </div>
-                                            <div class="mt-1 text-xs text-slate-400">{\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($usedBytes)} / {\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($quotaBytes)} ({$pctClamped|string_format:'%.1f'}%)</div>
+                                            <div class="mt-1 text-xs text-slate-400">{\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($usedBytes, 2)} / {\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($quotaBytes, 2)} ({$pctClamped|string_format:'%.1f'}%)</div>
                                         </div>
                                     {else}
                                         <div class="w-56">
@@ -830,6 +868,34 @@ document.addEventListener('DOMContentLoaded', function () {
 <script>
 window.EB_TOTP_ENDPOINT = '{$modulelink}&a=totp';
 </script>
+<!-- Vault Storage Breakdown Modal -->
+<div id="vault-stats-modal" class="fixed inset-0 z-50 hidden">
+  <div class="absolute inset-0 bg-black/60"></div>
+  <div class="relative mx-auto my-8 w-full max-w-3xl bg-slate-900 border border-slate-700 rounded-lg shadow-xl">
+    <div class="flex items-center justify-between px-5 py-4 border-b border-slate-700">
+      <h3 id="vsm-title" class="text-slate-200 text-lg font-semibold">Vault usage</h3>
+      <button id="vsm-close" class="text-slate-400 hover:text-slate-200">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="px-5 py-4 space-y-3">
+      <div id="vsm-summary" class="text-sm text-slate-300"></div>
+      <div class="border border-slate-700 rounded overflow-hidden">
+        <div class="grid grid-cols-12 gap-0 bg-slate-800/60 px-3 py-2 text-xs text-slate-300">
+          <div class="col-span-4">Size</div>
+          <div class="col-span-8">Used by</div>
+        </div>
+        <div id="vsm-rows" class="max-h-80 overflow-y-auto divide-y divide-slate-800"></div>
+      </div>
+    </div>
+  </div>
+  <input type="hidden" id="vsm-vault-id" value="" />
+  <input type="hidden" id="vsm-size" value="" />
+  <input type="hidden" id="vsm-ms" value="" />
+  <input type="hidden" id="vsm-me" value="" />
+  <input type="hidden" id="vsm-components" value="" />
+  <input type="hidden" id="vsm-items-json" value='{if $protectedItems}{json_encode($protectedItems)}{/if}' />
+</div>
 <script>
 // annotate body for JS context
 try {
