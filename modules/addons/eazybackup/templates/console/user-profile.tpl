@@ -310,9 +310,9 @@
                         <input type="text" x-model.debounce.200ms="search" placeholder="Search vaults..." class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-700 text-slate-200 focus:outline-none focus:ring-0 focus:border-sky-600">
                     </div>
                 </div>
-                <table class="min-w-full divide-y divide-gray-700">
-                    <thead class="bg-gray-800/50">
-                        <tr>
+                 <table class="min-w-full divide-y divide-gray-700">
+                     <thead class="bg-gray-800/50">
+                         <tr>
                             <th x-show="cols.name" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Storage Vault</th>
                             <th x-show="cols.id" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Storage Vault ID</th>
                             <th x-show="cols.type" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Type</th>
@@ -321,10 +321,10 @@
                             <th x-show="cols.quota" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Quota</th>
                             <th x-show="cols.usage" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Usage</th>
                             <th x-show="cols.actions" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-gray-700">
-                        {foreach from=$vaults item=vault key=vaultId}
+                </tr>
+              </thead>
+                     <tbody class="divide-y divide-gray-700">
+                         {foreach from=$vaults item=vault key=vaultId}
                             {assign var=usedBytes value=0}
                             {if isset($vault.Statistics.ClientProvidedSize.Size)}
                                 {assign var=usedBytes value=$vault.Statistics.ClientProvidedSize.Size}
@@ -419,12 +419,12 @@
                                             {/if}
                                             <button type="button" class="configure-vault-button ml-1 p-1.5 rounded hover:bg-slate-700 text-slate-300"
                                                 title="Edit quota"
-                                                data-vault-id="{$vaultId}"
-                                                data-vault-name="{$vault.Description}"
+                                             data-vault-id="{$vaultId}"
+                                             data-vault-name="{$vault.Description}"
                                                 data-vault-quota-enabled="{$quotaEnabled}"
                                                 data-vault-quota-bytes="{$quotaBytes}">
                                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232a2.5 2.5 0 113.536 3.536L7.5 20.036 3 21l.964-4.5L15.232 5.232z"/></svg>
-                                            </button>
+                                     </button>
                                         </span>
                                     {/if}
                                 </td>
@@ -452,22 +452,22 @@
                                     {/if}
                                 </td>
                                 <td x-show="cols.actions" class="px-4 py-4 whitespace-nowrap text-sm">
-                                    <button class="configure-vault-button px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 rounded text-white"
+                                    <button class="open-vault-panel px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 rounded text-white"
                                             data-vault-id="{$vaultId}"
                                             data-vault-name="{$vault.Description}"
                                             data-vault-quota-enabled="{$quotaEnabled}"
-                                            data-vault-quota-bytes="{$quotaBytes}">Configure</button>
-                                </td>
-                            </tr>
-                        {foreachelse}
-                            <tr>
+                                            data-vault-quota-bytes="{$quotaBytes}">Manage</button>
+                                 </td>
+                             </tr>
+                         {foreachelse}
+                             <tr>
                                 <td colspan="8" class="text-center py-6 text-sm text-gray-400">No storage vaults found for this user.</td>
-                            </tr>
-                        {/foreach}
-                    </tbody>
-                </table>
-            </div>
-        </div>
+                  </tr>
+                {/foreach}
+              </tbody>
+            </table>
+          </div>
+         </div>
 
          <div x-show="activeSubTab === 'devices'" x-cloak x-transition>
             <div class="bg-gray-900/50 rounded-lg overflow-visible" x-data="{
@@ -577,261 +577,262 @@
   </div>
 </div>
 
-<div id="configure-vault-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70 hidden">
-  <div class="bg-slate-800/90 backdrop-blur-sm border border-slate-700 rounded-lg shadow-lg w-full max-w-md" role="document">
-    <form id="configure-vault-form" x-data="{ isUnlimited: false }">
-      <div class="p-6">
-        <div class="flex justify-between items-center pb-4">
-          <h2 class="text-lg font-semibold text-slate-200">Configure Storage Vault</h2>
-          <button id="close-configure-modal" type="button" class="text-slate-500 hover:text-slate-300 transition-colors">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-            </svg>
+{* New: Vault slide-over panel *}
+<div id="vault-slide-panel" class="fixed inset-y-0 right-0 z-50 w-full max-w-2xl transform translate-x-full transition-transform duration-200 ease-out">
+  <div class="h-full bg-slate-900 border-l border-slate-700 shadow-xl flex flex-col"
+       data-modulelink="{$modulelink}" data-serviceid="{$serviceid}" data-username="{$username}">
+    <div class="flex items-center justify-between px-4 py-3 border-b border-slate-700">
+      <div>
+        <h3 class="text-slate-200 text-lg font-semibold">Manage Storage Vault</h3>
+        <div class="text-slate-400 text-sm">Vault: <span id="vault-panel-name" class="text-slate-300 font-mono"></span></div>
+      </div>
+      <button id="vault-panel-close" class="text-slate-400 hover:text-slate-200">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
           </button>
         </div>
+    <input type="hidden" id="vault-mgr-id" value="" />
 
-        <div class="space-y-6">
-          <input type="hidden" id="configure-vault-id" name="vaultId">
-          
-          <div>
-            <label for="vault-name" class="block text-sm font-medium text-slate-300 mb-1">Vault Name</label>
-            <input type="text" id="vault-name" name="vaultName" class="block w-full px-3 py-2 border border-slate-600 bg-slate-700 text-slate-200 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition" required>
+    <div class="flex-1 overflow-y-auto" x-data="{ tab: 'general' }">
+      <div class="px-4 pt-3 border-b border-slate-800">
+        <nav class="flex space-x-4" aria-label="Tabs">
+          <a href="#" @click.prevent="tab='general'" :class="tab==='general' ? 'text-sky-400 border-sky-500' : 'text-slate-300 border-transparent hover:text-slate-100'" class="px-1 pb-2 border-b-2 text-sm font-medium">General</a>
+          <a href="#" @click.prevent="tab='retention'" :class="tab==='retention' ? 'text-sky-400 border-sky-500' : 'text-slate-300 border-transparent hover:text-slate-100'" class="px-1 pb-2 border-b-2 text-sm font-medium">Retention</a>
+          <a href="#" @click.prevent="tab='danger'" :class="tab==='danger' ? 'text-rose-400 border-rose-500' : 'text-slate-300 border-transparent hover:text-slate-100'" class="px-1 pb-2 border-b-2 text-sm font-medium">Danger zone</a>
+        </nav>
           </div>
 
+      <!-- General Tab -->
+      <div x-show="tab==='general'" class="px-4 py-4 space-y-6">
+        <!-- Name -->
           <div>
-            <label class="block text-sm font-medium text-slate-300 mb-1">Quota</label>
-            <div class="flex items-center space-x-4">
-              <div class="flex items-center flex-grow">
-                <input type="number" id="vault-quota-size" name="vaultQuotaSize" 
-                       :disabled="isUnlimited"
-                       :class="{ 'bg-slate-800 text-slate-500 cursor-not-allowed': isUnlimited, 'bg-slate-700 text-slate-200': !isUnlimited }"
-                       class="w-2/3 px-3 py-2 border border-slate-600 rounded-l-md shadow-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition">
-                
-                <div x-data="{ open: false, selectedUnit: 'GB', units: ['GB', 'TB'] }" class="relative w-1/3" @click.away="open = false">
-                    <input type="hidden" id="vault-quota-unit" name="vaultQuotaUnit" :value="selectedUnit">
-                    <button type="button" @click="open = !open" :disabled="isUnlimited"
-                            :class="{ 'border-slate-800 cursor-not-allowed': isUnlimited, 'border-slate-600': !isUnlimited }"
-                            class="relative w-full px-3 py-2 text-left bg-slate-700 border-t border-b border-r rounded-r-md shadow-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition">
-                        <span class="block truncate" :class="{ 'text-slate-500': isUnlimited, 'text-slate-200': !isUnlimited }" x-text="selectedUnit"></span>
-                        <span class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2">
-                            <svg class="h-5 w-5 text-slate-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                                <path fill-rule="evenodd" d="M10 3a.75.75 0 01.53.22l3.5 3.5a.75.75 0 01-1.06 1.06L10 4.81 7.03 7.78a.75.75 0 01-1.06-1.06l3.5-3.5A.75.75 0 0110 3zM10 17a.75.75 0 01-.53-.22l-3.5-3.5a.75.75 0 011.06-1.06L10 15.19l2.97-2.97a.75.75 0 011.06 1.06l-3.5 3.5A.75.75 0 0110 17z" clip-rule="evenodd" />
-                            </svg>
+          <label class="block text-sm text-slate-300 mb-1">Vault name</label>
+          <input id="vault-mgr-name" type="text" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm" placeholder="Vault name" />
+        </div>
+        <!-- Quota -->
+        <div class="space-y-2">
+          <label class="block text-sm text-slate-300">Quota</label>
+          <div class="flex items-center gap-2">
+            <input id="vault-quota-unlimited2" type="checkbox" class="h-4 w-4 rounded border-slate-500 bg-slate-600 text-sky-600">
+            <span class="text-slate-300 text-sm">Unlimited</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <input id="vault-quota-size2" type="number" class="w-40 px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm" placeholder="0" />
+            <!-- Alpine unit dropdown -->
+            <div class="relative" x-data="{ open:false, unit:'GB' }" @click.away="open=false">
+              <input type="hidden" id="vault-quota-unit2" :value="unit">
+              <button type="button" @click="open=!open" class="w-28 text-left px-3 py-2 bg-slate-800 border border-slate-600 rounded text-slate-200 text-sm pr-8">
+                <span x-text="unit"></span>
+                <span class="pointer-events-none absolute inset-y-0 right-2 flex items-center text-slate-400">
+                  <svg class="h-4 w-4 ml-2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.24 4.5a.75.75 0 01-1.08 0l-4.24-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg>
                         </span>
                     </button>
-                    <div x-show="open" x-transition class="absolute z-10 mt-1 w-full bg-slate-700 shadow-lg rounded-md border border-slate-600">
-                        <ul class="py-1">
-                            <template x-for="unit in units" :key="unit">
-                                <li>
-                                    <a href="#" @click.prevent="selectedUnit = unit; open = false" class="block px-4 py-2 text-sm text-slate-200 hover:bg-sky-600 hover:text-white">
-                                        <span x-text="unit"></span>
-                                    </a>
-                                </li>
-                            </template>
+              <div x-show="open" x-transition class="absolute z-10 mt-1 w-full bg-slate-800 border border-slate-700 rounded shadow-lg">
+                <ul class="py-1 text-sm text-slate-200">
+                  <li><a href="#" class="block px-3 py-2 hover:bg-slate-700" @click.prevent="unit='GB'; open=false">GB</a></li>
+                  <li><a href="#" class="block px-3 py-2 hover:bg-slate-700" @click.prevent="unit='TB'; open=false">TB</a></li>
                         </ul>
                     </div>
+            </div>
+          </div>
+          <div class="text-xs text-slate-400">Changes apply to this vault only.</div>
+        </div>
+        <div class="pt-2 border-t border-slate-800 flex justify-end">
+          <button id="vault-save-all" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-sm">Save</button>
                 </div>
               </div>
               
-              <div class="flex items-center">
-                <input type="checkbox" id="vault-quota-unlimited" name="vaultQuotaUnlimited" x-model="isUnlimited" class="h-4 w-4 rounded border-slate-500 bg-slate-600 text-sky-600 focus:ring-sky-500">
-                <label for="vault-quota-unlimited" class="ml-2 text-sm text-slate-300">Unlimited</label>
-              </div>
+      <!-- Retention Tab (placeholder) -->
+      <div x-show="tab==='retention'" id="vault-retention-tab" class="px-4 py-4" x-data="retention()" @retention:update.window="state.override=$event.detail.override; state.mode=$event.detail.mode; state.ranges=$event.detail.ranges; state.defaultMode=$event.detail.defaultMode; state.defaultRanges=$event.detail.defaultRanges">
+        <h4 class="text-slate-200 font-semibold mb-2">Retention</h4>
+
+        <!-- Status callout -->
+        <div class="mb-3">
+          <div x-show="!state.override" class="inline-flex items-center gap-2 rounded-full bg-slate-700/70 text-slate-100 px-3 py-1.5 text-sm" title="This vault follows the account's default retention policy.">
+            <svg class="size-4 opacity-80" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
+            <span>Using account-level policy</span>
+          </div>
+        <!-- Account policy preview -->
+        <div x-show="showAccountPolicy" class="rounded-xl border border-slate-700 bg-slate-800/70 p-3 mb-3">
+          <div class="flex items-center justify-between mb-2">
+            <div class="text-slate-200 font-medium">Account-level policy</div>
+            <button class="text-slate-300 hover:text-white text-sm" @click="showAccountPolicy=false">Close</button>
+          </div>
+          <ul class="list-disc pl-5 text-slate-200 text-sm space-y-1" x-html="formattedDefaultPolicyLines().join('')"></ul>
+        </div>
+          <div x-show="state.override" class="inline-flex items-center gap-2 rounded-full bg-amber-900/40 text-amber-100 px-3 py-1.5 text-sm" title="This vault uses its own retention rules instead of the account default.">
+            <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 1l3 5 5 1-4 4 1 5-5-3-5 3 1-5-4-4 5-1z"/></svg>
+            <span>This vault has its own policy (overrides account)</span>
             </div>
           </div>
 
+        <!-- Override toggle -->
+        <div class="flex items-center gap-2 mb-3">
+          <input id="ret-override" type="checkbox" class="h-4 w-4 rounded border-slate-500 bg-slate-600 text-sky-600" x-model="state.override">
+          <label for="ret-override" class="text-sm text-slate-300">Override account retention for this vault</label>
+        </div>
+
+        <!-- Builder when override ON -->
+        <template x-if="state.override">
           <div>
-            <label class="block text-sm font-medium text-slate-300">Retention</label>
-            <p class="text-slate-400 text-sm mt-1">Retention policy management is not yet available.</p>
+            <!-- Mode select with helper text -->
+            <div class="mb-2">
+              <label class="block text-sm text-slate-300 mb-1">Mode</label>
+              <select x-model.number="state.mode" class="w-96 px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm">
+                <option value="801">Keep everything</option>
+                <option value="802">Keep only backups that match these rules</option>
+              </select>
+              <p class="mt-1 text-xs text-slate-400" x-show="state.mode===802">Backups are kept if they match any rule below. Backups that match none of the rules will be deleted.</p>
           </div>
           
-          <div id="configure-vault-error-message" class="mt-2 text-red-500 text-sm hidden"></div>
+            <!-- Warning for keep everything -->
+            <div x-show="state.mode===801" class="rounded-xl border border-red-500/50 bg-red-950/50 p-4 mb-3">
+              <div class="flex gap-3">
+                <svg class="size-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+                <div class="text-red-100">
+                  <p class="font-semibold">Warning: "Keep everything" keeps every backup forever.</p>
+                  <p class="text-sm opacity-90">No data is ever removed from this vault. Storage usage—and your bill—will grow without limit. Choose this only if you fully understand the cost.</p>
+                </div>
         </div>
       </div>
 
-      <div class="flex justify-between items-center mt-2 bg-slate-800/80 px-6 py-4 rounded-b-lg border-t border-slate-700">
-        <button type="button" id="delete-vault-button" title="Delete Vault" class="p-2 text-slate-400 hover:bg-red-500/20 hover:text-red-400 rounded-full transition-colors">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
-            <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
-          </svg>
-        </button>
-        <div class="flex items-center space-x-4">
-          <button type="button" id="cancel-configure-modal-button" class="text-sm font-semibold text-slate-300 hover:text-white transition-colors">Cancel</button>
-          <button type="submit" id="save-vault-changes" class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-sky-600 hover:bg-sky-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-800 focus:ring-sky-500 transition">
-            Save Changes
-          </button>
+            <!-- Rules card editor -->
+            <div class="space-y-3" x-data="{ editing:null }">
+              <template x-for="(r,i) in state.ranges" :key="i">
+                <div :class="['rounded-xl border bg-slate-800/60 p-3 shadow-sm', editing===i ? 'border-sky-500 ring-1 ring-sky-500/30' : 'border-slate-700']">
+                  <div class="flex items-start justify-between gap-2">
+                    <div class="flex items-center gap-2">
+                      <span class="inline-flex items-center rounded-md bg-slate-700 px-2 py-0.5 text-xs font-medium" x-text="labelFor(r.Type)"></span>
+                      <span class="text-slate-200" x-text="summaryFor(r)"></span>
         </div>
+                    <div class="flex gap-2">
+                      <button class="text-sky-300 hover:text-sky-200 text-sm" @click="editing = (editing===i?null:i)"><span x-text="editing===i ? 'Close' : 'Edit'"></span></button>
+                      <button class="text-rose-300 hover:text-rose-200 text-sm" @click="removeRange(i)">Remove</button>
       </div>
-    </form>
   </div>
+                  <div x-show="editing===i" x-transition class="mt-3 border-t border-slate-700 pt-3">
+                    <div class="grid grid-cols-2 gap-3">
+                      <!-- Type select -->
+                      <div>
+                        <label class="block text-xs text-slate-400 mb-1">Type</label>
+                        <select class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm" x-model.number="r.Type">
+                          <option value="900">Most recent X jobs</option>
+                          <option value="901">Newer than date</option>
+                          <option value="902">Jobs since (relative)</option>
+                          <option value="903">First job for last X days</option>
+                          <option value="905">First job for last X months</option>
+                          <option value="906">First job for last X weeks</option>
+                          <option value="907">At most one per day (last X jobs)</option>
+                          <option value="908">At most one per week (last X jobs)</option>
+                          <option value="909">At most one per month (last X jobs)</option>
+                          <option value="910">At most one per year (last X jobs)</option>
+                          <option value="911">First job for last X years</option>
+                        </select>
 </div>
+                      <!-- Jobs -->
+                      <div x-show="[900,907,908,909,910].includes(r.Type)">
+                        <label class="block text-xs text-slate-400 mb-1">Jobs</label>
+                        <input type="number" x-model.number="r.Jobs" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm" placeholder="e.g., 7">
+                      </div>
+                      <!-- Timestamp -->
+                      <div x-show="r.Type===901">
+                        <label class="block text-xs text-slate-400 mb-1">Date</label>
+                        <input type="datetime-local" @change="r.Timestamp=(Date.parse($event.target.value)/1000)|0" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm">
+                      </div>
+                      <!-- Relative fields -->
+                      <template x-if="r.Type===902">
+                        <div class="grid grid-cols-2 gap-3 col-span-2">
+                          <div><label class="block text-xs text-slate-400 mb-1">Days</label><input type="number" x-model.number="r.Days" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"></div>
+                          <div><label class="block text-xs text-slate-400 mb-1">Weeks</label><input type="number" x-model.number="r.Weeks" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"></div>
+                          <div><label class="block text-xs text-slate-400 mb-1">Months</label><input type="number" x-model.number="r.Months" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"></div>
+                          <div><label class="block text-xs text-slate-400 mb-1">Years</label><input type="number" x-model.number="r.Years" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"></div>
+                          <div><label class="block text-xs text-slate-400 mb-1">Week Offset</label><input type="number" min="0" max="6" x-model.number="r.WeekOffset" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"></div>
+                          <div><label class="block text-xs text-slate-400 mb-1">Month Offset</label><input type="number" min="1" max="31" x-model.number="r.MonthOffset" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"></div>
+                          <div><label class="block text-xs text-slate-400 mb-1">Year Offset</label><input type="number" min="0" x-model.number="r.YearOffset" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"></div>
+                        </div>
+                      </template>
+                      <!-- Days/Weeks/Months/Years singular fields -->
+                      <div x-show="r.Type===903"><label class="block text-xs text-slate-400 mb-1">Days</label><input type="number" x-model.number="r.Days" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"></div>
+                      <div x-show="r.Type===905"><label class="block text-xs text-slate-400 mb-1">Months</label><input type="number" x-model.number="r.Months" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"><label class="block text-xs text-slate-400 mt-1">Month Offset</label><input type="number" x-model.number="r.MonthOffset" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"></div>
+                      <div x-show="r.Type===906"><label class="block text-xs text-slate-400 mb-1">Weeks</label><input type="number" x-model.number="r.Weeks" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"><label class="block text-xs text-slate-400 mt-1">Week Offset</label><input type="number" x-model.number="r.WeekOffset" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"></div>
+                      <div x-show="r.Type===911"><label class="block text-xs text-slate-400 mb-1">Years</label><input type="number" x-model.number="r.Years" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"><label class="block text-xs text-slate-400 mt-1">Year Offset</label><input type="number" x-model.number="r.YearOffset" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"></div>
+                    </div>
+                  </div>
+                </div>
+              </template>
 
-<!-- Delete Vault Confirmation Modal -->
-<div id="delete-vault-confirmation-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 hidden">
-    <div class="bg-gray-800 rounded-lg shadow-lg w-full max-w-md p-6" role="document">
-        <div class="flex justify-between items-center mb-4">
-            <h2 class="text-lg text-red-400">Delete Storage Vault</h2>
-            <button id="close-delete-confirmation-modal" class="text-gray-500 hover:text-gray-300">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-            </button>
+              <!-- New rule composer -->
+              <div x-show="editing===null" class="rounded-xl border border-dashed border-slate-700 p-3">
+                <p class="text-slate-300 mb-2 font-medium">Add a rule</p>
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <label class="block text-xs text-slate-400 mb-1">Type</label>
+                    <select class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm" x-model.number="newRange.Type">
+                      <option value="900">Most recent X jobs</option>
+                      <option value="901">Newer than date</option>
+                      <option value="902">Jobs since (relative)</option>
+                      <option value="903">First job for last X days</option>
+                      <option value="905">First job for last X months</option>
+                      <option value="906">First job for last X weeks</option>
+                      <option value="907">At most one per day (last X jobs)</option>
+                      <option value="908">At most one per week (last X jobs)</option>
+                      <option value="909">At most one per month (last X jobs)</option>
+                      <option value="910">At most one per year (last X jobs)</option>
+                      <option value="911">First job for last X years</option>
+                    </select>
         </div>
-        <div class="mb-6">
-            <p class="text-gray-300">Are you sure you want to delete the vault "<span id="delete-vault-name-confirmation" class="font-bold"></span>"?</p>
-            <p class="text-gray-400 text-sm mt-1">This action cannot be undone.</p>
+                  <div x-show="[900,907,908,909,910].includes(newRange.Type)"><label class="block text-xs text-slate-400 mb-1">Jobs</label><input type="number" x-model.number="newRange.Jobs" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm" placeholder="e.g., 7"></div>
+                  <div x-show="newRange.Type===901"><label class="block text-xs text-slate-400 mb-1">Date</label><input type="datetime-local" @change="newRange.Timestamp=(Date.parse($event.target.value)/1000)|0" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"></div>
+                  <template x-if="newRange.Type===902">
+                    <div class="grid grid-cols-2 gap-3 col-span-2">
+                      <div><label class="block text-xs text-slate-400 mb-1">Days</label><input type="number" x-model.number="newRange.Days" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"></div>
+                      <div><label class="block text-xs text-slate-400 mb-1">Weeks</label><input type="number" x-model.number="newRange.Weeks" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"></div>
+                      <div><label class="block text-xs text-slate-400 mb-1">Months</label><input type="number" x-model.number="newRange.Months" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"></div>
+                      <div><label class="block text-xs text-slate-400 mb-1">Years</label><input type="number" x-model.number="newRange.Years" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"></div>
         </div>
-        <div id="delete-vault-confirmation-error-message" class="mt-2 text-red-500 text-sm hidden"></div>
-        <div class="flex justify-end space-x-2 mt-4">
-            <button type="button" id="cancel-delete-vault" class="text-sm/6 font-semibold text-gray-300 mr-2">Cancel</button>
-            <button type="button" id="confirm-delete-vault" class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-700">Delete</button>
+                  </template>
         </div>
+                <div class="mt-3">
+                  <button class="rounded-lg bg-sky-600 hover:bg-sky-500 px-3 py-1.5 text-sm font-medium" @click="addRangeFromNew()">Add rule</button>
     </div>
 </div>
+            </div>
+          </div>
+        </template>
 
+        <!-- When override OFF, show compact summary of inherited policy -->
+        <template x-if="!state.override">
+          <div class="text-sm text-slate-300">This vault follows the account default policy.</div>
+        </template>
 
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-    const configureVaultModal = document.getElementById('configure-vault-modal');
-    const deleteVaultConfirmationModal = document.getElementById('delete-vault-confirmation-modal');
-    let currentVaultId = null;
+        <!-- Sticky summary -->
+        <div class="sticky bottom-0 mt-4 rounded-xl border border-slate-700 bg-slate-800/80 backdrop-blur p-3">
+          <p class="text-slate-300 font-medium mb-1">Effective policy:</p>
+          <ul class="list-disc pl-5 text-slate-200 text-sm space-y-1" x-html="formattedEffectivePolicyLines().join('')"></ul>
+        </div>
+        <!-- Save button for retention -->
+        <div class="mt-3 flex justify-end">
+          <button id="vault-retention-save" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-sm">Save</button>
+        </div>
+      </div>
 
-    // Open Configure Modal
-    document.querySelectorAll('.configure-vault-button').forEach(button => {
-        button.addEventListener('click', function () {
-            currentVaultId = this.dataset.vaultId;
-            document.getElementById('configure-vault-id').value = currentVaultId;
-            document.getElementById('vault-name').value = this.dataset.vaultName;
-            
-            const quotaEnabled = this.dataset.vaultQuotaEnabled === 'true';
-            const quotaBytes = parseInt(this.dataset.vaultQuotaBytes, 10);
-
-            const unlimitedCheckbox = document.getElementById('vault-quota-unlimited');
-            const quotaSizeInput = document.getElementById('vault-quota-size');
-            const quotaUnitSelect = document.getElementById('vault-quota-unit');
-
-            unlimitedCheckbox.checked = !quotaEnabled;
-            quotaSizeInput.disabled = !quotaEnabled;
-            quotaUnitSelect.disabled = !quotaEnabled;
-
-            if (quotaEnabled && quotaBytes > 0) {
-                if (quotaBytes % (1024**4) === 0) {
-                    quotaSizeInput.value = quotaBytes / (1024**4);
-                    quotaUnitSelect.value = 'TB';
-                } else {
-                    quotaSizeInput.value = quotaBytes / (1024**3);
-                    quotaUnitSelect.value = 'GB';
-                }
-            } else {
-                quotaSizeInput.value = '';
-            }
-
-            configureVaultModal.classList.remove('hidden');
-        });
-    });
-
-    // Close Configure Modal
-    document.getElementById('close-configure-modal').addEventListener('click', () => {
-        configureVaultModal.classList.add('hidden');
-    });
-    (function(){
-        var closeBtn2 = document.getElementById('close-configure-modal-button');
-        if (closeBtn2) {
-            closeBtn2.addEventListener('click', () => {
-                configureVaultModal.classList.add('hidden');
-            });
-        }
-    })();
-
-    // Handle Quota Unlimited Checkbox
-    document.getElementById('vault-quota-unlimited').addEventListener('change', function () {
-        const quotaSizeInput = document.getElementById('vault-quota-size');
-        const quotaUnitSelect = document.getElementById('vault-quota-unit');
-        quotaSizeInput.disabled = this.checked;
-        quotaUnitSelect.disabled = this.checked;
-        if (this.checked) {
-            quotaSizeInput.value = '';
-        }
-    });
-
-    // Save Vault Changes
-    document.getElementById('configure-vault-form').addEventListener('submit', function (e) {
-        e.preventDefault();
-        const vaultId = document.getElementById('configure-vault-id').value;
-        const vaultName = document.getElementById('vault-name').value;
-        const vaultQuota = {
-            unlimited: document.getElementById('vault-quota-unlimited').checked,
-            size: document.getElementById('vault-quota-size').value,
-            unit: document.getElementById('vault-quota-unit').value
-        };
-
-        const data = {
-            action: 'updateVault',
-            serviceId: '{$serviceid}',
-            username: '{$username}',
-            vaultId: vaultId,
-            vaultName: vaultName,
-            vaultQuota: vaultQuota
-        };
-
-        fetch('{$modulelink}&a=api', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.status === 'success') {
-                location.reload();
-            } else {
-                document.getElementById('configure-vault-error-message').innerText = data.message;
-                document.getElementById('configure-vault-error-message').classList.remove('hidden');
-            }
-        });
-    });
-
-    // Open Delete Confirmation Modal
-    document.getElementById('delete-vault-button').addEventListener('click', function () {
-        const vaultName = document.getElementById('vault-name').value;
-        document.getElementById('delete-vault-name-confirmation').innerText = vaultName;
-        deleteVaultConfirmationModal.classList.remove('hidden');
-        configureVaultModal.classList.add('hidden');
-    });
-
-    // Close Delete Confirmation Modal
-    document.getElementById('close-delete-confirmation-modal').addEventListener('click', () => {
-        deleteVaultConfirmationModal.classList.add('hidden');
-    });
-    document.getElementById('cancel-delete-vault').addEventListener('click', () => {
-        deleteVaultConfirmationModal.classList.add('hidden');
-    });
-    
-    // Confirm and Delete Vault
-    document.getElementById('confirm-delete-vault').addEventListener('click', function () {
-        const data = {
-            action: 'deleteVault',
-            serviceId: '{$serviceid}',
-            username: '{$username}',
-            vaultId: currentVaultId
-        };
-
-        fetch('{$modulelink}&a=api', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.status === 'success') {
-                location.reload();
-            } else {
-                document.getElementById('delete-vault-confirmation-error-message').innerText = data.message;
-                document.getElementById('delete-vault-confirmation-error-message').classList.remove('hidden');
-            }
-        });
-    });
-});
-</script>
+      <!-- Danger Tab -->
+      <div x-show="tab==='danger'" class="px-4 py-4 space-y-3">
+        <h4 class="text-rose-400 font-semibold">Danger zone</h4>
+        <div class="text-sm text-slate-300">Deleting a vault cannot be undone.</div>
+        <button id="vault-delete" class="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded text-sm">Delete</button>
+        <div id="vault-delete-confirm" class="hidden border border-slate-700 rounded p-3 bg-slate-900/60">
+          <div class="text-slate-200 text-sm font-semibold mb-1">Confirm your account password</div>
+          <div class="text-slate-400 text-xs mb-2">This is the password you use to sign in to your eazyBackup Client Area.</div>
+          <input id="vault-delete-password" type="password" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm mb-2" placeholder="Account password" />
+          <div class="flex justify-end gap-2">
+            <button id="vault-delete-cancel" class="px-3 py-2 text-slate-300 hover:text-white text-sm">Cancel</button>
+            <button id="vault-delete-confirm-btn" class="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded text-sm">Confirm delete</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 
 {* TOTP Modal *}
 <div id="totp-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70 hidden">

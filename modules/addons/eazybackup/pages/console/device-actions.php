@@ -1,6 +1,7 @@
 <?php
 
 use WHMCS\Database\Capsule;
+use WHMCS\Session;
 
 require_once __DIR__ . '/../../../../../modules/servers/comet/functions.php';
 
@@ -17,9 +18,13 @@ try {
     $username  = (string)($post['username'] ?? '');
     if (!$action || $serviceId <= 0) { echo json_encode(['status' => 'error', 'message' => 'Missing required parameters']); exit; }
 
+    $clientId = 0;
+    try { $clientId = (int) (Session::get('uid') ?: 0); } catch (\Throwable $e) { $clientId = 0; }
+    if ($clientId <= 0) { $clientId = (int) ($_SESSION['uid'] ?? 0); }
+    if ($clientId <= 0) { echo json_encode(['status' => 'error', 'message' => 'Not authenticated']); exit; }
     $account = Capsule::table('tblhosting')
         ->where('id', $serviceId)
-        ->where('userid', Auth::client()->id)
+        ->where('userid', $clientId)
         ->select('id', 'packageid', 'username')
         ->first();
     if (!$account) { echo json_encode(['status' => 'error', 'message' => 'Service not found or access denied']); exit; }
@@ -47,6 +52,35 @@ try {
     };
 
     switch ($action) {
+        case 'getUserProfile': {
+            $ph = $server->AdminGetUserProfileAndHash($username);
+            if (!$ph || !$ph->Profile) { echo json_encode(['status'=>'error','message'=>'Profile not found']); break; }
+            echo json_encode(['status'=>'success','profile'=>$ph->Profile->toArray(true), 'hash'=>$ph->ProfileHash]);
+            break;
+        }
+        case 'setUserProfile': {
+            $profileArr = isset($post['profile']) ? $post['profile'] : null;
+            $hash = (string)($post['hash'] ?? '');
+            if (!$profileArr || !$hash) { echo json_encode(['status'=>'error','message'=>'Missing profile or hash']); break; }
+            try {
+                // Re-hydrate into SDK model
+                $profile = new \Comet\UserProfileConfig();
+                $profile->fromArray($profileArr);
+            } catch (\Throwable $e) {
+                echo json_encode(['status'=>'error','message'=>'Invalid profile payload']); break;
+            }
+            $resp = $server->AdminSetUserProfileHash($username, $profile, $hash);
+            if ($resp && $resp->Status < 400) {
+                // Return new hash by re-reading profile
+                $ph = $server->AdminGetUserProfileAndHash($username);
+                echo json_encode(['status'=>'success','hash'=>($ph?$ph->ProfileHash:'')]);
+            } else if ($resp && $resp->Status === 409) {
+                echo json_encode(['status'=>'error','code'=>'hash_mismatch','message'=>'Profile changed']);
+            } else {
+                echo json_encode(['status'=>'error','message'=>($resp?$resp->Message:'Failed')]);
+            }
+            break;
+        }
         case 'listProtectedItems': {
             $deviceId = (string)($post['deviceId'] ?? '');
             if ($deviceId === '') { echo json_encode(['status'=>'error','message'=>'deviceId required']); break; }
