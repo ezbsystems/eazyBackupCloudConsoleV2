@@ -546,31 +546,67 @@
           </div>
         
          <div x-show="activeSubTab === 'jobLogs'" x-cloak x-transition>
-             <div class="bg-gray-900/50 rounded-lg overflow-hidden">
-                  <table class="min-w-full divide-y divide-gray-700">
+             <div class="bg-gray-900/50 rounded-lg overflow-visible" x-data="{ open:false, search:'', cols:{ user:true, id:true, device:true, item:true, vault:true, ver:true, type:true, status:true, dirs:true, files:true, size:true, vsize:true, up:true, down:true, started:true, ended:true, dur:true } }">
+                 <div class="flex items-center justify-between px-4 pt-4 pb-2">
+                     <div class="relative" @click.away="open=false">
+                         <button type="button" class="inline-flex items-center px-3 py-2 text-sm bg-slate-700 hover:bg-slate-600 rounded text-white" @click="open=!open">
+                             View
+                             <svg class="ml-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                         </button>
+                         <div x-show="open" x-transition class="absolute mt-2 w-72 bg-slate-800 border border-slate-700 rounded shadow-lg z-10">
+                             <div class="p-3 grid grid-cols-2 gap-2 text-slate-200 text-sm">
+                                 <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.user"> Username</label>
+                                 <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.id"> Job ID</label>
+                                 <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.device"> Device</label>
+                                 <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.item"> Protected Item</label>
+                                 <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.vault"> Storage Vault</label>
+                                 <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.ver"> Version</label>
+                                 <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.type"> Type</label>
+                                 <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.status"> Status</label>
+                                 <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.dirs"> Directories</label>
+                                 <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.files"> Files</label>
+                                 <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.size"> Size</label>
+                                 <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.vsize"> Storage Vault Size</label>
+                                 <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.up"> Uploaded</label>
+                                 <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.down"> Downloaded</label>
+                                 <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.started"> Started</label>
+                                 <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.ended"> Ended</label>
+                                 <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.dur"> Duration</label>
+                             </div>
+                         </div>
+                     </div>
+                     <div class="w-72">
+                         <input id="jobs-search" type="text" placeholder="Search jobs..." class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-700 text-slate-200 focus:outline-none focus:ring-0 focus:border-sky-600">
+                     </div>
+                 </div>
+                 <div class="px-4 text-xs text-slate-400 mb-1">Total: <span id="jobs-total">0</span></div>
+                 <table id="jobs-table" class="min-w-full divide-y divide-gray-700" data-job-table>
                      <thead class="bg-gray-800/50">
                          <tr>
-                             <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Status</th>
-                             <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Started</th>
-                             <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Finished</th>
-                             <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Data Uploaded</th>
+                             <th x-show="cols.user"   data-sort="Username"    class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Username</th>
+                             <th x-show="cols.id"     data-sort="JobID"       class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Job ID</th>
+                             <th x-show="cols.device" data-sort="Device"      class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Device</th>
+                             <th x-show="cols.item"   data-sort="ProtectedItem" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Protected Item</th>
+                             <th x-show="cols.vault"  data-sort="StorageVault" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Storage Vault</th>
+                             <th x-show="cols.ver"    data-sort="Version"     class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Version</th>
+                             <th x-show="cols.type"   data-sort="Type"        class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Type</th>
+                             <th x-show="cols.status" data-sort="Status"      class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Status</th>
+                             <th x-show="cols.dirs"   data-sort="Directories" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Directories</th>
+                             <th x-show="cols.files"  data-sort="Files"       class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Files</th>
+                             <th x-show="cols.size"   data-sort="Size"        class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Size</th>
+                             <th x-show="cols.vsize"  data-sort="VaultSize"   class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Storage Vault Size</th>
+                             <th x-show="cols.up"     data-sort="Uploaded"    class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Uploaded</th>
+                             <th x-show="cols.down"   data-sort="Downloaded"  class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Downloaded</th>
+                             <th x-show="cols.started" data-sort="Started"    class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Started</th>
+                             <th x-show="cols.ended"   data-sort="Ended"      class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Ended</th>
+                             <th x-show="cols.dur"     data-sort="Duration"   class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Duration</th>
                          </tr>
                      </thead>
-                     <tbody class="divide-y divide-gray-700">
-                         {foreach from=$jobLogs item=job}
-                             <tr class="hover:bg-gray-800/60">
-                                 <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$job.Class}</td>
-                                 <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$job.StartTime|date_format:"%Y-%m-%d %H:%M:%S"}</td>
-                                 <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$job.EndTime|date_format:"%Y-%m-%d %H:%M:%S"}</td>
-                                 <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($job.UploadSize)}</td>
-                             </tr>
-                         {foreachelse}
-                             <tr>
-                                 <td colspan="4" class="text-center py-6 text-sm text-gray-400">No recent job logs found for this user.</td>
-                             </tr>
-                         {/foreach}
-                     </tbody>
+                     <tbody class="divide-y divide-gray-700"></tbody>
                  </table>
+                 <div class="flex items-center justify-between px-4 py-2">
+                     <div id="jobs-pager" class="space-x-2"></div>
+                 </div>
              </div>
         </div>
     </div>
@@ -1001,6 +1037,28 @@ window.EB_DEVICE_ENDPOINT = '{$modulelink}&a=device-actions';
 </script>
 <script src="modules/addons/eazybackup/templates/assets/js/ui.js"></script>
 <script src="modules/addons/eazybackup/assets/js/device-actions.js"></script>
+<script src="modules/addons/eazybackup/assets/js/job-reports.js"></script>
+{include file="modules/addons/eazybackup/templates/console/partials/job-report-modal.tpl"}
+<script>
+try {
+  window.EB_JOBREPORTS_ENDPOINT = '{$modulelink}&a=job-reports';
+  const f = window.jobReportsFactory && window.jobReportsFactory({});
+  const make = f ? f.makeJobsTable : (window.jobReportsFactory && window.jobReportsFactory({}).makeJobsTable);
+  if (make) {
+    const serviceId = '{$serviceid}';
+    const username = '{$username}';
+    const table = document.getElementById('jobs-table');
+    const api = make(table, {
+      serviceId: serviceId,
+      username: username,
+      totalEl: document.getElementById('jobs-total'),
+      pagerEl: document.getElementById('jobs-pager'),
+      searchInput: document.getElementById('jobs-search'),
+    });
+    api && api.reload && api.reload();
+  }
+} catch (e) {}
+</script>
 
 <!-- Restore Wizard Modal -->
 <div id="restore-wizard" class="fixed inset-0 z-50 hidden">

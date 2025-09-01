@@ -406,6 +406,10 @@ function eazybackup_clientarea(array $vars)
         // Isolated Email Reports AJAX endpoint
         require_once __DIR__ . "/pages/console/email-reports.php";
         exit; // script handles output
+    } else if ($_REQUEST["a"] == "job-reports") {
+        // Isolated Job Reports AJAX endpoint (shared between profile and dashboard)
+        require_once __DIR__ . "/pages/console/job-reports.php";
+        exit; // script handles output
     } else if ($_REQUEST["a"] == "device-actions") {
         // Isolated Device Actions AJAX endpoint
         require_once __DIR__ . "/pages/console/device-actions.php";
