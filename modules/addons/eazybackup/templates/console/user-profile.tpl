@@ -580,32 +580,38 @@
                      </div>
                  </div>
                  <div class="px-4 text-xs text-slate-400 mb-1">Total: <span id="jobs-total">0</span></div>
-                 <table id="jobs-table" class="min-w-full divide-y divide-gray-700" data-job-table>
-                     <thead class="bg-gray-800/50">
-                         <tr>
-                             <th x-show="cols.user"   data-sort="Username"    class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Username</th>
-                             <th x-show="cols.id"     data-sort="JobID"       class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Job ID</th>
-                             <th x-show="cols.device" data-sort="Device"      class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Device</th>
-                             <th x-show="cols.item"   data-sort="ProtectedItem" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Protected Item</th>
-                             <th x-show="cols.vault"  data-sort="StorageVault" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Storage Vault</th>
-                             <th x-show="cols.ver"    data-sort="Version"     class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Version</th>
-                             <th x-show="cols.type"   data-sort="Type"        class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Type</th>
-                             <th x-show="cols.status" data-sort="Status"      class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Status</th>
-                             <th x-show="cols.dirs"   data-sort="Directories" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Directories</th>
-                             <th x-show="cols.files"  data-sort="Files"       class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Files</th>
-                             <th x-show="cols.size"   data-sort="Size"        class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Size</th>
-                             <th x-show="cols.vsize"  data-sort="VaultSize"   class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Storage Vault Size</th>
-                             <th x-show="cols.up"     data-sort="Uploaded"    class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Uploaded</th>
-                             <th x-show="cols.down"   data-sort="Downloaded"  class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Downloaded</th>
-                             <th x-show="cols.started" data-sort="Started"    class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Started</th>
-                             <th x-show="cols.ended"   data-sort="Ended"      class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Ended</th>
-                             <th x-show="cols.dur"     data-sort="Duration"   class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Duration</th>
-                         </tr>
-                     </thead>
-                     <tbody class="divide-y divide-gray-700"></tbody>
-                 </table>
+
+                 <!-- scroll wrapper: horizontal scroll for column overflow -->
+                 <div class="px-4 pb-2">
+                    <div class="overflow-x-auto rounded-md border border-slate-800">
+                      <table id="jobs-table" class="min-w-full divide-y divide-gray-700" data-job-table>
+                          <thead class="bg-gray-800/50">
+                              <tr>
+                                  <th x-show="cols.user"   data-sort="Username"    class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Username</th>
+                                  <th x-show="cols.id"     data-sort="JobID"       class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Job ID</th>
+                                  <th x-show="cols.device" data-sort="Device"      class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Device</th>
+                                  <th x-show="cols.item"   data-sort="ProtectedItem" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Protected Item</th>
+                                  <th x-show="cols.vault"  data-sort="StorageVault" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Storage Vault</th>
+                                  <th x-show="cols.ver"    data-sort="Version"     class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Version</th>
+                                  <th x-show="cols.type"   data-sort="Type"        class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Type</th>
+                                  <th x-show="cols.status" data-sort="Status"      class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Status</th>
+                                  <th x-show="cols.dirs"   data-sort="Directories" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Directories</th>
+                                  <th x-show="cols.files"  data-sort="Files"       class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Files</th>
+                                  <th x-show="cols.size"   data-sort="Size"        class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Size</th>
+                                  <th x-show="cols.vsize"  data-sort="VaultSize"   class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Storage Vault Size</th>
+                                  <th x-show="cols.up"     data-sort="Uploaded"    class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Uploaded</th>
+                                  <th x-show="cols.down"   data-sort="Downloaded"  class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Downloaded</th>
+                                  <th x-show="cols.started" data-sort="Started"    class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Started</th>
+                                  <th x-show="cols.ended"   data-sort="Ended"      class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Ended</th>
+                                  <th x-show="cols.dur"     data-sort="Duration"   class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Duration</th>
+                              </tr>
+                          </thead>
+                          <tbody class="divide-y divide-gray-700"></tbody>
+                      </table>
+                    </div>
+                  </div>
                  <div class="flex items-center justify-between px-4 py-2">
-                     <div id="jobs-pager" class="space-x-2"></div>
+                     <div id="jobs-pager" class="space-x-2 text-small font-medium text-slate-400"></div>
                  </div>
              </div>
         </div>

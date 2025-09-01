@@ -14,7 +14,7 @@
     const modal = document.getElementById('job-report-modal');
     if(!modal) return;
     modal.classList.remove('hidden');
-    modal.querySelector('#jrm-title').textContent = `Job ${jobId}`;
+    modal.querySelector('#jrm-title').textContent = `Job`;
     modal.querySelector('#jrm-subtitle').textContent = `${username}`;
     modal.querySelector('#jrm-current-job').value = jobId;
     modal.querySelector('#jrm-service-id').value = String(serviceId||'');
@@ -27,9 +27,9 @@
         const j = det.job;
         modal.querySelector('#jrm-status').textContent   = j.FriendlyStatus || '';
         modal.querySelector('#jrm-type').textContent     = j.FriendlyJobType || '';
-        modal.querySelector('#jrm-device').textContent   = j.Device || '';
+        modal.querySelector('#jrm-device').textContent   = (j.DeviceFriendlyName || j.Device || '');
         modal.querySelector('#jrm-item').textContent     = j.ProtectedItemDescription || '';
-        modal.querySelector('#jrm-vault').textContent    = j.DestinationLocation || '';
+        modal.querySelector('#jrm-vault').textContent    = (j.VaultDescription || j.DestinationLocation || '');
         modal.querySelector('#jrm-up').textContent       = fmtBytes(j.UploadSize||0);
         modal.querySelector('#jrm-down').textContent     = fmtBytes(j.DownloadSize||0);
         modal.querySelector('#jrm-size').textContent     = fmtBytes(j.TotalSize||0);
@@ -37,6 +37,8 @@
         modal.querySelector('#jrm-end').textContent      = fmtTs(j.EndTime||0);
         modal.querySelector('#jrm-duration').textContent = fmtDur((j.EndTime||0)-(j.StartTime||0));
         modal.querySelector('#jrm-version').textContent  = j.ClientVersion || '';
+        // Title as protected item name
+        modal.querySelector('#jrm-title').textContent = j.ProtectedItemDescription || `Job ${jobId}`;
       }
     } catch(_){}
 
@@ -50,7 +52,12 @@
           const row = document.createElement('div');
           row.className = 'px-3 py-2 grid grid-cols-12 gap-2';
           const t = document.createElement('div'); t.className='col-span-3 text-xs text-slate-400'; t.textContent = fmtTs(e.Time);
-          const s = document.createElement('div'); s.className='col-span-2 text-xs'; s.textContent = e.Severity;
+          const s = document.createElement('div'); s.className='col-span-2 text-xs';
+          const sev = (e.Severity||'').toUpperCase();
+          if(sev==='I'){ s.classList.add('text-slate-400'); s.textContent = 'Information'; }
+          else if(sev==='W'){ s.classList.add('text-amber-400'); s.textContent = 'Warning'; }
+          else if(sev==='E'){ s.classList.add('text-rose-400'); s.textContent = 'Error'; }
+          else { s.classList.add('text-slate-300'); s.textContent = e.Severity||''; }
           const m = document.createElement('div'); m.className='col-span-7 text-slate-200'; m.textContent = e.Message;
           row.dataset.sev = (e.Severity||'').toLowerCase();
           row.appendChild(t); row.appendChild(s); row.appendChild(m);
@@ -100,6 +107,7 @@
     const state = { page:1, pageSize:25, sortBy:'Started', sortDir:'desc', q:'' };
     const serviceId = opts.serviceId; const username = opts.username;
     const thead = el.querySelector('thead'); const tbody = el.querySelector('tbody');
+    const colKeys = ['user','id','device','item','vault','ver','type','status','dirs','files','size','vsize','up','down','started','ended','dur'];
     const totalEl = opts.totalEl; const pagerEl = opts.pagerEl; const searchInput = opts.searchInput; const cols = opts.cols || [];
 
     async function load(){
@@ -114,10 +122,27 @@
         tr.setAttribute('data-service-id', String(serviceId));
         tr.setAttribute('data-username', String(username));
         const cells = [r.Username, r.JobID, r.Device, r.ProtectedItem, r.StorageVault, r.Version, r.Type, r.Status, r.Directories, r.Files, fmtBytes(r.Size), fmtBytes(r.VaultSize), fmtBytes(r.Uploaded), fmtBytes(r.Downloaded), fmtTs(r.Started), fmtTs(r.Ended), fmtDur(r.Duration)];
-        for(let i=0;i<cells.length;i++){ const td=document.createElement('td'); td.className='px-4 py-3 whitespace-nowrap text-sm text-gray-300'; td.textContent = cells[i]!==undefined? String(cells[i]) : ''; tr.appendChild(td); }
+        for(let i=0;i<cells.length;i++){
+          const td=document.createElement('td'); td.className='px-4 py-3 whitespace-nowrap text-sm';
+          td.setAttribute('data-col', colKeys[i]);
+          if (i===7) { // Status column
+            const status = (r.Status||'').toUpperCase();
+            td.textContent = status;
+            if (status==='SUCCESS') td.classList.add('text-emerald-400');
+            else if (status==='WARNING') td.classList.add('text-amber-400');
+            else if (['ERROR','TIMEOUT','CANCELLED','QUOTA_EXCEEDED','ALREADY_RUNNING','ABANDONED'].includes(status)) td.classList.add('text-rose-400');
+            else if (['ACTIVE','REVIVED'].includes(status)) td.classList.add('text-sky-400');
+          } else {
+            td.classList.add('text-gray-300');
+            td.textContent = cells[i]!==undefined? String(cells[i]) : '';
+          }
+          tr.appendChild(td);
+        }
         tbody.appendChild(tr);
       }
       renderPager(res.total||0);
+      // Apply current column visibility to body cells
+      syncColumnVisibility();
     }
 
     function renderPager(total){
@@ -141,6 +166,52 @@
 
     // Search
     searchInput && searchInput.addEventListener('input', () => { state.q = searchInput.value||''; state.page = 1; load(); });
+
+    function isVisible(node){
+      if(!node) return false;
+      if (node.offsetParent !== null) return true;
+      const cs = window.getComputedStyle(node);
+      return cs && cs.display !== 'none' && cs.visibility !== 'hidden' && cs.opacity !== '0';
+    }
+
+    function syncColumnVisibility(){
+      if (!isVisible(el) || !isVisible(thead)) return; // don't hide when table is not visible yet
+      // Derive visibility from header THs using their data-sort attribute
+      const ths = Array.from(thead.querySelectorAll('tr th'));
+      const mapSortToKey = {
+        Username: 'user', JobID: 'id', Device: 'device', ProtectedItem: 'item', StorageVault: 'vault', Version: 'ver',
+        Type: 'type', Status: 'status', Directories: 'dirs', Files: 'files', Size: 'size', VaultSize: 'vsize',
+        Uploaded: 'up', Downloaded: 'down', Started: 'started', Ended: 'ended', Duration: 'dur'
+      };
+      const vis = {};
+      ths.forEach(th => {
+        const sort = th.getAttribute('data-sort');
+        const key = mapSortToKey[sort];
+        if (!key) return;
+        vis[key] = (th.offsetParent !== null);
+      });
+      // If nothing mapped or all hidden, show all
+      const visKeys = Object.keys(vis);
+      const allHidden = visKeys.length>0 && visKeys.every(k => vis[k] === false);
+      el.querySelectorAll('tbody tr').forEach(tr => {
+        tr.querySelectorAll('td[data-col]').forEach(td => {
+          const key = td.getAttribute('data-col');
+          td.style.display = (allHidden || vis[key]!==false) ? '' : 'none';
+        });
+      });
+    }
+
+    // Observe header toggles to mirror visibility on body cells
+    (function observeHeaderToggles(){
+      try {
+        const obs = new MutationObserver(() => { syncColumnVisibility(); });
+        obs.observe(thead, { attributes:true, subtree:true, attributeFilter:['style','class'] });
+      } catch(_){ }
+    })();
+
+    // Try resync shortly after load to catch transitions
+    setTimeout(syncColumnVisibility, 50);
+    setTimeout(syncColumnVisibility, 150);
 
     // Public API
     return { reload: load };

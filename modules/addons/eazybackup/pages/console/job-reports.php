@@ -36,6 +36,24 @@ try {
     $params['username'] = $username;
     $server = comet_Server($params);
 
+    // Local mapping for status codes → friendly labels
+    $mapStatus = function(int $code): string {
+        switch ($code) {
+            case 5000: return 'SUCCESS';
+            case 6001: return 'ACTIVE';
+            case 6002: return 'REVIVED';
+            case 7000: return 'TIMEOUT';
+            case 7001: return 'WARNING';
+            case 7002: return 'ERROR';
+            case 7003: return 'QUOTA_EXCEEDED';
+            case 7004: return 'MISSED';
+            case 7005: return 'CANCELLED';
+            case 7006: return 'ALREADY_RUNNING';
+            case 7007: return 'ABANDONED';
+            default:   return 'UNKNOWN';
+        }
+    };
+
     switch ($action) {
         case 'listJobs': {
             // Optional filters
@@ -53,27 +71,49 @@ try {
             $sourceGUIDs = array_values(array_unique(array_map(function($j){ return $j->SourceGUID ?? ''; }, $jobs)));
             $descriptions = \Comet\CometItem::getProtectedItemDescriptions($server, $username, $sourceGUIDs);
 
+            // Load user profile maps: destinations (vaults) and device friendly names
+            $ph = $server->AdminGetUserProfileAndHash($username);
+            $destMap = [];
+            $deviceMap = [];
+            if ($ph && $ph->Profile) {
+                $profile = $ph->Profile;
+                if (!empty($profile->Destinations)) {
+                    foreach ($profile->Destinations as $guid => $dest) {
+                        $destMap[(string)$guid] = (string)($dest->Description ?? '');
+                    }
+                }
+                if (!empty($profile->Devices)) {
+                    foreach ($profile->Devices as $devId => $dev) {
+                        $deviceMap[(string)$devId] = (string)($dev->FriendlyName ?? '');
+                    }
+                }
+            }
+
             // Enrich + normalize rows
-            $rows = array_map(function($j) use ($descriptions) {
+            $rows = array_map(function($j) use ($descriptions, $destMap, $deviceMap, $mapStatus) {
                 $start = (int)($j->StartTime ?? 0);
                 $end   = (int)($j->EndTime ?? 0);
                 $dur   = $end > 0 && $start > 0 ? max(0, $end - $start) : 0;
                 $friendlyType = \Comet\JobType::toString($j->Classification ?? 0);
-                $friendlyStatus = \Comet\JobStatus::toString($j->Status ?? 0);
+                $friendlyStatus = $mapStatus((int)($j->Status ?? 0));
                 $itemDesc = $descriptions[$j->SourceGUID ?? ''] ?? 'Unknown Item';
+                $devId = (string)($j->DeviceID ?? $j->Device ?? '');
+                $deviceFriendly = $deviceMap[$devId] ?? (string)($j->Device ?? $devId);
+                $destGuid = (string)($j->Destination ?? $j->DestinationGUID ?? '');
+                $vaultName = $destMap[$destGuid] ?? (string)($j->DestinationLocation ?? '');
                 return [
                     'Username'           => (string)($j->Username ?? ''),
                     'JobID'              => (string)($j->GUID ?? ''),
-                    'Device'             => (string)($j->Device ?? ''),
+                    'Device'             => (string)$deviceFriendly,
                     'ProtectedItem'      => (string)$itemDesc,
-                    'StorageVault'       => (string)($j->DestinationLocation ?? ''),
+                    'StorageVault'       => (string)$vaultName,
                     'Version'            => (string)($j->ClientVersion ?? ''),
                     'Type'               => (string)$friendlyType,
                     'Status'             => (string)$friendlyStatus,
                     'Directories'        => (int)($j->TotalDirectories ?? 0),
                     'Files'              => (int)($j->TotalFiles ?? 0),
                     'Size'               => (int)($j->TotalSize ?? 0),
-                    'VaultSize'          => (int)($j->DestinationSize ?? 0),
+                    'VaultSize'          => 0,
                     'Uploaded'           => (int)($j->UploadSize ?? 0),
                     'Downloaded'         => (int)($j->DownloadSize ?? 0),
                     'Started'            => $start,
@@ -82,7 +122,7 @@ try {
                     'Classification'     => (int)($j->Classification ?? 0),
                     'StatusCode'         => (int)($j->Status ?? 0),
                     'SourceGUID'         => (string)($j->SourceGUID ?? ''),
-                    'DestinationGUID'    => (string)($j->Destination ?? ''),
+                    'DestinationGUID'    => (string)$destGuid,
                 ];
             }, $jobs);
 
@@ -107,6 +147,22 @@ try {
             $offset = ($page - 1) * $pageSize;
             $paged = array_slice($rows, $offset, $pageSize);
 
+            // Enrich paged rows with vault size from detailed job properties
+            foreach ($paged as &$r) {
+                $jid = $r['JobID'] ?? '';
+                if (!$jid) { continue; }
+                try {
+                    $jd = $server->AdminGetJobProperties($jid);
+                    if ($jd) {
+                        $r['VaultSize'] = (int)($jd->Size ?? ($jd->DestinationSizeEnd->Size ?? 0));
+                        $devId = (string)($jd->DeviceID ?? '');
+                        if ($devId && isset($deviceMap[$devId])) { $r['Device'] = $deviceMap[$devId]; }
+                        $dGuid = (string)($jd->DestinationGUID ?? '');
+                        if ($dGuid && isset($destMap[$dGuid])) { $r['StorageVault'] = $destMap[$dGuid]; }
+                    }
+                } catch (\Throwable $e) {}
+            }
+
             echo json_encode(['status' => 'success', 'total' => $total, 'rows' => $paged]);
             break;
         }
@@ -117,8 +173,27 @@ try {
             if (!$job) { echo json_encode(['status'=>'error','message'=>'Job not found']); break; }
             // Add protected item description
             $descMap = \Comet\CometItem::getProtectedItemDescriptions($server, $username, [ $job->SourceGUID ?? '' ]);
-            $job->ProtectedItemDescription = $descMap[$job->SourceGUID ?? ''] ?? 'Unknown Item';
-            echo json_encode(['status'=>'success','job' => $job->toArray(true)]);
+            $friendlyStatus = $mapStatus((int)($job->Status ?? 0));
+            $friendlyType = \Comet\JobType::toString($job->Classification ?? 0);
+            // Build response array explicitly so our extra fields are included
+            $out = $job->toArray(true);
+            $out['ProtectedItemDescription'] = $descMap[$job->SourceGUID ?? ''] ?? 'Unknown Item';
+            $out['FriendlyStatus'] = $friendlyStatus;
+            $out['FriendlyJobType'] = $friendlyType;
+            // Device and Vault friendly names
+            $ph = $server->AdminGetUserProfileAndHash($username);
+            if ($ph && $ph->Profile) {
+                $profile = $ph->Profile;
+                $devId = (string)($job->DeviceID ?? '');
+                if ($devId && isset($profile->Devices[$devId])) {
+                    $out['DeviceFriendlyName'] = (string)($profile->Devices[$devId]->FriendlyName ?? '');
+                }
+                $dGuid = (string)($job->DestinationGUID ?? '');
+                if ($dGuid && isset($profile->Destinations[$dGuid])) {
+                    $out['VaultDescription'] = (string)($profile->Destinations[$dGuid]->Description ?? '');
+                }
+            }
+            echo json_encode(['status'=>'success','job' => $out]);
             break;
         }
         case 'jobLogEntries': {
