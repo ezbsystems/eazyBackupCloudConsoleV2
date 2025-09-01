@@ -31,7 +31,7 @@
     {if $captcha}{$captcha->getPageJs()}{/if}
 </script>
 <script src="{assetPath file='scripts.min.js'}?v={$versionHash}"></script>
-<script src="{$WEB_ROOT}/templates/{$template}/js/services.js?v={$versionHash}"></script>
+{* <script src="{$WEB_ROOT}/templates/{$template}/js/services.js?v={$versionHash}"></script> *}
 
 {if $templatefile == "viewticket" && !$loggedin}
   <meta name="robots" content="noindex" />

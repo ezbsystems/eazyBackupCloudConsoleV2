@@ -44,6 +44,23 @@
   };
 })();
 
+// Minimal toast helper (shared)
+;(function(){
+  if (typeof window.showToast === 'function') return;
+  window.showToast = function(message, type){
+    try {
+      var container = document.getElementById('toast-container');
+      if (!container) return;
+      var el = document.createElement('div');
+      el.className = 'px-4 py-2 rounded shadow text-sm text-white ' + (type==='success'?'bg-green-600':(type==='error'?'bg-red-600':(type==='warning'?'bg-yellow-600':'bg-slate-700')));
+      el.textContent = String(message||'');
+      container.appendChild(el);
+      setTimeout(function(){ try{ el.classList.add('opacity-0','transition-opacity','duration-700'); }catch(_){} }, 2200);
+      setTimeout(function(){ try{ el.remove(); }catch(_){} }, 3000);
+    } catch(_){ }
+  }
+})();
+
 // Alpine retention factory (define early so x-data="retention()" is available before Alpine initializes)
 try {
   window.retention = function(){
@@ -137,6 +154,12 @@ document.addEventListener('DOMContentLoaded', function(){
   function dur(a,b){ var s=Math.max(0, (parseInt(b,10)||0)-(parseInt(a,10)||0)); var h=Math.floor(s/3600), m=Math.floor((s%3600)/60), sec=s%60; return h>0?(h+':' + String(m).padStart(2,'0')):(m+':' + String(sec).padStart(2,'0')); }
 
   function openModal(fromBtn){
+    try {
+      var sidBtn = fromBtn.getAttribute('data-service-id')||'';
+      var unBtn  = fromBtn.getAttribute('data-username')||'';
+      if (sidBtn) document.body.setAttribute('data-eb-serviceid', sidBtn);
+      if (unBtn)  document.body.setAttribute('data-eb-username', unBtn);
+    } catch(_){}
     const vaultId = fromBtn.getAttribute('data-vault-id')||'';
     const vaultName = fromBtn.getAttribute('data-vault-name')||vaultId;
     const sizeBytes = parseInt(fromBtn.getAttribute('data-size-bytes')||'0',10);
@@ -251,6 +274,12 @@ document.addEventListener('DOMContentLoaded', function(){
     const delPwd = document.getElementById('vault-delete-password');
 
     function openVaultPanel(btn){
+      try {
+        var sidBtn = btn.getAttribute('data-service-id')||'';
+        var unBtn  = btn.getAttribute('data-username')||'';
+        if (sidBtn) document.body.setAttribute('data-eb-serviceid', sidBtn);
+        if (unBtn)  document.body.setAttribute('data-eb-username', unBtn);
+      } catch(_){}
       const id = btn.getAttribute('data-vault-id')||'';
       const name = btn.getAttribute('data-vault-name')||id;
       const enabled = (btn.getAttribute('data-vault-quota-enabled') === '1' || btn.getAttribute('data-vault-quota-enabled') === 'true');
@@ -260,10 +289,31 @@ document.addEventListener('DOMContentLoaded', function(){
       titleName && (titleName.textContent = name);
       if (unlimitedEl) unlimitedEl.checked = !(enabled && qbytes>0);
       if (sizeEl && unitEl) {
+        var pickedUnit = 'GB';
         if (enabled && qbytes>0) {
-          if (qbytes % (1024**4) === 0) { sizeEl.value = qbytes / (1024**4); unitEl.value = 'TB'; }
-          else { sizeEl.value = (qbytes / (1024**3)).toFixed(0); unitEl.value = 'GB'; }
-        } else { sizeEl.value=''; unitEl.value='GB'; }
+          if (qbytes >= (1024**4)) { sizeEl.value = Math.round(qbytes / (1024**4)); pickedUnit = 'TB'; }
+          else { sizeEl.value = Math.round(qbytes / (1024**3)); pickedUnit = 'GB'; }
+        } else { sizeEl.value=''; pickedUnit='GB'; }
+        // Update hidden input value and the Alpine dropdown state so the label reflects the unit
+        function applyUnit(u){
+          try {
+            unitEl.value = u;
+            var wrapper = unitEl.parentElement;
+            // Update Alpine component state when available
+            var unitCmp = wrapper && wrapper.__x && wrapper.__x.$data;
+            if (unitCmp) unitCmp.unit = u;
+            // Update visible label immediately as a fallback
+            var btn = wrapper && wrapper.querySelector('button');
+            var label = btn && btn.querySelector('span');
+            if (label) label.textContent = u;
+          } catch(_){}
+        }
+        applyUnit(pickedUnit);
+        // Retry a few times to win against late Alpine init or rerender
+        (function retryApply(n){
+          if (n <= 0) return;
+          setTimeout(function(){ applyUnit(pickedUnit); retryApply(n-1); }, 60);
+        })(4);
         sizeEl.disabled = unlimitedEl.checked; unitEl.disabled = unlimitedEl.checked;
         // Apply initial visual state for Unlimited
         try {
@@ -381,6 +431,52 @@ document.addEventListener('DOMContentLoaded', function(){
     });
   }
 
+  // Simple client-side sort for vaults table
+  try {
+    var tbl = document.getElementById('vaults-table');
+    if (tbl) {
+      var thead = tbl.querySelector('thead');
+      var tbody = tbl.querySelector('tbody');
+      var sortState = { key: '', dir: 1 };
+      function getVal(tr, key){
+        var v = tr.getAttribute('data-' + key) || '';
+        if (key === 'stored' || key === 'usage' || key === 'quota') {
+          if (key === 'stored') return parseFloat(tr.getAttribute('data-stored-bytes')||'0');
+          if (key === 'quota') return parseFloat(tr.getAttribute('data-quota-bytes')||'0');
+          if (key === 'usage') return parseFloat(tr.getAttribute('data-usage-pct')||'0');
+        }
+        if (key === 'init') return parseInt(tr.getAttribute('data-init-ts')||'0',10)||0;
+        if (key === 'type') return (tr.getAttribute('data-type')||'').toString();
+        if (key === 'id') return (tr.getAttribute('data-id')||'').toString();
+        if (key === 'name') return (tr.getAttribute('data-name')||'').toString().toLowerCase();
+        if (key === 'acct') return (tr.getAttribute('data-acct')||'').toString().toLowerCase();
+        return v;
+      }
+      function applySort(key){
+        if (sortState.key === key) sortState.dir = -sortState.dir; else { sortState.key = key; sortState.dir = 1; }
+        var rows = Array.prototype.slice.call(tbody.querySelectorAll('tr'));
+        rows.sort(function(a,b){
+          var va = getVal(a, key); var vb = getVal(b, key);
+          if (typeof va === 'number' || typeof vb === 'number') {
+            va = Number(va)||0; vb = Number(vb)||0; return (va - vb) * sortState.dir;
+          } else {
+            va = String(va); vb = String(vb); return va.localeCompare(vb) * sortState.dir;
+          }
+        });
+        // Re-append in sorted order
+        rows.forEach(function(r){ tbody.appendChild(r); });
+        // Visual indicator (toggle caret) minimal: add data-order attr
+        try {
+          thead.querySelectorAll('[data-sort]').forEach(function(th){ th.removeAttribute('data-order'); });
+          var th = thead.querySelector('[data-sort="'+key+'"]'); if (th) th.setAttribute('data-order', sortState.dir>0?'asc':'desc');
+        } catch(_){ }
+      }
+      thead && thead.querySelectorAll('[data-sort]').forEach(function(th){
+        th.addEventListener('click', function(){ applySort(th.getAttribute('data-sort')); });
+      });
+    }
+  } catch(_){ }
+
   // Retention builder (plain JS)
   function initRetentionBuilder() {
     // endpoint will be resolved per-call; keep fallback here
@@ -416,11 +512,7 @@ document.addEventListener('DOMContentLoaded', function(){
 
     async function api(action, payload){
       // Resolve endpoint
-      var postUrl = modulelinkFallback;
-      if (!postUrl) {
-        var vp = document.getElementById('vault-slide-panel');
-        if (vp) { var ml = vp.getAttribute('data-modulelink'); if (ml) postUrl = ml; }
-      }
+      var postUrl = (window.EB_DEVICE_ENDPOINT || modulelinkFallback || '');
       // Resolve serviceId/username at call-time
       var sid = document.body.getAttribute('data-eb-serviceid') || '';
       var un  = document.body.getAttribute('data-eb-username') || '';
@@ -730,3 +822,90 @@ document.addEventListener('DOMContentLoaded', function(){
     }
   } catch(_){}
 });
+
+// Hydrate aggregated vaults page: resolve accurate quota/usage per row from live profile (per service)
+(function(){
+  try {
+    var buttons = document.querySelectorAll('.open-vault-panel');
+    if (!buttons || buttons.length === 0) return;
+    // Group by (serviceId, username), track rows to update
+    var groups = {};
+    buttons.forEach(function(btn){
+      var tr = btn.closest('tr'); if (!tr) return;
+      var sid = btn.getAttribute('data-service-id') || (tr.getAttribute('data-service-id')||'');
+      var un  = btn.getAttribute('data-username')  || (tr.getAttribute('data-username')||'');
+      var vid = tr.getAttribute('data-vault-id') || btn.getAttribute('data-vault-id') || '';
+      if (!sid || !un || !vid) return;
+      var key = sid+'\t'+un;
+      if (!groups[key]) groups[key] = { sid:sid, un:un, rows:[] };
+      groups[key].rows.push({ tr:tr, btn:btn, vid:vid });
+    });
+    var endpoint = window.EB_DEVICE_ENDPOINT || '';
+    async function loadProfile(sid, un){
+      try {
+        const res = await fetch(endpoint, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'getUserProfile', serviceId:sid, username:un }) });
+        return res.json();
+      } catch (e) { return null; }
+    }
+    var keys = Object.keys(groups);
+    if (keys.length > 0) {
+      try { document.dispatchEvent(new CustomEvent('vaults:hydrate-start')); } catch(_){ }
+    }
+    var done = 0;
+    keys.forEach(function(key){
+      var g = groups[key];
+      loadProfile(g.sid, g.un).then(function(r){
+        if (!r || r.status !== 'success' || !r.profile) return;
+        var prof = r.profile;
+        var dests = (prof && prof.Destinations) ? prof.Destinations : {};
+        (g.rows||[]).forEach(function(entry){
+          var tr = entry.tr, btn = entry.btn, vid = entry.vid;
+          var v = dests && dests[vid] ? dests[vid] : null;
+          if (!v) return;
+          // quota
+          var qEnabled = !!(v.StorageLimitEnabled);
+          var qBytes = parseInt(v.StorageLimitBytes||0,10)||0;
+          var quotaCell = tr.querySelector('[data-cell="quota"]');
+          if (quotaCell) {
+            if (!qEnabled || !qBytes) {
+              quotaCell.innerHTML = '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-slate-300">Unlimited</span>';
+            } else {
+              var size = (function(n){ var x=Number(n)||0, u=['B','KB','MB','GB','TB','PB'], i=0; while(x>=1024&&i<u.length-1){x/=1024;i++;} return x.toFixed(i?2:0)+' '+u[i]; })(qBytes);
+              quotaCell.innerHTML = '<span class="inline-flex items-center gap-2"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-slate-200">'+size+'</span><span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-900/40 text-emerald-300">On</span></span>';
+            }
+          }
+          // usage
+          var usedBytes = 0; var usedEnd = 0;
+          if (v.Statistics && v.Statistics.ClientProvidedSize && typeof v.Statistics.ClientProvidedSize.Size === 'number') usedBytes = v.Statistics.ClientProvidedSize.Size;
+          else if (v.ClientProvidedSize && typeof v.ClientProvidedSize.Size === 'number') usedBytes = v.ClientProvidedSize.Size;
+          else if (v.Size && typeof v.Size.Size === 'number') usedBytes = v.Size.Size;
+          else if (typeof v.Size === 'number') usedBytes = v.Size;
+          if (v.Statistics && v.Statistics.ClientProvidedSize && typeof v.Statistics.ClientProvidedSize.MeasureCompleted === 'number') usedEnd = v.Statistics.ClientProvidedSize.MeasureCompleted;
+          else if (v.ClientProvidedSize && typeof v.ClientProvidedSize.MeasureCompleted === 'number') usedEnd = v.ClientProvidedSize.MeasureCompleted;
+          var usageCell = tr.querySelector('[data-cell="usage"]');
+          if (usageCell) {
+            if (!qEnabled || !qBytes) {
+              usageCell.innerHTML = '<div class="w-56"><div class="h-2.5 w-full rounded bg-slate-800/70 overflow-hidden"><div class="h-full w-1/3 bg-gradient-to-r from-slate-600/40 via-slate-500/40 to-slate-600/40 animate-pulse"></div></div><div class="mt-1 text-xs text-slate-500">Usage unavailable (no quota)</div></div>';
+            } else {
+              var pct = qBytes ? (100*usedBytes/qBytes) : 0; if (pct<0) pct=0; if (pct>100) pct=100;
+              var color = (pct<70)?'bg-emerald-500':((pct<90)?'bg-amber-500':'bg-rose-500');
+              var fmt = function(n){ var x=Number(n)||0, u=['B','KB','MB','GB','TB','PB'], i=0; while(x>=1024&&i<u.length-1){x/=1024;i++;} return x.toFixed(i?2:0)+' '+u[i]; };
+              var title = fmt(usedBytes)+' of '+fmt(qBytes)+' ('+pct.toFixed(1)+'%)';
+              usageCell.innerHTML = '<div class="w-56"><div class="h-2.5 w-full rounded bg-slate-800/70 overflow-hidden" title="'+title+'"><div class="h-full transition-[width] duration-500 '+color+'" style="width:'+pct+'%"></div></div><div class="mt-1 text-xs text-slate-400">'+fmt(usedBytes)+' / '+fmt(qBytes)+' ('+pct.toFixed(1)+'%)</div></div>';
+            }
+          }
+          // also update Manage button attrs for accurate prefill
+          if (btn) {
+            btn.setAttribute('data-vault-quota-enabled', String(qEnabled));
+            btn.setAttribute('data-vault-quota-bytes', String(qBytes));
+          }
+        });
+      }).finally(function(){
+        done++;
+        if (done >= keys.length) {
+          try { document.dispatchEvent(new CustomEvent('vaults:hydrate-end')); } catch(_){ }
+        }
+      });
+    });
+  } catch(_){ }
+})();

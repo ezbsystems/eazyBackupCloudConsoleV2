@@ -615,11 +615,33 @@ function eazybackup_clientarea(array $vars)
             ->toArray();
 
 
+        // Build username → serviceid map without joins to avoid collation issues
+        $serviceMap = Capsule::table('tblhosting')
+            ->select('username', 'id')
+            ->where('userid', $clientId)
+            ->whereIn('username', $accounts)
+            ->pluck('id', 'username')
+            ->toArray();
+
+        // Fetch vaults then attach serviceid per username in PHP
         $vaults = Capsule::table('comet_vaults')
-            ->select('username', 'name', 'total_bytes')
+            ->select(
+                'id',
+                'username',
+                'name',
+                'total_bytes',
+                'type as DestinationType',
+                'has_storage_limit as quota_enabled',
+                'storage_limit_bytes as quota_bytes'
+            )
             ->where('client_id', $clientId)
             ->whereIn('username', $accounts)
             ->get();
+
+        foreach ($vaults as $v) {
+            $uname = $v->username ?? '';
+            $v->serviceid = isset($serviceMap[$uname]) ? $serviceMap[$uname] : null;
+        }
 
         return [
             "pagetitle" => "Dashboard",
