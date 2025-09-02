@@ -240,6 +240,20 @@
     setTimeout(syncColumnVisibility, 50);
     setTimeout(syncColumnVisibility, 150);
 
+    // Also resync when the table actually becomes visible (e.g., when its tab is shown)
+    (function observeVisibility(){
+      try {
+        const io = new IntersectionObserver((entries) => {
+          for (const entry of entries) {
+            if (entry.isIntersecting) {
+              syncColumnVisibility();
+            }
+          }
+        }, { root: null, threshold: 0.01 });
+        io.observe(el);
+      } catch(_){ }
+    })();
+
     // Public API
     return { reload: load };
   }
