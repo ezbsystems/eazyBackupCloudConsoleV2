@@ -23,7 +23,16 @@
       const det = await api('jobDetail', { action:'jobDetail', serviceId, username, jobId });
       if(det && det.status==='success' && det.job){
         const j = det.job;
-        modal.querySelector('#jrm-status').textContent   = (window.EB && EB.humanStatus ? EB.humanStatus(j.FriendlyStatus || j.Status || j.StatusCode) : (j.FriendlyStatus || ''));
+        const statusEl = modal.querySelector('#jrm-status');
+        const label = (window.EB && EB.humanStatus ? EB.humanStatus(j.FriendlyStatus || j.Status || j.StatusCode) : (j.FriendlyStatus || ''));
+        if (statusEl) {
+          statusEl.textContent = label;
+          try {
+            var cls = (window.EB && EB.statusText) ? EB.statusText(label) : '';
+            statusEl.classList.remove('text-slate-200','text-emerald-400','text-sky-400','text-amber-400','text-rose-400','text-gray-300','text-green-500','text-sky-500','text-amber-500','text-red-500','text-gray-500','text-gray-400');
+            if (cls) statusEl.classList.add(cls);
+          } catch(_) {}
+        }
         modal.querySelector('#jrm-type').textContent     = j.FriendlyJobType || '';
         modal.querySelector('#jrm-device').textContent   = (j.DeviceFriendlyName || j.Device || '');
         modal.querySelector('#jrm-item').textContent     = j.ProtectedItemDescription || '';

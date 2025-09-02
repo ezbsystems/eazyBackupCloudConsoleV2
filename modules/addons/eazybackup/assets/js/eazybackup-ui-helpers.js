@@ -109,6 +109,21 @@
     return STATUS_DOT[label] || STATUS_DOT.Unknown;
   }
 
+  // Return a text color class aligned with STATUS_DOT mapping
+  function statusText(codeOrLabel){
+    var label = normalizeLabelFromAny(codeOrLabel);
+    switch (label) {
+      case 'Success':  return 'text-green-500';
+      case 'Running':  return 'text-sky-500';
+      case 'Timeout':  return 'text-amber-500';
+      case 'Warning':  return 'text-amber-500';
+      case 'Error':    return 'text-red-500';
+      case 'Skipped':  return 'text-gray-500';
+      case 'Cancelled':return 'text-gray-500';
+      default:         return 'text-gray-400';
+    }
+  }
+
   function normalizeJob(j){
     j = j || {};
     var id = j.JobID || j.job_id || j.id || j.GUID || j.guid || '';
@@ -128,6 +143,7 @@
     STATUS_DOT: STATUS_DOT,
     humanStatus: humanStatus,
     statusDot: statusDot,
+    statusText: statusText,
     normalizeJob: normalizeJob
   };
 

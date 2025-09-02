@@ -492,7 +492,7 @@ function eazybackup_clientarea(array $vars)
         $endDate = date('Y-m-d');
         $startDate = date('Y-m-d', strtotime('-15 days'));
         foreach ($devices as $device) {
-            // 1) grab the raw rows…
+            // 1) grab the raw rows
             $rawJobs = Capsule::table('comet_jobs')
                 ->select(
                     'comet_jobs.id as job_guid',
@@ -512,7 +512,7 @@ function eazybackup_clientarea(array $vars)
                 ->whereDate('started_at', '>=', $startDate)
                 ->whereDate('started_at', '<=', $endDate)
                 ->orderBy('comet_jobs.started_at', 'desc')
-                ->get();  // ← this gives you a Collection of StdClass
+                ->get();  // this gives you a Collection of StdClass
         
             // 2) map over them and overwrite the two fields your tooltip uses
             $device->jobs = $rawJobs->map(function($job) {
@@ -583,9 +583,39 @@ function eazybackup_clientarea(array $vars)
                 ->toArray(); // This now returns an array of arrays
 
 
+            // Fetch Comet user profile for account name and email reporting
+            $accountName = '';
+            $emailsCsv = '';
+            $emailReportsEnabled = null; // null => unknown, bool when known
+            try {
+                $params = comet_ServiceParams($service->id);
+                $params['username'] = $service->username;
+                $server = comet_Server($params);
+                if ($server) {
+                    // Prefer AdminGetUserProfileAndHash (contains Profile + hash)
+                    $ph = $server->AdminGetUserProfileAndHash($service->username);
+                    $prof = $ph && isset($ph->Profile) ? $ph->Profile : null;
+                    if (!$prof) {
+                        // Fallback to AdminGetUserProfile
+                        $prof = $server->AdminGetUserProfile($service->username);
+                    }
+                    if ($prof) {
+                        $accountName = (string)($prof->AccountName ?? '');
+                        $emailsArr = isset($prof->Emails) && is_array($prof->Emails) ? $prof->Emails : [];
+                        $emailsCsv = implode(', ', array_values($emailsArr));
+                        $emailReportsEnabled = isset($prof->SendEmailReports) ? (bool)$prof->SendEmailReports : null;
+                    }
+                }
+            } catch (\Throwable $e) {
+                // Leave defaults on error; do not disrupt dashboard rendering
+            }
+
             $accounts[] = [
                 'id' => $service->id,
                 'username' => $service->username,
+                'account_name' => $accountName,
+                'report_emails' => $emailsCsv,
+                'email_reports_enabled' => $emailReportsEnabled,
                 'total_devices' => $total_devices,
                 'total_protected_items' => $total_protected_items,
                 'vaults' => $vaultsForUser, // Pass the detailed vault list
@@ -636,7 +666,7 @@ function eazybackup_clientarea(array $vars)
             ->toArray();
 
 
-        // Build username → serviceid map without joins to avoid collation issues
+        // Build username serviceid map without joins to avoid collation issues
         $serviceMap = Capsule::table('tblhosting')
             ->select('username', 'id')
             ->where('userid', $clientId)
@@ -1256,7 +1286,7 @@ function eazybackup_clientarea(array $vars)
 }
 
 /**
- * Admin Area Output (WHMCS admin → addonmodules.php?module=eazybackup)
+ * Admin Area Output (WHMCS admin addonmodules.php?module=eazybackup)
  * Routes the eazyBackup Power Panel.
  */
 function eazybackup_output($vars)
@@ -1995,7 +2025,7 @@ function whitelabel_signup(array $vars)
         }
 
         /* ------------------------------------------------------------------
-         * Upsert the client ➜ group mapping row
+         * Upsert the client group mapping row
          * ------------------------------------------------------------------*/
         Capsule::table('tbl_client_productgroup_map')
             ->updateOrInsert(
@@ -2043,7 +2073,7 @@ function whitelabel_signup(array $vars)
  * – Copies pricing, module settings, configurable options, custom fields, etc.
  *
  * @param int    $templatePid  Source product ID (e.g. 60 for OBC template)
- * @param int    $targetGroup  Destination product‑group ID
+ * @param int    $targetGroup  Destination productgroup ID
  * @param string $newName      New product name shown to the reseller
  * @return int|false           New product ID or false on failure
  */
@@ -2175,7 +2205,7 @@ function eazybackup_createorder($vars)
                 logActivity("eazybackup: Created Service => " . json_encode($service));
 
                 if ($isWhiteLabel) {
-                    // Grab user’s choice from the form; default to monthly
+                    // Grab users choice from the form; default to monthly
                     $billingTerm = ($_POST['billingterm'] ?? 'monthly') === 'annual' ? 'annual' : 'monthly';
                 
                     // Map to WHMCS billing cycle names

@@ -98,6 +98,17 @@
                             </h5>
                         </div>
                     </div>
+
+
+                            
+                            
+                            
+                    
+                    
+                          
+
+                    
+
                     <div class="mt-8">
                         <div class="flex justify-between items-center mb-4 px-2">
                             <h2 class="text-mdl font-medium text-gray-300">Backup status</h2>
@@ -145,10 +156,11 @@
                                 </div>
                             </div>
 
-                            <!-- Devices Backup Status -->
-                            <template x-for="(device, index) in filteredDevices" :key="device.id">
-                                <div :class="(index === 0 ? 'rounded-t-lg ' : '') + (index === filteredDevices.length - 1 ? 'rounded-b-lg border-b-0 ' : '')"
-                                    class="flex justify-between items-center p-4 bg-[#11182759] hover:bg-[#1118272e] shadow border-b border-gray-700">
+                            <!-- Device Backup Status -->
+                            <template x-for="(device, index) in (filteredDevices || [])" :key="device.id">
+                                <div>
+                                    <div x-show="serviceIdForUsername(device.username)" x-cloak :class="(index === 0 ? 'rounded-t-lg ' : '') + (index === filteredDevices.length - 1 ? 'rounded-b-lg border-b-0 ' : '')"
+                                        class="group flex justify-between items-center p-4 bg-[#11182759] hover:bg-[#1118272e] shadow border-b border-gray-700">
 
                                     <!-- Left Column: Device Info -->
                                     <div class="flex items-center space-x-3">
@@ -158,15 +170,19 @@
                                         <div class="flex flex-col">
                                             <div class="flex items-center space-x-2">
                                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-gray-500">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0  0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 12V5.25" />
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 12V5.25" />
                                                 </svg>
-                                                <span class="text-lg font-semibold text-sky-600" x-text="device.name"></span>
+                                                        <a class="text-lg font-semibold text-sky-600 hover:underline group-hover:text-sky-400"
+                                                           :href="'{$modulelink}&a=user-profile&username=' + encodeURIComponent(device.username) + '&serviceid=' + serviceIdForUsername(device.username)"
+                                                           x-text="device.name"></a>
                                             </div>
                                             <div class="flex items-center space-x-2">
                                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-gray-500">
                                                     <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
                                                 </svg>
-                                                <span class="text-sm text-gray-400" x-text="device.username"></span>
+                                                        <a class="text-sm text-gray-400 hover:underline"
+                                                           :href="'{$modulelink}&a=user-profile&username=' + encodeURIComponent(device.username) + '&serviceid=' + serviceIdForUsername(device.username)"
+                                                           x-text="device.username"></a>
                                             </div>
                                             <div class="flex flex-wrap items-center gap-2 pt-2">
                                                 <template x-if="device.reported_version">
@@ -303,44 +319,96 @@
                 </div>
                 <div x-show="activeTab === 'users'" x-transition x-cloak>
                     <h2 class="text-xl font-semibold text-gray-800 dark:text-gray-300 mb-4">Users</h2>
-                    <div class="overflow-x-auto">
-                        <table id="accounts-table" class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                            <thead class="border-b border-gray-500">
-                                <tr>
-                                    <th class="px-4 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-300">Username</th>
-                                    <th class="px-4 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-300">Total Devices</th>
-                                    <th class="px-4 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-300">Total Protected Items</th>
-                                    <th class="px-4 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-300">Storage Vaults</th>
-                                </tr>
-                            </thead>
-                            <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                                {foreach from=$accounts item=account}
-                                    <tr class="hover:bg-gray-700 cursor-pointer">
-                                        <td class="px-4 py-4 text-sm text-indigo-600 dark:text-indigo-400 align-top">
-                                            <a href="{$modulelink}&a=user-profile&username={$account.username}&serviceid={$account.id}" class="hover:underline">
-                                                {$account.username}
-                                            </a>
-                                        </td>
-                                        <td class="px-4 py-4 text-sm text-gray-800 dark:text-gray-300 align-top">{$account.total_devices}</td>
-                                        <td class="px-4 py-4 text-sm text-gray-800 dark:text-gray-300 align-top">{$account.total_protected_items}</td>
-                                        <td class="px-4 py-4 text-sm text-gray-800 dark:text-gray-300">
-                                            {if $account.vaults}
-                                                <ul class="list-none space-y-1">
-                                                    {foreach from=$account.vaults item=vault}
-                                                        <li>
-                                                            <span class="font-semibold">{$vault.name}:</span>
-                                                            <span class="text-gray-400">{$vault.size_formatted}</span>
-                                                        </li>
-                                                    {/foreach}
-                                                </ul>
-                                            {else}
-                                                No vaults found
-                                            {/if}
-                                        </td>
-                                    </tr>
-                                {/foreach}
-                            </tbody>
-                        </table>
+                    <div class="bg-gray-900/50 rounded-lg overflow-visible"
+                         x-data="{ 
+                           open:false,
+                           search:'',
+                           cols:{ username:true, name:true, emails:true, reports:true, devices:true, items:true, vaults:true },
+                           matchesSearch(el){ const q=this.search.trim().toLowerCase(); if(!q) return true; return (el.textContent||'').toLowerCase().includes(q); }
+                         }">
+                        <div class="flex items-center justify-between px-4 pt-4 pb-2">
+                            <div class="relative" @click.away="open=false">
+                                <button type="button" class="inline-flex items-center px-3 py-2 text-sm bg-slate-700 hover:bg-slate-600 rounded text-white" @click="open=!open">
+                                    View
+                                    <svg class="ml-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                                </button>
+                                <div x-show="open" x-transition class="absolute mt-2 w-72 bg-slate-800 border border-slate-700 rounded shadow-lg z-10">
+                                    <div class="p-3 grid grid-cols-2 gap-2 text-slate-200 text-sm">
+                                        <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.username"> Username</label>
+                                        <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.name"> Account name</label>
+                                        <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.emails"> Email Address</label>
+                                        <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.reports"> Email Reports</label>
+                                        <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.devices"> Total Devices</label>
+                                        <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.items"> Total Protected Items</label>
+                                        <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.vaults"> Storage Vaults</label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="w-72">
+                                <input type="text" x-model.debounce.200ms="search" placeholder="Search users..." class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-700 text-slate-200 focus:outline-none focus:ring-0 focus:border-sky-600">
+                            </div>
+                        </div>
+
+                        <div class="px-4 pb-2">
+                            <div class="overflow-x-auto rounded-md border border-slate-800">
+                                <table class="min-w-full divide-y divide-gray-700">
+                                    <thead class="bg-gray-800/50">
+                                        <tr>
+                                            <th x-show="cols.username" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Username</th>
+                                            <th x-show="cols.name" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Account name</th>
+                                            <th x-show="cols.emails" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Email Address</th>
+                                            <th x-show="cols.reports" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Email Reports</th>
+                                            <th x-show="cols.devices" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Total Devices</th>
+                                            <th x-show="cols.items" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Total Protected Items</th>
+                                            <th x-show="cols.vaults" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Storage Vaults</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-gray-700">
+                                        {foreach from=$accounts item=account}
+                                            <tr class="hover:bg-gray-800/60" x-show="matchesSearch($el)" x-cloak>
+                                                <td x-show="cols.username" class="px-4 py-4 whitespace-nowrap text-sm">
+                                                    <a href="{$modulelink}&a=user-profile&username={$account.username}&serviceid={$account.id}" class="text-sky-400 hover:underline">{$account.username}</a>
+                                                </td>
+                                                <td x-show="cols.name" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
+                                                    {$account.name|default:$account.account_name|default:$account.AccountName|default:'-'}
+                                                </td>
+                                                <td x-show="cols.emails" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
+                                                    {if isset($account.report_emails) && $account.report_emails}
+                                                        {$account.report_emails}
+                                                    {elseif isset($account.email_reports) && (isset($account.email_reports.recipients) || isset($account.email_reports.Recipients))}
+                                                        {if isset($account.email_reports.recipients)}{$account.email_reports.recipients}{else}{$account.email_reports.Recipients}{/if}
+                                                    {elseif isset($account.emailReports) && isset($account.emailReports.Recipients)}
+                                                        {$account.emailReports.Recipients}
+                                                    {else}
+                                                        <span class="text-slate-400">-</span>
+                                                    {/if}
+                                                </td>
+                                                <td x-show="cols.reports" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
+                                                    {if isset($account.email_reports_enabled) && $account.email_reports_enabled}
+                                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-900/50 text-emerald-300">Enabled</span>
+                                                    {elseif isset($account.email_reports) && isset($account.email_reports.Enabled) && $account.email_reports.Enabled}
+                                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-900/50 text-emerald-300">Enabled</span>
+                                                    {elseif isset($account.emailReports) && isset($account.emailReports.Enabled) && $account.emailReports.Enabled}
+                                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-900/50 text-emerald-300">Enabled</span>
+                                                    {elseif isset($account.email_reports_enabled)}
+                                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-slate-300">Disabled</span>
+                                                    {else}
+                                                        <span class="text-slate-400">-</span>
+                                                    {/if}
+                                                </td>
+                                                <td x-show="cols.devices" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$account.total_devices}</td>
+                                                <td x-show="cols.items" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$account.total_protected_items}</td>
+                                                <td x-show="cols.vaults" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{if $account.vaults}{$account.vaults|@count}{else}0{/if}</td>
+                                            </tr>
+                                        {foreachelse}
+                                            <tr>
+                                                <td colspan="7" class="text-center py-6 text-sm text-gray-400">No users found.</td>
+                                            </tr>
+                                        {/foreach}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -466,7 +534,7 @@
     <script>
       window.EB_JOBREPORTS_ENDPOINT = '{$modulelink}&a=job-reports';
     </script>
-    <script src="modules/addons/eazybackup/assets/js/eazybackup-ui-helpers.js" defer></script>
+
     <script src="modules/addons/eazybackup/assets/js/job-reports.js" defer></script>
     <script>
       // Initialize job reports helpers once ready

@@ -1049,21 +1049,26 @@ window.EB_DEVICE_ENDPOINT = '{$modulelink}&a=device-actions';
 <script>
 try {
   window.EB_JOBREPORTS_ENDPOINT = '{$modulelink}&a=job-reports';
-  const f = window.jobReportsFactory && window.jobReportsFactory({});
-  const make = f ? f.makeJobsTable : (window.jobReportsFactory && window.jobReportsFactory({}).makeJobsTable);
-  if (make) {
-    const serviceId = '{$serviceid}';
-    const username = '{$username}';
-    const table = document.getElementById('jobs-table');
-    const api = make(table, {
-      serviceId: serviceId,
-      username: username,
-      totalEl: document.getElementById('jobs-total'),
-      pagerEl: document.getElementById('jobs-pager'),
-      searchInput: document.getElementById('jobs-search'),
-    });
-    api && api.reload && api.reload();
-  }
+  const attachJobs = () => {
+    try {
+      const f = window.jobReportsFactory && window.jobReportsFactory({});
+      if (!f || !f.makeJobsTable) return;
+      const serviceId = '{$serviceid}';
+      const username = '{$username}';
+      const table = document.getElementById('jobs-table');
+      if (!table) return;
+      const api = f.makeJobsTable(table, {
+        serviceId: serviceId,
+        username: username,
+        totalEl: document.getElementById('jobs-total'),
+        pagerEl: document.getElementById('jobs-pager'),
+        searchInput: document.getElementById('jobs-search'),
+      });
+      api && api.reload && api.reload();
+    } catch (e) {}
+  };
+  if (window.jobReportsFactory) attachJobs();
+  else document.addEventListener('jobReports:ready', attachJobs, { once: true });
 } catch (e) {}
 </script>
 
