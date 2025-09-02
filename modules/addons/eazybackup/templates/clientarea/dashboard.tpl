@@ -145,7 +145,7 @@
                                 </div>
                             </div>
 
-                            <!-- Devices -->
+                            <!-- Devices Backup Status -->
                             <template x-for="(device, index) in filteredDevices" :key="device.id">
                                 <div :class="(index === 0 ? 'rounded-t-lg ' : '') + (index === filteredDevices.length - 1 ? 'rounded-b-lg border-b-0 ' : '')"
                                     class="flex justify-between items-center p-4 bg-[#11182759] hover:bg-[#1118272e] shadow border-b border-gray-700">
@@ -158,7 +158,7 @@
                                         <div class="flex flex-col">
                                             <div class="flex items-center space-x-2">
                                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-gray-500">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 12V5.25" />
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0  0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 12V5.25" />
                                                 </svg>
                                                 <span class="text-lg font-semibold text-sky-600" x-text="device.name"></span>
                                             </div>
@@ -185,17 +185,70 @@
 
                                     <!-- Right Column: Timeline & History -->
                                     <div class="flex flex-col space-y-3">
-                                        <!-- Today's 24-Hour Timeline Bar -->
+                                        <!-- Today's 24-Hour Timeline Bar (server-driven, single load on page) -->
                                         <div class="w-full">
-                                            <div class="text-xs text-gray-400 mb-1 text-right">Today</div>
-                                            <div class="relative h-5 bg-gray-900/50 rounded-sm w-full border border-gray-700">
-                                                <template x-for="job in summaryForDate(device, timelineDates()[13])?.jobs || []" :key="job.started_at">
-                                                    <div :class="jobDotClass(job.status)"
+                                            <div class="text-xs text-gray-400 mb-1 text-right">Last 24 hours</div>
+                                            <div class="relative h-5 bg-gray-900/50 rounded-sm w-full border border-gray-700 cursor-pointer"
+                                                x-data="{ 
+                                                open:false, hovering:false, closeTimer:null,
+                                        
+                                                openMenu(){ 
+                                                    this.open = true; 
+                                                    if (this.closeTimer) { clearTimeout(this.closeTimer); this.closeTimer = null; } 
+                                                },
+                                                scheduleClose(){ 
+                                                    if (this.closeTimer) { clearTimeout(this.closeTimer); } 
+                                                    this.closeTimer = setTimeout(()=>{ if(!this.hovering){ this.open=false; } }, 200); 
+                                                },
+                                        
+                                                // True last-24h jobs, normalized and time-safe
+                                                jobs24h(){
+                                                    const now = Date.now();
+                                                    const dayAgo = now - (24*60*60*1000);
+                                                    const raw = Array.isArray(device.jobs) ? device.jobs : [];
+                                                    const list = raw.filter(j=>{
+                                                    const ms = (window.EB && EB.toMs) ? EB.toMs(j.ended_at || j.started_at || j.EndTime || j.StartTime) : 0;
+                                                    return ms && ms >= dayAgo && ms <= now;
+                                                    }).sort((a,b)=>{
+                                                    const as = (window.EB && EB.toMs) ? EB.toMs(a.started_at || a.StartTime) : 0;
+                                                    const bs = (window.EB && EB.toMs) ? EB.toMs(b.started_at || b.StartTime) : 0;
+                                                    return as - bs;
+                                                    });
+                                                    return list;
+                                                },
+                                        
+                                                svc(){ return (device.serviceid||device.service_id||device.ServiceID||''); }
+                                                }"
+                                                @mouseenter="openMenu()" @mouseleave="scheduleClose()">
+                                                <!-- slivers along the bar for quick visual positions -->
+                                                <template x-for="(raw, i) in jobs24h()" :key="(raw.GUID || raw.JobID || raw.id || raw.started_at || raw.ended_at || i)">
+                                                    <div x-data="{ j: EB.normalizeJob(raw) }"
                                                         class="absolute top-0 h-full w-1.5"
-                                                        :style="`left: ${ldelim}calculateJobPosition(job.started_at){rdelim}%;`"
-                                                        x-init="tippy($el, { content: formatSingleJobTooltip(job), allowHTML: true, theme: 'light' })">
+                                                        :class="EB.statusDot(j.status)"
+                                                        x-bind:style="'left: ' + calculateJobPosition(j.start) + '%;'">
                                                     </div>
                                                 </template>
+                                                <!-- Persistent hover pop-over listing last 24h jobs -->
+                                                <div x-show="open" x-cloak class="absolute z-40 right-0 top-full w-96 bg-gray-800 border border-gray-700 rounded shadow-lg p-2"
+                                                        @mouseenter="hovering=true; open=true; if(closeTimer){ clearTimeout(closeTimer); closeTimer=null; }"
+                                                        @mouseleave="hovering=false; scheduleClose()">
+                                                
+                                                    <div class="text-xs text-gray-400 mb-1">Jobs (last 24h)</div>
+                                                
+                                                    <template x-for="(raw, idx) in jobs24h()" :key="(raw.GUID || raw.JobID || raw.id || raw.started_at || raw.ended_at || idx)">
+                                                    <button type="button" class="w-full text-left px-2 py-1 rounded hover:bg-gray-700 flex items-center gap-2"
+                                                            x-data="{ j: EB.normalizeJob(raw) }"
+                                                            @click.stop="window.EB_JOBREPORTS && EB_JOBREPORTS.openJobModal(String((window.serviceIdForUsername && serviceIdForUsername(device.username)) || svc()), String(device.username||''), j.id)">
+                                                        <span :class="EB.statusDot(j.status)" class="w-2 h-2 rounded-full inline-block"></span>
+                                                        <span class="flex-1 text-sm text-gray-300 truncate" x-text="j.name"></span>
+                                                        <span class="text-[11px] text-gray-400" x-text="EB.fmtTs(j.start) + ' – ' + EB.fmtTs(j.end)"></span>
+                                                    </button>
+                                                    </template>
+                                                
+                                                    <template x-if="jobs24h().length===0">
+                                                    <div class="text-gray-500 text-xs px-2 py-1">No jobs.</div>
+                                                    </template>
+                                                </div>
                                             </div>
                                         </div>
                                         
@@ -210,18 +263,34 @@
                                             </div>
                                             <div class="flex justify-end space-x-2 mt-1">
                                                 <template x-for="i in 13" :key="i">
-                                                    <div class="w-10 h-6 flex items-center justify-center border border-gray-600 rounded"
-                                                        x-init="
-                                                            const summary = summaryForDate(device, timelineDates()[i-1]);
-                                                            if (summary) {
-                                                                tippy($el, { content: formatMultiJobTooltip(summary.jobs), allowHTML: true, theme: 'light' });
-                                                            } else {
-                                                                tippy($el, { content: 'No jobs for this date' });
-                                                            }
-                                                        ">
+                                                    <div class="relative w-10 h-6 flex items-center justify-center border border-gray-600 rounded cursor-pointer"
+                                                         x-data="{ 
+                                                            open:false, hovering:false, closeTimer:null,
+                                                            openMenu(){ this.open=true; if(this.closeTimer){ clearTimeout(this.closeTimer); this.closeTimer=null; } },
+                                                            scheduleClose(){ if(this.closeTimer){ clearTimeout(this.closeTimer); } this.closeTimer = setTimeout(()=>{ if(!this.hovering){ this.open=false; } }, 200); },
+                                                            svc(){ return (device.serviceid||device.service_id||device.ServiceID||''); },
+                                                            jobs(){ const s = summaryForDate(device, timelineDates()[i-1]); return s ? (s.jobs||[]) : []; }
+                                                         }"
+                                                         @mouseenter="openMenu()" @mouseleave="scheduleClose()">
                                                         <template x-if="summaryForDate(device, timelineDates()[i-1])">
-                                                            <div :class="jobDotClass(summaryForDate(device, timelineDates()[i-1]).worstStatus)" class="w-2.5 h-2.5 rounded-full"></div>
+                                                            <div :class="(window.EB && EB.statusDot) ? EB.statusDot(summaryForDate(device, timelineDates()[i-1]).worstStatus) : ''" class="w-2.5 h-2.5 rounded-full"></div>
                                                         </template>
+                                                        <!-- Persistent pop-over for this date's jobs -->
+                                                        <div x-show="open" x-cloak class="absolute z-40 right-0 top-full w-96 bg-gray-800 border border-gray-700 rounded shadow-lg p-2"
+                                                             @mouseenter="hovering=true; open=true; if(closeTimer){ clearTimeout(closeTimer); closeTimer=null; }"
+                                                             @mouseleave="hovering=false; scheduleClose()">
+                                                            <div class="text-xs text-gray-400 mb-1" x-text="(jobs().length||0) + ' job(s) on ' + new Date(timelineDates()[i-1]).toLocaleDateString()"></div>
+                                                            <template x-for="(j, idx) in jobs()" :key="(j.JobID||j.job_id||j.id||j.GUID||j.guid||idx)">
+                                                                <button type="button" class="w-full text-left px-2 py-1 rounded hover:bg-gray-700 flex items-center gap-2"
+                                                                        @click.stop="window.EB_JOBREPORTS && window.EB_JOBREPORTS.openJobModal(String((window.serviceIdForUsername && serviceIdForUsername(device.username)) || svc()), String(device.username||''), (j.JobID||j.job_id||j.id||j.GUID||j.guid||''))">
+                                                                    <span :class="(window.EB && EB.statusDot) ? EB.statusDot(j.status) : ''" class="w-2 h-2 rounded-full inline-block"></span>
+                                                                    <span class="flex-1 text-sm text-gray-300 truncate" x-text="(j.ProtectedItem||j.protecteditem||'')"></span>
+                                                                    <span id="jrm-end" class="text-[11px] text-gray-400" x-text="(window.EB && EB.fmtTs) ? EB.fmtTs(j.started_at||j.ended_at||0) : ''"></span>
+                                                                    <span class="text-[11px] text-gray-400" x-text="(window.EB && EB.fmtTs) ? EB.fmtTs(j.started_at||j.ended_at||0) : ''"></span>
+                                                                </button>
+                                                            </template>
+                                                            <template x-if="jobs().length===0"><div class="text-gray-500 text-xs px-2 py-1">No jobs.</div></template>
+                                                        </div>
                                                     </div>
                                                 </template>
                                             </div>
@@ -279,6 +348,9 @@
     </div>
 </div>
 
+{* Shared Job Report Modal include *}
+{include file="modules/addons/eazybackup/templates/console/partials/job-report-modal.tpl"}
+
 {literal}
 <script>
     function dropdown() {
@@ -309,34 +381,10 @@
                         String(val).toLowerCase().includes(this.searchTerm.toLowerCase())
                     );
                     const statusMatch = this.jobStatusFilter === '' || (device.jobs && device.jobs.some(job => 
-                        this.getJobStatus(job.status) === this.jobStatusFilter
+                        (window.EB && EB.humanStatus ? EB.humanStatus(job.status) : '') === this.jobStatusFilter
                     ));
                     return searchMatch && statusMatch;
                 });
-            },
-            getJobStatus(status) {
-                const numericStatus = Number(status);
-                switch (numericStatus) {
-                    case 5000: return "Success";
-                    case 6000: case 6001: return "Running";
-                    case 7000: return "Timeout";
-                    case 7001: return "Warning";
-                    case 7002: case 7003: return "Error";
-                    case 7004: case 7006: return "Skipped";
-                    case 7005: return "Cancelled";
-                    default: return "Unknown";
-                }
-            },
-            jobDotClass(status) {
-                let statusText = this.getJobStatus(status).toLowerCase();
-                if (statusText === 'success') return 'bg-green-500';
-                if (statusText === 'running') return 'bg-sky-500';
-                if (statusText === 'timeout') return 'bg-amber-500';
-                if (statusText === 'warning') return 'bg-amber-500';
-                if (statusText === 'error') return 'bg-red-500';
-                if (statusText === 'skipped') return 'bg-gray-500';
-                if (statusText === 'cancelled') return 'bg-gray-500';
-                return 'bg-gray-400';
             },
             timelineDates() {
                 let dates = [];
@@ -354,7 +402,7 @@
                     const jobDate = new Date(job.ended_at);
                     jobDate.setHours(0,0,0,0);
                     return jobDate.getTime() === date.getTime() && 
-                           (this.jobStatusFilter === '' || this.getJobStatus(job.status) === this.jobStatusFilter);
+                           (this.jobStatusFilter === '' || (window.EB && EB.humanStatus ? EB.humanStatus(job.status) : '') === this.jobStatusFilter);
                 });
                 if (jobsForDay.length === 0) return null;
                 return {
@@ -367,7 +415,7 @@
                 let worstStatus = 'Unknown';
                 let minPriority = 9;
                 for (const job of jobs) {
-                    const statusText = this.getJobStatus(job.status);
+                    const statusText = (window.EB && EB.humanStatus ? EB.humanStatus(job.status) : 'Unknown');
                     if (statusPriority[statusText] < minPriority) {
                         minPriority = statusPriority[statusText];
                         worstStatus = job.status;
@@ -384,7 +432,7 @@
                 return (jobTotalMinutes / totalMinutesInDay) * 100;
             },
             formatSingleJobTooltip(job) {
-                const statusText = this.getJobStatus(job.status);
+                const statusText = (window.EB && EB.humanStatus ? EB.humanStatus(job.status) : '');
                 const startTime = new Date(job.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                 return `<div class="text-left">
                             <div class="font-semibold">${statusText} @ ${startTime}</div>
@@ -396,7 +444,7 @@
                 if (!jobs || jobs.length === 0) return 'No jobs for this date.';
                 let content = `<div class="text-left max-w-xs"><strong>${jobs.length} job(s) on this date:</strong><hr class="my-1">`;
                 jobs.forEach(job => {
-                    const statusText = this.getJobStatus(job.status);
+                    const statusText = (window.EB && EB.humanStatus ? EB.humanStatus(job.status) : '');
                     const startTime = new Date(job.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                     content += `
                         <div class="py-1 border-b border-gray-200 last:border-b-0">
@@ -413,7 +461,45 @@
 </script>
 {/literal}
 
-{literal}
     <script src="https://unpkg.com/@popperjs/core@2"></script>
     <script src="https://unpkg.com/tippy.js@6"></script>
-{/literal}
+    <script>
+      window.EB_JOBREPORTS_ENDPOINT = '{$modulelink}&a=job-reports';
+    </script>
+    <script src="modules/addons/eazybackup/assets/js/eazybackup-ui-helpers.js" defer></script>
+    <script src="modules/addons/eazybackup/assets/js/job-reports.js" defer></script>
+    <script>
+      // Initialize job reports helpers once ready
+      (function(){
+        function init(){ try { window.EB_JOBREPORTS = (window.jobReportsFactory ? window.jobReportsFactory() : null); } catch(_){} }
+        if (window.jobReportsFactory) { init(); }
+        else { document.addEventListener('jobReports:ready', init, { once: true }); }
+        // Optional: support custom event if other components dispatch it
+        window.addEventListener('open-job-modal', function(ev){
+          try {
+            var d = ev && ev.detail ? ev.detail : {};
+            if (window.EB_JOBREPORTS && d && d.serviceId && d.username && d.jobId) {
+              window.EB_JOBREPORTS.openJobModal(d.serviceId, d.username, d.jobId);
+            }
+          } catch(_){ }
+        });
+      })();
+    </script>
+
+<script>
+// Map username -> serviceId for accurate modal requests (devices list scope)
+try {
+  var devicesJson = {$devices|json_encode};
+  var __ebUserToSvc = Object.create(null);
+  (devicesJson||[]).forEach(function(d){
+    try {
+      var un = (d && d.username) ? String(d.username).toLowerCase() : '';
+      var sid = (d && (d.serviceid||d.service_id||d.ServiceID||d.id));
+      if (un && sid && __ebUserToSvc[un] === undefined) { __ebUserToSvc[un] = String(sid); }
+    } catch(_){}
+  });
+  window.serviceIdForUsername = function(username){
+    try { var k = String(username||'').toLowerCase(); return __ebUserToSvc[k] || ''; } catch(_) { return ''; }
+  };
+} catch(_) {}
+</script>

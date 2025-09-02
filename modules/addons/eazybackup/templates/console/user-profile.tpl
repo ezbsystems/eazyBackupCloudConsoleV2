@@ -47,7 +47,7 @@
          <li class="mr-2" role="presentation">
              <a href="{$modulelink}&a=dashboard" class="flex items-center py-2 px-4 border-b-2 text-sky-400 border-sky-400 font-semibold" type="button" role="tab" aria-selected="true">
                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-1">
-                     <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
+                     <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0  0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
           </svg>
                  Users
             </a>
@@ -545,75 +545,75 @@
             </div>
           </div>
         
-         <div x-show="activeSubTab === 'jobLogs'" x-cloak x-transition>
-             <div class="bg-gray-900/50 rounded-lg overflow-visible" x-data="{ open:false, search:'', cols:{ user:true, id:true, device:true, item:true, vault:true, ver:true, type:true, status:true, dirs:true, files:true, size:true, vsize:true, up:true, down:true, started:true, ended:true, dur:true } }">
-                 <div class="flex items-center justify-between px-4 pt-4 pb-2">
-                     <div class="relative" @click.away="open=false">
-                         <button type="button" class="inline-flex items-center px-3 py-2 text-sm bg-slate-700 hover:bg-slate-600 rounded text-white" @click="open=!open">
-                             View
-                             <svg class="ml-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
-                         </button>
-                         <div x-show="open" x-transition class="absolute mt-2 w-72 bg-slate-800 border border-slate-700 rounded shadow-lg z-10">
-                             <div class="p-3 grid grid-cols-2 gap-2 text-slate-200 text-sm">
-                                 <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.user"> Username</label>
-                                 <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.id"> Job ID</label>
-                                 <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.device"> Device</label>
-                                 <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.item"> Protected Item</label>
-                                 <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.vault"> Storage Vault</label>
-                                 <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.ver"> Version</label>
-                                 <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.type"> Type</label>
-                                 <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.status"> Status</label>
-                                 <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.dirs"> Directories</label>
-                                 <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.files"> Files</label>
-                                 <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.size"> Size</label>
-                                 <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.vsize"> Storage Vault Size</label>
-                                 <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.up"> Uploaded</label>
-                                 <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.down"> Downloaded</label>
-                                 <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.started"> Started</label>
-                                 <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.ended"> Ended</label>
-                                 <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.dur"> Duration</label>
-                             </div>
-                         </div>
-                     </div>
-                     <div class="w-72">
-                         <input id="jobs-search" type="text" placeholder="Search jobs..." class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-700 text-slate-200 focus:outline-none focus:ring-0 focus:border-sky-600">
-                     </div>
-                 </div>
-                 <div class="px-4 text-xs text-slate-400 mb-1">Total: <span id="jobs-total">0</span></div>
-
-                 <!-- scroll wrapper: horizontal scroll for column overflow -->
-                 <div class="px-4 pb-2">
-                    <div class="overflow-x-auto rounded-md border border-slate-800">
-                      <table id="jobs-table" class="min-w-full divide-y divide-gray-700" data-job-table>
-                          <thead class="bg-gray-800/50">
-                              <tr>
-                                  <th x-show="cols.user"   data-sort="Username"    class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Username</th>
-                                  <th x-show="cols.id"     data-sort="JobID"       class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Job ID</th>
-                                  <th x-show="cols.device" data-sort="Device"      class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Device</th>
-                                  <th x-show="cols.item"   data-sort="ProtectedItem" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Protected Item</th>
-                                  <th x-show="cols.vault"  data-sort="StorageVault" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Storage Vault</th>
-                                  <th x-show="cols.ver"    data-sort="Version"     class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Version</th>
-                                  <th x-show="cols.type"   data-sort="Type"        class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Type</th>
-                                  <th x-show="cols.status" data-sort="Status"      class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Status</th>
-                                  <th x-show="cols.dirs"   data-sort="Directories" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Directories</th>
-                                  <th x-show="cols.files"  data-sort="Files"       class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Files</th>
-                                  <th x-show="cols.size"   data-sort="Size"        class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Size</th>
-                                  <th x-show="cols.vsize"  data-sort="VaultSize"   class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Storage Vault Size</th>
-                                  <th x-show="cols.up"     data-sort="Uploaded"    class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Uploaded</th>
-                                  <th x-show="cols.down"   data-sort="Downloaded"  class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Downloaded</th>
-                                  <th x-show="cols.started" data-sort="Started"    class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Started</th>
-                                  <th x-show="cols.ended"   data-sort="Ended"      class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Ended</th>
-                                  <th x-show="cols.dur"     data-sort="Duration"   class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Duration</th>
-                              </tr>
-                          </thead>
-                          <tbody class="divide-y divide-gray-700"></tbody>
-                      </table>
+        <div x-show="activeSubTab === 'jobLogs'" x-cloak x-transition>
+            <div class="bg-gray-900/50 rounded-lg overflow-visible" x-data="{ open:false, search:'', cols:{ user:true, id:true, device:true, item:true, vault:true, ver:true, type:true, status:true, dirs:true, files:true, size:true, vsize:true, up:true, down:true, started:true, ended:true, dur:true } }">
+                <div class="flex items-center justify-between px-4 pt-4 pb-2">
+                    <div class="relative" @click.away="open=false">
+                        <button type="button" class="inline-flex items-center px-3 py-2 text-sm bg-slate-700 hover:bg-slate-600 rounded text-white" @click="open=!open">
+                            View
+                            <svg class="ml-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                        </button>
+                        <div x-show="open" x-transition class="absolute mt-2 w-72 bg-slate-800 border border-slate-700 rounded shadow-lg z-10">
+                            <div class="p-3 grid grid-cols-2 gap-2 text-slate-200 text-sm">
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.user"> Username</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.id"> Job ID</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.device"> Device</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.item"> Protected Item</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.vault"> Storage Vault</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.ver"> Version</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.type"> Type</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.status"> Status</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.dirs"> Directories</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.files"> Files</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.size"> Size</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.vsize"> Storage Vault Size</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.up"> Uploaded</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.down"> Downloaded</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.started"> Started</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.ended"> Ended</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.dur"> Duration</label>
+                            </div>
+                        </div>
                     </div>
+                    <div class="w-72">
+                        <input id="jobs-search" type="text" placeholder="Search jobs..." class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-700 text-slate-200 focus:outline-none focus:ring-0 focus:border-sky-600">
+                    </div>
+                </div>
+                <div class="px-4 text-xs text-slate-400 mb-1">Total: <span id="jobs-total">0</span></div>
+
+                <!-- scroll wrapper: horizontal scroll for column overflow -->
+                <div class="px-4 pb-2">
+                  <div class="overflow-x-auto rounded-md border border-slate-800">
+                    <table id="jobs-table" class="min-w-full divide-y divide-gray-700" data-job-table>
+                        <thead class="bg-gray-800/50">
+                            <tr>
+                                <th x-show="cols.user"   data-sort="Username"    class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Username</th>
+                                <th x-show="cols.id"     data-sort="JobID"       class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Job ID</th>
+                                <th x-show="cols.device" data-sort="Device"      class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Device</th>
+                                <th x-show="cols.item"   data-sort="ProtectedItem" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Protected Item</th>
+                                <th x-show="cols.vault"  data-sort="StorageVault" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Storage Vault</th>
+                                <th x-show="cols.ver"    data-sort="Version"     class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Version</th>
+                                <th x-show="cols.type"   data-sort="Type"        class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Type</th>
+                                <th x-show="cols.status" data-sort="Status"      class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Status</th>
+                                <th x-show="cols.dirs"   data-sort="Directories" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Directories</th>
+                                <th x-show="cols.files"  data-sort="Files"       class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Files</th>
+                                <th x-show="cols.size"   data-sort="Size"        class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Size</th>
+                                <th x-show="cols.vsize"  data-sort="VaultSize"   class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Storage Vault Size</th>
+                                <th x-show="cols.up"     data-sort="Uploaded"    class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Uploaded</th>
+                                <th x-show="cols.down"   data-sort="Downloaded"  class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Downloaded</th>
+                                <th x-show="cols.started" data-sort="Started"    class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Started</th>
+                                <th x-show="cols.ended"   data-sort="Ended"      class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Ended</th>
+                                <th x-show="cols.dur"     data-sort="Duration"   class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Duration</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-700"></tbody>
+                    </table>
                   </div>
-                 <div class="flex items-center justify-between px-4 py-2">
-                     <div id="jobs-pager" class="space-x-2 text-small font-medium text-slate-400"></div>
-                 </div>
-             </div>
+                </div>
+                <div class="flex items-center justify-between px-4 py-2">
+                    <div id="jobs-pager" class="space-x-2 text-small font-medium text-slate-400"></div>
+                </div>
+            </div>
         </div>
     </div>
   </div>
@@ -862,10 +862,10 @@
         <h4 class="text-rose-400 font-semibold">Danger zone</h4>
         <div class="text-sm text-slate-300">Deleting a vault cannot be undone.</div>
         <button id="vault-delete" class="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded text-sm">Delete</button>
-        <div id="vault-delete-confirm" class="hidden border border-slate-700 rounded p-3 bg-slate-900/60">
+        <div id="vault-delete-confirm" class="hidden text; border border-slate-700 rounded p-3 bg-slate-900/60">
           <div class="text-slate-200 text-sm font-semibold mb-1">Confirm your account password</div>
           <div class="text-slate-400 text-xs mb-2">This is the password you use to sign in to your eazyBackup Client Area.</div>
-          <input id="vault-delete-password" type="password" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm mb-2" placeholder="Account password" />
+          <input id="vault-delete-password" type="password" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm" placeholder="Account password" />
           <div class="flex justify-end gap-2">
             <button id="vault-delete-cancel" class="px-3 py-2 text-slate-300 hover:text-white text-sm">Cancel</button>
             <button id="vault-delete-confirm-btn" class="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded text-sm">Confirm delete</button>
@@ -878,7 +878,7 @@
 
 {* TOTP Modal *}
 <div id="totp-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70 hidden">
-  <div class="bg-slate-800/90 backdrop-blur-sm border border-slate-700 rounded-lg shadow-lg w-full max-w-md">
+  <div class="bg-slate-800/90 backdrop-blur-sm border; border-slate-700 rounded-lg shadow-lg w-full max-w-md">
     <div class="p-6">
       <div class="flex justify-between items-center pb-4">
         <h2 class="text-lg font-semibold text-slate-200">Two-Factor Authentication (TOTP)</h2>
@@ -957,7 +957,7 @@ try {
         <div class="text-slate-400 text-sm">Device: <span id="device-panel-name" class="text-slate-300 font-mono"></span></div>
       </div>
       <button id="device-panel-close" class="text-slate-400 hover:text-slate-200">
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
       </button>
     </div>
     <div x-data="{ tab: 'device', vaultOpen:false }" class="flex-1 overflow-y-auto">
@@ -1043,7 +1043,8 @@ window.EB_DEVICE_ENDPOINT = '{$modulelink}&a=device-actions';
 </script>
 <script src="modules/addons/eazybackup/templates/assets/js/ui.js"></script>
 <script src="modules/addons/eazybackup/assets/js/device-actions.js"></script>
-<script src="modules/addons/eazybackup/assets/js/job-reports.js"></script>
+<script src="modules/addons/eazybackup/assets/js/eazybackup-ui-helpers.js" defer></script>
+<script src="modules/addons/eazybackup/assets/js/job-reports.js" defer></script>
 {include file="modules/addons/eazybackup/templates/console/partials/job-report-modal.tpl"}
 <script>
 try {
@@ -1073,7 +1074,7 @@ try {
     <div class="flex items-center justify-between px-5 py-4 border-b border-slate-700">
       <h3 class="flex items-center gap-2 text-slate-200 text-lg font-semibold">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M12 9.75v6.75m0 0-3-3m3 3 3-3m-8.25 6a4.5 4.5 0 0 1-1.41-8.775 5.25 5.25 0 0 1 10.233-2.33 3 3 0 0 1 3.758 3.848A3.752 3.752 0 0 1 18 19.5H6.75Z" />
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 9.75v6.75m0 0-3-3m3 3 3-3m-8.25 6a4.5 4.5 0 0 1-1.41-8.775 5.25 5.25 0 0 1 10.233-2.33 3 3 0 0 1 3.758 3.848A3.752 3.752 0  0 1 18 19.5H6.75Z" />
         </svg>
         Restore Wizard
       </h3>

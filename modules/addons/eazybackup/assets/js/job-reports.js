@@ -1,7 +1,5 @@
 (() => {
-  function fmtBytes(n){ if(!n||n<=0) return '0 B'; const u=['B','KB','MB','GB','TB','PB']; const i=Math.floor(Math.log(n)/Math.log(1024)); return (n/Math.pow(1024,i)).toFixed(i?1:0)+' '+u[i]; }
-  function fmtTs(s){ if(!s||s<=0) return '—'; const d=new Date(s*1000); return d.toLocaleString(); }
-  function fmtDur(sec){ if(!sec||sec<=0) return '—'; const h=Math.floor(sec/3600); const m=Math.floor((sec%3600)/60); const s=Math.floor(sec%60); return (h?`${h}h `:'')+`${m}m ${s}s`; }
+  // Use global EB helpers for formatting and status mapping
 
   const endpoint = (window.EB_JOBREPORTS_ENDPOINT || (typeof EB_MODULE_LINK!=='undefined' ? `${EB_MODULE_LINK}&a=job-reports` : 'index.php?m=eazybackup&a=job-reports'));
 
@@ -25,22 +23,22 @@
       const det = await api('jobDetail', { action:'jobDetail', serviceId, username, jobId });
       if(det && det.status==='success' && det.job){
         const j = det.job;
-        modal.querySelector('#jrm-status').textContent   = j.FriendlyStatus || '';
+        modal.querySelector('#jrm-status').textContent   = (window.EB && EB.humanStatus ? EB.humanStatus(j.FriendlyStatus || j.Status || j.StatusCode) : (j.FriendlyStatus || ''));
         modal.querySelector('#jrm-type').textContent     = j.FriendlyJobType || '';
         modal.querySelector('#jrm-device').textContent   = (j.DeviceFriendlyName || j.Device || '');
         modal.querySelector('#jrm-item').textContent     = j.ProtectedItemDescription || '';
         modal.querySelector('#jrm-vault').textContent    = (j.VaultDescription || j.DestinationLocation || '');
-        modal.querySelector('#jrm-up').textContent       = fmtBytes(j.UploadSize||0);
-        modal.querySelector('#jrm-down').textContent     = fmtBytes(j.DownloadSize||0);
-        modal.querySelector('#jrm-size').textContent     = fmtBytes(j.TotalSize||0);
-        modal.querySelector('#jrm-start').textContent    = fmtTs(j.StartTime||0);
-        modal.querySelector('#jrm-end').textContent      = fmtTs(j.EndTime||0);
-        modal.querySelector('#jrm-duration').textContent = fmtDur((j.EndTime||0)-(j.StartTime||0));
+        modal.querySelector('#jrm-up').textContent       = (window.EB && EB.fmtBytes ? EB.fmtBytes(j.UploadSize||0) : String(j.UploadSize||0));
+        modal.querySelector('#jrm-down').textContent     = (window.EB && EB.fmtBytes ? EB.fmtBytes(j.DownloadSize||0) : String(j.DownloadSize||0));
+        modal.querySelector('#jrm-size').textContent     = (window.EB && EB.fmtBytes ? EB.fmtBytes(j.TotalSize||0) : String(j.TotalSize||0));
+        modal.querySelector('#jrm-start').textContent    = (window.EB && EB.fmtTs ? EB.fmtTs(j.StartTime||0) : '');
+        modal.querySelector('#jrm-end').textContent      = (window.EB && EB.fmtTs ? EB.fmtTs(j.EndTime||0) : '');
+        modal.querySelector('#jrm-duration').textContent = (window.EB && EB.fmtDur ? EB.fmtDur((j.EndTime||0)-(j.StartTime||0)) : '');
         modal.querySelector('#jrm-version').textContent  = j.ClientVersion || '';
         // Title as protected item name
         modal.querySelector('#jrm-title').textContent = j.ProtectedItemDescription || `Job ${jobId}`;
       }
-    } catch(_){}
+    } catch(_){ }
 
     // Load logs
     try {
@@ -51,7 +49,7 @@
         for(const e of logs.rows){
           const row = document.createElement('div');
           row.className = 'px-3 py-2 grid grid-cols-12 gap-2';
-          const t = document.createElement('div'); t.className='col-span-3 text-xs text-slate-400'; t.textContent = fmtTs(e.Time);
+          const t = document.createElement('div'); t.className='col-span-3 text-xs text-slate-400'; t.textContent = (window.EB && EB.fmtTs ? EB.fmtTs(e.Time) : '');
           const s = document.createElement('div'); s.className='col-span-2 text-xs';
           const sev = (e.Severity||'').toUpperCase();
           if(sev==='I'){ s.classList.add('text-slate-400'); s.textContent = 'Information'; }
@@ -64,7 +62,7 @@
           box.appendChild(row);
         }
       }
-    } catch(_){}
+    } catch(_){ }
   }
 
   function attachModalControls(){
@@ -121,17 +119,37 @@
         tr.setAttribute('data-job-id', r.JobID);
         tr.setAttribute('data-service-id', String(serviceId));
         tr.setAttribute('data-username', String(username));
-        const cells = [r.Username, r.JobID, r.Device, r.ProtectedItem, r.StorageVault, r.Version, r.Type, r.Status, r.Directories, r.Files, fmtBytes(r.Size), fmtBytes(r.VaultSize), fmtBytes(r.Uploaded), fmtBytes(r.Downloaded), fmtTs(r.Started), fmtTs(r.Ended), fmtDur(r.Duration)];
+        const cells = [
+          r.Username,
+          r.JobID,
+          r.Device,
+          r.ProtectedItem,
+          r.StorageVault,
+          r.Version,
+          r.Type,
+          (window.EB && EB.humanStatus ? EB.humanStatus(r.Status || r.StatusCode) : (r.Status||'')),
+          r.Directories,
+          r.Files,
+          (window.EB && EB.fmtBytes ? EB.fmtBytes(r.Size) : String(r.Size||0)),
+          (window.EB && EB.fmtBytes ? EB.fmtBytes(r.VaultSize) : String(r.VaultSize||0)),
+          (window.EB && EB.fmtBytes ? EB.fmtBytes(r.Uploaded) : String(r.Uploaded||0)),
+          (window.EB && EB.fmtBytes ? EB.fmtBytes(r.Downloaded) : String(r.Downloaded||0)),
+          (window.EB && EB.fmtTs ? EB.fmtTs(r.Started) : ''),
+          (window.EB && EB.fmtTs ? EB.fmtTs(r.Ended) : ''),
+          (window.EB && EB.fmtDur ? EB.fmtDur(r.Duration) : '')
+        ];
         for(let i=0;i<cells.length;i++){
           const td=document.createElement('td'); td.className='px-4 py-3 whitespace-nowrap text-sm';
           td.setAttribute('data-col', colKeys[i]);
           if (i===7) { // Status column
-            const status = (r.Status||'').toUpperCase();
-            td.textContent = status;
-            if (status==='SUCCESS') td.classList.add('text-emerald-400');
-            else if (status==='WARNING') td.classList.add('text-amber-400');
-            else if (['ERROR','TIMEOUT','CANCELLED','QUOTA_EXCEEDED','ALREADY_RUNNING','ABANDONED'].includes(status)) td.classList.add('text-rose-400');
-            else if (['ACTIVE','REVIVED'].includes(status)) td.classList.add('text-sky-400');
+            const label = cells[i];
+            td.textContent = label;
+            const dot = (window.EB && EB.statusDot ? EB.statusDot(label) : '');
+            if (dot.indexOf('green')>=0) td.classList.add('text-emerald-400');
+            else if (dot.indexOf('sky')>=0) td.classList.add('text-sky-400');
+            else if (dot.indexOf('amber')>=0) td.classList.add('text-amber-400');
+            else if (dot.indexOf('red')>=0) td.classList.add('text-rose-400');
+            else td.classList.add('text-gray-300');
           } else {
             td.classList.add('text-gray-300');
             td.textContent = cells[i]!==undefined? String(cells[i]) : '';

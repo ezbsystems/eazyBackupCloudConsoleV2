@@ -495,6 +495,7 @@ function eazybackup_clientarea(array $vars)
             // 1) grab the raw rows…
             $rawJobs = Capsule::table('comet_jobs')
                 ->select(
+                    'comet_jobs.id as job_guid',
                     'comet_jobs.status',
                     'comet_jobs.started_at',
                     'comet_jobs.ended_at',
@@ -518,6 +519,14 @@ function eazybackup_clientarea(array $vars)
                 // format with the Comet helper
                 $job->Uploaded          = comet_HumanFileSize($job->upload_bytes);
                 $job->SelectedDataSize  = comet_HumanFileSize($job->total_bytes);
+                // Provide common job id keys expected by the frontend
+                $guid = $job->job_guid ?? '';
+                if ($guid) {
+                    $job->JobID = $guid; // table modal expects JobID
+                    $job->GUID  = $guid; // fallback used in dashboard
+                    $job->id    = $guid; // generic fallback
+                    $job->job_id = $guid; // another common alias
+                }
                 return $job;
             });        
           
@@ -529,6 +538,18 @@ function eazybackup_clientarea(array $vars)
             ->where('userid', $clientId)
             ->whereIn('packageid', $productIds)
             ->get();
+
+        // Attach service id to each device for accurate modal requests
+        if ($services && $devices) {
+            $svcMap = [];
+            foreach ($services as $svc) { $svcMap[$svc->username] = (int)$svc->id; }
+            foreach ($devices as $device) {
+                $uname = $device->username ?? '';
+                if ($uname !== '' && isset($svcMap[$uname])) {
+                    $device->serviceid = $svcMap[$uname];
+                }
+            }
+        }
 
         $accounts = [];
         foreach ($services as $service) {
