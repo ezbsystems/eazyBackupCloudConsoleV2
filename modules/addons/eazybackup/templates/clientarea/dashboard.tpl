@@ -6,9 +6,10 @@
         box-shadow: 0 0 8px rgba(59, 130, 246, 0.9);
     }
 </style>
+
 {/literal}
 
-<div x-data="{ activeTab: 'dashboard' }" class="mx-4 bg-gray-800">
+<div x-data="dashboardTabs('{$modulelink}', 'dashboard', '{$initialTab|escape:"html"}')" class="mx-4 bg-gray-800">
     <!-- Card Container -->
     <div class="min-h-screen bg-gray-800 container mx-auto pb-8">
         <!-- Header & Breadcrumb -->
@@ -22,7 +23,7 @@
                                 d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" />
                         </svg>
                         <h2 class="text-2xl font-semibold text-white mr-2">Dashboard</h2>
-                        <h2 class="text-md font-medium text-white"> / Backup Status</h2>
+                        <h2 class="text-md font-medium text-white"> / <span x-text="activeTab==='users' ? 'Users' : 'Backup Status'"></span></h2>
                     </li>
                 </ol>
             </nav>
@@ -31,33 +32,29 @@
             <!-- Tabs Navigation -->
             <ul class="flex border-b border-gray-700" role="tablist" x-cloak>
                 <li class="mr-2" role="presentation">
-                    <button @click="activeTab = 'dashboard'"
-                            :class="activeTab === 'dashboard' ? 'flex items-center py-2 px-2 border-sky-400 border-b-2 text-sky-400 font-semibold' : 'flex items-center py-2 px-4 text-gray-300 hover:text-sky-400 border-b-2 border-transparent hover:border-gray-300 hover:border-gray-500 font-semibold'"
-                            type="button" role="tab" :aria-selected="activeTab === 'dashboard'">
+                    <a :href="tabHref('dashboard')" @click="switchTab('dashboard', $event)"
+                       :class="tabClass('dashboard')" role="tab" :aria-selected="activeTab === 'dashboard'">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
                              stroke="currentColor" class="w-5 h-5 mr-1">
                             <path stroke-linecap="round" stroke-linejoin="round"
                                   d="M7.5 14.25v2.25m3-4.5v4.5m3-6.75v6.75m3-9v9M6 20.25h12A2.25 2.25 0 0 0 20.25 18V6A2.25 2.25 0 0 0 18 3.75H6A2.25 2.25 0 0 0 3.75 6v12A2.25 2.25 0 0 0 6 20.25Z"/>
                         </svg>
                         Backup Status
-                    </button>
+                    </a>
                 </li>
                 <li class="mr-2" role="presentation">
-                    <button @click="activeTab = 'users'"
-                            :class="activeTab === 'users' ? 'flex items-center py-2 px-2 border-sky-400 border-b-2 text-sky-400 font-semibold' : 'flex items-center py-2 px-4 text-gray-300 hover:text-sky-400 border-b-2 border-transparent hover:border-gray-300 hover:border-gray-500 font-semibold'"
-                            type="button" role="tab" :aria-selected="activeTab === 'users'">
+                    <a :href="tabHref('users')" @click="switchTab('users', $event)"
+                       :class="tabClass('users')" role="tab" :aria-selected="activeTab === 'users'">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
                              stroke="currentColor" class="w-5 h-5 mr-1">
                             <path stroke-linecap="round" stroke-linejoin="round"
                                   d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"/>
                         </svg>
                         <i class="bi bi-person mr-1"></i> Users
-                    </button>
+                    </a>
                 </li>
                 <li class="mr-2" role="presentation">
-                    <a href="{$modulelink}&a=vaults"
-                       class="flex items-center py-2 px-4 text-gray-300 hover:text-sky-400 border-b-2 border-transparent hover:border-gray-300 hover:border-gray-500 font-semibold"
-                       type="button" role="tab" aria-selected="false">
+                    <a :href="vaultsHref()" :class="vaultsClass()" role="tab" aria-selected="false">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
                              stroke="currentColor" class="w-5 h-5 mr-1">
                             <path stroke-linecap="round" stroke-linejoin="round"
@@ -70,7 +67,7 @@
 
             <!-- Tabs Content -->
             <div class="mt-4">
-                <div x-show="activeTab === 'dashboard'" x-transition>
+                <div x-show="activeTab === 'dashboard'" x-transition x-cloak>
                     <h2 class="text-md font-medium text-gray-300 mb-4 px-2">Account summary</h2>
                     <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
                         <div class="bg-[#11182759] p-4 rounded-lg shadow">
@@ -571,3 +568,56 @@ try {
   };
 } catch(_) {}
 </script>
+
+{literal}
+<script>
+  // Centralized tab state helper
+  window.dashboardTabs = function (moduleLink, currentAction, serverInitialTab) {
+    const activeClass = 'flex items-center py-2 px-2 border-sky-400 border-b-2 text-sky-400 font-semibold';
+    const inactiveClass = 'flex items-center py-2 px-4 text-gray-300 hover:text-sky-400 border-b-2 border-transparent hover:border-gray-300 hover:border-gray-500 font-semibold';
+
+    // Single source of truth: start from server-provided initial tab (already whitelisted)
+    const initialTab = (typeof serverInitialTab === 'string' && serverInitialTab) ? serverInitialTab : 'dashboard';
+
+    return {
+      currentAction,              // 'dashboard' or 'vaults'
+      activeTab: initialTab,      // 'dashboard' or 'users'
+      activeClass,
+      inactiveClass,
+
+      isDashboard() { return this.currentAction === 'dashboard'; },
+      isVaults() { return this.currentAction === 'vaults'; },
+
+      tabHref(tab) {
+        // Always build a deep link back to the dashboard with ?tab=
+        return moduleLink + '&a=dashboard&tab=' + encodeURIComponent(tab);
+      },
+
+      tabClass(tab) {
+        return (this.isDashboard() && this.activeTab === tab) ? this.activeClass : this.inactiveClass;
+      },
+
+      vaultsHref() {
+        return moduleLink + '&a=vaults';
+      },
+
+      vaultsClass() {
+        return this.isVaults() ? this.activeClass : this.inactiveClass;
+      },
+
+      switchTab(tab, evt) {
+        // Only intercept clicks while you're on the dashboard action
+        if (this.isDashboard()) {
+          evt.preventDefault();
+          this.activeTab = tab;
+          const url = new URL(window.location.href);
+          url.searchParams.set('tab', tab);
+          history.replaceState({}, '', url.toString());
+        }
+        // If you're not on the dashboard (e.g., Vaults page), let the anchor navigate normally.
+      }
+    };
+  };
+</script>
+{/literal}
+

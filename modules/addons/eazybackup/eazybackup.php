@@ -417,6 +417,10 @@ function eazybackup_clientarea(array $vars)
     } else if ($_REQUEST["a"] == "dashboard") {
         // Load the dashboard backend logic.
         $clientId = $_SESSION['uid'];
+        // Determine initial dashboard tab from query param with whitelist
+        $tabParam = isset($_GET['tab']) ? strtolower(trim($_GET['tab'])) : '';
+        $allowedTabs = ['dashboard', 'users'];
+        $initialTab = in_array($tabParam, $allowedTabs, true) ? $tabParam : 'dashboard';
         $excludeProductgroupIds = [2, 11];
         $productIds = Capsule::table('tblproducts')
             ->select('id')
@@ -631,6 +635,7 @@ function eazybackup_clientarea(array $vars)
             "forcessl" => true,  // if needed
             "vars" => [
                 'modulelink' => $vars['modulelink'],
+                'initialTab' => $initialTab,
                 'totalAccounts' => $totalAccounts,
                 'totalDevices' => $totalDevices,
                 'totalProtectedItems' => $totalProtectedItems,
@@ -640,10 +645,11 @@ function eazybackup_clientarea(array $vars)
             ]
         ];
 
-    } else if ($_REQUEST["a"] == "users") {
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'users') {
         // This action is now merged into the dashboard
-        header("Location: {$vars['modulelink']}&a=dashboard");
+        header('Location: ' . $vars['modulelink'] . '&a=dashboard&tab=users');
         exit;
+    
 
 
 

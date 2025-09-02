@@ -546,7 +546,7 @@
           </div>
         
         <div x-show="activeSubTab === 'jobLogs'" x-cloak x-transition>
-            <div class="bg-gray-900/50 rounded-lg overflow-visible" x-data="{ open:false, search:'', cols:{ user:true, id:true, device:true, item:true, vault:true, ver:true, type:true, status:true, dirs:true, files:true, size:true, vsize:true, up:true, down:true, started:true, ended:true, dur:true } }">
+            <div class="bg-gray-900/50 rounded-lg overflow-visible" x-data="{ open:false, search:'', cols:{ user:true, id:false, device:true, item:true, vault:false, ver:false, type:true, status:true, dirs:false, files:false, size:true, vsize:true, up:false, down:false, started:true, ended:true, dur:true } }">
                 <div class="flex items-center justify-between px-4 pt-4 pb-2">
                     <div class="relative" @click.away="open=false">
                         <button type="button" class="inline-flex items-center px-3 py-2 text-sm bg-slate-700 hover:bg-slate-600 rounded text-white" @click="open=!open">
@@ -588,7 +588,7 @@
                         <thead class="bg-gray-800/50">
                             <tr>
                                 <th x-show="cols.user"   data-sort="Username"    class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Username</th>
-                                <th x-show="cols.id"     data-sort="JobID"       class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Job ID</th>
+                                <th x-show="cols.id" x-cloak    data-sort="JobID"       class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Job ID</th>
                                 <th x-show="cols.device" data-sort="Device"      class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Device</th>
                                 <th x-show="cols.item"   data-sort="ProtectedItem" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Protected Item</th>
                                 <th x-show="cols.vault"  data-sort="StorageVault" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Storage Vault</th>

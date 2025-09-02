@@ -1,4 +1,4 @@
-<div x-data="{ activeTab: 'dashboard' }" class="bg-gray-800">
+<div class="bg-gray-800">
     <!-- Card Container -->
     <div class="min-h-screen bg-gray-800 container mx-auto pb-8">
         <!-- Header & Breadcrumb -->
@@ -20,9 +20,9 @@
             <!-- Tabs Navigation -->
             <ul class="flex border-b border-gray-700" role="tablist">
                 <li class="mr-2" role="presentation">
-                    <a href="{$modulelink}&a=dashboard"
+                    <a href="{$modulelink}&a=dashboard&tab=dashboard"
                         class="flex items-center py-2 px-2 text-gray-300 hover:text-sky-400 border-b-2 border-transparent hover:border-gray-500 font-semibold"
-                        type="button" role="tab" aria-selected="true">
+                        role="tab" aria-selected="false">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
                             stroke="currentColor" class="w-5 h-5 mr-1">
                             <path stroke-linecap="round" stroke-linejoin="round"
@@ -32,9 +32,9 @@
                     </a>
                 </li>
                 <li class="mr-2" role="presentation">
-                    <a href="{$modulelink}&a=users"
+                    <a href="{$modulelink}&a=dashboard&tab=users"
                         class="flex items-center py-2 px-4 text-gray-300 hover:text-sky-400 border-b-2 border-transparent hover:border-gray-500 font-semibold"
-                        type="button" role="tab" aria-selected="false">
+                        role="tab" aria-selected="false">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
                             stroke="currentColor" class="w-5 h-5 mr-1">
                             <path stroke-linecap="round" stroke-linejoin="round"
@@ -44,9 +44,9 @@
                     </a>
                 </li>
                 <li class="mr-2" role="presentation">
-                    <a href="javascript:void(0);"
+                    <a href="{$modulelink}&a=vaults"
                         class="flex items-center py-2 px-4 border-b-2 text-sky-400 border-sky-400 font-semibold"
-                        type="button" role="tab" aria-selected="false">
+                        role="tab" aria-selected="true">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
                             stroke="currentColor" class="w-5 h-5 mr-1">
                             <path stroke-linecap="round" stroke-linejoin="round"
