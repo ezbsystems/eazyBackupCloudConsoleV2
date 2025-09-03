@@ -62,222 +62,224 @@
           </li>
         </ul>
 
-     <div x-data="{ activeSubTab: 'profile' }" class="mt-4 px-2">
-         <div class="border-b border-gray-700 mb-6">
-             <nav class="-mb-px flex space-x-6" aria-label="Tabs">
-                 <a href="#" @click.prevent="activeSubTab = 'profile'" :class="activeSubTab === 'profile' ? 'border-sky-500 text-sky-400' : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'" class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm">Profile</a>
-                 <a href="#" @click.prevent="activeSubTab = 'protectedItems'" :class="activeSubTab === 'protectedItems' ? 'border-sky-500 text-sky-400' : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'" class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm">Protected Items</a>
-                 <a href="#" @click.prevent="activeSubTab = 'storage'" :class="activeSubTab === 'storage' ? 'border-sky-500 text-sky-400' : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'" class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm">Storage Vaults</a>
-                 <a href="#" @click.prevent="activeSubTab = 'devices'" :class="activeSubTab === 'devices' ? 'border-sky-500 text-sky-400' : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'" class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm">Devices</a>
-                 <a href="#" @click.prevent="activeSubTab = 'jobLogs'" :class="activeSubTab === 'jobLogs' ? 'border-sky-500 text-sky-400' : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'" class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm">Job Logs</a>
-             </nav>
-      </div>
-
-         <div x-show="activeSubTab === 'profile'" x-transition>
-             <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                 <div class="md:col-span-2 bg-gray-900/50 p-6 rounded-lg">
-                     <h3 class="text-lg font-semibold text-white mb-4">User Details</h3>
-                     <div class="space-y-3 text-sm">
-                         <div class="flex justify-between">
-                             <span class="text-gray-400">Username:</span>
-                             <span class="text-white font-mono">{$username}</span>
-    </div>
-                         <div class="flex justify-between">
-                             <span class="text-gray-400">Password:</span>
-                             <span class="text-white">Hashed with 448-bit bcrypt</span>
-  </div>
-                         <div class="flex justify-between">
-                             <span class="text-gray-400">Created:</span>
-                             <span class="text-white font-mono">{$createdDate}</span>
-              </div>
-                         <div class="flex justify-between items-center">
-                             <div>
-                                 <span class="text-gray-400 mr-2">TOTP:</span>
-                             {if $totpStatus == 'Active'}
-                                 <span class="text-green-400">{$totpStatus}</span>
-                             {else}
-                                 <span class="text-red-400">{$totpStatus}</span>
-                             {/if}
-                             </div>
-                             <div class="flex items-center space-x-2">
-                                 <button id="totp-regenerate" class="bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold py-1.5 px-3 rounded">{if $totpStatus == 'Active'}Regenerate QR{else}Enable TOTP{/if}</button>
-                                 {if $totpStatus == 'Active'}
-                                 <button id="totp-disable" class="bg-gray-700 hover:bg-red-700 text-white text-xs font-semibold py-1.5 px-3 rounded">Disable</button>
-                                 {/if}
-                             </div>
-              </div>
-                          <div class="flex justify-between">
-                             <span class="text-gray-400">Number of devices:</span>
-                             <span class="text-white">{if $devices}{$devices|count}{else}0{/if}</span>
-              </div>
-                         <div class="flex justify-between">
-                             <span class="text-gray-400">Office 365 protected accounts:</span>
-                             <span class="text-white">{$msAccountCount}</span>
-              </div>
+          <div x-data="{ activeSubTab: 'profile' }" class="mt-4 px-2">
+            <div class="border-b border-gray-700 mb-6">
+                <nav class="-mb-px flex space-x-6" aria-label="Tabs">
+                    <a href="#" @click.prevent="activeSubTab = 'profile'" :class="activeSubTab === 'profile' ? 'border-sky-500 text-sky-400' : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'" class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm">Profile</a>
+                    <a href="#" @click.prevent="activeSubTab = 'protectedItems'" :class="activeSubTab === 'protectedItems' ? 'border-sky-500 text-sky-400' : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'" class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm">Protected Items</a>
+                    <a href="#" @click.prevent="activeSubTab = 'storage'" :class="activeSubTab === 'storage' ? 'border-sky-500 text-sky-400' : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'" class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm">Storage Vaults</a>
+                    <a href="#" @click.prevent="activeSubTab = 'devices'" :class="activeSubTab === 'devices' ? 'border-sky-500 text-sky-400' : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'" class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm">Devices</a>
+                    <a href="#" @click.prevent="activeSubTab = 'jobLogs'" :class="activeSubTab === 'jobLogs' ? 'border-sky-500 text-sky-400' : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'" class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm">Job Logs</a>
+                </nav>
             </div>
-                </div>
 
-                 <div class="space-y-6">
-                    <div
-                      class="bg-gray-900/50 p-6 rounded-lg"
-                      x-data="{
-                        modulelink: '',
-                        serviceid: '',
-                        username: '',
-                        enabled: false,
-                        recipients: [],
-                        emailInput: '',
-                        emailError: '',
-                        mode: 'default',
-                        preset: 'warn_error',
-                        saving: false,
-                        ok: false,
-                        error: '',
-                        hash: null
-                      }"
-                      x-init="(() => {
-                        const opts = {
-                          modulelink: ($el.dataset.modulelink || '').replace(/&amp;/g, '&'),
-                          serviceid:  $el.dataset.serviceid || '',
-                          username:   $el.dataset.username || ''
-                        };
-                        const attach = () => {
-                          try {
-                            const make = window.emailReportsFactory || (window.emailReports && ((o)=>window.emailReports(o)));
-                            if (!make) return;
-                            const obj = make(opts);
-                            for (const k in obj) { $data[k] = obj[k]; }
-                            if (typeof $data.init === 'function') $data.init(opts);
-                          } catch (e) {}
-                        };
-                        if (window.emailReportsFactory || window.emailReports) attach();
-                        else document.addEventListener('emailReports:ready', attach, { once: true });
-                      })()"
-                      data-modulelink="{$modulelink}"
-                      data-serviceid="{$serviceid}"
-                      data-username="{$username}"
-                    >
-                      <h3 class="text-lg font-semibold text-white mb-4">Email reporting</h3>
-                      <div class="space-y-4 text-sm">
-                        <div class="flex items-center justify-between">
-                          <label for="er-enabled" class="text-gray-300">Enable reporting</label>
-                          <input id="er-enabled" type="checkbox" class="h-5 w-5 rounded border-slate-600 bg-slate-700 text-sky-600" :checked="enabled" @change="enabled = $event.target.checked" aria-describedby="er-enabled-help">
+            <div x-show="activeSubTab === 'profile'" x-transition>
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div class="md:col-span-2 bg-gray-900/50 p-6 rounded-lg">
+                    <h3 class="text-lg font-semibold text-white mb-4">User Details</h3>
+                    <div class="space-y-3 text-sm">
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Username:</span>
+                            <span class="text-white font-mono">{$username}</span>
                         </div>
-                        <div id="er-enabled-help" class="text-xs text-slate-400">Turn on to receive email updates after backups.</div>
-
-                        <div>
-                          <label class="block text-sm text-gray-300 mb-1">Recipients</label>
-                          <div class="rounded border border-slate-700 bg-slate-800/50 p-2">
-                            <div class="flex flex-wrap gap-2 mb-2">
-                              <template x-for="(em,i) in recipients" :key="em">
-                                <span class="inline-flex items-center gap-1 rounded-full bg-sky-400/10 border border-sky-400/30 px-2 py-1 text-slate-200">
-                                  <span class="font-mono text-xs" x-text="em"></span>
-                                  <button type="button" class="hover:text-rose-400" @click="remove(i)" aria-label="Remove recipient">&times;</button>
-                                </span>
-                              </template>
-                            </div>
-                            <div class="flex items-center gap-2">
-                              <input type="email" class="flex-1 px-3 py-2 rounded border border-slate-600 bg-slate-700 focus:outline-none focus:ring-0 focus:border-sky-600 text-slate-200" placeholder="name@example.com" x-model.trim="emailInput" @keydown.enter.prevent="add()" :disabled="!enabled">
-                              <button type="button" class="px-3 py-2 rounded bg-slate-700 hover:bg-slate-600 text-white disabled:opacity-50" @click="add()" :disabled="!enabled">Add</button>
-                            </div>
-                            <div class="mt-1 text-xs" :class="emailError ? 'text-rose-400' : 'text-slate-400'" x-text="emailError || 'Add one or more email addresses to receive reports.'"></div>
+                          <div class="flex justify-between">
+                              <span class="text-gray-400">Password:</span>
+                              <span class="text-white">Hashed with 448-bit bcrypt</span>
                           </div>
+                          <div class="flex justify-between">
+                              <span class="text-gray-400">Created:</span>
+                              <span class="text-white font-mono">{$createdDate}</span>
+                          </div>
+                          <div class="flex justify-between items-center">
+                            <div>
+                              <span class="text-gray-400 mr-2">TOTP:</span>
+                              {if $totpStatus == 'Active'}
+                                  <span class="text-green-400">{$totpStatus}</span>
+                              {else}
+                                  <span class="text-red-400">{$totpStatus}</span>
+                              {/if}
+                            </div>
+                            <div class="flex items-center space-x-2">
+                                <button id="totp-regenerate" class="bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold py-1.5 px-3 rounded">{if $totpStatus == 'Active'}Regenerate QR{else}Enable TOTP{/if}</button>
+                                {if $totpStatus == 'Active'}
+                                <button id="totp-disable" class="bg-gray-700 hover:bg-red-700 text-white text-xs font-semibold py-1.5 px-3 rounded">Disable</button>
+                                {/if}
+                            </div>
+                          </div>
+                          <div class="flex justify-between">
+                            <span class="text-gray-400">Number of devices:</span>
+                            <span class="text-white">{if $devices}{$devices|count}{else}0{/if}</span>
+                          </div>
+                          <div class="flex justify-between">
+                              <span class="text-gray-400">Office 365 protected accounts:</span>
+                              <span class="text-white">{$msAccountCount}</span>
+                          </div>
+                    </div>
+                  </div>
+
+                <div class="space-y-6">
+                  <div
+                    class="bg-gray-900/50 p-6 rounded-lg"
+                    x-data="{
+                      modulelink: '',
+                      serviceid: '',
+                      username: '',
+                      enabled: false,
+                      recipients: [],
+                      emailInput: '',
+                      emailError: '',
+                      mode: 'default',
+                      preset: 'warn_error',
+                      saving: false,
+                      ok: false,
+                      error: '',
+                      hash: null
+                    }"
+                    x-init="(() => {
+                      const opts = {
+                        modulelink: ($el.dataset.modulelink || '').replace(/&amp;/g, '&'),
+                        serviceid:  $el.dataset.serviceid || '',
+                        username:   $el.dataset.username || ''
+                      };
+                      const attach = () => {
+                        try {
+                          const make = window.emailReportsFactory || (window.emailReports && ((o)=>window.emailReports(o)));
+                          if (!make) return;
+                          const obj = make(opts);
+                          for (const k in obj) { $data[k] = obj[k]; }
+                          if (typeof $data.init === 'function') $data.init(opts);
+                        } catch (e) {}
+                      };
+                      if (window.emailReportsFactory || window.emailReports) attach();
+                      else document.addEventListener('emailReports:ready', attach, { once: true });
+                    })()"
+                    data-modulelink="{$modulelink}"
+                    data-serviceid="{$serviceid}"
+                    data-username="{$username}"
+                  >
+                    <h3 class="text-lg font-semibold text-white mb-4">Email reporting</h3>
+                    <div class="space-y-4 text-sm">
+                      <div class="flex items-center justify-between">
+                        <label for="er-enabled" class="text-gray-300">Enable reporting</label>
+                        <input id="er-enabled" type="checkbox" class="h-5 w-5 rounded border-slate-600 bg-slate-700 text-sky-600" :checked="enabled" @change="enabled = $event.target.checked" aria-describedby="er-enabled-help">
+                      </div>
+                      <div id="er-enabled-help" class="text-xs text-slate-400">Turn on to receive email updates after backups.</div>
+
+                      <div>
+                        <label class="block text-sm text-gray-300 mb-1">Recipients</label>
+                        <div class="rounded border border-slate-700 bg-slate-800/50 p-2">
+                          <div class="flex flex-wrap gap-2 mb-2">
+                            <template x-for="(em,i) in recipients" :key="em">
+                              <span class="inline-flex items-center gap-1 rounded-full bg-sky-400/10 border border-sky-400/30 px-2 py-1 text-slate-200">
+                                <span class="font-mono text-xs" x-text="em"></span>
+                                <button type="button" class="hover:text-rose-400" @click="remove(i)" aria-label="Remove recipient">&times;</button>
+                              </span>
+                            </template>
+                          </div>
+                          <div class="flex items-center gap-2">
+                            <input type="email" class="flex-1 px-3 py-2 rounded border border-slate-600 bg-slate-700 focus:outline-none focus:ring-0 focus:border-sky-600 text-slate-200" placeholder="name@example.com" x-model.trim="emailInput" @keydown.enter.prevent="add()" :disabled="!enabled">
+                            <button type="button" class="px-3 py-2 rounded bg-slate-700 hover:bg-slate-600 text-white disabled:opacity-50" @click="add()" :disabled="!enabled">Add</button>
+                          </div>
+                          <div class="mt-1 text-xs" :class="emailError ? 'text-rose-400' : 'text-slate-400'" x-text="emailError || 'Add one or more email addresses to receive reports.'"></div>
                         </div>
+                      </div>
 
-                        <fieldset>
-                          <legend class="block text-sm text-gray-300 mb-1">Report rules</legend>
-                          <div class="space-y-2">
-                            <label class="flex items-center gap-2 text-slate-200 cursor-pointer">
-                              <input type="radio" name="er-mode" value="default" x-model="mode" class="rounded border-slate-600 bg-slate-700 text-sky-600">
-                              <span>Use system default</span>
-                            </label>
-                            <label class="flex items-center gap-2 text-slate-200 cursor-pointer">
-                              <input type="radio" name="er-mode" value="custom" x-model="mode" class="rounded border-slate-600 bg-slate-700 text-sky-600">
-                              <span>Customize for this user</span>
-                            </label>
-                          </div>
-                        </fieldset>
+                      <fieldset>
+                        <legend class="block text-sm text-gray-300 mb-1">Report rules</legend>
+                        <div class="space-y-2">
+                          <label class="flex items-center gap-2 text-slate-200 cursor-pointer">
+                            <input type="radio" name="er-mode" value="default" x-model="mode" class="rounded border-slate-600 bg-slate-700 text-sky-600">
+                            <span>Use system default</span>
+                          </label>
+                          <label class="flex items-center gap-2 text-slate-200 cursor-pointer">
+                            <input type="radio" name="er-mode" value="custom" x-model="mode" class="rounded border-slate-600 bg-slate-700 text-sky-600">
+                            <span>Customize for this user</span>
+                          </label>
+                        </div>
+                      </fieldset>
 
-                        <div x-show="mode === 'custom'" x-cloak>
-                          <label class="block text-sm text-gray-300 mb-1">Preset</label>
-                          <div class="relative" x-data="{ open:false, options:[
+                      <div x-show="mode === 'custom'" x-cloak>
+                        <label class="block text-sm text-gray-300 mb-1">Preset</label>
+                        <div class="relative" x-data="{ open:false, options:[
                             { value: 'errors', label: 'Errors only' },
                             { value: 'warn_error', label: 'Warnings and Errors' },
                             { value: 'warn_error_missed', label: 'Warnings, Errors, and Missed' },
                             { value: 'success', label: 'Success only' },
                           ] }" @click.away="open=false">
-                            <button type="button" @click="open = !open" class="relative w-full px-3 py-2 text-left bg-slate-700 border border-slate-600 rounded-md shadow-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition">
-                              <span class="block truncate text-slate-200" x-text="(options.find(o=>o.value===preset)||{}).label || 'Select preset'"></span>
-                              <span class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2">
-                                <svg class="h-5 w-5 text-slate-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.24 4.5a.75.75 0 01-1.08 0l-4.24-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg>
-                              </span>
-                            </button>
-                            <div x-show="open" x-transition class="absolute z-10 mt-1 w-full bg-slate-700 shadow-lg rounded-md border border-slate-600">
-                              <ul class="py-1 max-h-64 overflow-auto">
-                                <template x-for="opt in options" :key="opt.value">
-                                  <li>
-                                    <a href="#" @click.prevent="preset = opt.value; open=false" class="block px-4 py-2 text-sm text-slate-200 hover:bg-sky-600 hover:text-white" :class="{ 'bg-sky-600 text-white': preset === opt.value }" x-text="opt.label"></a>
-                                  </li>
-                                </template>
-                              </ul>
-                            </div>
+                          <button type="button" @click="open = !open" class="relative w-full px-3 py-2 text-left bg-slate-700 border border-slate-600 rounded-md shadow-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition">
+                            <span class="block truncate text-slate-200" x-text="(options.find(o=>o.value===preset)||{}).label || 'Select preset'"></span>
+                            <span class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2">
+                              <svg class="h-5 w-5 text-slate-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.24 4.5a.75.75 0 01-1.08 0l-4.24-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg>
+                            </span>
+                          </button>
+                          <div x-show="open" x-transition class="absolute z-10 mt-1 w-full bg-slate-700 shadow-lg rounded-md border border-slate-600">
+                            <ul class="py-1 max-h-64 overflow-auto">
+                              <template x-for="opt in options" :key="opt.value">
+                                <li>
+                                  <a href="#" @click.prevent="preset = opt.value; open=false" class="block px-4 py-2 text-sm text-slate-200 hover:bg-sky-600 hover:text-white" :class="{ 'bg-sky-600 text-white': preset === opt.value }" x-text="opt.label"></a>
+                                </li>
+                              </template>
+                            </ul>
                           </div>
-                          <div class="mt-2 text-xs text-slate-400">Immediate emails will be sent when a backup matches the selected statuses.</div>
                         </div>
+                        <div class="mt-2 text-xs text-slate-400">Immediate emails will be sent when a backup matches the selected statuses.</div>
+                      </div>
 
-                        <div class="flex items-center justify-end gap-2 pt-2">
-                          <button type="button" class="px-3 py-2 text-sm bg-slate-700 hover:bg-slate-600 rounded text-white disabled:opacity-50" x-show="mode === 'custom'" @click="preview()" :disabled="saving">Preview</button>
-                          <button type="button" class="px-4 py-2 text-sm bg-sky-600 hover:bg-sky-700 rounded text-white disabled:opacity-50" @click="save()" :disabled="saving">Save</button>
-                        </div>
+                      <div class="flex items-center justify-end gap-2 pt-2">
+                        <button type="button" class="px-3 py-2 text-sm bg-slate-700 hover:bg-slate-600 rounded text-white disabled:opacity-50" x-show="mode === 'custom'" @click="preview()" :disabled="saving">Preview</button>
+                        <button type="button" class="px-4 py-2 text-sm bg-sky-600 hover:bg-sky-700 rounded text-white disabled:opacity-50" @click="save()" :disabled="saving">Save</button>
+                      </div>
 
-                        <div class="text-xs mt-1" :class="error ? 'text-rose-400' : 'text-emerald-400'" x-text="error || (ok ? 'Saved.' : '')"></div>
-                </div>
-              </div>
-                     <div class="bg-gray-900/50 p-6 rounded-lg">
-                          <h3 class="text-lg font-semibold text-white mb-4">Storage Vaults</h3>
-                          <div class="space-y-2 text-sm">
-                             {if $vaults}
-                                 {foreach from=$vaults item=vault}
-                                     <div class="flex justify-between">
-                                         <span class="text-gray-300">{$vault.Description}</span>
-                                         <a href="#" class="text-sky-500 hover:underline">Configure...</a>
-                </div>
-                                 {/foreach}
-                             {else}
-                                  <p class="text-gray-400">No storage vaults found.</p>
-                             {/if}
-                </div>
+                      <div class="text-xs mt-1" :class="error ? 'text-rose-400' : 'text-emerald-400'" x-text="error || (ok ? 'Saved.' : '')"></div>
+                    </div>
+                  </div>
+                  <div class="bg-gray-900/50 p-6 rounded-lg">                          
+                    <div class="space-y-2 text-sm">
+                      <div class="flex justify-between">
+                        <h3 class="text-lg font-semibold text-white mb-4">Storage Vaults</h3>
+                        <a href="#" class="text-sky-500 hover:underline">Configure...</a>
+                      </div>
+                        {if $vaults}
+                            {foreach from=$vaults item=vault}
+                                <div class="flex justify-between">
+                                    <span class="text-gray-300">{$vault.Description}</span>
+                                </div>
+                            {/foreach}
+                        {else}
+                            <p class="text-gray-400">No storage vaults found.</p>
+                        {/if}
+                    </div>
+                  </div>
               </div>
             </div>
           </div>
-         </div>
 
-         <div x-show="activeSubTab === 'protectedItems'" x-cloak x-transition>
-              <div class="bg-gray-900/50 rounded-lg overflow-hidden">
-                 <table class="min-w-full divide-y divide-gray-700">
-                     <thead class="bg-gray-800/50">
-                         <tr>
-                             <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Name</th>
-                             <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Type</th>
-                             <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Size</th>
-                         </tr>
-                     </thead>
-                     <tbody class="divide-y divide-gray-700">
-              {foreach from=$protectedItems item=item}
-                             <tr class="hover:bg-gray-800/60">
-                                 <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$item.name}</td>
-                                 <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$item.type}</td>
-                                 <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($item.total_bytes)}</td>
-                             </tr>
-                         {foreachelse}
-                             <tr>
-                                 <td colspan="3" class="text-center py-6 text-sm text-gray-400">No protected items found for this user.</td>
-                             </tr>
-              {/foreach}
-                     </tbody>
-                 </table>
+        <div x-show="activeSubTab === 'protectedItems'" x-cloak x-transition>
+          <div class="bg-gray-900/50 rounded-lg overflow-hidden">
+              <table class="min-w-full divide-y divide-gray-700">
+                <thead class="bg-gray-800/50">
+                  <tr>
+                      <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Name</th>
+                      <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Type</th>
+                      <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Size</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-700">
+                  {foreach from=$protectedItems item=item}
+                    <tr class="hover:bg-gray-800/60">
+                        <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$item.name}</td>
+                        <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$item.type}</td>
+                        <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($item.total_bytes)}</td>
+                    </tr>
+                  {foreachelse}
+                    <tr>
+                        <td colspan="3" class="text-center py-6 text-sm text-gray-400">No protected items found for this user.</td>
+                    </tr>
+                  {/foreach}
+                </tbody>
+              </table>
           </div>
-          </div>
+        </div>
 
          <div x-show="activeSubTab === 'storage'" x-cloak x-transition>
             <div class="bg-gray-900/50 rounded-lg overflow-visible" x-data="{

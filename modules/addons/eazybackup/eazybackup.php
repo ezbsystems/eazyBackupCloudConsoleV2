@@ -10,6 +10,7 @@ use Comet\JobStatus;
 use Comet\JobType;
 use Carbon\Carbon;
 use WHMCS\Database\Capsule;
+use Illuminate\Database\Schema\Blueprint;
 use WHMCS\Module\Addon\Eazybackup\EazybackupObcMs365;
 use WHMCS\Module\Addon\Eazybackup\Helper;
 use Illuminate\Database\Capsule\Manager as DB;
@@ -129,6 +130,7 @@ function eazybackup_activate()
             $table->timestamp('created_at')->nullable();
             $table->timestamp('updated_at')->nullable();
         });
+        
     }
 
     // Create live jobs table for currently running jobs
@@ -156,18 +158,28 @@ function eazybackup_activate()
     // Billing rollups: protected item mix snapshot
     Capsule::statement("CREATE TABLE IF NOT EXISTS eb_items_daily (\n  d           DATE PRIMARY KEY,\n  di_devices  INT NOT NULL,\n  hv_vms      INT NOT NULL,\n  vw_vms      INT NOT NULL,\n  m365_users  INT NOT NULL,\n  ff_items    INT NOT NULL,\n  created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
 
-    // (Removed) eazybackup_user_permissions schema creation
+         // Keep your original create logic for brand-new installs…
+        eazybackup_migrate_schema(); // …and make sure existing installs get patched too.
+        return ['status' => 'success'];
 }
 
 /**
  * Module upgrade handler: add minimal indexes used by admin power panel queries.
  */
+
+
+
 function eazybackup_upgrade($vars = [])
 {
-    try { Capsule::statement("ALTER TABLE comet_vaults ADD INDEX idx_bucket_server (bucket_server)"); } catch (\Throwable $e) { /* ignore if exists */ }
-    try { Capsule::statement("ALTER TABLE comet_vaults ADD INDEX idx_username (username)"); } catch (\Throwable $e) { /* ignore if exists */ }
-    try { Capsule::statement("ALTER TABLE comet_vaults ADD INDEX idx_type (type)"); } catch (\Throwable $e) { /* ignore if exists */ }
-    try { Capsule::statement("ALTER TABLE comet_vaults ADD INDEX idx_user_server_type (username, bucket_server, type)"); } catch (\Throwable $e) { /* ignore if exists */ }
+    // 1) Run the idempotent schema migration for all tables/columns/indexes
+    eazybackup_migrate_schema();
+
+    // 2) Keep your existing targeted upgrades (safe to re-run; wrapped in try/catch)
+    try { Capsule::statement("ALTER TABLE comet_vaults ADD INDEX idx_bucket_server (bucket_server)"); } catch (\Throwable $e) {}
+    try { Capsule::statement("ALTER TABLE comet_vaults ADD INDEX idx_username (username)"); } catch (\Throwable $e) {}
+    try { Capsule::statement("ALTER TABLE comet_vaults ADD INDEX idx_type (type)"); } catch (\Throwable $e) {}
+    try { Capsule::statement("ALTER TABLE comet_vaults ADD INDEX idx_user_server_type (username, bucket_server, type)"); } catch (\Throwable $e) {}
+
     // Host alias support table: comet_server_aliases
     try {
         Capsule::statement("CREATE TABLE IF NOT EXISTS comet_server_aliases (
@@ -177,7 +189,170 @@ function eazybackup_upgrade($vars = [])
             UNIQUE KEY uniq_server_alias (server_id, alias_host),
             KEY idx_server (server_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-    } catch (\Throwable $e) { /* ignore */ }
+    } catch (\Throwable $e) {}
+}
+
+/** Add a column if it's missing (idempotent) */
+function eb_add_column_if_missing(string $table, string $column, callable $definition): void {
+    $schema = Capsule::schema();
+    if (!$schema->hasTable($table)) return; // creator handles create path
+    if ($schema->hasColumn($table, $column)) return;
+    $schema->table($table, function (Blueprint $t) use ($column, $definition) {
+        $definition($t); // e.g. fn($t) => $t->string('owner_device', 128)->nullable()->index()
+    });
+}
+
+/** Try to create an index if missing (best effort) */
+function eb_add_index_if_missing(string $table, string $indexSql): void {
+    try {
+        Capsule::connection()->statement($indexSql);
+    } catch (\Throwable $e) {
+        // ignore "Duplicate key name" and similar — makes this idempotent
+    }
+}
+
+/** Create or patch all addon tables */
+function eazybackup_migrate_schema(): void {
+    $schema = Capsule::schema();
+
+    // --- comet_devices ---
+    if (!$schema->hasTable('comet_devices')) {
+        $schema->create('comet_devices', function (Blueprint $t) {
+            $t->string('id', 255);
+            $t->integer('client_id')->nullable()->index();
+            $t->string('username', 255)->nullable()->index();
+            $t->string('hash', 255);
+            $t->json('content')->nullable();
+            $t->string('name', 255)->nullable()->index();
+            $t->string('platform_os', 32)->default('');
+            $t->string('platform_arch', 32)->default('');
+            $t->boolean('is_active')->default(0);
+            $t->timestamp('created_at')->nullable();
+            $t->timestamp('updated_at')->useCurrent()->useCurrentOnUpdate();
+            $t->timestamp('revoked_at')->nullable();
+            $t->primary('hash');
+            $t->unique(['hash','client_id']);
+        });
+    } else {
+        eb_add_column_if_missing('comet_devices','platform_os', fn(Blueprint $t)=>$t->string('platform_os',32)->default(''));
+        eb_add_column_if_missing('comet_devices','platform_arch',fn(Blueprint $t)=>$t->string('platform_arch',32)->default(''));
+        eb_add_column_if_missing('comet_devices','is_active',   fn(Blueprint $t)=>$t->boolean('is_active')->default(0));
+        eb_add_column_if_missing('comet_devices','revoked_at',  fn(Blueprint $t)=>$t->timestamp('revoked_at')->nullable());
+        eb_add_column_if_missing('comet_devices','content',     fn(Blueprint $t)=>$t->json('content')->nullable());
+        eb_add_index_if_missing('comet_devices', "CREATE INDEX IF NOT EXISTS idx_devices_client ON comet_devices (client_id)");
+        eb_add_index_if_missing('comet_devices', "CREATE INDEX IF NOT EXISTS idx_devices_user   ON comet_devices (username)");
+    }
+
+    // --- comet_items ---
+    if (!$schema->hasTable('comet_items')) {
+        $schema->create('comet_items', function (Blueprint $t) {
+            $t->uuid('id')->primary();
+            $t->integer('client_id')->index();
+            $t->string('username')->nullable()->index();
+            $t->json('content')->nullable();                 // <-- json, not jsonb
+            $t->string('owner_device',128)->nullable()->index();   // raw Comet DeviceID
+            $t->string('comet_device_id',64)->default('')->index(); // derived SHA-256 hex
+            $t->string('name')->index();
+            $t->string('type')->index();
+            $t->bigInteger('total_bytes')->nullable();
+            $t->bigInteger('total_files')->nullable();
+            $t->bigInteger('total_directories')->nullable();
+            $t->timestamp('created_at')->nullable();
+            $t->timestamp('updated_at')->nullable();
+        });
+    } else {
+        eb_add_column_if_missing('comet_items','content',         fn(Blueprint $t)=>$t->json('content')->nullable());
+        eb_add_column_if_missing('comet_items','owner_device',    fn(Blueprint $t)=>$t->string('owner_device',128)->nullable()->index());
+        eb_add_column_if_missing('comet_items','comet_device_id', fn(Blueprint $t)=>$t->string('comet_device_id',64)->default('')->index());
+        eb_add_column_if_missing('comet_items','total_bytes',     fn(Blueprint $t)=>$t->bigInteger('total_bytes')->nullable());
+        eb_add_column_if_missing('comet_items','total_files',     fn(Blueprint $t)=>$t->bigInteger('total_files')->nullable());
+        eb_add_column_if_missing('comet_items','total_directories',fn(Blueprint $t)=>$t->bigInteger('total_directories')->nullable());
+        eb_add_index_if_missing('comet_items',"CREATE INDEX IF NOT EXISTS idx_client_user ON comet_items (client_id, username)");
+    }
+
+    // --- eb_event_cursor ---
+    if (!$schema->hasTable('eb_event_cursor')) {
+        $schema->create('eb_event_cursor', function (Blueprint $t) {
+            $t->string('source',128)->primary();
+            $t->unsignedInteger('last_ts');
+            $t->string('last_id',128)->nullable();
+        });
+    }
+
+    // --- eb_jobs_live ---
+    if (!$schema->hasTable('eb_jobs_live')) {
+        $schema->create('eb_jobs_live', function (Blueprint $t) {
+            $t->string('server_id',64);
+            $t->string('job_id',64);
+            $t->string('username',255)->default('');
+            $t->string('device',255)->default('');
+            $t->string('job_type',64)->default('');
+            $t->unsignedInteger('started_at');
+            $t->unsignedBigInteger('bytes_done')->default(0);
+            $t->unsignedBigInteger('throughput_bps')->default(0);
+            $t->unsignedInteger('last_update');
+            $t->bigInteger('last_bytes')->default(0);
+            $t->integer('last_bytes_ts')->default(0);
+            $t->tinyInteger('cancel_attempts')->default(0);
+            $t->integer('last_checked_ts')->default(0);
+            $t->primary(['server_id','job_id']);
+            $t->index('last_update','idx_last_update');
+        });
+    } else {
+        eb_add_column_if_missing('eb_jobs_live','last_bytes',       fn(Blueprint $t)=>$t->bigInteger('last_bytes')->default(0));
+        eb_add_column_if_missing('eb_jobs_live','last_bytes_ts',    fn(Blueprint $t)=>$t->integer('last_bytes_ts')->default(0));
+        eb_add_column_if_missing('eb_jobs_live','cancel_attempts',  fn(Blueprint $t)=>$t->tinyInteger('cancel_attempts')->default(0));
+        eb_add_column_if_missing('eb_jobs_live','last_checked_ts',  fn(Blueprint $t)=>$t->integer('last_checked_ts')->default(0));
+    }
+
+    // --- eb_jobs_recent_24h ---
+    if (!$schema->hasTable('eb_jobs_recent_24h')) {
+        $schema->create('eb_jobs_recent_24h', function (Blueprint $t) {
+            $t->string('server_id',64);
+            $t->string('job_id',64);
+            $t->string('username',255)->default('');
+            $t->string('device',255)->default('');
+            $t->string('job_type',64)->default('');
+            $t->string('status',16)->default('success'); // success|warning|error|missed|abandoned|unknown
+            $t->unsignedBigInteger('bytes')->default(0);
+            $t->unsignedInteger('duration_sec')->default(0);
+            $t->unsignedInteger('ended_at')->default(0);
+            $t->primary(['server_id','job_id']);
+        });
+    }
+
+    // --- eb_devices_registry (if you use it) ---
+    if (!$schema->hasTable('eb_devices_registry')) {
+        $schema->create('eb_devices_registry', function (Blueprint $t) {
+            $t->string('server_id',64);
+            $t->string('device_id',128);
+            $t->string('username',255)->default('');
+            $t->string('friendly_name',255)->default('');
+            $t->string('platform_os',32)->default('');
+            $t->string('platform_arch',32)->default('');
+            $t->unsignedInteger('registered_at');
+            $t->unsignedInteger('last_seen')->default(0);
+            $t->string('status',16)->default('active');
+            $t->timestamp('updated_at')->useCurrent()->useCurrentOnUpdate();
+            $t->primary(['server_id','device_id']);
+            $t->index('username','idx_username');
+            $t->index('status','idx_status');
+            $t->index('last_seen','idx_last_seen');
+        });
+    }
+
+    // ---------- eb_items_daily (optional nightly rollup) ----------
+    if (!$schema->hasTable('eb_items_daily')) {
+        $schema->create('eb_items_daily', function (Blueprint $t) {
+            $t->date('d')->primary();
+            $t->unsignedInteger('di_devices')->default(0);
+            $t->unsignedInteger('hv_vms')->default(0);
+            $t->unsignedInteger('vw_vms')->default(0);
+            $t->unsignedInteger('m365_users')->default(0);
+            $t->unsignedInteger('ff_items')->default(0);
+        });
+    }
+    // Used by rollup_items_daily.php as per README. :contentReference[oaicite:8]{index=8}
 }
 
 // Ensure schema upgrades are applied on runtime paths as well
