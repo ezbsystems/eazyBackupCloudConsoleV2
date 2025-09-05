@@ -129,8 +129,7 @@ function eazybackup_activate()
             $table->bigInteger('storage_limit_bytes');
             $table->timestamp('created_at')->nullable();
             $table->timestamp('updated_at')->nullable();
-        });
-        
+        });        
     }
 
     // Create live jobs table for currently running jobs
@@ -171,16 +170,15 @@ function eazybackup_activate()
 
 function eazybackup_upgrade($vars = [])
 {
-    // 1) Run the idempotent schema migration for all tables/columns/indexes
+    
     eazybackup_migrate_schema();
 
-    // 2) Keep your existing targeted upgrades (safe to re-run; wrapped in try/catch)
+   
     try { Capsule::statement("ALTER TABLE comet_vaults ADD INDEX idx_bucket_server (bucket_server)"); } catch (\Throwable $e) {}
     try { Capsule::statement("ALTER TABLE comet_vaults ADD INDEX idx_username (username)"); } catch (\Throwable $e) {}
     try { Capsule::statement("ALTER TABLE comet_vaults ADD INDEX idx_type (type)"); } catch (\Throwable $e) {}
     try { Capsule::statement("ALTER TABLE comet_vaults ADD INDEX idx_user_server_type (username, bucket_server, type)"); } catch (\Throwable $e) {}
 
-    // Host alias support table: comet_server_aliases
     try {
         Capsule::statement("CREATE TABLE IF NOT EXISTS comet_server_aliases (
             id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -192,22 +190,20 @@ function eazybackup_upgrade($vars = [])
     } catch (\Throwable $e) {}
 }
 
-/** Add a column if it's missing (idempotent) */
 function eb_add_column_if_missing(string $table, string $column, callable $definition): void {
     $schema = Capsule::schema();
     if (!$schema->hasTable($table)) return; // creator handles create path
     if ($schema->hasColumn($table, $column)) return;
     $schema->table($table, function (Blueprint $t) use ($column, $definition) {
-        $definition($t); // e.g. fn($t) => $t->string('owner_device', 128)->nullable()->index()
+        $definition($t); 
     });
 }
 
-/** Try to create an index if missing (best effort) */
 function eb_add_index_if_missing(string $table, string $indexSql): void {
     try {
         Capsule::connection()->statement($indexSql);
     } catch (\Throwable $e) {
-        // ignore "Duplicate key name" and similar — makes this idempotent
+        
     }
 }
 
@@ -415,30 +411,43 @@ function eazybackup_config()
     return [
         'name' => 'eazyBackup',
         'description' => 'WHMCS addon module for eazyBackup',
-        'author' => 'eazyBackup Systems Ltd.',
-        'language' => 'english',
-        'version' => '1.0',
-        'fields' => [
-            "trialsignupgid" => [
-                "FriendlyName" => "Trial Signup Product Group",
-                "Type" => "dropdown",
-                "Options" => eazybackup_ProductGroupsLoader(),
-                "Description" => "Choose a product group for the trial signup page",
+        'author'      => 'eazyBackup Systems Ltd.',
+        'language'    => 'english',
+        'version'     => '1.1', // bump so you can see the change
+        'fields'      => [
+            'trialsignupgid' => [
+                'FriendlyName' => 'Trial Signup Product Group',
+                'Type'         => 'dropdown',
+                'Options'      => eazybackup_ProductGroupsLoader(),
+                'Description'  => 'Choose a product group for the trial signup page',
             ],
-            "trialsignupemail" => [
-                "FriendlyName" => "Trial Signup Email Address",
-                "Type" => "text",
-                "Description" => "Trial signup emails are sent to this email address",
+            'trialsignupemail' => [
+                'FriendlyName' => 'Trial Signup Email Address',
+                'Type'         => 'text',
+                'Description'  => 'Trial signup emails are sent to this email address',
             ],
-            "resellersignupemailtemplate" => [
-                "FriendlyName" => "Reseller Signup Email Template",
-                "Type" => "dropdown",
-                "Options" => eazybackup_EmailTemplatesLoader(),
-                "Description" => "Choose an email template for the reseller signup email",
-            ]
+            'resellersignupemailtemplate' => [
+                'FriendlyName' => 'Reseller Signup Email Template',
+                'Type'         => 'dropdown',
+                'Options'      => eazybackup_EmailTemplatesLoader(),
+                'Description'  => 'Choose an email template for the reseller signup email',
+            ],       
+            'turnstilesitekey' => [
+                'FriendlyName' => 'Turnstile Site Key',
+                'Type'         => 'text',
+                'Size'         => '60',
+                'Description'  => 'Public site key from Cloudflare Turnstile',
+            ],
+            'turnstilesecret' => [
+                'FriendlyName' => 'Turnstile Secret Key',
+                'Type'         => 'password',
+                'Size'         => '60',
+                'Description'  => 'Secret key for server-side verification',
+            ],
         ],
     ];
 }
+
 
 /**
  * Get a list of product groups from the WHMCS API.
@@ -482,6 +491,7 @@ function eazybackup_EmailTemplatesLoader()
  */
 function eazybackup_clientarea(array $vars)
 {
+    
 
     if ($_REQUEST["a"] == "usagereport") {
 
@@ -584,6 +594,10 @@ function eazybackup_clientarea(array $vars)
     } else if ($_REQUEST["a"] == "job-reports") {
         // Isolated Job Reports AJAX endpoint (shared between profile and dashboard)
         require_once __DIR__ . "/pages/console/job-reports.php";
+        exit; // script handles output
+    } else if ($_REQUEST["a"] == "user-actions") {
+        // Isolated User Actions AJAX endpoint
+        require_once __DIR__ . "/pages/console/user-actions.php";
         exit; // script handles output
     } else if ($_REQUEST["a"] == "device-actions") {
         // Isolated Device Actions AJAX endpoint
@@ -762,10 +776,13 @@ function eazybackup_clientarea(array $vars)
                 ->toArray(); // This now returns an array of arrays
 
 
-            // Fetch Comet user profile for account name and email reporting
+            // Fetch Comet user profile for account name, email reporting, and VM / M365 counts
             $accountName = '';
             $emailsCsv = '';
             $emailReportsEnabled = null; // null => unknown, bool when known
+            $hvCount = 0;
+            $vmwCount = 0;
+            $m365Accounts = 0;
             try {
                 $params = comet_ServiceParams($service->id);
                 $params['username'] = $service->username;
@@ -783,6 +800,41 @@ function eazybackup_clientarea(array $vars)
                         $emailsArr = isset($prof->Emails) && is_array($prof->Emails) ? $prof->Emails : [];
                         $emailsCsv = implode(', ', array_values($emailsArr));
                         $emailReportsEnabled = isset($prof->SendEmailReports) ? (bool)$prof->SendEmailReports : null;
+
+                        // QuotaOffice365ProtectedAccounts (as requested to display)
+                        if (isset($prof->QuotaOffice365ProtectedAccounts)) {
+                            $m365Accounts = (int)$prof->QuotaOffice365ProtectedAccounts;
+                        }
+
+                        // Sum VM counts per engine from Sources' last successful job
+                        try {
+                            if (isset($prof->Sources) && is_array($prof->Sources)) {
+                                foreach ($prof->Sources as $sid => $src) {
+                                    if (!is_object($src)) { continue; }
+                                    $engine = isset($src->Engine) ? strtolower((string)$src->Engine) : '';
+                                    if ($engine === '' || (strpos($engine, 'hyperv') === false && strpos($engine, 'vmware') === false)) { continue; }
+                                    $totalVm = 0; $ok = false;
+                                    if (isset($src->Statistics) && is_object($src->Statistics)) {
+                                        if (isset($src->Statistics->LastSuccessfulBackupJob) && is_object($src->Statistics->LastSuccessfulBackupJob)) {
+                                            $job = $src->Statistics->LastSuccessfulBackupJob;
+                                            if (isset($job->TotalVmCount)) { $totalVm = (int)$job->TotalVmCount; }
+                                            $ok = true;
+                                        } elseif (isset($src->Statistics->LastBackupJob) && is_object($src->Statistics->LastBackupJob)) {
+                                            $job = $src->Statistics->LastBackupJob;
+                                            if (isset($job->TotalVmCount)) { $totalVm = (int)$job->TotalVmCount; }
+                                            if (isset($job->Status)) {
+                                                $status = is_numeric($job->Status) ? (int)$job->Status : strtoupper((string)$job->Status);
+                                                $ok = ($status === 5000 || $status === 'SUCCESS');
+                                            }
+                                        }
+                                    }
+                                    if ($ok && $totalVm > 0) {
+                                        if (strpos($engine, 'hyperv') !== false) { $hvCount += $totalVm; }
+                                        if (strpos($engine, 'vmware') !== false) { $vmwCount += $totalVm; }
+                                    }
+                                }
+                            }
+                        } catch (\Throwable $e) { /* ignore per-user errors */ }
                     }
                 }
             } catch (\Throwable $e) {
@@ -798,6 +850,9 @@ function eazybackup_clientarea(array $vars)
                 'total_devices' => $total_devices,
                 'total_protected_items' => $total_protected_items,
                 'vaults' => $vaultsForUser, // Pass the detailed vault list
+                'hv_vm_count' => $hvCount,
+                'vmw_vm_count' => $vmwCount,
+                'm365_accounts' => $m365Accounts,
             ];
         }
 
@@ -1761,16 +1816,30 @@ function eazybackup_sidebar($vars)
 // }
 function eazybackup_signup($vars)
 {
-    // Start session if not already
+    // Resolve Turnstile site key from addon settings first, then constant/env as fallback
+    $siteKey = ($vars['turnstilesitekey'] ?? '')
+        ?: (defined('TURNSTILE_SITE_KEY') ? constant('TURNSTILE_SITE_KEY') : '')
+        ?: (getenv('TURNSTILE_SITE_KEY') ?: '');
+
     if (session_status() === PHP_SESSION_NONE) {
         session_start();
     }
 
-    // When form is submitted...
+    // Preserve the original user input EXACTLY as submitted (for redisplay on errors)
+    $rawPost = $_POST;
+
+    // Handle POST (form submit)
     if (!empty($_POST)) {
-        // 1) Validate form data
-        $errors = eazybackup_validate($_POST);
+
+        // 1) Validate form data (validator should NOT mutate $_POST)
+        $errors = eazybackup_validate($_POST, $vars);
+
+        // If validation fails, re-render with original inputs and site key
         if (!empty($errors)) {
+            // Debug probe to help locate accidental mutation elsewhere (optional)
+            error_log('PHONEDBG at entry: ' . ($rawPost['phonenumber'] ?? '(none)'));
+            error_log('PHONEDBG before return: ' . ($_POST['phonenumber'] ?? '(none)'));
+
             return [
                 "pagetitle"    => "Sign Up",
                 "breadcrumb"   => ["index.php?m=eazybackup" => "eazyBackup"],
@@ -1778,82 +1847,79 @@ function eazybackup_signup($vars)
                 "requirelogin" => false,
                 "forcessl"     => true,
                 "vars"         => [
-                    "modulelink" => $vars["modulelink"],
-                    "errors"     => $errors,
-                    "POST"       => $_POST,
+                    "modulelink"         => $vars["modulelink"],
+                    "errors"             => $errors,
+                    "POST"               => $rawPost,            // ← preserve exactly what the user typed
+                    "TURNSTILE_SITE_KEY" => $siteKey,
                 ],
             ];
         }
 
         try {
-            // 2) Create the client
-            $cardnotes = "\nNumber of accounts: " . $_POST["card"];
+            // 2) Create the client (use a cleaned copy if you sanitize phone; don't mutate $_POST)
+            $cardnotes = "\nNumber of accounts: " . ($_POST["card"] ?? '');
             $clientData = [
-                "firstname"     => "eazyBackup User",
-                "email"         => $_POST["email"],
-                "phonenumber"   => $_POST["phonenumber"],
-                "password2"     => $_POST["password"],
-                "notes"         => $cardnotes,
-                "skipvalidation"=> true,
+                "firstname"      => "eazyBackup User",
+                "email"          => $_POST["email"],
+                "phonenumber"    => $_POST["phonenumber"],  // raw value is fine for WHMCS; sanitize if you prefer
+                "password2"      => $_POST["password"],
+                "notes"          => $cardnotes,
+                "skipvalidation" => true,
             ];
             $client = localAPI("AddClient", $clientData);
-            if ($client["result"] !== "success") {
+            if (($client["result"] ?? '') !== "success") {
                 customFileLog("AddClient failed", $client);
-                throw new \Exception("AddClient: " . $client['message']);
+                throw new \Exception("AddClient: " . ($client['message'] ?? 'unknown'));
             }
 
             // 3) Place the order with your "trial" promo code
             $orderData = [
-                "clientid"     => $client["clientid"],
-                "pid"          => [$_POST["product"]],
-                "promocode"    => "trial",
-                "paymentmethod"=> "stripe",
-                "noinvoice"    => true,
-                "noemail"      => true,
+                "clientid"      => $client["clientid"],
+                "pid"           => [$_POST["product"]],
+                "promocode"     => "trial",
+                "paymentmethod" => "stripe",
+                "noinvoice"     => true,
+                "noemail"       => true,
             ];
             $order = localAPI("AddOrder", $orderData);
-            if ($order["result"] !== "success") {
+            if (($order["result"] ?? '') !== "success") {
                 customFileLog("AddOrder failed", $order);
-                throw new \Exception("AddOrder: " . $order['message']);
+                throw new \Exception("AddOrder: " . ($order['message'] ?? 'unknown'));
             }
 
             // 4) Accept the order (autosetup + email)
-            $acceptData = [
-                "orderid"        => $order["orderid"],
-                "autosetup"      => true,
-                "sendemail"      => true,
-                "serviceusername"=> $_POST["username"],
-                "servicepassword"=> $_POST["password"],
-            ];
-            $accept = localAPI("AcceptOrder", $acceptData);
-            if ($accept["result"] !== "success") {
+            $adminUser = 'API'; // must be a valid admin username
+            $accept = localAPI("AcceptOrder", [
+                "orderid"         => $order["orderid"],
+                "autosetup"       => true,
+                "sendemail"       => true,
+                "serviceusername" => $_POST["username"],
+                "servicepassword" => $_POST["password"],
+            ], $adminUser);
+            if (($accept["result"] ?? '') !== "success") {
                 customFileLog("AcceptOrder failed", $accept);
-                throw new \Exception("AcceptOrder: " . $accept['message']);
+                throw new \Exception("AcceptOrder: " . ($accept['message'] ?? 'unknown'));
             }
 
             // 5) Fetch the newly created service record
-            $service = Capsule::table('tblhosting')
-                ->where('orderid', $order["orderid"])
-                ->first();
+            $service = Capsule::table('tblhosting')->where('orderid', $order["orderid"])->first();
             if (!$service) {
                 throw new \Exception("Service record not found after order acceptance.");
             }
 
             // 6) Override WHMCS dates to exactly 14 days from now
-            $adminUser = 'API'; // must be a valid admin username
-            $newDate   = date('Y-m-d', strtotime('+14 days'));
-            $update    = localAPI('UpdateClientProduct', [
+            $newDate = date('Y-m-d', strtotime('+14 days'));
+            $update  = localAPI('UpdateClientProduct', [
                 'serviceid'       => $service->id,
                 'nextduedate'     => $newDate,
                 'nextinvoicedate' => $newDate,
             ], $adminUser);
-
-            if ($update['result'] !== 'success') {
+            if (($update['result'] ?? '') !== 'success') {
                 customFileLog("UpdateClientProduct failed", $update);
-                throw new \Exception("Could not set trial due date: " . $update['message']);
+                throw new \Exception("Could not set trial due date: " . ($update['message'] ?? 'unknown'));
             }
 
-            // 7) Product‑specific provisioning & build SSO redirect
+            // 7) Product-specific provisioning & SSO destination
             $product = $_POST["product"];
             if ($product == "52") {
                 $provisionResponse = EazybackupObcMs365::provisionLXDContainer(
@@ -1863,7 +1929,7 @@ function eazybackup_signup($vars)
                 );
                 if (isset($provisionResponse['error'])) {
                     customFileLog("Container provisioning failed", $provisionResponse);
-                    throw new Exception("Container provisioning failed: " . $provisionResponse['error']);
+                    throw new \Exception("Container provisioning failed: " . $provisionResponse['error']);
                 }
                 $redirectPath = 'index.php?m=eazybackup&a=ms365&serviceid=' . $service->id;
             } else {
@@ -1878,28 +1944,43 @@ function eazybackup_signup($vars)
             ], $adminUser);
             customFileLog("SSO Token Debug", $ssoResult);
 
-            if ($ssoResult['result'] === 'success') {
+            if (($ssoResult['result'] ?? '') === 'success') {
                 unset($_SESSION['old']);
                 $_SESSION['message'] = "Account created, Welcome aboard!";
                 header("Location: {$ssoResult['redirect_url']}");
                 exit;
             } else {
                 unset($_SESSION['old']);
-                $_SESSION['message'] = "Account created but login failed: " . $ssoResult['message'];
+                $_SESSION['message'] = "Account created but login failed: " . ($ssoResult['message'] ?? 'unknown');
                 header("Location: " . $vars["modulelink"] . "&a=download&product=eazybackup");
                 exit;
             }
 
         } catch (\Exception $e) {
-            // Log and fall through to re‑show signup form with an error
+            // Log and re-render the form with errors using the preserved POST
+            $errors = $errors ?? [];
             if (empty($errors["error"])) {
                 $errors["error"] = "There was an error completing your sign up. Please contact support.";
             }
             customFileLog("Signup process failed", $e->getMessage() . ' - ' . $e->getTraceAsString());
+
+            return [
+                "pagetitle"    => "Sign Up",
+                "breadcrumb"   => ["index.php?m=eazybackup" => "eazyBackup"],
+                "templatefile" => "templates/trialsignup",
+                "requirelogin" => false,
+                "forcessl"     => true,
+                "vars"         => [
+                    "modulelink"         => $vars["modulelink"],
+                    "errors"             => $errors,
+                    "POST"               => $rawPost,           // ← preserve user input here too
+                    "TURNSTILE_SITE_KEY" => $siteKey,
+                ],
+            ];
         }
     }
 
-    // 9) Initial form display or error redisplay
+    // Initial GET — just render the form (no POST yet)
     return [
         "pagetitle"    => "Sign Up",
         "breadcrumb"   => ["index.php?m=eazybackup" => "eazyBackup"],
@@ -1907,13 +1988,15 @@ function eazybackup_signup($vars)
         "requirelogin" => false,
         "forcessl"     => true,
         "vars"         => [
-            "modulelink" => $vars["modulelink"],
-            "errors"     => $errors ?? [],
-            "POST"       => $_POST,
-            "TURNSTILE_SITE_KEY"   => TURNSTILE_SITE_KEY,
+            "modulelink"         => $vars["modulelink"],
+            "errors"             => [],
+            "POST"               => [],                      // no prior input on first load
+            "TURNSTILE_SITE_KEY" => $siteKey,
         ],
     ];
 }
+
+
 
 
 
@@ -1927,7 +2010,7 @@ function obc_signup($vars)
     if (!empty($_POST)) {
         $_POST["product"] = "60";
 
-        $errors = eazybackup_validate($_POST);
+        $errors = eazybackup_validate($_POST, $vars);
         if (!empty($errors)) {
             return [
                 "pagetitle" => "Sign Up",
@@ -2337,6 +2420,7 @@ function eazybackup_createorder($vars)
         logActivity("eazybackup: Selected PID {$selectedPid} has group {$productGroupId}; isWhiteLabel=" . ($isWhiteLabel ? 'yes':'no'));
 
         if (empty($errors)) {
+            $notes = "Reseller account created on " . date("Y-m-d H:i:s");
             try {
                 // Check for Client ID in session
                 $clientid = $_SESSION['uid'] ?? null;
@@ -2604,119 +2688,156 @@ function isValidPassword($password)
         strlen($password) >= 8;                    // Minimum length of 8 characters
 }
 
-function eazybackup_validate(array $vars)
+function eazybackup_validate(array $vars, array $settings = [])
 {
-    // Log the POST data at the start of the validation function
-    error_log("Form submission data: " . print_r($vars, true));
+    // ---- Safe logging (mask secrets) ---------------------------------------
+    $toLog = $vars;
+    foreach (['password','confirmpassword','cf-turnstile-response','responseToken','turnstile_response'] as $s) {
+        if (isset($toLog[$s])) $toLog[$s] = '***redacted***';
+    }
+    error_log("Form submission data (masked): " . print_r($toLog, true));
 
     $errors = [];
 
-    // Validate Cloudflare Turnstile
-    if (empty($vars["cf-turnstile-response"])
-        || !validateTurnstile($vars["cf-turnstile-response"])
-    ) {
-        $errors["turnstile"] = "Please complete the CAPTCHA verification.";
+    // ---- Turnstile token + secret ------------------------------------------
+    $token = $vars['cf-turnstile-response']
+        ?? $vars['responseToken']
+        ?? $vars['turnstile_response']
+        ?? '';
+
+    // Prefer addon settings arg, then $vars from WHMCS, then constants/env
+    $secret = ($settings['turnstilesecret'] ?? '')
+        ?: ($vars['turnstilesecret'] ?? '')
+        ?: (defined('TURNSTILE_SECRET_KEY') ? constant('TURNSTILE_SECRET_KEY') : '')
+        ?: (getenv('TURNSTILE_SECRET_KEY') ?: '');
+
+    $remoteIp = $_SERVER['REMOTE_ADDR'] ?? null;
+
+    if ($token === '' || !validateTurnstile($token, $secret, $remoteIp)) {
+        $errors['turnstile'] = 'Please complete the verification.';
         logModuleCall(
             'eazybackup',
             'ValidateTurnstile',
-            ['responseToken' => $vars['cf-turnstile-response']],
+            ['hasToken' => $token !== '', 'hasSecret' => $secret !== ''],
             ['success' => false]
         );
     }
 
-
-    // Validate username
-    if (empty($vars["username"]) || !preg_match('/^[a-zA-Z0-9._-]{6,}$/', $vars["username"])) {
-        $errors["username"] = "Username must be at least 6 characters and may contain only letters, numbers, periods, underscores, or hyphens.";
+    // ---- Username -----------------------------------------------------------
+    if (empty($vars['username']) || !preg_match('/^[a-zA-Z0-9._-]{6,}$/', $vars['username'])) {
+        $errors['username'] = 'Username must be at least 6 characters and may contain only letters, numbers, periods, underscores, or hyphens.';
     } else {
         try {
-            // Check if the username is already taken
-            comet_Server(["pid" => $vars["product"]])->AdminGetUserProfile($vars["username"]);
-            $errors["username"] = "That username is not available, please try another";
-        } catch (\Exception $e) {
-            // Username is available; do nothing
+            // If this does not throw, user exists -> reject
+            comet_Server(['pid' => $vars['product']])->AdminGetUserProfile($vars['username']);
+            $errors['username'] = 'That username is not available, please try another.';
+        } catch (\Throwable $e) {
+            // Username likely available; do nothing
         }
     }
 
-    // Enhanced password validation
-    if (!isValidPassword($vars["password"])) {
-        $errors["password"] = "Password must be at least 8 characters long, with at least one uppercase letter, one lowercase letter, one number, and one special character.";
+    // ---- Password strength --------------------------------------------------
+    if (!isValidPassword($vars['password'] ?? '')) {
+        $errors['password'] = 'Password must be at least 8 characters long, with at least one uppercase letter, one lowercase letter, one number, and one special character.';
     }
 
-    // Validate password confirmation matches
-    if (empty($vars["confirmpassword"])) {
-        $errors["confirmpassword"] = "You must confirm your password";
-    } else if ($vars["confirmpassword"] !== $vars["password"]) {
-        $errors["confirmpassword"] = "Passwords do not match";
+    // ---- Password confirmation ---------------------------------------------
+    if (empty($vars['confirmpassword'])) {
+        $errors['confirmpassword'] = 'You must confirm your password.';
+    } elseif (($vars['confirmpassword'] ?? '') !== ($vars['password'] ?? '')) {
+        $errors['confirmpassword'] = 'Passwords do not match.';
     }
 
-    // Validate email
-    if (empty($vars["email"])) {
-        $errors["email"] = "You must provide an email address";
+    // ---- Email --------------------------------------------------------------
+    if (empty($vars['email'])) {
+        $errors['email'] = 'You must provide an email address.';
     } else {
-        // Split the email to get the domain part
-        $emailParts = explode('@', $vars["email"]);
-        $domain = strtolower(array_pop($emailParts));
+        $email = trim($vars['email']);
+        $domain = strtolower(substr(strrchr($email, '@') ?: '', 1));
 
-        // Check if domain is in blocked list
-        if (in_array($domain, BLOCKED_EMAIL_DOMAINS)) {
-            $errors["email"] = "Please signup with your business email address";
+        $blocked = defined('BLOCKED_EMAIL_DOMAINS') && is_array(BLOCKED_EMAIL_DOMAINS)
+            ? BLOCKED_EMAIL_DOMAINS
+            : []; // default if not defined
+
+        if ($domain && in_array($domain, $blocked, true)) {
+            $errors['email'] = 'Please sign up with your business email address.';
         } else {
-            // Validate email doesn't exist in WHMCS
-            $clients = localAPI("GetClientsDetails", ["email" => $vars["email"]]);
-            error_log("WHMCS API response for email validation: " . print_r($clients, true));
-            if ($clients["result"] == "success") {
-                $errors["email"] = "This Email address is already in use. <a href=\"clientarea.php\" target=\"_top\">Login to Client Area.</a>";
+            // Use GetClients to search by email
+            $resp = localAPI('GetClients', ['search' => $email, 'limitnum' => 1]);
+            error_log('WHMCS GetClients (masked): ' . print_r(['result' => $resp['result'] ?? null, 'numreturned' => $resp['numreturned'] ?? null], true));
+            if (($resp['result'] ?? '') === 'success' && (int)($resp['numreturned'] ?? 0) > 0) {
+                $errors['email'] = 'This email address is already in use. <a href="clientarea.php" target="_top">Log in to Client Area</a>.';
             }
         }
     }
 
-    // if (!in_array($vars["product"], comet_GetPids())) {
-    //     $errors["product"] = "Please select a backup plan";
+    // ---- Product (optional) -------------------------------------------------
+    // if (!in_array($vars['product'] ?? null, comet_GetPids(), true)) {
+    //     $errors['product'] = 'Please select a backup plan.';
     // }
 
     return $errors;
 }
 
-function validateTurnstile($cfToken)
+function validateTurnstile(string $cfToken, string $secretKey, ?string $remoteIp = null): bool
 {
-    $secretKey = TURNSTILE_SECRET_KEY;
-    $url = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
-
-    // Prepare POST data
-    $data = [
-        'secret' => $secretKey,
-        'response' => $cfToken,
-        'remoteip' => $_SERVER['REMOTE_ADDR'] 
-    ];
-
-    // Using cURL for a POST request
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $url);
-    curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
-
-    $result = curl_exec($ch);
-    if ($result === false) {
-        error_log("cURL error: " . curl_error($ch));
-        curl_close($ch);
+    // Fast fail with safe logging (no secrets/token)
+    if ($secretKey === '' || $cfToken === '') {
+        logModuleCall(
+            'eazybackup',
+            'TurnstileSiteVerify',
+            ['hasToken' => $cfToken !== '', 'hasSecret' => $secretKey !== ''],
+            ['success' => false, 'reason' => 'missing key or token']
+        );
         return false;
     }
+
+    $url  = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
+    $data = [
+        'secret'   => $secretKey,
+        'response' => $cfToken,
+    ];
+    if (!empty($remoteIp)) {
+        $data['remoteip'] = $remoteIp;
+    }
+
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_POST           => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POSTFIELDS     => http_build_query($data),
+        CURLOPT_TIMEOUT        => 10,
+        // SSL verification is on by default; do not disable it.
+    ]);
+
+    $raw = curl_exec($ch);
+    if ($raw === false) {
+        $err = curl_error($ch);
+        curl_close($ch);
+        logModuleCall('eazybackup', 'TurnstileSiteVerifyCurlError', ['hasToken' => true], ['error' => $err]);
+        return false;
+    }
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE) ?: 0;
     curl_close($ch);
 
-    // Decode the JSON response from Cloudflare
-    $responseData = json_decode($result, true);
+    // Decode safely
+    $resp = json_decode($raw, true);
+    if (!is_array($resp)) {
+        logModuleCall('eazybackup', 'TurnstileSiteVerifyBadJSON', ['hasToken' => true, 'httpCode' => $httpCode], ['raw' => substr($raw, 0, 400)]);
+        return false;
+    }
+
+    // Log outcome without secrets
     logModuleCall(
         'eazybackup',
         'TurnstileSiteVerify',
-        ['secret' => $secretKey, 'response' => $cfToken],
-        $responseData
+        ['hasToken' => true, 'httpCode' => $httpCode],
+        ['success' => $resp['success'] ?? null, 'error-codes' => $resp['error-codes'] ?? null]
     );
 
-
-    return isset($responseData['success']) && $responseData['success'] === true;
+    return !empty($resp['success']);
 }
+
 
 function validateRecaptcha($recaptchaResponse)
 {

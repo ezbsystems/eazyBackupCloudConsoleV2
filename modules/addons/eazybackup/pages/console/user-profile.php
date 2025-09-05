@@ -52,6 +52,42 @@ function eazybackup_user_profile(array $vars = []) {
     $totpStatus     = (!empty($user->AllowPasswordAndTOTPLogin)) ? 'Active' : 'Disabled';
     $msAccountCount = MicrosoftAccountCount($user);
 
+    // Compute Hyper-V and VMware VM usage counts from the profile (Sources tree)
+    $hvGuestCount = 0;
+    $vmwGuestCount = 0;
+    try {
+        if (isset($user->Sources) && is_array($user->Sources)) {
+            foreach ($user->Sources as $srcId => $src) {
+                if (!is_object($src)) { continue; }
+                $engine = isset($src->Engine) ? strtolower((string)$src->Engine) : '';
+                if ($engine === '' || (strpos($engine, 'hyperv') === false && strpos($engine, 'vmware') === false)) {
+                    continue;
+                }
+                $totalVm = 0;
+                $isSuccess = false;
+                if (isset($src->Statistics) && is_object($src->Statistics)) {
+                    // Prefer LastSuccessfulBackupJob if present
+                    if (isset($src->Statistics->LastSuccessfulBackupJob) && is_object($src->Statistics->LastSuccessfulBackupJob)) {
+                        $job = $src->Statistics->LastSuccessfulBackupJob;
+                        if (isset($job->TotalVmCount)) { $totalVm = (int)$job->TotalVmCount; }
+                        $isSuccess = true;
+                    } elseif (isset($src->Statistics->LastBackupJob) && is_object($src->Statistics->LastBackupJob)) {
+                        $job = $src->Statistics->LastBackupJob;
+                        if (isset($job->TotalVmCount)) { $totalVm = (int)$job->TotalVmCount; }
+                        if (isset($job->Status)) {
+                            $status = is_numeric($job->Status) ? (int)$job->Status : strtoupper((string)$job->Status);
+                            $isSuccess = ($status === 5000 || $status === 'SUCCESS');
+                        }
+                    }
+                }
+                if ($isSuccess && $totalVm > 0) {
+                    if (strpos($engine, 'hyperv') !== false) { $hvGuestCount += $totalVm; }
+                    if (strpos($engine, 'vmware') !== false) { $vmwGuestCount += $totalVm; }
+                }
+            }
+        }
+    } catch (\Throwable $e) { /* ignore */ }
+
     // Get optimized protected items for this account (from previous integration)
     $protectedItems = getUserProtectedItemsDetails($username, $serviceid);
 
@@ -68,6 +104,8 @@ function eazybackup_user_profile(array $vars = []) {
         "createdDate"     => $createdDate,
         "totpStatus"      => $totpStatus,
         "msAccountCount"  => $msAccountCount,
+        "hvGuestCount"    => $hvGuestCount,
+        "vmwGuestCount"   => $vmwGuestCount,
         "protectedItems"  => $protectedItems,
         "devices"         => getUserDevicesDetails($username, $serviceid), // Already implemented earlier
         "jobLogs"         => $jobLogs, // New key for job log details

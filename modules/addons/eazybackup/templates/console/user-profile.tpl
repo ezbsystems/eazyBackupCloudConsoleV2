@@ -5,6 +5,20 @@
  * @license https://www.eazybackup.com/terms/eula
  *}
 
+ <style>
+  /* Hide native spinners (Chrome/Edge/Safari) */
+  input[type="number"].no-native-spin::-webkit-outer-spin-button,
+  input[type="number"].no-native-spin::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  /* Hide native spinners (Firefox) */
+  input[type="number"].no-native-spin {
+    -moz-appearance: textfield;
+  }
+</style>
+
+
  <div class="bg-gray-800">
  <div class="min-h-screen bg-gray-800 container mx-auto pb-8">
 
@@ -45,7 +59,7 @@
              </a>
          </li>
          <li class="mr-2" role="presentation">
-             <a href="{$modulelink}&a=dashboard" class="flex items-center py-2 px-4 border-b-2 text-sky-400 border-sky-400 font-semibold" type="button" role="tab" aria-selected="true">
+             <a href="{$modulelink}&a=dashboard&tab=users" class="flex items-center py-2 px-4 border-b-2 text-gray-300 hover:text-sky-400 border-b-2 border-transparent hover:border-gray-500 font-semibold" type="button" role="tab" aria-selected="true">
                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-1">
                      <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0  0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
           </svg>
@@ -64,13 +78,38 @@
 
           <div x-data="{ activeSubTab: 'profile' }" class="mt-4 px-2">
             <div class="border-b border-gray-700 mb-6">
-                <nav class="-mb-px flex space-x-6" aria-label="Tabs">
-                    <a href="#" @click.prevent="activeSubTab = 'profile'" :class="activeSubTab === 'profile' ? 'border-sky-500 text-sky-400' : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'" class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm">Profile</a>
-                    <a href="#" @click.prevent="activeSubTab = 'protectedItems'" :class="activeSubTab === 'protectedItems' ? 'border-sky-500 text-sky-400' : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'" class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm">Protected Items</a>
-                    <a href="#" @click.prevent="activeSubTab = 'storage'" :class="activeSubTab === 'storage' ? 'border-sky-500 text-sky-400' : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'" class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm">Storage Vaults</a>
-                    <a href="#" @click.prevent="activeSubTab = 'devices'" :class="activeSubTab === 'devices' ? 'border-sky-500 text-sky-400' : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'" class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm">Devices</a>
-                    <a href="#" @click.prevent="activeSubTab = 'jobLogs'" :class="activeSubTab === 'jobLogs' ? 'border-sky-500 text-sky-400' : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'" class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm">Job Logs</a>
-                </nav>
+                <div class="flex items-center justify-between">
+                    <nav class="-mb-px flex space-x-6" aria-label="Tabs">
+                        <a href="#" @click.prevent="activeSubTab = 'profile'" :class="activeSubTab === 'profile' ? 'border-sky-500 text-sky-400' : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'" class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm">Profile</a>
+                        <a href="#" @click.prevent="activeSubTab = 'protectedItems'" :class="activeSubTab === 'protectedItems' ? 'border-sky-500 text-sky-400' : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'" class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm">Protected Items</a>
+                        <a href="#" @click.prevent="activeSubTab = 'storage'" :class="activeSubTab === 'storage' ? 'border-sky-500 text-sky-400' : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'" class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm">Storage Vaults</a>
+                        <a href="#" @click.prevent="activeSubTab = 'devices'" :class="activeSubTab === 'devices' ? 'border-sky-500 text-sky-400' : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'" class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm">Devices</a>
+                        <a href="#" @click.prevent="activeSubTab = 'jobLogs'" :class="activeSubTab === 'jobLogs' ? 'border-sky-500 text-sky-400' : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'" class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm">Job Logs</a>
+                    </nav>
+                    <div class="relative" x-data="{ open:false }" @keydown.escape.window="open=false" @click.away="open=false">
+                        <button type="button" class="inline-flex items-center px-3 py-2 text-sm bg-slate-700 hover:bg-slate-600 rounded text-white" @click="open = !open">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-1">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M10.343 3.94c.09-.542.56-.94 1.11-.94h1.094c.55 0 1.02.398 1.11.94l.149.894c.07.424.384.764.78.93.398.164.855.142 1.205-.108l.737-.527a1.125 1.125 0 0 1 1.45.12l.773.774c.39.389.44 1.002.12 1.45l-.527.737c-.25.35-.272.806-.107 1.204.165.397.505.71.93.78l.893.15c.543.09.94.56.94 1.109v1.094c0 .55-.397 1.02-.94 1.11l-.893.149c-.425.07-.765.383-.93.78-.165.398-.143.854.107 1.204l.527.738c.32.447.269 1.06-.12 1.45l-.774.773a1.125 1.125 0 0 1-1.449.12l-.738-.527c-.35-.25-.806-.272-1.203-.107-.397.165-.71.505-.781.929l-.149.894c-.09.542-.56.94-1.11.94h-1.094c-.55 0-1.019-.398-1.11-.94l-.148-.894c-.071-.424-.384-.764-.781-.93-.398-.164-.854-.142-1.204.108l-.738.527c-.447.32-1.06.269-1.45-.12l-.773-.774a1.125 1.125 0 0 1-.12-1.45l.527-.737c.25-.35.273-.806.108-1.204-.165-.397-.505-.71-.93-.78l-.894-.15c-.542-.09-.94-.56-.94-1.109v-1.094c0-.55.398-1.02.94-1.11l.894-.149c.424-.07.765-.383.93-.78.165-.398.143-.854-.107-1.204l-.527-.738a1.125 1.125 0 0 1 .12-1.45l.773-.773a1.125 1.125 0 0 1 1.45-.12l.737.527c.35.25.807.272 1.204.107.397-.165.71-.505.78-.929l.15-.894Z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+                            </svg>
+                            Actions
+                            <svg class="ml-1 h-4 w-4 opacity-70" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.24 4.5a.75.75 0 01-1.08 0l-4.24-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg>
+                        </button>
+                        <div x-show="open" x-cloak x-transition class="absolute right-0 mt-2 w-56 bg-slate-800 border border-slate-700 rounded-md shadow-lg z-10">
+                            <ul class="py-1 text-sm text-slate-200">
+                                <li>
+                                    <a href="#" class="flex items-center px-3 py-2 hover:bg-slate-700" data-action="reset-password" data-username="{$username}" data-serviceid="{$serviceid}" @click.prevent="open=false; $dispatch('eb-reset-password', { username: '{$username}', serviceid: '{$serviceid}' })">
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-5 w-5 mr-2 text-slate-300">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 21v-2.25a2.25 2.25 0 0 0-2.25-2.25h-10.5A2.25 2.25 0 0 0 4.5 18.75V21" />
+                                        </svg>
+                                        <span>Reset password</span>
+                                    </a>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <div x-show="activeSubTab === 'profile'" x-transition>
@@ -114,6 +153,363 @@
                               <span class="text-gray-400">Office 365 protected accounts:</span>
                               <span class="text-white">{$msAccountCount}</span>
                           </div>
+                          <div class="flex justify-between">
+                            <span class="text-gray-400">Number of Hyper-V VMs:</span>
+                            <span class="text-white">{$hvGuestCount|default:0}</span>
+                          </div>
+                          <div class="flex justify-between">
+                            <span class="text-gray-400">Number of VMware VMs:</span>
+                            <span class="text-white">{$vmwGuestCount|default:0}</span>
+                          </div>
+                      <!-- BEGIN: Quota Controls -->
+                      <div 
+                        x-data="quotaCtrl()" 
+                        x-init="await init()"
+                        class="mt-6 rounded-xl border border-slate-700 bg-slate-800/60"
+                      >
+                        <div class="px-4 py-3 border-b border-slate-700">
+                          <h3 class="text-sm font-semibold text-slate-200">Quotas</h3>
+                          <p class="mt-1 text-xs text-slate-400">Set limits for devices and protected workloads. Turn off to allow unlimited.</p>
+                        </div>
+
+                        <div class="divide-y divide-slate-700">
+                          <!-- Maximum devices -->
+                          <div class="flex items-center justify-between px-4 py-3 gap-4">
+                            <div class="min-w-0">
+                              <label for="q-devices" class="block text-sm font-medium text-slate-200">Maximum devices</label>
+                              <p class="text-xs text-slate-400">Limit the number of devices that can register under this backup account.</p>
+                            </div>
+                            <div class="flex items-center gap-4">
+                              <button 
+                                type="button"
+                                @click="dev.enabled = !dev.enabled; if (!dev.enabled) { dev.count = 0 } else if (dev.count < 1) { dev.count = 1 }"
+                                :class="dev.enabled ? 'bg-emerald-600' : 'bg-slate-600'"
+                                class="relative inline-flex h-6 w-11 items-center rounded-full transition"
+                                :aria-pressed="dev.enabled ? 'true' : 'false'"
+                                aria-label="Toggle maximum devices"
+                              >
+                                <span 
+                                  :class="dev.enabled ? 'translate-x-6' : 'translate-x-1'"
+                                  class="inline-block h-4 w-4 transform rounded-full bg-white transition"
+                                ></span>
+                              </button>
+
+                              <!-- number input with custom stepper -->                    
+                              <div class="relative group" :class="!dev.enabled && 'opacity-50 cursor-not-allowed pointer-events-none'">
+                                <input
+                                  id="q-devices"
+                                  type="number"
+                                  :min="dev.enabled ? 1 : null"
+                                  inputmode="numeric"
+                                  min="1" step="1"
+                                  x-model.number="dev.count"
+                                  :disabled="!dev.enabled"
+                                  :tabindex="dev.enabled ? '0' : '-1'"
+                                  class="peer no-native-spin h-9 w-28 rounded-lg border border-slate-600/70 bg-slate-900 pr-10 pl-3
+                                        text-left text-slate-100 outline-none transition
+                                        focus:border-slate-500 focus:ring-2 focus:ring-emerald-500/80"
+                                  @blur="if (dev.enabled) dev.count = Math.max(1, parseInt(dev.count || 1))"
+                                />
+
+                                <!-- Compact custom stepper -->
+                                <div
+                                  class="pointer-events-auto absolute right-1.5 top-1/2 -translate-y-1/2
+                                        h-7 w-7 overflow-hidden rounded-md border border-slate-600/70 bg-slate-800/90 shadow-sm
+                                        opacity-0 transition
+                                        group-hover:opacity-100 peer-focus:opacity-100"
+                                  :class="!dev.enabled && 'opacity-60'"
+                                >
+                                  <!-- Equal halves -->
+                                  <div class="flex h-full w-full flex-col">
+                                    <!-- + button -->
+                                    <button
+                                      type="button"
+                                      class="flex h-1/2 items-center justify-center text-slate-300 hover:text-white hover:bg-slate-700/60"
+                                      @click="dev.count = Math.max(1, parseInt((dev.count ?? 1), 10) + 1)"
+                                      :disabled="!dev.enabled"
+                                      aria-label="Increase"
+                                    >
+                                      <svg viewBox="0 0 24 24" class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" d="M12 5v14M5 12h14"/>
+                                      </svg>
+                                    </button>
+
+                                    <!-- − button -->
+                                    <button
+                                      type="button"
+                                      class="flex h-1/2 items-center justify-center text-slate-300 hover:text-white hover:bg-slate-700/60"
+                                      @click="dev.count = Math.max(1, parseInt((dev.count ?? 1), 10) - 1)"
+                                      :disabled="!dev.enabled"
+                                      aria-label="Decrease"
+                                    >
+                                      <svg viewBox="0 0 24 24" class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" d="M5 12h14"/>
+                                      </svg>
+                                    </button>
+                                  </div>
+
+                                  <!-- Visual divider that doesn't take space -->
+                                  <span class="pointer-events-none absolute inset-x-1 top-1/2 -translate-y-1/2 h-px bg-slate-600/60"></span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <!-- Microsoft 365 protected accounts -->
+                          <div class="flex items-center justify-between px-4 py-3 gap-4">
+                            <div class="min-w-0">
+                              <label for="q-m365" class="block text-sm font-medium text-slate-200">Microsoft 365 protected accounts</label>
+                              <p class="text-xs text-slate-400">Limit the number of Microsoft 365 accounts protected by this user.</p>
+                            </div>
+                            <div class="flex items-center gap-4">
+                              <button 
+                                type="button"
+                                @click="m365.enabled = !m365.enabled; if (!m365.enabled) { m365.count = 0 } else if (m365.count < 1) { m365.count = 1 }"
+                                :class="m365.enabled ? 'bg-emerald-600' : 'bg-slate-600'"
+                                class="relative inline-flex h-6 w-11 items-center rounded-full transition"
+                                :aria-pressed="m365.enabled ? 'true' : 'false'"
+                                aria-label="Toggle Microsoft 365 accounts"
+                              >
+                                <span 
+                                  :class="m365.enabled ? 'translate-x-6' : 'translate-x-1'"
+                                  class="inline-block h-4 w-4 transform rounded-full bg-white transition"
+                                ></span>
+                              </button>
+                              <!-- number input with custom stepper -->                    
+                              <div class="relative group" :class="!m365.enabled && 'opacity-50 cursor-not-allowed pointer-events-none'">
+                                <input
+                                  id="q-m365"
+                                  type="number"
+                                  inputmode="numeric"
+                                  min="1" step="1"
+                                  x-model.number="m365.count"
+                                  :disabled="!m365.enabled"
+                                  :tabindex="m365.enabled ? '0' : '-1'"
+                                  class="peer no-native-spin h-9 w-28 rounded-lg border border-slate-600/70 bg-slate-900 pr-10 pl-3
+                                        text-left text-slate-100 outline-none transition
+                                        focus:border-slate-500 focus:ring-2 focus:ring-emerald-500/80"
+                                  @blur="if (m365.enabled) m365.count = Math.max(1, parseInt(m365.count || 1))"
+                                />
+
+                                <!-- Compact custom stepper -->
+                                <div
+                                  class="pointer-events-auto absolute right-1.5 top-1/2 -translate-y-1/2
+                                        h-7 w-7 overflow-hidden rounded-md border border-slate-600/70 bg-slate-800/90 shadow-sm
+                                        opacity-0 transition
+                                        group-hover:opacity-100 peer-focus:opacity-100"
+                                  :class="!m365.enabled && 'opacity-60'"
+                                >
+                                  <!-- Equal halves -->
+                                  <div class="flex h-full w-full flex-col">
+                                    <!-- + button -->
+                                    <button
+                                      type="button"
+                                      class="flex h-1/2 items-center justify-center text-slate-300 hover:text-white hover:bg-slate-700/60"
+                                      @click="m365.count = Math.max(1, parseInt((m365.count ?? 1), 10) + 1)"
+                                      :disabled="!m365.enabled"
+                                      aria-label="Increase"
+                                    >
+                                      <svg viewBox="0 0 24 24" class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" d="M12 5v14M5 12h14"/>
+                                      </svg>
+                                    </button>
+
+                                    <!-- − button -->
+                                    <button
+                                      type="button"
+                                      class="flex h-1/2 items-center justify-center text-slate-300 hover:text-white hover:bg-slate-700/60"
+                                      @click="m365.count = Math.max(1, parseInt((m365.count ?? 1), 10) - 1)"
+                                      :disabled="!m365.enabled"
+                                      aria-label="Decrease"
+                                    >
+                                      <svg viewBox="0 0 24 24" class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" d="M5 12h14"/>
+                                      </svg>
+                                    </button>
+                                  </div>
+
+                                  <!-- Visual divider that doesn't take space -->
+                                  <span class="pointer-events-none absolute inset-x-1 top-1/2 -translate-y-1/2 h-px bg-slate-600/60"></span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <!-- Hyper-V guests -->
+                          <div class="flex items-center justify-between px-4 py-3 gap-4">
+                            <div class="min-w-0">
+                              <label for="q-hv" class="block text-sm font-medium text-slate-200">Hyper-V guests</label>
+                              <p class="text-xs text-slate-400">Limit the number of Hyper-V virtual machines protected by this user.</p>
+                            </div>
+                            <div class="flex items-center gap-4">
+                              <button 
+                                type="button"
+                                @click="hv.enabled = !hv.enabled; if (!hv.enabled) { hv.count = 0 } else if (hv.count < 1) { hv.count = 1 }"
+                                :class="hv.enabled ? 'bg-emerald-600' : 'bg-slate-600'"
+                                class="relative inline-flex h-6 w-11 items-center rounded-full transition"
+                                :aria-pressed="hv.enabled ? 'true' : 'false'"
+                                aria-label="Toggle Hyper-V guests"
+                              >
+                                <span 
+                                  :class="hv.enabled ? 'translate-x-6' : 'translate-x-1'"
+                                  class="inline-block h-4 w-4 transform rounded-full bg-white transition"
+                                ></span>
+                              </button>
+                              <!-- number input with custom stepper -->                    
+                              <div class="relative group" :class="!hv.enabled && 'opacity-50 cursor-not-allowed pointer-events-none'">
+                                <input
+                                  id="q-hv"
+                                  type="number"
+                                  inputmode="numeric"
+                                  min="1" step="1"
+                                  x-model.number="hv.count"
+                                  :disabled="!hv.enabled"
+                                  :tabindex="hv.enabled ? '0' : '-1'"
+                                  class="peer no-native-spin h-9 w-28 rounded-lg border border-slate-600/70 bg-slate-900 pr-10 pl-3
+                                        text-left text-slate-100 outline-none transition
+                                        focus:border-slate-500 focus:ring-2 focus:ring-emerald-500/80"
+                                  @blur="if (hv.enabled) hv.count = Math.max(1, parseInt(hv.count || 1))"
+                                />
+
+                                <!-- Compact custom stepper -->
+                                <div
+                                  class="pointer-events-auto absolute right-1.5 top-1/2 -translate-y-1/2
+                                        h-7 w-7 overflow-hidden rounded-md border border-slate-600/70 bg-slate-800/90 shadow-sm
+                                        opacity-0 transition
+                                        group-hover:opacity-100 peer-focus:opacity-100"
+                                  :class="!hv.enabled && 'opacity-60'"
+                                >
+                                  <!-- Equal halves -->
+                                  <div class="flex h-full w-full flex-col">
+                                    <!-- + button -->
+                                    <button
+                                      type="button"
+                                      class="flex h-1/2 items-center justify-center text-slate-300 hover:text-white hover:bg-slate-700/60"
+                                      @click="hv.count = Math.max(1, parseInt((hv.count ?? 1), 10) + 1)"
+                                      :disabled="!hv.enabled"
+                                      aria-label="Increase"
+                                    >
+                                      <svg viewBox="0 0 24 24" class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" d="M12 5v14M5 12h14"/>
+                                      </svg>
+                                    </button>
+
+                                    <!-- − button -->
+                                    <button
+                                      type="button"
+                                      class="flex h-1/2 items-center justify-center text-slate-300 hover:text-white hover:bg-slate-700/60"
+                                      @click="hv.count = Math.max(1, parseInt((hv.count ?? 1), 10) - 1)"
+                                      :disabled="!hv.enabled"
+                                      aria-label="Decrease"
+                                    >
+                                      <svg viewBox="0 0 24 24" class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" d="M5 12h14"/>
+                                      </svg>
+                                    </button>
+                                  </div>
+
+                                  <!-- Visual divider that doesn't take space -->
+                                  <span class="pointer-events-none absolute inset-x-1 top-1/2 -translate-y-1/2 h-px bg-slate-600/60"></span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <!-- VMware guests -->
+                          <div class="flex items-center justify-between px-4 py-3 gap-4">
+                            <div class="min-w-0">
+                              <label for="q-vmw" class="block text-sm font-medium text-slate-200">VMware guests</label>
+                              <p class="text-xs text-slate-400">Limit the number of VMware virtual machines protected by this user.</p>
+                            </div>
+                            <div class="flex items-center gap-4">
+                              <button 
+                                type="button"
+                                @click="vmw.enabled = !vmw.enabled; if (!vmw.enabled) { vmw.count = 0 } else if (vmw.count < 1) { vmw.count = 1 }"
+                                :class="vmw.enabled ? 'bg-emerald-600' : 'bg-slate-600'"
+                                class="relative inline-flex h-6 w-11 items-center rounded-full transition"
+                                :aria-pressed="vmw.enabled ? 'true' : 'false'"
+                                aria-label="Toggle VMware guests"
+                              >
+                                <span 
+                                  :class="vmw.enabled ? 'translate-x-6' : 'translate-x-1'"
+                                  class="inline-block h-4 w-4 transform rounded-full bg-white transition"
+                                ></span>
+                              </button>
+                              <!-- number input with custom stepper -->                    
+                              <div class="relative group" :class="!vmw.enabled && 'opacity-50 cursor-not-allowed pointer-events-none'">
+                                <input
+                                  id="q-vmw"
+                                  type="number"
+                                  inputmode="numeric"
+                                  min="1" step="1"
+                                  x-model.number="vmw.count"
+                                  :disabled="!vmw.enabled"
+                                  :tabindex="vmw.enabled ? '0' : '-1'"
+                                  class="peer no-native-spin h-9 w-28 rounded-lg border border-slate-600/70 bg-slate-900 pr-10 pl-3
+                                        text-left text-slate-100 outline-none transition
+                                        focus:border-slate-500 focus:ring-2 focus:ring-emerald-500/80"
+                                  @blur="if (vmw.enabled) vmw.count = Math.max(1, parseInt(vmw.count || 1))"
+                                />
+
+                                <!-- Compact custom stepper -->
+                                <div
+                                  class="pointer-events-auto absolute right-1.5 top-1/2 -translate-y-1/2
+                                        h-7 w-7 overflow-hidden rounded-md border border-slate-600/70 bg-slate-800/90 shadow-sm
+                                        opacity-0 transition
+                                        group-hover:opacity-100 peer-focus:opacity-100"
+                                  :class="!vmw.enabled && 'opacity-60'"
+                                >
+                                  <!-- Equal halves -->
+                                  <div class="flex h-full w-full flex-col">
+                                    <!-- + button -->
+                                    <button
+                                      type="button"
+                                      class="flex h-1/2 items-center justify-center text-slate-300 hover:text-white hover:bg-slate-700/60"
+                                      @click="vmw.count = Math.max(1, parseInt((vmw.count ?? 1), 10) + 1)"
+                                      :disabled="!vmw.enabled"
+                                      aria-label="Increase"
+                                    >
+                                      <svg viewBox="0 0 24 24" class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" d="M12 5v14M5 12h14"/>
+                                      </svg>
+                                    </button>
+
+                                    <!-- − button -->
+                                    <button
+                                      type="button"
+                                      class="flex h-1/2 items-center justify-center text-slate-300 hover:text-white hover:bg-slate-700/60"
+                                      @click="vmw.count = Math.max(1, parseInt((vmw.count ?? 1), 10) - 1)"
+                                      :disabled="!vmw.enabled"
+                                      aria-label="Decrease"
+                                    >
+                                      <svg viewBox="0 0 24 24" class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" d="M5 12h14"/>
+                                      </svg>
+                                    </button>
+                                  </div>
+
+                                  <!-- Visual divider that doesn't take space -->
+                                  <span class="pointer-events-none absolute inset-x-1 top-1/2 -translate-y-1/2 h-px bg-slate-600/60"></span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div class="flex items-center justify-end gap-2 px-4 py-3">
+                          {* <button 
+                            type="button"
+                            class="rounded-md border border-slate-600 px-3 py-1.5 text-sm text-slate-200 hover:bg-slate-700"
+                            @click="resetFromProfile()"
+                          >Reset</button> *}
+                          <button 
+                            type="button"
+                            class="rounded-md bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-500"
+                            @click="await save()"
+                          >Save quotas</button>
+                        </div>
+                      </div>
+                      <!-- END: Quota Controls -->
                     </div>
                   </div>
 
@@ -252,7 +648,7 @@
                   </div>
               </div>
             </div>
-          </div>
+ 
 
         <div x-show="activeSubTab === 'protectedItems'" x-cloak x-transition>
           <div class="bg-gray-900/50 rounded-lg overflow-hidden">
@@ -948,7 +1344,11 @@ try {
   document.body.setAttribute('data-eb-username', '{$username}');
 } catch (e) {}
 </script>
+<script>
+window.EB_USER_ENDPOINT = '{$modulelink}&a=user-actions';
+</script>
 <script src="modules/addons/eazybackup/assets/js/userProfileTotp.js"></script>
+<script src="modules/addons/eazybackup/assets/js/user-actions.js"></script>
 
 <!-- Device slide-over panel -->
 <div id="device-slide-panel" class="fixed inset-y-0 right-0 z-50 w-full max-w-xl transform translate-x-full transition-transform duration-200 ease-out">
@@ -1045,6 +1445,55 @@ window.EB_DEVICE_ENDPOINT = '{$modulelink}&a=device-actions';
 </script>
 <script src="modules/addons/eazybackup/templates/assets/js/ui.js"></script>
 <script src="modules/addons/eazybackup/assets/js/device-actions.js"></script>
+<script>
+// Lightweight caller for quota controls; reuses the same endpoint as device-actions
+async function call(action, extra){
+  try {
+    const body = Object.assign({ action, serviceId: '{$serviceid}', username: '{$username}' }, (extra||{}));
+    const res = await fetch(window.EB_DEVICE_ENDPOINT, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) });
+    return await res.json();
+  } catch(e){ return { status:'error', message:'Network error' }; }
+}
+function quotaCtrl(){
+  return {
+    dev:{ enabled:false, count:1 },
+    m365:{ enabled:false, count:1 },
+    hv:{ enabled:false, count:1 },
+    vmw:{ enabled:false, count:1 },
+    _profile:null,
+    async init(){
+      const r = await call('piProfileGet', { username: '{$username}' });
+      if (!r || r.status !== 'success' || !r.profile) { try { window.showToast?.('Could not load profile.', 'error'); } catch(_){} return; }
+      this._profile = r.profile;
+      this.resetFromProfile();
+    },
+    resetFromProfile(){
+      const p = this._profile || {};
+      const map = (v) => ({ enabled: !!(v && v > 0), count: (v && v > 0) ? v : 0 });
+      this.dev = map(p.MaximumDevices ?? 0);
+      this.m365 = map(p.QuotaOffice365ProtectedAccounts ?? 0);
+      this.hv = map(p.QuotaHyperVGuests ?? 0);
+      this.vmw = map(p.QuotaVMwareGuests ?? 0);
+    },    
+    async save(){
+      const num = (en, c) => en ? Math.max(1, parseInt(c || 1)) : 0;
+      const payload = {
+        username: '{$username}',
+        MaximumDevices: num(this.dev.enabled, this.dev.count),
+        QuotaOffice365ProtectedAccounts: num(this.m365.enabled, this.m365.count),
+        QuotaHyperVGuests: num(this.hv.enabled, this.hv.count),
+        QuotaVMwareGuests: num(this.vmw.enabled, this.vmw.count),
+      };
+      const res = await call('piProfileUpdate', payload);
+      if (res && res.status === 'success') { try { window.showToast?.('Quota settings updated.', 'success'); } catch(_){}; }
+      else { try { window.showToast?.((res && res.message) || 'Failed to update quotas.', 'error'); } catch(_){} }
+      // refresh profile to ensure UI matches persisted state
+      const r = await call('piProfileGet', { username: '{$username}' });
+      if (r && r.status === 'success' && r.profile) { this._profile = r.profile; this.resetFromProfile(); }
+    }
+  }
+}
+</script>
 <script src="modules/addons/eazybackup/assets/js/eazybackup-ui-helpers.js" defer></script>
 <script src="modules/addons/eazybackup/assets/js/job-reports.js" defer></script>
 {include file="modules/addons/eazybackup/templates/console/partials/job-report-modal.tpl"}

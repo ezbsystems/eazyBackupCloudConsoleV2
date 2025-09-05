@@ -94,17 +94,7 @@
                                 <span class="text-lg font-semibold text-gray-400">Storage</span>
                             </h5>
                         </div>
-                    </div>
-
-
-                            
-                            
-                            
-                    
-                    
-                          
-
-                    
+                    </div>                   
 
                     <div class="mt-8">
                         <div class="flex justify-between items-center mb-4 px-2">
@@ -320,7 +310,7 @@
                          x-data="{ 
                            open:false,
                            search:'',
-                           cols:{ username:true, name:true, emails:true, reports:true, devices:true, items:true, vaults:true },
+                           cols:{ username:true, name:true, emails:true, reports:true, devices:true, items:true, vaults:true, hv:true, vmw:true, m365:true },
                            matchesSearch(el){ const q=this.search.trim().toLowerCase(); if(!q) return true; return (el.textContent||'').toLowerCase().includes(q); }
                          }">
                         <div class="flex items-center justify-between px-4 pt-4 pb-2">
@@ -335,9 +325,12 @@
                                         <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.name"> Account name</label>
                                         <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.emails"> Email Address</label>
                                         <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.reports"> Email Reports</label>
-                                        <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.devices"> Total Devices</label>
-                                        <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.items"> Total Protected Items</label>
+                                        <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.devices"> Devices</label>
+                                        <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.items"> Protected Items</label>
                                         <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.vaults"> Storage Vaults</label>
+                                        <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.hv"> Hyper-V Count</label>
+                                        <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.vmw"> VMware Count</label>
+                                        <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.m365"> MS365 Protected Accounts</label>
                                     </div>
                                 </div>
                             </div>
@@ -358,6 +351,9 @@
                                             <th x-show="cols.devices" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Total Devices</th>
                                             <th x-show="cols.items" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Total Protected Items</th>
                                             <th x-show="cols.vaults" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Storage Vaults</th>
+                                            <th x-show="cols.hv" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Hyper-V Count</th>
+                                            <th x-show="cols.vmw" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">VMware Count</th>
+                                            <th x-show="cols.m365" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">MS365 Protected Accounts</th>
                                         </tr>
                                     </thead>
                                     <tbody class="divide-y divide-gray-700">
@@ -396,6 +392,9 @@
                                                 <td x-show="cols.devices" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$account.total_devices}</td>
                                                 <td x-show="cols.items" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$account.total_protected_items}</td>
                                                 <td x-show="cols.vaults" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{if $account.vaults}{$account.vaults|@count}{else}0{/if}</td>
+                                                <td x-show="cols.hv" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$account.hv_vm_count|default:0}</td>
+                                                <td x-show="cols.vmw" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$account.vmw_vm_count|default:0}</td>
+                                                <td x-show="cols.m365" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$account.m365_accounts|default:0}</td>
                                             </tr>
                                         {foreachelse}
                                             <tr>

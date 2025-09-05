@@ -52,6 +52,63 @@ try {
     };
 
     switch ($action) {
+        case 'piProfileGet': {
+            // Alias for getUserProfile with a stable name for Profile tab integrations
+            $ph = $server->AdminGetUserProfileAndHash($username);
+            if (!$ph || !$ph->Profile) { echo json_encode(['status'=>'error','message'=>'Profile not found']); break; }
+            echo json_encode(['status'=>'success','profile'=>$ph->Profile->toArray(true), 'hash'=>$ph->ProfileHash]);
+            break;
+        }
+        case 'piProfileUpdate': {
+            $fields = [
+                'MaximumDevices',
+                'QuotaOffice365ProtectedAccounts',
+                'QuotaHyperVGuests',
+                'QuotaVMwareGuests',
+            ];
+        
+            // Coerce incoming ints (0 = unlimited)
+            $payload = [];
+            foreach ($fields as $f) {
+                if (isset($post[$f])) {
+                    $payload[$f] = max(0, (int)$post[$f]);
+                }
+            }
+            if (!$username || empty($payload)) {
+                echo json_encode(['status'=>'error','message'=>'Missing username or no quota fields provided']);
+                break;
+            }
+        
+            $ph = $server->AdminGetUserProfileAndHash($username);
+            if (!$ph || !$ph->Profile) {
+                echo json_encode(['status'=>'error','message'=>'Profile not found']);
+                break;
+            }
+        
+            // ✅ Directly set fields on the live profile object (SDK 4.44 knows these)
+            foreach ($payload as $k => $v) {
+                if (property_exists($ph->Profile, $k)) {
+                    $ph->Profile->{$k} = $v;
+                } else {
+                    // If this ever triggers, you’re running an older SDK/autoloader somewhere
+                    error_log("Comet SDK property missing: {$k}");
+                }
+            }
+        
+            // (Optional debug) verify we’re sending what we think we’re sending:
+            // error_log('UPDATING PROFILE: ' . json_encode($ph->Profile->toArray(true)));
+        
+            $resp = $server->AdminSetUserProfileHash($username, $ph->Profile, $ph->ProfileHash);
+        
+            if ($resp && $resp->Status < 400) {
+                echo json_encode(['status'=>'success']);
+            } else if ($resp && $resp->Status === 409) {
+                echo json_encode(['status'=>'error','code'=>'hash_mismatch','message'=>'Profile changed; please retry']);
+            } else {
+                echo json_encode(['status'=>'error','message'=>($resp ? $resp->Message : 'Failed to update profile')]);
+            }
+            break;
+        }        
         case 'getUserProfile': {
             $ph = $server->AdminGetUserProfileAndHash($username);
             if (!$ph || !$ph->Profile) { echo json_encode(['status'=>'error','message'=>'Profile not found']); break; }
