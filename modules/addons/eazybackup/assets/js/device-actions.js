@@ -570,10 +570,22 @@ document.addEventListener('DOMContentLoaded', function () {
     if (!sourceId || !vaultId) { toast('Select vault, item and snapshot.', 'warning'); return; }
 
     // Read from method UI
-    const destPath = document.getElementById('rs-dest')?.value || '';
+    let destPath = document.getElementById('rs-dest')?.value || '';
     const overwrite = document.getElementById('rs-overwrite')?.value || 'none';
     // Read selection from hidden value managed by block cards
     const method = document.getElementById('rs-method-hidden')?.value || 'file';
+
+    // If archive method, require archive filename and join
+    if (method === 'archive') {
+      const name = (document.getElementById('rs-archive-name')?.value || '').trim();
+      if (!name) { toast('Enter an archive file name (e.g., backup.zip).', 'warning'); return; }
+      // Join path + filename using Windows-style if needed
+      if (destPath && !destPath.endsWith('\\') && !destPath.endsWith('/')) {
+        destPath = destPath + '\\' + name;
+      } else {
+        destPath = (destPath || '') + name;
+      }
+    }
 
     // Choose RESTORETYPE based on engine
     let type = 0; // RESTORETYPE_FILE default
@@ -648,6 +660,11 @@ document.addEventListener('DOMContentLoaded', function () {
       let hid = document.getElementById('rs-method-hidden');
       if (!hid) { hid = document.createElement('input'); hid.type = 'hidden'; hid.id = 'rs-method-hidden'; wrap.parentElement.appendChild(hid); }
       hid.value = selected;
+      // show extra archive filename input only when archive method is selected
+      try {
+        const wrapEl = document.getElementById('rs-archive-name-wrap');
+        if (wrapEl) wrapEl.classList.toggle('hidden', selected !== 'archive');
+      } catch(_){}
     }
     applyAll();
     if (rsMethodTitle) {

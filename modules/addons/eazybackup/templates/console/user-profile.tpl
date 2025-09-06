@@ -1375,7 +1375,7 @@ window.EB_USER_ENDPOINT = '{$modulelink}&a=user-actions';
           <button id="open-restore" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded text-sm">Restore…</button>
           <button id="btn-update-software" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded text-sm">Update Software</button>
           <div class="flex items-center gap-2">
-            <input id="inp-rename-device" type="text" placeholder="New device name" class="flex-1 px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"/>
+            <input id="inp-rename-device" type="text" placeholder="New device name" class="flex-1 px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm focus:outline-none focus:ring-0 focus:border-sky-600"/>
             <button id="btn-rename-device" class="px-3 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded text-sm">Rename</button>
           </div>
           <button id="btn-revoke-device" class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded text-sm">Revoke</button>
@@ -1594,6 +1594,11 @@ try {
                 <input id="rs-dest" type="text" class="flex-1 px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 focus:outline-none focus:ring-0 focus:border-sky-600" placeholder="e.g. C:\\Restore">
                 <button id="rs-browse" type="button" class="px-3 py-2 rounded bg-slate-700 hover:bg-slate-600 text-white">Browse…</button>
               </div>
+            </div>
+            <div id="rs-archive-name-wrap" class="hidden">
+              <label class="block text-sm text-slate-300 mb-1">Archive file name</label>
+              <input id="rs-archive-name" type="text" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 focus:outline-none focus:ring-0 focus:border-sky-600" placeholder="backup.zip">
+              <div class="text-xs text-slate-400 mt-1">Enter the output archive filename (e.g., backup.zip).</div>
             </div>
             <div>
               <label class="block text-sm text-slate-300 mb-1">Overwrite</label>
