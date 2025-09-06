@@ -444,6 +444,126 @@ function syncUserProtectedItems(PDO $pdo, string $profile, string $username): vo
         }
     }
 }
+
+function syncUserVaults(PDO $pdo, string $profile, string $username): void {
+    if ($username === '') return;
+
+    // Look up WHMCS client (same as items sync)
+    $clientId = getClientIdForUsername($pdo, $username);
+    if ($clientId === null) {
+        if (EB_DB_DEBUG) logLine($profile, "Vaults: no client for username={$username}");
+        return;
+    }
+
+    // Get an admin client
+    $client = cometAdminClientForProfile($pdo, $profile);
+    if (!$client) { $client = cometAdminClientForUsername($pdo, $profile, $username); }
+    if (!$client) { logLine($profile, "Vaults: no admin client for profile {$profile} (username={$username})"); return; }
+
+    // Fetch user profile
+    try {
+        if (EB_WS_DEBUG) logLine($profile, "Vaults: fetching profile for {$username}");
+        $userProfile = $client->AdminGetUserProfile($username);
+    } catch (Throwable $e) {
+        logLine($profile, "Vaults: AdminGetUserProfile failed for {$username}: " . $e->getMessage());
+        return;
+    }
+
+    // Destinations map: GUID => DestinationConfig
+    $destinations = [];
+    if (isset($userProfile->Destinations)) {
+        $destinations = is_array($userProfile->Destinations)
+            ? $userProfile->Destinations
+            : get_object_vars($userProfile->Destinations);
+    }
+    $presentIds = [];
+
+    foreach ($destinations as $guid => $cfg) {
+        if (!is_string($guid) || $guid === '') continue;
+
+        $arr   = is_array($cfg) ? $cfg : (is_object($cfg) ? get_object_vars($cfg) : []);
+        $name  = (string)($arr['DisplayName'] ?? $arr['Description'] ?? '');
+        $type  = (int)   ($arr['DestinationType'] ?? $arr['Type'] ?? 0);
+
+        // Storage limit flags can be named differently across versions
+        $hasLimit   = (int) (!empty($arr['LimitStorage']) || !empty($arr['StorageLimitEnabled']));
+        $limitBytes = (int)   ($arr['StorageLimitBytes'] ?? $arr['LimitStorageBytes'] ?? 0);
+
+        // Try to extract S3-ish details for reporting (best-effort)
+        $bucketServer = (string)($arr['S3CustomHostName'] ?? $arr['S3Hostname'] ?? $arr['CometServer'] ?? '');
+        $bucketName   = (string)($arr['S3BucketName'] ?? $arr['Bucket'] ?? '');
+        $bucketKey    = (string)($arr['S3AccessKey'] ?? $arr['Key'] ?? '');
+
+        $contentJson = json_encode($arr, JSON_UNESCAPED_SLASHES);
+
+        // Upsert current vault
+        try {
+            $sql = "INSERT INTO comet_vaults
+                      (id, client_id, username, content, name, type, total_bytes, bucket_server, bucket_name, bucket_key, has_storage_limit, storage_limit_bytes, created_at, updated_at, is_active, removed_at)
+                    VALUES
+                      (:id, :client_id, :username, :content, :name, :type, :total_bytes, :bucket_server, :bucket_name, :bucket_key, :has_limit, :limit_bytes, NOW(), NOW(), 1, NULL)
+                    ON DUPLICATE KEY UPDATE
+                      client_id=VALUES(client_id),
+                      username=VALUES(username),
+                      content=VALUES(content),
+                      name=VALUES(name),
+                      type=VALUES(type),
+                      total_bytes=VALUES(total_bytes),
+                      bucket_server=VALUES(bucket_server),
+                      bucket_name=VALUES(bucket_name),
+                      bucket_key=VALUES(bucket_key),
+                      has_storage_limit=VALUES(has_storage_limit),
+                      storage_limit_bytes=VALUES(storage_limit_bytes),
+                      is_active=1,
+                      removed_at=NULL,
+                      updated_at=NOW()";
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute([
+                ':id'           => $guid,
+                ':client_id'    => $clientId,
+                ':username'     => $username,
+                ':content'      => $contentJson,
+                ':name'         => $name,
+                ':type'         => $type,
+                ':total_bytes'  => 0, // we don't get size from profile; left as 0/unchanged
+                ':bucket_server'=> $bucketServer,
+                ':bucket_name'  => $bucketName,
+                ':bucket_key'   => $bucketKey,
+                ':has_limit'    => $hasLimit,
+                ':limit_bytes'  => $limitBytes,
+            ]);
+            if (EB_DB_DEBUG) logLine($profile, "Vaults: upsert ok guid={$guid} name=\"{$name}\" type={$type}");
+        } catch (Throwable $e) {
+            logLine($profile, "Vaults: upsert ERROR guid={$guid}: " . $e->getMessage());
+        }
+
+        $presentIds[] = $guid;
+    }
+
+    // Mark any missing vaults as inactive (soft-delete)
+    try {
+        if (count($presentIds) > 0) {
+            $in = implode(',', array_fill(0, count($presentIds), '?'));
+            $sql = "UPDATE comet_vaults
+                    SET is_active = 0, removed_at = IFNULL(removed_at, NOW())
+                    WHERE username = ? AND is_active = 1 AND id NOT IN ($in)";
+            $params = array_merge([$username], $presentIds);
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute($params);
+            if (EB_DB_DEBUG) logLine($profile, "Vaults: pruned missing for {$username} rc=" . $stmt->rowCount());
+        } else {
+            // No destinations at all → mark any existing active vaults as removed
+            $stmt = $pdo->prepare("UPDATE comet_vaults
+                                   SET is_active = 0, removed_at = IFNULL(removed_at, NOW())
+                                   WHERE username = ? AND is_active = 1");
+            $stmt->execute([$username]);
+            if (EB_DB_DEBUG) logLine($profile, "Vaults: none present, marked all inactive for {$username} rc=" . $stmt->rowCount());
+        }
+    } catch (Throwable $e) {
+        logLine($profile, "Vaults: prune ERROR for {$username}: " . $e->getMessage());
+    }
+}
+
 function upsertLive(PDO $pdo, array $row): void {
     try {
         $sql = "INSERT INTO eb_jobs_live
@@ -610,10 +730,10 @@ function handleEvent(PDO $pdo, string $profile, array $evt): void {
             revokeCometDevice($pdo, $profile, $actor, $resourceId);
         }
     } elseif ($lab === 'SEVT_ACCOUNT_UPDATED') {
-        // Trigger an items sync only when the account profile actually changed
         if ($actor !== '') {
-            if (EB_WS_DEBUG) logLine($profile, "ACCOUNT UPDATED → sync items for actor={$actor}");
+            if (EB_WS_DEBUG) logLine($profile, "ACCOUNT UPDATED → sync items & vaults for actor={$actor}");
             syncUserProtectedItems($pdo, $profile, $actor);
+            syncUserVaults($pdo, $profile, $actor);
         }
     } elseif ($lab === 'SEVT_JOB_NEW') {
         // Treat as job start

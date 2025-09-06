@@ -127,8 +127,12 @@ function eazybackup_activate()
             $table->string('bucket_key');
             $table->boolean('has_storage_limit');
             $table->bigInteger('storage_limit_bytes');
+            $table->boolean('is_active')->default(1)->index();
             $table->timestamp('created_at')->nullable();
             $table->timestamp('updated_at')->nullable();
+            $table->timestamp('removed_at')->nullable()->index();
+            $table->unique('id'); // enables ON DUPLICATE KEY UPDATE
+            $table->index(['username', 'id'], 'idx_user_vault');
         });        
     }
 
@@ -165,9 +169,6 @@ function eazybackup_activate()
 /**
  * Module upgrade handler: add minimal indexes used by admin power panel queries.
  */
-
-
-
 function eazybackup_upgrade($vars = [])
 {
     
@@ -264,6 +265,35 @@ function eazybackup_migrate_schema(): void {
         eb_add_column_if_missing('comet_items','total_files',     fn(Blueprint $t)=>$t->bigInteger('total_files')->nullable());
         eb_add_column_if_missing('comet_items','total_directories',fn(Blueprint $t)=>$t->bigInteger('total_directories')->nullable());
         eb_add_index_if_missing('comet_items',"CREATE INDEX IF NOT EXISTS idx_client_user ON comet_items (client_id, username)");
+    }
+
+    // --- comet_vaults ---
+    if (!$schema->hasTable('comet_vaults')) {
+        $schema->create('comet_vaults', function (Blueprint $t) {
+            $t->uuid('id')->primary();
+            $t->integer('client_id')->index();
+            $t->string('username')->nullable()->index();
+            $t->json('content')->nullable();
+            $t->string('name')->index();
+            $t->smallInteger('type')->index();
+            $t->bigInteger('total_bytes');
+            $t->string('bucket_server');
+            $t->string('bucket_name');
+            $t->string('bucket_key');
+            $t->boolean('has_storage_limit');
+            $t->bigInteger('storage_limit_bytes');
+            $t->boolean('is_active')->default(1)->index();
+            $t->timestamp('created_at')->nullable();
+            $t->timestamp('updated_at')->nullable();
+            $t->timestamp('removed_at')->nullable()->index();
+            $t->unique('id');
+            $t->index(['username','id'], 'idx_user_vault');
+        });
+    } else {
+        eb_add_column_if_missing('comet_vaults','is_active',  fn(Blueprint $t)=>$t->boolean('is_active')->default(1));
+        eb_add_column_if_missing('comet_vaults','removed_at', fn(Blueprint $t)=>$t->timestamp('removed_at')->nullable());
+        eb_add_index_if_missing('comet_vaults', "CREATE INDEX IF NOT EXISTS idx_user_vault ON comet_vaults (username, id)");
+        eb_add_index_if_missing('comet_vaults', "CREATE INDEX IF NOT EXISTS idx_vault_active ON comet_vaults (is_active)");
     }
 
     // --- eb_event_cursor ---
@@ -759,6 +789,8 @@ function eazybackup_clientarea(array $vars)
             $total_storage_vaults = Capsule::table('comet_vaults')
                 ->where('client_id', $clientId)
                 ->where('username', $service->username)
+                ->where('is_active', 1)
+                ->whereNull('removed_at')
                 ->count();
 
             // Get the full list of vaults for the current user
@@ -766,6 +798,8 @@ function eazybackup_clientarea(array $vars)
                 ->select('name', 'total_bytes')
                 ->where('client_id', $clientId)
                 ->where('username', $service->username)
+                ->where('is_active', 1)
+                ->whereNull('removed_at')
                 ->get()
                 ->map(function ($vault) {
                     // Convert the vault object to an array and add the formatted size
@@ -923,6 +957,8 @@ function eazybackup_clientarea(array $vars)
             )
             ->where('client_id', $clientId)
             ->whereIn('username', $accounts)
+            ->where('is_active', 1)
+            ->whereNull('removed_at')
             ->get();
 
         foreach ($vaults as $v) {

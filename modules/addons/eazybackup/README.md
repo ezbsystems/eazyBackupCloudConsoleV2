@@ -19,18 +19,22 @@ Whenever possible, try to create new files to keep concerns isolated. Use includ
 - Backend controller(s): pages/console/dashboard.php (plus handlers in eazybackup.php)
 - Helpers: lib/Helper.php, functions.php, lib/Vault.php
 
+**Form Fields**
+Make sure to add the following tailwind css rules to form fileds: 
+  focus:outline-none focus:ring-0 focus:border-sky-600
+
 We have several custom database table that have been added to the WHMCS database. 
 
-table comet_devices
-table comet_items
-table comet_jobs
-table comet_users
-table comet_vaults 
-table eb_devices_daily
-table eb_event_cursor
-table eb_items_daily
-table eb_jobs_live
-table eb_jobs_recent_24h 
+  table comet_devices
+  table comet_items
+  table comet_jobs
+  table comet_users
+  table comet_vaults 
+  table eb_devices_daily
+  table eb_event_cursor
+  table eb_items_daily
+  table eb_jobs_live
+  table eb_jobs_recent_24h 
 
 
 ## File Layout

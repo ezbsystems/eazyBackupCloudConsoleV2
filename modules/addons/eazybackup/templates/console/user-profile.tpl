@@ -1043,7 +1043,7 @@
         <!-- Name -->
         <div>
           <label class="block text-sm text-slate-300 mb-1">Vault name</label>
-          <input id="vault-mgr-name" type="text" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm" placeholder="Vault name" />
+          <input id="vault-mgr-name" type="text" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm focus:outline-none focus:ring-0 focus:border-sky-600" placeholder="Vault name" />
         </div>
         <!-- Quota -->
         <div class="space-y-2">
@@ -1543,7 +1543,7 @@ try {
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <div class="text-sm text-slate-300 mb-1">Select an online device to control</div>
-            <div class="text-xs text-slate-400">Using the device selected in the Manage panel.</div>
+            <div class="text-xs text-slate-400">Using the device selected in the Devices panel.</div>
           </div>
           <div x-data="{ open:false }" class="relative">
             <label class="block text-sm text-slate-300 mb-1">Select a Storage Vault to restore from</label>
@@ -1591,7 +1591,7 @@ try {
             <div>
               <label class="block text-sm text-slate-300 mb-1">Destination path</label>
               <div class="flex gap-2">
-                <input id="rs-dest" type="text" class="flex-1 px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200" placeholder="e.g. C:\\Restore">
+                <input id="rs-dest" type="text" class="flex-1 px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 focus:outline-none focus:ring-0 focus:border-sky-600" placeholder="e.g. C:\\Restore">
                 <button id="rs-browse" type="button" class="px-3 py-2 rounded bg-slate-700 hover:bg-slate-600 text-white">Browse…</button>
               </div>
             </div>
