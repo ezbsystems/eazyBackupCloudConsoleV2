@@ -792,6 +792,79 @@ This feature enables starting a restore from the WHMCS client area, modeled on C
   - Persist and load recent choices in-session to streamline repeated restores.
   - Progress/telemetry surfacing (restore job listing and status after submission).
 
+## Developer Notes – Password Reset (Client UI Actions)
+
+- UI: An "Actions" dropdown button was added to the Profile tab navigation in `templates/console/user-profile.tpl`. Selecting "Reset password" triggers an Alpine custom event `eb-reset-password`.
+- Frontend script: `assets/js/user-actions.js`
+  - Listens for `eb-reset-password` and opens a dedicated Reset Password modal with:
+    - A password input
+    - A "Generate" button (generates a strong 16‑char password)
+    - A primary "Reset password" submit button
+    - A top‑right X close button. Clicking the overlay or X closes the modal without generating or submitting
+  - Flow after submit:
+    - Shows a loader
+    - Calls `EB_USER_ENDPOINT` (`?m=eazybackup&a=user-actions`) with action `resetPassword` and payload `{ password }`
+    - On success, immediately shows a "New Password" modal with the new password and a click‑to‑copy button (uses Clipboard API)
+    - Also shows an action reminder panel advising to re‑sign in on all devices
+- Backend endpoint: `pages/console/user-actions.php`
+  - Action: `resetPassword`
+  - Verifies client ownership of `serviceId` and `username`
+  - Calls Comet Admin API `AdminResetUserPassword($username, 'Password', $newPassword)`
+  - Updates WHMCS service credentials with `comet_UpdateServiceCredentials` (encrypted)
+  - Returns `{ status: 'success', password: <string> }` on success
+
+
+## Developer Notes – Quota Management (Profile → User Details)
+
+- UI: A "Quotas" card is rendered below the User Details in `templates/console/user-profile.tpl`.
+  - Four controls with Alpine toggles and numeric inputs:
+    - Maximum devices → `MaximumDevices`
+    - Microsoft 365 protected accounts → `QuotaOffice365ProtectedAccounts`
+    - Hyper‑V guests → `QuotaHyperVGuests`
+    - VMware guests → `QuotaVMwareGuests`
+  - Enable/disable semantics:
+    - Enabled if the value is a positive integer (≥1)
+    - Disabled (unlimited) if the value is 0
+  - When a toggle is Off: input is disabled (`disabled`, `opacity-50`, `cursor-not-allowed`, `tabindex=-1`) and the payload sends `0`
+  - When a toggle is On: input enforces integer ≥1; blur coerces to at least 1
+  - Buttons: "Reset" (reload from profile) and "Save quotas"
+- Data flow helpers (inline in template):
+  - `call('piProfileGet', { username })` → fetches profile via `device-actions.php`
+  - `call('piProfileUpdate', payload)` → updates the four fields via `device-actions.php`
+- Backend (`pages/console/device-actions.php`):
+  - `piProfileGet`: `AdminGetUserProfileAndHash($username)` → returns `{ profile, hash }`
+  - `piProfileUpdate`: re‑reads profile and `AdminSetUserProfileHash($username, $profile, $hash)` after applying the four integer fields (coerced to `>=0`), where `0` means unlimited
+
+
+## Developer Notes – VM / M365 / Device Counts
+
+### Counts on Profile page
+- Backend: `pages/console/user-profile.php`
+  - Computes usage counters for display in the "User Details" panel:
+    - Hyper‑V VMs: sum of `Statistics.LastSuccessfulBackupJob.TotalVmCount` (fallback to `LastBackupJob` when `Status == 5000`/`SUCCESS`) across all `Profile.Sources[*]` whose `Engine` contains `hyperv`
+    - VMware VMs: same logic across `Profile.Sources[*]` whose `Engine` contains `vmware`
+    - The counters are exposed as `hvGuestCount` and `vmwGuestCount` (rendered directly as integers)
+  - Microsoft 365 protected accounts count remains from existing logic (`MicrosoftAccountCount($user)`) and is displayed as `{$msAccountCount}`
+
+### Counts on Dashboard → Users table
+- Backend: `eazybackup.php` (action `a=dashboard`)
+  - For each active service user, reads `AdminGetUserProfileAndHash`
+  - Exposes per‑user fields in `$accounts[]` used by `templates/clientarea/dashboard.tpl`:
+    - `hv_vm_count` and `vmw_vm_count`: computed by summing `TotalVmCount` per engine as described above
+    - `m365_accounts`: read from `Profile.QuotaOffice365ProtectedAccounts` (displayed per requirements)
+    - `total_devices`: counted from `comet_devices`
+    - `total_protected_items`: counted from `comet_items`
+    - `vaults`: list of the user’s vault rows; template shows `count(vaults)`
+- Frontend: `templates/clientarea/dashboard.tpl`
+  - Users table gained three optional columns (toggled in the View dropdown):
+    - Hyper‑V Count → `{$account.hv_vm_count|default:0}`
+    - VMware Count → `{$account.vmw_vm_count|default:0}`
+    - MS365 Protected Accounts → `{$account.m365_accounts|default:0}`
+
+Notes:
+- All counts are computed in read operations and surfaced via existing endpoints/templates; no schema changes are required.
+- Error handling is defensive; if profile reads fail, counters default to 0 without disrupting page rendering.
+
 ### Notes & edge cases
 - Dispatcher calls will fail with 403 if the device is offline or `TargetID` was not resolved; we return a friendly message in that case.
 - Snapshot lists are filtered client-side by Source GUID; when there are many snapshots, consider server-side filtering in a future iteration.
