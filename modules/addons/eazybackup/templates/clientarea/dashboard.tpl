@@ -204,18 +204,31 @@
                                                     this.closeTimer = setTimeout(()=>{ if(!this.hovering){ this.open=false; } }, 200); 
                                                 },
                                         
-                                                // True last-24h jobs, normalized and time-safe
+                                                // True last-24h jobs, includes completed + live running
                                                 jobs24h(){
                                                     const now = Date.now();
                                                     const dayAgo = now - (24*60*60*1000);
                                                     const raw = Array.isArray(device.jobs) ? device.jobs : [];
-                                                    const list = raw.filter(j=>{
-                                                    const ms = (window.EB && EB.toMs) ? EB.toMs(j.ended_at || j.started_at || j.EndTime || j.StartTime) : 0;
-                                                    return ms && ms >= dayAgo && ms <= now;
-                                                    }).sort((a,b)=>{
-                                                    const as = (window.EB && EB.toMs) ? EB.toMs(a.started_at || a.StartTime) : 0;
-                                                    const bs = (window.EB && EB.toMs) ? EB.toMs(b.started_at || b.StartTime) : 0;
-                                                    return as - bs;
+                                                    // Completed jobs in the last 24h
+                                                    const completed = raw.filter(j=>{
+                                                        const ms = (window.EB && EB.toMs) ? EB.toMs(j.ended_at || j.started_at || j.EndTime || j.StartTime) : 0;
+                                                        return ms && ms >= dayAgo && ms <= now;
+                                                    });
+                                                    // Live running jobs for this username+device
+                                                    let running = [];
+                                                    try {
+                                                        if (window.__EB_TIMELINE) {
+                                                            running = __EB_TIMELINE.getFor(String(device.username||''), String(device.name||'')) || [];
+                                                            running = running.filter(rj => {
+                                                                const ms = (window.EB && EB.toMs) ? EB.toMs(rj.started_at || rj.StartTime) : 0;
+                                                                return ms && ms >= dayAgo && ms <= now;
+                                                            });
+                                                        }
+                                                    } catch(_){ running = []; }
+                                                    const list = completed.concat(running).sort((a,b)=>{
+                                                        const as = (window.EB && EB.toMs) ? EB.toMs(a.started_at || a.StartTime) : 0;
+                                                        const bs = (window.EB && EB.toMs) ? EB.toMs(b.started_at || b.StartTime) : 0;
+                                                        return as - bs;
                                                     });
                                                     return list;
                                                 },
@@ -223,11 +236,11 @@
                                                 svc(){ return (device.serviceid||device.service_id||device.ServiceID||''); }
                                                 }"
                                                 @mouseenter="openMenu()" @mouseleave="scheduleClose()">
-                                                <!-- slivers along the bar for quick visual positions -->
+                                                <!-- slivers along the bar for quick visual positions (running pulses in blue) -->
                                                 <template x-for="(raw, i) in jobs24h()" :key="(raw.GUID || raw.JobID || raw.id || raw.started_at || raw.ended_at || i)">
                                                     <div x-data="{ j: EB.normalizeJob(raw) }"
                                                         class="absolute top-0 h-full w-1.5"
-                                                        :class="EB.statusDot(j.status)"
+                                                        :class="(EB.humanStatus(j.status)==='Running' ? 'bg-blue-500 animate-pulse' : EB.statusDot(j.status))"
                                                         x-bind:style="'left: ' + calculateJobPosition(j.start) + '%;'">
                                                     </div>
                                                 </template>
@@ -529,6 +542,9 @@
     <script src="https://unpkg.com/tippy.js@6"></script>
     <script>
       window.EB_JOBREPORTS_ENDPOINT = '{$modulelink}&a=job-reports';
+      // Pulse endpoints for live updates
+      window.EB_PULSE_ENDPOINT = '{$modulelink}&a=pulse-events';
+      window.EB_PULSE_SNAPSHOT = '{$modulelink}&a=pulse-snapshot';
     </script>
 
     <script src="modules/addons/eazybackup/assets/js/job-reports.js" defer></script>
@@ -549,6 +565,10 @@
         });
       })();
     </script>
+
+    <!-- Live pulse stream and timeline store -->
+    <script src="modules/addons/eazybackup/assets/js/pulse-events.js" defer></script>
+    <script src="modules/addons/eazybackup/assets/js/dashboard-timeline.js" defer></script>
 
 <script>
 // Map username -> serviceId for accurate modal requests (devices list scope)

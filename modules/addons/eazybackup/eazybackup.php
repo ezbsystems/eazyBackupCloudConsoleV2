@@ -633,6 +633,21 @@ function eazybackup_clientarea(array $vars)
         // Isolated Device Actions AJAX endpoint
         require_once __DIR__ . "/pages/console/device-actions.php";
         exit; // script handles output
+    } else if ($_REQUEST["a"] == "pulse-events") {
+        // SSE: Protection Pulse live stream
+        require_once __DIR__ . "/pages/console/pulse.php";
+        eb_pulse_events();
+        exit;
+    } else if ($_REQUEST["a"] == "pulse-snapshot") {
+        // JSON snapshot for reconnects / initial load
+        require_once __DIR__ . "/pages/console/pulse.php";
+        eb_pulse_snapshot();
+        exit;
+    } else if ($_REQUEST["a"] == "pulse-snooze") {
+        // Snooze incidents
+        require_once __DIR__ . "/pages/console/pulse.php";
+        eb_pulse_snooze();
+        exit;
     } else if ($_REQUEST["a"] == "dashboard") {
         // Load the dashboard backend logic.
         $clientId = $_SESSION['uid'];

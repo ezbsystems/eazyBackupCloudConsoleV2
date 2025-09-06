@@ -69,7 +69,7 @@ We want to create a web dashboard that will allow customers to manage their back
 `accounts/modules/addons/eazybackup/pages/console/dashboard.php`
 - Helpers: ownership checks, cursor management, device-name enrichment, job type names.
 
-## comet_ws_worker.php Device and Protected Item ingestion (WebSocket-driven)
+## comet_ws_worker.php Jobs, Device and Protected Item ingestion (WebSocket-driven)
 `accounts/modules/addons/eazybackup/bin/comet_ws_worker.php`
 
 - Overview: The bin/comet_ws_worker.php listens to Comet Server live events and updates our WHMCS database in near real-time. 
