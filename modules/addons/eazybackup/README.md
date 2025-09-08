@@ -873,3 +873,55 @@ Notes:
 - Dispatcher calls will fail with 403 if the device is offline or `TargetID` was not resolved; we return a friendly message in that case.
 - Snapshot lists are filtered client-side by Source GUID; when there are many snapshots, consider server-side filtering in a future iteration.
 - Concurrency: restore submission itself is not hash-protected; Protected Item and vault selection depend on a fresh profile read in the same flow.
+
+## Developer Notes – Dashboard Live Running Job Slivers (24h timeline)
+
+Overview
+- Show running jobs in near real-time on the Dashboard → Last 24 hours timeline as pulsing blue slivers; remove on completion; no reload required.
+
+Files involved
+- UI (client):
+  - `templates/clientarea/dashboard.tpl`
+    - Injects pulse endpoints via `{$modulelink}`.
+    - Includes: `assets/js/pulse-events.js`, `assets/js/dashboard-timeline.js`.
+    - Timeline Alpine component subscribes to live updates and recomputes.
+- Frontend scripts:
+  - `assets/js/pulse-events.js`
+    - Connects to `?m=eazybackup&a=pulse-events` (SSE) and seeds from `?m=eazybackup&a=pulse-snapshot` (JSON).
+    - Emits `eb:pulse-snapshot` and `eb:pulse` browser events.
+    - Quick reconnect (1s) and 10s JSON polling fallback if SSE drops.
+  - `assets/js/dashboard-timeline.js`
+    - Keeps a running-jobs store keyed by `username + device_name`.
+    - On updates, dispatches `eb:timeline-changed` and bumps `Alpine.store('ebTimeline').ver`.
+
+Backend endpoints
+- Router (`eazybackup.php`): actions added:
+  - `a=pulse-events` → SSE stream (live running job deltas)
+  - `a=pulse-snapshot` → JSON one-shot
+  - `a=pulse-snooze` → optional incident snooze
+- Controller (`pages/console/pulse.php`):
+  - `eb_pulse_events()`
+    - Scopes to the logged-in client’s active Comet usernames.
+    - Sends a `snapshot` then diffs `eb_jobs_live` every ~1s for ~30s, emitting `job:start` for new rows and `job:end` for disappeared rows (enriched from `eb_jobs_recent_24h` when possible).
+    - SSE headers: no cache, keep-alive, buffering disabled.
+  - `eb_pulse_snapshot()`
+    - Returns `jobsRunning` from `eb_jobs_live` and `jobsRecent24h` from `eb_jobs_recent_24h`.
+
+Data sources
+- `eb_jobs_live` → running jobs (written by `bin/comet_ws_worker.php`, cleaned by `bin/monitor_stalled_jobs.php`).
+- `eb_jobs_recent_24h` → recent completed jobs.
+- `eb_devices_registry` → enrich device `friendly_name`.
+
+Template behavior
+- `jobs24h()` merges completed jobs (`device.jobs`) with live running jobs from `__EB_TIMELINE.getFor(device.username, device.name)` and sorts by start time.
+- Running slivers: Tailwind `bg-blue-500 animate-pulse`.
+- Re-render triggers: `eb:timeline-changed` event and `Alpine.store('ebTimeline').ver`.
+
+Expected latency
+- ~1–2 seconds from job start/end to timeline update when SSE is connected.
+- Fallback polling: ~10 seconds if SSE is unavailable.
+
+Troubleshooting
+- Ensure SSE isn’t buffered by reverse proxies (we send `X-Accel-Buffering: no`; disable compression for the route).
+- Verify the dashboard is visible so Alpine refreshes in view.
+- Network tab should show periodic `data:` SSE events every second.

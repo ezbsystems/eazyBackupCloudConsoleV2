@@ -369,11 +369,20 @@
                                             <th x-show="cols.m365" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">MS365 Protected Accounts</th>
                                         </tr>
                                     </thead>
-                                    <tbody class="divide-y divide-gray-700">
+                                    <tbody class="divide-y divide-gray-700" x-ref="tbody"
+                                            x-init="
+                                                const rows = [...$refs.tbody.querySelectorAll('tr')];
+                                                rows.sort((r1, r2) => {
+                                                const t1 = r1.querySelector('[data-username]')?.textContent.trim() ?? '';
+                                                const t2 = r2.querySelector('[data-username]')?.textContent.trim() ?? '';
+                                                return t1.localeCompare(t2, undefined, { sensitivity: 'base' });
+                                                });
+                                                rows.forEach(r => $refs.tbody.appendChild(r));
+                                            ">
                                         {foreach from=$accounts item=account}
                                             <tr class="hover:bg-gray-800/60" x-show="matchesSearch($el)" x-cloak>
-                                                <td x-show="cols.username" class="px-4 py-4 whitespace-nowrap text-sm">
-                                                    <a href="{$modulelink}&a=user-profile&username={$account.username}&serviceid={$account.id}" class="text-sky-400 hover:underline">{$account.username}</a>
+                                                <td x-show="cols.username" class="px-4 py-4 whitespace-nowrap text-sm">                                                
+                                                    <a href="{$modulelink}&a=user-profile&username={$account.username}&serviceid={$account.id}" class="text-sky-400 hover:underline" data-username="1">{$account.username}</a>
                                                 </td>
                                                 <td x-show="cols.name" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
                                                     {$account.name|default:$account.account_name|default:$account.AccountName|default:'-'}

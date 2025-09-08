@@ -118,6 +118,20 @@
                   <span class="text-gray-400">Username:</span>
                   <span class="text-white font-mono">{$username}</span>
               </div>
+              <!-- Account Name editable row -->
+              <div x-data="accNameCtrl()" x-init="await init()" class="flex items-center justify-between gap-3">
+                <label for="eb-account-name" class="text-gray-400 shrink-0">Account Name:</label>
+                <div class="flex grow items-center gap-2">
+                  <input
+                    id="eb-account-name"
+                    type="text"
+                    x-model="name"
+                    placeholder="Optional descriptive name"
+                    class="h-8 w-full rounded-md border border-slate-600/70 bg-slate-900 px-2 text-slate-100 focus:outline-none focus:ring-0 focus:border-sky-600"
+                  />
+                  <button type="button" @click="await save()" :disabled="saving" class="shrink-0 rounded bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-700 disabled:opacity-60">Update</button>
+                </div>
+              </div>
               <div class="flex justify-between">
                   <span class="text-gray-400">Password:</span>
                   <span class="text-white">Hashed with 448-bit bcrypt</span>
@@ -630,7 +644,7 @@
               <div class="space-y-2 text-sm">
                 <div class="flex justify-between">
                   <h3 class="text-lg font-semibold text-white mb-4">Storage Vaults</h3>
-                  <a href="#" class="text-sky-500 hover:underline">Configure...</a>
+                  <a href="#" @click.prevent="activeSubTab = 'storage'" class="text-sky-500 hover:underline">Configure...</a>
                 </div>
                   {if $vaults}
                       {foreach from=$vaults item=vault}
@@ -1453,6 +1467,33 @@ async function call(action, extra){
     const res = await fetch(window.EB_DEVICE_ENDPOINT, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) });
     return await res.json();
   } catch(e){ return { status:'error', message:'Network error' }; }
+}
+// Account Name inline controller
+function accNameCtrl(){
+  return {
+    name:'',
+    saving:false,
+    async init(){
+      const r = await call('piProfileGet', { username: '{$username}' });
+      if (r && r.status === 'success' && r.profile) {
+        this.name = (r.profile.AccountName ?? '');
+      }
+    },
+    async save(){
+      if (this.saving) return;
+      this.saving = true;
+      try {
+        const r = await call('piProfileUpdate', { AccountName: this.name });
+        if (r && r.status === 'success') {
+          try { window.showToast?.('Account Name updated', 'success'); } catch(_){}
+        } else {
+          try { window.showToast?.((r && r.message) || 'Failed to update Account Name', 'error'); } catch(_){}
+        }
+      } finally {
+        this.saving = false;
+      }
+    }
+  }
 }
 function quotaCtrl(){
   return {
