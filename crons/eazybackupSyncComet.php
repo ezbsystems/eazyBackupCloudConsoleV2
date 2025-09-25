@@ -26,7 +26,7 @@ function debugLog($message, $data = null) {
 $startTime = time();
 logModuleCall(
     'eazybackup',
-    'cron Start',
+    'eazyBackupSyncComet cron Start',
     ['start' => date('Y-m-d H:i:s', $startTime)],
     'Cron execution started'
 );
@@ -99,6 +99,7 @@ $serversById = Capsule::table('tblservers')
 
 // ✨ OPTIMIZATION: Create an array of reusable Server API clients
 $serverClients = [];
+$serverBaseUrls = [];
 foreach ($groupIds as $gid) {
     // Choose the first server in the group (or any selection logic you prefer)
     $relList = isset($groupToServerIds[$gid]) ? $groupToServerIds[$gid] : null;
@@ -133,6 +134,7 @@ foreach ($groupIds as $gid) {
     $url = $host . "://" . $hostname . ($port ? $port : '') . "/";
 
     $serverClients[$gid] = new Server($url, $server->username, $password['password']);
+    $serverBaseUrls[$gid] = $url;
 }
 
 logModuleCall(
@@ -182,7 +184,7 @@ foreach ($serverClients as $packageId => $serverClient) {
     try {
         $endTimestamp = time();
         // $startTimestamp = strtotime('-5 minutes');
-        $startTimestamp = strtotime('-24 hours');
+        $startTimestamp = strtotime('-30 minutes');
         $jobs = $serverClient->AdminGetJobsForDateRange($startTimestamp, $endTimestamp);
         $allJobs = array_merge($allJobs, $jobs);
         logModuleCall(
@@ -245,6 +247,9 @@ try {
     
 }
 
+// Track vault summary across run
+$__vaultAgg = ['seen'=>0,'updated'=>0,'skipped'=>0,'errors'=>0];
+
 $hostings = Capsule::table('tblhosting')
     ->select('id', 'userid', 'username', 'packageid')
     ->where('domainstatus', 'Active')
@@ -296,7 +301,14 @@ for ($i = 0; $i < $totalHostings; $i += $batchSize) {
             $cometObject->upsertItems($userProfile, $hosting);
             
             // upsert vaults
-            $cometObject->upsertVaults($userProfile, $hosting);
+            $serverUrl = $serverBaseUrls[$gid] ?? '';
+            $vaultStats = $cometObject->upsertVaults($userProfile, $hosting, $serverUrl);
+            if ((getenv('EB_VAULT_LOG') === '1') && is_array($vaultStats)) {
+                logModuleCall('eazybackup','cron upsertVaultsSummary',[ 'username'=>$hosting->username, 'server'=>$serverUrl ], $vaultStats);
+            }
+            if (is_array($vaultStats)) {
+                foreach ($__vaultAgg as $k=>$_) { $__vaultAgg[$k] += (int)($vaultStats[$k] ?? 0); }
+            }
             
         } catch (\Exception $e) {
             // If fetching a user profile fails, just skip to the next one
@@ -325,6 +337,10 @@ logModuleCall(
     [
         'end'              => date('Y-m-d H:i:s', $endTime),
         'duration_seconds' => $duration,
+        'vaults_seen'      => $__vaultAgg['seen'] ?? 0,
+        'vaults_updated'   => $__vaultAgg['updated'] ?? 0,
+        'vaults_skipped'   => $__vaultAgg['skipped'] ?? 0,
+        'vaults_errors'    => $__vaultAgg['errors'] ?? 0,
     ],
     "Cron finished in {$duration} seconds"
 );

@@ -175,79 +175,346 @@ class Comet {
     }
 
     /**
-     * Add or Update Protected Vaults
-     * @param $userProfile
-     * @param $client
-     * @return null
+     * Add or Update Protected Vaults with defensive writes.
+     * - Never clobber bucket fields or total_bytes with empty/NULL/0 on failure
+     * - Provider-aware parsing (Comet Server, B2, S3/S3-compatible)
+     * - Track last_success_at / last_error
+     *
+     * @param object $userProfile
+     * @param object $client  tblhosting row-like (id, userid, username)
+     * @param string $serverUrl Normalized Comet server base URL (e.g., https://csw.example.com/)
+     * @return array{seen:int,updated:int,skipped:int,errors:int}
      */
-    public function upsertVaults($userProfile, $client)
+    public function upsertVaults($userProfile, $client, $serverUrl = '')
     {
+        $stats = ['seen' => 0, 'updated' => 0, 'skipped' => 0, 'errors' => 0];
+        $logVerbose = getenv('EB_VAULT_LOG') === '1';
         try {
-            foreach ($userProfile->Destinations as $vaultId => $vault) {
-                // Handle invalid creation dates
-                $bucketServer = $vault->CometServer ?? '';
-                $bucketName = $vault->CometBucket ?? '';
-                $bucketKey = $vault->CometBucketKey ?? '';
-                $storageLimitEnabled = $vault->StorageLimitEnabled ?? 0;
-                $createdAt = null;
-                if (isset($vault->CreateTime) && $vault->CreateTime && $vault->CreateTime !== 'Unknown') {
-                    $timestamp = is_numeric($vault->CreateTime) ? $vault->CreateTime : strtotime($vault->CreateTime);
-                    if ($timestamp !== false) {
-                        $createdAt = date('Y-m-d H:i:s', $timestamp);
+            $destinations = isset($userProfile->Destinations)
+                ? (is_array($userProfile->Destinations) ? $userProfile->Destinations : get_object_vars($userProfile->Destinations))
+                : [];
+
+            foreach ($destinations as $vaultId => $vault) {
+                $stats['seen']++;
+
+                $arr = is_array($vault) ? $vault : (is_object($vault) ? get_object_vars($vault) : []);
+
+                // Times
+                $normalizeTs = function ($v) {
+                    if ($v === null || $v === '' || $v === 'Unknown') return null;
+                    if (is_numeric($v)) { $n = (int)$v; if ($n > 1000000000000) { $n = (int) floor($n / 1000); } return $n > 0 ? $n : null; }
+                    $ts = @strtotime((string)$v); return $ts !== false ? (int)$ts : null;
+                };
+                $ctTs = $normalizeTs($arr['CreateTime'] ?? null) ?? time();
+                $createdAt = date('Y-m-d H:i:s', $ctTs);
+                $now = date('Y-m-d H:i:s');
+
+                // Core fields
+                $name = trim((string)($arr['DisplayName'] ?? $arr['Description'] ?? ''));
+                $type = (int)($arr['DestinationType'] ?? $arr['Type'] ?? 0);
+                $hasLimit   = (int) (!empty($arr['LimitStorage']) || !empty($arr['StorageLimitEnabled']));
+                $limitBytes = (int)   ($arr['StorageLimitBytes'] ?? $arr['LimitStorageBytes'] ?? 0);
+
+                // ---------- BYTES: read it correctly, do NOT coalesce to zero ----------
+                $bytes = null;
+                $bytesSource = null;           // 'CPS', 'JOB_END', 'JOB_START'
+                $bytesTrustedZero = false;     // true only when zero is explicitly measured
+
+                // 1) Primary source: Destinations[].Statistics.ClientProvidedSize.Size
+                if (isset($arr['Statistics'])) {
+                    $statsArr = is_array($arr['Statistics'])
+                        ? $arr['Statistics']
+                        : (is_object($arr['Statistics']) ? get_object_vars($arr['Statistics']) : []);
+
+                    if (isset($statsArr['ClientProvidedSize'])) {
+                        $cps = is_array($statsArr['ClientProvidedSize'])
+                            ? $statsArr['ClientProvidedSize']
+                            : (is_object($statsArr['ClientProvidedSize']) ? get_object_vars($statsArr['ClientProvidedSize']) : []);
+
+                        if (array_key_exists('Size', $cps) && $cps['Size'] !== null) {
+                            $n = (int)$cps['Size'];
+                            if ($n > 0) {
+                                $bytes = $n;
+                                $bytesSource = 'CPS';
+                            } elseif ($n === 0) {
+                                // Trust an explicit zero only if there was a measurement (prevents "missing" → 0)
+                                $ms = isset($cps['MeasureStarted']) ? (int)$cps['MeasureStarted'] : 0;
+                                $mc = isset($cps['MeasureCompleted']) ? (int)$cps['MeasureCompleted'] : 0;
+                                if ($ms > 0 || $mc > 0) {
+                                    $bytes = 0;
+                                    $bytesSource = 'CPS';
+                                    $bytesTrustedZero = true;
+                                }
+                            }
+                        }
                     }
                 }
-                
-                // Use current time as fallback for invalid dates
-                if (!$createdAt) {
-                    $createdAt = date('Y-m-d H:i:s');
-                }
 
-                // Handle invalid modification dates
-                $updatedAt = null;
-                if (isset($vault->ModifyTime) && $vault->ModifyTime && $vault->ModifyTime !== 'Unknown') {
-                    $timestamp = is_numeric($vault->ModifyTime) ? $vault->ModifyTime : strtotime($vault->ModifyTime);
-                    if ($timestamp !== false) {
-                        $updatedAt = date('Y-m-d H:i:s', $timestamp);
+                // 2) Helpful fallback: pull from the user profile's last job DestinationSizeEnd for this vault
+                if ($bytes === null && isset($userProfile->Sources)) {
+
+                    // Normalize Sources to an array (stdClass-safe)
+                    $sourcesArr = is_array($userProfile->Sources)
+                        ? $userProfile->Sources
+                        : (is_object($userProfile->Sources) ? get_object_vars($userProfile->Sources) : []);
+
+                    foreach ($sourcesArr as $srcGuid => $srcObj) {
+                        $s = is_array($srcObj) ? $srcObj : (is_object($srcObj) ? get_object_vars($srcObj) : []);
+                        if (!isset($s['Statistics'])) continue;
+
+                        $sStats = is_array($s['Statistics']) ? $s['Statistics']
+                               : (is_object($s['Statistics']) ? get_object_vars($s['Statistics']) : []);
+
+                        // Prefer LastSuccessfulBackupJob, then LastBackupJob
+                        foreach (['LastSuccessfulBackupJob','LastBackupJob'] as $jobKey) {
+                            if (!isset($sStats[$jobKey])) continue;
+
+                            $job = is_array($sStats[$jobKey]) ? $sStats[$jobKey]
+                                 : (is_object($sStats[$jobKey]) ? get_object_vars($sStats[$jobKey]) : []);
+
+                            // Only consider jobs that wrote to THIS vault GUID
+                            if (($job['DestinationGUID'] ?? '') !== (string)$vaultId) continue;
+
+                            // Normalize nested DestinationSizeEnd/Start in case they are objects
+                            $dstEnd   = isset($job['DestinationSizeEnd'])
+                                        ? (is_array($job['DestinationSizeEnd']) ? $job['DestinationSizeEnd'] : (is_object($job['DestinationSizeEnd']) ? get_object_vars($job['DestinationSizeEnd']) : []))
+                                        : null;
+                            $dstStart = isset($job['DestinationSizeStart'])
+                                        ? (is_array($job['DestinationSizeStart']) ? $job['DestinationSizeStart'] : (is_object($job['DestinationSizeStart']) ? get_object_vars($job['DestinationSizeStart']) : []))
+                                        : null;
+
+                            if ($dstEnd && array_key_exists('Size', $dstEnd) && $dstEnd['Size'] !== null) {
+                                $n = (int)$dstEnd['Size'];
+                                $bytes = $n;                // allow zero here: it is an explicit measured value
+                                $bytesSource = 'JOB_END';
+                                $bytesTrustedZero = ($n === 0);
+                                break 2;
+                            }
+                            if ($dstStart && array_key_exists('Size', $dstStart) && $dstStart['Size'] !== null) {
+                                $n = (int)$dstStart['Size'];
+                                $bytes = $n;
+                                $bytesSource = 'JOB_START';
+                                $bytesTrustedZero = ($n === 0);
+                                break 2;
+                            }
+                        }
                     }
                 }
-                
-                // Use current time as fallback for invalid dates
-                if (!$updatedAt) {
-                    $updatedAt = date('Y-m-d H:i:s');
+
+                // Log untrusted zeros (optional, only when verbose)
+                if ($bytes === null && $logVerbose) {
+                    logModuleCall('eazybackup', 'vaultSizeMissing', 
+                        ['username' => $client->username, 'vault_id' => (string)$vaultId, 'source' => $bytesSource],
+                        'No trustworthy size in CPS or job fallback. Statistics: ' . substr(json_encode($arr['Statistics'] ?? [], JSON_UNESCAPED_SLASHES), 0, 2000)
+                    );
+                }
+                if ($bytes === 0 && !$bytesTrustedZero && $logVerbose) {
+                    logModuleCall('eazybackup', 'vaultSizeZeroUntrusted', 
+                        ['username' => $client->username, 'vault_id' => (string)$vaultId, 'source' => $bytesSource],
+                        'Zero size present but not explicitly measured; not writing to DB'
+                    );
                 }
 
-                $cometVault = [
-                    'id' => $vaultId,
+                // Provider-aware parsing
+                [$bucketName, $bucketKey, $endpoint] = $this->extractBucketFields($arr, $type, (string)$serverUrl);
+
+                // Decide success vs error
+                $parsedAny = ($bucketName !== '' || $bucketKey !== '' || $endpoint !== '' || $bytes !== null);
+                $errorMsg = $parsedAny ? null : ('parse-failed: type=' . (string)$type);
+
+                // Insert or update safely
+                $exists = Capsule::table('comet_vaults')->where('id', (string)$vaultId)->exists();
+
+                if (!$exists) {
+                    // Insert: fill known fields; allow empty strings for bucket fields
+                    $row = [
+                        'id' => (string)$vaultId,
+                        'client_id' => $client->userid,
+                        'username' => $client->username,
+                        'content' => json_encode($arr, JSON_UNESCAPED_SLASHES),
+                        'name' => $name,
+                        'type' => $type,
+                        'bucket_server' => $endpoint,
+                        'bucket_name' => $bucketName,
+                        'bucket_key' => $bucketKey,
+                        'has_storage_limit' => $hasLimit,
+                        'storage_limit_bytes' => $limitBytes,
+                        'is_active' => 1,
+                        'created_at' => $createdAt,
+                        'updated_at' => $now,
+                        'removed_at' => null,
+                        'last_success_at' => $parsedAny ? date('Y-m-d H:i:s') : null,
+                        'last_error' => $errorMsg,
+                    ];
+                    if ($bytes !== null && ($bytes > 0 || $bytesTrustedZero)) {
+                        $row['total_bytes'] = $bytes;
+                    }
+                    Capsule::table('comet_vaults')->insert($row);
+                    $stats['updated']++;
+                    if ($logVerbose) {
+                        logModuleCall('eazybackup', 'cron VaultUpsert(insert)', [ 'id'=>(string)$vaultId, 'type'=>$type ], [ 'endpoint'=>$this->maskEndpoint($endpoint), 'bucket'=>$bucketName, 'key'=>$this->maskKey($bucketKey), 'bytes'=>$bytes, 'success'=>$parsedAny, 'error'=>$errorMsg ]);
+                    }
+                    continue;
+                }
+
+                // Update path: only write good fields; always bump updated_at, content, name/type/limits
+                $existing = Capsule::table('comet_vaults')->where('id', (string)$vaultId)->first(['bucket_server','bucket_name','bucket_key','total_bytes']) ?? (object)[];
+                $existing_server = $existing->bucket_server ?? '';
+                $existing_bucket = $existing->bucket_name ?? '';
+                $existing_key    = $existing->bucket_key ?? '';
+                $existing_total = isset($existing->total_bytes) ? (int)$existing->total_bytes : null;
+
+                // Prefer not to stomp another server's fields in the same run
+                $sameServer = ($existing_server !== '' && $endpoint !== '' && rtrim($existing_server,'/') === rtrim($endpoint,'/'));
+
+                $updates = [
                     'client_id' => $client->userid,
                     'username' => $client->username,
-                    'content' => json_encode($vault),
-                    'name' => $vault->Description,
-                    'type' => $vault->DestinationType ?? '',
-                    'total_bytes' => $vault->Statistics->ClientProvidedSize->Size ?? 0,
-                    'bucket_server' => $bucketServer,
-                    'bucket_name' => $bucketName,
-                    'bucket_key' => $bucketKey,
-                    'has_storage_limit' => $storageLimitEnabled,
-                    'storage_limit_bytes' => $vault->StorageLimitBytes,
-                    'created_at' => $createdAt,
-                    'updated_at' => $updatedAt
+                    'content' => json_encode($arr, JSON_UNESCAPED_SLASHES),
+                    'name' => $name,
+                    'type' => $type,
+                    'has_storage_limit' => $hasLimit,
+                    'storage_limit_bytes' => $limitBytes,
+                    'is_active' => 1,
+                    'removed_at' => null,
+                    'updated_at' => $now,
                 ];
+                // Only update bucket_server if empty or same server; avoid cross-server stomp
+                if ($endpoint !== '') {
+                    if ($existing_server === '' || $sameServer || rtrim($endpoint,'/') === rtrim($existing_server,'/')) {
+                        $updates['bucket_server'] = $endpoint;
+                    }
+                }
+                // Only update bucket fields if empty or sameServer (do not override different non-empty)
+                if ($bucketName !== '' && ($existing_bucket === '' || $sameServer || $bucketName === $existing_bucket)) { $updates['bucket_name'] = $bucketName; }
+                if ($bucketKey !== '' && ($existing_key === '' || $sameServer)) { $updates['bucket_key'] = $bucketKey; }
+                
+                // Write total_bytes exactly as measured.
+                // - Accept any positive size.
+                // - Accept zero only if it was explicitly measured (bytesTrustedZero).
+                if ($bytes !== null && ($bytes > 0 || $bytesTrustedZero)) {
+                    $updates['total_bytes'] = $bytes;  // allow decreases; always reflect reality
+                }
+                if ($parsedAny) {
+                    $updates['last_success_at'] = date('Y-m-d H:i:s');
+                    $updates['last_error'] = null;
+                } else {
+                    $updates['last_error'] = $errorMsg;
+                }
 
-                Capsule::table('comet_vaults')->updateOrInsert(
-                    ['id' => $cometVault['id']],
-                    $cometVault
-                );
+                $rc = Capsule::table('comet_vaults')->where('id', (string)$vaultId)->update($updates);
+                $stats[$parsedAny ? 'updated' : 'skipped']++;
+                if (!$parsedAny) { $stats['errors']++; }
+                if ($logVerbose) {
+                    logModuleCall('eazybackup', 'cron VaultUpsert(update)', [ 'id'=>(string)$vaultId, 'type'=>$type ], [ 'endpoint'=>$this->maskEndpoint($endpoint), 'bucket'=>$bucketName, 'key'=>$this->maskKey($bucketKey), 'bytes'=>$bytes, 'success'=>$parsedAny, 'error'=>$errorMsg, 'rc'=>$rc ]);
+                }
             }
         } catch (\Exception $e) {
-            /*
-            logModuleCall(
-                "eazybackup",
-                'upsertVaults',
-                $userProfile,
-                $e->getMessage()
-            );
-            */
+            $stats['errors']++;
+            // leave global error log minimal to avoid noise; toggle EB_VAULT_LOG for details
+            if ($logVerbose) {
+                logModuleCall('eazybackup', 'upsertVaults EXCEPTION', [], $e->getMessage());
+            }
         }
+        return $stats;
+    }
+
+    /**
+     * Extract bucket fields for known providers.
+     * Returns [bucketName, bucketKey, endpoint]
+     *
+     * @param array $content DestinationConfig as array
+     * @param int   $type    Provider type (e.g., 1003 Comet, 1008 B2, 1000 S3-compatible)
+     * @param string $serverUrl Active Comet server URL for type 1003 preference
+     * @return array{0:string,1:string,2:string}
+     */
+    private function extractBucketFields(array $content, int $type, string $serverUrl): array
+    {
+        $endpoint = '';
+        $bucket = '';
+        $key = '';
+
+        $normUrl = function (string $u) use ($serverUrl): string {
+            if ($u === '') return '';
+            $u = preg_replace(["/^http:\/\//i","/^https:\/\//i"], ['', ''], $u);
+            $u = rtrim($u, '/');
+            // we will re-prepend scheme if it was present in input
+            if (stripos((string)$serverUrl, 'https://') === 0) return 'https://' . $u;
+            if (stripos((string)$serverUrl, 'http://') === 0) return 'http://' . $u;
+            return $u;
+        };
+
+        // Helper to read nested keys
+        $get = function ($arr, $keys, $default = '') {
+            if (!is_array($keys)) { $keys = [$keys]; }
+            foreach ($keys as $k) {
+                if (is_array($k)) {
+                    $v = $arr;
+                    foreach ($k as $kk) {
+                        if (is_array($v) && array_key_exists($kk, $v)) { $v = $v[$kk]; } else { $v = null; break; }
+                    }
+                    if ($v !== null && $v !== '') return (string)$v;
+                } else {
+                    if (is_array($arr) && array_key_exists($k, $arr) && $arr[$k] !== '' && $arr[$k] !== null) return (string)$arr[$k];
+                }
+            }
+            return $default;
+        };
+
+        if ($type === 1003) {
+            // Comet Server
+            $bucket = $get($content, [['Bucket'], ['BucketID'], ['CometBucket']]);
+            $key    = $get($content, [['Key'], ['BucketKey'], ['CometBucketKey']]);
+            // Prefer active server URL
+            $endpoint = $serverUrl !== '' ? rtrim($serverUrl, '/') : $get($content, [['CometServer'], ['Server']]);
+            $endpoint = $normUrl($endpoint);
+            return [$bucket, $key, $endpoint];
+        }
+
+        if ($type === 1008) {
+            // Backblaze B2
+            $b2 = isset($content['B2']) ? (is_array($content['B2']) ? $content['B2'] : (is_object($content['B2']) ? get_object_vars($content['B2']) : [])) : [];
+            $bucket = $get($b2, ['Bucket']);
+            $key    = $get($b2, ['Key', 'KeyID', 'ApplicationKeyId']);
+            $endpoint = $get($b2, ['Endpoint']);
+            return [$bucket, $key, $endpoint];
+        }
+
+        if ($type === 1000) {
+            // S3-compatible (including AWS S3)
+            $s3 = isset($content['S3']) ? (is_array($content['S3']) ? $content['S3'] : (is_object($content['S3']) ? get_object_vars($content['S3']) : [])) : [];
+            $s3c = isset($content['S3Compatible']) ? (is_array($content['S3Compatible']) ? $content['S3Compatible'] : (is_object($content['S3Compatible']) ? get_object_vars($content['S3Compatible']) : [])) : [];
+            $bucket = $get($s3, ['Bucket', 'S3BucketName']) ?: $get($content, ['S3BucketName']);
+            if ($bucket === '') { $bucket = $get($s3c, ['Bucket']); }
+            $key = $get($s3, ['AccessKey', 'Key', 'S3AccessKey']) ?: $get($s3c, ['AccessKey', 'Key']);
+            $endpoint = $get($s3, ['Endpoint', 'Hostname', 'S3Hostname', 'S3CustomHostName']) ?: $get($s3c, ['Endpoint', 'Hostname']);
+            return [$bucket, $key, $endpoint];
+        }
+
+        // Fallback: try generic keys
+        $bucket = $get($content, [['Bucket'], ['BucketID'], ['S3BucketName'], ['CometBucket']]);
+        $key    = $get($content, [['Key'], ['BucketKey'], ['S3AccessKey'], ['CometBucketKey']]);
+        $endpoint = $get($content, [['Endpoint'], ['Hostname'], ['S3Hostname'], ['S3CustomHostName'], ['CometServer']]);
+        return [$bucket, $key, $endpoint];
+    }
+
+    /**
+     * Mask bucket key for logs.
+     */
+    private function maskKey(string $k): string
+    {
+        if ($k === '') return '';
+        $len = strlen($k);
+        if ($len <= 4) return str_repeat('*', $len);
+        return str_repeat('*', $len - 4) . substr($k, -4);
+    }
+
+    /**
+     * Mask endpoint minimally (hide scheme-only details is not necessary; return as-is)
+     */
+    private function maskEndpoint(string $e): string
+    {
+        return $e;
     }
 
     /**

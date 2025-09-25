@@ -46,7 +46,7 @@ return (function (): array {
 			GROUP BY username
 		) v
 		JOIN tblhosting h
-		  ON BINARY h.username = v.username
+		  ON BINARY h.username = v.username AND h.domainstatus = 'Active'
 		JOIN (
 			SELECT
 			  s.id AS server_id,
@@ -70,6 +70,8 @@ return (function (): array {
 
 	$where = [];
 	$params = [];
+	// Only active services
+	$where[] = "h.domainstatus = 'Active'";
 	if ($filterUsername !== '') {
 		$where[] = 'BINARY v.username LIKE :usernameLike';
 		$params['usernameLike'] = '%' . $filterUsername . '%';
@@ -86,15 +88,24 @@ return (function (): array {
 
 	$offset = ($page - 1) * $perPage;
 
-	// Main data query
-	$selectSql = 'SELECT v.username, su.comet_server_url, v.total_bytes, COALESCE(b.billed_units,0) AS billed_units, h.id AS service_id, h.userid AS user_id '
-		. $sqlBase . ' ' . $whereSql . ' '
-		. 'ORDER BY ' . $orderByExpr . ' ' . $dir . ' '
-		. 'LIMIT ' . (int)$perPage . ' OFFSET ' . (int)$offset;
+    // Freshness (per-username) subquery: last_success_at and a sample last_error
+    $freshSql = "SELECT username, MAX(last_success_at) AS last_success_at, 
+                        MAX(CASE WHEN last_error IS NOT NULL AND last_error <> '' THEN last_error ELSE NULL END) AS last_error
+                 FROM comet_vaults
+                 WHERE type IN (1000,1003,1005,1007,1008) AND username IS NOT NULL AND username <> ''
+                 GROUP BY username";
+
+    // Main data query
+    $selectSql = 'SELECT v.username, su.comet_server_url, v.total_bytes, COALESCE(b.billed_units,0) AS billed_units, h.id AS service_id, h.userid AS user_id, f.last_success_at, f.last_error '
+        . $sqlBase . ' '
+        . 'LEFT JOIN (' . $freshSql . ') f ON f.username = v.username '
+        . $whereSql . ' '
+        . 'ORDER BY ' . $orderByExpr . ' ' . $dir . ' '
+        . 'LIMIT ' . (int)$perPage . ' OFFSET ' . (int)$offset;
 	$rows = DB::select($selectSql, $params);
 
-	// Distinct server list (for filter dropdown)
-	$serversSql = 'SELECT DISTINCT su.comet_server_url ' . $sqlBase . ' ORDER BY su.comet_server_url ASC';
+	// Distinct server list (for filter dropdown) — restrict to active services
+	$serversSql = 'SELECT DISTINCT su.comet_server_url ' . $sqlBase . " WHERE h.domainstatus = 'Active' ORDER BY su.comet_server_url ASC";
 	$serverRows = DB::select($serversSql);
 	$servers = array_map(function ($r) { return $r->comet_server_url; }, $serverRows);
 
@@ -110,7 +121,7 @@ return (function (): array {
 	// Enrich rows with human-readable size
 	$rowsOut = [];
 	foreach ($rows as $r) {
-		$rowsOut[] = [
+        $rowsOut[] = [
 			'username'         => $r->username,
 			'comet_server_url' => $r->comet_server_url,
 			'total_bytes'      => (int)$r->total_bytes,
@@ -118,6 +129,8 @@ return (function (): array {
 			'billed_units'     => (int)$r->billed_units,
 			'service_id'       => (int)$r->service_id,
 			'user_id'          => (int)$r->user_id,
+            'last_success_at'  => isset($r->last_success_at) ? (string)$r->last_success_at : null,
+            'last_error'       => isset($r->last_error) ? (string)$r->last_error : null,
 		];
 	}
 

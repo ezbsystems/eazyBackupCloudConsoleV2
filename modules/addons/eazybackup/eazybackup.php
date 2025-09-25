@@ -121,7 +121,7 @@ function eazybackup_activate()
             $table->jsonb('content');
             $table->string('name')->index();
             $table->smallInteger('type')->index();
-            $table->bigInteger('total_bytes');
+            $table->bigInteger('total_bytes')->nullable();
             $table->string('bucket_server');
             $table->string('bucket_name');
             $table->string('bucket_key');
@@ -131,6 +131,8 @@ function eazybackup_activate()
             $table->timestamp('created_at')->nullable();
             $table->timestamp('updated_at')->nullable();
             $table->timestamp('removed_at')->nullable()->index();
+            $table->timestamp('last_success_at')->nullable();
+            $table->text('last_error')->nullable();
             $table->unique('id'); // enables ON DUPLICATE KEY UPDATE
             $table->index(['username', 'id'], 'idx_user_vault');
         });        
@@ -276,7 +278,7 @@ function eazybackup_migrate_schema(): void {
             $t->json('content')->nullable();
             $t->string('name')->index();
             $t->smallInteger('type')->index();
-            $t->bigInteger('total_bytes');
+            $t->bigInteger('total_bytes')->nullable();
             $t->string('bucket_server');
             $t->string('bucket_name');
             $t->string('bucket_key');
@@ -286,12 +288,19 @@ function eazybackup_migrate_schema(): void {
             $t->timestamp('created_at')->nullable();
             $t->timestamp('updated_at')->nullable();
             $t->timestamp('removed_at')->nullable()->index();
+            $t->timestamp('last_success_at')->nullable();
+            $t->text('last_error')->nullable();
             $t->unique('id');
             $t->index(['username','id'], 'idx_user_vault');
         });
     } else {
         eb_add_column_if_missing('comet_vaults','is_active',  fn(Blueprint $t)=>$t->boolean('is_active')->default(1));
         eb_add_column_if_missing('comet_vaults','removed_at', fn(Blueprint $t)=>$t->timestamp('removed_at')->nullable());
+        // Make total_bytes nullable on existing installs
+        try { Capsule::statement("ALTER TABLE comet_vaults MODIFY total_bytes BIGINT NULL"); } catch (\Throwable $e) { /* ignore */ }
+        // Freshness columns
+        eb_add_column_if_missing('comet_vaults','last_success_at', fn(Blueprint $t)=>$t->timestamp('last_success_at')->nullable());
+        eb_add_column_if_missing('comet_vaults','last_error', fn(Blueprint $t)=>$t->text('last_error')->nullable());
         eb_add_index_if_missing('comet_vaults', "CREATE INDEX IF NOT EXISTS idx_user_vault ON comet_vaults (username, id)");
         eb_add_index_if_missing('comet_vaults', "CREATE INDEX IF NOT EXISTS idx_vault_active ON comet_vaults (is_active)");
     }
@@ -855,29 +864,78 @@ function eazybackup_clientarea(array $vars)
                             $m365Accounts = (int)$prof->QuotaOffice365ProtectedAccounts;
                         }
 
-                        // Sum VM counts per engine from Sources' last successful job
+                        // Sum VM counts per engine from Sources; ignore job status
                         try {
                             if (isset($prof->Sources) && is_array($prof->Sources)) {
+                                // First pass: collect per-device fallback counts per engine
+                                $deviceVmDefaults = [];
                                 foreach ($prof->Sources as $sid => $src) {
                                     if (!is_object($src)) { continue; }
                                     $engine = isset($src->Engine) ? strtolower((string)$src->Engine) : '';
                                     if ($engine === '' || (strpos($engine, 'hyperv') === false && strpos($engine, 'vmware') === false)) { continue; }
-                                    $totalVm = 0; $ok = false;
+                                    $owner = isset($src->OwnerDevice) ? (string)$src->OwnerDevice : '';
+                                    $candidate = 0;
                                     if (isset($src->Statistics) && is_object($src->Statistics)) {
+                                        $vm1 = 0; $vm2 = 0;
                                         if (isset($src->Statistics->LastSuccessfulBackupJob) && is_object($src->Statistics->LastSuccessfulBackupJob)) {
-                                            $job = $src->Statistics->LastSuccessfulBackupJob;
-                                            if (isset($job->TotalVmCount)) { $totalVm = (int)$job->TotalVmCount; }
-                                            $ok = true;
-                                        } elseif (isset($src->Statistics->LastBackupJob) && is_object($src->Statistics->LastBackupJob)) {
-                                            $job = $src->Statistics->LastBackupJob;
-                                            if (isset($job->TotalVmCount)) { $totalVm = (int)$job->TotalVmCount; }
-                                            if (isset($job->Status)) {
-                                                $status = is_numeric($job->Status) ? (int)$job->Status : strtoupper((string)$job->Status);
-                                                $ok = ($status === 5000 || $status === 'SUCCESS');
+                                            $job1 = $src->Statistics->LastSuccessfulBackupJob;
+                                            if (isset($job1->TotalVmCount) && is_numeric($job1->TotalVmCount)) { $vm1 = (int)$job1->TotalVmCount; }
+                                        }
+                                        if (isset($src->Statistics->LastBackupJob) && is_object($src->Statistics->LastBackupJob)) {
+                                            $job2 = $src->Statistics->LastBackupJob;
+                                            if (isset($job2->TotalVmCount) && is_numeric($job2->TotalVmCount)) { $vm2 = (int)$job2->TotalVmCount; }
+                                        }
+                                        $candidate = max($vm1, $vm2);
+                                    }
+                                    if ($candidate > 0 && $owner !== '') {
+                                        $ek = strpos($engine, 'hyperv') !== false ? 'hyperv' : (strpos($engine, 'vmware') !== false ? 'vmware' : '');
+                                        if ($ek !== '') {
+                                            if (!isset($deviceVmDefaults[$owner])) { $deviceVmDefaults[$owner] = ['hyperv' => 0, 'vmware' => 0]; }
+                                            if ($candidate > $deviceVmDefaults[$owner][$ek]) { $deviceVmDefaults[$owner][$ek] = $candidate; }
+                                        }
+                                    }
+                                }
+                                // Second pass: sum counts with fallbacks per item
+                                foreach ($prof->Sources as $sid => $src) {
+                                    if (!is_object($src)) { continue; }
+                                    $engine = isset($src->Engine) ? strtolower((string)$src->Engine) : '';
+                                    if ($engine === '' || (strpos($engine, 'hyperv') === false && strpos($engine, 'vmware') === false)) { continue; }
+                                    $owner = isset($src->OwnerDevice) ? (string)$src->OwnerDevice : '';
+                                    $totalVm = 0;
+                                    if (isset($src->Statistics) && is_object($src->Statistics)) {
+                                        // Prefer the larger of LastSuccessful.TotalVmCount and LastBackupJob.TotalVmCount
+                                        $vm1 = 0; $vm2 = 0;
+                                        if (isset($src->Statistics->LastSuccessfulBackupJob) && is_object($src->Statistics->LastSuccessfulBackupJob)) {
+                                            $job1 = $src->Statistics->LastSuccessfulBackupJob;
+                                            if (isset($job1->TotalVmCount) && is_numeric($job1->TotalVmCount)) { $vm1 = (int)$job1->TotalVmCount; }
+                                        }
+                                        if (isset($src->Statistics->LastBackupJob) && is_object($src->Statistics->LastBackupJob)) {
+                                            $job2 = $src->Statistics->LastBackupJob;
+                                            if (isset($job2->TotalVmCount) && is_numeric($job2->TotalVmCount)) { $vm2 = (int)$job2->TotalVmCount; }
+                                        }
+                                        $totalVm = max($vm1, $vm2);
+                                    }
+                                    // Fallback: if stats report 0, try to infer from EngineProps selections
+                                    if ($totalVm === 0 && (isset($src->EngineProps) && (is_object($src->EngineProps) || is_array($src->EngineProps)))) {
+                                        $props = is_object($src->EngineProps) ? get_object_vars($src->EngineProps) : $src->EngineProps;
+                                        $vmKeys = 0;
+                                        foreach ($props as $k => $_v) {
+                                            if (is_string($k) && strpos($k, 'VM-') === 0) { $vmKeys++; }
+                                        }
+                                        if ($vmKeys > 0) {
+                                            $totalVm = $vmKeys;
+                                        } else {
+                                            // If ALL_VMS is enabled, use device-level default for this engine if available; else at least 1
+                                            $allVmsRaw = $props['ALL_VMS'] ?? $props['AllVms'] ?? $props['all_vms'] ?? null;
+                                            $allVms = ($allVmsRaw === true || $allVmsRaw === 1 || $allVmsRaw === '1' || $allVmsRaw === 'true');
+                                            if ($allVms) {
+                                                $ek = strpos($engine, 'hyperv') !== false ? 'hyperv' : (strpos($engine, 'vmware') !== false ? 'vmware' : '');
+                                                $fallback = ($owner !== '' && isset($deviceVmDefaults[$owner]) && $ek !== '') ? (int)$deviceVmDefaults[$owner][$ek] : 0;
+                                                $totalVm = $fallback > 0 ? $fallback : 1;
                                             }
                                         }
                                     }
-                                    if ($ok && $totalVm > 0) {
+                                    if ($totalVm > 0) {
                                         if (strpos($engine, 'hyperv') !== false) { $hvCount += $totalVm; }
                                         if (strpos($engine, 'vmware') !== false) { $vmwCount += $totalVm; }
                                     }
@@ -1612,8 +1670,9 @@ function eazybackup_output($vars)
                 $html .= '<div class="container-fluid">';
                 $html .= '<ul class="nav nav-tabs mb-3">'
                       . '<li class="nav-item"><a class="nav-link active" href="#">Storage</a></li>'
-                      . '<li class="nav-item"><a class="nav-link disabled" href="#" tabindex="-1" aria-disabled="true">Devices</a></li>'
-                      . '<li class="nav-item"><a class="nav-link disabled" href="#" tabindex="-1" aria-disabled="true">Protected Items</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=devices">Devices</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=items">Protected Items</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=billing">Billing</a></li>'
                       . '</ul>';
 
                 $html .= '<form method="get" class="mb-3 form-inline" style="margin-bottom:15px">'
@@ -1694,14 +1753,398 @@ function eazybackup_output($vars)
                 echo $html;
                 return;
             }
+            case 'devices': {
+                $controller = __DIR__ . '/pages/admin/powerpanel/devices.php';
+                if (!is_file($controller)) {
+                    echo '<div class="alert alert-danger">Controller not found.</div>';
+                    return;
+                }
+                $data = require $controller;
+                $e = function ($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); };
+                $filters    = $data['filters'] ?? ['username' => '', 'product' => ''];
+                $products   = $data['products'] ?? [];
+                $rows       = $data['rows'] ?? [];
+                $sort       = $data['sort'] ?? 'username';
+                $dir        = $data['dir'] ?? 'asc';
+                $perPage    = (int)($data['perPage'] ?? 25);
+                $pagination = $data['pagination'] ?? '';
+                $totalRows  = (int)($data['totalRows'] ?? count($rows));
+                $sortLinks  = $data['sortLinks'] ?? [
+                    'product' => '#', 'username' => '#', 'devices' => '#', 'units' => '#'
+                ];
+
+                $html = '';
+                $html .= '<div class="container-fluid">';
+                $html .= '<ul class="nav nav-tabs mb-3">'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=storage">Storage</a></li>'
+                      . '<li class="nav-item"><a class="nav-link active" href="#">Devices</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=items">Protected Items</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=billing">Billing</a></li>'
+                      . '</ul>';
+
+                $html .= '<form method="get" class="mb-3 form-inline" style="margin-bottom:15px">'
+                      . '<input type="hidden" name="module" value="eazybackup"/>'
+                      . '<input type="hidden" name="action" value="powerpanel"/>'
+                      . '<input type="hidden" name="view" value="devices"/>'
+                      . '<div class="form-group" style="margin-right:15px;margin-bottom:10px">'
+                      . '<label for="filter-username" class="mr-2">Username</label>'
+                      . '<input id="filter-username" type="text" class="form-control" name="username" value="' . $e($filters['username'] ?? '') . '" placeholder="Contains…"/>'
+                      . '</div>'
+                      . '<div class="form-group" style="margin-right:15px;margin-bottom:10px">'
+                      . '<label for="filter-product" class="mr-2">Product</label>'
+                      . '<select id="filter-product" class="form-control" name="product">'
+                      . '<option value="">All</option>';
+                foreach ($products as $p) {
+                    $sel = ((int)($filters['product'] ?? 0) === (int)$p['id']) ? ' selected' : '';
+                    $html .= '<option value="' . (int)$p['id'] . '"' . $sel . '>' . $e($p['name']) . '</option>';
+                }
+                $html .= '</select>'
+                      . '</div>'
+                      . '<div class="form-group" style="margin-right:15px;margin-bottom:10px">'
+                      . '<label for="perPage" class="mr-2">Per Page</label>'
+                      . '<select id="perPage" class="form-control" name="perPage">';
+                foreach ([25,50,100,250] as $pp) {
+                    $sel = ($perPage === $pp) ? ' selected' : '';
+                    $html .= '<option value="' . $pp . '"' . $sel . '>' . $pp . '</option>';
+                }
+                $html .= '</select>'
+                      . '</div>'
+                      . '<button type="submit" class="btn btn-primary mb-2 mr-2">Filter</button>'
+                      . '<a href="addonmodules.php?module=eazybackup&action=powerpanel&view=devices" class="btn btn-default mb-2">Reset</a>'
+                      . '</form>';
+
+                // Header toolbar: total services and top pagination
+                $html .= '<div class="clearfix" style="margin:10px 0 15px 0">'
+                      .   '<div class="pull-left" style="padding-top:7px; font-weight:600;">Total Services: ' . (int)$totalRows . '</div>'
+                      .   '<div class="pull-right">' . $pagination . '</div>'
+                      . '</div>';
+
+                $html .= '<div class="table-responsive">'
+                      . '<table class="table table-striped table-condensed">'
+                      . '<thead><tr>'
+                      . '<th><a href="' . $e($sortLinks['product'])  . '">Product'  . ($sort==='product'  ? ' <span class="text-muted">(' . strtoupper($e($dir)) . ')</span>' : '') . '</a></th>'
+                      . '<th><a href="' . $e($sortLinks['username']) . '">Username' . ($sort==='username' ? ' <span class="text-muted">(' . strtoupper($e($dir)) . ')</span>' : '') . '</a></th>'
+                      . '<th class="text-right"><a href="' . $e($sortLinks['devices']) . '">Devices' . ($sort==='devices' ? ' <span class="text-muted">(' . strtoupper($e($dir)) . ')</span>' : '') . '</a></th>'
+                      . '<th class="text-right"><a href="' . $e($sortLinks['units'])   . '">Device Billing' . ($sort==='units'   ? ' <span class="text-muted">(' . strtoupper($e($dir)) . ')</span>' : '') . '</a></th>'
+                      . '<th class="text-right">Adjustment</th>'
+                      . '</tr></thead><tbody>';
+                if (!empty($rows)) {
+                    foreach ($rows as $r) {
+                        $devices = (int)$r['device_count'];
+                        $billed  = (int)$r['billed_units'];
+                        $labelStart = '';
+                        $labelEnd = '';
+                        if ($devices > $billed) { $labelStart = '<span class="label label-danger" style="display:inline-block;padding:4px 6px">'; $labelEnd = '</span>'; }
+                        else if ($devices < $billed) { $labelStart = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">'; $labelEnd = '</span>'; }
+                        $delta = $devices - $billed;
+                        $deltaText = '-';
+                        if ($delta > 0) { $deltaText = 'Increase +' . $delta . ' devices'; }
+                        else if ($delta < 0) { $deltaText = 'Decrease ' . abs($delta) . ' devices'; }
+                        $serviceLink = 'clientsservices.php?userid=' . (int)$r['user_id'] . '&id=' . (int)$r['service_id'];
+                        $html .= '<tr>'
+                              . '<td>' . $e($r['product_name']) . '</td>'
+                              . '<td><a href="' . $e($serviceLink) . '">' . $e($r['username']) . '</a></td>'
+                              . '<td class="text-right">' . $devices . '</td>'
+                              . '<td class="text-right">' . ($labelStart ?: '') . $billed . ($labelEnd ?: '') . '</td>'
+                              . '<td class="text-right">' . ($delta !== 0 ? ($labelStart ?: '') . $deltaText . ($labelEnd ?: '') : '-') . '</td>'
+                              . '</tr>';
+                    }
+                } else {
+                    $html .= '<tr><td colspan="5" class="text-center text-muted">No results</td></tr>';
+                }
+                $html .= '</tbody></table></div>';
+                $html .= '<div class="mt-2">' . $pagination . '</div>';
+                $html .= '</div>';
+                echo $html;
+                return;
+            }
+            case 'items': {
+                $controller = __DIR__ . '/pages/admin/powerpanel/items.php';
+                if (!is_file($controller)) {
+                    echo '<div class="alert alert-danger">Controller not found.</div>';
+                    return;
+                }
+                $data = require $controller;
+                $e = function ($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); };
+                $filters    = $data['filters'] ?? ['username' => '', 'product' => ''];
+                $products   = $data['products'] ?? [];
+                $rows       = $data['rows'] ?? [];
+                $sort       = $data['sort'] ?? 'username';
+                $dir        = $data['dir'] ?? 'asc';
+                $perPage    = (int)($data['perPage'] ?? 25);
+                $pagination = $data['pagination'] ?? '';
+                $totalRows  = (int)($data['totalRows'] ?? count($rows));
+                $sortLinks  = $data['sortLinks'] ?? [
+                    'product' => '#', 'username' => '#', 'hv' => '#', 'hv_units' => '#', 'di' => '#', 'di_units' => '#', 'm365' => '#', 'm365_units' => '#', 'vmw' => '#', 'vmw_units' => '#'
+                ];
+
+                $html = '';
+                $html .= '<div class="container-fluid">';
+                $html .= '<ul class="nav nav-tabs mb-3">'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=storage">Storage</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=devices">Devices</a></li>'
+                      . '<li class="nav-item"><a class="nav-link active" href="#">Protected Items</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=billing">Billing</a></li>'
+                      . '</ul>';
+
+                $html .= '<form method="get" class="mb-3 form-inline" style="margin-bottom:15px">'
+                      . '<input type="hidden" name="module" value="eazybackup"/>'
+                      . '<input type="hidden" name="action" value="powerpanel"/>'
+                      . '<input type="hidden" name="view" value="items"/>'
+                      . '<div class="form-group" style="margin-right:15px;margin-bottom:10px">'
+                      . '<label for="filter-username" class="mr-2">Username</label>'
+                      . '<input id="filter-username" type="text" class="form-control" name="username" value="' . $e($filters['username'] ?? '') . '" placeholder="Contains…"/>'
+                      . '</div>'
+                      . '<div class="form-group" style="margin-right:15px;margin-bottom:10px">'
+                      . '<label for="filter-product" class="mr-2">Product</label>'
+                      . '<select id="filter-product" class="form-control" name="product">'
+                      . '<option value="">All</option>';
+                foreach ($products as $p) {
+                    $sel = ((int)($filters['product'] ?? 0) === (int)$p['id']) ? ' selected' : '';
+                    $html .= '<option value="' . (int)$p['id'] . '"' . $sel . '>' . $e($p['name']) . '</option>';
+                }
+                $html .= '</select>'
+                      . '</div>'
+                      . '<div class="form-group" style="margin-right:15px;margin-bottom:10px">'
+                      . '<label for="perPage" class="mr-2">Per Page</label>'
+                      . '<select id="perPage" class="form-control" name="perPage">';
+                foreach ([25,50,100,250] as $pp) {
+                    $sel = ($perPage === $pp) ? ' selected' : '';
+                    $html .= '<option value="' . $pp . '"' . $sel . '>' . $pp . '</option>';
+                }
+                $html .= '</select>'
+                      . '</div>'
+                      . '<button type="submit" class="btn btn-primary mb-2 mr-2">Filter</button>'
+                      . '<a href="addonmodules.php?module=eazybackup&action=powerpanel&view=items" class="btn btn-default mb-2">Reset</a>'
+                      . '</form>';
+
+                // Header toolbar
+                $html .= '<div class="clearfix" style="margin:10px 0 15px 0">'
+                      .   '<div class="pull-left" style="padding-top:7px; font-weight:600;">Total Services: ' . (int)$totalRows . '</div>'
+                      .   '<div class="pull-right">' . $pagination . '</div>'
+                      . '</div>';
+
+                $html .= '<div class="table-responsive">'
+                      . '<table class="table table-striped table-condensed">'
+                      . '<thead><tr>'
+                      . '<th><a href="' . $e($sortLinks['product'])   . '">Product'  . ($sort==='product'    ? ' <span class="text-muted">(' . strtoupper($e($dir)) . ')</span>' : '') . '</a></th>'
+                      . '<th><a href="' . $e($sortLinks['username'])  . '">Username' . ($sort==='username'   ? ' <span class="text-muted">(' . strtoupper($e($dir)) . ')</span>' : '') . '</a></th>'
+                      . '<th class="text-right"><a href="' . $e($sortLinks['hv'])        . '">Microsoft Hyper-V' . ($sort==='hv'        ? ' <span class="text-muted">(' . strtoupper($e($dir)) . ')</span>' : '') . '</a></th>'
+                      . '<th class="text-right"><a href="' . $e($sortLinks['hv_units'])  . '">Hyper-V Billing'    . ($sort==='hv_units'  ? ' <span class="text-muted">(' . strtoupper($e($dir)) . ')</span>' : '') . '</a></th>'
+                      . '<th class="text-right"><a href="' . $e($sortLinks['di'])        . '">Disk Image'         . ($sort==='di'        ? ' <span class="text-muted">(' . strtoupper($e($dir)) . ')</span>' : '') . '</a></th>'
+                      . '<th class="text-right"><a href="' . $e($sortLinks['di_units'])  . '">Disk Image Billing'  . ($sort==='di_units'  ? ' <span class="text-muted">(' . strtoupper($e($dir)) . ')</span>' : '') . '</a></th>'
+                      . '<th class="text-right"><a href="' . $e($sortLinks['m365'])      . '">Office 365'         . ($sort==='m365'      ? ' <span class="text-muted">(' . strtoupper($e($dir)) . ')</span>' : '') . '</a></th>'
+                      . '<th class="text-right"><a href="' . $e($sortLinks['m365_units']). '">Office 365 Billing'  . ($sort==='m365_units'? ' <span class="text-muted">(' . strtoupper($e($dir)) . ')</span>' : '') . '</a></th>'
+                      . '<th class="text-right"><a href="' . $e($sortLinks['vmw'])       . '">VMware'             . ($sort==='vmw'       ? ' <span class="text-muted">(' . strtoupper($e($dir)) . ')</span>' : '') . '</a></th>'
+                      . '<th class="text-right"><a href="' . $e($sortLinks['vmw_units']) . '">VMware Billing'      . ($sort==='vmw_units' ? ' <span class="text-muted">(' . strtoupper($e($dir)) . ')</span>' : '') . '</a></th>'
+                      . '</tr></thead><tbody>';
+                if (!empty($rows)) {
+                    foreach ($rows as $r) {
+                        $serviceLink = 'clientsservices.php?userid=' . (int)$r['user_id'] . '&id=' . (int)$r['service_id'];
+
+
+                        $html .= '<tr>'
+                              . '<td>' . $e($r['product_name']) . '</td>'
+                              . '<td><a href="' . $e($serviceLink) . '">' . $e($r['username']) . '</a></td>'
+                              . '<td class="text-right">' . (int)$r['hv_count'] . '</td>'
+                              . '<td class="text-right">' . ((($r['hv_count']??0) !== ($r['hv_units']??0)) ? '<span class="label ' . (((int)$r['hv_count'] > (int)$r['hv_units']) ? 'label-danger' : 'label-warning') . '" style="display:inline-block;padding:4px 6px">' . (int)$r['hv_units'] . '</span>' : (int)$r['hv_units']) . '</td>'
+                              . '<td class="text-right">' . (int)$r['di_count'] . '</td>'
+                              . '<td class="text-right">' . ((($r['di_count']??0) !== ($r['di_units']??0)) ? '<span class="label ' . (((int)$r['di_count'] > (int)$r['di_units']) ? 'label-danger' : 'label-warning') . '" style="display:inline-block;padding:4px 6px">' . (int)$r['di_units'] . '</span>' : (int)$r['di_units']) . '</td>'
+                              . '<td class="text-right">' . (int)$r['m365_count'] . '</td>'
+                              . '<td class="text-right">' . ((($r['m365_count']??0) !== ($r['m365_units']??0)) ? '<span class="label ' . (((int)$r['m365_count'] > (int)$r['m365_units']) ? 'label-danger' : 'label-warning') . '" style="display:inline-block;padding:4px 6px">' . (int)$r['m365_units'] . '</span>' : (int)$r['m365_units']) . '</td>'
+                              . '<td class="text-right">' . (int)$r['vmw_count'] . '</td>'
+                              . '<td class="text-right">' . ((($r['vmw_count']??0) !== ($r['vmw_units']??0)) ? '<span class="label ' . (((int)$r['vmw_count'] > (int)$r['vmw_units']) ? 'label-danger' : 'label-warning') . '" style="display:inline-block;padding:4px 6px">' . (int)$r['vmw_units'] . '</span>' : (int)$r['vmw_units']) . '</td>'
+                              . '</tr>';
+                    }
+                } else {
+                    $html .= '<tr><td colspan="10" class="text-center text-muted">No results</td></tr>';
+                }
+                $html .= '</tbody></table></div>';
+                $html .= '<div class="mt-2">' . $pagination . '</div>';
+                $html .= '</div>';
+                echo $html;
+                return;
+            }
+            case 'billing': {
+                $controller = __DIR__ . '/pages/admin/powerpanel/billing.php';
+                if (!is_file($controller)) {
+                    echo '<div class="alert alert-danger">Controller not found.</div>';
+                    return;
+                }
+                $data = require $controller;
+                $e = function ($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); };
+                $filters    = $data['filters'] ?? ['username' => '', 'product' => ''];
+                $products   = $data['products'] ?? [];
+                $rows       = $data['rows'] ?? [];
+                $sort       = $data['sort'] ?? 'username';
+                $dir        = $data['dir'] ?? 'asc';
+                $perPage    = (int)($data['perPage'] ?? 25);
+                $pagination = $data['pagination'] ?? '';
+                $totalRows  = (int)($data['totalRows'] ?? count($rows));
+                $sortLinks  = $data['sortLinks'] ?? [];
+
+                $html = '';
+                $html .= '<div class="container-fluid">';
+                $html .= '<ul class="nav nav-tabs mb-3">'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=storage">Storage</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=devices">Devices</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=items">Protected Items</a></li>'
+                      . '<li class="nav-item"><a class="nav-link active" href="#">Billing</a></li>'
+                      . '</ul>';
+
+                $html .= '<form method="get" class="mb-3 form-inline" style="margin-bottom:15px">'
+                      . '<input type="hidden" name="module" value="eazybackup"/>'
+                      . '<input type="hidden" name="action" value="powerpanel"/>'
+                      . '<input type="hidden" name="view" value="billing"/>'
+                      . '<div class="form-group" style="margin-right:15px;margin-bottom:10px">'
+                      . '<label for="filter-username" class="mr-2">Username</label>'
+                      . '<input id="filter-username" type="text" class="form-control" name="username" value="' . $e($filters['username'] ?? '') . '" placeholder="Contains…"/>'
+                      . '</div>'
+                      . '<div class="form-group" style="margin-right:15px;margin-bottom:10px">'
+                      . '<label for="filter-product" class="mr-2">Product</label>'
+                      . '<select id="filter-product" class="form-control" name="product">'
+                      . '<option value="">All</option>';
+                foreach ($products as $p) {
+                    $sel = ((int)($filters['product'] ?? 0) === (int)$p['id']) ? ' selected' : '';
+                    $html .= '<option value="' . (int)$p['id'] . '"' . $sel . '>' . $e($p['name']) . '</option>';
+                }
+                $html .= '</select>'
+                      . '</div>'
+                      . '<div class="form-group" style="margin-right:15px;margin-bottom:10px">'
+                      . '<label for="perPage" class="mr-2">Per Page</label>'
+                      . '<select id="perPage" class="form-control" name="perPage">';
+                foreach ([25,50,100,250] as $pp) {
+                    $sel = ($perPage === $pp) ? ' selected' : '';
+                    $html .= '<option value="' . $pp . '"' . $sel . '>' . $pp . '</option>';
+                }
+                $html .= '</select>'
+                      . '</div>'
+                      . '<button type="submit" class="btn btn-primary mb-2 mr-2">Filter</button>'
+                      . '<a href="addonmodules.php?module=eazybackup&action=powerpanel&view=billing" class="btn btn-default mb-2">Reset</a>'
+                      . '</form>';
+
+                $html .= '<div class="clearfix" style="margin:10px 0 15px 0">'
+                      .   '<div class="pull-left" style="padding-top:7px; font-weight:600;">Total Services: ' . (int)$totalRows . '</div>'
+                      .   '<div class="pull-right">' . $pagination . '</div>'
+                      . '</div>';
+
+                $html .= '<div class="table-responsive">'
+                      . '<table class="table table-striped table-condensed">'
+                      . '<thead><tr>'
+                      . '<th><a href="' . $e($sortLinks['product'] ?? '#')       . '">Product</a></th>'
+                      . '<th><a href="' . $e($sortLinks['username'] ?? '#')      . '">Username</a></th>'
+                      . '<th class="text-right"><a href="' . $e($sortLinks['bytes'] ?? '#')         . '">Storage Size</a></th>'
+                      . '<th class="text-right"><a href="' . $e($sortLinks['units_storage'] ?? '#') . '">Storage Billing</a></th>'
+                      . '<th class="text-right"><a href="' . $e($sortLinks['devices'] ?? '#')       . '">Devices</a></th>'
+                      . '<th class="text-right"><a href="' . $e($sortLinks['units_devices'] ?? '#') . '">Device Billing</a></th>'
+                      . '<th class="text-right"><a href="' . $e($sortLinks['hv'] ?? '#')            . '">Hyper-V</a></th>'
+                      . '<th class="text-right"><a href="' . $e($sortLinks['hv_units'] ?? '#')      . '">Hyper-V Billing</a></th>'
+                      . '<th class="text-right"><a href="' . $e($sortLinks['di'] ?? '#')            . '">Disk Image</a></th>'
+                      . '<th class="text-right"><a href="' . $e($sortLinks['di_units'] ?? '#')      . '">Disk Image Billing</a></th>'
+                      . '<th class="text-right"><a href="' . $e($sortLinks['m365'] ?? '#')          . '">Office 365</a></th>'
+                      . '<th class="text-right"><a href="' . $e($sortLinks['m365_units'] ?? '#')    . '">Office 365 Billing</a></th>'
+                      . '<th class="text-right"><a href="' . $e($sortLinks['vmw'] ?? '#')           . '">VMware</a></th>'
+                      . '<th class="text-right"><a href="' . $e($sortLinks['vmw_units'] ?? '#')     . '">VMware Billing</a></th>'
+                      . '<th class="text-right">Adjustments</th>'
+                      . '</tr></thead><tbody>';
+
+                if (!empty($rows)) {
+                    foreach ($rows as $r) {
+                        $serviceLink = 'clientsservices.php?userid=' . (int)$r['user_id'] . '&id=' . (int)$r['service_id'];
+
+                        // Storage: compute units by TiB
+                        $tbDivisor = pow(1024, 4);
+                        $computedStorageUnits = max(1, (int)ceil(((float)$r['total_bytes']) / $tbDivisor));
+                        $storageUnits = (int)$r['storage_units'];
+                        $sLabelStart = '';
+                        $sLabelEnd = '';
+                        if ($computedStorageUnits > $storageUnits) { $sLabelStart = '<span class="label label-danger" style="display:inline-block;padding:4px 6px">'; $sLabelEnd = '</span>'; }
+                        else if ($computedStorageUnits < $storageUnits) { $sLabelStart = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">'; $sLabelEnd = '</span>'; }
+                        $sDelta = $computedStorageUnits - $storageUnits;
+                        $sDeltaText = ($sDelta > 0) ? ('Increase +' . $sDelta . ' TB') : (($sDelta < 0) ? ('Decrease ' . abs($sDelta) . ' TB') : '-');
+
+                        // Devices
+                        $devices = (int)$r['device_count'];
+                        $deviceUnits = (int)$r['device_units'];
+                        $dLabelStart = '';
+                        $dLabelEnd = '';
+                        if ($devices > $deviceUnits) { $dLabelStart = '<span class="label label-danger" style="display:inline-block;padding:4px 6px">'; $dLabelEnd = '</span>'; }
+                        else if ($devices < $deviceUnits) { $dLabelStart = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">'; $dLabelEnd = '</span>'; }
+                        $dDelta = $devices - $deviceUnits;
+                        $dDeltaText = ($dDelta > 0) ? ('Increase +' . $dDelta) : (($dDelta < 0) ? ('Decrease ' . abs($dDelta)) : '-');
+
+                        // Items categories
+                        $cats = [
+                            ['count' => (int)$r['hv_count'],   'units' => (int)$r['hv_units']],
+                            ['count' => (int)$r['di_count'],   'units' => (int)$r['di_units']],
+                            ['count' => (int)$r['m365_count'], 'units' => (int)$r['m365_units']],
+                            ['count' => (int)$r['vmw_count'],  'units' => (int)$r['vmw_units']],
+                        ];
+                        // Per-category unit label wrappers (danger for increase, warning for decrease)
+                        $hvLabelStart = $hvLabelEnd = $diLabelStart = $diLabelEnd = $m365LabelStart = $m365LabelEnd = $vmwLabelStart = $vmwLabelEnd = '';
+                        if ((int)$r['hv_count'] > (int)$r['hv_units']) { $hvLabelStart = '<span class="label label-danger" style="display:inline-block;padding:4px 6px">'; $hvLabelEnd = '</span>'; }
+                        else if ((int)$r['hv_count'] < (int)$r['hv_units']) { $hvLabelStart = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">'; $hvLabelEnd = '</span>'; }
+                        if ((int)$r['di_count'] > (int)$r['di_units']) { $diLabelStart = '<span class="label label-danger" style="display:inline-block;padding:4px 6px">'; $diLabelEnd = '</span>'; }
+                        else if ((int)$r['di_count'] < (int)$r['di_units']) { $diLabelStart = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">'; $diLabelEnd = '</span>'; }
+                        if ((int)$r['m365_count'] > (int)$r['m365_units']) { $m365LabelStart = '<span class="label label-danger" style="display:inline-block;padding:4px 6px">'; $m365LabelEnd = '</span>'; }
+                        else if ((int)$r['m365_count'] < (int)$r['m365_units']) { $m365LabelStart = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">'; $m365LabelEnd = '</span>'; }
+                        if ((int)$r['vmw_count'] > (int)$r['vmw_units']) { $vmwLabelStart = '<span class="label label-danger" style="display:inline-block;padding:4px 6px">'; $vmwLabelEnd = '</span>'; }
+                        else if ((int)$r['vmw_count'] < (int)$r['vmw_units']) { $vmwLabelStart = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">'; $vmwLabelEnd = '</span>'; }
+                        $adjParts = [];
+                        foreach ($cats as $pair) {
+                            $c = $pair['count']; $u = $pair['units'];
+                            $labelStart = '';
+                            $labelEnd = '';
+                            if ($c > $u) { $labelStart = '<span class="label label-danger" style="display:inline-block;padding:4px 6px">'; $labelEnd = '</span>'; }
+                            else if ($c < $u) { $labelStart = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">'; $labelEnd = '</span>'; }
+                            $delta = $c - $u;
+                            $deltaText = ($delta > 0) ? ('Increase +' . $delta) : (($delta < 0) ? ('Decrease ' . abs($delta)) : '-');
+                            $adjParts[] = ($delta !== 0 ? ($labelStart ?: '') . $deltaText . ($labelEnd ?: '') : '-');
+                        }
+
+                        $html .= '<tr>'
+                              . '<td>' . $e($r['product_name']) . '</td>'
+                              . '<td><a href="' . $e($serviceLink) . '">' . $e($r['username']) . '</a></td>'
+                              . '<td class="text-right">' . $e($r['total_bytes_hr'] ?? '') . '<div class="text-muted small">' . (int)$r['total_bytes'] . ' bytes</div></td>'
+                              . '<td class="text-right">' . ($sLabelStart ?: '') . $storageUnits . ($sLabelEnd ?: '') . '</td>'
+                              . '<td class="text-right">' . $devices . '</td>'
+                              . '<td class="text-right">' . ($dLabelStart ?: '') . $deviceUnits . ($dLabelEnd ?: '') . '</td>'
+                              . '<td class="text-right">' . (int)$r['hv_count'] . '</td>'
+                              . '<td class="text-right">' . ($hvLabelStart ?: '') . (int)$r['hv_units'] . ($hvLabelEnd ?: '') . '</td>'
+                              . '<td class="text-right">' . (int)$r['di_count'] . '</td>'
+                              . '<td class="text-right">' . ($diLabelStart ?: '') . (int)$r['di_units'] . ($diLabelEnd ?: '') . '</td>'
+                              . '<td class="text-right">' . (int)$r['m365_count'] . '</td>'
+                              . '<td class="text-right">' . ($m365LabelStart ?: '') . (int)$r['m365_units'] . ($m365LabelEnd ?: '') . '</td>'
+                              . '<td class="text-right">' . (int)$r['vmw_count'] . '</td>'
+                              . '<td class="text-right">' . ($vmwLabelStart ?: '') . (int)$r['vmw_units'] . ($vmwLabelEnd ?: '') . '</td>'
+                              . '<td class="text-right">' . implode(' | ', array_merge([$sDeltaText, $dDeltaText], $adjParts)) . '</td>'
+                              . '</tr>';
+                    }
+                } else {
+                    $html .= '<tr><td colspan="15" class="text-center text-muted">No results</td></tr>';
+                }
+                $html .= '</tbody></table></div>';
+                $html .= '<div class="mt-2">' . $pagination . '</div>';
+                $html .= '</div>';
+                echo $html;
+                return;
+            }
             default:
                 echo '<div class="alert alert-info">This section is under construction.</div>';
                 return;
         }
     }
 
-    $link = 'addonmodules.php?module=eazybackup&action=powerpanel&view=storage';
-    echo '<div class="alert alert-info">eazyBackup Power Panel: <a class="btn btn-primary" href="' . $link . '">Open Storage</a></div>';
+    $linkStorage = 'addonmodules.php?module=eazybackup&action=powerpanel&view=storage';
+    $linkDevices = 'addonmodules.php?module=eazybackup&action=powerpanel&view=devices';
+    $linkItems   = 'addonmodules.php?module=eazybackup&action=powerpanel&view=items';
+    $linkBilling = 'addonmodules.php?module=eazybackup&action=powerpanel&view=billing';
+    echo '<div class="alert alert-info">eazyBackup Power Panel: '
+        . '<a class="btn btn-primary" href="' . $linkStorage . '">Open Storage</a> '
+        . '<a class="btn btn-default" href="' . $linkDevices . '">Open Devices</a> '
+        . '<a class="btn btn-default" href="' . $linkItems   . '">Open Protected Items</a> '
+        . '<a class="btn btn-default" href="' . $linkBilling . '">Open Billing</a>'
+        . '</div>';
 }
 
 function eazybackup_sidebar($vars)
@@ -1711,8 +2154,9 @@ function eazybackup_sidebar($vars)
         . '<a href="' . $base . '&action=powerpanel&view=storage" class="list-group-item">'
         . '<i class="fa fa-database"></i> Power Panel: Storage'
         . '</a>'
-        . '<a href="#" class="list-group-item disabled"><i class="fa fa-hdd"></i> Power Panel: Devices</a>'
-        . '<a href="#" class="list-group-item disabled"><i class="fa fa-shield-alt"></i> Power Panel: Protected Items</a>'
+        . '<a href="' . $base . '&action=powerpanel&view=devices" class="list-group-item"><i class="fa fa-hdd"></i> Power Panel: Devices</a>'
+        . '<a href="' . $base . '&action=powerpanel&view=items" class="list-group-item"><i class="fa fa-shield-alt"></i> Power Panel: Protected Items</a>'
+        . '<a href="' . $base . '&action=powerpanel&view=billing" class="list-group-item"><i class="fa fa-balance-scale"></i> Power Panel: Billing</a>'
         . '</div>';
     return $sidebar;
 }

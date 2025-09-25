@@ -280,7 +280,7 @@ var _localLang = {
                                 <!-- Storage Category Separator and Heading -->
                                 <hr class="my-4 border-gray-300">
                                 <h4 class="font-semibold text-gray-800 mb-2">
-                                    Additional Storage
+                                    Storage
                                 </h4>
 
                                 <!-- Storage Options Grid -->

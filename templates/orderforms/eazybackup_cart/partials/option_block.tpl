@@ -61,8 +61,7 @@
 
         <!-- Description or Features -->
         <ul class="text-xs text-gray-500 list-disc ml-5 mt-2 mb-3 space-y-1">
-            {if $configoption.id == 67} 
-                <li>1TB additional cloud storage</li>
+            {if $configoption.id == 67}                 
                 <li class="italic">Base plan includes 1TB cloud storage</li>
             {elseif $configoption.id == 88}
                 <li>Supports Windows 10/11/Server, Linux and macOS devices</li>
@@ -111,8 +110,8 @@
                     type="number" 
                     name="configoption[{$configoption.id}]" 
                     id="inputConfigOption{$configoption.id}"
-                    value="{if $configoption.selectedqty}{$configoption.selectedqty}{else}{$configoption.qtyminimum}{/if}" 
-                    min="{$configoption.qtyminimum}" 
+                    value="{if $configoption.id == 67}{if $configoption.selectedqty|intval ge 1}{$configoption.selectedqty}{else}1{/if}{else}{if $configoption.selectedqty}{$configoption.selectedqty}{else}{$configoption.qtyminimum}{/if}{/if}" 
+                    min="{if $configoption.id == 67}1{else}{$configoption.qtyminimum}{/if}" 
                     onchange="recalctotals()" 
                     onkeyup="recalctotals()" 
                     class="w-16 text-center py-1 border-t border-b border-gray-300 focus:outline-none focus:ring-2 focus:ring-sky-600 focus:border-sky-600 disabled:text-gray-400"
