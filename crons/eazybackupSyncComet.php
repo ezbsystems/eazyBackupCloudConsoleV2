@@ -178,74 +178,73 @@ logModuleCall(
     'Collected active device statuses'
 );
 
-// Process jobs in batches to reduce API calls
-$allJobs = [];
-foreach ($serverClients as $packageId => $serverClient) {
-    try {
-        $endTimestamp = time();
-        // $startTimestamp = strtotime('-5 minutes');
-        $startTimestamp = strtotime('-30 minutes');
-        $jobs = $serverClient->AdminGetJobsForDateRange($startTimestamp, $endTimestamp);
-        $allJobs = array_merge($allJobs, $jobs);
-        logModuleCall(
-            'eazybackup',
-            'cron JobsFetched',
-            [
-                'package_id' => $packageId,
-                'start' => $startTimestamp,
-                'end' => $endTimestamp,
-                'jobs_count' => is_array($jobs) ? count($jobs) : 0,
-            ],
-            'Fetched jobs for date range'
-        );
-    } catch (\Exception $e) {
-        logModuleCall(
-            'eazybackup',
-            'cron AdminGetJobsForDateRange error',
-            ['package_id' => $packageId, 'trace' => $e->getTraceAsString()],
-            $e->getMessage()
-        );
-    }
-}
+// // Process jobs in batches to reduce API calls (disabled for testing)
+// $allJobs = [];
+// foreach ($serverClients as $packageId => $serverClient) {
+//     try {
+//         $endTimestamp = time();
+//         // $startTimestamp = strtotime('-5 minutes');
+//         $startTimestamp = strtotime('-30 minutes');
+//         $jobs = $serverClient->AdminGetJobsForDateRange($startTimestamp, $endTimestamp);
+//         $allJobs = array_merge($allJobs, $jobs);
+//         logModuleCall(
+//             'eazybackup',
+//             'cron JobsFetched',
+//             [
+//                 'package_id' => $packageId,
+//                 'start' => $startTimestamp,
+//                 'end' => $endTimestamp,
+//                 'jobs_count' => is_array($jobs) ? count($jobs) : 0,
+//             ],
+//             'Fetched jobs for date range'
+//         );
+//     } catch (\Exception $e) {
+//         logModuleCall(
+//             'eazybackup',
+//             'cron AdminGetJobsForDateRange error',
+//             ['package_id' => $packageId, 'trace' => $e->getTraceAsString()],
+//             $e->getMessage()
+//         );
+//     }
+// }
 
-// Batch process all jobs at once
-if (!empty($allJobs)) {
-    $cometObject->upsertJobs($allJobs);
-    logModuleCall(
-        'eazybackup',
-        'cron JobsUpserted',
-        ['total_jobs' => count($allJobs)],
-        'Upserted jobs'
-    );
-} else {
-    logModuleCall(
-        'eazybackup',
-        'cron JobsUpserted',
-        ['total_jobs' => 0],
-        'No jobs found to upsert'
-    );
-}
+// // Batch process all jobs at once (disabled for testing)
+// if (!empty($allJobs)) {
+//     $cometObject->upsertJobs($allJobs);
+//     logModuleCall(
+//         'eazybackup',
+//         'cron JobsUpserted',
+//         ['total_jobs' => count($allJobs)],
+//         'Upserted jobs'
+//     );
+// } else {
+//     logModuleCall(
+//         'eazybackup',
+//         'cron JobsUpserted',
+//         ['total_jobs' => 0],
+//         'No jobs found to upsert'
+//     );
+// }
 
-// Prune old job logs
-try {
-    $fourWeeksAgo = date('Y-m-d H:i:s', strtotime('-4 weeks'));
-    Capsule::table('comet_jobs')->where('started_at', '<', $fourWeeksAgo)->delete(); 
-    logModuleCall(
-        "eazybackup",
-        'cron pruneJobs',
-        ['delete_before' => $fourWeeksAgo],
-        'Successfully pruned old job logs'
-    );
-
-} catch (\Exception $e) {
-    logModuleCall(
-        "eazybackup",
-        'cron pruneJobs',
-        ['delete_before' => $fourWeeksAgo, 'trace' => $e->getTraceAsString()],
-        $e->getMessage()
-    );
-    
-}
+// // Prune old job logs (disabled for testing)
+// try {
+//     $fourWeeksAgo = date('Y-m-d H:i:s', strtotime('-4 weeks'));
+//     Capsule::table('comet_jobs')->where('started_at', '<', $fourWeeksAgo)->delete(); 
+//     logModuleCall(
+//         "eazybackup",
+//         'cron pruneJobs',
+//         ['delete_before' => $fourWeeksAgo],
+//         'Successfully pruned old job logs'
+//     );
+// 
+// } catch (\Exception $e) {
+//     logModuleCall(
+//         "eazybackup",
+//         'cron pruneJobs',
+//         ['delete_before' => $fourWeeksAgo, 'trace' => $e->getTraceAsString()],
+//         $e->getMessage()
+//     );
+// }
 
 // Track vault summary across run
 $__vaultAgg = ['seen'=>0,'updated'=>0,'skipped'=>0,'errors'=>0];
@@ -302,7 +301,7 @@ for ($i = 0; $i < $totalHostings; $i += $batchSize) {
             
             // upsert vaults
             $serverUrl = $serverBaseUrls[$gid] ?? '';
-            $vaultStats = $cometObject->upsertVaults($userProfile, $hosting, $serverUrl);
+            $vaultStats = $cometObject->upsertVaults($userProfile, $hosting, $serverUrl, $server);
             if ((getenv('EB_VAULT_LOG') === '1') && is_array($vaultStats)) {
                 logModuleCall('eazybackup','cron upsertVaultsSummary',[ 'username'=>$hosting->username, 'server'=>$serverUrl ], $vaultStats);
             }

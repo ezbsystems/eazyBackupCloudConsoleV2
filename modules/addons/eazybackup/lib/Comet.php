@@ -31,6 +31,8 @@ class Comet {
     public function upsertDevices($userProfile, $client, $deviceStatuses)
     {
         try {
+            $canonicalUsername = (string)$client->username;
+            $clientId = (int)$client->userid;
             // Extract active device IDs from deviceStatuses
             $activeDeviceIds = [];
             if (is_array($deviceStatuses)) {
@@ -64,9 +66,9 @@ class Comet {
                 }
 
                 $cometDevice = [
-                    'id' => hash('sha256', $client->userid . $deviceId),
-                    'client_id' => $client->userid,
-                    'username' => $client->username,
+                    'id' => hash('sha256', $clientId . $deviceId),
+                    'client_id' => $clientId,
+                    'username' => $canonicalUsername,
                     'hash' => $deviceId,
                     'content' => json_encode($device),
                     'name' => $device->FriendlyName,
@@ -86,8 +88,8 @@ class Comet {
             // and mark them as revoked with the current timestamp.
             if (!empty($allUpstreamDeviceHashes)) {
                 Capsule::table('comet_devices')
-                    ->where('client_id', $client->userid)
-                    ->where('username', $client->username)
+                    ->where('client_id', $clientId)
+                    ->where('username', $canonicalUsername)
                     ->whereNotIn('hash', $allUpstreamDeviceHashes)
                     ->whereNull('revoked_at') // Only update devices that are not already revoked
                     ->update([
@@ -110,6 +112,8 @@ class Comet {
     public function upsertItems($userProfile, $client)
     {
         try {
+            $canonicalUsername = (string)$client->username;
+            $clientId = (int)$client->userid;
             foreach ($userProfile->Sources as $itemId => $item) {
                 // Backward compatibility: capture OwnerDevice if present for new schema
                 $ownerDevice = property_exists($item, 'OwnerDevice') ? $item->OwnerDevice : (isset($item->OwnerDevice) ? $item->OwnerDevice : null);
@@ -143,10 +147,10 @@ class Comet {
 
                 $protectedItem = [
                     'id' => $itemId,
-                    'client_id' => $client->userid,
-                    'username' => $client->username,
+                    'client_id' => $clientId,
+                    'username' => $canonicalUsername,
                     'content' => json_encode($item),
-                    'comet_device_id' => hash('sha256', $client->userid . $item->OwnerDevice),
+                    'comet_device_id' => hash('sha256', $clientId . $item->OwnerDevice),
                     'owner_device' => $ownerDevice,
                     'name' => $item->Description,
                     'type' => $item->Engine,
@@ -185,14 +189,22 @@ class Comet {
      * @param string $serverUrl Normalized Comet server base URL (e.g., https://csw.example.com/)
      * @return array{seen:int,updated:int,skipped:int,errors:int}
      */
-    public function upsertVaults($userProfile, $client, $serverUrl = '')
+    public function upsertVaults($userProfile, $client, $serverUrl = '', $serverClient = null)
     {
         $stats = ['seen' => 0, 'updated' => 0, 'skipped' => 0, 'errors' => 0];
         $logVerbose = getenv('EB_VAULT_LOG') === '1';
         try {
+            $canonicalUsername = (string)$client->username;
+            $clientId = (int)$client->userid;
+
             $destinations = isset($userProfile->Destinations)
                 ? (is_array($userProfile->Destinations) ? $userProfile->Destinations : get_object_vars($userProfile->Destinations))
                 : [];
+
+            // Cache recent jobs per user once per run to avoid repeated API calls
+            $recentJobs = null;
+            $jobsWindowEnd = time();
+            $jobsWindowStart = strtotime('-2 days', $jobsWindowEnd);
 
             foreach ($destinations as $vaultId => $vault) {
                 $stats['seen']++;
@@ -301,6 +313,38 @@ class Comet {
                     }
                 }
 
+                // Optional on-demand fallback: query recent jobs if stats are inconclusive
+                if ($bytes === null && $serverClient) {
+                    try {
+                        if ($recentJobs === null) {
+                            $recentJobs = $serverClient->AdminGetJobsForDateRange($jobsWindowStart, $jobsWindowEnd);
+                        }
+                        if (is_array($recentJobs)) {
+                            foreach ($recentJobs as $job) {
+                                // normalize job array
+                                $j = is_array($job) ? $job : (is_object($job) ? get_object_vars($job) : []);
+                                if (($j['Username'] ?? '') !== (string)$client->username) continue;
+                                if (($j['DestinationGUID'] ?? '') !== (string)$vaultId) continue;
+                                // prefer DestinationSizeEnd, then Start
+                                $dstEnd   = isset($j['DestinationSizeEnd']) ? (is_array($j['DestinationSizeEnd']) ? $j['DestinationSizeEnd'] : (is_object($j['DestinationSizeEnd']) ? get_object_vars($j['DestinationSizeEnd']) : [])) : null;
+                                $dstStart = isset($j['DestinationSizeStart']) ? (is_array($j['DestinationSizeStart']) ? $j['DestinationSizeStart'] : (is_object($j['DestinationSizeStart']) ? get_object_vars($j['DestinationSizeStart']) : [])) : null;
+                                if ($dstEnd && array_key_exists('Size', $dstEnd) && $dstEnd['Size'] !== null) {
+                                    $n = (int)$dstEnd['Size'];
+                                    $bytes = $n; $bytesSource='JOB_END'; $bytesTrustedZero = ($n === 0);
+                                    break;
+                                }
+                                if ($dstStart && array_key_exists('Size', $dstStart) && $dstStart['Size'] !== null) {
+                                    $n = (int)$dstStart['Size'];
+                                    $bytes = $n; $bytesSource='JOB_START'; $bytesTrustedZero = ($n === 0);
+                                    break;
+                                }
+                            }
+                        }
+                    } catch (\Throwable $e) {
+                        // ignore API fallback errors
+                    }
+                }
+
                 // Log untrusted zeros (optional, only when verbose)
                 if ($bytes === null && $logVerbose) {
                     logModuleCall('eazybackup', 'vaultSizeMissing', 
@@ -329,8 +373,8 @@ class Comet {
                     // Insert: fill known fields; allow empty strings for bucket fields
                     $row = [
                         'id' => (string)$vaultId,
-                        'client_id' => $client->userid,
-                        'username' => $client->username,
+                        'client_id' => $clientId,
+                        'username' => $canonicalUsername,
                         'content' => json_encode($arr, JSON_UNESCAPED_SLASHES),
                         'name' => $name,
                         'type' => $type,
@@ -368,8 +412,8 @@ class Comet {
                 $sameServer = ($existing_server !== '' && $endpoint !== '' && rtrim($existing_server,'/') === rtrim($endpoint,'/'));
 
                 $updates = [
-                    'client_id' => $client->userid,
-                    'username' => $client->username,
+                    'client_id' => $clientId,
+                    'username' => $canonicalUsername,
                     'content' => json_encode($arr, JSON_UNESCAPED_SLASHES),
                     'name' => $name,
                     'type' => $type,

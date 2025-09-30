@@ -170,27 +170,27 @@ Nightly
 **comet_ws_worker Systemd Operations**
 
 **Start/stop status of workers:**
-systemctl restart eazybackup-comet-ws@eazybackup eazybackup-comet-ws@obc
+systemctl restart eazybackup-comet-ws@cometbackup eazybackup-comet-ws@obc
 
-systemctl start eazybackup-comet-ws@eazybackup 
+systemctl start eazybackup-comet-ws@cometbackup.service
 systemctl start eazybackup-comet-ws@obc
 
-systemctl status eazybackup-comet-ws@eazybackup -n 50
+systemctl status eazybackup-comet-ws@cometbackup -n 50
 systemctl status eazybackup-comet-ws@obc -n 50
 
 cd /var/www/eazybackup.ca/accounts/modules/addons/eazybackup/bin
-php monitor_stalled_jobs.php --verbose=1 --profile=eazybackup
+php monitor_stalled_jobs.php --verbose=1 --profile=cometbackup
 php monitor_stalled_jobs.php --verbose=1 --profile=obc
 
 **Live logs:**
-journalctl -u eazybackup-comet-ws@eazybackup -f
+journalctl -u eazybackup-comet-ws@cometbackup.service -f
 
 **Debugging:**
 Temporarily set EB_WS_DEBUG=1 and/or EB_DB_DEBUG=1 in the unit and restart.
 
 **Monitor the websocket live:**
 cd /var/www/eazybackup.ca/accounts/modules/addons/eazybackup/bin
-EB_WS_DEBUG=1 EB_DB_DEBUG=0 COMET_PROFILE=eazybackup php comet_ws_worker.php
+EB_WS_DEBUG=1 EB_DB_DEBUG=0 COMET_PROFILE=cometbackup php comet_ws_worker.php
 
 **Retention:**
 ToDo: Optionally prune eb_jobs_recent_24h older than 24–48 hours in a nightly housekeeping step.
@@ -220,40 +220,41 @@ WantedBy=multi-user.target
 
 **Enable and start:**
   systemctl daemon-reload
-  systemctl enable --now eazybackup-comet-ws@eazybackup
+  systemctl enable --now eazybackup-comet-ws@cometbackup
   systemctl enable --now eazybackup-comet-ws@obc
 
 **Logs:**
-  journalctl -u eazybackup-comet-ws@eazybackup -f
+  journalctl -u eazybackup-comet-ws@cometbackup -f
 
 **Environment Configuration**
 - Global .env (example: /var/www/eazybackup.ca/.env), one block per Comet profile.
 - Set via environment or in the systemd unit.
 
-  # -------- Comet: eazybackup --------
-  COMET_eazybackup_NAME="eazybackup"
-  COMET_eazybackup_URL="wss://csw.eazybackup.ca/api/v1/events/stream"
-  COMET_eazybackup_ORIGIN="https://csw.eazybackup.ca"
-  COMET_eazybackup_USERNAME="websocket"
-  COMET_eazybackup_AUTHTYPE="Password"   
-  COMET_eazybackup_PASSWORD="***"
-  COMET_eazybackup_SESSIONKEY=""
-  COMET_eazybackup_TOTP=""
+
+  # -------- Comet: cometbackup --------
+  COMET_cometbackup_NAME="Comet Backup"
+  COMET_cometbackup_URL="wss://csw.eazybackup.ca/api/v1/events/stream"
+  COMET_cometbackup_ORIGIN="https://csw.eazybackup.ca"
+  COMET_cometbackup_USERNAME="websocket"
+  COMET_cometbackup_AUTHTYPE="Password"
+  COMET_cometbackup_PASSWORD=""
+  COMET_cometbackup_SESSIONKEY=""
+  COMET_cometbackup_TOTP=""
 
   # -------- Comet: obc --------
-  COMET_obc_NAME="obc"
+  COMET_obc_NAME="OBC"
   COMET_obc_URL="wss://csw.obcbackup.com/api/v1/events/stream"
   COMET_obc_ORIGIN="https://eazybackup.local"
   COMET_obc_USERNAME="websocket"
   COMET_obc_AUTHTYPE="Password"
-  COMET_obc_PASSWORD="***"
+  COMET_obc_PASSWORD=""
   COMET_obc_SESSIONKEY=""
   COMET_obc_TOTP=""
 
   # Database (bootstrap.php defaults can be overridden here)
-  DB_DSN="mysql:host=127.0.0.1;dbname=whmcs;charset=utf8mb4"
+  DB_DSN="mysql:host=127.0.0.1;dbname=eazyback_whmcs;charset=utf8mb4"
   DB_USER="whmcs"
-  DB_PASS="***"
+  DB_PASS=""
 
   # monitor_stalled_jobs.php defaults (can be overridden per run)
   EB_MON_STALE_SECS=3600
@@ -265,8 +266,8 @@ WantedBy=multi-user.target
   # EB_MON_DRY_RUN=1
 
   # Debug toggles (optional):
-  # EB_WS_DEBUG=1 → log raw frames and parsed events.
-  # EB_DB_DEBUG=1 → log database writes.
+  # EB_WS_DEBUG=1 ? log raw frames and parsed events.
+  # EB_DB_DEBUG=1 ? log database writes.
 
 
 **Database Schema**
@@ -475,15 +476,15 @@ To prevent abondoned backup jobs from getting stuck in eb_jobs_live, we will mon
 
 **I created a new file for this feature at accounts/modules/addons/eazybackup/bin/monitor_stalled_jobs.php.**
 - We can manually run the script with or without a dry-run flag 
-  php monitor_stalled_jobs.php --verbose=1 --profile=eazybackup --stale-secs=600 --recheck-secs=300
-  php monitor_stalled_jobs.php --dry-run --verbose=1 --profile=eazybackup --stale-secs=600 --recheck-secs=300
+  php monitor_stalled_jobs.php --verbose=1 --profile=cometbackup --stale-secs=600 --recheck-secs=300
+  php monitor_stalled_jobs.php --dry-run --verbose=1 --profile=cometbackup --stale-secs=600 --recheck-secs=300
 
 **CLI flags (override env):**
   --stale-secs=<seconds> (default 3600)
   --recheck-secs=<seconds> (default 300) [also used as heartbeat window]
   --max-attempts=<n> (default 3)
   --limit=<n> (default 200)
-- Example: php monitor_stalled_jobs.php --profile=eazybackup --stale-secs=3600 --recheck-secs=300
+- Example: php monitor_stalled_jobs.php --profile=cometbackup --stale-secs=3600 --recheck-secs=300
 
 **/var/www/eazybackup.ca/.env (baseline defaults, loaded by bootstrap):**
 
@@ -526,7 +527,7 @@ To prevent abondoned backup jobs from getting stuck in eb_jobs_live, we will mon
   User=www-data
   Group=www-data
   ExecStart=/usr/bin/flock -n /run/eb-monitor/eazybackup.lock \
-    /usr/bin/php monitor_stalled_jobs.php --profile=eazybackup --recheck-secs=300 --stale-secs=3600
+    /usr/bin/php monitor_stalled_jobs.php --profile=cometbackup --recheck-secs=300 --stale-secs=3600
   # Optional hardening / quality-of-life
   Nice=5
   IOSchedulingClass=best-effort
@@ -617,7 +618,7 @@ To prevent abondoned backup jobs from getting stuck in eb_jobs_live, we will mon
 
 **Sanity checklist (so nothing bites you later)**
 - Lock path is writable: solved via RuntimeDirectory=eb-monitor.
-- Correct profile per service: --profile=eazybackup for eazybackup; --profile=obc for OBC.
+- Correct profile per service: --profile=cometbackup for eazybackup; --profile=obc for OBC.
 - Timer targets the matching service: unit lines fixed or templated.
 - Network readiness: Wants=network-online.target and After=network-online.target.
 - Missed runs on reboot: Persistent=true on timers.

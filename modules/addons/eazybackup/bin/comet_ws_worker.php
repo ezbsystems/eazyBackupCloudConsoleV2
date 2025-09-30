@@ -42,7 +42,6 @@ function pick(array $src, array $keys, $default = '') {
 
 
 
-use Amp\Websocket\ClosedException;
 use Amp\Future;
 use function Amp\async;
 use function Amp\delay;
@@ -103,17 +102,56 @@ function db(): PDO {
 // Persistence helpers //
 /////////////////////////
 function getClientIdForUsername(PDO $pdo, string $username): ?int {
+    // Legacy helper, now delegates to resolveWhmcsUser (kept for compatibility)
+    $res = resolveWhmcsUser($pdo, $username);
+    return $res['client_id'];
+}
+
+function resolveWhmcsUser(PDO $pdo, string $username): array {
+    // Return ['client_id'=>?int, 'username'=>?string] with case-sensitive preference
+    $result = ['client_id' => null, 'username' => null];
     try {
-        $stmt = $pdo->prepare("SELECT userid FROM tblhosting WHERE username = ? AND domainstatus = 'Active' ORDER BY id ASC LIMIT 1");
+        // 1) Exact case-sensitive match on Active services
+        $stmt = $pdo->prepare("SELECT userid, username FROM tblhosting WHERE BINARY username = ? AND domainstatus = 'Active' ORDER BY id ASC LIMIT 1");
         $stmt->execute([$username]);
-        $cid = $stmt->fetchColumn();
-        if ($cid !== false && $cid !== null) { return (int)$cid; }
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row) { return ['client_id' => (int)$row['userid'], 'username' => (string)$row['username']]; }
+
+        // 2) Exact case-sensitive match on any status
+        $stmt = $pdo->prepare("SELECT userid, username FROM tblhosting WHERE BINARY username = ? ORDER BY id ASC LIMIT 1");
+        $stmt->execute([$username]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row) { return ['client_id' => (int)$row['userid'], 'username' => (string)$row['username']]; }
+
+        // 3) Case-insensitive match on Active
+        $stmt = $pdo->prepare("SELECT userid, username FROM tblhosting WHERE LOWER(username) = LOWER(?) AND domainstatus = 'Active' ORDER BY id ASC LIMIT 1");
+        $stmt->execute([$username]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row) { return ['client_id' => (int)$row['userid'], 'username' => (string)$row['username']]; }
+
+        // 4) Case-insensitive match on any
+        $stmt = $pdo->prepare("SELECT userid, username FROM tblhosting WHERE LOWER(username) = LOWER(?) ORDER BY id ASC LIMIT 1");
+        $stmt->execute([$username]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row) { return ['client_id' => (int)$row['userid'], 'username' => (string)$row['username']]; }
+    } catch (Throwable $e) { /* ignore */ }
+    return $result;
+}
+
+function getUsernameForDeviceHash(PDO $pdo, string $deviceHash): ?string {
+    try {
+        $stmt = $pdo->prepare("SELECT username FROM comet_devices WHERE hash = ? LIMIT 1");
+        $stmt->execute([$deviceHash]);
+        $u = $stmt->fetchColumn();
+        if ($u !== false && $u !== null && $u !== '') { return (string)$u; }
     } catch (Throwable $e) { /* ignore */ }
     return null;
 }
 
 function upsertCometDevice(PDO $pdo, string $profile, string $username, string $hash, array $data): void {
-    $clientId = $username !== '' ? getClientIdForUsername($pdo, $username) : null;
+    $resolved = $username !== '' ? resolveWhmcsUser($pdo, $username) : ['client_id'=>null, 'username'=>null];
+    $clientId = $resolved['client_id'];
+    $usernameCanonical = $resolved['username'] ?? ($username !== '' ? $username : null);
     $friendly = '';
     $os = '';
     $arch = '';
@@ -140,7 +178,7 @@ function upsertCometDevice(PDO $pdo, string $profile, string $username, string $
         $stmt->execute([
             ':id' => $hash,
             ':client_id' => $clientId,
-            ':username' => $username !== '' ? $username : null,
+            ':username' => $usernameCanonical,
             ':hash' => $hash,
             ':content' => $contentJson,
             ':name' => $friendly !== '' ? $friendly : null,
@@ -155,8 +193,10 @@ function upsertCometDevice(PDO $pdo, string $profile, string $username, string $
 
 function revokeCometDevice(PDO $pdo, string $profile, string $username, string $hash): void {
     try {
+        $resolved = $username !== '' ? resolveWhmcsUser($pdo, $username) : ['client_id'=>null, 'username'=>null];
+        $usernameCanonical = $resolved['username'] ?? ($username !== '' ? $username : null);
         $stmt = $pdo->prepare("UPDATE comet_devices SET is_active=0, updated_at=NOW(), revoked_at=NOW(), username=COALESCE(username, :username) WHERE hash=:hash");
-        $stmt->execute([':hash' => $hash, ':username' => $username !== '' ? $username : null]);
+        $stmt->execute([':hash' => $hash, ':username' => $usernameCanonical]);
         if (EB_DB_DEBUG) logLine($profile, "DB revoke DEVICE ok hash={$hash} rc=" . $stmt->rowCount());
     } catch (Throwable $e) {
         logLine($profile, "DB revoke DEVICE ERROR: " . $e->getMessage());
@@ -338,7 +378,9 @@ function asArray($maybeObject): array {
 
 function syncUserProtectedItems(PDO $pdo, string $profile, string $username): void {
     if ($username === '') return;
-    $clientId = getClientIdForUsername($pdo, $username);
+    $resolved = resolveWhmcsUser($pdo, $username);
+    $clientId = $resolved['client_id'];
+    $usernameCanonical = $resolved['username'] ?? $username;
     if ($clientId === null) {
         if (EB_DB_DEBUG) logLine($profile, "Items: no client for username={$username}");
         return;
@@ -412,7 +454,7 @@ function syncUserProtectedItems(PDO $pdo, string $profile, string $username): vo
             $stmt->execute([
                 ':id' => $protectedItem['id'],
                 ':client_id' => $protectedItem['client_id'],
-                ':username' => $protectedItem['username'],
+                ':username' => $usernameCanonical,
                 ':content' => $protectedItem['content'],
                 ':comet_device_id' => $protectedItem['comet_device_id'],
                 ':owner_device' => $protectedItem['owner_device'],
@@ -449,7 +491,9 @@ function syncUserVaults(PDO $pdo, string $profile, string $username): void {
     if ($username === '') return;
 
     // Look up WHMCS client (same as items sync)
-    $clientId = getClientIdForUsername($pdo, $username);
+    $resolved = resolveWhmcsUser($pdo, $username);
+    $clientId = $resolved['client_id'];
+    $usernameCanonical = $resolved['username'] ?? $username;
     if ($clientId === null) {
         if (EB_DB_DEBUG) logLine($profile, "Vaults: no client for username={$username}");
         return;
@@ -472,9 +516,7 @@ function syncUserVaults(PDO $pdo, string $profile, string $username): void {
     // Destinations map: GUID => DestinationConfig
     $destinations = [];
     if (isset($userProfile->Destinations)) {
-        $destinations = is_array($userProfile->Destinations)
-            ? $userProfile->Destinations
-            : get_object_vars($userProfile->Destinations);
+        $destinations = asArray($userProfile->Destinations);
     }
     $presentIds = [];
 
@@ -489,12 +531,41 @@ function syncUserVaults(PDO $pdo, string $profile, string $username): void {
         $hasLimit   = (int) (!empty($arr['LimitStorage']) || !empty($arr['StorageLimitEnabled']));
         $limitBytes = (int)   ($arr['StorageLimitBytes'] ?? $arr['LimitStorageBytes'] ?? 0);
 
-        // Try to extract S3-ish details for reporting (best-effort)
-        $bucketServer = (string)($arr['S3CustomHostName'] ?? $arr['S3Hostname'] ?? $arr['CometServer'] ?? '');
-        $bucketName   = (string)($arr['S3BucketName'] ?? $arr['Bucket'] ?? '');
-        $bucketKey    = (string)($arr['S3AccessKey'] ?? $arr['Key'] ?? '');
+        // Try to extract bucket details for reporting (Comet first, then S3-ish)
+        $bucketServer = (string)($arr['CometServer'] ?? $arr['S3CustomHostName'] ?? $arr['S3Hostname'] ?? '');
+        $bucketServer = $bucketServer !== '' ? rtrim($bucketServer, '/') . '/' : '';
+        $bucketName   = (string)($arr['CometBucket'] ?? $arr['S3BucketName'] ?? $arr['Bucket'] ?? '');
+        $bucketKey    = (string)($arr['CometBucketKey'] ?? $arr['S3AccessKey'] ?? $arr['Key'] ?? '');
 
         $contentJson = json_encode($arr, JSON_UNESCAPED_SLASHES);
+
+        // Compute total_bytes from Statistics when available
+        $bytesTotal = 0;
+        if (isset($arr['Statistics'])) {
+            $stats = is_array($arr['Statistics']) ? $arr['Statistics'] : (is_object($arr['Statistics']) ? get_object_vars($arr['Statistics']) : []);
+            // Prefer ClientProvidedSize.Size
+            if (isset($stats['ClientProvidedSize'])) {
+                $bps = is_array($stats['ClientProvidedSize']) ? $stats['ClientProvidedSize'] : (is_object($stats['ClientProvidedSize']) ? get_object_vars($stats['ClientProvidedSize']) : []);
+                $sz = (int)($bps['Size'] ?? 0);
+                if ($sz > 0) { $bytesTotal = $sz; }
+            }
+            // Fallback: sum ClientProvidedContent.Components[*].Bytes
+            if ($bytesTotal <= 0 && isset($stats['ClientProvidedContent'])) {
+                $cpc = is_array($stats['ClientProvidedContent']) ? $stats['ClientProvidedContent'] : (is_object($stats['ClientProvidedContent']) ? get_object_vars($stats['ClientProvidedContent']) : []);
+                $components = [];
+                if (isset($cpc['Components'])) {
+                    $components = is_array($cpc['Components']) ? $cpc['Components'] : (is_object($cpc['Components']) ? get_object_vars($cpc['Components']) : []);
+                }
+                if (!empty($components)) {
+                    $sum = 0;
+                    foreach ($components as $comp) {
+                        if (is_array($comp)) { $sum += (int)($comp['Bytes'] ?? 0); }
+                        elseif (is_object($comp)) { $compArr = get_object_vars($comp); $sum += (int)($compArr['Bytes'] ?? 0); }
+                    }
+                    if ($sum > 0) { $bytesTotal = $sum; }
+                }
+            }
+        }
 
         // Upsert current vault
         try {
@@ -508,10 +579,10 @@ function syncUserVaults(PDO $pdo, string $profile, string $username): void {
                       content=VALUES(content),
                       name=VALUES(name),
                       type=VALUES(type),
-                      total_bytes=VALUES(total_bytes),
-                      bucket_server=VALUES(bucket_server),
-                      bucket_name=VALUES(bucket_name),
-                      bucket_key=VALUES(bucket_key),
+                      total_bytes=IF(VALUES(total_bytes) > 0, VALUES(total_bytes), total_bytes),
+                      bucket_server=IF(VALUES(bucket_server) <> '', VALUES(bucket_server), bucket_server),
+                      bucket_name=IF(VALUES(bucket_name) <> '', VALUES(bucket_name), bucket_name),
+                      bucket_key=IF(VALUES(bucket_key) <> '', VALUES(bucket_key), bucket_key),
                       has_storage_limit=VALUES(has_storage_limit),
                       storage_limit_bytes=VALUES(storage_limit_bytes),
                       is_active=1,
@@ -521,11 +592,11 @@ function syncUserVaults(PDO $pdo, string $profile, string $username): void {
             $stmt->execute([
                 ':id'           => $guid,
                 ':client_id'    => $clientId,
-                ':username'     => $username,
+                ':username'     => $usernameCanonical,
                 ':content'      => $contentJson,
                 ':name'         => $name,
                 ':type'         => $type,
-                ':total_bytes'  => 0, // we don't get size from profile; left as 0/unchanged
+                ':total_bytes'  => $bytesTotal,
                 ':bucket_server'=> $bucketServer,
                 ':bucket_name'  => $bucketName,
                 ':bucket_key'   => $bucketKey,
@@ -561,6 +632,43 @@ function syncUserVaults(PDO $pdo, string $profile, string $username): void {
         }
     } catch (Throwable $e) {
         logLine($profile, "Vaults: prune ERROR for {$username}: " . $e->getMessage());
+    }
+}
+
+function syncUserDevices(PDO $pdo, string $profile, string $username): void {
+    if ($username === '') return;
+
+    $resolved = resolveWhmcsUser($pdo, $username);
+    $clientId = $resolved['client_id'];
+    if ($clientId === null) {
+        if (EB_DB_DEBUG) logLine($profile, "Devices: no client for username={$username} (will upsert with NULL client_id)");
+        // Proceed: allow inserts with NULL client_id; username will still be set
+    }
+
+    // Get an admin client for this profile/username
+    $client = cometAdminClientForProfile($pdo, $profile);
+    if (!$client) { $client = cometAdminClientForUsername($pdo, $profile, $username); }
+    if (!$client) { logLine($profile, "Devices: no admin client for profile {$profile} (username={$username})"); return; }
+
+    try {
+        if (EB_WS_DEBUG) logLine($profile, "Devices: fetching profile for {$username}");
+        $userProfile = $client->AdminGetUserProfile($resolved['username'] ?? $username);
+    } catch (Throwable $e) {
+        logLine($profile, "Devices: AdminGetUserProfile failed for {$username}: " . $e->getMessage());
+        return;
+    }
+
+    // Devices map: DeviceID (hash) => DeviceConfig
+    $devices = [];
+    if (isset($userProfile->Devices)) {
+        $devices = asArray($userProfile->Devices);
+    }
+
+    foreach ($devices as $deviceId => $cfg) {
+        if (!is_string($deviceId) || $deviceId === '') continue;
+        $arr = is_array($cfg) ? $cfg : (is_object($cfg) ? get_object_vars($cfg) : []);
+        // Upsert with current FriendlyName / PlatformVersion
+        upsertCometDevice($pdo, $profile, $username, (string)$deviceId, $arr);
     }
 }
 
@@ -729,11 +837,27 @@ function handleEvent(PDO $pdo, string $profile, array $evt): void {
             if (EB_WS_DEBUG) logLine($profile, "DEVICE REMOVED actor={$actor} hash={$resourceId}");
             revokeCometDevice($pdo, $profile, $actor, $resourceId);
         }
+    } elseif ($lab === 'SEVT_DEVICE_UPDATED') {
+        // Refresh devices for the owning user when device metadata changes (e.g., FriendlyName)
+        if ($resourceId !== '') {
+            $ownerUser = $username !== '' ? $username : (getUsernameForDeviceHash($pdo, $resourceId) ?? '');
+            if ($ownerUser !== '') {
+                if (EB_WS_DEBUG) logLine($profile, "DEVICE UPDATED hash={$resourceId} → refresh devices for user={$ownerUser}");
+                syncUserDevices($pdo, $profile, $ownerUser);
+            } else {
+                if (EB_WS_DEBUG) logLine($profile, "DEVICE UPDATED hash={$resourceId} but no owner username found");
+            }
+        }
     } elseif ($lab === 'SEVT_ACCOUNT_UPDATED') {
-        if ($actor !== '') {
-            if (EB_WS_DEBUG) logLine($profile, "ACCOUNT UPDATED → sync items & vaults for actor={$actor}");
-            syncUserProtectedItems($pdo, $profile, $actor);
-            syncUserVaults($pdo, $profile, $actor);
+        // Prefer the target Username from Data; fallback to Actor (may be an admin)
+        $acctUser = $username !== '' ? $username : $actor;
+        if ($acctUser !== '') {
+            if (EB_WS_DEBUG) logLine($profile, "ACCOUNT UPDATED → sync devices/items/vaults for user={$acctUser}");
+            // Refresh devices to capture FriendlyName and platform changes
+            syncUserDevices($pdo, $profile, $acctUser);
+            // Refresh protected items and vaults
+            syncUserProtectedItems($pdo, $profile, $acctUser);
+            syncUserVaults($pdo, $profile, $acctUser);
         }
     } elseif ($lab === 'SEVT_JOB_NEW') {
         // Treat as job start
@@ -834,8 +958,6 @@ function runOneProfile(PDO $pdo, array $cfg): never {
                 }
                 handleEvent($pdo, $profile, $evt);
             }
-        } catch (ClosedException $e) {
-            error_log("[{$profile}] WS closed: {$e->getMessage()}");
         } catch (Throwable $e) {
             error_log("[{$profile}] WS error: {$e->getMessage()}");
         }

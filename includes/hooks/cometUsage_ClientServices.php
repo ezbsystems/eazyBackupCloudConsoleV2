@@ -51,30 +51,33 @@ add_hook('AdminAreaHeadOutput', 112222, function ($vars) {
         $deviceCount = comet_DeviceCount($user);
         $totalStorageUsed = getUserStorage($username);
         $protectedItemsSummary = getUserProtectedItemsSummary($username);
-        $totalVmCount = $protectedItemsSummary['totalVmCount'];
         $totalAccountsCount = $protectedItemsSummary['totalAccountsCount'];
 
-        // New approach: count engine types directly from $user->Sources
-        function countEngineTypesFromUser($user, $engineKey) {
-            $count = 0;
-            if (isset($user->Sources) && is_array($user->Sources)) {
-                foreach ($user->Sources as $source) {
-                    // Compare engine type in a case-insensitive manner
-                    if (isset($source->Engine) && strtolower($source->Engine) === strtolower($engineKey)) {
-                        $count++;
-                    }
+        // Engine counts and VM guest counts per engine using summary functions
+        $vmCounts = comet_getVmCountsByEngineFromUser($user);
+        $hypervVmCount = $vmCounts['hyperv'];
+        $vmwareVmCount = $vmCounts['vmware'];
+        $proxmoxVmCount = $vmCounts['proxmox'];
+
+        // Legacy engine counts for display
+        $diskImageCount = 0;
+        $fileFolderCount = 0;
+        if (isset($user->Sources) && is_array($user->Sources)) {
+            foreach ($user->Sources as $source) {
+                if (isset($source->Engine)) {
+                    $engineLower = strtolower($source->Engine);
+                    if ($engineLower === 'engine1/windisk') { $diskImageCount++; }
+                    if ($engineLower === 'engine1/file') { $fileFolderCount++; }
                 }
             }
-            return $count;
         }
-
-        $diskImageCount = countEngineTypesFromUser($user, 'engine1/windisk');
-        $fileFolderCount = countEngineTypesFromUser($user, 'engine1/file');
 
         $return .= '<script type="text/javascript">
             jQuery(document).ready(function() {
                 var discountRow = $("#servicecontent table.form tr").filter(":nth-child(9)");
-                discountRow.after("<tr><td class=\"fieldlabel\" width=\"20%\">Hyper-V VMs</td><td class=\"fieldarea\" width=\"30%\"><div style=\"width: 100%\"><div class=\"service-field-inline\"><input type=\"text\" name=\"total_vm_count\" size=\"20\" class=\"form-control input-100\" value=\"' . $totalVmCount . '\" readonly></div></div></td></tr>");
+                discountRow.after("<tr><td class=\"fieldlabel\" width=\"20%\">Hyper-V VMs</td><td class=\"fieldarea\" width=\"30%\"><div style=\"width: 100%\"><div class=\"service-field-inline\"><input type=\"text\" name=\"hyperv_vm_count\" size=\"20\" class=\"form-control input-100\" value=\"' . $hypervVmCount . '\" readonly></div></div></td></tr>");
+                discountRow.after("<tr><td class=\"fieldlabel\" width=\"20%\">VMware VMs</td><td class=\"fieldarea\" width=\"30%\"><div style=\"width: 100%\"><div class=\"service-field-inline\"><input type=\"text\" name=\"vmware_vm_count\" size=\"20\" class=\"form-control input-100\" value=\"' . $vmwareVmCount . '\" readonly></div></div></td></tr>");
+                discountRow.after("<tr><td class=\"fieldlabel\" width=\"20%\">Proxmox VMs</td><td class=\"fieldarea\" width=\"30%\"><div style=\"width: 100%\"><div class=\"service-field-inline\"><input type=\"text\" name=\"proxmox_vm_count\" size=\"20\" class=\"form-control input-100\" value=\"' . $proxmoxVmCount . '\" readonly></div></div></td></tr>");
                 discountRow.after("<tr><td class=\"fieldlabel\" width=\"20%\">MS365 Accounts</td><td class=\"fieldarea\" width=\"30%\"><div style=\"width: 100%\"><div class=\"service-field-inline\"><input type=\"text\" name=\"total_ms_365_accounts\" size=\"20\" class=\"form-control input-100\" value=\"' . $totalAccountsCount . '\" readonly></div></div></td></tr>");
                 discountRow.after("<tr><td class=\"fieldlabel\" width=\"20%\">Storage Used</td><td class=\"fieldarea\" width=\"30%\"><div style=\"width: 100%\"><div class=\"service-field-inline\"><input type=\"text\" name=\"total_storage_used\" size=\"20\" class=\"form-control input-100\" value=\"' . $totalStorageUsed . '\" readonly></div></div></td></tr>");
                 discountRow.after("<tr><td class=\"fieldlabel\" width=\"20%\">Device Count</td><td class=\"fieldarea\" width=\"30%\"><div style=\"width: 100%\"><div class=\"service-field-inline\"><input type=\"text\" name=\"comet_device_count\" size=\"20\" class=\"form-control input-100\" value=\"' . $deviceCount . '\" readonly></div></div></td></tr>");

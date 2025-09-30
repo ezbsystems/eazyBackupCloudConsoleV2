@@ -34,13 +34,13 @@ return (function () {
 		'units_storage'  => 'b.storage_units',
 		'devices'        => 'd.device_count',
 		'units_devices'  => 'b.device_units',
-		'hv'             => 'i.hv_count',
+		'hv'             => 'hv.hv_count',
 		'hv_units'       => 'b.hv_units',
 		'di'             => 'i.di_count',
 		'di_units'       => 'b.di_units',
 		'm365'           => 'i.m365_count',
 		'm365_units'     => 'b.m365_units',
-		'vmw'            => 'i.vmw_count',
+		'vmw'            => 'vmw.vmw_count',
 		'vmw_units'      => 'b.vmw_units',
 	];
 	$orderByExpr = $sortMap[$sort] ?? $sortMap['username'];
@@ -58,7 +58,7 @@ return (function () {
 	$sqlBase = "
 		FROM (
 			SELECT username FROM (
-				SELECT username FROM comet_vaults WHERE type IN (1000,1003,1005,1007,1008) AND username IS NOT NULL AND username<>'' GROUP BY username
+				SELECT username FROM comet_vaults WHERE type IN (1000,1003,1005,1007,1008) AND is_active = 1 AND username IS NOT NULL AND username<>'' GROUP BY username
 				UNION
 				SELECT username FROM comet_devices WHERE revoked_at IS NULL AND username IS NOT NULL AND username<>'' GROUP BY username
 				UNION
@@ -70,7 +70,7 @@ return (function () {
 		LEFT JOIN (
 			SELECT username, SUM(total_bytes) AS total_bytes
 			FROM comet_vaults
-			WHERE type IN (1000,1003,1005,1007,1008) AND username IS NOT NULL AND username<>''
+			WHERE type IN (1000,1003,1005,1007,1008) AND is_active = 1 AND username IS NOT NULL AND username<>''
 			GROUP BY username
 		) v ON v.username = u.username
 		LEFT JOIN (
@@ -88,18 +88,40 @@ return (function () {
 			GROUP BY username
 		) i ON i.username = u.username
 		LEFT JOIN (
-			SELECT j2.username,
-			       SUM(COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(j2.content,'$.TotalVmCount')) AS UNSIGNED),0)) AS hv_count
+			-- Per protected item (Hyper-V), take the greater of LastBackupJob vs LastSuccessfulBackupJob
+			-- within the billing window; also consider the latest successful job in comet_jobs within window,
+			-- and sum the per-item maxima per user
+			SELECT i.username,
+			       SUM(GREATEST(COALESCE(j.jobs_vmcount,0), COALESCE(i.items_vmcount,0))) AS hv_count
 			FROM (
-				SELECT username, comet_item_id, MAX(ended_at) AS ended_at
-				FROM comet_jobs
-				WHERE status = 5000 AND ended_at >= :hvStart AND ended_at < :hvEnd
-				GROUP BY username, comet_item_id
-			) latest
-			JOIN comet_jobs j2
-			  ON j2.username = latest.username AND j2.comet_item_id = latest.comet_item_id AND j2.ended_at = latest.ended_at
-			JOIN comet_items ci ON ci.id = j2.comet_item_id AND ci.type='engine1/hyperv'
-			GROUP BY j2.username
+                SELECT ci.username, ci.id AS comet_item_id,
+                       GREATEST(
+                         CASE WHEN CAST(JSON_UNQUOTE(JSON_EXTRACT(ci.content,'$.Statistics.LastSuccessfulBackupJob.EndTime')) AS UNSIGNED)
+                                    BETWEEN UNIX_TIMESTAMP(:hvStartItems1) AND UNIX_TIMESTAMP(:hvEndItems1)-1
+                              THEN COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(ci.content,'$.Statistics.LastSuccessfulBackupJob.TotalVmCount')) AS UNSIGNED),0)
+                              ELSE 0 END,
+                         CASE WHEN CAST(JSON_UNQUOTE(JSON_EXTRACT(ci.content,'$.Statistics.LastBackupJob.EndTime')) AS UNSIGNED)
+                                    BETWEEN UNIX_TIMESTAMP(:hvStartItems2) AND UNIX_TIMESTAMP(:hvEndItems2)-1
+                              THEN COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(ci.content,'$.Statistics.LastBackupJob.TotalVmCount')) AS UNSIGNED),0)
+                              ELSE 0 END
+                       ) AS items_vmcount
+				FROM comet_items ci
+				WHERE ci.type='engine1/hyperv' AND ci.username IS NOT NULL AND ci.username<>''
+			) i
+			LEFT JOIN (
+				SELECT j2.username, j2.comet_item_id,
+				       COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(j2.content,'$.TotalVmCount')) AS UNSIGNED),0) AS jobs_vmcount
+				FROM (
+					SELECT username, comet_item_id, MAX(ended_at) AS ended_at
+					FROM comet_jobs
+					WHERE status = 5000 AND ended_at >= :hvStartJobs AND ended_at < :hvEndJobs
+					GROUP BY username, comet_item_id
+				) latest
+				JOIN comet_jobs j2
+				  ON j2.username = latest.username AND j2.comet_item_id = latest.comet_item_id AND j2.ended_at = latest.ended_at
+				JOIN comet_items ci ON ci.id = j2.comet_item_id AND ci.type='engine1/hyperv'
+			) j ON j.username = i.username AND j.comet_item_id = i.comet_item_id
+			GROUP BY i.username
 		) hv ON hv.username = u.username
 		LEFT JOIN (
 			SELECT j2.username,
@@ -128,10 +150,33 @@ return (function () {
 		) b ON b.service_id = h.id
 	";
 
-	$where = [];
-$params = ['hvStart' => $startSql, 'hvEnd' => $endSql, 'vmwStart' => $startSql, 'vmwEnd' => $endSql];
+$where = [];
+$params = [
+    'vmwStart' => $startSql,
+    'vmwEnd' => $endSql,
+    // split params for items JSON paths and job subqueries to avoid duplicate named placeholders collision in drivers
+    'hvStartItems1' => $startSql,
+    'hvEndItems1' => $endSql,
+    'hvStartItems2' => $startSql,
+    'hvEndItems2' => $endSql,
+    'hvStartJobs' => $startSql,
+    'hvEndJobs' => $endSql,
+];
+// Base params used by queries that only reference $sqlBase (and not $whereSql)
+$baseParams = [
+    'vmwStart' => $startSql,
+    'vmwEnd' => $endSql,
+    'hvStartItems1' => $startSql,
+    'hvEndItems1' => $endSql,
+    'hvStartItems2' => $startSql,
+    'hvEndItems2' => $endSql,
+    'hvStartJobs' => $startSql,
+    'hvEndJobs' => $endSql,
+];
 // Only active services
 $where[] = "h.domainstatus = 'Active'";
+// Exclude specific product permanently (pid=48)
+$where[] = 'p.id <> 48';
 	if ($filterUsername !== '') {
 		$where[] = 'BINARY u.username LIKE :usernameLike';
 		$params['usernameLike'] = '%' . $filterUsername . '%';
@@ -162,9 +207,9 @@ $where[] = "h.domainstatus = 'Active'";
 		. 'LIMIT ' . (int)$perPage . ' OFFSET ' . (int)$offset;
 	$rows = DB::select($selectSql, $params);
 
-	// Distinct product list
-	$productsSql = 'SELECT DISTINCT p.id AS product_id, p.name AS product_name ' . $sqlBase . ' ORDER BY p.name ASC';
-	$productRows = DB::select($productsSql, $params);
+// Distinct product list (uses only $sqlBase placeholders)
+$productsSql = 'SELECT DISTINCT p.id AS product_id, p.name AS product_name ' . $sqlBase . ' ORDER BY p.name ASC';
+$productRows = DB::select($productsSql, $baseParams);
 	$products = array_map(function ($r) { return ['id' => (int)$r->product_id, 'name' => (string)$r->product_name]; }, $productRows);
 
 	$humanBytes = function ($bytes) {

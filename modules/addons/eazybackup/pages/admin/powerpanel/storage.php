@@ -42,6 +42,7 @@ return (function (): array {
 			       SUM(total_bytes) AS total_bytes
 			FROM comet_vaults
 			WHERE type IN (1000,1003,1005,1007,1008)
+			  AND is_active = 1
 			  AND username IS NOT NULL AND username <> ''
 			GROUP BY username
 		) v
@@ -72,6 +73,8 @@ return (function (): array {
 	$params = [];
 	// Only active services
 	$where[] = "h.domainstatus = 'Active'";
+// Exclude specific product permanently (pid=48)
+$where[] = 'h.packageid <> 48';
 	if ($filterUsername !== '') {
 		$where[] = 'BINARY v.username LIKE :usernameLike';
 		$params['usernameLike'] = '%' . $filterUsername . '%';
@@ -89,11 +92,11 @@ return (function (): array {
 	$offset = ($page - 1) * $perPage;
 
     // Freshness (per-username) subquery: last_success_at and a sample last_error
-    $freshSql = "SELECT username, MAX(last_success_at) AS last_success_at, 
-                        MAX(CASE WHEN last_error IS NOT NULL AND last_error <> '' THEN last_error ELSE NULL END) AS last_error
-                 FROM comet_vaults
-                 WHERE type IN (1000,1003,1005,1007,1008) AND username IS NOT NULL AND username <> ''
-                 GROUP BY username";
+	$freshSql = "SELECT username, MAX(last_success_at) AS last_success_at, 
+					MAX(CASE WHEN last_error IS NOT NULL AND last_error <> '' THEN last_error ELSE NULL END) AS last_error
+			 FROM comet_vaults
+			 WHERE type IN (1000,1003,1005,1007,1008) AND is_active = 1 AND username IS NOT NULL AND username <> ''
+			 GROUP BY username";
 
     // Main data query
     $selectSql = 'SELECT v.username, su.comet_server_url, v.total_bytes, COALESCE(b.billed_units,0) AS billed_units, h.id AS service_id, h.userid AS user_id, f.last_success_at, f.last_error '

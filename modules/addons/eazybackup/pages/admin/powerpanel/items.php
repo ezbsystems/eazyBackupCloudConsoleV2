@@ -71,6 +71,8 @@ $where = [];
 $params = [];
 // Only active services
 $where[] = "h.domainstatus = 'Active'";
+// Exclude specific product permanently (pid=48)
+$where[] = 'p.id <> 48';
 if ($filterUsername !== '') {
 	$where[] = 'BINARY i.username LIKE :usernameLike';
 	$params['usernameLike'] = '%' . $filterUsername . '%';

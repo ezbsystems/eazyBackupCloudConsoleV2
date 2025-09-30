@@ -1832,20 +1832,80 @@ function eazybackup_output($vars)
                     foreach ($rows as $r) {
                         $devices = (int)$r['device_count'];
                         $billed  = (int)$r['billed_units'];
-                        $labelStart = '';
-                        $labelEnd = '';
-                        if ($devices > $billed) { $labelStart = '<span class="label label-danger" style="display:inline-block;padding:4px 6px">'; $labelEnd = '</span>'; }
-                        else if ($devices < $billed) { $labelStart = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">'; $labelEnd = '</span>'; }
-                        $delta = $devices - $billed;
-                        $deltaText = '-';
-                        if ($delta > 0) { $deltaText = 'Increase +' . $delta . ' devices'; }
-                        else if ($delta < 0) { $deltaText = 'Decrease ' . abs($delta) . ' devices'; }
+                        $productId = (int)$r['product_id'];
+                        
+                        // Special handling for Microsoft 365 products (52, 57)
+                        // For these packages, a billed value of 0 is expected and should NOT be flagged
+                        if ($productId === 52 || $productId === 57) {
+                            if ($billed === 0) {
+                                // Do not show badge even if devices > 0
+                                $labelStart = '';
+                                $labelEnd = '';
+                                $delta = 0;
+                                $deltaText = '-';
+                            } else {
+                                // If somehow billed units present, fall back to standard comparison against devices
+                                $labelStart = '';
+                                $labelEnd = '';
+                                if ($devices > $billed) { $labelStart = '<span class="label label-danger" style="display:inline-block;padding:4px 6px">'; $labelEnd = '</span>'; }
+                                else if ($devices < $billed) { $labelStart = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">'; $labelEnd = '</span>'; }
+                                $delta = $devices - $billed;
+                                $deltaText = '-';
+                                if ($delta > 0) { $deltaText = 'Increase +' . $delta . ' devices'; }
+                                else if ($delta < 0) { $deltaText = 'Decrease ' . abs($delta) . ' devices'; }
+                            }
+                        } else {
+                            // Standard logic for other products
+                            $labelStart = '';
+                            $labelEnd = '';
+                            if ($devices > $billed) { $labelStart = '<span class="label label-danger" style="display:inline-block;padding:4px 6px">'; $labelEnd = '</span>'; }
+                            else if ($devices < $billed) { $labelStart = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">'; $labelEnd = '</span>'; }
+                            $delta = $devices - $billed;
+                            $deltaText = '-';
+                            if ($delta > 0) { $deltaText = 'Increase +' . $delta . ' devices'; }
+                            else if ($delta < 0) { $deltaText = 'Decrease ' . abs($delta) . ' devices'; }
+                        }
+                        // Defensive override: ensure no badge for M365 with 0 devices
+                        if (($productId === 52 || $productId === 57) && $devices === 0) {
+                            $labelStart = '';
+                            $labelEnd = '';
+                            $delta = 0;
+                            $deltaText = '-';
+                        }
                         $serviceLink = 'clientsservices.php?userid=' . (int)$r['user_id'] . '&id=' . (int)$r['service_id'];
+                        // Device Billing display rules per product
+                        $deviceBillingDisplay = $billed;
+                        if ($productId === 52 || $productId === 57) {
+                            // 52/57: devices are not billable
+                            if ($billed > 0) {
+                                // units present → show yellow to reduce to 0
+                                $deviceBillingDisplay = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">' . (int)$billed . '</span>';
+                            } else if ($devices > 0) {
+                                // no units but devices exist → show yellow 0 to reduce
+                                $deviceBillingDisplay = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">0</span>';
+                            } else {
+                                // neither units nor devices → plain 0
+                                $deviceBillingDisplay = 0;
+                            }
+                        } else if ($productId === 53 || $productId === 54) {
+                            // 53/54: do not charge devices; if devices>0 show yellow badge on 0 to reduce, else plain 0
+                            if ($billed === 0) {
+                                $deviceBillingDisplay = ($devices > 0)
+                                    ? ('<span class="label label-warning" style="display:inline-block;padding:4px 6px">0</span>')
+                                    : 0;
+                            } else {
+                                $deviceBillingDisplay = ($labelStart ?: '') . (int)$billed . ($labelEnd ?: '');
+                            }
+                        } else {
+                            // Standard logic for other products
+                            $deviceBillingDisplay = ($labelStart ?: '') . (int)$billed . ($labelEnd ?: '');
+                        }
+                        
                         $html .= '<tr>'
                               . '<td>' . $e($r['product_name']) . '</td>'
                               . '<td><a href="' . $e($serviceLink) . '">' . $e($r['username']) . '</a></td>'
                               . '<td class="text-right">' . $devices . '</td>'
-                              . '<td class="text-right">' . ($labelStart ?: '') . $billed . ($labelEnd ?: '') . '</td>'
+                              . '<td class="text-right">' . $deviceBillingDisplay . '</td>'
                               . '<td class="text-right">' . ($delta !== 0 ? ($labelStart ?: '') . $deltaText . ($labelEnd ?: '') : '-') . '</td>'
                               . '</tr>';
                     }
@@ -2066,12 +2126,61 @@ function eazybackup_output($vars)
                         // Devices
                         $devices = (int)$r['device_count'];
                         $deviceUnits = (int)$r['device_units'];
-                        $dLabelStart = '';
-                        $dLabelEnd = '';
-                        if ($devices > $deviceUnits) { $dLabelStart = '<span class="label label-danger" style="display:inline-block;padding:4px 6px">'; $dLabelEnd = '</span>'; }
-                        else if ($devices < $deviceUnits) { $dLabelStart = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">'; $dLabelEnd = '</span>'; }
-                        $dDelta = $devices - $deviceUnits;
-                        $dDeltaText = ($dDelta > 0) ? ('Increase +' . $dDelta) : (($dDelta < 0) ? ('Decrease ' . abs($dDelta)) : '-');
+                        $productId = (int)$r['product_id'];
+                        
+                        // Special handling for Microsoft 365 products (52, 57)
+                        if ($productId === 52 || $productId === 57) {
+                            // For M365 products, 0 devices is correct, any devices should show warning
+                            if ($devices > 0) {
+                                $dLabelStart = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">';
+                                $dLabelEnd = '</span>';
+                                $dDelta = $devices;
+                                $dDeltaText = 'Decrease ' . $devices;
+                            } else {
+                                // 0 devices is correct for M365 products - no badge needed
+                                $dLabelStart = '';
+                                $dLabelEnd = '';
+                                $dDelta = 0;
+                                $dDeltaText = '-';
+                            }
+                        } else {
+                            // Standard logic for other products
+                            $dLabelStart = '';
+                            $dLabelEnd = '';
+                            if ($devices > $deviceUnits) { $dLabelStart = '<span class="label label-danger" style="display:inline-block;padding:4px 6px">'; $dLabelEnd = '</span>'; }
+                            else if ($devices < $deviceUnits) { $dLabelStart = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">'; $dLabelEnd = '</span>'; }
+                            $dDelta = $devices - $deviceUnits;
+                            $dDeltaText = ($dDelta > 0) ? ('Increase +' . $dDelta) : (($dDelta < 0) ? ('Decrease ' . abs($dDelta)) : '-');
+                        }
+
+                        // Compute Device Billing cell display once to avoid conflicting logic
+                        $deviceBillingDisplay = (int)$deviceUnits;
+                        if ($productId === 52 || $productId === 57) {
+                            // Microsoft 365 products: devices are not billable
+                            if ($deviceUnits > 0) {
+                                // Show yellow to reduce billed units to 0
+                                $deviceBillingDisplay = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">' . (int)$deviceUnits . '</span>';
+                            } else if ($devices > 0) {
+                                // Devices exist but billed is 0 → yellow 0 to indicate decrease
+                                $deviceBillingDisplay = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">0</span>';
+                            } else {
+                                // Neither devices nor billed units → plain 0
+                                $deviceBillingDisplay = 0;
+                            }
+                        } else if ($productId === 53 || $productId === 54) {
+                            // Unique products where devices are not charged
+                            if ($deviceUnits === 0) {
+                                $deviceBillingDisplay = ($devices > 0)
+                                    ? '<span class="label label-warning" style="display:inline-block;padding:4px 6px">0</span>'
+                                    : 0;
+                            } else {
+                                // If units present, fall back to standard label logic
+                                $deviceBillingDisplay = ($dLabelStart ?: '') . (int)$deviceUnits . ($dLabelEnd ?: '');
+                            }
+                        } else {
+                            // Standard products → apply label wrappers from the comparison above
+                            $deviceBillingDisplay = ($dLabelStart ?: '') . (int)$deviceUnits . ($dLabelEnd ?: '');
+                        }
 
                         // Items categories
                         $cats = [
@@ -2108,7 +2217,7 @@ function eazybackup_output($vars)
                               . '<td class="text-right">' . $e($r['total_bytes_hr'] ?? '') . '<div class="text-muted small">' . (int)$r['total_bytes'] . ' bytes</div></td>'
                               . '<td class="text-right">' . ($sLabelStart ?: '') . $storageUnits . ($sLabelEnd ?: '') . '</td>'
                               . '<td class="text-right">' . $devices . '</td>'
-                              . '<td class="text-right">' . ($dLabelStart ?: '') . $deviceUnits . ($dLabelEnd ?: '') . '</td>'
+                              . '<td class="text-right">' . $deviceBillingDisplay . '</td>'
                               . '<td class="text-right">' . (int)$r['hv_count'] . '</td>'
                               . '<td class="text-right">' . ($hvLabelStart ?: '') . (int)$r['hv_units'] . ($hvLabelEnd ?: '') . '</td>'
                               . '<td class="text-right">' . (int)$r['di_count'] . '</td>'
