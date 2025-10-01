@@ -101,40 +101,113 @@ function db(): PDO {
 /////////////////////////
 // Persistence helpers //
 /////////////////////////
-function getClientIdForUsername(PDO $pdo, string $username): ?int {
+function getClientIdForUsername(PDO $pdo, string $username, ?string $profile = null): ?int {
     // Legacy helper, now delegates to resolveWhmcsUser (kept for compatibility)
-    $res = resolveWhmcsUser($pdo, $username);
+    $res = resolveWhmcsUser($pdo, $username, $profile);
     return $res['client_id'];
 }
 
-function resolveWhmcsUser(PDO $pdo, string $username): array {
-    // Return ['client_id'=>?int, 'username'=>?string] with case-sensitive preference
+function resolveWhmcsUser(PDO $pdo, string $username, ?string $profile = null): array {
+    // Return ['client_id'=>?int, 'username'=>?string] with strong disambiguation.
+    // Prefer exact-case; if case-insensitive yields multiple client_ids, treat as ambiguous.
     $result = ['client_id' => null, 'username' => null];
     try {
+        // Optional scoping by server group (profile → tblservergroups.name)
+        $joinGroup = '';
+        $andGroup = '';
+        if ($profile !== null && $profile !== '') {
+            $joinGroup = " JOIN tblproducts p ON p.id = h.packageid JOIN tblservergroups g ON g.id = p.servergroup ";
+            $andGroup = " AND g.name = ? ";
+        }
+        // 0) Prefer existing mapping in comet_users (exact-case, then case-insensitive if unique)
+        $stmt = $pdo->prepare("SELECT client_id, username FROM comet_users WHERE BINARY username = ? LIMIT 1");
+        $stmt->execute([$username]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row && (int)$row['client_id'] > 0) {
+            return ['client_id' => (int)$row['client_id'], 'username' => (string)$row['username']];
+        }
+        $stmt = $pdo->prepare("SELECT DISTINCT client_id, username FROM comet_users WHERE LOWER(username) = LOWER(?)");
+        $stmt->execute([$username]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        $distinctClients = array_values(array_unique(array_map(fn($r)=> (int)$r['client_id'], $rows)));
+        if (count($distinctClients) === 1 && $distinctClients[0] > 0) {
+            // Use whichever username casing is stored
+            return ['client_id' => $distinctClients[0], 'username' => (string)($rows[0]['username'] ?? $username)];
+        } elseif (count($distinctClients) > 1) {
+            // Ambiguous mapping in comet_users; continue to tblhosting resolution instead of bailing out
+            if (EB_WS_DEBUG) logLine('resolver', "Ambiguous in comet_users for username={$username}; falling back to tblhosting search");
+        }
+
+        // 1) Exact case-sensitive match on Active services (prefer trimmed)
+        $sql1 = "SELECT h.userid, h.username FROM tblhosting h" . $joinGroup . " WHERE BINARY TRIM(h.username) = TRIM(?) AND h.domainstatus = 'Active'" . $andGroup . " ORDER BY h.id ASC LIMIT 1";
+        $stmt = $pdo->prepare($sql1);
+        $params = [$username]; if ($andGroup) { $params[] = $profile; }
+        $stmt->execute($params);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row) { return ['client_id' => (int)$row['userid'], 'username' => (string)$row['username']]; }
+
+        // 2) Exact case-sensitive match on any status
+        $sql2 = "SELECT h.userid, h.username FROM tblhosting h" . $joinGroup . " WHERE BINARY TRIM(h.username) = TRIM(?)" . $andGroup . " ORDER BY h.id ASC LIMIT 1";
+        $stmt = $pdo->prepare($sql2);
+        $params = [$username]; if ($andGroup) { $params[] = $profile; }
+        $stmt->execute($params);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row) { return ['client_id' => (int)$row['userid'], 'username' => (string)$row['username']]; }
+
+        // 3) Case-insensitive match; prefer exact-case among matches; otherwise unique client
+        $sql3 = "SELECT h.userid, h.username FROM tblhosting h" . $joinGroup . " WHERE LOWER(h.username) = LOWER(?)" . $andGroup . " ORDER BY (BINARY h.username = ?) DESC, h.id ASC";
+        $stmt = $pdo->prepare($sql3);
+        $params = [$username]; if ($andGroup) { $params[] = $profile; } $params[] = $username;
+        $stmt->execute($params);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        if (!empty($rows)) {
+            $first = $rows[0];
+            // Check if only one client_id among all rows
+            $distinctClients = array_values(array_unique(array_map(fn($r)=> (int)$r['userid'], $rows)));
+            if (count($distinctClients) === 1) {
+                return ['client_id' => (int)$first['userid'], 'username' => (string)$first['username']];
+            }
+            // If multiple clients, but the first row is exact-case match, select it
+            if (isset($first['username']) && $first['username'] === $username) {
+                return ['client_id' => (int)$first['userid'], 'username' => (string)$first['username']];
+            }
+        if (EB_WS_DEBUG) { logLine('resolver', "Ambiguous in tblhosting for username={$username} clients=" . json_encode($distinctClients) . ($profile?" profile={$profile}":"")); }
+        }
+    } catch (Throwable $e) { /* ignore */ }
+    // Fallback: retry without server-group scoping if profile scoping yielded nothing
+    try {
         // 1) Exact case-sensitive match on Active services
-        $stmt = $pdo->prepare("SELECT userid, username FROM tblhosting WHERE BINARY username = ? AND domainstatus = 'Active' ORDER BY id ASC LIMIT 1");
+        $sql1 = "SELECT h.userid, h.username FROM tblhosting h WHERE BINARY TRIM(h.username) = TRIM(?) AND h.domainstatus = 'Active' ORDER BY h.id ASC LIMIT 1";
+        $stmt = $pdo->prepare($sql1);
         $stmt->execute([$username]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         if ($row) { return ['client_id' => (int)$row['userid'], 'username' => (string)$row['username']]; }
 
         // 2) Exact case-sensitive match on any status
-        $stmt = $pdo->prepare("SELECT userid, username FROM tblhosting WHERE BINARY username = ? ORDER BY id ASC LIMIT 1");
+        $sql2 = "SELECT h.userid, h.username FROM tblhosting h WHERE BINARY TRIM(h.username) = TRIM(?) ORDER BY h.id ASC LIMIT 1";
+        $stmt = $pdo->prepare($sql2);
         $stmt->execute([$username]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         if ($row) { return ['client_id' => (int)$row['userid'], 'username' => (string)$row['username']]; }
 
-        // 3) Case-insensitive match on Active
-        $stmt = $pdo->prepare("SELECT userid, username FROM tblhosting WHERE LOWER(username) = LOWER(?) AND domainstatus = 'Active' ORDER BY id ASC LIMIT 1");
-        $stmt->execute([$username]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($row) { return ['client_id' => (int)$row['userid'], 'username' => (string)$row['username']]; }
-
-        // 4) Case-insensitive match on any
-        $stmt = $pdo->prepare("SELECT userid, username FROM tblhosting WHERE LOWER(username) = LOWER(?) ORDER BY id ASC LIMIT 1");
-        $stmt->execute([$username]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($row) { return ['client_id' => (int)$row['userid'], 'username' => (string)$row['username']]; }
+        // 3) Case-insensitive match; prefer exact-case among matches; otherwise unique client
+        $sql3 = "SELECT h.userid, h.username FROM tblhosting h WHERE LOWER(h.username) = LOWER(?) ORDER BY (BINARY h.username = ?) DESC, h.id ASC";
+        $stmt = $pdo->prepare($sql3);
+        $stmt->execute([$username, $username]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        if (!empty($rows)) {
+            $first = $rows[0];
+            $distinctClients = array_values(array_unique(array_map(fn($r)=> (int)$r['userid'], $rows)));
+            if (count($distinctClients) === 1) {
+                return ['client_id' => (int)$first['userid'], 'username' => (string)$first['username']];
+            }
+            if (isset($first['username']) && $first['username'] === $username) {
+                return ['client_id' => (int)$first['userid'], 'username' => (string)$first['username']];
+            }
+            if (EB_WS_DEBUG) { logLine('resolver', "Ambiguous in tblhosting (no profile scope) for username={$username} clients=" . json_encode($distinctClients)); }
+        }
     } catch (Throwable $e) { /* ignore */ }
+
     return $result;
 }
 
@@ -149,8 +222,9 @@ function getUsernameForDeviceHash(PDO $pdo, string $deviceHash): ?string {
 }
 
 function upsertCometDevice(PDO $pdo, string $profile, string $username, string $hash, array $data): void {
-    $resolved = $username !== '' ? resolveWhmcsUser($pdo, $username) : ['client_id'=>null, 'username'=>null];
-    $clientId = $resolved['client_id'];
+    $resolved = $username !== '' ? resolveWhmcsUser($pdo, $username, $profile) : ['client_id'=>null, 'username'=>null];
+    // If ambiguous / not found, use 0 as sentinel to satisfy NOT NULL schema
+    $clientId = $resolved['client_id'] ?? 0;
     $usernameCanonical = $resolved['username'] ?? ($username !== '' ? $username : null);
     $friendly = '';
     $os = '';
@@ -193,7 +267,7 @@ function upsertCometDevice(PDO $pdo, string $profile, string $username, string $
 
 function revokeCometDevice(PDO $pdo, string $profile, string $username, string $hash): void {
     try {
-        $resolved = $username !== '' ? resolveWhmcsUser($pdo, $username) : ['client_id'=>null, 'username'=>null];
+        $resolved = $username !== '' ? resolveWhmcsUser($pdo, $username, $profile) : ['client_id'=>null, 'username'=>null];
         $usernameCanonical = $resolved['username'] ?? ($username !== '' ? $username : null);
         $stmt = $pdo->prepare("UPDATE comet_devices SET is_active=0, updated_at=NOW(), revoked_at=NOW(), username=COALESCE(username, :username) WHERE hash=:hash");
         $stmt->execute([':hash' => $hash, ':username' => $usernameCanonical]);
@@ -207,7 +281,7 @@ function upsertCometJobStart(PDO $pdo, string $profile, array $data): void {
     try {
         $jobId   = (string)($data['GUID'] ?? ''); if ($jobId==='') return;
         $user    = (string)($data['Username'] ?? '');
-        $clientId = $user !== '' ? (getClientIdForUsername($pdo, $user) ?? 0) : 0;
+        $clientId = $user !== '' ? (getClientIdForUsername($pdo, $user, $profile) ?? 0) : 0;
         if ($clientId <= 0) return;
         $devId  = (string)($data['DeviceID'] ?? '');
         $vault  = (string)($data['DestinationGUID'] ?? '');
@@ -250,7 +324,7 @@ function upsertCometJobComplete(PDO $pdo, string $profile, array $data): void {
     try {
         $jobId = (string)($data['GUID'] ?? ''); if ($jobId==='') return;
         $user  = (string)($data['Username'] ?? '');
-        $clientId = $user !== '' ? (getClientIdForUsername($pdo, $user) ?? 0) : 0;
+        $clientId = $user !== '' ? (getClientIdForUsername($pdo, $user, $profile) ?? 0) : 0;
         if ($clientId <= 0) return;
         $devId  = (string)($data['DeviceID'] ?? '');
         $vault  = (string)($data['DestinationGUID'] ?? '');
@@ -378,7 +452,7 @@ function asArray($maybeObject): array {
 
 function syncUserProtectedItems(PDO $pdo, string $profile, string $username): void {
     if ($username === '') return;
-    $resolved = resolveWhmcsUser($pdo, $username);
+    $resolved = resolveWhmcsUser($pdo, $username, $profile);
     $clientId = $resolved['client_id'];
     $usernameCanonical = $resolved['username'] ?? $username;
     if ($clientId === null) {
@@ -491,7 +565,7 @@ function syncUserVaults(PDO $pdo, string $profile, string $username): void {
     if ($username === '') return;
 
     // Look up WHMCS client (same as items sync)
-    $resolved = resolveWhmcsUser($pdo, $username);
+    $resolved = resolveWhmcsUser($pdo, $username, $profile);
     $clientId = $resolved['client_id'];
     $usernameCanonical = $resolved['username'] ?? $username;
     if ($clientId === null) {
@@ -638,7 +712,7 @@ function syncUserVaults(PDO $pdo, string $profile, string $username): void {
 function syncUserDevices(PDO $pdo, string $profile, string $username): void {
     if ($username === '') return;
 
-    $resolved = resolveWhmcsUser($pdo, $username);
+    $resolved = resolveWhmcsUser($pdo, $username, $profile);
     $clientId = $resolved['client_id'];
     if ($clientId === null) {
         if (EB_DB_DEBUG) logLine($profile, "Devices: no client for username={$username} (will upsert with NULL client_id)");
@@ -828,14 +902,17 @@ function handleEvent(PDO $pdo, string $profile, array $evt): void {
 
     if ($lab === 'SEVT_DEVICE_NEW') {
         if ($resourceId !== '') {
-            if (EB_WS_DEBUG) logLine($profile, "DEVICE NEW actor={$actor} hash={$resourceId}");
+            if (EB_WS_DEBUG) logLine($profile, "DEVICE NEW user={$username} actor={$actor} hash={$resourceId}");
             $payload = is_array($data) ? $data : [];
-            upsertCometDevice($pdo, $profile, $actor, $resourceId, $payload);
+            // Prefer the target account's Username over Actor (Actor may be an admin)
+            $who = $username !== '' ? $username : $actor;
+            upsertCometDevice($pdo, $profile, $who, $resourceId, $payload);
         }
     } elseif ($lab === 'SEVT_DEVICE_REMOVED') {
         if ($resourceId !== '') {
-            if (EB_WS_DEBUG) logLine($profile, "DEVICE REMOVED actor={$actor} hash={$resourceId}");
-            revokeCometDevice($pdo, $profile, $actor, $resourceId);
+            if (EB_WS_DEBUG) logLine($profile, "DEVICE REMOVED user={$username} actor={$actor} hash={$resourceId}");
+            $who = $username !== '' ? $username : $actor;
+            revokeCometDevice($pdo, $profile, $who, $resourceId);
         }
     } elseif ($lab === 'SEVT_DEVICE_UPDATED') {
         // Refresh devices for the owning user when device metadata changes (e.g., FriendlyName)

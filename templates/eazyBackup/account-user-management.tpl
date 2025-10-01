@@ -224,3 +224,33 @@
 
     </div>
 </div>
+
+<script>
+    jQuery(document).ready(function() {
+        jQuery('input:radio[name=permissions]').change(function () {
+            if (this.value === 'choose') {
+                jQuery('#invitePermissions').slideDown();
+            } else {
+                jQuery('#invitePermissions').slideUp();
+            }
+        });
+        jQuery('.btn-manage-permissions').click(function(e) {
+            if (jQuery(this).attr('disabled')) {
+                e.preventDefault();
+            }
+        });
+        jQuery('.btn-remove-user').click(function(e) {
+            e.preventDefault();
+            if (jQuery(this).attr('disabled')) {
+                return;
+            }
+            jQuery('#inputRemoveUserId').val(jQuery(this).data('id'));
+            jQuery('#modalRemoveUser').modal('show');
+        });
+        jQuery('.btn-cancel-invite').click(function(e) {
+            e.preventDefault();
+            jQuery('#inputCancelInviteId').val(jQuery(this).data('id'));
+            jQuery('#modalCancelInvite').modal('show');
+        });
+    });
+</script>

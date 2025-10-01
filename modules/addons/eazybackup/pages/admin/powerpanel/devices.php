@@ -36,12 +36,12 @@ $orderByExpr = $sortMap[$sort] ?? $sortMap['username'];
 // Base SQL: roll up devices by username (active, not revoked), map to WHMCS service and product
 $sqlBase = "
 	FROM (
-		SELECT username,
+		SELECT BINARY username AS username,
 		       COUNT(*) AS device_count
 			FROM comet_devices
 			WHERE revoked_at IS NULL
 			  AND username IS NOT NULL AND username <> ''
-		GROUP BY username
+		GROUP BY BINARY username
 	) v
 		JOIN tblhosting h
 		  ON BINARY h.username = v.username AND h.domainstatus = 'Active'

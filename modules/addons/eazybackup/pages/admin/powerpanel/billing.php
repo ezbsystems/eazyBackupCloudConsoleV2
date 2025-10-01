@@ -25,7 +25,7 @@ return (function () {
 	$sort           = isset($req['sort']) ? (string)$req['sort'] : 'username';
 	$dir            = strtolower((string)($req['dir'] ?? 'asc')) === 'desc' ? 'DESC' : 'ASC';
 	$page           = max(1, (int)($req['page'] ?? 1));
-	$perPage        = max(1, min(250, (int)($req['perPage'] ?? 25)));
+	$perPage        = max(1, min(2000, (int)($req['perPage'] ?? 25)));
 
 	$sortMap = [
 		'product'        => 'p.name',
@@ -58,11 +58,11 @@ return (function () {
 	$sqlBase = "
 		FROM (
 			SELECT username FROM (
-				SELECT username FROM comet_vaults WHERE type IN (1000,1003,1005,1007,1008) AND is_active = 1 AND username IS NOT NULL AND username<>'' GROUP BY username
+				SELECT BINARY username AS username FROM comet_vaults WHERE type IN (1000,1003,1005,1007,1008) AND is_active = 1 AND username IS NOT NULL AND username<>'' GROUP BY BINARY username
 				UNION
-				SELECT username FROM comet_devices WHERE revoked_at IS NULL AND username IS NOT NULL AND username<>'' GROUP BY username
+				SELECT BINARY username AS username FROM comet_devices WHERE revoked_at IS NULL AND username IS NOT NULL AND username<>'' GROUP BY BINARY username
 				UNION
-				SELECT username FROM comet_items   WHERE username IS NOT NULL AND username<>'' GROUP BY username
+				SELECT BINARY username AS username FROM comet_items   WHERE username IS NOT NULL AND username<>'' GROUP BY BINARY username
 			) uu
 		) u
 		JOIN tblhosting h ON BINARY h.username = u.username AND h.domainstatus = 'Active'
@@ -71,22 +71,22 @@ return (function () {
 			SELECT username, SUM(total_bytes) AS total_bytes
 			FROM comet_vaults
 			WHERE type IN (1000,1003,1005,1007,1008) AND is_active = 1 AND username IS NOT NULL AND username<>''
-			GROUP BY username
-		) v ON v.username = u.username
+			GROUP BY BINARY username
+		) v ON BINARY v.username = u.username
 		LEFT JOIN (
 			SELECT username, COUNT(*) AS device_count
 			FROM comet_devices
 			WHERE revoked_at IS NULL AND username IS NOT NULL AND username<>''
-			GROUP BY username
-		) d ON d.username = u.username
+			GROUP BY BINARY username
+		) d ON BINARY d.username = u.username
 		LEFT JOIN (
 			SELECT username,
 			       SUM(CASE WHEN type='engine1/windisk'         THEN 1 ELSE 0 END) AS di_count,
 			       SUM(CASE WHEN type='engine1/winmsofficemail' THEN 1 ELSE 0 END) AS m365_count
 			FROM comet_items
 			WHERE username IS NOT NULL AND username<>''
-			GROUP BY username
-		) i ON i.username = u.username
+			GROUP BY BINARY username
+		) i ON BINARY i.username = u.username
 		LEFT JOIN (
 			-- Per protected item (Hyper-V), take the greater of LastBackupJob vs LastSuccessfulBackupJob
 			-- within the billing window; also consider the latest successful job in comet_jobs within window,
@@ -120,23 +120,42 @@ return (function () {
 				JOIN comet_jobs j2
 				  ON j2.username = latest.username AND j2.comet_item_id = latest.comet_item_id AND j2.ended_at = latest.ended_at
 				JOIN comet_items ci ON ci.id = j2.comet_item_id AND ci.type='engine1/hyperv'
-			) j ON j.username = i.username AND j.comet_item_id = i.comet_item_id
-			GROUP BY i.username
-		) hv ON hv.username = u.username
+			) j ON BINARY j.username = i.username AND j.comet_item_id = i.comet_item_id
+			GROUP BY BINARY i.username
+		) hv ON BINARY hv.username = u.username
 		LEFT JOIN (
-			SELECT j2.username,
-			       SUM(COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(j2.content,'$.TotalVmCount')) AS UNSIGNED),0)) AS vmw_count
+			SELECT i.username,
+			       SUM(GREATEST(COALESCE(j.jobs_vmcount,0), COALESCE(i.items_vmcount,0))) AS vmw_count
 			FROM (
-				SELECT username, comet_item_id, MAX(ended_at) AS ended_at
-				FROM comet_jobs
-				WHERE status = 5000 AND ended_at >= :vmwStart AND ended_at < :vmwEnd
-				GROUP BY username, comet_item_id
-			) latest
-			JOIN comet_jobs j2
-			  ON j2.username = latest.username AND j2.comet_item_id = latest.comet_item_id AND j2.ended_at = latest.ended_at
-			JOIN comet_items ci ON ci.id = j2.comet_item_id AND ci.type='engine1/vmware'
-			GROUP BY j2.username
-		) vmw ON vmw.username = u.username
+				SELECT ci.username, ci.id AS comet_item_id,
+				       GREATEST(
+				         CASE WHEN CAST(JSON_UNQUOTE(JSON_EXTRACT(ci.content,'$.Statistics.LastSuccessfulBackupJob.EndTime')) AS UNSIGNED)
+				                    BETWEEN UNIX_TIMESTAMP(:vmwStartItems1) AND UNIX_TIMESTAMP(:vmwEndItems1)-1
+				              THEN COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(ci.content,'$.Statistics.LastSuccessfulBackupJob.TotalVmCount')) AS UNSIGNED),0)
+				              ELSE 0 END,
+				         CASE WHEN CAST(JSON_UNQUOTE(JSON_EXTRACT(ci.content,'$.Statistics.LastBackupJob.EndTime')) AS UNSIGNED)
+				                    BETWEEN UNIX_TIMESTAMP(:vmwStartItems2) AND UNIX_TIMESTAMP(:vmwEndItems2)-1
+				              THEN COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(ci.content,'$.Statistics.LastBackupJob.TotalVmCount')) AS UNSIGNED),0)
+				              ELSE 0 END
+				       ) AS items_vmcount
+				FROM comet_items ci
+				WHERE ci.type='engine1/vmware' AND ci.username IS NOT NULL AND ci.username<>''
+			) i
+			LEFT JOIN (
+				SELECT j2.username, j2.comet_item_id,
+				       COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(j2.content,'$.TotalVmCount')) AS UNSIGNED),0) AS jobs_vmcount
+				FROM (
+					SELECT username, comet_item_id, MAX(ended_at) AS ended_at
+					FROM comet_jobs
+					WHERE status = 5000 AND ended_at >= :vmwStartJobs AND ended_at < :vmwEndJobs
+					GROUP BY username, comet_item_id
+				) latest
+				JOIN comet_jobs j2
+				  ON j2.username = latest.username AND j2.comet_item_id = latest.comet_item_id AND j2.ended_at = latest.ended_at
+				JOIN comet_items ci ON ci.id = j2.comet_item_id AND ci.type='engine1/vmware'
+			) j ON BINARY j.username = i.username AND j.comet_item_id = i.comet_item_id
+			GROUP BY BINARY i.username
+		) vmw ON BINARY vmw.username = u.username
 		LEFT JOIN (
 			SELECT hco.relid AS service_id,
 			       SUM(CASE WHEN hco.configid IN (61,67)  THEN hco.qty ELSE 0 END) AS storage_units,
@@ -152,8 +171,6 @@ return (function () {
 
 $where = [];
 $params = [
-    'vmwStart' => $startSql,
-    'vmwEnd' => $endSql,
     // split params for items JSON paths and job subqueries to avoid duplicate named placeholders collision in drivers
     'hvStartItems1' => $startSql,
     'hvEndItems1' => $endSql,
@@ -161,17 +178,27 @@ $params = [
     'hvEndItems2' => $endSql,
     'hvStartJobs' => $startSql,
     'hvEndJobs' => $endSql,
+    'vmwStartItems1' => $startSql,
+    'vmwEndItems1' => $endSql,
+    'vmwStartItems2' => $startSql,
+    'vmwEndItems2' => $endSql,
+    'vmwStartJobs' => $startSql,
+    'vmwEndJobs' => $endSql,
 ];
 // Base params used by queries that only reference $sqlBase (and not $whereSql)
 $baseParams = [
-    'vmwStart' => $startSql,
-    'vmwEnd' => $endSql,
     'hvStartItems1' => $startSql,
     'hvEndItems1' => $endSql,
     'hvStartItems2' => $startSql,
     'hvEndItems2' => $endSql,
     'hvStartJobs' => $startSql,
     'hvEndJobs' => $endSql,
+    'vmwStartItems1' => $startSql,
+    'vmwEndItems1' => $endSql,
+    'vmwStartItems2' => $startSql,
+    'vmwEndItems2' => $endSql,
+    'vmwStartJobs' => $startSql,
+    'vmwEndJobs' => $endSql,
 ];
 // Only active services
 $where[] = "h.domainstatus = 'Active'";

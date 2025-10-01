@@ -1696,7 +1696,7 @@ function eazybackup_output($vars)
                       . '<div class="form-group" style="margin-right:15px;margin-bottom:10px">'
                       . '<label for="perPage" class="mr-2">Per Page</label>'
                       . '<select id="perPage" class="form-control" name="perPage">';
-                foreach ([25,50,100,250] as $pp) {
+                foreach ([25,50,100,250,2000] as $pp) {
                     $sel = ($perPage === $pp) ? ' selected' : '';
                     $html .= '<option value="' . $pp . '"' . $sel . '>' . $pp . '</option>';
                 }
@@ -1803,7 +1803,7 @@ function eazybackup_output($vars)
                       . '<div class="form-group" style="margin-right:15px;margin-bottom:10px">'
                       . '<label for="perPage" class="mr-2">Per Page</label>'
                       . '<select id="perPage" class="form-control" name="perPage">';
-                foreach ([25,50,100,250] as $pp) {
+                foreach ([25,50,100,250,2000] as $pp) {
                     $sel = ($perPage === $pp) ? ' selected' : '';
                     $html .= '<option value="' . $pp . '"' . $sel . '>' . $pp . '</option>';
                 }
@@ -1968,7 +1968,7 @@ function eazybackup_output($vars)
                       . '<div class="form-group" style="margin-right:15px;margin-bottom:10px">'
                       . '<label for="perPage" class="mr-2">Per Page</label>'
                       . '<select id="perPage" class="form-control" name="perPage">';
-                foreach ([25,50,100,250] as $pp) {
+                foreach ([25,50,100,250,2000] as $pp) {
                     $sel = ($perPage === $pp) ? ' selected' : '';
                     $html .= '<option value="' . $pp . '"' . $sel . '>' . $pp . '</option>';
                 }
@@ -2073,7 +2073,7 @@ function eazybackup_output($vars)
                       . '<div class="form-group" style="margin-right:15px;margin-bottom:10px">'
                       . '<label for="perPage" class="mr-2">Per Page</label>'
                       . '<select id="perPage" class="form-control" name="perPage">';
-                foreach ([25,50,100,250] as $pp) {
+                foreach ([25,50,100,250,2000] as $pp) {
                     $sel = ($perPage === $pp) ? ' selected' : '';
                     $html .= '<option value="' . $pp . '"' . $sel . '>' . $pp . '</option>';
                 }

@@ -42,14 +42,14 @@ $orderByExpr = $sortMap[$sort] ?? $sortMap['username'];
 // Base SQL: pivot protected item counts by engine per username; join to service and product; left join billing per service
 $sqlBase = "
 	FROM (
-		SELECT username,
+		SELECT BINARY username AS username,
 		       SUM(CASE WHEN type = 'engine1/hyperv'          THEN 1 ELSE 0 END) AS hv_count,
 		       SUM(CASE WHEN type = 'engine1/windisk'         THEN 1 ELSE 0 END) AS di_count,
 		       SUM(CASE WHEN type = 'engine1/winmsofficemail' THEN 1 ELSE 0 END) AS m365_count,
 		       SUM(CASE WHEN type = 'engine1/vmware'          THEN 1 ELSE 0 END) AS vmw_count
 		FROM comet_items
 		WHERE username IS NOT NULL AND username <> ''
-		GROUP BY username
+		GROUP BY BINARY username
 	) i
 		JOIN tblhosting h
 		  ON BINARY h.username = i.username AND h.domainstatus = 'Active'
