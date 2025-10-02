@@ -521,9 +521,16 @@ function syncUserProtectedItems(PDO $pdo, string $profile, string $username): vo
             $sql = "INSERT INTO comet_items (id, client_id, username, content, comet_device_id, owner_device, name, type, total_bytes, total_files, total_directories, created_at, updated_at)
                     VALUES (:id, :client_id, :username, :content, :comet_device_id, :owner_device, :name, :type, :total_bytes, :total_files, :total_directories, :created_at, :updated_at)
                     ON DUPLICATE KEY UPDATE
+                      updated_at=IF(VALUES(updated_at) > updated_at,
+                                     VALUES(updated_at),
+                                     IF(VALUES(name) <> name OR VALUES(type) <> type OR VALUES(owner_device) <> owner_device OR
+                                        VALUES(total_bytes) <> total_bytes OR VALUES(total_files) <> total_files OR VALUES(total_directories) <> total_directories OR
+                                        VALUES(content) <> content,
+                                        NOW(),
+                                        updated_at)),
                       client_id=VALUES(client_id), username=VALUES(username), content=VALUES(content), comet_device_id=VALUES(comet_device_id), owner_device=VALUES(owner_device),
                       name=VALUES(name), type=VALUES(type), total_bytes=VALUES(total_bytes), total_files=VALUES(total_files),
-                      total_directories=VALUES(total_directories), updated_at=VALUES(updated_at)";
+                      total_directories=VALUES(total_directories)";
             $stmt = $pdo->prepare($sql);
             $stmt->execute([
                 ':id' => $protectedItem['id'],

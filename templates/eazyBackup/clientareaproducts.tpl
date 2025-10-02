@@ -72,7 +72,33 @@
               delay: [100, 50],
               // you can tweak other options here
             });
+            
+            // Initialize Alpine.js for the global loader
+            if (typeof Alpine !== 'undefined') {
+              Alpine.start();
+            }
           });
+          
+          // Global loader helper functions for backward compatibility
+          window.showGlobalLoader = function() {
+            const loader = document.getElementById('global-loader');
+            if (loader && loader.__x) {
+              loader.__x.$data.show = true;
+            } else if (loader) {
+              // Fallback if Alpine.js isn't ready
+              loader.style.display = 'flex';
+            }
+          };
+          
+          window.hideGlobalLoader = function() {
+            const loader = document.getElementById('global-loader');
+            if (loader && loader.__x) {
+              loader.__x.$data.show = false;
+            } else if (loader) {
+              // Fallback if Alpine.js isn't ready
+              loader.style.display = 'none';
+            }
+          };
         </script>
         {/literal}
 
@@ -80,7 +106,7 @@
 
 
 <!-- Container for top heading + nav -->
-<div class="min-h-screen bg-gray-700 text-gray-300">
+<div class="min-h-screen bg-gray-700 text-gray-300 max-w-full">
     <div class="container mx-auto px-4 pb-8">
         <div class="flex flex-col sm:flex-row h-16 justify-between items-start sm:items-center px-2">
             <!-- Navigation Horizontal -->
@@ -90,15 +116,23 @@
                 </svg>                            
                 <h2 class="text-2xl font-semibold text-white">My Services</h2>
             </div>
+            <div class="shrink-0">
+                <a href="modules/servers/comet/ajax/export_usage.php" class="inline-flex items-center px-3 py-2 text-sm bg-sky-600 hover:bg-sky-700 text-gray-100 rounded border border-sky-700">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M3 3a1 1 0 011-1h8a1 1 0 011 1v3h-2V4H5v12h6v-2h2v3a1 1 0 01-1 1H4a1 1 0 01-1-1V3zm11.293 6.293a1 1 0 011.414 0L19 12.586l-1.414 1.414L16 12.414V17h-2v-4.586l-1.586 1.586L11 12.586l3.293-3.293z" clip-rule="evenodd" />
+                    </svg>
+                    Export Usage (CSV)
+                </a>
+            </div>
         </div>
-        <div class="main-section-header-tabs rounded-t-md border-b border-gray-600 bg-gray-800 pt-4 px-2">
+        <div class="main-section-header-tabs rounded-t-md border-b border-gray-600 bg-gray-800 pt-4 px-2 md:px-4">
             <ul class="flex space-x-4 border-b border-gray-700">
                 <!-- Backup Services Tab -->
                 <li class="-mb-px mr-1">
                     <a 
                         href="{$WEB_ROOT}/clientarea.php?action=services" 
                         class="inline-flex items-center px-2 py-2 font-medium text-gray-300
-                            {if $smarty.get.action eq 'services' || !$smarty.get.m}
+                            {if ($smarty.get.action eq 'services' || !$smarty.get.m) && $smarty.get.tab ne 'billing'}
                                 border-b-2 border-sky-600 text-sm
                             {else}
                                 border-transparent text-sm hover:border-gray-300
@@ -153,12 +187,32 @@
                         e3 Cloud Storage
                     </a>
                 </li>
+                <!-- Billing Report Tab -->
+                <li class="mr-1">
+                    <a 
+                        href="{$WEB_ROOT}/clientarea.php?action=services&tab=billing" 
+                        class="inline-flex items-center px-2 py-2 font-medium text-gray-300
+                            {if $smarty.get.tab eq 'billing'}
+                                border-b-2 border-sky-600 text-sm
+                            {else}
+                                border-transparent text-sm hover:border-gray-300
+                            {/if}"
+                        data-tab="tab-billing"
+                    >               
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                            stroke="currentColor"
+                            class="size-5 mr-1 {if $smarty.get.tab eq 'billing'}text-sky-600{else}text-gray-500{/if}">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 4.5V12m0 0V7.5m0 4.5h4.5m-4.5 0H7.5" />
+                        </svg>
+                        Billing Report
+                    </a>
+                </li>
             </ul>
         </div>
 
 
 
-        <div class="bg-gray-800 shadow rounded-b-md p-4 mb-4">
+        <div id="services-wrapper" class="bg-gray-800 shadow rounded-b-md p-4 mb-4">
             <div class="table-container clearfix">                
                 <div class="header-lined mb-4"></div>
                 <div id="successMessage" 
@@ -276,14 +330,279 @@
                     </div>
                     <div class="text-center mt-4" id="tableLoading"></div>
                     <div class="extra_details mt-4">
-                        <div class="myloader hidden">
-                            <p class="flex items-center justify-center text-gray-300">
-                                <i class="fas fa-spinner fa-spin mr-2 text-color-gray-400"></i> {$LANG.loading}
-                            </p>
+                        <!-- Modern Global Loader - Consistent with app design -->
+                        <div id="global-loader" 
+                             x-data="{ show: false }"
+                             x-show="show"
+                             x-transition:enter="transition ease-out duration-300"
+                             x-transition:enter-start="opacity-0"
+                             x-transition:enter-end="opacity-100"
+                             x-transition:leave="transition ease-in duration-200"
+                             x-transition:leave-start="opacity-100"
+                             x-transition:leave-end="opacity-0"
+                             class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+                             style="display: none;">
+                            
+                            <!-- Consistent Loader Content -->
+                            <div class="flex flex-col items-center gap-3 px-6 py-4 rounded-lg border border-slate-700 bg-slate-900/90 shadow-xl">
+                                <span class="inline-flex h-10 w-10 rounded-full border-2 border-sky-500 border-t-transparent animate-spin"></span>
+                                <div class="text-slate-200 text-sm">Loading...</div>
+                            </div>
                         </div>
                     </div>                
                 </div>
             </div>
+        </div>
+
+        {* Billing Report Content *}
+        <div class="min-h-screen bg-gray-700 text-gray-300 max-w-full">
+            
+                <div id="billing-report-wrapper" class="bg-gray-800 shadow rounded-b-md p-4 mb-4" style="display:none;">
+                    <div class="flex items-center justify-between mb-3">
+                        <h3 class="text-xl text-white">Billing Report</h3>
+                        <div>
+                            <a href="modules/servers/comet/ajax/export_usage.php" class="inline-flex items-center px-3 py-2 text-sm bg-sky-600 hover:bg-sky-700 text-gray-100 rounded border border-sky-700">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fill-rule="evenodd" d="M3 3a1 1 0 011-1h8a1 1 0 011 1v3h-2V4H5v12h6v-2h2v3a1 1 0 01-1 1H4a1 1 0 01-1-1V3zm11.293 6.293a1 1 0 011.414 0L19 12.586l-1.414 1.414L16 12.414V17h-2v-4.586l-1.586 1.586L11 12.586l3.293-3.293z" clip-rule="evenodd" />
+                                </svg>
+                                Export Usage (CSV)
+                            </a>
+                        </div>
+                    </div>
+
+                    
+
+ {literal}
+ <style>
+   /* Keep DataTables scroll containers inside the viewport */
+   #billing-report-wrapper,
+   #billing-report-wrapper .dataTables_wrapper,
+   #billing-report-wrapper .dataTables_scroll,
+   #billing-report-wrapper .dataTables_scrollHead,
+   #billing-report-wrapper .dataTables_scrollBody {
+     max-width: 100% !important;
+   }
+   /* Let the scroll head match the wrapper width instead of an inline fixed px width */
+   #billing-report-wrapper .dataTables_scrollHeadInner,
+   #billing-report-wrapper .dataTables_scrollHeadInner table {
+     width: 100% !important;
+   }
+   /* Ensure the table itself doesn't force a larger layout than the wrapper;
+      the scrollBody will provide horizontal scroll for overflow content. */
+   #billing-report-wrapper #tableBillingReport {
+     width: 100% !important;
+   }
+   /* Header pointer and cell padding */
+   #tableBillingReport thead th { cursor: pointer; }
+   #tableBillingReport thead th,
+   #tableBillingReport tbody td { padding: 0.75rem 1rem; }
+   #tableBillingReport tbody tr { border-bottom: 1px solid rgba(55,65,81,0.6); }
+   #tableBillingReport tbody td { color: #d1d5db; }
+   /* Make the header/toolbars wrap cleanly on medium viewports (1024-1279px) */
+   @media (min-width: 1024px) and (max-width: 1279px) {
+     .billing-toolbar {
+       flex-wrap: wrap;
+       gap: 0.5rem;
+     }
+     .billing-toolbar > * {
+       min-width: 0;
+     }
+   }
+ </style>
+ {/literal}
+<!-- Alpine controller (placed before markup so x-data can resolve) -->
+<script>
+  window.billingTable = function() {
+    return {
+      showMenu: false,
+      table: null,
+      columns: [],
+      init() {
+        // Only run on Billing tab
+        try {
+          const urlParams = new URLSearchParams(window.location.search);
+          if (urlParams.get('tab') !== 'billing') {
+            return;
+          }
+        } catch(_) {}
+        const tableEl = document.getElementById('tableBillingReport');
+        if (!tableEl) return;
+        if (jQuery.fn.dataTable.isDataTable(tableEl)) {
+          this.table = jQuery(tableEl).DataTable();
+        } else {
+          this.table = jQuery(tableEl).DataTable({
+            paging: true,
+            searching: true,
+            info: false,
+            order: [],
+            autoWidth: false,
+            scrollX: true,
+            language: { lengthMenu: 'Show _MENU_ entries' },
+            drawCallback: function(){
+              try {
+                var $len = $('.dataTables_length select');
+                $len.addClass('px-6 py-1');
+                $('.dataTables_length').addClass('pr-4');
+              } catch(_){ }
+            }
+          });
+        }
+        // Move and style the search filter into our toolbar
+        try {
+          var $wrapper = jQuery(this.table.table().container());
+          var $filter  = $wrapper.find('.dataTables_filter');
+          if ($filter.length) {
+            var $input = $filter.find('input')
+              .attr('placeholder', 'Search')
+              .addClass('px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600')
+              .css('border', '1px solid #4b5563');
+            var $controls = jQuery('<div class="flex items-center w-full mb-2"></div>')
+              .append(jQuery('<div class="mr-auto flex items-center"></div>').append($input.detach()));
+            jQuery('#billingFilterContainer').empty().append($controls);
+            $filter.remove();
+          }
+        } catch(_) {}
+        // Load data once per render
+        try { window.showGlobalLoader && window.showGlobalLoader(); } catch(_){}
+        fetch('modules/servers/comet/ajax/usage_report.php', { credentials: 'same-origin' })
+          .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+          .then(rows => {
+            this.table.clear();
+            this.table.rows.add(rows).draw();
+          })
+          .catch(err => {
+            console.error('Billing report load failed', err);
+            try { window.displayMessage && window.displayMessage('#errorMessage', 'Failed to load Billing Report. Please try again.', 'error'); } catch(_){}
+          })
+          .finally(() => { try { window.hideGlobalLoader && window.hideGlobalLoader(); } catch(_){} });
+        const api = this.table;
+        api.columns().every(function(idx) {
+          const header = jQuery(api.column(idx).header()).text().trim();
+          const visible = api.column(idx).visible();
+          if (!window.__billingCols || !Array.isArray(window.__billingCols)) window.__billingCols = [];
+          window.__billingCols[idx] = { idx, label: header, visible };
+        });
+        this.columns = (window.__billingCols || []).filter(c => c !== undefined);
+        const thead = tableEl.querySelector('thead');
+        if (thead && !thead.dataset.dtBound) { thead.dataset.dtBound = '1';
+          thead.addEventListener('click', (e) => {
+            const th = e.target.closest('th');
+            if (!th) return;
+            const idx = Array.from(th.parentElement.children).indexOf(th);
+            const current = api.order();
+            let dir = 'asc';
+            if (current.length && current[0][0] === idx && current[0][1] === 'asc') dir = 'desc';
+            api.order([idx, dir]).draw();
+          });
+          thead.querySelectorAll('th').forEach(th => th.classList.add('cursor-pointer'));
+        }
+      },
+      toggle(idx) {
+        if (!this.table) return;
+        const col = this.table.column(idx);
+        const newState = !col.visible();
+        col.visible(newState);
+        const found = this.columns.find(c => c.idx === idx);
+        if (found) found.visible = newState;
+      }
+    };
+  };
+</script>
+<!-- Billing Report: Alpine + DataTables with horizontal scroll and column toggles -->
+<div x-data="billingTable()" x-init="init()" class="w-full px-2 md:px-0">
+  <div class="flex items-center justify-between mb-2">
+    <div id="billingFilterContainer" class="flex items-center"></div>
+    <!-- Column toggle menu -->
+    <div class="relative" @keydown.escape="showMenu=false">
+      <button type="button"
+              class="px-3 py-2 text-sm rounded-md bg-gray-700 text-gray-200 hover:bg-gray-600"
+              @click="showMenu=!showMenu" aria-haspopup="true" :aria-expanded="showMenu">
+        Columns
+      </button>
+      <div x-show="showMenu" x-transition
+           class="absolute right-0 mt-2 w-64 max-h-64 overflow-auto rounded-md shadow-lg bg-gray-800 ring-1 ring-black ring-opacity-5 z-50"
+           @click.outside="showMenu=false">
+        <div class="p-2 text-sm text-gray-200">
+          <template x-for="col in columns" :key="col.idx">
+            <label class="flex items-center justify-between py-1 px-2 hover:bg-gray-700 rounded cursor-pointer">
+              <span class="pr-2 truncate" x-text="col.label || ('Column ' + col.idx)"></span>
+              <input type="checkbox" class="h-4 w-4"
+                     :checked="col.visible"
+                     @change="toggle(col.idx)">
+            </label>
+          </template>
+        </div>
+      </div>
+    </div>
+  </div>
+
+   <!-- Horizontal scroll container -->
+   <div id="billing-report-scroll" class="w-full max-w-full overflow-x-auto">
+    <!-- Keep table markup as-is; DataTables will enhance and provide sorting -->
+                        <table id="tableBillingReport" class="min-w-full">
+                            <thead class="border-b border-gray-600">
+                                <tr>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Username</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Storage Usage</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Storage Purchased (TB)</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Storage Unit</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Storage Total</th>
+
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Device Usage</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Device Purchased</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Device Unit</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Device Total</th>
+
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">eazyBackup Server Usage</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">eazyBackup Server Purchased</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">eazyBackup Server Unit</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">eazyBackup Server Total</th>
+
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">OBC Server Usage</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">OBC Server Purchased</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">OBC Server Unit</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">OBC Server Total</th>
+
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Disk Image Usage</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Disk Image Purchased</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Disk Image Unit</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Disk Image Total</th>
+
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Hyper-V Usage</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Hyper-V Purchased</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Hyper-V Unit</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Hyper-V Total</th>
+
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">VMware Usage</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">VMware Purchased</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">VMware Unit</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">VMware Total</th>
+
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">M365 Usage</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">M365 Purchased</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">M365 Unit</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">M365 Total</th>
+
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Proxmox Usage</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Proxmox Purchased</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Proxmox Unit</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Proxmox Total</th>
+
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Recurring Amount</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Plan</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Next Due Date</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-gray-800"></tbody>
+                        </table>
+  </div>
+</div>
+
+<!-- Alpine + DataTables controller moved above to ensure availability -->
+
+                    </div>
+                </div>
+            </div>    
         </div>
     </div>
 </div>
@@ -317,6 +636,29 @@
         </form>
     </div>
 </div>
+
+
+
+{literal}
+<script>
+document.addEventListener('DOMContentLoaded', function(){
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get('tab') === 'billing') {
+    try {
+      var servicesWrapper = document.getElementById('services-wrapper');
+      var billingWrapper  = document.getElementById('billing-report-wrapper');
+      if (servicesWrapper) servicesWrapper.style.display = 'none';
+      if (billingWrapper)  billingWrapper.style.display  = 'block';
+    } catch(_){}
+    // DataTable initialisation handled inside Alpine init to prevent reinit warning
+
+    // Search filter styling handled inside Alpine init
+
+    // Fetch moved into Alpine controller to avoid double-init
+  }
+});
+</script>
+{/literal}
 
 
 <!-- RENAME DEVICE MODAL -->

@@ -407,6 +407,73 @@ function getProductCustomFields($productId)
         ->get();
 }
 
+if (!function_exists('fetchDistinctDiskImageDevicesMaps')) {
+    /**
+     * Returns two maps:
+     *  - byCU: [client_id][username] => distinct devices with ≥1 windisk item (active devices only)
+     *  - byC:  [client_id]           => distinct devices with ≥1 windisk item (active devices only)
+     */
+    function fetchDistinctDiskImageDevicesMaps(array $rows): array {
+        if (empty($rows)) return ['byCU' => [], 'byC' => []];
+
+        $clientIds = [];
+        $usernames = [];
+        foreach ($rows as $r) {
+            if (isset($r['user_id']))   { $clientIds[(int)$r['user_id']] = true; }
+            if (isset($r['username']))  { $usernames[(string)$r['username']] = true; }
+        }
+        $clientIds = array_keys($clientIds);
+        $usernames = array_keys($usernames);
+
+        // Base builder with left join to items
+        $base = Capsule::table('comet_devices as cd')
+            ->leftJoin('comet_items as ci', 'ci.comet_device_id', '=', 'cd.id')
+            ->where('cd.is_active', 1);
+
+        // 1) Map by (client_id, username)
+        $q1 = (clone $base)
+            ->whereIn('cd.client_id', $clientIds)
+            ->whereIn('cd.username', $usernames)
+            ->selectRaw("
+                cd.client_id,
+                cd.username,
+                COUNT(DISTINCT CASE
+                    WHEN (ci.id IS NOT NULL AND (ci.type = 'engine1/windisk'
+                         OR JSON_EXTRACT(ci.content, '$.Engine') = 'engine1/windisk'))
+                    THEN cd.id END
+                ) AS di_devices_distinct
+            ")
+            ->groupBy('cd.client_id', 'cd.username')
+            ->get();
+
+        $byCU = [];
+        foreach ($q1 as $row) {
+            $byCU[(int)$row->client_id][(string)$row->username] = (int)$row->di_devices_distinct;
+        }
+
+        // 2) Map by client_id only (fallback when username key misses)
+        $q2 = (clone $base)
+            ->whereIn('cd.client_id', $clientIds)
+            ->selectRaw("
+                cd.client_id,
+                COUNT(DISTINCT CASE
+                    WHEN (ci.id IS NOT NULL AND (ci.type = 'engine1/windisk'
+                         OR JSON_EXTRACT(ci.content, '$.Engine') = 'engine1/windisk'))
+                    THEN cd.id END
+                ) AS di_devices_distinct
+            ")
+            ->groupBy('cd.client_id')
+            ->get();
+
+        $byC = [];
+        foreach ($q2 as $row) {
+            $byC[(int)$row->client_id] = (int)$row->di_devices_distinct;
+        }
+
+        return ['byCU' => $byCU, 'byC' => $byC];
+    }
+}
+
 // decrypt password function for the comet management console product
 function decryptPassword($serviceId)
 {
@@ -1722,6 +1789,10 @@ function eazybackup_output($vars)
                       . '<th class="text-right">Adjustment</th>'
                       . '</tr></thead><tbody>';
                 if (!empty($rows)) {
+                    $maps = fetchDistinctDiskImageDevicesMaps($rows);
+                    $diMapByCU = $maps['byCU'];
+                    $diMapByC  = $maps['byC'];
+
                     foreach ($rows as $r) {
                         // Compute expected billed units using TiB (2^40) thresholds, min 1
                         $tbDivisor = pow(1024, 4); // 1 TiB
@@ -1829,10 +1900,13 @@ function eazybackup_output($vars)
                       . '<th class="text-right">Adjustment</th>'
                       . '</tr></thead><tbody>';
                 if (!empty($rows)) {
+                    $diMap = fetchDistinctDiskImageDevicesMap($rows);
                     foreach ($rows as $r) {
                         $devices = (int)$r['device_count'];
                         $billed  = (int)$r['billed_units'];
                         $productId = (int)$r['product_id'];
+                        $diDevicesDistinct = (int)($diMap[(int)$r['user_id']][(string)$r['username']] ?? 0);
+                        $diCountBilled     = min($devices, $diDevicesDistinct);
                         
                         // Special handling for Microsoft 365 products (52, 57)
                         // For these packages, a billed value of 0 is expected and should NOT be flagged
@@ -1888,17 +1962,15 @@ function eazybackup_output($vars)
                                 $deviceBillingDisplay = 0;
                             }
                         } else if ($productId === 53 || $productId === 54) {
-                            // 53/54: do not charge devices; if devices>0 show yellow badge on 0 to reduce, else plain 0
-                            if ($billed === 0) {
-                                $deviceBillingDisplay = ($devices > 0)
-                                    ? ('<span class="label label-warning" style="display:inline-block;padding:4px 6px">0</span>')
-                                    : 0;
+                            // Unique products where devices are not charged
+                            if ($deviceUnits === 0) {
+                                $deviceBillingDisplay = 0; // <-- plain zero, no label
                             } else {
-                                $deviceBillingDisplay = ($labelStart ?: '') . (int)$billed . ($labelEnd ?: '');
+                                // If units present, fall back to standard label logic
+                                $deviceBillingDisplay = ($dLabelStart ?: '') . (int)$deviceUnits . ($dLabelEnd ?: '');
                             }
                         } else {
-                            // Standard logic for other products
-                            $deviceBillingDisplay = ($labelStart ?: '') . (int)$billed . ($labelEnd ?: '');
+                            $deviceBillingDisplay = ($dLabelStart ?: '') . (int)$deviceUnits . ($dLabelEnd ?: '');
                         }
                         
                         $html .= '<tr>'
@@ -2004,17 +2076,25 @@ function eazybackup_output($vars)
 
 
                         $html .= '<tr>'
-                              . '<td>' . $e($r['product_name']) . '</td>'
-                              . '<td><a href="' . $e($serviceLink) . '">' . $e($r['username']) . '</a></td>'
-                              . '<td class="text-right">' . (int)$r['hv_count'] . '</td>'
-                              . '<td class="text-right">' . ((($r['hv_count']??0) !== ($r['hv_units']??0)) ? '<span class="label ' . (((int)$r['hv_count'] > (int)$r['hv_units']) ? 'label-danger' : 'label-warning') . '" style="display:inline-block;padding:4px 6px">' . (int)$r['hv_units'] . '</span>' : (int)$r['hv_units']) . '</td>'
-                              . '<td class="text-right">' . (int)$r['di_count'] . '</td>'
-                              . '<td class="text-right">' . ((($r['di_count']??0) !== ($r['di_units']??0)) ? '<span class="label ' . (((int)$r['di_count'] > (int)$r['di_units']) ? 'label-danger' : 'label-warning') . '" style="display:inline-block;padding:4px 6px">' . (int)$r['di_units'] . '</span>' : (int)$r['di_units']) . '</td>'
-                              . '<td class="text-right">' . (int)$r['m365_count'] . '</td>'
-                              . '<td class="text-right">' . ((($r['m365_count']??0) !== ($r['m365_units']??0)) ? '<span class="label ' . (((int)$r['m365_count'] > (int)$r['m365_units']) ? 'label-danger' : 'label-warning') . '" style="display:inline-block;padding:4px 6px">' . (int)$r['m365_units'] . '</span>' : (int)$r['m365_units']) . '</td>'
-                              . '<td class="text-right">' . (int)$r['vmw_count'] . '</td>'
-                              . '<td class="text-right">' . ((($r['vmw_count']??0) !== ($r['vmw_units']??0)) ? '<span class="label ' . (((int)$r['vmw_count'] > (int)$r['vmw_units']) ? 'label-danger' : 'label-warning') . '" style="display:inline-block;padding:4px 6px">' . (int)$r['vmw_units'] . '</span>' : (int)$r['vmw_units']) . '</td>'
-                              . '</tr>';
+                            . '<td>' . $e($r['product_name']) . '</td>'
+                            . '<td><a href="' . $e($serviceLink) . '">' . $e($r['username']) . '</a></td>'
+                            . '<td class="text-right">' . (int)$r['hv_count'] . '</td>'
+                            . '<td class="text-right">' . ((($r['hv_count']??0) !== ($r['hv_units']??0)) ? '<span class="label ' . (((int)$r['hv_count'] > (int)$r['hv_units']) ? 'label-danger' : 'label-warning') . '" style="display:inline-block;padding:4px 6px">' . (int)$r['hv_units'] . '</span>' : (int)$r['hv_units']) . '</td>'
+                            . '<td class="text-right">' . (int)$r['di_count'] . '</td>'
+                            . '<td class="text-right">'
+                            . ( ($diCountBilled > (int)$r['di_units'])
+                                ? '<span class="label label-danger" style="display:inline-block;padding:4px 6px">' . (int)$r['di_units'] . '</span>'
+                                : ( ($diCountBilled < (int)$r['di_units'])
+                                        ? '<span class="label label-warning" style="display:inline-block;padding:4px 6px">' . (int)$r['di_units'] . '</span>'
+                                        : (int)$r['di_units']
+                                    )
+                            )
+                            . '</td>'
+                            . '<td class="text-right">' . (int)$r['m365_count'] . '</td>'
+                            . '<td class="text-right">' . ((($r['m365_count']??0) !== ($r['m365_units']??0)) ? '<span class="label ' . (((int)$r['m365_count'] > (int)$r['m365_units']) ? 'label-danger' : 'label-warning') . '" style="display:inline-block;padding:4px 6px">' . (int)$r['m365_units'] . '</span>' : (int)$r['m365_units']) . '</td>'
+                            . '<td class="text-right">' . (int)$r['vmw_count'] . '</td>'
+                            . '<td class="text-right">' . ((($r['vmw_count']??0) !== ($r['vmw_units']??0)) ? '<span class="label ' . (((int)$r['vmw_count'] > (int)$r['vmw_units']) ? 'label-danger' : 'label-warning') . '" style="display:inline-block;padding:4px 6px">' . (int)$r['vmw_units'] . '</span>' : (int)$r['vmw_units']) . '</td>'
+                            . '</tr>';
                     }
                 } else {
                     $html .= '<tr><td colspan="10" class="text-center text-muted">No results</td></tr>';
@@ -2109,6 +2189,7 @@ function eazybackup_output($vars)
                       . '</tr></thead><tbody>';
 
                 if (!empty($rows)) {
+                    $diMap = fetchDistinctDiskImageDevicesMap($rows);
                     foreach ($rows as $r) {
                         $serviceLink = 'clientsservices.php?userid=' . (int)$r['user_id'] . '&id=' . (int)$r['service_id'];
 
@@ -2127,6 +2208,20 @@ function eazybackup_output($vars)
                         $devices = (int)$r['device_count'];
                         $deviceUnits = (int)$r['device_units'];
                         $productId = (int)$r['product_id'];
+                        $cid    = (int)$r['user_id'];
+                        $uname  = (string)$r['username'];
+                        $diDevicesDistinct = (int)($diMapByCU[$cid][$uname] ?? $diMapByC[$cid] ?? 0);
+                        $diCountBilled     = min((int)$r['device_count'], $diDevicesDistinct);
+
+                        // For products 52 and 57, 0 storage units is correct — do NOT flag
+                        if ($productId === 52 || $productId === 57) {
+                            if ($storageUnits === 0) {
+                                $sLabelStart = '';
+                                $sLabelEnd   = '';
+                                $sDelta      = 0;
+                                $sDeltaText  = '-';
+                            }
+                        }
                         
                         // Special handling for Microsoft 365 products (52, 57)
                         if ($productId === 52 || $productId === 57) {
@@ -2156,26 +2251,19 @@ function eazybackup_output($vars)
                         // Compute Device Billing cell display once to avoid conflicting logic
                         $deviceBillingDisplay = (int)$deviceUnits;
                         if ($productId === 52 || $productId === 57) {
-                            // Microsoft 365 products: devices are not billable
                             if ($deviceUnits > 0) {
-                                // Show yellow to reduce billed units to 0
+                                // >0 still flagged
                                 $deviceBillingDisplay = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">' . (int)$deviceUnits . '</span>';
-                            } else if ($devices > 0) {
-                                // Devices exist but billed is 0 → yellow 0 to indicate decrease
-                                $deviceBillingDisplay = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">0</span>';
                             } else {
-                                // Neither devices nor billed units → plain 0
+                                // 0 should be plain, even if devices > 0
                                 $deviceBillingDisplay = 0;
-                            }
+                            }                        
                         } else if ($productId === 53 || $productId === 54) {
-                            // Unique products where devices are not charged
-                            if ($deviceUnits === 0) {
-                                $deviceBillingDisplay = ($devices > 0)
-                                    ? '<span class="label label-warning" style="display:inline-block;padding:4px 6px">0</span>'
-                                    : 0;
+                            // 53/54: do not charge devices; render plain 0 with no badge when billed is 0
+                            if ($billed === 0) {
+                                $deviceBillingDisplay = 0; // <-- plain zero, no label
                             } else {
-                                // If units present, fall back to standard label logic
-                                $deviceBillingDisplay = ($dLabelStart ?: '') . (int)$deviceUnits . ($dLabelEnd ?: '');
+                                $deviceBillingDisplay = ($labelStart ?: '') . (int)$billed . ($labelEnd ?: '');
                             }
                         } else {
                             // Standard products → apply label wrappers from the comparison above
@@ -2184,17 +2272,22 @@ function eazybackup_output($vars)
 
                         // Items categories
                         $cats = [
-                            ['count' => (int)$r['hv_count'],   'units' => (int)$r['hv_units']],
-                            ['count' => (int)$r['di_count'],   'units' => (int)$r['di_units']],
-                            ['count' => (int)$r['m365_count'], 'units' => (int)$r['m365_units']],
-                            ['count' => (int)$r['vmw_count'],  'units' => (int)$r['vmw_units']],
+                            ['count' => (int)$r['hv_count'], 'units' => (int)$r['hv_units']],
+                            ['count' => $diCountBilled,       'units' => (int)$r['di_units']],  // use billed count
+                            ['count' => (int)$r['m365_count'],'units' => (int)$r['m365_units']],
+                            ['count' => (int)$r['vmw_count'], 'units' => (int)$r['vmw_units']],
                         ];
-                        // Per-category unit label wrappers (danger for increase, warning for decrease)
-                        $hvLabelStart = $hvLabelEnd = $diLabelStart = $diLabelEnd = $m365LabelStart = $m365LabelEnd = $vmwLabelStart = $vmwLabelEnd = '';
-                        if ((int)$r['hv_count'] > (int)$r['hv_units']) { $hvLabelStart = '<span class="label label-danger" style="display:inline-block;padding:4px 6px">'; $hvLabelEnd = '</span>'; }
-                        else if ((int)$r['hv_count'] < (int)$r['hv_units']) { $hvLabelStart = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">'; $hvLabelEnd = '</span>'; }
-                        if ((int)$r['di_count'] > (int)$r['di_units']) { $diLabelStart = '<span class="label label-danger" style="display:inline-block;padding:4px 6px">'; $diLabelEnd = '</span>'; }
-                        else if ((int)$r['di_count'] < (int)$r['di_units']) { $diLabelStart = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">'; $diLabelEnd = '</span>'; }
+                        
+                        $diLabelStart = $diLabelEnd = '';
+                        if ($diCountBilled > (int)$r['di_units']) {
+                            $diLabelStart = '<span class="label label-danger" style="display:inline-block;padding:4px 6px">';
+                            $diLabelEnd   = '</span>';
+                        } elseif ($diCountBilled < (int)$r['di_units']) {
+                            $diLabelStart = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">';
+                            $diLabelEnd   = '</span>';
+                        }                                          
+                        // if ((int)$r['di_count'] > (int)$r['di_units']) { $diLabelStart = '<span class="label label-danger" style="display:inline-block;padding:4px 6px">'; $diLabelEnd = '</span>'; }
+                        // else if ((int)$r['di_count'] < (int)$r['di_units']) { $diLabelStart = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">'; $diLabelEnd = '</span>'; }
                         if ((int)$r['m365_count'] > (int)$r['m365_units']) { $m365LabelStart = '<span class="label label-danger" style="display:inline-block;padding:4px 6px">'; $m365LabelEnd = '</span>'; }
                         else if ((int)$r['m365_count'] < (int)$r['m365_units']) { $m365LabelStart = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">'; $m365LabelEnd = '</span>'; }
                         if ((int)$r['vmw_count'] > (int)$r['vmw_units']) { $vmwLabelStart = '<span class="label label-danger" style="display:inline-block;padding:4px 6px">'; $vmwLabelEnd = '</span>'; }

@@ -1,4 +1,5 @@
 jQuery(document).ready(function() {
+    // Use global loader helper functions
     // Use delegated event handling:
     jQuery('#tableServicesList tbody').on('click', 'tr[data-serviceid]', function(e) {
         e.preventDefault();
@@ -15,8 +16,8 @@ jQuery(document).ready(function() {
             return false;
         }
 
-        // Show loader
-        jQuery('.myloader').css("display", "block");
+        // Show modern global loader
+        window.showGlobalLoader();
         jQuery(".table-container").addClass("loading");
 
         // Slide up any opened data
@@ -47,7 +48,7 @@ jQuery(document).ready(function() {
                 // Insert data, hide loader, and slide down
                 jQuery("#service-data").html(data);
                 jQuery(".table-container").removeClass("loading");
-                jQuery('.myloader').css("display", "none");
+                window.hideGlobalLoader();
                 jQuery("#service-data").slideDown('slow');
 
                 // If you have any toggles or additional init steps:
@@ -197,7 +198,7 @@ jQuery(document).ready(function() {
                 // Optional: Add more password strength validations here
         
                 // Show loading indicators
-                $('.myloader').css("display", "block");
+                window.showGlobalLoader();
                 $(".table-container").addClass("loading");
         
                 // Send AJAX request to change password
@@ -222,7 +223,7 @@ jQuery(document).ready(function() {
                         // In your AJAX success callback:
                         if (jsondata['result'] === "success") {
                             $(".table-container").removeClass("loading");
-                            $('.myloader').css("display", "none");
+                            window.hideGlobalLoader();
                             $('#reset-password-modal').addClass('hidden');
 
                             // Use the global function to display a success message
@@ -230,7 +231,7 @@ jQuery(document).ready(function() {
                         } else {
                             // In error scenario, similarly:
                             $(".table-container").removeClass("loading");
-                            $('.myloader').css("display", "none");
+                            window.hideGlobalLoader();
                             $('#reset-password-modal').addClass('hidden');
 
                             window.displayMessage("#errorMessage", "Your password has not been changed. " + (jsondata['message'] || ''), "error");
@@ -240,7 +241,7 @@ jQuery(document).ready(function() {
                         console.log('AJAX Error:', error);
                         // Hide loading indicators
                         $(".table-container").removeClass("loading");
-                        $('.myloader').css("display", "none");
+                        window.hideGlobalLoader();
         
                         // Close the modal
                         $('#reset-password-modal').addClass('hidden');
@@ -447,7 +448,7 @@ jQuery(document).ready(function() {
             }
     
             // Show loader
-            $('.myloader').css("display", "block");
+            window.showGlobalLoader();
             $(".table-container").addClass("loading");
     
             // Prepare data for AJAX
@@ -472,7 +473,7 @@ jQuery(document).ready(function() {
                     } catch (e) {
                         console.log('Invalid JSON response');
                         $(".table-container").removeClass("loading");
-                        $('.myloader').css("display", "none");
+                            window.hideGlobalLoader();
                         displayMessage("#errorMessage", "Invalid server response.", "error");
                         return;
                     }
@@ -485,7 +486,7 @@ jQuery(document).ready(function() {
                                 .prop('disabled', false);
                         });
                         $(".table-container").removeClass("loading");
-                        $('.myloader').css("display", "none");
+                            window.hideGlobalLoader();
     
                         // Refresh the service list (twice, as per your existing code)
                         $("#serviceid-" + serviceId + " .service_list").trigger('click');
@@ -495,14 +496,14 @@ jQuery(document).ready(function() {
                     } else {
                         console.log('Error occurs here: ' + data);
                         $(".table-container").removeClass("loading");
-                        $('.myloader').css("display", "none");
+                            window.hideGlobalLoader();
                         displayMessage("#errorMessage", "Your changes have not been saved successfully.", "error");
                     }
                 },
                 error: function(jqXHR, textStatus, errorThrown) {
                     console.log('Something went wrong: ' + textStatus + ' - ' + errorThrown);
                     $(".table-container").removeClass("loading");
-                    $('.myloader').css("display", "none");
+                            window.hideGlobalLoader();
                     displayMessage("#errorMessage", "Something went wrong!!", "error");
                 }
             });
@@ -556,7 +557,7 @@ jQuery(document).ready(function() {
             console.log("Emails Before Update: ", reportingEmails);
 
             var serviceId = $("input[name='serviceId']").val();
-            $('.myloader').css("display", "block");
+            window.showGlobalLoader();
             $(".table-container").addClass("loading");
 
             $.ajax({
@@ -574,7 +575,7 @@ jQuery(document).ready(function() {
                         // Clear fields, remove loaders, etc.
                         $('#update-email-address').val("");
                         $(".table-container").removeClass("loading");
-                        $('.myloader').css("display", "none");
+                            window.hideGlobalLoader();
 
                         // Dispatch the event to tell Alpine to close
                         document.getElementById('update-email-modal').dispatchEvent(
@@ -590,7 +591,7 @@ jQuery(document).ready(function() {
                     } else {
                         console.log('Error Occurs: ', data);
                         $(".table-container").removeClass("loading");
-                        $('.myloader').css("display", "none");
+                            window.hideGlobalLoader();
                         $("#serviceid-" + serviceId + " .service_list").trigger('click');
                         $("#serviceid-" + serviceId + " .service_list").trigger('click');
 
@@ -601,7 +602,7 @@ jQuery(document).ready(function() {
                 error: function(data) {
                     console.log('Something went wrong: ', data);
                     $(".table-container").removeClass("loading");
-                    $('.myloader').css("display", "none");
+                            window.hideGlobalLoader();
                     $("#serviceid-" + serviceId + " .service_list").trigger('click');
                     $("#serviceid-" + serviceId + " .service_list").trigger('click');
 
@@ -649,7 +650,7 @@ jQuery(document).ready(function() {
         reportingEmails.push(newReportingEmail);
         //console.log(reportingEmails);
 
-        $('.myloader').css("display", "block");
+        window.showGlobalLoader();
         $(".table-container").addClass("loading");
         $.ajax({
             url:"modules/servers/comet/ajax/email_actions.php",
@@ -669,7 +670,7 @@ jQuery(document).ready(function() {
                     $("#add-email .close").click();
                     $('#email-address').val("");
                     $(".table-container").removeClass("loading");
-                    $('.myloader').css("display", "none");
+                            window.hideGlobalLoader();
                     //clicked two time bcz of toggle
                     $("#serviceid-"+serviceId+" .service_list").trigger('click');
                     $("#serviceid-"+serviceId+" .service_list").trigger('click');
@@ -686,7 +687,7 @@ jQuery(document).ready(function() {
                 else{
                     console.log('error occurs here' + data)
                     $(".table-container").removeClass("loading");
-                    $('.myloader').css("display", "none");
+                            window.hideGlobalLoader();
                     //clicked two time bcz of toggle
                     $("#serviceid-"+serviceId+" .service_list").trigger('click');
                     $("#serviceid-"+serviceId+" .service_list").trigger('click');
@@ -705,7 +706,7 @@ jQuery(document).ready(function() {
                 //alert(data);
                 console.log('something went wrong' + data)
                 $(".table-container").removeClass("loading");
-                    $('.myloader').css("display", "none");
+                            window.hideGlobalLoader();
                     //clicked two time bcz of toggle
                     $("#serviceid-"+serviceId+" .service_list").trigger('click');
                     $("#serviceid-"+serviceId+" .service_list").trigger('click');
@@ -765,7 +766,7 @@ jQuery(document).ready(function() {
         });
 
         // Show loader
-        $('.myloader').css("display", "block");
+        window.showGlobalLoader();
         $(".table-container").addClass("loading");
 
         // Clear any old messages (optional, if your displayMessage function doesn't already do so)
@@ -784,7 +785,7 @@ jQuery(document).ready(function() {
             },
             success: function(data) {
                 $(".table-container").removeClass("loading");
-                $('.myloader').css("display", "none");
+                            window.hideGlobalLoader();
 
                 var jsondata;
                 try {
@@ -813,7 +814,7 @@ jQuery(document).ready(function() {
             error: function(err) {
                 console.log("Something went wrong:", err);
                 $(".table-container").removeClass("loading");
-                $('.myloader').css("display", "none");
+                            window.hideGlobalLoader();
 
                 // Refresh table if desired
                 $('#serviceid-' + serviceId + ' .service_list').trigger('click');
@@ -860,7 +861,7 @@ jQuery(document).ready(function() {
             return;
         }
 
-        $('.myloader').css("display", "block");
+        window.showGlobalLoader();
         $(".table-container").addClass("loading");
 
         $.ajax ({
@@ -878,7 +879,7 @@ jQuery(document).ready(function() {
                 if(jsondata['status'] === "available" )
                 {
                     $(".table-container").removeClass("loading");
-                    $('.myloader').css("display", "none");
+                            window.hideGlobalLoader();
                     var base_url = window.location.origin;
                     var upgradablepath = '/upgrade.php?type=package&id=' + encodeURIComponent(serviceId);
                     var redirectUrl = base_url + upgradablepath;
@@ -887,7 +888,7 @@ jQuery(document).ready(function() {
                 else{
 
                     $(".table-container").removeClass("loading");
-                    $('.myloader').css("display", "none");
+                            window.hideGlobalLoader();
 
                     var errorMessage = `<div class="errorMessage alert alert-danger text-center" role="alert">
                                         Your plan for <b>${userservice}</b> cannot be upgraded further. Please contact support if you would like to downgrade your current plan.
@@ -900,7 +901,7 @@ jQuery(document).ready(function() {
             },
             error: function(data){
                 $(".table-container").removeClass("loading");
-                $('.myloader').css("display", "none");
+                            window.hideGlobalLoader();
 
                 var errorMessage = `<div class="errorMessage alert alert-danger text-center" role="alert">
                                     Something went wrong!

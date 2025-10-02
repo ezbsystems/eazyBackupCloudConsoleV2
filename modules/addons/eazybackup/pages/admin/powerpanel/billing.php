@@ -82,29 +82,36 @@ return (function () {
 		LEFT JOIN (
 			SELECT username,
 			       SUM(CASE WHEN type='engine1/windisk'         THEN 1 ELSE 0 END) AS di_count,
-			       SUM(CASE WHEN type='engine1/winmsofficemail' THEN 1 ELSE 0 END) AS m365_count
+			       SUM(CASE WHEN type='engine1/winmsofficemail' 
+			                THEN COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(content,'$.Statistics.LastBackupJob.TotalAccountsCount')) AS UNSIGNED),0)
+			                ELSE 0 END) AS m365_count
 			FROM comet_items
 			WHERE username IS NOT NULL AND username<>''
 			GROUP BY BINARY username
 		) i ON BINARY i.username = u.username
 		LEFT JOIN (
-			-- Per protected item (Hyper-V), take the greater of LastBackupJob vs LastSuccessfulBackupJob
-			-- within the billing window; also consider the latest successful job in comet_jobs within window,
-			-- and sum the per-item maxima per user
+			-- Per protected item (Hyper-V): prefer in-window counts; if none in window, fall back to latest known item counts
 			SELECT i.username,
 			       SUM(GREATEST(COALESCE(j.jobs_vmcount,0), COALESCE(i.items_vmcount,0))) AS hv_count
 			FROM (
-                SELECT ci.username, ci.id AS comet_item_id,
-                       GREATEST(
-                         CASE WHEN CAST(JSON_UNQUOTE(JSON_EXTRACT(ci.content,'$.Statistics.LastSuccessfulBackupJob.EndTime')) AS UNSIGNED)
-                                    BETWEEN UNIX_TIMESTAMP(:hvStartItems1) AND UNIX_TIMESTAMP(:hvEndItems1)-1
-                              THEN COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(ci.content,'$.Statistics.LastSuccessfulBackupJob.TotalVmCount')) AS UNSIGNED),0)
-                              ELSE 0 END,
-                         CASE WHEN CAST(JSON_UNQUOTE(JSON_EXTRACT(ci.content,'$.Statistics.LastBackupJob.EndTime')) AS UNSIGNED)
-                                    BETWEEN UNIX_TIMESTAMP(:hvStartItems2) AND UNIX_TIMESTAMP(:hvEndItems2)-1
-                              THEN COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(ci.content,'$.Statistics.LastBackupJob.TotalVmCount')) AS UNSIGNED),0)
-                              ELSE 0 END
-                       ) AS items_vmcount
+				SELECT ci.username, ci.id AS comet_item_id,
+				       COALESCE(
+				         GREATEST(
+				           CASE WHEN CAST(JSON_UNQUOTE(JSON_EXTRACT(ci.content,'$.Statistics.LastSuccessfulBackupJob.EndTime')) AS UNSIGNED)
+				                      BETWEEN UNIX_TIMESTAMP(:hvStartItems1) AND UNIX_TIMESTAMP(:hvEndItems1)-1
+				                 THEN CAST(JSON_UNQUOTE(JSON_EXTRACT(ci.content,'$.Statistics.LastSuccessfulBackupJob.TotalVmCount')) AS UNSIGNED)
+				                 ELSE NULL END,
+				           CASE WHEN CAST(JSON_UNQUOTE(JSON_EXTRACT(ci.content,'$.Statistics.LastBackupJob.EndTime')) AS UNSIGNED)
+				                      BETWEEN UNIX_TIMESTAMP(:hvStartItems2) AND UNIX_TIMESTAMP(:hvEndItems2)-1
+				                 THEN CAST(JSON_UNQUOTE(JSON_EXTRACT(ci.content,'$.Statistics.LastBackupJob.TotalVmCount')) AS UNSIGNED)
+				                 ELSE NULL END
+				         ),
+				         GREATEST(
+				           COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(ci.content,'$.Statistics.LastSuccessfulBackupJob.TotalVmCount')) AS UNSIGNED),0),
+				           COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(ci.content,'$.Statistics.LastBackupJob.TotalVmCount')) AS UNSIGNED),0)
+				         ),
+				         0
+				       ) AS items_vmcount
 				FROM comet_items ci
 				WHERE ci.type='engine1/hyperv' AND ci.username IS NOT NULL AND ci.username<>''
 			) i
@@ -128,15 +135,22 @@ return (function () {
 			       SUM(GREATEST(COALESCE(j.jobs_vmcount,0), COALESCE(i.items_vmcount,0))) AS vmw_count
 			FROM (
 				SELECT ci.username, ci.id AS comet_item_id,
-				       GREATEST(
-				         CASE WHEN CAST(JSON_UNQUOTE(JSON_EXTRACT(ci.content,'$.Statistics.LastSuccessfulBackupJob.EndTime')) AS UNSIGNED)
-				                    BETWEEN UNIX_TIMESTAMP(:vmwStartItems1) AND UNIX_TIMESTAMP(:vmwEndItems1)-1
-				              THEN COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(ci.content,'$.Statistics.LastSuccessfulBackupJob.TotalVmCount')) AS UNSIGNED),0)
-				              ELSE 0 END,
-				         CASE WHEN CAST(JSON_UNQUOTE(JSON_EXTRACT(ci.content,'$.Statistics.LastBackupJob.EndTime')) AS UNSIGNED)
-				                    BETWEEN UNIX_TIMESTAMP(:vmwStartItems2) AND UNIX_TIMESTAMP(:vmwEndItems2)-1
-				              THEN COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(ci.content,'$.Statistics.LastBackupJob.TotalVmCount')) AS UNSIGNED),0)
-				              ELSE 0 END
+				       COALESCE(
+				         GREATEST(
+				           CASE WHEN CAST(JSON_UNQUOTE(JSON_EXTRACT(ci.content,'$.Statistics.LastSuccessfulBackupJob.EndTime')) AS UNSIGNED)
+								      BETWEEN UNIX_TIMESTAMP(:vmwStartItems1) AND UNIX_TIMESTAMP(:vmwEndItems1)-1
+						        THEN CAST(JSON_UNQUOTE(JSON_EXTRACT(ci.content,'$.Statistics.LastSuccessfulBackupJob.TotalVmCount')) AS UNSIGNED)
+						        ELSE NULL END,
+				           CASE WHEN CAST(JSON_UNQUOTE(JSON_EXTRACT(ci.content,'$.Statistics.LastBackupJob.EndTime')) AS UNSIGNED)
+								      BETWEEN UNIX_TIMESTAMP(:vmwStartItems2) AND UNIX_TIMESTAMP(:vmwEndItems2)-1
+						        THEN CAST(JSON_UNQUOTE(JSON_EXTRACT(ci.content,'$.Statistics.LastBackupJob.TotalVmCount')) AS UNSIGNED)
+						        ELSE NULL END
+				         ),
+				         GREATEST(
+				           COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(ci.content,'$.Statistics.LastSuccessfulBackupJob.TotalVmCount')) AS UNSIGNED),0),
+				           COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(ci.content,'$.Statistics.LastBackupJob.TotalVmCount')) AS UNSIGNED),0)
+				         ),
+				         0
 				       ) AS items_vmcount
 				FROM comet_items ci
 				WHERE ci.type='engine1/vmware' AND ci.username IS NOT NULL AND ci.username<>''
