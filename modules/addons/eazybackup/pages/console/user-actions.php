@@ -68,9 +68,9 @@ try {
                 try { comet_UpdateServiceCredentials(['serviceid' => $serviceId, 'username' => $username, 'password' => $newPassword]); } catch (\Throwable $e) {}
 
                 echo json_encode(['status' => 'success', 'message' => 'Password reset successfully.', 'password' => $newPassword]);
-            } catch (\Throwable $e) {
-                echo json_encode(['status' => 'error', 'message' => 'Password reset failed.']);
-            }
+			} catch (\Throwable $e) {
+				echo json_encode(['status' => 'error', 'message' => $e->getMessage(), 'code' => (int)$e->getCode()]);
+			}
             break;
         }
 

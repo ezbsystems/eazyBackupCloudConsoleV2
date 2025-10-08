@@ -125,8 +125,9 @@
     $cephAdminAccessKey = $module->where('setting', 'ceph_access_key')->pluck('value')->first();
     $cephAdminSecretKey = $module->where('setting', 'ceph_secret_key')->pluck('value')->first();
     $encryptionKey = $module->where('setting', 'encryption_key')->pluck('value')->first();
+    $s3Region = $module->where('setting', 's3_region')->pluck('value')->first() ?: 'us-east-1';
 
-    $bucketObject = new BucketController($s3Endpoint, $cephAdminUser, $cephAdminAccessKey, $cephAdminSecretKey);
+    $bucketObject = new BucketController($s3Endpoint, $cephAdminUser, $cephAdminAccessKey, $cephAdminSecretKey, $s3Region);
     $s3Connection = $bucketObject->connectS3Client($userId, $encryptionKey);
 
     if ($s3Connection['status'] == 'fail') {
@@ -142,7 +143,25 @@
 
     $objectsToDelete = [];
     foreach ($files as $file) {
-        $objectsToDelete[] = ['Key' => $file];
+        // Support either strings (key) or associative arrays {key, versionId}
+        if (is_array($file)) {
+            $entry = [];
+            if (!empty($file['key'])) {
+                $entry['Key'] = $file['key'];
+            } elseif (!empty($file['Key'])) {
+                $entry['Key'] = $file['Key'];
+            }
+            if (!empty($file['versionId'])) {
+                $entry['VersionId'] = $file['versionId'];
+            } elseif (!empty($file['VersionId'])) {
+                $entry['VersionId'] = $file['VersionId'];
+            }
+            if (!empty($entry['Key'])) {
+                $objectsToDelete[] = $entry;
+            }
+        } else {
+            $objectsToDelete[] = ['Key' => $file];
+        }
     }
 
     $result = $bucketObject->deleteBucketObject($bucketName, $objectsToDelete);

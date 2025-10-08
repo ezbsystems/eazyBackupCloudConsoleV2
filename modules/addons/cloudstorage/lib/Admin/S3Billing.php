@@ -7,19 +7,16 @@ use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Admin\AdminOps;
 use WHMCS\Module\Addon\CloudStorage\Client\BucketController;
-use WHMCS\Module\Addon\CloudStorage\Admin\ClusterManager;
-use WHMCS\Module\Addon\CloudStorage\MigrationController;
-use Predis\Client as RedisClient;
+use WHMCS\Module\Addon\CloudStorage\Client\BillingController;
 
 class S3Billing {
 
     private static $module = 'cloudstorage';
-    private static $hasSourceAliasSummary = null; // memoize schema check
 
     /**
      * Gather Billing Data.
      *
-     * @return array
+     * @return object|null
      */
     public function gatherBillingData($packageId)
     {
@@ -34,77 +31,29 @@ class S3Billing {
             logModuleCall(self::$module, __FUNCTION__, $packageId, 'Please enable the cloudstorage addon module.');
             exit;
         }
-        // Global addon settings (not cluster-specific)
+        $s3Endpoint = $module->where('setting', 's3_endpoint')->pluck('value')->first();
         $cephAdminUser = $module->where('setting', 'ceph_admin_user')->pluck('value')->first();
-        $encryptionKey  = $module->where('setting', 'encryption_key')->pluck('value')->first();
-
-        // Determine default cluster (fallback to legacy addon settings if table empty)
-        $defaultCluster = ClusterManager::getDefaultCluster();
-        if (!$defaultCluster) {
-            $defaultCluster = (object) [
-                'cluster_alias'     => 'old_ceph_cluster',
-                's3_endpoint'       => $module->where('setting', 's3_endpoint')->pluck('value')->first(),
-                'admin_access_key'  => $module->where('setting', 'ceph_access_key')->pluck('value')->first(),
-                'admin_secret_key'  => $module->where('setting', 'ceph_secret_key')->pluck('value')->first(),
-            ];
-        }
-
-        $currentTime  = (new DateTime())->format('Y-m-d H:i:s');
-        $currentDate  = (new DateTime())->format('Y-m-d');
-
-        // Track clusters used during this run so we can export usage per-cluster later
-        $clustersUsed = [];
+        $cephAdminAccessKey = $module->where('setting', 'ceph_access_key')->pluck('value')->first();
+        $cephAdminSecretKey = $module->where('setting', 'ceph_secret_key')->pluck('value')->first();
+        $encryptionKey = $module->where('setting', 'encryption_key')->pluck('value')->first();
+        $currentTime = (new DateTime())->format('Y-m-d H:i:s');
+        $currentDate = (new DateTime())->format('Y-m-d');
+        $moduleSettings = [
+            's3Endpoint' => $s3Endpoint,
+            'cephAdminUser' => $cephAdminUser,
+            'cephAdminAccessKey' => $cephAdminAccessKey,
+            'cephAdminSecretKey' => $cephAdminSecretKey,
+            'encryptionKey' => $encryptionKey
+        ];
 
         foreach ($products as $product) {
-            // Skip frozen clients to avoid partials
-            if ($this->isClientFrozen((int)$product->userid)) {
+            $username = $product->username;
+            // get the user from db
+            $user = DBController::getUser($username);
+            if (is_null($user)) {
+                logModuleCall(self::$module, __FUNCTION__, $product->userid, 'User not found in db.');
                 continue;
             }
-
-            Capsule::connection()->transaction(function() use (
-                $product,
-                $defaultCluster,
-                $cephAdminUser,
-                $encryptionKey,
-                $currentTime,
-                $currentDate,
-                &$clustersUsed,
-                &$billingData,
-                &$updateResults
-            ){
-                // Determine which Ceph cluster this client should use
-                $backendAlias    = MigrationController::getBackendForClient($product->userid);
-                $clusterDetails  = ClusterManager::getClusterByAlias($backendAlias);
-                if (!$clusterDetails) {
-                    $clusterDetails = $defaultCluster;
-                }
-
-                $s3Endpoint         = $clusterDetails->s3_endpoint;
-                $cephAdminAccessKey = $clusterDetails->admin_access_key;
-                $cephAdminSecretKey = $clusterDetails->admin_secret_key;
-
-                // Track clusters so we can run exportBucketUsage per cluster later
-                $clustersUsed[$clusterDetails->cluster_alias] = [
-                    'endpoint' => $s3Endpoint,
-                    'access'   => $cephAdminAccessKey,
-                    'secret'   => $cephAdminSecretKey,
-                ];
-
-                $moduleSettings = [
-                    's3Endpoint'           => $s3Endpoint,
-                    'cephAdminUser'        => $cephAdminUser,
-                    'cephAdminAccessKey'   => $cephAdminAccessKey,
-                    'cephAdminSecretKey'   => $cephAdminSecretKey,
-                    'encryptionKey'        => $encryptionKey,
-                    'clusterAlias'         => $clusterDetails->cluster_alias ?? 'unknown',
-                ];
-                $username = $product->username;
-                // get the user from db
-                $user = DBController::getUser($username);
-                if (is_null($user)) {
-                    logModuleCall(self::$module, __FUNCTION__, $product->userid, 'User not found in db.');
-                    return; // transaction scope
-                }
             $params = [
                 'uid' => $username,
                 'stats' => true
@@ -112,16 +61,16 @@ class S3Billing {
             if (!empty($user->tenant_id)) {
                 $params['uid'] = $user->tenant_id . '$' . $username;
             }
-                $bucketStatsData = AdminOps::getBucketInfo($s3Endpoint, $cephAdminAccessKey, $cephAdminSecretKey, $params);
-                if ($bucketStatsData['status'] == 'fail' || count($bucketStatsData['data']) == 0) {
-                    if ($bucketStatsData['status'] == 'fail') {
-                        logModuleCall(self::$module, __FUNCTION__, $packageId, $bucketStatsData['message']);
-                        return; // transaction scope
-                    }
-                    if (count($bucketStatsData['data']) == 0) {
-                        logModuleCall(self::$module, __FUNCTION__, $packageId, 'Buckets not found for user ' . $username);
-                    }
+            $bucketStatsData = AdminOps::getBucketInfo($s3Endpoint, $cephAdminAccessKey, $cephAdminSecretKey, $params);
+            if ($bucketStatsData['status'] == 'fail' || count($bucketStatsData['data']) == 0) {
+                if ($bucketStatsData['status'] == 'fail') {
+                    logModuleCall(self::$module, __FUNCTION__, $packageId, $bucketStatsData['message']);
+                    continue;
                 }
+                if (count($bucketStatsData['data']) == 0) {
+                    logModuleCall(self::$module, __FUNCTION__, $packageId, 'Buckets not found for user ' . $username);
+                }
+            }
 
 
             $s3buckets = [];
@@ -153,23 +102,30 @@ class S3Billing {
                     DBController::saveBucketStats($bucketStatsValues);
 
                     // check bucket id record exist
-                    // Idempotent daily write using updateOrInsert with usage_day
-                    $upsert = [
-                        'total_usage' => $currentBucketSize,
-                        'usage_day'   => $currentDate,
-                        'created_at'  => $currentTime,
-                    ];
-                    if ($this->hasSourceAliasColumnOnSummary()) {
-                        $upsert['source_alias'] = $clusterDetails->cluster_alias ?? 'unknown';
-                    }
-                    Capsule::table('s3_bucket_stats_summary')->updateOrInsert(
-                        [
-                            'user_id'   => $userId,
+                    $bucketStatsSummary = Capsule::table('s3_bucket_stats_summary')->where([
+                        ['user_id', '=', $userId],
+                        ['bucket_id', '=', $bucketId],
+                    ])
+                    ->whereDate('created_at', $currentDate)
+                    ->first();
+
+                    if (is_null($bucketStatsSummary)) {
+                        DBController::saveBucketStatsSummary([
+                            'user_id' => $userId,
                             'bucket_id' => $bucketId,
-                            'usage_day' => $currentDate,
-                        ],
-                        $upsert
-                    );
+                            'total_usage' => $currentBucketSize,
+                            'created_at' => $currentTime,
+                        ]);
+                    } else {
+                        Capsule::table('s3_bucket_stats_summary')->where([
+                            ['user_id', '=', $userId],
+                            ['bucket_id', '=', $bucketId],
+                        ])
+                        ->whereDate('created_at', $currentDate)
+                        ->update([
+                            'total_usage' => $currentBucketSize
+                        ]);
+                    }
                     $s3buckets[] = $bucket['id'];
 
                 } catch (Exception $e) {
@@ -178,33 +134,29 @@ class S3Billing {
             }
 
             // get the buckets
-                $userBuckets = DBController::getResult('s3_buckets', [
+            $userBuckets = DBController::getResult('s3_buckets', [
                 ['user_id', '=', $userId]
             ], [
                 's3_id'
             ])->pluck('s3_id')->toArray();
 
             // check the difference between db buckets and s3 buckets
-                $toBeDeleteBuckets = array_diff($userBuckets, $s3buckets);
+            $toBeDeleteBuckets = array_diff($userBuckets, $s3buckets);
             $toBeDeleteBuckets = array_values($toBeDeleteBuckets);
 
-                if (count($toBeDeleteBuckets)) {
-                    // delete the buckets from db
-                    Capsule::table('s3_buckets')->where('user_id', $userId)->whereIn('s3_id', $toBeDeleteBuckets)->delete();
-                }
+            if (count($toBeDeleteBuckets)) {
+                // delete the buckets from db
+                Capsule::table('s3_buckets')->where('user_id', $userId)->whereIn('s3_id', $toBeDeleteBuckets)->delete();
+            }
 
-                // handle tenants
-                $totalBucketSize += $this->handleTenants($moduleSettings, $userId, $currentTime);
-                $updateResults[] = $this->updateProductPrice($product, $totalBucketSize, $userId);
+            // handle tenants
+            $totalBucketSize += $this->handleTenants($moduleSettings, $userId, $currentTime);
+            $updateResults[] = $this->updateProductPrice($product, $totalBucketSize, $userId);
 
-                $billingData[$username] = ['bucket_size' => $totalBucketSize];
-            }); // end transaction per product
+            $billingData[$username] = ['bucket_size' => $totalBucketSize];
         }
 
-        // Export transfer usage for each cluster we interacted with in this run
-        foreach ($clustersUsed as $clusterAlias => $clusterInfo) {
-            $this->exportBucketUsage($clusterInfo['endpoint'], $clusterInfo['access'], $clusterInfo['secret'], $clusterAlias, $currentTime);
-        }
+        $this->exportBucketUsage($s3Endpoint, $cephAdminAccessKey, $cephAdminSecretKey, $currentTime);
 
         return ['billingData' => $billingData, 'updateResults' => $updateResults];
     }
@@ -212,7 +164,7 @@ class S3Billing {
     /**
      * Update Product Price.
      *
-     * @return array
+     * @return object|null
      */
     private function updateProductPrice($product, $totalBucketSize, $userId)
     {
@@ -243,16 +195,23 @@ class S3Billing {
         $result['new_amount'] = $amount;
 
         try {
-            $nextDueDate = new DateTime($product->nextduedate);
-            // Calculate the start and end dates of the billing month
-            $billingMonthStart = (clone $nextDueDate)->modify('-1 month');
-            $billingMonthEnd = (clone $nextDueDate)->modify('-1 day');
+            // Record the computed amount snapshot for this run
             DBController::savePrices([
                 'user_id' => $userId,
                 'amount' => $amount
             ]);
 
-            $highestAmount = DBController::getHighestAmount($userId, $billingMonthStart->format('Y-m-d'), $billingMonthEnd->format('Y-m-d'));
+            // Use a rolling display period decoupled from nextduedate, so overdue cycles do not freeze updates
+            $billingController = new BillingController();
+            $displayPeriod = $billingController->calculateDisplayPeriod((int)$product->userid, (int)$product->packageid);
+            $rangeStart = $displayPeriod['start'] ?? date('Y-m-d', strtotime('-1 month'));
+            $rangeEnd = $displayPeriod['end_for_queries'] ?? date('Y-m-d'); // today
+
+            $highestAmount = DBController::getHighestAmount($userId, $rangeStart, $rangeEnd);
+            if (empty($highestAmount)) {
+                $highestAmount = $amount;
+            }
+
             Capsule::table('tblhosting')->where('id', $product->id)->update(['amount' => $highestAmount]);
             $result['update_status'] = true;
         } catch (\Exception $e) {
@@ -269,9 +228,9 @@ class S3Billing {
     /**
      * Export Bucket Usage.
      *
-     * @return void
+     * @return object|null
      */
-    private function exportBucketUsage($s3Endpoint, $cephAdminAccessKey, $cephAdminSecretKey, $clusterAlias, $currentTime)
+    private function exportBucketUsage($s3Endpoint, $cephAdminAccessKey, $cephAdminSecretKey, $currentTime)
     {
         $params = [
             'show_entries' => true
@@ -318,19 +277,6 @@ class S3Billing {
                         continue;
                     }
                     $userId = $bucket->user_id;
-
-                    // Authoritative cluster check: resolve WHMCS client for this bucket's owner and skip if not on this cluster
-                    $s3User = Capsule::table('s3_users')->select('username')->where('id', $userId)->first();
-                    if ($s3User && isset($s3User->username)) {
-                        $hosting = Capsule::table('tblhosting')->where('username', $s3User->username)->first();
-                        if ($hosting && isset($hosting->userid)) {
-                            $authoritativeAlias = MigrationController::getBackendForClient((int)$hosting->userid);
-                            if ($authoritativeAlias !== $clusterAlias) {
-                                // Skip usage from non-authoritative cluster during migration overlap
-                                continue;
-                            }
-                        }
-                    }
 
                     $transferStats = Capsule::table('s3_transfer_stats')->where([
                         ['user_id', '=', $userId],
@@ -380,49 +326,6 @@ class S3Billing {
     }
 
     /**
-     * Check if a client is frozen by consulting Redis ak_state hash.
-     */
-    private function isClientFrozen(int $clientId): bool
-    {
-        try {
-            // Load redis connection details from addon config (same as MigrationController)
-            $rows = Capsule::table('tbladdonmodules')->where('module', 'cloudstorage')->get(['setting','value']);
-            $map = [];
-            foreach ($rows as $r) { $map[$r->setting] = $r->value; }
-            $host = $map['redis_host'] ?? '127.0.0.1';
-            $port = !empty($map['redis_port']) && ctype_digit((string)$map['redis_port']) ? (int)$map['redis_port'] : 6379;
-            $redis = new RedisClient(['scheme' => 'tcp', 'host' => $host, 'port' => $port]);
-            $akStateHash = 'ak_state:' . $clientId;
-            // If any key is frozen -> treat client as frozen
-            $states = $redis->hvals($akStateHash);
-            if (!$states) { return false; }
-            foreach ($states as $state) {
-                if ($state === 'frozen') { return true; }
-            }
-        } catch (\Throwable $e) {
-            // On errors, default to not-frozen to avoid skipping billing unintentionally
-        }
-        return false;
-    }
-
-    /**
-     * Detect once if s3_bucket_stats_summary has source_alias column.
-     */
-    private function hasSourceAliasColumnOnSummary(): bool
-    {
-        if (self::$hasSourceAliasSummary !== null) {
-            return (bool) self::$hasSourceAliasSummary;
-        }
-        try {
-            $columns = Capsule::connection()->getDoctrineSchemaManager()->listTableColumns('s3_bucket_stats_summary');
-            self::$hasSourceAliasSummary = array_key_exists('source_alias', $columns);
-        } catch (\Throwable $e) {
-            self::$hasSourceAliasSummary = false;
-        }
-        return (bool) self::$hasSourceAliasSummary;
-    }
-
-    /**
     * Handle Bucket Data
     *
     * @param integer $userId
@@ -436,7 +339,13 @@ class S3Billing {
         $bucketStringId = $bucket['id'];
         $bucketName = $bucket['bucket'];
 
-        $bucketObject = new BucketController($moduleSettings['s3Endpoint'], $moduleSettings['cephAdminUser'], $moduleSettings['cephAdminAccessKey'], $moduleSettings['cephAdminSecretKey']);
+        $bucketObject = new BucketController(
+            $moduleSettings['s3Endpoint'],
+            $moduleSettings['cephAdminUser'],
+            $moduleSettings['cephAdminAccessKey'],
+            $moduleSettings['cephAdminSecretKey'],
+            $moduleSettings['s3_region'] ?? 'us-east-1'
+        );
         $s3Connection = $bucketObject->connectS3Client($userId, $moduleSettings['encryptionKey']);
         if ($s3Connection['status'] == 'fail') {
             logModuleCall(self::$module, __FUNCTION__, $bucket, $s3Connection['message']);
@@ -523,7 +432,13 @@ class S3Billing {
                         $bucketStringId = $bucket['id'];
                         $bucketName = $bucket['bucket'];
 
-                        $bucketObject = new BucketController($moduleSettings['s3Endpoint'], $moduleSettings['cephAdminUser'], $moduleSettings['cephAdminAccessKey'], $moduleSettings['cephAdminSecretKey']);
+                        $bucketObject = new BucketController(
+                            $moduleSettings['s3Endpoint'],
+                            $moduleSettings['cephAdminUser'],
+                            $moduleSettings['cephAdminAccessKey'],
+                            $moduleSettings['cephAdminSecretKey'],
+                            $moduleSettings['s3_region'] ?? 'us-east-1'
+                        );
                         $s3Connection = $bucketObject->connectS3Client($userId, $moduleSettings['encryptionKey']);
                         if ($s3Connection['status'] == 'fail') {
                             logModuleCall(self::$module, __FUNCTION__, [$parentUserId, $userId], $s3Connection['message']);
@@ -573,22 +488,30 @@ class S3Billing {
                         DBController::saveBucketStats($bucketStatsValues);
 
                         // check bucket id record exist
-                        $upsert = [
-                            'total_usage' => $currentBucketSize,
-                            'usage_day'   => $currentDate,
-                            'created_at'  => $currentDateTime,
-                        ];
-                        if ($this->hasSourceAliasColumnOnSummary()) {
-                            $upsert['source_alias'] = $moduleSettings['clusterAlias'] ?? 'unknown';
-                        }
-                        Capsule::table('s3_bucket_stats_summary')->updateOrInsert(
-                            [
-                                'user_id'   => $userId,
+                        $bucketStatsSummary = Capsule::table('s3_bucket_stats_summary')->where([
+                            ['user_id', '=', $userId],
+                            ['bucket_id', '=', $bucketId],
+                        ])
+                        ->whereDate('created_at', $currentDate)
+                        ->first();
+
+                        if (is_null($bucketStatsSummary)) {
+                            DBController::saveBucketStatsSummary([
+                                'user_id' => $userId,
                                 'bucket_id' => $bucketId,
-                                'usage_day' => $currentDate,
-                            ],
-                            $upsert
-                        );
+                                'total_usage' => $currentBucketSize,
+                                'created_at' => $currentDateTime,
+                            ]);
+                        } else {
+                            Capsule::table('s3_bucket_stats_summary')->where([
+                                ['user_id', '=', $userId],
+                                ['bucket_id', '=', $bucketId],
+                            ])
+                            ->whereDate('created_at', $currentDate)
+                            ->update([
+                                'total_usage' => $currentBucketSize
+                            ]);
+                        }
                         $s3buckets[] = $bucket['id'];
 
                     } catch (Exception $e) {

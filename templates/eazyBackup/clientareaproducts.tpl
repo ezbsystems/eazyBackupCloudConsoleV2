@@ -34,7 +34,7 @@
             // Extract & style the search input
             var $input = $filter.find('input')
               .attr('placeholder', 'Search')
-              .addClass('px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600')
+              .addClass('px-3 py-2 border border-slate-700 text-slate-200 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600')
               .css('border', '1px solid #4b5563');
     
             // Rebuild the controls row
@@ -106,7 +106,7 @@
 
 
 <!-- Container for top heading + nav -->
-<div class="min-h-screen bg-gray-700 text-gray-300 max-w-full">
+<div class="min-h-screen bg-[#11182759] text-slate-200 max-w-full">
     <div class="container mx-auto px-4 pb-8">
         <div class="flex flex-col sm:flex-row h-16 justify-between items-start sm:items-center px-2">
             <!-- Navigation Horizontal -->
@@ -117,7 +117,7 @@
                 <h2 class="text-2xl font-semibold text-white">My Services</h2>
             </div>
             <div class="shrink-0">
-                <a href="modules/servers/comet/ajax/export_usage.php" class="inline-flex items-center px-3 py-2 text-sm bg-sky-600 hover:bg-sky-700 text-gray-100 rounded border border-sky-700">
+                <a href="modules/servers/comet/ajax/export_usage.php" class="inline-flex items-center px-3 py-2 text-sm bg-sky-600 hover:bg-sky-700 text-white rounded border border-sky-700">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
                         <path fill-rule="evenodd" d="M3 3a1 1 0 011-1h8a1 1 0 011 1v3h-2V4H5v12h6v-2h2v3a1 1 0 01-1 1H4a1 1 0 01-1-1V3zm11.293 6.293a1 1 0 011.414 0L19 12.586l-1.414 1.414L16 12.414V17h-2v-4.586l-1.586 1.586L11 12.586l3.293-3.293z" clip-rule="evenodd" />
                     </svg>
@@ -125,43 +125,61 @@
                 </a>
             </div>
         </div>
-        <div class="main-section-header-tabs rounded-t-md border-b border-gray-600 bg-gray-800 pt-4 px-2 md:px-4">
-            <ul class="flex space-x-4 border-b border-gray-700">
+        <div class="main-section-header-tabs rounded-t-md pt-4 px-2 md:px-4">
+            <ul class="flex space-x-4">
                 <!-- Backup Services Tab -->
                 <li class="-mb-px mr-1">
                     <a 
                         href="{$WEB_ROOT}/clientarea.php?action=services" 
-                        class="inline-flex items-center px-2 py-2 font-medium text-gray-300
+                        class="inline-flex items-center px-2 py-2 font-medium text-slate-200
                             {if ($smarty.get.action eq 'services' || !$smarty.get.m) && $smarty.get.tab ne 'billing'}
                                 border-b-2 border-sky-600 text-sm
                             {else}
-                                border-transparent text-sm hover:border-gray-300
+                                border-transparent text-sm hover:border-slate-400
                             {/if}"
                         data-tab="tab1"
                     >               
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
                             stroke="currentColor"
-                            class="size-5 mr-1 {if $smarty.get.action eq 'services' || !$smarty.get.m}text-sky-600{else}text-gray-300{/if}">
+                            class="size-5 mr-1 {if $smarty.get.action eq 'services' || !$smarty.get.m}text-sky-600{else}text-slate-200{/if}">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15a4.5 4.5 0 0 0 4.5 4.5H18a3.75 3.75 0 0 0 1.332-7.257 3 3 0 0 0-3.758-3.848 5.25 5.25 0 0 0-10.233 2.33A4.502 4.502 0 0 0 2.25 15Z" />
                         </svg>
                         Backup Services
+                    </a>
+                </li>
+                <!-- Billing Report Tab -->
+                <li class="mr-1">
+                    <a 
+                        href="{$WEB_ROOT}/clientarea.php?action=services&tab=billing" 
+                        class="inline-flex items-center px-2 py-2 font-medium text-slate-200
+                            {if $smarty.get.tab eq 'billing'}
+                                border-b-2 border-sky-600 text-sm
+                            {else}
+                                border-transparent text-sm hover:border-slate-400
+                            {/if}"
+                        data-tab="tab-billing"
+                    >               
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-5 mr-2 {if $smarty.get.tab eq 'billing'}text-sky-600{else}text-slate-400{/if}">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m3.75 9v7.5m2.25-6.466a9.016 9.016 0 0 0-3.461-.203c-.536.072-.974.478-1.021 1.017a4.559 4.559 0 0 0-.018.402c0 .464.336.844.775.994l2.95 1.012c.44.15.775.53.775.994 0 .136-.006.27-.018.402-.047.539-.485.945-1.021 1.017a9.077 9.077 0 0 1-3.461-.203M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                        </svg>                  
+                        Billing Report
                     </a>
                 </li>
                 <!-- Servers Tab -->
                 <li class="mr-1">
                     <a 
                         href="{$WEB_ROOT}/index.php?m=eazybackup&a=services" 
-                        class="inline-flex items-center px-2 py-2 font-medium text-gray-300
+                        class="inline-flex items-center px-2 py-2 font-medium text-slate-200
                             {if $smarty.get.m eq 'eazybackup'}
                                 border-b-2 border-sky-600 text-sm
                             {else}
-                                border-transparent text-sm hover:border-gray-300
+                                border-transparent text-sm hover:border-slate-400
                             {/if}"
                         data-tab="tab2"
                     >
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
                             stroke="currentColor"
-                            class="size-5 mr-1 {if $smarty.get.m eq 'eazybackup'}text-sky-600{else}text-gray-500{/if}">
+                            class="size-5 mr-1 {if $smarty.get.m eq 'eazybackup'}text-sky-600{else}text-slate-400{/if}">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 0 1-3-3m3 3a3 3 0 1 0 0 6h13.5a3 3 0 1 0 0-6m-16.5-3a3 3 0 0 1 3-3h13.5a3 3 0 0 1 3 3m-19.5 0a4.5 4.5 0 0 1 .9-2.7L5.737 5.1a3.375 3.375 0 0 1 2.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 0 1 .9 2.7m0 0a3 3 0 0 1-3 3m0 3h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Zm-3 6h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Z" />
                         </svg>
                         Servers
@@ -171,67 +189,47 @@
                 <li class="mr-1">
                     <a 
                         href="{$WEB_ROOT}/index.php?m=eazybackup&a=services-e3" 
-                        class="inline-flex items-center px-2 py-2 font-medium text-gray-300
+                        class="inline-flex items-center px-2 py-2 font-medium text-slate-200
                             {if $smarty.get.m eq 'eazybackup'}
                                 border-b-2 border-sky-600 text-sm
                             {else}
-                                border-transparent text-sm hover:border-gray-300
+                                border-transparent text-sm hover:border-slate-400
                             {/if}"
                         data-tab="tab2"
                     >        
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
                     stroke="currentColor"
-                    class="size-5 mr-1 {if $smarty.get.m eq 'eazybackup' && $smarty.get.a eq 'services-e3'}text-sky-600{else}text-gray-500{/if}">
+                    class="size-5 mr-1 {if $smarty.get.m eq 'eazybackup' && $smarty.get.a eq 'services-e3'}text-sky-600{else}text-slate-400{/if}">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 0 1-3-3m3 3a3 3 0 1 0 0 6h13.5a3 3 0 1 0 0-6m-16.5-3a3 3 0 0 1 3-3h13.5a3 3 0 0 1 3 3m-19.5 0a4.5 4.5 0 0 1 .9-2.7L5.737 5.1a3.375 3.375 0 0 1 2.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 0 1 .9 2.7m0 0a3 3 0 0 1-3 3m0 3h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Zm-3 6h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Z" />
                 </svg>
                         e3 Cloud Storage
                     </a>
-                </li>
-                <!-- Billing Report Tab -->
-                <li class="mr-1">
-                    <a 
-                        href="{$WEB_ROOT}/clientarea.php?action=services&tab=billing" 
-                        class="inline-flex items-center px-2 py-2 font-medium text-gray-300
-                            {if $smarty.get.tab eq 'billing'}
-                                border-b-2 border-sky-600 text-sm
-                            {else}
-                                border-transparent text-sm hover:border-gray-300
-                            {/if}"
-                        data-tab="tab-billing"
-                    >               
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
-                            stroke="currentColor"
-                            class="size-5 mr-1 {if $smarty.get.tab eq 'billing'}text-sky-600{else}text-gray-500{/if}">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 4.5V12m0 0V7.5m0 4.5h4.5m-4.5 0H7.5" />
-                        </svg>
-                        Billing Report
-                    </a>
-                </li>
+                </li>                
             </ul>
         </div>
 
 
 
-        <div id="services-wrapper" class="bg-gray-800 shadow rounded-b-md p-4 mb-4">
+        <div id="services-wrapper" class="bg-slate-800 p-4 rounded-lg border border-slate-700 shadow-lg.">
             <div class="table-container clearfix">                
                 <div class="header-lined mb-4"></div>
                 <div id="successMessage" 
                     tabindex="-1"
-                    class="hidden text-center block mb-4 p-3 bg-green-600 text-gray-100 rounded-lg"
+                    class="hidden text-center block mb-4 p-3 bg-green-600 text-white rounded-lg"
                     role="alert">
                 </div>
                 <div id="errorMessage" 
                     tabindex="-1"
-                    class="hidden text-center block mb-4 p-4 bg-red-700 text-gray-100 rounded-lg"
+                    class="hidden text-center block mb-4 p-4 bg-red-700 text-white rounded-lg"
                     role="alert">
                 </div>
                 
                 <div x-show="activeTab === 'tab1'" class="tab-content">
                     <div class="overflow-visible">                  
                         <div id="statusFilterContainer" class="flex items-center">
-                            <label for="statusFilter" class="mr-2 text-gray-300">Status:</label>
+                            <label for="statusFilter" class="mr-2 text-slate-200">Status:</label>
                             <select id="statusFilter"
-                                    class="pl-2 pr-8 py-2 bg-gray-700 text-gray-300 border border-gray-600 rounded">
+                                    class="pl-2 pr-8 py-2 bg-slate-800 text-slate-200 border border-slate-700 rounded">
                             <option value="active">Active</option>
                             <option value="suspended">Suspended</option>
                             <option value="cancelled">Cancelled</option>
@@ -240,18 +238,18 @@
                         </div>
                         <table id="tableServicesList" class="min-w-full">
                         
-                            <thead class="border-b border-gray-600">
+                            <thead class="border-b border-slate-700">
                                 <tr>
-                                    <th class="cursor-pointer px-4 py-4 text-left text-sm font-semibold text-gray-300 sorting_asc">Username</th>
-                                    <th class="cursor-pointer px-4 py-4 text-left text-sm font-semibold text-gray-300">Plan</th>
-                                    <th class="cursor-pointer px-4 py-4 text-left text-sm font-semibold text-gray-300">Devices</th>
-                                    <th class="cursor-pointer px-4 py-4 text-left text-sm font-semibold text-gray-300">
+                                    <th class="cursor-pointer px-4 py-4 text-left text-sm font-semibold text-slate-200 sorting_asc">Username</th>
+                                    <th class="cursor-pointer px-4 py-4 text-left text-sm font-semibold text-slate-200">Plan</th>
+                                    <th class="cursor-pointer px-4 py-4 text-left text-sm font-semibold text-slate-200">Devices</th>
+                                    <th class="cursor-pointer px-4 py-4 text-left text-sm font-semibold text-slate-200">
                                         Total Size
                                         <span class="inline-block ml-1">
                                             <svg
                                             data-tippy-content="The total amount of data you selected for backup on your computer, summed across all Protected Items based on your last successful backup jobs."
                                             xmlns="http://www.w3.org/2000/svg"
-                                            class="w-4 h-4 text-gray-400 hover:text-gray-300 cursor-pointer"
+                                            class="w-4 h-4 text-slate-400 hover:text-slate-200 cursor-pointer"
                                             fill="none"
                                             viewBox="0 0 24 24"
                                             stroke="currentColor"
@@ -262,19 +260,19 @@
                                             </svg>
                                         </span>
                                     </th>
-                                    <th class="cursor-pointer px-4 py-4 text-left text-sm font-semibold text-gray-300">
+                                    <th class="cursor-pointer px-4 py-4 text-left text-sm font-semibold text-slate-200">
                                         Total Storage
                                         <span class="inline-block ml-1">                                         
-                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-slate-300 hover:text-gray-300 cursor-pointer" data-tippy-content="This shows the combined compressed and deduplicated size of all Storage Vaults for each User.">
+                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-slate-300 hover:text-slate-200 cursor-pointer" data-tippy-content="This shows the combined compressed and deduplicated size of all Storage Vaults for each User.">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
                                             </svg>
 
                                         </span>
                                         </th>
-                                    <th class="cursor-pointer px-4 py-4 text-left text-sm font-semibold text-gray-300">MS 365 Users</th>
-                                    <th class="cursor-pointer px-4 py-4 text-left text-sm font-semibold text-gray-300">Status</th>
-                                    <th class="cursor-pointer px-4 py-4 text-left text-sm font-semibold text-gray-300">Amount</th>
-                                    <th class="cursor-pointer px-4 py-4 text-left text-sm font-semibold text-gray-300">Next Due Date</th>
+                                    <th class="cursor-pointer px-4 py-4 text-left text-sm font-semibold text-slate-200">MS 365 Users</th>
+                                    <th class="cursor-pointer px-4 py-4 text-left text-sm font-semibold text-slate-200">Status</th>
+                                    <th class="cursor-pointer px-4 py-4 text-left text-sm font-semibold text-slate-200">Amount</th>
+                                    <th class="cursor-pointer px-4 py-4 text-left text-sm font-semibold text-slate-200">Next Due Date</th>
                                 </tr>
                             </thead>
                                 {assign var="filteredServices" value=[]}
@@ -284,29 +282,29 @@
                                     {/if}
                                 {/foreach}
 
-                                <tbody class="bg-gray-800">
+                                <tbody class="bg-slate-800">
                                     {foreach key=num item=service from=$filteredServices}
                                         <tr 
-                                            class="hover:bg-[#1118272e] cursor-pointer" 
+                                            class="hover:bg-slate-600/20 cursor-pointer" 
                                             id="serviceid-{$service.id}" 
                                             data-serviceid="{$service.id}" 
                                             data-userservice="{$service.product}-{$service.username}"
                                         >
-                                            <td class="px-4 py-4 text-left text-sm font-medium text-gray-100 service_username {if $service.username}service_list{/if} dropdown_icon serviceid-{$service.id}" data-id="{$service.id}">
+                                            <td class="px-4 py-4 text-left text-sm font-medium text-white service_username {if $service.username}service_list{/if} dropdown_icon serviceid-{$service.id}" data-id="{$service.id}">
                                                 <a href="javascript:void(0)" class="flex items-center">
                                                     <i class="fa fa-caret-right mr-2"></i>
                                                     {$service.username}
                                                 </a>
                                             </td>
-                                            <td class="px-4 py-4 text-left text-sm text-gray-400">{$service.product}</td>
-                                            <td class="px-4 py-4 text-left text-sm text-gray-400">
+                                            <td class="px-4 py-4 text-left text-sm text-slate-400">{$service.product}</td>
+                                            <td class="px-4 py-4 text-left text-sm text-slate-400">
                                                 {if $service.devicecounting}{$service.devicecounting}{else}No device{/if}
                                             </td>
-                                            <td class="px-4 py-4 text-left text-sm text-gray-400" data-order="{$service.TotalSizeBytes|default:0}">
+                                            <td class="px-4 py-4 text-left text-sm text-slate-400" data-order="{$service.TotalSizeBytes|default:0}">
                                                 {$service.TotalSize}
                                             </td>
-                                            <td class="px-4 py-4 text-left text-sm text-gray-400">{$service.TotalStorage}</td>
-                                            <td class="px-4 py-4 text-left text-sm text-gray-400">{$service.MicrosoftAccountCount}</td>
+                                            <td class="px-4 py-4 text-left text-sm text-slate-400">{$service.TotalStorage}</td>
+                                            <td class="px-4 py-4 text-left text-sm text-slate-400">{$service.MicrosoftAccountCount}</td>
                                             <td class="px-4 py-4 text-left text-sm">
                                                 <span class="flex items-left">
                                                     <i class="fa fa-circle mr-1 
@@ -314,13 +312,13 @@
                                                         {elseif strtolower($service.status) == 'inactive'}text-red-600
                                                         {else}text-yellow-600{/if}">
                                                     </i>
-                                                    <span class="capitalize text-gray-400">{strtolower($service.status)}</span>
+                                                    <span class="capitalize text-slate-400">{strtolower($service.status)}</span>
                                                 </span>
                                             </td>
-                                            <td class="px-4 py-4 text-left text-sm text-gray-400" data-order="{$service.amountnum}">
+                                            <td class="px-4 py-4 text-left text-sm text-slate-400" data-order="{$service.amountnum}">
                                                 {$service.amount}<br />{$service.billingcycle}{$hasdevices}
                                             </td>
-                                            <td class="px-4 py-4 text-left text-sm text-gray-400">
+                                            <td class="px-4 py-4 text-left text-sm text-slate-400">
                                                 {$service.nextduedate|date_format:"%Y-%m-%d"}
                                             </td>
                                         </tr>
@@ -355,13 +353,13 @@
         </div>
 
         {* Billing Report Content *}
-        <div class="min-h-screen bg-gray-700 text-gray-300 max-w-full">
+        <div class="min-h-screen text-slate-200 max-w-full">
             
-                <div id="billing-report-wrapper" class="bg-gray-800 shadow rounded-b-md p-4 mb-4" style="display:none;">
+                <div id="billing-report-wrapper" class="bg-slate-800 p-4 rounded-lg border border-slate-700 shadow-lg." style="display:none;">
                     <div class="flex items-center justify-between mb-3">
                         <h3 class="text-xl text-white">Billing Report</h3>
                         <div>
-                            <a href="modules/servers/comet/ajax/export_usage.php" class="inline-flex items-center px-3 py-2 text-sm bg-sky-600 hover:bg-sky-700 text-gray-100 rounded border border-sky-700">
+                            <a href="modules/servers/comet/ajax/export_usage.php" class="inline-flex items-center px-3 py-2 text-sm bg-sky-600 hover:bg-sky-700 text-white rounded border border-sky-700">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
                                     <path fill-rule="evenodd" d="M3 3a1 1 0 011-1h8a1 1 0 011 1v3h-2V4H5v12h6v-2h2v3a1 1 0 01-1 1H4a1 1 0 01-1-1V3zm11.293 6.293a1 1 0 011.414 0L19 12.586l-1.414 1.414L16 12.414V17h-2v-4.586l-1.586 1.586L11 12.586l3.293-3.293z" clip-rule="evenodd" />
                                 </svg>
@@ -389,9 +387,28 @@
    }
    /* Ensure the table itself doesn't force a larger layout than the wrapper;
       the scrollBody will provide horizontal scroll for overflow content. */
-   #billing-report-wrapper #tableBillingReport {
-     width: 100% !important;
-   }
+  #billing-report-wrapper #tableBillingReport {
+    min-width: 100% !important;
+    width: max-content !important; /* allow horizontal scroll without squeezing columns */
+  }
+  /* Keep header and body columns the same width */
+  #tableBillingReport { table-layout: fixed; border-collapse: separate; border-spacing: 0; }
+  #tableBillingReport tbody td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
+  /* Two-line clamp for header labels; allow wrapping but limit height */
+  #tableBillingReport thead th .th-clamp {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    white-space: normal;
+    line-height: 1.15;
+  }
+  /* Constrain Username to prevent pushing other columns */
+  #tableBillingReport thead th:nth-child(1),
+  #tableBillingReport tbody td:nth-child(1) { width: 16rem; max-width: 16rem; }
+  /* Give all subsequent columns a consistent fixed width for alignment */
+  #tableBillingReport thead th:nth-child(n+2),
+  #tableBillingReport tbody td:nth-child(n+2) { width: 7.5rem; max-width: 7.5rem; }
    /* Header pointer and cell padding */
    #tableBillingReport thead th { cursor: pointer; }
    #tableBillingReport thead th,
@@ -436,7 +453,6 @@
             info: false,
             order: [],
             autoWidth: false,
-            scrollX: true,
             language: { lengthMenu: 'Show _MENU_ entries' },
             drawCallback: function(){
               try {
@@ -454,7 +470,7 @@
           if ($filter.length) {
             var $input = $filter.find('input')
               .attr('placeholder', 'Search')
-              .addClass('px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600')
+              .addClass('px-3 py-2 border border-slate-700 text-slate-200 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600')
               .css('border', '1px solid #4b5563');
             var $controls = jQuery('<div class="flex items-center w-full mb-2"></div>')
               .append(jQuery('<div class="mr-auto flex items-center"></div>').append($input.detach()));
@@ -515,16 +531,16 @@
     <!-- Column toggle menu -->
     <div class="relative" @keydown.escape="showMenu=false">
       <button type="button"
-              class="px-3 py-2 text-sm rounded-md bg-gray-700 text-gray-200 hover:bg-gray-600"
+              class="px-3 py-2 text-sm rounded-md bg-slate-800 text-slate-200 hover:bg-slate-700"
               @click="showMenu=!showMenu" aria-haspopup="true" :aria-expanded="showMenu">
         Columns
       </button>
       <div x-show="showMenu" x-transition
-           class="absolute right-0 mt-2 w-64 max-h-64 overflow-auto rounded-md shadow-lg bg-gray-800 ring-1 ring-black ring-opacity-5 z-50"
+           class="absolute right-0 mt-2 w-64 max-h-64 overflow-auto rounded-md shadow-lg bg-slate-800 ring-1 ring-slate-700 z-50"
            @click.outside="showMenu=false">
-        <div class="p-2 text-sm text-gray-200">
+        <div class="p-2 text-sm text-slate-200">
           <template x-for="col in columns" :key="col.idx">
-            <label class="flex items-center justify-between py-1 px-2 hover:bg-gray-700 rounded cursor-pointer">
+            <label class="flex items-center justify-between py-1 px-2 hover:bg-slate-800 rounded cursor-pointer">
               <span class="pr-2 truncate" x-text="col.label || ('Column ' + col.idx)"></span>
               <input type="checkbox" class="h-4 w-4"
                      :checked="col.visible"
@@ -540,60 +556,55 @@
    <div id="billing-report-scroll" class="w-full max-w-full overflow-x-auto">
     <!-- Keep table markup as-is; DataTables will enhance and provide sorting -->
                         <table id="tableBillingReport" class="min-w-full">
-                            <thead class="border-b border-gray-600">
+                            <thead class="border-b border-slate-700">
                                 <tr>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Username</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Storage Usage</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Storage Purchased (TB)</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Storage Unit</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Storage Total</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">Username</span></th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">Storage Usage</span></th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">Storage Purchased (TB)</span></th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">Storage Unit</span></th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">Storage Total</span></th>
 
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Device Usage</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Device Purchased</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Device Unit</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Device Total</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">Device Usage</span></th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">Device Purchased</span></th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">Device Unit</span></th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">Device Total</span></th>
 
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">eazyBackup Server Usage</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">eazyBackup Server Purchased</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">eazyBackup Server Unit</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">eazyBackup Server Total</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">Server Usage</span></th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">Server Purchased</span></th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">Server Unit</span></th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">Server Total</span></th>
 
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">OBC Server Usage</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">OBC Server Purchased</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">OBC Server Unit</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">OBC Server Total</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">Disk Image Usage</span></th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">Disk Image Purchased</span></th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">Disk Image Unit</span></th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">Disk Image Total</span></th>
 
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Disk Image Usage</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Disk Image Purchased</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Disk Image Unit</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Disk Image Total</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">Hyper-V Usage</span></th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">Hyper-V Purchased</span></th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">Hyper-V Unit</span></th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">Hyper-V Total</span></th>
 
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Hyper-V Usage</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Hyper-V Purchased</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Hyper-V Unit</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Hyper-V Total</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">VMware Usage</span></th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">VMware Purchased</span></th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">VMware Unit</span></th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">VMware Total</span></th>
 
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">VMware Usage</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">VMware Purchased</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">VMware Unit</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">VMware Total</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">M365 Usage</span></th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">M365 Purchased</span></th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">M365 Unit</span></th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">M365 Total</span></th>
 
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">M365 Usage</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">M365 Purchased</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">M365 Unit</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">M365 Total</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">Proxmox Usage</span></th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">Proxmox Purchased</span></th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">Proxmox Unit</span></th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">Proxmox Total</span></th>
 
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Proxmox Usage</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Proxmox Purchased</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Proxmox Unit</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Proxmox Total</th>
-
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Recurring Amount</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Plan</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-300">Next Due Date</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">Recurring Amount</span></th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">Plan</span></th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">Next Due Date</span></th>
                                 </tr>
                             </thead>
-                            <tbody class="bg-gray-800"></tbody>
+                            <tbody class="bg-slate-800"></tbody>
                         </table>
   </div>
 </div>
@@ -609,10 +620,10 @@
 
 <!-- Reset Password Modal -->
 <div id="reset-password-modal" role="dialog" aria-modal="true" aria-labelledby="reset-password-title" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 hidden">
-    <div class="bg-gray-800 rounded-lg shadow-lg w-full max-w-md p-6" role="document">
+    <div class="bg-slate-800 rounded-lg shadow-lg w-full max-w-md p-6" role="document">
         <div class="flex justify-between items-center mb-4">
-            <h2 id="reset-password-title" class="text-lg text-gray-300">Reset Backup Password</h2>
-            <button id="close-reset-modal" class="text-gray-500 hover:text-gray-300">
+            <h2 id="reset-password-title" class="text-lg text-slate-200">Reset Backup Password</h2>
+            <button id="close-reset-modal" class="text-slate-400 hover:text-slate-200">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -621,16 +632,16 @@
         <form id="reset-password-form">
             <input type="hidden" id="resetpasswordserviceId" name="serviceId">
             <div class="mb-4">
-                <label for="inputNewPassword1" class="block text-gray-300">New Password</label>
-                <input type="password" id="inputNewPassword1" name="newpassword" class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-gray-700 rounded focus:outline-none focus:ring-0 focus:border-blue-600" required>
+                <label for="inputNewPassword1" class="block text-slate-200">New Password</label>
+                <input type="password" id="inputNewPassword1" name="newpassword" class="block w-full px-3 py-2 border border-slate-700 text-slate-200 bg-slate-800 rounded focus:outline-none focus:ring-0 focus:border-sky-600" required>
             </div>
             <div class="mb-4">
-                <label for="inputNewPassword2" class="block text-gray-300">Confirm New Password</label>
-                <input type="password" id="inputNewPassword2" name="confirmnewpassword" class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-gray-700 rounded focus:outline-none focus:ring-0 focus:border-blue-600" required>
+                <label for="inputNewPassword2" class="block text-slate-200">Confirm New Password</label>
+                <input type="password" id="inputNewPassword2" name="confirmnewpassword" class="block w-full px-3 py-2 border border-slate-700 text-slate-200 bg-slate-800 rounded focus:outline-none focus:ring-0 focus:border-sky-600" required>
             </div>
             <div id="passworderrorMessage" class="mt-2 text-red-500 text-sm"></div>
             <div class="flex justify-end space-x-2 mt-4">
-                <button type="button" id="close-reset-modal" class="close text-sm/6 font-semibold text-gray-300 mr-2">Cancel</button>
+                <button type="button" id="close-reset-modal" class="close text-sm/6 font-semibold text-slate-200 mr-2">Cancel</button>
                 <button type="submit" id="changePassword" class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-sky-600 hover:bg-sky-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-700">Change Password</button>
             </div>
         </form>
@@ -751,10 +762,10 @@ document.addEventListener('DOMContentLoaded', function(){
      style="display: none;">
     
     <!-- MODAL CONTENT -->
-    <div class="bg-gray-800 rounded-lg shadow-lg w-full max-w-lg p-6 relative">
+    <div class="bg-slate-800 rounded-lg shadow-lg w-full max-w-lg p-6 relative">
         <!-- Close Button -->
         <button @click="open = false"
-                class="close absolute top-4 right-4 text-gray-500 hover:text-gray-300 focus:outline-none" 
+                class="close absolute top-4 right-4 text-slate-400 hover:text-slate-200 focus:outline-none" 
                 type="button">
             <svg xmlns="http://www.w3.org/2000/svg"
                  class="h-6 w-6" fill="none"
@@ -768,7 +779,7 @@ document.addEventListener('DOMContentLoaded', function(){
 
         <!-- Modal Header -->
         <div class="mb-4">
-            <h2 class="text-lg text-gray-300">Rename Device</h2>
+            <h2 class="text-lg text-slate-200">Rename Device</h2>
         </div>
 
         <!-- Modal Body -->
@@ -778,14 +789,14 @@ document.addEventListener('DOMContentLoaded', function(){
 
             <!-- Device Name Field -->
             <div class="flex flex-col">
-                <label for="devicename" class="text-gray-300 font-medium mb-1">
+                <label for="devicename" class="text-slate-200 font-medium mb-1">
                     Enter a new name for the selected device:
                 </label>
                 <input type="text"
                        id="devicename"
                        name="devicename"
                        x-model="deviceName"
-                       class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-gray-700 rounded focus:outline-none focus:ring-0 focus:border-blue-600"
+                       class="block w-full px-3 py-2 border border-slate-700 text-slate-200 bg-slate-800 rounded focus:outline-none focus:ring-0 focus:border-sky-600"
                        required />
             </div>
 
@@ -793,7 +804,7 @@ document.addEventListener('DOMContentLoaded', function(){
             <div class="flex justify-end space-x-2 mt-4">
                 <button type="button"
                         @click="open = false"
-                        class="text-sm/6 font-semibold text-gray-300 mr-2">
+                        class="text-sm/6 font-semibold text-slate-200 mr-2">
                     Close
                 </button>
                 <button type="submit"
@@ -819,9 +830,9 @@ document.addEventListener('DOMContentLoaded', function(){
      x-transition:leave="transition ease-in duration-200" 
      x-transition:leave-start="opacity-100" 
      x-transition:leave-end="opacity-0">
-    <div class="bg-gray-800 rounded-lg shadow-lg w-full max-w-md p-6 relative">
+    <div class="bg-slate-800 rounded-lg shadow-lg w-full max-w-md p-6 relative">
         <!-- Close Button -->
-        <button @click="open = false" class="absolute top-4 right-4 text-gray-500 hover:text-gray-300 focus:outline-none">
+        <button @click="open = false" class="absolute top-4 right-4 text-slate-400 hover:text-slate-200 focus:outline-none">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -829,15 +840,15 @@ document.addEventListener('DOMContentLoaded', function(){
 
         <!-- Modal Header -->
         <div class="mb-4">
-            <h2 class="text-xl font-semibold text-gray-300">Email Address</h2>
+            <h2 class="text-xl font-semibold text-slate-200">Email Address</h2>
         </div>
 
         <!-- Modal Body -->
         <form class="space-y-4" method="post" action="#">
             <div class="flex flex-col">
-                <label for="email-address" class="text-gray-300 font-medium mb-1">Add new email address:</label>
+                <label for="email-address" class="text-slate-200 font-medium mb-1">Add new email address:</label>
                 <input type="email" placeholder="Email address..." id="email-address" name="email-address"
-                       class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-gray-700 rounded focus:outline-none focus:ring-0 focus:border-blue-600" required>
+                       class="block w-full px-3 py-2 border border-slate-700 text-slate-200 bg-slate-800 rounded focus:outline-none focus:ring-0 focus:border-sky-600" required>
                 <span id="invalid_email" class="text-red-500 text-sm hidden">
                     Please enter a valid email address.
                 </span>
@@ -845,7 +856,7 @@ document.addEventListener('DOMContentLoaded', function(){
 
             <!-- Modal Footer -->
             <div class="flex justify-end space-x-2">
-                <button type="button" @click="open = false" class="text-sm/6 font-semibold text-gray-300">
+                <button type="button" @click="open = false" class="text-sm/6 font-semibold text-slate-200">
                     Close
                 </button>
                 <button type="button" id="addemaildata" class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-sky-600 hover:bg-sky-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-700">
@@ -872,10 +883,10 @@ document.addEventListener('DOMContentLoaded', function(){
     x-transition:leave="transition ease-in duration-200" 
     x-transition:leave-start="opacity-100" 
     x-transition:leave-end="opacity-0">
-    <div class="bg-gray-800 rounded-lg shadow-lg w-full max-w-md p-6">
+    <div class="bg-slate-800 rounded-lg shadow-lg w-full max-w-md p-6">
         <div class="flex justify-between items-center mb-4">
-            <h2 class="text-lg text-gray-300">Edit your email address</h2>
-            <button id="close-modal" class="text-gray-500 hover:text-gray-300">
+            <h2 class="text-lg text-slate-200">Edit your email address</h2>
+            <button id="close-modal" class="text-slate-400 hover:text-slate-200">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -884,12 +895,12 @@ document.addEventListener('DOMContentLoaded', function(){
         <form id="update-email-form">
             <input type="hidden" id="update-email-id" name="emailId">
             <div class="mb-4">
-                <label for="update-email-address" class="block text-gray-300">Update email address</label>
-                <input type="email" id="update-email-address" name="email" class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-gray-700 rounded focus:outline-none focus:ring-0 focus:border-blue-600" required>
+                <label for="update-email-address" class="block text-slate-200">Update email address</label>
+                <input type="email" id="update-email-address" name="email" class="block w-full px-3 py-2 border border-slate-700 text-slate-200 bg-slate-800 rounded focus:outline-none focus:ring-0 focus:border-sky-600" required>
                 <div id="invalid_email_update" class="mt-2 text-red-500 text-sm"></div>
             </div>
             <div class="flex justify-end space-x-2">
-                <button type="button" id="close-modal" @click="open = false" class="text-sm/6 font-semibold text-gray-300 mr-2">Cancel</button>
+                <button type="button" id="close-modal" @click="open = false" class="text-sm/6 font-semibold text-slate-200 mr-2">Cancel</button>
                 <button type="submit" id="updateemaildata" class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-sky-600 hover:bg-sky-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-700">Save</button>
             </div>
         </form>
@@ -966,8 +977,8 @@ document.addEventListener('DOMContentLoaded', function(){
 >
    <template x-if="open">
        <div class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
-           <div class="bg-gray-800 shadow-lg p-6 max-w-md w-full rounded relative">
-               <button class="absolute top-4 right-4 text-gray-400 hover:text-gray-500"
+           <div class="bg-slate-800 shadow-lg p-6 max-w-md w-full rounded relative">
+               <button class="absolute top-4 right-4 text-slate-400 hover:text-slate-400"
                        @click="open = false"
                        type="button">
                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6"
@@ -978,9 +989,9 @@ document.addEventListener('DOMContentLoaded', function(){
                    </svg>
                </button>
 
-               <h2 class="text-lg mb-4 text-gray-300">Remove Email</h2>
+               <h2 class="text-lg mb-4 text-slate-200">Remove Email</h2>
 
-               <p class="text-sm text-gray-300">
+               <p class="text-sm text-slate-200">
                    Are you sure you want to remove
                    <strong x-text="emailToRemove"></strong>?
                </p>
@@ -988,7 +999,7 @@ document.addEventListener('DOMContentLoaded', function(){
                <div class="flex justify-end space-x-2 mt-4">
                    <button type="button"
                            @click="open=false"
-                           class="text-gray-300 px-4 py-2 rounded">
+                           class="text-slate-200 px-4 py-2 rounded">
                        Cancel
                    </button>
                    <button type="button"
@@ -1017,10 +1028,10 @@ document.addEventListener('DOMContentLoaded', function(){
     x-transition:leave-start="opacity-100" 
     x-transition:leave-end="opacity-0"
 >           
-    <div class="bg-gray-800 rounded-lg shadow-lg w-full max-w-md p-6">
+    <div class="bg-slate-800 rounded-lg shadow-lg w-full max-w-md p-6">
         <!-- Close Button -->
         <button 
-          class="close absolute top-4 right-4 text-gray-500 hover:text-gray-300 focus:outline-none"
+          class="close absolute top-4 right-4 text-slate-400 hover:text-slate-200 focus:outline-none"
           type="button"
         >
             <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" 
@@ -1032,7 +1043,7 @@ document.addEventListener('DOMContentLoaded', function(){
 
         <!-- Modal Header -->
         <div class="mb-4">
-            <h2 class="text-xl text-gray-300">Manage Storage Vault</h2>
+            <h2 class="text-xl text-slate-200">Manage Storage Vault</h2>
         </div>
 
         <!-- Modal Body -->
@@ -1042,20 +1053,20 @@ document.addEventListener('DOMContentLoaded', function(){
 
             <!-- Storage Vault Name -->
             <div class="flex flex-col">
-                <label for="storagename" class="text-gray-300 font-medium mb-1">Name:</label>
+                <label for="storagename" class="text-slate-200 font-medium mb-1">Name:</label>
                 <input 
                   type="text" 
                   id="storagename" 
                   name="storagename" 
                   placeholder="Enter Storage Vault Name"
-                  class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-gray-700 rounded focus:outline-none focus:ring-0 focus:border-blue-600" 
+                  class="block w-full px-3 py-2 border border-slate-700 text-slate-200 bg-slate-800 rounded focus:outline-none focus:ring-0 focus:border-sky-600" 
                   required
                 >
             </div>
 
             <!-- Quota -->
             <div class="flex flex-col">
-                <label for="storageSize" class="text-gray-300 font-medium mb-1">Quota:</label>
+                <label for="storageSize" class="text-slate-200 font-medium mb-1">Quota:</label>
                 <div class="flex items-center space-x-2">
                     <input 
                       type="number" 
@@ -1064,12 +1075,12 @@ document.addEventListener('DOMContentLoaded', function(){
                       placeholder="" 
                       min="1" 
                       max="999"
-                      class="border border-gray-600 text-gray-700 bg-gray-700 rounded-md px-3 py-2 w-20 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      class="border border-slate-700 text-slate-200 bg-slate-800 rounded-md px-3 py-2 w-20 focus:outline-none focus:ring-2 focus:ring-sky-500"
                     >
                     <select 
                       id="standardSize" 
                       name="standardSize" 
-                      class="border border-gray-600 text-gray-700 bg-gray-700 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      class="border border-slate-700 text-slate-200 bg-slate-800 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-sky-500"
                     >
                         <option value="GB">GB</option>
                         <option value="TB">TB</option>
@@ -1081,7 +1092,7 @@ document.addEventListener('DOMContentLoaded', function(){
                           name="storageUnlimited" 
                           class="form-checkbox h-5 w-5 text-sky-600"
                         >
-                        <span class="text-gray-300">Unlimited</span>
+                        <span class="text-slate-200">Unlimited</span>
                     </label>
                 </div>
             </div>
@@ -1090,7 +1101,7 @@ document.addEventListener('DOMContentLoaded', function(){
             <div class="flex justify-end space-x-2">
                     <button 
                     type="button" 
-                    class="close text-sm/6 font-semibold text-gray-300 mr-2"
+                    class="close text-sm/6 font-semibold text-slate-200 mr-2"
                     data-dismiss="modal"
                 >
                     Close
@@ -1109,10 +1120,10 @@ document.addEventListener('DOMContentLoaded', function(){
 
 <!-- Delete Vault Confirmation Modal -->
 <div id="delete-vault-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 hidden">
-    <div class="bg-gray-800 rounded-lg shadow-lg w-full max-w-md p-6" role="document">
+    <div class="bg-slate-800 rounded-lg shadow-lg w-full max-w-md p-6" role="document">
         <div class="flex justify-between items-center mb-4">
             <h2 class="text-lg text-red-400">Delete Storage Vault</h2>
-            <button id="close-delete-vault-modal" class="text-gray-500 hover:text-gray-300">
+            <button id="close-delete-vault-modal" class="text-slate-400 hover:text-slate-200">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -1125,13 +1136,13 @@ document.addEventListener('DOMContentLoaded', function(){
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
                 </svg>
                 <div>
-                    <h3 class="text-gray-300 font-medium">Are you sure?</h3>
-                    <p class="text-gray-400 text-sm mt-1">This action cannot be undone. All data in this vault will be permanently removed from the server.</p>
+                    <h3 class="text-slate-200 font-medium">Are you sure?</h3>
+                    <p class="text-slate-400 text-sm mt-1">This action cannot be undone. All data in this vault will be permanently removed from the server.</p>
                 </div>
             </div>
             
-            <div class="bg-gray-700 p-3 rounded-md">
-                <p class="text-gray-300 text-sm">
+            <div class="bg-slate-800 p-3 rounded-md">
+                <p class="text-slate-200 text-sm">
                     <strong>Vault to delete:</strong> <span id="delete-vault-name" class="text-red-400"></span>
                 </p>
             </div>
@@ -1144,7 +1155,7 @@ document.addEventListener('DOMContentLoaded', function(){
             <div id="delete-vault-error-message" class="mt-2 text-red-500 text-sm hidden"></div>
             
             <div class="flex justify-end space-x-2 mt-4">
-                <button type="button" id="close-delete-vault-modal" class="close text-sm/6 font-semibold text-gray-300 mr-2">Cancel</button>
+                <button type="button" id="close-delete-vault-modal" class="close text-sm/6 font-semibold text-slate-200 mr-2">Cancel</button>
                 <button type="submit" id="confirm-delete-vault" class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-700">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />

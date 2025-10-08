@@ -43,8 +43,8 @@ function cloudstorage_admin_bucket_monitor($vars)
         error_log("Chart data limited to prevent memory issues: " . count($chartDataArray) . " points");
     }
     
-    // In multi-cluster mode, legacy single-cluster config is optional
-    $configComplete = true;
+    // Check if configuration is complete
+    $configComplete = !empty($s3Endpoint) && !empty($cephAdminAccessKey) && !empty($cephAdminSecretKey);
     
     // Prepare template variables
     $templateVars = [
@@ -67,8 +67,7 @@ function cloudstorage_admin_bucket_monitor($vars)
         ],
         'config_complete' => $configComplete,
         'error_message' => $bucketData['status'] == 'fail' ? $bucketData['message'] : '',
-        // Route AJAX via addonmodules entry to ensure admin context
-        'module_url' => 'addonmodules.php?module=cloudstorage&action=ajax'
+        'module_url' => '/modules/addons/cloudstorage/ajax.php'
     ];
     
     // Clean any captured unwanted output
@@ -115,11 +114,10 @@ function generateAdminHTML($vars) {
             font-size: 2rem;
             font-weight: bold;
             margin-bottom: 0.5rem;
-            color:rgb(255, 255, 255);
         }
         .metric-label {
-            color:rgb(255, 255, 255);
-            font-size: 1.2rem;
+            color: #6c757d;
+            font-size: 0.9rem;
         }
         .growth-cell {
             text-align: center;
@@ -472,23 +470,17 @@ function loadBucketData() {
         method: "POST",
         headers: {
             "Content-Type": "application/x-www-form-urlencoded",
-            "Accept": "application/json"
         },
-        credentials: "same-origin",
         body: new URLSearchParams({
-            ajax_action: "get_bucket_data",
+            action: "get_bucket_data",
             search: currentSearch,
             order_by: currentSort.column,
             order_dir: currentSort.direction,
             filter_type: currentFilter
         })
     })
-    .then(response => response.text())
-    .then(text => {
-        let data;
-        try { data = JSON.parse(text); } catch (e) {
-            throw new Error("Server did not return JSON. First bytes: " + text.substring(0, 200));
-        }
+    .then(response => response.json())
+    .then(data => {
         hideLoadingIndicator();
         
         if (data.status === "success") {
@@ -693,20 +685,14 @@ function updateChart() {
         method: "POST",
         headers: {
             "Content-Type": "application/x-www-form-urlencoded",
-            "Accept": "application/json"
         },
-        credentials: "same-origin",
         body: new URLSearchParams({
-            ajax_action: "get_chart_data",
+            action: "get_chart_data",
             days: days
         })
     })
-    .then(response => response.text())
-    .then(text => {
-        let data;
-        try { data = JSON.parse(text); } catch (e) {
-            throw new Error("Server did not return JSON. First bytes: " + text.substring(0, 200));
-        }
+    .then(response => response.json())
+    .then(data => {
         if (data.status === "success") {
             // Safety check for chart data
             const chartData = data.total_size_chart || [];
@@ -750,19 +736,13 @@ function collectDataNow() {
         method: "POST",
         headers: {
             "Content-Type": "application/x-www-form-urlencoded",
-            "Accept": "application/json"
         },
-        credentials: "same-origin",
         body: new URLSearchParams({
-            ajax_action: "collect_now"
+            action: "collect_now"
         })
     })
-    .then(response => response.text())
-    .then(text => {
-        let data;
-        try { data = JSON.parse(text); } catch (e) {
-            throw new Error("Server did not return JSON. First bytes: " + text.substring(0, 200));
-        }
+    .then(response => response.json())
+    .then(data => {
         btn.innerHTML = originalText;
         btn.disabled = false;
         

@@ -13,10 +13,10 @@ echo "Starting historical stats population for " . count($users) . " users...\n"
 $totalRecordsCreated = 0;
 
 foreach ($users as $user) {
-    // Get the earliest usage_day from s3_bucket_stats_summary
+    // Get the earliest date from s3_bucket_stats_summary
     $earliestDate = Capsule::table('s3_bucket_stats_summary')
         ->where('user_id', $user->id)
-        ->min('usage_day');
+        ->min('created_at');
 
     if (!$earliestDate) {
         echo "No data found for user {$user->id} ({$user->username}), skipping...\n";
@@ -39,7 +39,7 @@ foreach ($users as $user) {
         // Get total storage for this date
         $storageStats = Capsule::table('s3_bucket_stats_summary')
             ->where('user_id', $user->id)
-            ->where('usage_day', $dateStr)
+            ->whereDate('created_at', $dateStr)
             ->sum('total_usage');
 
         // Get transfer stats for this date

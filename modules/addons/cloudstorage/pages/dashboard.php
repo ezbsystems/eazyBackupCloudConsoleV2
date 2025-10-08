@@ -57,24 +57,27 @@
     $totalBucketCount = $userBuckets->count();
     $buckets = $userBuckets->isNotEmpty() ? $userBuckets->pluck('name', 'id')->toArray() : [];
     $billingObject = new BillingController();
-    $billingPeriod = $billingObject->calculateBillingMonth($loggedInUserId, $packageId);
+    $displayPeriod = $billingObject->calculateDisplayPeriod($loggedInUserId, $packageId);
+    $overdueNotice = $billingObject->getOverdueNotice($loggedInUserId, $packageId);
 
-    $bucketObject = new BucketController($s3Endpoint, $cephAdminUser, $cephAdminAccessKey, $cephAdminSecretKey);
+    $bucketObject = new BucketController($s3Endpoint, $cephAdminUser, $cephAdminAccessKey, $cephAdminSecretKey, $vars['s3_region'] ?? 'us-east-1');
     // Get today's usage totals by default (since charts default to "Today")
     $today = date('Y-m-d');
     $totalUsage = $bucketObject->getTotalUsageForBillingPeriod($userIds, $today, $today);
     $bucketInfo = $bucketObject->getTotalBucketSizeForUser($buckets);
     $transferdata = $bucketObject->getUserTransferSummary($userIds);
-    $bucketStats = $bucketObject->getUserBucketSummary($userIds, $billingPeriod['start'], $billingPeriod['end']);
+    // Query through today to keep charts live regardless of invoice state
+    $bucketStats = $bucketObject->getUserBucketSummary($userIds, $displayPeriod['start'], $displayPeriod['end_for_queries']);
     $formattedTotalBucketSize = $bucketObject->getPeakUsage($userIds);
     $dataIngress = HelperController::formatSizeUnits($totalUsage['total_bytes_received']);
     $dataEgress = HelperController::formatSizeUnits($totalUsage['total_bytes_sent']);
     $totalOps = htmlspecialchars($totalUsage['total_ops']);
     $topBuckets = HelperController::sortBucket($bucketInfo['buckets']);
-    $dailyUsageChart = HelperController::prepareDailyUsageChart($billingPeriod['start'], $bucketStats);
+    $dailyUsageChart = HelperController::prepareDailyUsageChart($displayPeriod['start'], $bucketStats);
 
     return [
-        'billingPeriod' => $billingPeriod,
+        'billingPeriod' => $displayPeriod,
+        'overdueNotice' => $overdueNotice,
         'bucketStats' => $dailyUsageChart,
         'currentUsage' => HelperController::formatSizeUnits($bucketInfo['total_size']),
         'formattedTotalBucketSize' => $formattedTotalBucketSize,

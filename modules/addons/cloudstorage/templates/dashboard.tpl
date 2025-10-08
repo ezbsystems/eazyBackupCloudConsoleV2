@@ -30,7 +30,12 @@
                 <!-- Card Header -->
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 border-b border-gray-700">
                     <h4 class="text-xl font-semibold text-white">Usage Summary</h4>
-                    <span class="text-sm text-slate-400">Current Period: {$billingPeriod['start']} to {$billingPeriod['end']}</span>
+                    <div class="flex items-center gap-2">
+                        <span class="text-sm text-slate-400">Current Service Period: {$billingPeriod['start']} to {$billingPeriod['end']}</span>
+                        {if isset($overdueNotice) && $overdueNotice}
+                            <span class="text-xs bg-yellow-500/20 text-yellow-300 border border-yellow-500/40 px-2 py-1 rounded">{$overdueNotice}</span>
+                        {/if}
+                    </div>
                     
                     <!-- Alpine.js Dropdown Component -->
                     <div x-data="{ 

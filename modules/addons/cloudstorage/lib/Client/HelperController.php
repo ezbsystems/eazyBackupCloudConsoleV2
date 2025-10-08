@@ -10,10 +10,9 @@ use WHMCS\Database\Capsule;
 class HelperController {
 
     /**
-     * Format SizeUnits
+     * Format size units (bytes to human-readable string).
      *
-     * @param bigint $bytes
-     *
+     * @param int|float $bytes
      * @return string
      */
     public static function formatSizeUnits($bytes)
@@ -60,11 +59,16 @@ class HelperController {
         $interval = new DateInterval('P1D');
         $range = new DatePeriod($start, $interval, $end);
 
+        $lastValue = 0;
         foreach ($range as $date) {
             $period = $date->format('Y-m-d');
+            if (array_key_exists($period, $usageMap)) {
+                $lastValue = $usageMap[$period];
+            }
+            // Last-value carry-forward for stock-like metric (storage size)
             $dailyUsageChart[] = [
                 'period' => $period,
-                'total_usage' => $usageMap[$period] ?? 0
+                'total_usage' => $lastValue
             ];
         }
 
@@ -119,10 +123,9 @@ class HelperController {
     /**
      * Encrypt Key
      *
-     * @param $key
-     * @param $encryptionKey
-     *
-     * @return array|null
+     * @param string $key
+     * @param string $encryptionKey
+     * @return string Base64 encoded IV + ciphertext
      */
     public static function encryptKey($key, $encryptionKey)
     {
@@ -135,9 +138,8 @@ class HelperController {
     /**
      * Decrypt Key
      *
-     * @param $encryptedKey
-     * @param $encryptionKey
-     *
+     * @param string $encryptedKey
+     * @param string $encryptionKey
      * @return string
      */
     public static function decryptKey($encryptedKey, $encryptionKey)
@@ -154,9 +156,8 @@ class HelperController {
     /**
      * Validate bucket name
      *
-     * @param $bucketName
-     *
-     * @return boolen
+     * @param string $bucketName
+     * @return bool
      */
     public static function isValidBucketName($bucketName)
     {
@@ -183,7 +184,8 @@ class HelperController {
     /**
      * Generate tenant id
      *
-     * @return integer
+     * @param int $length
+     * @return string
      */
     public static function generateTenantId($length = 12)
     {
@@ -193,7 +195,7 @@ class HelperController {
     /**
      * Verify generated tenant id uniqueness
      *
-     * @return integer
+     * @return string
      */
     public static function getUniqueTenantId()
     {

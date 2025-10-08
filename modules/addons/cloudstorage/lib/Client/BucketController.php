@@ -52,12 +52,15 @@ class BucketController {
     /**
      * Constructor to initialize endpoint
      */
-    public function __construct($endpoint = null, $adminUser = null, $adminAccessKey = null, $adminSecretKey = null)
+    public function __construct($endpoint = null, $adminUser = null, $adminAccessKey = null, $adminSecretKey = null, $region = null)
     {
         $this->endpoint = $endpoint;
         $this->adminUser = $adminUser;
         $this->adminAccessKey = $adminAccessKey;
         $this->adminSecretKey = $adminSecretKey;
+        if (!empty($region)) {
+            $this->region = $region;
+        }
     }
 
 
@@ -115,6 +118,13 @@ class BucketController {
                     $bucketOptions['ObjectLockEnabledForBucket'] = true;
                 }
 
+                // Provide LocationConstraint when region is not us-east-1 to satisfy SDK expectations
+                if (!empty($this->region) && strtolower($this->region) !== 'us-east-1') {
+                    $bucketOptions['CreateBucketConfiguration'] = [
+                        'LocationConstraint' => $this->region,
+                    ];
+                }
+
                 try {
                     $result = $this->s3Client->createBucket($bucketOptions);
                     logModuleCall($this->module, __FUNCTION__ . '_BUCKET_CREATED', [
@@ -129,6 +139,34 @@ class BucketController {
                     ], 'Bucket creation failed: ' . $e->getMessage());
 
                     return ['status' => 'fail', 'params' => $bucketOptions, 'message' => 'Bucket creation failed. Please try again later.'];
+                }
+
+                // Wait until headBucket succeeds before making any follow-up calls (versioning/object lock)
+                $maxHeadTries = 10;
+                $delaySeconds = 0.1; // start with 100ms
+                for ($i = 0; $i < $maxHeadTries; $i++) {
+                    try {
+                        $this->s3Client->headBucket(['Bucket' => $bucketName]);
+                        break; // ready
+                    } catch (S3Exception $e) {
+                        // Exponential backoff up to ~2s
+                        usleep((int)($delaySeconds * 1_000_000));
+                        $delaySeconds = min($delaySeconds * 2, 2.0);
+                        if ($i === $maxHeadTries - 1) {
+                            logModuleCall($this->module, __FUNCTION__ . '_HEAD_TIMEOUT', [
+                                'bucket_name' => $bucketName,
+                                'tries' => $maxHeadTries
+                            ], 'headBucket did not succeed in time after creation');
+                        }
+                    }
+                }
+
+                // If object locking is enabled, enforce versioning being enabled server-side as a safety net
+                if ($enableObjectLocking && !$enableVersioning) {
+                    $enableVersioning = true;
+                    logModuleCall($this->module, __FUNCTION__ . '_FORCE_VERSIONING', [
+                        'bucket_name' => $bucketName
+                    ], 'Forcing versioning ON because object locking was requested');
                 }
 
                 if ($enableVersioning) {
@@ -151,6 +189,8 @@ class BucketController {
 
                 // Only set default retention policy if both object locking is enabled AND user requested it
                 if ($enableObjectLocking && $setDefaultRetention) {
+                    // Small delay to allow bucket.instance/object lock scaffolding to settle on older RGW
+                    usleep(500_000); // 500ms
                     try {
                         $this->s3Client->putObjectLockConfiguration([
                             'Bucket' => $bucketName,
@@ -189,7 +229,7 @@ class BucketController {
                 }
 
                 // Simple retry mechanism for bucket info verification (mainly for rare consistency delays)
-                $maxRetries = 3;
+                $maxRetries = 10;
                 $bucketInfo = null;
                 
                 for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
@@ -197,7 +237,8 @@ class BucketController {
 
                     if ($bucketInfoResponse['status'] != 'success') {
                         if ($attempt < $maxRetries) {
-                            sleep(1);
+                            // exponential-ish backoff capped at 2s
+                            usleep(min($attempt * 200_000, 2_000_000));
                             continue;
                         }
                         logModuleCall($this->module, __FUNCTION__ . '_ADMIN_API_FAILED', [
@@ -213,7 +254,8 @@ class BucketController {
                         break;
                     } else {
                         if ($attempt < $maxRetries) {
-                            sleep($attempt); // Progressive delay
+                            // progressive delay: 0.2s, 0.4s, ..., up to 2s
+                            usleep(min($attempt * 200_000, 2_000_000));
                         }
                     }
                 }
@@ -514,20 +556,20 @@ class BucketController {
         // Using a direct SQL approach with a single subquery for better performance
         $query = Capsule::table('s3_bucket_stats_summary AS s')
             ->selectRaw('
-                s.usage_day AS date,
+                DATE(s.created_at) AS date,
                 SUM(
                     (
                         SELECT MAX(total_usage)
                         FROM s3_bucket_stats_summary AS inner_s
                         WHERE inner_s.user_id = s.user_id
                         AND inner_s.bucket_id = s.bucket_id
-                        AND inner_s.usage_day = s.usage_day
+                        AND DATE(inner_s.created_at) = DATE(s.created_at)
                     )
                 ) AS total_usage
             ')
             ->whereIn('s.user_id', $userIds)
-            ->where('s.usage_day', '>=', $startDate)
-            ->where('s.usage_day', '<=', $endDate)
+            ->whereDate('s.created_at', '>=', $startDate)
+            ->whereDate('s.created_at', '<=', $endDate)
             ->groupBy('date')
             ->orderBy('date', 'ASC')
             ->limit($limit);
@@ -556,7 +598,7 @@ class BucketController {
         $peakUsage = Capsule::table('s3_bucket_stats_summary')
             ->selectRaw('SUM(total_usage) AS total_size')
             ->whereIn('user_id', $userIds)
-            ->where('usage_day', '=', $today)
+            ->whereDate('created_at', '=', $today)
             ->first();
 
         return $peakUsage->total_size ? HelperController::formatSizeUnits($peakUsage->total_size) : '0 Bytes';
@@ -693,12 +735,12 @@ class BucketController {
     {
         return Capsule::table('s3_bucket_stats_summary')
             ->selectRaw('
-                usage_day AS exact_timestamp,
+                DATE(created_at) AS exact_timestamp,
                 SUM(total_usage) AS total_size
             ')
             ->whereIn('user_id', $userIds)
-            ->where('usage_day', '>=', $billingPeriod['start'])
-            ->where('usage_day', '<=', $billingPeriod['end'])
+            ->whereDate('created_at', '>=', $billingPeriod['start'])
+            ->whereDate('created_at', '<=', $billingPeriod['end'])
             ->groupBy('exact_timestamp')
             ->orderBy('total_size', 'DESC')
             ->first();
@@ -831,7 +873,8 @@ class BucketController {
                     'key' => $this->accessKey,
                     'secret' => $this->secretKey,
                 ],
-                'use_path_style_endpoint' => true
+                'use_path_style_endpoint' => true,
+                'signature_version' => 'v4'
             ];
 
             $this->s3Client = new S3Client($s3ClientConfig);
@@ -871,17 +914,479 @@ class BucketController {
             ]);
 
 
-            if ($result['@metadata']['statusCode'] == 200) {
-                $message = 'File has been deleted successfully.';
-            } else {
-                $message = 'Delete request failed.';
+            // Inspect result for per-object errors
+            $errors = [];
+            if (isset($result['Errors']) && is_array($result['Errors']) && count($result['Errors']) > 0) {
+                foreach ($result['Errors'] as $err) {
+                    $errors[] = [
+                        'Key' => $err['Key'] ?? null,
+                        'VersionId' => $err['VersionId'] ?? null,
+                        'Code' => $err['Code'] ?? null,
+                        'Message' => $err['Message'] ?? null,
+                    ];
+                }
             }
 
-            return ['status' => 'success', 'message' => $message];
+            $deleted = [];
+            if (isset($result['Deleted']) && is_array($result['Deleted'])) {
+                foreach ($result['Deleted'] as $d) {
+                    $deleted[] = [
+                        'Key' => $d['Key'] ?? null,
+                        'VersionId' => $d['VersionId'] ?? null,
+                        'DeleteMarker' => $d['DeleteMarker'] ?? null
+                    ];
+                }
+            }
+
+            $statusCode = $result['@metadata']['statusCode'] ?? 0;
+            $ok = ($statusCode == 200) && count($errors) === 0;
+            $partial = ($statusCode == 200) && count($errors) > 0;
+
+            $message = $ok ? 'Delete completed.' : ($partial ? 'Some objects could not be deleted.' : 'Delete request failed.');
+
+            return [
+                'status' => $ok ? 'success' : ($partial ? 'partial' : 'fail'),
+                'message' => $message,
+                'deleted' => $deleted,
+                'errors' => $errors
+            ];
         } catch (S3Exception $e) {
             logModuleCall($this->module, __FUNCTION__, [$bucketName, $objectsToDelete], $e->getMessage());
 
             return ['status' => 'fail', 'message' => 'File to delete object. Please try again or contact support.'];
+        }
+    }
+
+    /**
+     * List object versions and delete markers for a specific key.
+     * Optionally include per-version Legal Hold and Retention details.
+     *
+     * @param string $bucketName
+     * @param string $key
+     * @param bool $includeDetails
+     * @return array
+     */
+    public function getObjectVersionsForKey($bucketName, $key, $includeDetails = false)
+    {
+        $response = [
+            'versions' => [],
+            'delete_markers' => [],
+            'has_versions' => false,
+            'has_delete_markers' => false,
+        ];
+
+        try {
+            $isTruncated = false;
+            $keyMarker = null;
+            $versionIdMarker = null;
+            do {
+                $params = [
+                    'Bucket' => $bucketName,
+                    'Prefix' => $key
+                ];
+                if ($keyMarker) {
+                    $params['KeyMarker'] = $keyMarker;
+                }
+                if ($versionIdMarker) {
+                    $params['VersionIdMarker'] = $versionIdMarker;
+                }
+
+                $result = $this->s3Client->listObjectVersions($params);
+
+                // Versions
+                if (!empty($result['Versions'])) {
+                    foreach ($result['Versions'] as $v) {
+                        if (($v['Key'] ?? '') !== $key) {
+                            continue; // exact match only
+                        }
+                        $item = [
+                            'Key' => $v['Key'],
+                            'VersionId' => $v['VersionId'] ?? null,
+                            'IsLatest' => (bool)($v['IsLatest'] ?? false),
+                            'LastModified' => isset($v['LastModified']) && $v['LastModified'] instanceof \DateTimeInterface
+                                ? $v['LastModified']->format('Y-m-d H:i:s')
+                                : (string)($v['LastModified'] ?? ''),
+                            'ETag' => $v['ETag'] ?? null,
+                            'Size' => $v['Size'] ?? null,
+                            'StorageClass' => $v['StorageClass'] ?? null,
+                            'IsDeleteMarker' => false,
+                        ];
+
+                        if ($includeDetails && !empty($item['VersionId'])) {
+                            // Legal Hold
+                            try {
+                                $lh = $this->s3Client->getObjectLegalHold([
+                                    'Bucket' => $bucketName,
+                                    'Key' => $key,
+                                    'VersionId' => $item['VersionId']
+                                ]);
+                                $item['LegalHold'] = strtoupper($lh['LegalHold']['Status'] ?? 'OFF');
+                            } catch (S3Exception $e) {
+                                $item['LegalHold'] = 'OFF';
+                            }
+                            // Retention
+                            try {
+                                $ret = $this->s3Client->getObjectRetention([
+                                    'Bucket' => $bucketName,
+                                    'Key' => $key,
+                                    'VersionId' => $item['VersionId']
+                                ]);
+                                $mode = isset($ret['Retention']['Mode']) ? strtoupper($ret['Retention']['Mode']) : null;
+                                $until = $ret['Retention']['RetainUntilDate'] ?? null;
+                                $untilStr = null;
+                                if ($until instanceof \DateTimeInterface) {
+                                    $untilStr = $until->format('Y-m-d H:i:s');
+                                } elseif (!empty($until)) {
+                                    $untilStr = (string)$until;
+                                }
+                                $item['Retention'] = [
+                                    'Mode' => $mode,
+                                    'RetainUntil' => $untilStr
+                                ];
+                            } catch (S3Exception $e) {
+                                $item['Retention'] = null;
+                            }
+                        }
+
+                        // Only show non-current versions under key in versions list (read-only toggle)
+                        if (!$item['IsLatest']) {
+                            $response['versions'][] = $item;
+                        }
+                    }
+                }
+
+                // Delete markers
+                if (!empty($result['DeleteMarkers'])) {
+                    foreach ($result['DeleteMarkers'] as $m) {
+                        if (($m['Key'] ?? '') !== $key) {
+                            continue;
+                        }
+                        $response['delete_markers'][] = [
+                            'Key' => $m['Key'],
+                            'VersionId' => $m['VersionId'] ?? null,
+                            'IsLatest' => (bool)($m['IsLatest'] ?? false),
+                            'LastModified' => isset($m['LastModified']) && $m['LastModified'] instanceof \DateTimeInterface
+                                ? $m['LastModified']->format('Y-m-d H:i:s')
+                                : (string)($m['LastModified'] ?? ''),
+                            'IsDeleteMarker' => true
+                        ];
+                    }
+                }
+
+                $isTruncated = isset($result['IsTruncated']) ? (bool)$result['IsTruncated'] : false;
+                $keyMarker = $result['NextKeyMarker'] ?? null;
+                $versionIdMarker = $result['NextVersionIdMarker'] ?? null;
+            } while ($isTruncated);
+
+            $response['has_versions'] = count($response['versions']) > 0;
+            $response['has_delete_markers'] = count($response['delete_markers']) > 0;
+
+            return [
+                'status' => 'success',
+                'data' => $response
+            ];
+        } catch (S3Exception $e) {
+            logModuleCall($this->module, __FUNCTION__, [$bucketName, $key, $includeDetails], $e->getMessage());
+            return [
+                'status' => 'fail',
+                'message' => 'Unable to list versions for object.'
+            ];
+        }
+    }
+
+    /**
+     * Build a Versions Index for a prefix using listObjectVersions.
+     * Groups by Key and flattens into parent + child rows suitable for table rendering.
+     * Supports pagination via NextKeyMarker and NextVersionIdMarker.
+     *
+     * @param string $bucketName
+     * @param array $options [
+     *   'prefix' => string,
+     *   'key_marker' => ?string,
+     *   'version_id_marker' => ?string,
+     *   'max_keys' => int,
+     *   'include_deleted' => bool,
+     *   'only_with_versions' => bool
+     * ]
+     * @return array
+     */
+    public function getVersionsIndex($bucketName, array $options = [])
+    {
+        $prefix = isset($options['prefix']) ? (string)$options['prefix'] : '';
+        $keyMarker = $options['key_marker'] ?? null;
+        $versionIdMarker = $options['version_id_marker'] ?? null;
+        $maxKeys = isset($options['max_keys']) && is_numeric($options['max_keys']) ? (int)$options['max_keys'] : 1000;
+        if ($maxKeys <= 0) {
+            $maxKeys = 1000;
+        } elseif ($maxKeys > 1000) {
+            $maxKeys = 1000;
+        }
+        $includeDeleted = isset($options['include_deleted']) ? (bool)$options['include_deleted'] : true;
+        $onlyWithVersions = isset($options['only_with_versions']) ? (bool)$options['only_with_versions'] : false;
+
+        try {
+            $params = [
+                'Bucket' => $bucketName,
+                'MaxKeys' => $maxKeys
+            ];
+            if (!empty($prefix)) {
+                $params['Prefix'] = $prefix;
+            }
+            if (!empty($keyMarker)) {
+                $params['KeyMarker'] = $keyMarker;
+            }
+            if (!empty($versionIdMarker)) {
+                $params['VersionIdMarker'] = $versionIdMarker;
+            }
+
+            $result = $this->s3Client->listObjectVersions($params);
+
+            // Group entries by Key
+            $groups = [];
+            $hasVersionsByKey = [];
+            if (!empty($result['Versions'])) {
+                foreach ($result['Versions'] as $v) {
+                    $k = $v['Key'] ?? null;
+                    if (is_null($k)) {
+                        continue;
+                    }
+                    if (!isset($groups[$k])) {
+                        $groups[$k] = [];
+                        $hasVersionsByKey[$k] = false;
+                    }
+                    $hasVersionsByKey[$k] = true;
+                    $groups[$k][] = [
+                        'type' => 'version',
+                        'IsLatest' => (bool)($v['IsLatest'] ?? false),
+                        'VersionId' => $v['VersionId'] ?? null,
+                        'LastModified' => isset($v['LastModified']) && $v['LastModified'] instanceof \DateTimeInterface ? $v['LastModified']->format('Y-m-d H:i:s') : (string)($v['LastModified'] ?? ''),
+                        'ETag' => $v['ETag'] ?? null,
+                        'Size' => $v['Size'] ?? null,
+                        'StorageClass' => $v['StorageClass'] ?? null,
+                        'Owner' => isset($v['Owner']) ? ($v['Owner']['DisplayName'] ?? ($v['Owner']['ID'] ?? '')) : ''
+                    ];
+                }
+            }
+            if (!empty($result['DeleteMarkers'])) {
+                foreach ($result['DeleteMarkers'] as $m) {
+                    $k = $m['Key'] ?? null;
+                    if (is_null($k)) {
+                        continue;
+                    }
+                    if (!isset($groups[$k])) {
+                        $groups[$k] = [];
+                        if (!isset($hasVersionsByKey[$k])) {
+                            $hasVersionsByKey[$k] = false;
+                        }
+                    }
+                    $groups[$k][] = [
+                        'type' => 'delete_marker',
+                        'IsLatest' => (bool)($m['IsLatest'] ?? false),
+                        'VersionId' => $m['VersionId'] ?? null,
+                        'LastModified' => isset($m['LastModified']) && $m['LastModified'] instanceof \DateTimeInterface ? $m['LastModified']->format('Y-m-d H:i:s') : (string)($m['LastModified'] ?? ''),
+                        'ETag' => null,
+                        'Size' => null,
+                        'StorageClass' => null,
+                        'Owner' => ''
+                    ];
+                }
+            }
+
+            // Build flat rows
+            $rows = [];
+            foreach ($groups as $key => $entries) {
+                // Determine if current (latest non-delete) exists
+                $hasCurrent = false;
+                foreach ($entries as $e) {
+                    if ($e['type'] === 'version' && $e['IsLatest'] === true) {
+                        $hasCurrent = true;
+                        break;
+                    }
+                }
+
+                // Filter groups by flags
+                if ($onlyWithVersions && !$hasVersionsByKey[$key]) {
+                    continue;
+                }
+                if (!$includeDeleted && !$hasCurrent) {
+                    // Skip tombstoned keys when includeDeleted=false
+                    continue;
+                }
+
+                // Sort entries by LastModified desc to compute parent meta and child order
+                usort($entries, function ($a, $b) {
+                    return strcmp(($b['LastModified'] ?? ''), ($a['LastModified'] ?? ''));
+                });
+
+                $latestModified = isset($entries[0]['LastModified']) ? $entries[0]['LastModified'] : '';
+
+                // Parent row for the key
+                $rows[] = [
+                    'is_parent' => true,
+                    'key' => $key,
+                    'name' => $key,
+                    'modified' => $latestModified,
+                    'etag' => '',
+                    'size' => '',
+                    'storage_class' => '',
+                    'owner' => '',
+                    'version_id' => '',
+                    'deleted' => !$hasCurrent
+                ];
+
+                // Revision numbering: newest -> oldest as N, N-1, ..., 1
+                $total = count($entries);
+                $index = 0;
+                foreach ($entries as $e) {
+                    $revNumber = $total - $index; // newest gets highest number
+                    $label = 'revision #' . $revNumber;
+                    $isDeleted = ($e['type'] === 'delete_marker');
+                    if ($isDeleted) {
+                        $label .= ' (deleted)';
+                    }
+                    $rows[] = [
+                        'is_parent' => false,
+                        'key' => $key,
+                        'name' => $label,
+                        'modified' => $e['LastModified'] ?? '',
+                        'etag' => $e['ETag'] ?? '',
+                        'size' => is_null($e['Size']) ? '—' : HelperController::formatSizeUnits((int)$e['Size']),
+                        'storage_class' => $e['StorageClass'] ?? '',
+                        'owner' => $e['Owner'] ?? '',
+                        'version_id' => $e['VersionId'] ?? '',
+                        'deleted' => $isDeleted
+                    ];
+                    $index++;
+                }
+            }
+
+            return [
+                'status' => 'success',
+                'data' => [
+                    'rows' => $rows,
+                    'next_key_marker' => $result['NextKeyMarker'] ?? null,
+                    'next_version_id_marker' => $result['NextVersionIdMarker'] ?? null
+                ]
+            ];
+        } catch (S3Exception $e) {
+            logModuleCall($this->module, __FUNCTION__, [$bucketName, $options], $e->getMessage());
+            return [
+                'status' => 'fail',
+                'message' => 'Unable to build versions index.'
+            ];
+        }
+    }
+
+    /**
+     * Restore a specific object version by copying it over the same key to create a new current version.
+     * Uses single-copy for <= 5 GiB, multipart copy otherwise.
+     *
+     * @param string $bucketName
+     * @param string $key
+     * @param string $sourceVersionId
+     * @param string $metadataDirective COPY|REPLACE
+     * @param array|null $metadata Optional metadata when REPLACE
+     * @return array
+     */
+    public function restoreObjectVersion($bucketName, $key, $sourceVersionId, $metadataDirective = 'COPY', $metadata = null)
+    {
+        try {
+            if (is_null($this->s3Client)) {
+                return ['status' => 'fail', 'message' => 'Storage connection not established.'];
+            }
+
+            // Head source version to validate and get size/etag/metadata
+            try {
+                $head = $this->s3Client->headObject([
+                    'Bucket' => $bucketName,
+                    'Key' => $key,
+                    'VersionId' => $sourceVersionId,
+                ]);
+            } catch (S3Exception $e) {
+                return ['status' => 'fail', 'message' => 'Source version not found or not accessible.'];
+            }
+
+            // Determine size for single vs multipart copy
+            $size = isset($head['ContentLength']) ? (int)$head['ContentLength'] : 0;
+            $useMultipart = $size > (5 * 1024 * 1024 * 1024); // > 5 GiB
+
+            $copyParamsBase = [
+                'Bucket' => $bucketName,
+                'Key' => $key,
+                'CopySource' => rawurlencode($bucketName . '/' . $key) . '?versionId=' . rawurlencode($sourceVersionId),
+                'MetadataDirective' => ($metadataDirective === 'REPLACE') ? 'REPLACE' : 'COPY',
+            ];
+            if ($metadataDirective === 'REPLACE' && is_array($metadata) && !empty($metadata)) {
+                $copyParamsBase['Metadata'] = $metadata;
+            }
+
+            if (!$useMultipart) {
+                $result = $this->s3Client->copyObject($copyParamsBase);
+                $newVersionId = $result['VersionId'] ?? null;
+                return [
+                    'status' => 'success',
+                    'data' => [
+                        'new_version_id' => $newVersionId,
+                        'key' => $key,
+                        'bucket' => $bucketName,
+                    ]
+                ];
+            }
+
+            // Multipart copy
+            $mpu = $this->s3Client->createMultipartUpload([
+                'Bucket' => $bucketName,
+                'Key' => $key,
+                'MetadataDirective' => $copyParamsBase['MetadataDirective'],
+            ] + (($metadataDirective === 'REPLACE' && isset($copyParamsBase['Metadata'])) ? ['Metadata' => $copyParamsBase['Metadata']] : []));
+
+            $uploadId = $mpu['UploadId'];
+            $partSize = 64 * 1024 * 1024; // 64 MiB default part size
+            $parts = [];
+            $offset = 0;
+            $partNumber = 1;
+
+            while ($offset < $size) {
+                $end = min($offset + $partSize - 1, $size - 1);
+                $range = 'bytes=' . $offset . '-' . $end;
+                $copyPartResult = $this->s3Client->uploadPartCopy([
+                    'Bucket' => $bucketName,
+                    'Key' => $key,
+                    'UploadId' => $uploadId,
+                    'PartNumber' => $partNumber,
+                    'CopySource' => rawurlencode($bucketName . '/' . $key) . '?versionId=' . rawurlencode($sourceVersionId),
+                    'CopySourceRange' => $range,
+                ]);
+                $parts[] = [
+                    'ETag' => $copyPartResult['CopyPartResult']['ETag'],
+                    'PartNumber' => $partNumber,
+                ];
+                $offset = $end + 1;
+                $partNumber++;
+            }
+
+            $complete = $this->s3Client->completeMultipartUpload([
+                'Bucket' => $bucketName,
+                'Key' => $key,
+                'UploadId' => $uploadId,
+                'MultipartUpload' => ['Parts' => $parts],
+            ]);
+
+            $newVersionId = $complete['VersionId'] ?? null;
+            return [
+                'status' => 'success',
+                'data' => [
+                    'new_version_id' => $newVersionId,
+                    'key' => $key,
+                    'bucket' => $bucketName,
+                ]
+            ];
+        } catch (S3Exception $e) {
+            logModuleCall($this->module, __FUNCTION__, [$bucketName, $key, $sourceVersionId], $e->getMessage());
+            return ['status' => 'fail', 'message' => 'Restore failed: ' . $e->getAwsErrorMessage()];
+        } catch (\Exception $e) {
+            logModuleCall($this->module, __FUNCTION__, [$bucketName, $key, $sourceVersionId], $e->getMessage());
+            return ['status' => 'fail', 'message' => 'Restore failed.'];
         }
     }
 
@@ -1490,6 +1995,274 @@ class BucketController {
     }
 
     /**
+     * Get detailed object lock and emptiness status for a bucket.
+     * Returns counts for objects, versions, delete markers, multipart uploads, legal holds,
+     * counts of versions in COMPLIANCE/GOVERNANCE retention, earliest retain-until, and default mode.
+     *
+     * @param string $bucketName
+     * @param int $maxExamples
+     * @return array
+     */
+    public function getObjectLockEmptyStatus($bucketName, $maxExamples = 3)
+    {
+        $result = [
+            'object_lock' => [
+                'enabled' => false,
+                'default_mode' => null,
+            ],
+            'counts' => [
+                'current_objects' => 0,
+                'versions' => 0,
+                'delete_markers' => 0,
+                'multipart_uploads' => 0,
+                'legal_holds' => 0,
+                'compliance_retained' => 0,
+                'governance_retained' => 0,
+            ],
+            'earliest_retain_until' => null,
+            'examples' => [
+                'legal_holds' => [],
+                'compliance' => [],
+                'governance' => [],
+                'multipart' => [],
+            ],
+            'empty' => false,
+        ];
+
+        try {
+            // Object lock configuration / default mode (if any)
+            try {
+                $olc = $this->s3Client->getObjectLockConfiguration(['Bucket' => $bucketName]);
+                if (
+                    isset($olc['ObjectLockConfiguration']['ObjectLockEnabled']) &&
+                    $olc['ObjectLockConfiguration']['ObjectLockEnabled'] === 'Enabled'
+                ) {
+                    $result['object_lock']['enabled'] = true;
+                    if (isset($olc['ObjectLockConfiguration']['Rule']['DefaultRetention']['Mode'])) {
+                        $result['object_lock']['default_mode'] = $olc['ObjectLockConfiguration']['Rule']['DefaultRetention']['Mode'];
+                    }
+                }
+            } catch (S3Exception $e) {
+                // If getObjectLockConfiguration fails, treat as not enabled
+            }
+
+            // Determine current object count from S3 in real-time to avoid stale DB stats
+            try {
+                $isTruncated = false;
+                $continuationToken = null;
+                $currentCount = 0;
+                do {
+                    $params = [
+                        'Bucket' => $bucketName,
+                        'MaxKeys' => 1000
+                    ];
+                    if ($continuationToken) {
+                        $params['ContinuationToken'] = $continuationToken;
+                    }
+                    $objects = $this->s3Client->listObjectsV2($params);
+                    if (!empty($objects['Contents'])) {
+                        $currentCount += count($objects['Contents']);
+                    }
+                    $isTruncated = isset($objects['IsTruncated']) ? (bool)$objects['IsTruncated'] : false;
+                    $continuationToken = $objects['NextContinuationToken'] ?? null;
+                } while ($isTruncated);
+                $result['counts']['current_objects'] = $currentCount;
+            } catch (S3Exception $e) {
+                // If S3 listing fails, fall back to last-known DB value (best-effort only)
+                try {
+                    $bucketRow = Capsule::table('s3_buckets')->where('name', $bucketName)->first();
+                    if ($bucketRow) {
+                        $statId = Capsule::table('s3_bucket_stats')->where('bucket_id', $bucketRow->id)->max('id');
+                        if ($statId) {
+                            $stat = Capsule::table('s3_bucket_stats')->where('id', $statId)->first();
+                            if ($stat && isset($stat->num_objects)) {
+                                $result['counts']['current_objects'] = (int)$stat->num_objects;
+                            }
+                        }
+                    }
+                } catch (\Exception $ignored) {
+                    // ignore
+                }
+            }
+
+            // Multipart uploads in progress (count and a few examples)
+            try {
+                $isTruncated = false;
+                $keyMarker = null;
+                $uploadIdMarker = null;
+                do {
+                    $params = ['Bucket' => $bucketName];
+                    if ($keyMarker) {
+                        $params['KeyMarker'] = $keyMarker;
+                    }
+                    if ($uploadIdMarker) {
+                        $params['UploadIdMarker'] = $uploadIdMarker;
+                    }
+                    $uploads = $this->s3Client->listMultipartUploads($params);
+                    if (!empty($uploads['Uploads'])) {
+                        foreach ($uploads['Uploads'] as $u) {
+                            $result['counts']['multipart_uploads'] += 1;
+                            if (count($result['examples']['multipart']) < $maxExamples) {
+                                $result['examples']['multipart'][] = [
+                                    'Key' => $u['Key'],
+                                    'UploadId' => $u['UploadId']
+                                ];
+                            }
+                        }
+                    }
+                    $isTruncated = isset($uploads['IsTruncated']) ? (bool)$uploads['IsTruncated'] : false;
+                    $keyMarker = $uploads['NextKeyMarker'] ?? null;
+                    $uploadIdMarker = $uploads['NextUploadIdMarker'] ?? null;
+                } while ($isTruncated);
+            } catch (S3Exception $e) {
+                // ignore upload listing errors
+            }
+
+            // Versions and delete markers; also inspect legal holds and per-version retention
+            $earliestTs = null;
+            $complianceFound = false;
+            $governanceFound = false;
+            try {
+                $isTruncated = false;
+                $keyMarker = null;
+                $versionIdMarker = null;
+                do {
+                    $params = ['Bucket' => $bucketName];
+                    if ($keyMarker) {
+                        $params['KeyMarker'] = $keyMarker;
+                    }
+                    if ($versionIdMarker) {
+                        $params['VersionIdMarker'] = $versionIdMarker;
+                    }
+                    $versions = $this->s3Client->listObjectVersions($params);
+
+                    if (!empty($versions['Versions'])) {
+                        foreach ($versions['Versions'] as $v) {
+                            $result['counts']['versions'] += 1;
+
+                            // Inspect retention
+                            try {
+                                $ret = $this->s3Client->getObjectRetention([
+                                    'Bucket' => $bucketName,
+                                    'Key' => $v['Key'],
+                                    'VersionId' => $v['VersionId']
+                                ]);
+                                if (!empty($ret['Retention']['Mode'])) {
+                                    $mode = $ret['Retention']['Mode'];
+                                    $until = $ret['Retention']['RetainUntilDate'] ?? null;
+                                    $untilTs = null;
+                                    if ($until instanceof \DateTimeInterface) {
+                                        $untilTs = $until->getTimestamp();
+                                    } elseif (!empty($until)) {
+                                        $untilTs = strtotime((string)$until);
+                                    }
+                                    // Count only if retain-until is in the future
+                                    if ($untilTs && $untilTs > time()) {
+                                        if (strtoupper($mode) === 'COMPLIANCE') {
+                                            $result['counts']['compliance_retained'] += 1;
+                                            $complianceFound = true;
+                                            if (count($result['examples']['compliance']) < $maxExamples) {
+                                                $result['examples']['compliance'][] = [
+                                                    'Key' => $v['Key'],
+                                                    'VersionId' => $v['VersionId'],
+                                                    'RetainUntil' => $untilTs
+                                                ];
+                                            }
+                                        } elseif (strtoupper($mode) === 'GOVERNANCE') {
+                                            $result['counts']['governance_retained'] += 1;
+                                            $governanceFound = true;
+                                            if (count($result['examples']['governance']) < $maxExamples) {
+                                                $result['examples']['governance'][] = [
+                                                    'Key' => $v['Key'],
+                                                    'VersionId' => $v['VersionId'],
+                                                    'RetainUntil' => $untilTs
+                                                ];
+                                            }
+                                        }
+                                        if (is_null($earliestTs) || $untilTs < $earliestTs) {
+                                            $earliestTs = $untilTs;
+                                        }
+                                    }
+                                }
+                            } catch (S3Exception $e) {
+                                // No retention or not permitted; ignore
+                            }
+
+                            // Inspect legal hold
+                            try {
+                                $lh = $this->s3Client->getObjectLegalHold([
+                                    'Bucket' => $bucketName,
+                                    'Key' => $v['Key'],
+                                    'VersionId' => $v['VersionId']
+                                ]);
+                                if (!empty($lh['LegalHold']['Status']) && strtoupper($lh['LegalHold']['Status']) === 'ON') {
+                                    $result['counts']['legal_holds'] += 1;
+                                    if (count($result['examples']['legal_holds']) < $maxExamples) {
+                                        $result['examples']['legal_holds'][] = [
+                                            'Key' => $v['Key'],
+                                            'VersionId' => $v['VersionId']
+                                        ];
+                                    }
+                                }
+                            } catch (S3Exception $e) {
+                                // No legal hold or not permitted; ignore
+                            }
+                        }
+                    }
+
+                    if (!empty($versions['DeleteMarkers'])) {
+                        foreach ($versions['DeleteMarkers'] as $m) {
+                            $result['counts']['delete_markers'] += 1;
+                        }
+                    }
+
+                    $isTruncated = isset($versions['IsTruncated']) ? (bool)$versions['IsTruncated'] : false;
+                    $keyMarker = $versions['NextKeyMarker'] ?? null;
+                    $versionIdMarker = $versions['NextVersionIdMarker'] ?? null;
+                } while ($isTruncated);
+            } catch (S3Exception $e) {
+                // ignore version listing errors
+            }
+
+            // Determine mode if default not set but versions indicate one
+            if (empty($result['object_lock']['default_mode'])) {
+                if ($complianceFound && !$governanceFound) {
+                    $result['object_lock']['default_mode'] = 'COMPLIANCE';
+                } elseif ($governanceFound && !$complianceFound) {
+                    $result['object_lock']['default_mode'] = 'GOVERNANCE';
+                }
+            }
+
+            // Earliest retain-until formatted
+            if (!is_null($earliestTs)) {
+                $result['earliest_retain_until'] = gmdate('Y-m-d H:i', $earliestTs) . ' Coordinated Universal Time';
+            }
+
+            // Empty if everything is zero
+            $result['empty'] = (
+                $result['counts']['current_objects'] === 0 &&
+                $result['counts']['versions'] === 0 &&
+                $result['counts']['delete_markers'] === 0 &&
+                $result['counts']['multipart_uploads'] === 0 &&
+                $result['counts']['legal_holds'] === 0 &&
+                $result['counts']['compliance_retained'] === 0 &&
+                $result['counts']['governance_retained'] === 0
+            );
+
+            return [
+                'status' => 'success',
+                'data' => $result
+            ];
+        } catch (\Exception $e) {
+            logModuleCall($this->module, __FUNCTION__, $bucketName, $e->getMessage());
+            return [
+                'status' => 'fail',
+                'message' => 'Unable to determine bucket status at this time. Please try again later.'
+            ];
+        }
+    }
+
+    /**
      * Update historical stats for a user
      * This should be called daily via a cron job
      *
@@ -1512,7 +2285,7 @@ class BucketController {
         // First, try to get today's data from existing summary tables (if billing system has run)
         $todayStorageUsage = Capsule::table('s3_bucket_stats_summary')
             ->where('user_id', $userId)
-            ->where('usage_day', $today)
+            ->whereDate('created_at', $today)
             ->sum('total_usage') ?? 0;
 
         $todayTransferStats = Capsule::table('s3_transfer_stats_summary')

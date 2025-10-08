@@ -1,5 +1,103 @@
 <?php
-use WHMCS\Database\Capsule;
+// ---- eazyBackup: PDF usage enrichment helpers (cron-safe) ----
+if (!function_exists('ebFmtBytes')) {
+    function ebFmtBytes(?int $bytes): string {
+        if ($bytes === null) return 'N/A';
+        $b = (int) $bytes;
+        if ($b < 1024) return $b . ' B';
+        $units = ['KB','MB','GB','TB','PB','EB'];
+        $i = -1;
+        do { $b /= 1024; ++$i; } while ($b >= 1024 && $i < count($units)-1);
+        return sprintf('%.2f %s', $b, $units[$i]);
+    }
+}
+
+if (!class_exists('EB_InvoiceUsage')) {
+    class EB_InvoiceUsage {
+        protected static array $cache = [];
+
+        public static function getUsageForUsername(string $username, ?int $clientId = null): array
+        {
+            $key = $username . '|' . ($clientId ?? 0);
+            if (isset(self::$cache[$key])) {
+                return self::$cache[$key];
+            }
+
+            // Confirm username exists (CASE-SENSITIVE) in comet_users
+            $existsQuery = \WHMCS\Database\Capsule::table('comet_users')
+                ->when($clientId !== null, function ($q) use ($clientId) {
+                    $q->where('user_id', $clientId);
+                })
+                ->whereRaw('BINARY `username` = ?', [$username]);
+
+            $exists = (bool) $existsQuery->exists();
+
+            if (!$exists) {
+                return self::$cache[$key] = [
+                    'username'    => $username,
+                    'total_bytes' => null,
+                    'vaults'      => [],
+                    'devices'     => [],
+                ];
+            }
+
+            // Vaults (active, not removed)
+            $vaultRows = \WHMCS\Database\Capsule::table('comet_vaults')
+                ->select(['name', 'total_bytes'])
+                ->when($clientId !== null, function ($q) use ($clientId) {
+                    $q->where('client_id', $clientId);
+                })
+                ->whereRaw('BINARY `username` = ?', [$username])
+                ->where('is_active', 1)
+                ->whereNull('removed_at')
+                ->orderBy('name')
+                ->get();
+
+            $vaults = [];
+            $totalBytes = 0;
+            foreach ($vaultRows as $r) {
+                $bytes = is_null($r->total_bytes) ? 0 : (int) $r->total_bytes;
+                $vaults[] = [
+                    'name'        => (string) $r->name,
+                    'total_bytes' => $bytes,
+                ];
+                $totalBytes += $bytes;
+            }
+
+            // Devices (active)
+            $deviceRows = \WHMCS\Database\Capsule::table('comet_devices')
+                ->select(['name', 'hash', 'platform_os', 'platform_arch', 'is_active'])
+                ->when($clientId !== null, function ($q) use ($clientId) {
+                    $q->where('client_id', $clientId);
+                })
+                ->whereRaw('BINARY `username` = ?', [$username])
+                ->where('is_active', 1)
+                ->orderBy('name')
+                ->get();
+
+            $devices = [];
+            foreach ($deviceRows as $d) {
+                $devices[] = [
+                    'name'          => (string) ($d->name ?? ''),
+                    'hash'          => (string) ($d->hash ?? ''),
+                    'platform_os'   => (string) ($d->platform_os ?? ''),
+                    'platform_arch' => (string) ($d->platform_arch ?? ''),
+                    'is_active'     => (int) $d->is_active,
+                ];
+            }
+
+            return self::$cache[$key] = [
+                'username'    => $username,
+                'total_bytes' => $totalBytes,
+                'vaults'      => $vaults,
+                'devices'     => $devices,
+            ];
+        }
+    }
+}
+// ---- /helpers ----
+
+# use \WHMCS\Database\Capsule; // Not required when using fully-qualified names below
 # Logo
 $logoFilename = 'placeholder.png';
 if (file_exists(ROOTDIR . '/assets/img/logo.png')) {
@@ -76,62 +174,103 @@ $tblhtml = '<table width="100%" bgcolor="#ccc" cellspacing="1" cellpadding="2" b
         <td width="20%">' . Lang::trans('quotelinetotal') . '</td>
     </tr>';
 foreach ($invoiceitems as $item) {
-    if ($item['type'] === 'Upgrade') {
-        if(!empty($item['relid'])) {
-            $relation_id = $item['relid'];
-            $relid = Capsule::table('tblupgrades')->where('id' , $relation_id )->where('type' , 'configoptions' )->value('relid');
-            if(!empty($relid)){
-                $username = Capsule::table('tblhosting')->where('id' , $relid)->value('username');
-                if(!empty($username)){
-                    $serviceuserName = $username;
+
+    // ---- eazyBackup: enrich invoice line with Username + usage ----
+    $serviceIdInt = null;
+    if (isset($item['type']) && $item['type'] === 'Upgrade' && isset($item['relid']) && ctype_digit((string)$item['relid'])) {
+        $upgradeIdInt = (int)$item['relid'];
+        $serviceIdInt = \WHMCS\Database\Capsule::table('tblupgrades')->where('id', $upgradeIdInt)->where('type', 'configoptions')->value('relid');
+        $serviceIdInt = $serviceIdInt ? (int)$serviceIdInt : null;
+    } elseif (isset($item['relid']) && ctype_digit((string)$item['relid'])) {
+        $serviceIdInt = (int)$item['relid'];
+    }
+
+    $resolvedUsername = null;
+    $clientId = null;
+    if ($serviceIdInt) {
+        $row = \WHMCS\Database\Capsule::table('tblhosting')->select(['username','userid'])->where('id', $serviceIdInt)->first();
+        if ($row) {
+            $resolvedUsername = (string) $row->username;
+            $clientId = (int) $row->userid;
+        }
+    }
+
+    if ($resolvedUsername) {
+        if (!isset($item['description']) || !is_string($item['description'])) {
+            $item['description'] = strval($item['description'] ?? '');
+        }
+        $item['description'] .= "\nUsername: " . $resolvedUsername;
+
+        if (class_exists('EB_InvoiceUsage')) {
+            $usage = EB_InvoiceUsage::getUsageForUsername($resolvedUsername, $clientId);
+
+            if (isset($usage['total_bytes']) && $usage['total_bytes'] !== null) {
+                $item['description'] .= "\nStorage used: " . ebFmtBytes($usage['total_bytes']);
+            }
+            if (!empty($usage['vaults'])) {
+                $item['description'] .= "\nStorage vaults:";
+                foreach ($usage['vaults'] as $v) {
+                    $vName  = $v['name'] ?: '(unnamed vault)';
+                    $vBytes = ebFmtBytes($v['total_bytes'] ?? 0);
+                    $item['description'] .= "\n  • {$vName} — {$vBytes}";
+                }
+            }
+            if (!empty($usage['devices'])) {
+                $item['description'] .= "\nDevices:";
+                foreach ($usage['devices'] as $d) {
+                    $name = $d['name'] ?: $d['hash'];
+                    $os   = trim(($d['platform_os'] ?? '') . ' ' . ($d['platform_arch'] ?? ''));
+                    $line = "  • " . $name . ($os ? " ({$os})" : "");
+                    $item['description'] .= "\n" . $line;
                 }
             }
         }
     }
+    // ---- /enrichment ----
+
+    // Clean up description like original logic
+    if (isset($item['description']) && is_string($item['description'])) {
         $text = preg_replace("/\:\s0\sx\s/","+",$item['description']);
         $text = preg_replace("/.*\+/","+",$text);
         $text = preg_replace("/\+.*(\n?)/","",$text);
         $item['description'] = $text;
-    if ($item['type'] === 'Hosting') {
-        $hostingItemUsername = null; 
-        $serviceDetails = null; 
-        
-        $apiParams = ['serviceid' => $item['relid']];
-        // Add clientid if available in $item, as GetClientsProducts can use it.
-        // However, to minimize deviation from original, let's first ensure serviceid call is safe.
-        // if (isset($item['userid']) && $item['userid']) {
-        //    $apiParams['clientid'] = $item['userid'];
-        // }
-        $serviceData = localAPI('GetClientsProducts', $apiParams);
+    } else {
+        $item['description'] = strval(isset($item['description']) ? $item['description'] : '');
+    }
 
-        if (is_array($serviceData) && 
-            isset($serviceData['result']) && $serviceData['result'] === 'success' &&
-            isset($serviceData['totalresults']) && $serviceData['totalresults'] > 0 &&
-            isset($serviceData['products']['product'][0]) && is_array($serviceData['products']['product'][0])) {
-            
-            $serviceDetails = $serviceData['products']['product'][0];
-        }
-        // No specific error logging here as WHMCS generally logs API errors if they occur.
+    // Resolve a username/domain for this line item in a way that also works during cron email generation.
+    $resolvedUsername = null;
 
-        if (!empty($serviceDetails)) { // Check if $serviceDetails was populated
-            if (!empty($serviceDetails['username'])) {
-                $hostingItemUsername = $serviceDetails['username'];
-            } elseif (!empty($serviceDetails['domain'])) {
-                $hostingItemUsername = $serviceDetails['domain']; // Fallback to domain
-            }
-        }
-
-        if (!empty($hostingItemUsername)) {
-            // Ensure $item['description'] is a string before appending
-            if (!isset($item['description']) || !is_string($item['description'])) {
-                 $item['description'] = strval(isset($item['description']) ? $item['description'] : ''); // Ensure it's a string
-            }
-            $item["description"] .= "\nUsername: " . $hostingItemUsername;
+    // 1) Direct service line with relid -> tblhosting.id
+    if (isset($item['relid']) && ctype_digit((string)$item['relid'])) {
+        $serviceIdInt = (int)$item['relid'];
+        $resolvedUsername = \WHMCS\Database\Capsule::table('tblhosting')->where('id', $serviceIdInt)->value('username');
+        if (!$resolvedUsername) {
+            $resolvedUsername = \WHMCS\Database\Capsule::table('tblhosting')->where('id', $serviceIdInt)->value('domain');
         }
     }
+
+    // 2) Upgrades referencing a service via tblupgrades.relid (type=configoptions)
+    if (!$resolvedUsername && isset($item['type']) && $item['type'] === 'Upgrade' && isset($item['relid']) && ctype_digit((string)$item['relid'])) {
+        $upgradeIdInt = (int)$item['relid'];
+        $serviceRelid = \WHMCS\Database\Capsule::table('tblupgrades')->where('id', $upgradeIdInt)->where('type', 'configoptions')->value('relid');
+        if ($serviceRelid) {
+            $serviceIdInt = (int)$serviceRelid;
+            $resolvedUsername = \WHMCS\Database\Capsule::table('tblhosting')->where('id', $serviceIdInt)->value('username');
+            if (!$resolvedUsername) {
+                $resolvedUsername = \WHMCS\Database\Capsule::table('tblhosting')->where('id', $serviceIdInt)->value('domain');
+            }
+        }
+    }
+
+    // 3) Append if we found one
+    if ($resolvedUsername) {
+        $item['description'] .= "\nUsername: " . $resolvedUsername;
+        }
+
     $tblhtml .= '
     <tr bgcolor="#fff">
-        <td align="left">' . nl2br($item['description']) . '<br /> '.(!empty($serviceuserName)? "Username: ".$serviceuserName : false).'</td>
+        <td align="left">' . nl2br($item['description']) . '</td>
         <td align="center">' . $item['amount'] . '</td>
     </tr>';
 }

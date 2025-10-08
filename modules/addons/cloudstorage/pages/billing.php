@@ -30,16 +30,21 @@
     $userIds = array_merge(array_values($tenants), [$user->id]);
 
     $billingObject = new BillingController();
-    $billingPeriod = $billingObject->calculateBillingMonth($loggedInUserId, $packageId);
+    // Use display period so header shows the rolling service window, independent of nextduedate
+    $billingPeriod = $billingObject->calculateDisplayPeriod($loggedInUserId, $packageId);
     $userAmount = $billingObject->getBalanceAmount($loggedInUserId, $packageId);
-    $bucketObject = new BucketController($s3Endpoint, $cephAdminUser, $cephAdminAccessKey, $cephAdminSecretKey);
+    $bucketObject = new BucketController($s3Endpoint, $cephAdminUser, $cephAdminAccessKey, $cephAdminSecretKey, $vars['s3_region'] ?? 'us-east-1');
 
     $userBuckets = DBController::getUserBuckets($userIds);
     $buckets = $userBuckets->isNotEmpty() ? $userBuckets->pluck('name', 'id')->toArray() : [];
     $bucketInfo = $bucketObject->getTotalBucketSizeForUser($buckets);
-    $totalUsage = $bucketObject->getTotalUsageForBillingPeriod($userIds, $billingPeriod['start'], $billingPeriod['end']);
-    $peakUsage = $bucketObject->findPeakBucketUsage($userIds, $billingPeriod);
-    $bucketStats = $bucketObject->getUserBucketSummary($userIds, $billingPeriod['start'], $billingPeriod['end']);
+    // Query through today to keep usage totals and charts live
+    $totalUsage = $bucketObject->getTotalUsageForBillingPeriod($userIds, $billingPeriod['start'], $billingPeriod['end_for_queries']);
+    $peakBillingPeriod = ['start' => $billingPeriod['start'], 'end' => $billingPeriod['end_for_queries']];
+    $peakUsage = $bucketObject->findPeakBucketUsage($userIds, $peakBillingPeriod);
+    $bucketStats = $bucketObject->getUserBucketSummary($userIds, $billingPeriod['start'], $billingPeriod['end_for_queries']);
+    // Fill-forward daily storage for the date range so the line continues into the current month
+    $dailyUsageChart = \WHMCS\Module\Addon\CloudStorage\Client\HelperController::prepareDailyUsageChart($billingPeriod['start'], $bucketStats);
 
     return [
         'firstname' => $client->firstname,
@@ -48,5 +53,5 @@
         'bucketInfo' => $bucketInfo,
         'totalUsage' => $totalUsage,
         'peakUsage' => $peakUsage,
-        'bucketStats' => $bucketStats
+        'bucketStats' => $dailyUsageChart
     ];

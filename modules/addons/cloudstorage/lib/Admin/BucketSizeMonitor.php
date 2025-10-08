@@ -4,7 +4,6 @@ namespace WHMCS\Module\Addon\CloudStorage\Admin;
 
 use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Admin\AdminOps;
-use WHMCS\Module\Addon\CloudStorage\Admin\ClusterManager;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use DateTime;
 
@@ -22,47 +21,14 @@ class BucketSizeMonitor {
      *
      * @return array
      */
-    public static function collectAllBucketSizes()
+    public static function collectAllBucketSizes($endpoint, $adminAccessKey, $adminSecretKey)
     {
         try {
-            // One-time hygiene: remove historical duplicates and enforce unique index
-            self::dedupeHistoryAndEnsureUniqueIndex();
             $collectedAt = date('Y-m-d H:i:s');
             $totalBuckets = 0;
             $whmcsBuckets = 0;
             $nonWhmcsBuckets = 0;
             $errors = [];
-            
-            // Retrieve all configured clusters (process default cluster first for deterministic dedupe)
-            $clusters = ClusterManager::getAllClusters();
-            if (method_exists($clusters, 'sortByDesc')) {
-                $clusters = $clusters->sortByDesc('is_default')->values();
-            }
-            if ($clusters->isEmpty()) {
-                return [
-                    'status' => 'fail',
-                    'message' => 'No Ceph clusters configured — please add clusters in Cluster Manager first.'
-                ];
-            }
-            
-            // Loop through each cluster and collect its buckets
-            $allBucketsFromAllClusters = [];
-            foreach($clusters as $cluster) {
-                $params = ['stats' => true];
-                $bucketInfoResponse = AdminOps::getBucketInfo($cluster->s3_endpoint, $cluster->admin_access_key, $cluster->admin_secret_key, $params);
-                
-                if ($bucketInfoResponse['status'] != 'success' || !isset($bucketInfoResponse['data'])) {
-                    $errors[] = "Failed to get global bucket list for cluster '{$cluster->cluster_name}': " . ($bucketInfoResponse['message'] ?? 'Unknown error');
-                    continue; // Skip to next cluster
-                }
-                
-                // Add cluster identifier to each bucket for better logging/debugging
-                foreach($bucketInfoResponse['data'] as &$bucket) {
-                    $bucket['source_cluster'] = $cluster->cluster_alias;
-                }
-                
-                $allBucketsFromAllClusters = array_merge($allBucketsFromAllClusters, $bucketInfoResponse['data']);
-            }
             
             // Get WHMCS bucket mappings for reference (but don't limit collection to them)
             $whmcsBucketCollection = Capsule::table('s3_buckets')
@@ -92,21 +58,24 @@ class BucketSizeMonitor {
             // Use global bucket listing to get ALL buckets from Ceph
             $params = ['stats' => true];
             
-            $buckets = $allBucketsFromAllClusters;
+            $bucketInfoResponse = AdminOps::getBucketInfo($endpoint, $adminAccessKey, $adminSecretKey, $params);
+            
+            if ($bucketInfoResponse['status'] != 'success' || !isset($bucketInfoResponse['data'])) {
+                return [
+                    'status' => 'fail',
+                    'message' => 'Failed to get global bucket list: ' . ($bucketInfoResponse['message'] ?? 'Unknown error')
+                ];
+            }
+            
+            $buckets = $bucketInfoResponse['data'];
             
             if (is_array($buckets)) {
-                // Track seen bucket names to avoid duplicate reporting across clusters during migration
-                $seenBucketNames = [];
                 foreach ($buckets as $bucket) {
                     if (!isset($bucket['bucket'])) {
                         continue;
                     }
                     
                     $bucketName = $bucket['bucket'];
-                    // If we already processed this bucket name in this run (from another cluster), skip duplicates
-                    if (isset($seenBucketNames[$bucketName])) {
-                        continue;
-                    }
                     $cephOwner = $bucket['owner'] ?? 'Unknown';
                     $sizeBytes = 0;
                     $objectCount = 0;
@@ -121,8 +90,8 @@ class BucketSizeMonitor {
                         $objectCount = $bucket['num_objects'] ?? 0;
                     }
                     
-                    // Determine the owner – store EXACT Ceph owner (may include tenant prefix)
-                    $bucketOwner = $cephOwner;
+                    // Determine the owner to use for storage
+                    $bucketOwner = $cephOwner; // Default to Ceph owner
                     $isWhmcsBucket = false;
                     
                     // Check if this bucket exists in WHMCS for proper owner mapping
@@ -142,62 +111,22 @@ class BucketSizeMonitor {
                             
                             // Check if this matches the Ceph owner
                             if ($cephOwner === $expectedCephOwner || $cephOwner === $whmcsOwner['owner']) {
-                                // Keep $bucketOwner as full Ceph owner; just mark mapping found
+                                $bucketOwner = $whmcsOwner['owner']; // Use WHMCS username for consistency
                                 $ownerFound = true;
                                 break;
                             }
                         }
                         
                         if (!$ownerFound && count($whmcsMapping[$bucketName]) === 1) {
-                            // Single WHMCS owner but no exact match - keep Ceph owner and log expected WHMCS owner
-                            $expected = $whmcsMapping[$bucketName][0]['owner'];
-                            error_log("Owner mismatch for bucket {$bucketName}: Ceph={$cephOwner}, WHMCS={$expected}");
+                            // Single WHMCS owner but no exact match - use WHMCS owner and log
+                            $bucketOwner = $whmcsMapping[$bucketName][0]['owner'];
+                            error_log("Owner mismatch for bucket {$bucketName}: Ceph={$cephOwner}, WHMCS={$bucketOwner}");
                         }
                     } else {
-                        // Bucket not in WHMCS - use Ceph owner as-is (log only once per name per run)
+                        // Bucket not in WHMCS - use Ceph owner as-is
                         error_log("Bucket {$bucketName} exists in Ceph (Size: " . self::formatBytes($sizeBytes) . ", Objects: {$objectCount}) but not in WHMCS database");
                     }
                     
-                    
-                    // =====================================================================
-                    // NEW: Authoritative Source Check
-                    // =====================================================================
-                    $whmcsClientId = null;
-                    if ($isWhmcsBucket) {
-                        // We need to find the WHMCS client ID for this owner
-                        // For lookups only, use canonical username (strip tenant prefix) if present
-                        $lookupOwner = (strpos($bucketOwner, '$') !== false) ? explode('$', $bucketOwner, 2)[1] : $bucketOwner;
-                        $ownerUser = DBController::getUser($lookupOwner);
-                        if ($ownerUser) {
-                            $hosting = Capsule::table('tblhosting')->where('username', $ownerUser->username)->first();
-                            if ($hosting) {
-                                $whmcsClientId = $hosting->userid;
-                            }
-                        }
-                    }
-
-                    // If we have a WHMCS client, check their migration status
-                    if ($whmcsClientId) {
-                        $authoritativeClusterAlias = \WHMCS\Module\Addon\CloudStorage\MigrationController::getBackendForClient($whmcsClientId);
-
-                        // If the bucket's source cluster doesn't match its owner's authoritative cluster, skip it.
-                        // This prevents double-counting for migrated buckets.
-                        if ($bucket['source_cluster'] !== $authoritativeClusterAlias) {
-                            logModuleCall(
-                                self::$module,
-                                __FUNCTION__,
-                                "Skipping bucket '{$bucketName}' from cluster '{$bucket['source_cluster']}' because its owner's authoritative cluster is '{$authoritativeClusterAlias}'.",
-                                'INFO'
-                            );
-                            continue; // Skip to the next bucket in the loop
-                        }
-                    }
-                    // =====================================================================
-                    // End of New Logic
-                    // =====================================================================
-                    
-                    // Mark this bucket name as seen to prevent duplicates from other clusters in same run
-                    $seenBucketNames[$bucketName] = true;
                     $totalBuckets++;
                     if ($isWhmcsBucket) {
                         $whmcsBuckets++;
@@ -216,20 +145,16 @@ class BucketSizeMonitor {
                         $objectCount = 0;
                     }
                     
-                    // Upsert into history table on (bucket_name, bucket_owner, collected_at)
+                    // Insert into history table
                     try {
-                        Capsule::table('s3_bucket_sizes_history')->updateOrInsert(
-                            [
-                                'bucket_name' => $bucketName,
-                                'bucket_owner' => $bucketOwner,
-                                'collected_at' => $collectedAt,
-                            ],
-                            [
-                                'bucket_size_bytes' => $sizeBytes,
-                                'bucket_object_count' => $objectCount,
-                                'created_at' => $collectedAt,
-                            ]
-                        );
+                        DBController::insertRecord('s3_bucket_sizes_history', [
+                            'bucket_name' => $bucketName,
+                            'bucket_owner' => $bucketOwner,
+                            'bucket_size_bytes' => $sizeBytes,
+                            'bucket_object_count' => $objectCount,
+                            'collected_at' => $collectedAt,
+                            'created_at' => $collectedAt
+                        ]);
                         
                         // Debug logging for specific buckets
                         if (in_array($bucketName, ['backup', 'theme.hcsite.dev'])) {
@@ -265,7 +190,7 @@ class BucketSizeMonitor {
             ];
             
         } catch (\Exception $e) {
-            logModuleCall(self::$module, __FUNCTION__, [], $e->getMessage());
+            logModuleCall(self::$module, __FUNCTION__, [$endpoint], $e->getMessage());
             
             return [
                 'status' => 'fail',
@@ -276,39 +201,6 @@ class BucketSizeMonitor {
                 'total_users' => 0,
                 'errors' => [$e->getMessage()]
             ];
-        }
-    }
-
-    /**
-     * Remove duplicate rows from s3_bucket_sizes_history and ensure unique index exists.
-     * This prevents further duplicate inserts and allows creating the unique key safely.
-     */
-    private static function dedupeHistoryAndEnsureUniqueIndex(): void
-    {
-        try {
-            // Delete duplicates keeping the lowest id per (bucket_name, bucket_owner, collected_at)
-            // This is efficient and runs on the DB side
-            Capsule::statement(
-                'DELETE h1 FROM s3_bucket_sizes_history h1
-                 INNER JOIN s3_bucket_sizes_history h2
-                   ON h1.bucket_name = h2.bucket_name
-                  AND h1.bucket_owner = h2.bucket_owner
-                  AND h1.collected_at = h2.collected_at
-                  AND h1.id > h2.id'
-            );
-
-            // Try to add the unique index (will fail if already exists; ignore error)
-            try {
-                Capsule::statement(
-                    'ALTER TABLE s3_bucket_sizes_history
-                     ADD UNIQUE KEY uniq_bucket_owner_collected (bucket_name, bucket_owner, collected_at)'
-                );
-            } catch (\Throwable $e) {
-                // Index may already exist; ignore
-            }
-        } catch (\Throwable $e) {
-            // Non-fatal; proceed with collection
-            error_log('History dedupe/index ensure failed: ' . $e->getMessage());
         }
     }
 
@@ -701,33 +593,27 @@ class BucketSizeMonitor {
         try {
             $startDate = date('Y-m-d', strtotime("-{$days} days"));
             
-            // Aggregate by taking the daily MAX per bucket, then SUM across buckets per day
-            // This prevents overcounting when multiple collections happen per day
-            $baseWhere = "collected_at >= '{$startDate}'";
-            $extra = '';
-            if (!empty($bucketName)) {
-                $bucketNameEsc = addslashes($bucketName);
-                $extra .= " AND bucket_name = '{$bucketNameEsc}'";
-            }
-            if (!empty($bucketOwner)) {
-                $bucketOwnerEsc = addslashes($bucketOwner);
-                $extra .= " AND bucket_owner = '{$bucketOwnerEsc}'";
-            }
-
-            $subSql = "(
-                SELECT DATE(collected_at) AS date, bucket_name, MAX(bucket_size_bytes) AS max_size
-                FROM s3_bucket_sizes_history
-                WHERE {$baseWhere}{$extra}
-                GROUP BY DATE(collected_at), bucket_name
-            ) AS daily_max";
-
-            $results = Capsule::table(Capsule::raw($subSql))
+            // Use aggregated daily data instead of all collection points to prevent memory issues
+            // This reduces data from potentially ~400k points to just ~30 points for 30 days
+            $query = Capsule::table('s3_bucket_sizes_history')
                 ->select([
-                    'date',
-                    Capsule::raw('SUM(max_size) as total_size_bytes'),
-                    Capsule::raw('COUNT(DISTINCT bucket_name) as bucket_count')
+                    Capsule::raw('DATE(collected_at) as date'),
+                    Capsule::raw('SUM(bucket_size_bytes) as total_size_bytes'),
+                    Capsule::raw('COUNT(DISTINCT bucket_name) as bucket_count'),
+                    Capsule::raw('MAX(collected_at) as latest_collection')
                 ])
-                ->groupBy('date')
+                ->where('collected_at', '>=', $startDate);
+            
+            if (!empty($bucketName)) {
+                $query->where('bucket_name', $bucketName);
+            }
+            
+            if (!empty($bucketOwner)) {
+                $query->where('bucket_owner', $bucketOwner);
+            }
+            
+            $results = $query
+                ->groupBy(Capsule::raw('DATE(collected_at)'))
                 ->orderBy('date', 'ASC')
                 ->get();
             

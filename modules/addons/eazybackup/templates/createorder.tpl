@@ -35,9 +35,9 @@
         <div class="flex flex-col lg:flex-row gap-8" x-data="{
                 loading: false,
                 open: false,
-                billingTerm: '',         // holds “monthly” or “annual”
-                termOpen: false,         // toggles the term menu
-                termOptions: [           // list of choices
+                billingTerm: 'monthly',
+                termOpen: false,
+                termOptions: [
                   { value: 'monthly', label: 'Monthly' },
                   { value: 'annual',  label: 'Annual'  },
                 ],                
@@ -47,27 +47,128 @@
                 selectedDesc: '',
                 productType: '',
                 termDisabled : false,
-                init() {
-                  /* handle page‑load pre‑selection */
-                  if (this.productType === 'ms365') {
-                    this.forceMonthly();
-                  }
-
-                  /* react every time the product type changes */
-                  this.$watch('productType', (val) => {
-                    if (val === 'ms365') {
-                      this.forceMonthly();
-                    } else {
-                      this.termDisabled = false;      // re‑enable menu
-                    }
-                  });
+                // reseller flag from backend
+                isResellerClient: {if $isResellerClient}true{else}false{/if},
+                // payment gating
+                payment: {
+                  isStripeDefault: {if $payment.isStripeDefault}true{else}false{/if},
+                  hasCardOnFile: {if $payment.hasCardOnFile}true{else}false{/if},
+                  showStripeCapture: {if $payment.showStripeCapture}true{else}false{/if},
+                  defaultGateway: '{$payment.defaultGateway|escape:'html'}',
+                  lastFour: '{$payment.lastFour|escape:'html'}',
+                  addCardUrl: '{$payment.addCardUrl|escape:'html'}'
                 },
-
-                /* — NEW HELPER — */
-                forceMonthly() {
-                  this.billingTerm = 'monthly';
-                  this.termDisabled = true;
-                  this.termOpen = false;              // make sure the drop‑down is closed
+                stripePublishableKey: '{$payment.stripePublishableKey|escape:'html'}',
+                stripe: null,
+                stripeElements: null,
+                _stripeReadyTries: 0,
+                addCardLoading: false,
+                addCardError: '',
+                // email chips
+                emails: [],
+                emailEntry: '',
+                // pricing (pre-formatted)
+                pricing: {
+                  60: { monthly: '{$pricing.60.monthly|escape:'html'}', annually: '{$pricing.60.annually|escape:'html'}' },
+                  67: { monthly: '{$pricing.67.monthly|escape:'html'}', annually: '{$pricing.67.annually|escape:'html'}' },
+                  88: { monthly: '{$pricing.88.monthly|escape:'html'}', annually: '{$pricing.88.annually|escape:'html'}' },
+                  91: { monthly: '{$pricing.91.monthly|escape:'html'}', annually: '{$pricing.91.annually|escape:'html'}' },
+                  97: { monthly: '{$pricing.97.monthly|escape:'html'}', annually: '{$pricing.97.annually|escape:'html'}' },
+                  99: { monthly: '{$pricing.99.monthly|escape:'html'}', annually: '{$pricing.99.annually|escape:'html'}' },
+                  102:{ monthly: '{$pricing.102.monthly|escape:'html'}',annually: '{$pricing.102.annually|escape:'html'}' }
+                },
+                init() {
+                  this.updateProductType();
+                  this.$watch('selectedProduct', () => this.updateProductType());
+                  // hydrate emails
+                  {if !empty($POST.reportemail)} this.addEmailsFromString('{$POST.reportemail|escape:'html'}'); {/if}
+                  // Mount Stripe after the element exists (robust wait for script load)
+                  this.$watch('payment.showStripeCapture', (v) => { if (v && this.stripePublishableKey) { this.waitForStripeAndMount(); } });
+                  if (this.payment.showStripeCapture && this.stripePublishableKey) { this.waitForStripeAndMount(); }
+                },
+                waitForStripeAndMount() {
+                  // ensure Stripe v3 script is present
+                  if (!window.Stripe) {
+                    let tag = document.getElementById('stripe-v3');
+                    if (!tag) {
+                      tag = document.createElement('script');
+                      tag.id = 'stripe-v3';
+                      tag.src = 'https://js.stripe.com/v3/';
+                      tag.async = true;
+                      document.head.appendChild(tag);
+                    }
+                  }
+                  const tryMount = () => {
+                    if (window.Stripe && this.stripePublishableKey) { this.initStripe(); return; }
+                    if (this._stripeReadyTries > 20) { return; }
+                    this._stripeReadyTries++;
+                    setTimeout(tryMount, 150);
+                  };
+                  this._stripeReadyTries = 0;
+                  this.$nextTick(tryMount);
+                },
+                updateProductType() {
+                  const pid = parseInt(this.selectedProduct || 0, 10);
+                  if ([52,57].includes(pid)) { this.productType = 'ms365'; this.forceMonthly(); return; }
+                  if ([58,60].includes(pid)) { this.productType = 'usage'; this.termDisabled = false; return; }
+                  if ([53,54].includes(pid)) { this.productType = 'vm'; this.termDisabled = false; return; }
+                  this.productType = '';
+                },
+                forceMonthly() { this.billingTerm = 'monthly'; this.termDisabled = true; this.termOpen = false; },
+                canSubmit() { return !this.loading && (!this.payment.isStripeDefault || this.payment.hasCardOnFile); },
+                termLabel() { return this.billingTerm === 'annual' ? 'year' : 'month'; },
+                priceFor(cid) { const key = this.billingTerm === 'annual' ? 'annually' : 'monthly'; const o = this.pricing[cid]; return o && o[key] ? o[key] : 'Not configured'; },
+                // emails
+                addEmailsFromString(str) {
+                  if (!str) return; const parts = String(str).split(/[\s,;]+/);
+                  for (const raw of parts) { const e = raw.trim(); if (!e) continue; if (!/^\S+@\S+\.\S+$/.test(e)) continue; const v = e.toLowerCase(); if (!this.emails.includes(v)) this.emails.push(v); }
+                  this.syncEmailsHidden();
+                },
+                removeEmail(idx) { this.emails.splice(idx,1); this.syncEmailsHidden(); },
+                handleEmailKey(e) { if (['Enter','Tab'].includes(e.key) || e.key===',' || e.key===' ') { e.preventDefault(); this.addEmailsFromString(this.emailEntry); this.emailEntry=''; } },
+                syncEmailsHidden() { const h = document.getElementById('reportemail'); if (h) { h.value = this.emails.join(', '); } },
+                // stripe
+                initStripe() {
+                  const el = document.getElementById('stripe-card-element');
+                  if (!el) return; // element not yet in DOM
+                  if (!window.Stripe || !this.stripePublishableKey) return;
+                  if (!this.stripe) { this.stripe = window.Stripe(this.stripePublishableKey); }
+                  if (!this.stripeElements) { this.stripeElements = this.stripe.elements(); }
+                  // destroy existing card if remounting
+                  if (this._stripeCard && this._stripeCard.destroy) { try { this._stripeCard.destroy(); } catch(e) {} }
+                  const card = this.stripeElements.create('card', { style: { base: { color:'#e5e7eb', '::placeholder':{ color:'#9ca3af' } } } });
+                  card.mount(el);
+                  this._stripeCard = card;
+                },
+                async ensureStripeMounted() {
+                  const host = document.getElementById('stripe-card-element');
+                  const needsMount = !this._stripeCard || !host || host.childNodes.length === 0;
+                  if (needsMount) {
+                    await this.$nextTick(() => this.initStripe());
+                    // If Stripe may still be loading, retry once shortly after
+                    if (!this._stripeCard && window.Stripe && this.stripePublishableKey) {
+                      await new Promise(r => setTimeout(r, 250));
+                      this.initStripe();
+                    }
+                  }
+                },
+                async addCard() {
+                  try {
+                    this.addCardError=''; this.addCardLoading=true; await this.ensureStripeMounted();
+                    if (!this.stripe || !this._stripeCard) {
+                      this.addCardError = 'Payment library not ready. Please wait a moment and try again.';
+                      this.addCardLoading = false;
+                      return;
+                    }
+                    const pmResp = await this.stripe.createPaymentMethod({ type: 'card', card: this._stripeCard });
+                    const paymentMethod = pmResp && pmResp.paymentMethod;
+                    const error = pmResp && pmResp.error;
+                    if (error) { this.addCardError = (error.message || 'Unable to tokenize card.'); this.addCardLoading=false; return; }
+                    const fd = new FormData(); fd.append('gateway_module_name','stripe'); fd.append('payment_method_id', paymentMethod.id); fd.append('payment_method', paymentMethod.id);
+                    const resp = await fetch('{$payment.addCardUrl|escape:'html'}', { method:'POST', credentials:'same-origin', body: fd });
+                    const json = await resp.json(); if (json.status !== 'success') { this.addCardError = json.message || 'Card save failed'; this.addCardLoading=false; return; }
+                    this.payment.hasCardOnFile = true; this.payment.showStripeCapture = false; this.addCardLoading=false;
+                  } catch (err) { this.addCardError = (err && err.message) ? err.message : 'Unexpected error adding card.'; this.addCardLoading=false; }
                 }
               }">
           <div class="w-full lg:w-1/2 col-form">
@@ -125,13 +226,13 @@
                                           selectedName    = '{$product.name}';
                                           selectedDesc    = 'Whitelabel backup client and Control Panel';
                                           selectedIcon    = $event.currentTarget.querySelector('svg').outerHTML;
-                                          productType     = 'white';
+                                          productType     = 'usage';
                                           open            = false
                                         " class="relative group flex items-start px-3 py-2 cursor-pointer">
                           <span
                             class="absolute left-0 inset-y-0 w-1 bg-sky-500 opacity-0 transition-opacity duration-200 group-hover:opacity-100"></span>
                           <div class="flex-shrink-0">
-                            <!-- your whitelabel SVG -->
+                            <!-- whitelabel SVG -->
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
                               stroke="currentColor" class="w-6 h-6 text-gray-300 mr-3">
                               <path stroke-linecap="round" stroke-linejoin="round"
@@ -145,10 +246,10 @@
                         </div>
                       {/foreach}
 
-                      {foreach $categories.eazybackup as $product}
+                      {foreach $categories.ms365 as $product}
                         <div @click="
                                           selectedProduct = '{$product.pid}';
-                                          selectedName    = `eazyBackup {$product.name}`;
+                                          selectedName    = `{$product.name}`;
                                           selectedDesc    = 'Cloud to Cloud backup for Microsoft 365 data';
                                           selectedIcon    = $event.currentTarget.querySelector('svg').outerHTML;
                                           productType     = 'ms365';
@@ -157,9 +258,9 @@
                           <span
                             class="absolute left-0 inset-y-0 w-1 bg-sky-500 opacity-0 transition-opacity duration-200 group-hover:opacity-100"></span>
                           <div class="flex-shrink-0">
-                            <!-- your eazyBackup SVG -->
+                            <!-- eazyBackup (gid=6) orange, OBC (gid=7) sky -->
                             <svg xmlns="http://www.w3.org/2000/svg" x="0px" y="0px" width="24" height="24"
-                              viewBox="0 0 50 50" style="fill:currentColor;" class="text-orange-600 mr-3">
+                              viewBox="0 0 50 50" style="fill:currentColor;" class="mr-3 {if $product.gid == 7}text-sky-500{else}text-orange-600{/if}">
                               <path d="M20.13,32.5c-2.79-1.69-4.53-4.77-4.53-8.04V8.9c0-1.63,0.39-3.19,1.11-4.57L7.54,9.88C4.74,11.57,3,14.65,3,17.92v14.15
                                         c0,1.59,0.42,3.14,1.16,4.5c0.69,1.12,1.67,2.06,2.88,2.74c2.53,1.42,5.51,1.36,7.98-0.15l8.02-4.9L20.13,32.5z M42.84,27.14
                                         l-8.44-5.05v2.29c0,3.25-1.72,6.33-4.49,8.02l-13.84,8.47c-1.52,0.93-3.19,1.42-4.87,1.46l8.93,5.41c1.5,0.91,3.19,1.36,4.87,1.36
@@ -169,48 +270,93 @@
                                         c-2.5,1.43-3.99,3.99-3.99,6.87v9.6l2.8-1.65c2.84-1.67,6.36-1.66,9.19,0.03l14.28,8.54c1.29,0.78,2.35,1.81,3.12,3.02L47,17.92
                                         C47,14.65,45.26,11.57,42.46,9.88z"></path>
                             </svg>
+
                           </div>
                           <div class="ml-1">
-                            <div class="text-sm text-gray-100">eazyBackup {$product.name}</div>
+                            <div class="text-sm text-gray-100">{$product.name}</div>
                             <div class="text-xs text-gray-400">Cloud to Cloud backup for Microsoft 365 data</div>
                           </div>
                         </div>
                       {/foreach}
 
-                      {if in_array($clientsdetails.groupid,[2,3,4,5,6,7])}
-                        {foreach $categories.obc as $product}
+                      {foreach $categories.usage as $product}
                           <div @click="
                           selectedProduct = '{$product.pid}';
-                          selectedName    = `OBC {$product.name}`;
-                          selectedDesc    = 'Cloud to Cloud backup with OBC branded Control Panel';
+                                          selectedName    = `{$product.name}`;
+                                          selectedDesc    = 'Usage-based billing';
                           selectedIcon    = $event.currentTarget.querySelector('svg').outerHTML;
-                          productType     = 'ms365';
+                                          productType     = 'usage';
                           open            = false
                         " class="relative group flex items-start px-3 py-2 cursor-pointer">
-                            <span
-                              class="absolute left-0 inset-y-0 w-1 bg-sky-500 opacity-0 transition-opacity duration-200 group-hover:opacity-100"></span>
+                          <span class="absolute left-0 inset-y-0 w-1 bg-sky-500 opacity-0 transition-opacity duration-200 group-hover:opacity-100"></span>
                             <div class="flex-shrink-0">
-                              <!-- OBC SVG -->
-                              <svg xmlns="http://www.w3.org/2000/svg" x="0px" y="0px" width="24" height="24"
-                                viewBox="0 0 50 50" style="fill:currentColor;" class="text-indigo-600 mr-3">
-                                <!-- same path as above -->
-                                <path d="M20.13,32.5c-2.79-1.69-4.53-4.77-4.53-8.04V8.9c0-1.63,0.39-3.19,1.11-4.57L7.54,9.88C4.74,11.57,3,14.65,3,17.92v14.15
-                                          c0,1.59,0.42,3.14,1.16,4.5c0.69,1.12,1.67,2.06,2.88,2.74c2.53,1.42,5.51,1.36,7.98-0.15l8.02-4.9L20.13,32.5z M42.84,27.14
-                                          l-8.44-5.05v2.29c0,3.25-1.72,6.33-4.49,8.02l-13.84,8.47c-1.52,0.93-3.19,1.42-4.87,1.46l8.93,5.41c1.5,0.91,3.19,1.36,4.87,1.36
-                                          s3.37-0.45,4.87-1.36l9.08-5.5l3.52-2.13c0.27-0.16,0.53-0.34,0.78-0.54c0.08-0.05,0.16-0.11,0.23-0.16
-                                          c0.65-0.53,1.23-1.13,1.71-1.79c0.02-0.03,0.04-0.06,0.06-0.09c0.77-1.19,1.2-2.59,1.19-4.06C46.43,30.85,45.09,28.48,42.84,27.14z
-                                          M42.46,9.88l-9.57-5.79l-3.02-1.83C29.45,2,29.01,1.79,28.56,1.61c-0.49-0.21-1-0.37-1.51-0.47c-1.84-0.38-3.76-0.08-5.46,0.89
-                                          c-2.5,1.43-3.99,3.99-3.99,6.87v9.6l2.8-1.65c2.84-1.67,6.36-1.66,9.19,0.03l14.28,8.54c1.29,0.78,2.35,1.81,3.12,3.02L47,17.92
-                                          C47,14.65,45.26,11.57,42.46,9.88z"></path>
+                              {* <svg xmlns="http://www.w3.org/2000/svg" x="0px" y="0px" width="24" height="24" viewBox="0 0 50 50" style="fill:currentColor;" class="mr-3 {if $product.gid == 7}text-sky-500{else}text-orange-600{/if}"><path d="M20.13,32.5c-2.79-1.69-4.53-4.77-4.53-8.04V8.9c0-1.63,0.39-3.19,1.11-4.57L7.54,9.88C4.74,11.57,3,14.65,3,17.92v14.15 c0,1.59,0.42,3.14,1.16,4.5c0.69,1.12,1.67,2.06,2.88,2.74c2.53,1.42,5.51,1.36,7.98-0.15l8.02-4.9L20.13,32.5z M42.84,27.14 l-8.44-5.05v2.29c0,3.25-1.72,6.33-4.49,8.02l-13.84,8.47c1.52,0.93,3.19,1.42-4.87,1.46l8.93,5.41c1.5,0.91,3.19,1.36,4.87,1.36 s3.37-0.45,4.87-1.36l9.08-5.5l3.52-2.13c0.27-0.16,0.53-0.34,0.78-0.54c0.08-0.05,0.16-0.11,0.23-0.16 c0.65-0.53,1.23-1.13,1.71-1.79c0.02-0.03,0.04-0.06,0.06-0.09c0.77-1.19,1.2-2.59,1.19-4.06C46.43,30.85,45.09,28.48,42.84,27.14z M42.46,9.88l-9.57-5.79l-3.02-1.83C29.45,2,29.01,1.79,28.56,1.61c-0.49-0.21-1-0.37-1.51-0.47c-1.84-0.38-3.76-0.08-5.46,0.89 c-2.5,1.43-3.99,3.99-3.99,6.87v9.6l2.8-1.65c2.84-1.67,6.36-1.66,9.19,0.03l14.28,8.54c1.29,0.78,2.35,1.81,3.12,3.02L47,17.92 C47,14.65,45.26,11.57,42.46,9.88z"></path></svg>
+                                *}
+                              {if $product.pid == 58}
+                                {* eazyBackup brand icon pid=58 *}
+                                <svg width="24" height="24" viewBox="0 0 256 253" fill="none" xmlns="http://www.w3.org/2000/svg" class="mr-3">
+                                  <g transform="translate(0 -0)">
+                                    <path d="M123.517 0.739711C135.162 3.20131 145.461 10.8791 151.254 21.3116C152.308 23.2457 154.297 27.8758 155.643 31.5682C156.989 35.2606 158.218 38.4841 158.335 38.7186C158.51 38.953 161.261 37.8394 164.421 36.257C173.491 31.6854 178.231 30.2788 185.779 29.9271C191.104 29.6927 193.094 29.8685 197.19 30.9235C209.479 33.9712 219.544 42.1765 224.927 53.4295C227.912 59.5835 228.907 63.8034 229.199 71.7156C229.55 80.1554 228.497 85.372 224.518 94.866C224.518 94.866 221.943 101.02 221.943 101.02C221.943 101.02 229.901 104.889 229.901 104.889C240.961 110.339 246.813 115.79 251.553 125.226C254.771 131.673 255.941 137.007 256 145.563C256 154.472 254.771 159.63 250.968 166.956C246.169 176.275 239.557 182.546 229.375 187.586C225.981 189.227 223.172 190.634 223.113 190.634C223.055 190.693 223.406 192.685 223.933 195.088C224.459 197.726 224.869 202.532 224.869 207.103C224.869 213.726 224.693 215.426 223.289 219.997C217.496 239.221 201.696 251.998 182.561 252.936C174.661 253.288 169.336 252.233 162.373 248.775C155.468 245.375 150.903 241.097 144.993 232.774C142.477 229.14 140.253 226.151 140.078 226.151C139.961 226.151 137.269 228.144 134.109 230.606C127.438 235.881 119.889 239.749 113.686 241.155C107.191 242.562 97.243 242.035 91.0402 239.925C81.0923 236.467 72.6658 228.847 67.8089 218.825C64.766 212.495 63.5957 207.748 62.6009 197.491C62.2498 194.092 61.9572 191.337 61.8401 191.22C61.7816 191.162 58.4462 191.748 54.4085 192.568C37.0289 196.026 23.4529 192.334 12.7443 181.257C2.67933 170.707 -1.53391 155.527 1.50898 140.699C3.38153 131.614 6.77553 125.402 14.5583 116.786C14.5583 116.786 19.7663 111.043 19.7663 111.043C19.7663 111.043 14.6168 105.592 14.6168 105.592C8.64807 99.262 5.72222 95.101 3.38153 89.533C-1.24132 78.3971 -1.12429 64.0378 3.73263 52.9606C7.7118 44.052 15.7286 35.3192 23.8625 31.0993C30.8261 27.4655 36.4437 26.0589 44.168 26.0589C51.8922 26.0589 55.4033 26.8795 64.4149 30.9821C67.9844 32.6232 71.0273 33.854 71.0859 33.7954C71.2029 33.6781 72.7243 30.6891 74.4799 27.1139C79.5708 16.9159 85.6566 10.1172 93.9075 5.48701C97.5356 3.43571 103.27 1.32581 107.366 0.505211C111.17 -0.256689 119.362 -0.139489 123.517 0.739711C123.517 0.739711 123.517 0.739711 123.517 0.739711Z" fill="#FE5000" fill-rule="evenodd" />
+                                    <path d="M118.784 71.936C126.976 71.936 134.656 69.632 134.656 52.736C134.656 33.536 115.456 1.14441e-05 71.936 1.14441e-05C33.536 1.14441e-05 0 28.672 0 68.096C0 101.12 23.808 134.4 69.888 134.4C92.928 134.4 129.024 120.064 129.024 100.352C129.024 95.488 124.416 87.552 119.04 87.552C113.664 87.552 104.192 99.072 84.992 99.072C72.96 99.072 56.32 88.32 56.32 75.52C56.32 71.168 60.416 71.936 63.232 71.936C63.232 71.936 118.784 71.936 118.784 71.936C118.784 71.936 118.784 71.936 118.784 71.936ZM70.4 47.36C63.744 47.36 55.04 49.408 55.04 40.192C55.04 32 61.952 23.296 70.4 23.296C79.872 23.296 85.504 30.464 85.504 39.68C85.504 48.896 77.312 47.36 70.4 47.36C70.4 47.36 70.4 47.36 70.4 47.36Z" fill="#FFFFFF" transform="translate(55.352 57.184)" />
+                                  </g>
+                                </svg>
+                              {elseif $product.pid == 60}
+                                {* OBC brand icon pid=60 *}
+                                <svg width="24" height="24" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg" class="mr-3">
+                                <defs>
+                                  <clipPath id="clip_path_1">
+                                    <rect width="256" height="256" />
+                                  </clipPath>
+                                </defs>
+                                <g clip-path="url(#clip_path_1)">
+                                  <g>
+                                    <path d="M123.517 0.748482C135.162 3.23927 145.461 11.0081 151.254 21.5643C152.308 23.5214 154.297 28.2064 155.643 31.9425C156.989 35.6787 158.218 38.9404 158.335 39.1777C158.51 39.4149 161.261 38.2881 164.421 36.6869C173.491 32.0611 178.231 30.6378 185.779 30.282C191.104 30.0448 193.094 30.2227 197.19 31.2902C209.479 34.374 219.544 42.6766 224.927 54.0631C227.912 60.29 228.907 64.56 229.199 72.566C229.55 81.1059 228.497 86.3843 224.518 95.9909C224.518 95.9909 221.943 102.218 221.943 102.218C221.943 102.218 229.901 106.133 229.901 106.133C240.961 111.647 246.813 117.163 251.553 126.711C254.771 133.234 255.941 138.632 256 147.289C256 156.304 254.771 161.523 250.968 168.936C246.169 178.365 239.557 184.711 229.375 189.81C225.981 191.471 223.172 192.895 223.113 192.895C223.055 192.954 223.406 194.97 223.933 197.401C224.459 200.071 224.869 204.934 224.869 209.559C224.869 216.26 224.693 217.98 223.289 222.606C217.496 242.058 201.696 254.986 182.561 255.935C174.661 256.291 169.336 255.224 162.373 251.725C155.468 248.285 150.903 243.956 144.993 235.534C142.477 231.857 140.253 228.833 140.078 228.833C139.961 228.833 137.269 230.849 134.109 233.34C127.438 238.678 119.889 242.592 113.686 244.015C107.191 245.438 97.243 244.905 91.0402 242.77C81.0923 239.271 72.6658 231.561 67.8089 221.42C64.766 215.015 63.5957 210.211 62.6009 199.833C62.2498 196.394 61.9572 193.606 61.8401 193.487C61.7816 193.429 58.4462 194.022 54.4085 194.851C37.0289 198.35 23.4529 194.615 12.7443 183.406C2.67933 172.731 -1.53391 157.371 1.50898 142.367C3.38153 133.175 6.77553 126.889 14.5583 118.171C14.5583 118.171 19.7663 112.36 19.7663 112.36C19.7663 112.36 14.6168 106.844 14.6168 106.844C8.64807 100.439 5.72222 96.2287 3.38153 90.5947C-1.24132 79.3267 -1.12429 64.7972 3.73263 53.5886C7.7118 44.5744 15.7286 35.738 23.8625 31.4681C30.8261 27.7912 36.4437 26.3679 44.168 26.3679C51.8922 26.3679 55.4033 27.1982 64.4149 31.3495C67.9844 33.01 71.0273 34.2554 71.0859 34.1961C71.2029 34.0775 72.7243 31.053 74.4799 27.4354C79.5708 17.1165 85.6566 10.2372 93.9075 5.55207C97.5356 3.47645 103.27 1.34153 107.366 0.511202C111.17 -0.259733 119.362 -0.141143 123.517 0.748482C123.517 0.748482 123.517 0.748482 123.517 0.748482Z" fill="#0EA5E9" fill-rule="evenodd" />
+                                  </g>
+                                  <rect width="256" height="256" />
+                                  <g transform="translate(22 95)">
+                                    <g>
+                                      <g transform="translate(143.404 0)">
+                                        <path d="M57.5965 60.9094L57.5965 66.9999C57.5965 66.9999 32.7652 66.9999 32.7652 66.9999C22.7366 66.9999 14.7685 63.2395 8.86076 58.1556C2.95362 53.0717 0 45.2586 0 34.716C0 24.4236 2.48986 16.2676 7.47021 10.2478C12.4501 4.22806 21.2248 0 33.3833 0C33.3833 0 57.5965 0 57.5965 0L57.5965 12.3124C57.5965 12.3124 33.1773 12.3124 33.1773 12.3124C26.3767 12.3124 21.9636 14.9093 19.5249 18.8818C17.0864 22.8542 15.8673 27.0402 15.8673 33.5466C15.8673 33.5466 15.8673 36.7381 15.8673 36.7381C15.8673 41.9305 17.3611 46.2628 19.5249 49.7349C21.6889 53.2071 26.0334 54.8181 33.3833 54.8181C33.3833 54.8181 57.5965 54.8181 57.5965 54.8181C57.5965 54.8181 57.5965 58.0302 57.5965 60.9094Z" fill="#FFFFFF" fill-rule="evenodd" />
+                                      </g>
+                                      <path d="M60.1302 39.2777C58.4354 36.969 55.7199 35.0237 51.9848 33.4418C55.7892 31.4233 58.5217 29.2787 60.1818 27.0079C61.842 24.7369 62.6721 22.5609 62.6721 18.6815C62.6394 12.4942 61.8254 9.05339 58.9012 6.21648C55.977 3.37958 51.7471 0.0713317 39.0144 0C38.5305 0 0 8.43166e-05 0 8.43166e-05L0 67C0 67 39.0144 67 39.0144 67C48.6299 67 54.9761 64.5504 58.0547 61.2925C61.1328 58.0346 62.6721 53.5904 62.6721 47.9594C62.6721 44.4802 61.8244 41.5864 60.1302 39.2777C60.1302 39.2777 60.1302 39.2777 60.1302 39.2777ZM36.456 27.6699C39.7977 27.6699 42.3742 27.118 44.1843 26.0141C45.995 24.9103 46.8998 22.9076 46.8998 20.006C46.8998 14.8337 43.5235 12.2475 36.7702 12.2475C36.7702 12.2475 14.7338 12.2475 14.7338 12.2475L14.7338 27.6699L36.456 27.6699C36.456 27.6699 36.456 27.6699 36.456 27.6699ZM44.1503 53.1112C42.3176 54.2535 39.7752 54.8249 36.5235 54.8249C36.5235 54.8249 14.7338 54.8249 14.7338 54.8249L14.7338 39.0238C14.7338 39.0238 36.8356 39.0238 36.8356 39.0238C43.5449 39.0238 46.8998 41.6888 46.8998 47.0189C46.8998 49.9383 45.9835 51.9689 44.1503 53.1112C44.1503 53.1112 44.1503 53.1112 44.1503 53.1112Z" fill="#FFFFFF" fill-rule="evenodd" stroke-width="0" stroke="#FFFFFF" transform="translate(75.099 0)" />
+                                      <path d="M53.7541 4.50603C48.9185 1.50201 41.889 0 32.6657 0C26.773 0 21.4568 0.772792 16.7171 2.31838C11.9774 3.86394 8.00629 6.91153 4.80379 11.4612C3.13847 13.7948 1.92151 16.5802 1.1529 19.8174C0.384302 23.0545 0 26.8603 0 31.2347C0 40.2181 1.88948 47.0865 5.66844 51.84C9.44742 56.5935 13.6587 59.6266 18.3024 60.9386C22.946 62.2511 27.7979 62.9074 32.8578 62.9074C42.4012 62.9074 50.2476 60.4871 56.396 55.6459C62.545 50.8045 65.6197 42.7259 65.6197 31.4099C65.6197 25.5772 64.8506 20.386 63.3135 15.8364C61.7764 11.2868 58.5901 7.51006 53.7541 4.50603C53.7541 4.50603 53.7541 4.50603 53.7541 4.50603ZM46.7408 47.1601C43.9546 50.8827 39.2949 52.7442 32.7618 52.7442C25.2679 52.7442 20.368 50.8102 18.0622 46.942C15.7564 43.0736 14.6035 37.8237 14.6035 31.1924C14.6035 24.2699 16.2208 19.0344 19.4553 15.4861C22.6898 11.9376 27.1253 10.1634 32.7618 10.1634C38.5902 10.1634 43.074 11.7194 46.2124 14.8317C49.3509 17.9438 50.9201 23.4845 50.9201 31.4538C50.9201 38.2021 49.527 43.4375 46.7408 47.1601C46.7408 47.1601 46.7408 47.1601 46.7408 47.1601Z" fill="#FFFFFF" fill-rule="evenodd" stroke-width="6" stroke="#FFFFFF" transform="translate(0 2.056)" />
+                                    </g>
+                                  </g>
+                                </g>
                               </svg>
+                              {/if}
                             </div>
                             <div class="ml-1">
-                              <div class="text-sm text-gray-100">OBC {$product.name}</div>
-                              <div class="text-xs text-gray-400">Cloud to Cloud backup with OBC branded Control Panel</div>
+                            <div class="text-sm text-gray-100">{$product.name}</div>
+                            <div class="text-xs text-gray-400">{if $product.pid == 60}OBC Branded Backup Client{elseif $product.pid == 58}eazyBackup Branded Backup Client{else}Usage-based billing{/if}</div>
+                          </div>
+                        </div>
+                      {/foreach}
+                      {foreach $categories.hyperv as $product}
+                        <div @click="
+                                          selectedProduct = '{$product.pid}';
+                                          selectedName    = `{$product.name}`;
+                                          selectedDesc    = 'Backup for Virtual Machines';
+                                          selectedIcon    = $event.currentTarget.querySelector('svg').outerHTML;
+                                          productType     = 'usage';
+                                          open            = false
+                                        " class="relative group flex items-start px-3 py-2 cursor-pointer">
+                          <span class="absolute left-0 inset-y-0 w-1 bg-sky-500 opacity-0 transition-opacity duration-200 group-hover:opacity-100"></span>
+                          <div class="flex-shrink-0 {if $product.gid == 7}text-sky-500{else}text-orange-600{/if}">
+
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" class="mr-3 size-6">
+                            <path d="M5.507 4.048A3 3 0 0 1 7.785 3h8.43a3 3 0 0 1 2.278 1.048l1.722 2.008A4.533 4.533 0 0 0 19.5 6h-15c-.243 0-.482.02-.715.056l1.722-2.008Z" />
+                            <path fill-rule="evenodd" d="M1.5 10.5a3 3 0 0 1 3-3h15a3 3 0 1 1 0 6h-15a3 3 0 0 1-3-3Zm15 0a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm2.25.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM4.5 15a3 3 0 1 0 0 6h15a3 3 0 1 0 0-6h-15Zm11.25 3.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM19.5 18a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z" clip-rule="evenodd" />
+                          </svg>
+                          
+                        
+                          </div>
+                          <div class="ml-1">
+                            <div class="text-sm text-gray-100">{$product.name}</div>
+                            <div class="text-xs text-gray-400">Backup for Hyper-V, Proxmox, and VMware, no device charges</div>
                             </div>
                           </div>
                         {/foreach}
-                      {/if}
 
                     </div>
 
@@ -249,33 +395,6 @@
                     </div>
                   </div>
                 </div>
-
-                <!-- Reporting‑email -->
-                <div class="mb-8">
-                  <div class="flex items-center">
-                    <label for="reportemail" class="w-1/4 text-sm font-medium text-gray-300 flex items-center">
-                      Email for Reports
-                    </label>
-                    <div class="w-3/4">
-                      <input type="email" id="reportemail" name="reportemail" placeholder="backupreports@example.com"
-                        value="{$POST.reportemail|escape:'html'}" class="w-full px-3 py-2 border
-                                  {if !empty($errors.reportemail)}border-red-500{else}border-slate-700{/if}
-                                  text-gray-300 bg-[#11182759] rounded focus:outline-none
-                                  focus:ring-0 focus:border-sky-600" required>
-                    </div>
-                  </div>
-
-                  {if !empty($errors.reportemail)}
-                    <p class="text-red-500 text-xs mt-1">{$errors.reportemail}</p>
-                  {/if}
-                </div>
-
-                {* hide until Alpine initializes *}
-                <style>
-                  [x-cloak] {
-                    display: none !important;
-                  }
-                </style>
 
                 <div x-data="{ldelim} showPassword: false, showConfirmPassword: false {rdelim}"
                   class="mb-8 {if !empty($errors.password) || !empty($errors.confirmpassword)}border-red-500{/if}">
@@ -374,6 +493,42 @@
                   </div>
                 </div>
 
+                <!-- Reporting‑email (chips) -->
+                <div class="mb-8">
+                  <div class="flex items-center">
+                    <label for="reportemail" class="w-1/4 text-sm font-medium text-gray-300 flex items-center">
+                      Email for Reports
+                    </label>
+                    <div class="w-3/4">
+                      <div class="flex flex-wrap gap-2 mb-2">
+                        <template x-for="(e,idx) in emails" :key="e">
+                          <span class="inline-flex items-center px-2 py-1 rounded bg-slate-700 text-xs">
+                            <span x-text="e"></span>
+                            <button type="button" @click="removeEmail(idx)" class="ml-1 text-gray-300 hover:text-white focus:outline-none">&times;</button>
+                          </span>
+                        </template>
+                      </div>
+                      <input type="text" id="reportemail_entry" x-model="emailEntry" @keydown="handleEmailKey($event)" @blur="addEmailsFromString(emailEntry); emailEntry=''" placeholder="backupreports@example.com"
+                        class="w-full px-3 py-2 border {if !empty($errors.reportemail)}border-red-500{else}border-slate-700{/if} text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600">
+                      <input type="hidden" id="reportemail" name="reportemail" value="{$POST.reportemail|escape:'html'}">
+                      <p class="text-xs text-gray-400 mt-1">Enter one or more emails where you would like backup reports sent</p>
+                    </div>
+                  </div>
+
+                  {if !empty($errors.reportemail)}
+                    <p class="text-red-500 text-xs mt-1">{$errors.reportemail}</p>
+                  {/if}
+                </div>
+
+                {* hide until Alpine initializes *}
+                <style>
+                  [x-cloak] {
+                    display: none !important;
+                  }
+                </style>
+
+
+
                 <!-- Billing Term Selection -->
                 <div class="mb-8">
                   <div class="flex items-center">
@@ -436,23 +591,57 @@
 
 
 
-                <!-- Next Due Date (readonly) -->
+                <!-- Payment method gating / Stripe inline capture -->
+                <div class="mb-8">
+                  <div class="flex items-start">
+                    <label class="w-1/4 text-sm font-medium text-gray-300">Payment</label>
+                    <div class="w-3/4 space-y-2">
+                      <template x-if="!payment.isStripeDefault">
+                        <div class="text-sm text-gray-300">Your default payment method is <span class="font-medium" x-text="payment.defaultGateway || 'invoice'"></span>. You can proceed.</div>
+                      </template>
+                      <template x-if="payment.isStripeDefault && payment.hasCardOnFile">
+                        <div class="text-sm text-gray-300">A saved card <span x-text="payment.lastFour ? ('•••• ' + payment.lastFour) : ''"></span> will be used. You can place the order.</div>
+                      </template>
+                      <template x-if="payment.isStripeDefault && !payment.hasCardOnFile">
+                        <div class="space-y-3" x-init="waitForStripeAndMount()">
+                          <div class="text-sm text-amber-300">Add a card to continue</div>
+                          <div id="stripe-card-element" class="px-3 py-2 border border-slate-700 rounded bg-[#11182759]"></div>
+                          <div id="stripe-card-errors" class="text-red-400 text-xs" x-text="addCardError"></div>
+                          <button type="button" @click="addCard()" :disabled="addCardLoading" class="inline-flex items-center px-3 py-2 rounded bg-sky-600 hover:bg-sky-700 disabled:opacity-50">
+                            <span x-text="addCardLoading ? 'Saving…' : 'Add Card'"></span>
+                          </button>
+                          <div class="text-xs text-gray-500" x-show="addCardError && !window.Stripe">
+                            If this persists, <a :href="payment.addCardExternalUrl" class="text-sky-400 underline">add your card in the Payment Methods page</a> and return here.
+                          </div>
+                        </div>
+                      </template>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Billing start date (static) -->
                 <div class="mb-8">
                   <div class="flex items-center">
-                    <label for="nextduedate" class="w-1/4 text-sm font-medium text-gray-300">
-                      Next Due Date
+                    <label class="w-1/4 text-sm font-medium text-gray-300">
+                      Billing start date
                     </label>
                     <div class="w-3/4">
-                      <input id="nextduedate" type="text" disabled x-bind:value="
-          billingTerm
-            ? (() => {
-                const d = new Date();
-                d.setMonth(d.getMonth() + 1);
-                return d.toISOString().slice(0,10);
-              })()
-            : ''
-        " class="w-full px-3 py-2 border border-slate-700 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600"
-                        placeholder="—" />
+                      <template x-if="isResellerClient">
+                        <div>
+                          <div class="text-xs text-gray-500 line-through" x-text="new Date().toISOString().slice(0,10)"></div>
+                          <div class="mt-1 px-3 py-2 border border-slate-700 text-gray-300 bg-[#11182759] rounded select-none">
+                            <span x-text="(() => { const d = new Date(); d.setDate(d.getDate()+30); return d.toISOString().slice(0,10); })()"></span>
+                          </div>
+                          <p class="text-xs text-gray-400 mt-1">Reseller Promo — 30 days free</p>
+                        </div>
+                      </template>
+                      <template x-if="!isResellerClient">
+                        <div>
+                          <div class="mt-1 px-3 py-2 border border-slate-700 text-gray-300 bg-[#11182759] rounded select-none">
+                            <span x-text="new Date().toISOString().slice(0,10)"></span>
+                          </div>
+                        </div>
+                      </template>
                     </div>
                   </div>
                 </div>
@@ -462,11 +651,11 @@
 
 
                 <!-- Submit Button -->
-                <button type="submit" :disabled="loading"
+                <button type="submit" :disabled="!canSubmit()"
                   class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-700"
-                  :class="loading 
-                      ? 'opacity-50 cursor-not-allowed bg-green-600' 
-                      : 'bg-green-600 hover:bg-green-700'">
+                  :class="canSubmit() 
+                      ? 'bg-green-600 hover:bg-green-700' 
+                      : 'opacity-50 cursor-not-allowed bg-green-600'">
                   <!-- swap text -->
                   <span x-text="loading ? 'Processing…' : 'Confirm'"></span>
 
@@ -483,23 +672,29 @@
 
           <!-- right column: dynamic price list -->
           <div class="w-full lg:w-1/2 text-gray-400 space-y-4 mt-12">
-            <!-- White-label pricing -->
-            <div x-show="productType === 'white'">
+            <!-- Usage-based pricing -->
+            <div x-show="productType === 'usage'">
               <div class="max-w-lg mx-auto pr-6 pl-6 rounded-lg text-gray-300">
-                <h3 class="text-xl font-semibold mb-4">Usage-Based Billing</h3>
+                <h3 class="text-xl font-semibold mb-4"
+                    x-text="(parseInt(selectedProduct)==60)
+                      ? 'OBC Branded Backup Client'
+                      : (parseInt(selectedProduct)==58)
+                          ? 'eazyBackup Branded Backup Client'
+                          : 'Usage-Based Billing'">
+                </h3>
                 <p class="text-gray-400 mb-4">
-                  Your plan includes a <strong>$9.45 / mo</strong> base fee for 1TB storage, any additional services are
-                  billed dynamically according to what you use:
+                  Your plan includes a <strong x-text="priceFor(67)"></strong> base fee for 1&nbsp;terabyte of storage per <span x-text="termLabel()"></span>. Additional services are billed dynamically according to what you use:
                 </p>
                 <ul class="list-disc list-inside text-gray-400 mb-4 space-y-1">
-                  <li><span class="font-medium">Device:</span> $3.50 per device, monthly</li>
-                  <li><span class="font-medium">Disk Image (Hyper-V):</span> $4.99 per device, monthly</li>
-                  <li><span class="font-medium">Hyper-V:</span> $4.99 per guest VM, monthly</li>
-                  <li><span class="font-medium">VMware backups:</span> $8.50 per guest VM, monthly</li>
-                  <li><span class="font-medium">Cloud Storage:</span> $9.45 per TB, monthly</li>
+                  <li><span class="font-medium">Cloud Storage:</span> <span x-text="priceFor(67)"></span> per terabyte per <span x-text="termLabel()"></span></li>
+                  <li><span class="font-medium">Device:</span> <span x-text="priceFor(88)"></span> per device per <span x-text="termLabel()"></span></li>
+                  <li><span class="font-medium">Disk Image (Hyper-V):</span> <span x-text="priceFor(91)"></span> per protected machine per <span x-text="termLabel()"></span></li>
+                  <li><span class="font-medium">Hyper-V, Proxmox:</span> <span x-text="priceFor(97)"></span> per virtual machine per <span x-text="termLabel()"></span></li>
+                  <li><span class="font-medium">VMware backups:</span> <span x-text="priceFor(99)"></span> per virtual machine per <span x-text="termLabel()"></span></li>
+                  <li><span class="font-medium">Proxmox Guest VM:</span> <span x-text="priceFor(102)"></span> per virtual machine per <span x-text="termLabel()"></span></li>
                 </ul>
                 <p class="text-gray-400 mb-4">
-                  You’re free to use all features without restriction; charges will automatically adjust each billing
+                  You're free to use all features without restriction; charges will automatically adjust each billing
                   cycle to match your actual consumption.
                 </p>
                 <p class="text-gray-400">
@@ -512,17 +707,44 @@
               <div class="max-w-lg mx-auto pr-6 pl-6 rounded-lg text-gray-300">
                 <h3 class="text-xl font-semibold mb-4">MS 365 Backup Pricing</h3>
                 <p class="text-gray-400 mb-4">
-                  Your plan includes a <strong>$3.50 / mo</strong> base fee for a single User, billing for additional
-                  Users will be charged according to what you use:
+                  Your plan includes a <strong x-text="priceFor(60)"></strong> base fee for a single user per <span x-text="termLabel()"></span>. Billing for additional users will be charged according to what you use:
                 </p>
                 <ul class="list-disc list-inside text-gray-400 mb-4 space-y-1">
-                  <li><span class="font-medium">Per User:</span> $3.50 per monthly</li>
+                  <li><span class="font-medium">Per User:</span> <span x-text="priceFor(60)"></span> per account per <span x-text="termLabel()"></span></li>
                   <li><span class="font-medium">Storage:</span> Unlimited per User</li>
                   <li><span class="font-medium">Retention:</span> 1 year (30 daily snapshots and 52 weekly snapshots)
                   </li>
                 </ul>
                 <p class="text-gray-400 mb-4">
                   Additional data retnetion can be purchased, please contact sales for more information.
+                </p>
+              </div>
+            </div>
+
+            <!-- Virtual Server Backup pricing (Hyper-V, Proxmox, VMware) -->
+            <div x-show="productType === 'vm'">
+              <div class="max-w-lg mx-auto pr-6 pl-6 rounded-lg text-gray-300">
+                <h3 class="text-xl font-semibold mb-4">Virtual Server Backup</h3>
+                <p class="text-gray-400 mb-4">
+                This plan backs up guest virtual machines only.
+                It does not back up physical servers, file-and-folder data, disk-image, etc. If you need those, choose the eazyBackup / OBC plans.
+                </p>
+                <p class="text-gray-400 mb-4">
+                  Your plan includes a <strong x-text="priceFor(67)"></strong> base fee for 1&nbsp;terabyte of storage per <span x-text="termLabel()"></span>. Additional services are billed dynamically according to what you use:
+                </p>
+                <ul class="list-disc list-inside text-gray-400 mb-4 space-y-1">
+                  <li><span class="font-medium">Cloud Storage:</span> <span x-text="priceFor(67)"></span> per terabyte per <span x-text="termLabel()"></span></li>
+                  <li><span class="font-medium">Device:</span> No endpoint device charge</li>
+                  <li><span class="font-medium">Hyper-V:</span> <span x-text="priceFor(97)"></span> per virtual machine per <span x-text="termLabel()"></span></li>
+                  <li><span class="font-medium">Proxmox:</span> <span x-text="priceFor(102)"></span> per virtual machine per <span x-text="termLabel()"></span></li>
+                  <li><span class="font-medium">VMware:</span> <span x-text="priceFor(99)"></span> per virtual machine per <span x-text="termLabel()"></span></li>
+                </ul>
+                <p class="text-gray-400 mb-4">
+                  You're free to use all features without restriction; charges will automatically adjust each billing
+                  cycle to match your actual consumption.
+                </p>
+                <p class="text-gray-400">
+                  <strong>Tip:</strong> You can set quotas on the Dashboard Users page to cap usage if you like.
                 </p>
               </div>
             </div>
@@ -553,3 +775,7 @@
     });
   });
 </script>
+{if $payment.stripePublishableKey}
+  <script id="stripe-v3" src="https://js.stripe.com/v3/"></script>
+  <script src="{$payment.stripeJsUrl}"></script>
+{/if}

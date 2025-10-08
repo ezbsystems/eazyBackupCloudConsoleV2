@@ -40,7 +40,12 @@
                                    {if $prevPeriodActive}bg-slate-500 text-white focus:ring-slate-400{else}bg-slate-700 text-white hover:bg-slate-600 focus:ring-slate-500{/if}">
                         Previous Period
                     </button>
-                    <span class="text-sm text-slate-400">Current Service Period: {$startDate|date_format:"%d %b %Y"} to {$endDate|date_format:"%d %b %Y"}</span>
+                    <div class="flex items-center gap-2">
+                        <span class="text-sm text-slate-400">Current Service Period: {$billingPeriod.start|date_format:"%d %b %Y"} to {$billingPeriod.end|date_format:"%d %b %Y"}</span>
+                        {if isset($overdueNotice) && $overdueNotice}
+                            <span class="text-xs bg-yellow-500/20 text-yellow-300 border border-yellow-500/40 px-2 py-1 rounded">{$overdueNotice}</span>
+                        {/if}
+                    </div>
                 </div>
                 <div class="flex items-center">
                     <!-- Alpine.js Username Filter Dropdown -->

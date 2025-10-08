@@ -15,78 +15,50 @@ function cloudstorage_config()
         'language' => 'english',
         'version' => '1.0',
         'fields' => [
+            's3_region' => [
+                'FriendlyName' => 'S3 Region',
+                'Type' => 'text',
+                'Size' => '50',
+                'Description' => 'Enter the AWS region string to use for signing (e.g., ca-central-1). Defaults to us-east-1 if empty.'
+            ],
             'encryption_key' => [
                 'FriendlyName' => 'Encryption Key',
                 'Type' => 'text',
                 'Size' => '50',
                 'Description' => 'Enter the encryption key.'
             ],
-            'redis_host' => [
-                'FriendlyName' => 'Redis Host',
+            's3_endpoint' => [
+                'FriendlyName' => 'S3 Endpoint',
                 'Type' => 'text',
-                'Size' => '50',
-                'Description' => 'Hostname or IP of Redis (for migration status)',
-                'Default' => '127.0.0.1'
+                'Size' => '250',
+                'Description' => 'Enter the S3 endpoint.'
             ],
-            'redis_port' => [
-                'FriendlyName' => 'Redis Port',
+            'ceph_server_ip' => [
+                'FriendlyName' => 'Ceph Server Ip',
                 'Type' => 'text',
-                'Size' => '6',
-                'Description' => 'Redis port number',
-                'Default' => '6379'
+                'Size' => '100',
+                'Description' => 'Enter the Ceph server ip.'
             ],
-            'redis_hash' => [
-                'FriendlyName' => 'Redis Hash Name',
+            'ceph_admin_user' => [
+                'FriendlyName' => 'Ceph Admin User',
                 'Type' => 'text',
-                'Size' => '50',
-                'Description' => 'Redis hash key used to store client→cluster mappings',
-                'Default' => 'customer_migration_status'
+                'Size' => '100',
+                'Description' => 'Enter the Ceph admin user.'
             ],
-            'default_backend_alias' => [
-                'FriendlyName' => 'Default Backend Alias',
+            'ceph_access_key' => [
+                'FriendlyName' => 'Ceph Access Key',
                 'Type' => 'text',
-                'Size' => '50',
-                'Description' => 'Cluster alias to use when a client has no explicit mapping',
-                'Default' => 'old_ceph_cluster'
+                'Size' => '100',
+                'Description' => 'Enter the Ceph access key.'
             ],
-            'migrated_backend_alias' => [
-                'FriendlyName' => 'Migrated Backend Alias',
+            'ceph_secret_key' => [
+                'FriendlyName' => 'Ceph Secret Key',
                 'Type' => 'text',
-                'Size' => '50',
-                'Description' => 'Cluster alias set when using the one-click migration action',
-                'Default' => 'new_ceph_cluster'
-            ],
+                'Size' => '100',
+                'Description' => 'Enter the Ceph secret key.'
+            ]
         ]
     ];
-}
-
-/**
- * Ensure required schema exists when module is already active (upgrade-safe).
- */
-function cloudstorage_ensure_schema()
-{
-    try {
-        if (Capsule::schema()->hasTable('s3_bucket_stats_summary')) {
-            // Add usage_day if missing
-            if (!Capsule::schema()->hasColumn('s3_bucket_stats_summary', 'usage_day')) {
-                Capsule::schema()->table('s3_bucket_stats_summary', function ($table) {
-                    $table->date('usage_day')->nullable();
-                });
-                try {
-                    Capsule::statement("UPDATE s3_bucket_stats_summary SET usage_day = DATE(created_at) WHERE usage_day IS NULL OR usage_day = '0000-00-00'");
-                } catch (\Throwable $e) { /* ignore backfill errors */ }
-                try {
-                    Capsule::statement("ALTER TABLE s3_bucket_stats_summary MODIFY usage_day DATE NOT NULL");
-                } catch (\Throwable $e) { /* some MySQL modes may not allow; ignore */ }
-            }
-            // Ensure unique index exists (ignore if already there)
-            try {
-                Capsule::schema()->table('s3_bucket_stats_summary', function ($table) {
-                    $table->unique(['user_id', 'bucket_id', 'usage_day'], 'uniq_user_bucket_day');
-                });
-            } catch (\Throwable $e) { /* index may exist; ignore */ }
-        }
-    } catch (\Throwable $e) { /* best-effort guard, never block page */ }
 }
 
 /**
@@ -177,37 +149,11 @@ function cloudstorage_activate() {
             $table->unsignedInteger('bucket_id');
             $table->unsignedInteger('user_id');
             $table->bigInteger('total_usage')->default(0)->nullable();
-            // Day this usage applies to (facilitates stable daily upserts)
-            $table->date('usage_day')->nullable();
             $table->timestamp('created_at')->useCurrent();
 
             $table->foreign('bucket_id')->references('id')->on('s3_buckets')->onDelete('cascade');
             $table->foreign('user_id')->references('id')->on('s3_users')->onDelete('cascade');
         });
-    }
-
-    // Ensure new column and unique index exist for daily usage summaries
-    if (Capsule::schema()->hasTable('s3_bucket_stats_summary')) {
-        if (!Capsule::schema()->hasColumn('s3_bucket_stats_summary', 'usage_day')) {
-            Capsule::schema()->table('s3_bucket_stats_summary', function ($table) {
-                $table->date('usage_day')->nullable();
-            });
-            // Backfill usage_day from created_at for existing rows
-            try {
-                Capsule::statement("UPDATE s3_bucket_stats_summary SET usage_day = DATE(created_at) WHERE usage_day IS NULL OR usage_day = '0000-00-00'");
-            } catch (\Throwable $e) { /* ignore */ }
-        }
-        try {
-            Capsule::schema()->table('s3_bucket_stats_summary', function ($table) {
-                $table->unique(['user_id', 'bucket_id', 'usage_day'], 'uniq_user_bucket_day');
-            });
-        } catch (\Throwable $e) {
-            // Index may already exist; ignore
-        }
-        // Attempt to enforce NOT NULL on usage_day after backfill
-        try {
-            Capsule::statement("ALTER TABLE s3_bucket_stats_summary MODIFY usage_day DATE NOT NULL");
-        } catch (\Throwable $e) { /* some environments may not permit; ignore */ }
     }
 
     if (!Capsule::schema()->hasTable('s3_transfer_stats')) {
@@ -292,18 +238,6 @@ function cloudstorage_activate() {
             $table->index(['bucket_owner', 'collected_at']);
         });
     }
-    // Ensure unique key to prevent duplicates at the same timestamp for same bucket/owner
-    if (Capsule::schema()->hasTable('s3_bucket_sizes_history')) {
-        try {
-            // Add unique index if it does not exist yet
-            Capsule::schema()->table('s3_bucket_sizes_history', function ($table) {
-                // Some schema managers may not support conditional add; wrap in try/catch at runtime
-                $table->unique(['bucket_name', 'bucket_owner', 'collected_at'], 'uniq_bucket_owner_collected');
-            });
-        } catch (\Throwable $e) {
-            // Ignore if already exists
-        }
-    }
 
     if (!Capsule::schema()->hasTable('s3_historical_stats')) {
         Capsule::schema()->create('s3_historical_stats', function ($table) {
@@ -322,84 +256,6 @@ function cloudstorage_activate() {
             $table->index(['date']);
         });
     }
-
-    // ---------------------------------------------------------------------
-    // MULTI-CLUSTER SUPPORT: s3_clusters table
-    // ---------------------------------------------------------------------
-    if (!Capsule::schema()->hasTable('s3_clusters')) {
-        Capsule::schema()->create('s3_clusters', function ($table) {
-            $table->increments('id');
-            $table->string('cluster_name');
-            $table->string('cluster_alias')->unique();
-            $table->string('s3_endpoint');
-            $table->string('admin_access_key');
-            $table->string('admin_secret_key');
-            $table->boolean('is_default')->default(false);
-            // Ensure created_at column exists with default CURRENT_TIMESTAMP
-            $table->timestamp('created_at')->useCurrent();
-        });
-    }
-
-    // Ensure created_at exists on older installs where the column may be missing
-    if (Capsule::schema()->hasTable('s3_clusters') && !Capsule::schema()->hasColumn('s3_clusters', 'created_at')) {
-        Capsule::schema()->table('s3_clusters', function ($table) {
-            $table->timestamp('created_at')->nullable()->useCurrent();
-        });
-    }
-
-    // Application-level enforcement: ensure only one default cluster exists
-    try {
-        if (Capsule::schema()->hasTable('s3_clusters')) {
-            $defaults = Capsule::table('s3_clusters')->where('is_default', 1)->orderBy('created_at', 'desc')->get(['id']);
-            if ($defaults && count($defaults) > 1) {
-                // Keep the most recent as default, unset others
-                $keepId = $defaults->first()->id;
-                Capsule::table('s3_clusters')->where('is_default', 1)->where('id', '!=', $keepId)->update(['is_default' => 0]);
-            }
-        }
-    } catch (\Throwable $e) { /* best effort */ }
-
-    // ---------------------------------------------------------------------
-    // Migration events audit log
-    // ---------------------------------------------------------------------
-    if (!Capsule::schema()->hasTable('s3_migration_events')) {
-        Capsule::schema()->create('s3_migration_events', function ($table) {
-            $table->increments('id');
-            $table->unsignedInteger('client_id');
-            $table->unsignedInteger('actor_admin_id')->nullable();
-            $table->enum('action', ['freeze','sync','verify','flip','unfreeze','rollback']);
-            $table->string('from_alias')->nullable();
-            $table->string('to_alias')->nullable();
-            // Use TEXT to remain compatible across MySQL versions; store JSON string
-            $table->text('notes')->nullable();
-            $table->timestamp('created_at')->useCurrent();
-
-            $table->index(['client_id', 'created_at']);
-        });
-    }
-
-    // ---------------------------------------------------------------------
-    // Access keys state tracking (per client/tenant)
-    // ---------------------------------------------------------------------
-    if (!Capsule::schema()->hasTable('s3_access_keys')) {
-        Capsule::schema()->create('s3_access_keys', function ($table) {
-            $table->increments('id');
-            $table->unsignedInteger('user_id'); // references s3_users.id
-            $table->string('access_key', 255)->unique();
-            $table->string('secret_hash')->nullable();
-            $table->enum('state', ['active','frozen','revoked'])->default('active');
-            $table->string('migrated_to_alias')->nullable();
-            $table->timestamp('flipped_at')->nullable();
-            $table->timestamp('created_at')->useCurrent();
-
-            $table->foreign('user_id')->references('id')->on('s3_users')->onDelete('cascade');
-            $table->index(['user_id']);
-        });
-    }
-    // Ensure secret_hash can be NULL in case RGW does not expose secrets when listing keys
-    try {
-        Capsule::statement("ALTER TABLE s3_access_keys MODIFY secret_hash VARCHAR(255) NULL");
-    } catch (\Throwable $e) { /* ignore if not supported or already NULL */ }
 
     return [
         'status' => 'success'
@@ -426,9 +282,6 @@ function cloudstorage_deactivate() {
 }
 
 function cloudstorage_clientarea($vars) {
-    // Ensure schema migration if module was activated before this column was introduced
-    cloudstorage_ensure_schema();
-
     $page = $_GET['page'];
     $encryptionKey = $vars['encryption_key'];
     $s3Endpoint = $vars['s3_endpoint'];
@@ -461,14 +314,6 @@ function cloudstorage_clientarea($vars) {
             $pagetitle = 'Storage Dashboard';
             $templatefile = 'templates/dashboard';
             $vars = require 'pages/dashboard.php';
-            break;
-
-        case 'denied':
-            $pagetitle = 'Access Denied';
-            $templatefile = 'templates/denied';
-            $vars = [
-                'error' => isset($_GET['msg']) ? (string)$_GET['msg'] : 'You do not have permission to access e3 Object Storage.',
-            ];
             break;
 
         case 'access_keys':
@@ -558,33 +403,18 @@ function cloudstorage_clientarea($vars) {
  */
 function cloudstorage_output($vars)
 {
-    $action = $_REQUEST['action'] ?? 'bucket_monitor';
-
-    // Handle the AJAX request
-    if ($action === 'ajax') {
-        require_once __DIR__ . '/ajax.php';
-        exit; // Stop execution to prevent rendering the admin page
+    // Clean any output buffer to prevent language files from outputting
+    while (ob_get_level()) {
+        ob_end_clean();
     }
     
+    $action = $_REQUEST['action'] ?? 'bucket_monitor';
+    
     switch ($action) {
-        case 'migration_events':
-            require_once __DIR__ . '/pages/admin/migration_events.php';
-            echo cloudstorage_admin_migration_events($vars);
-            break;
-        case 'cluster_manager':
-            require_once __DIR__ . '/pages/admin/cluster_manager.php';
-            echo cloudstorage_admin_cluster_manager($vars);
-            break;
-
-        case 'migration_manager':
-            require_once __DIR__ . '/pages/admin/migration_manager.php';
-            echo cloudstorage_admin_migration_manager($vars);
-            break;
-
         case 'bucket_monitor':
         default:
             require_once __DIR__ . '/pages/admin/bucket_monitor.php';
-            echo cloudstorage_admin_bucket_monitor($vars);
+            cloudstorage_admin_bucket_monitor($vars);
             break;
     }
 }
@@ -598,20 +428,11 @@ function cloudstorage_output($vars)
  */
 function cloudstorage_sidebar($vars)
 {
-    $sidebar = '<div class="list-group">'
-        . '<a href="' . $_SERVER['PHP_SELF'] . '?module=cloudstorage&action=bucket_monitor" class="list-group-item">'
-            . '<i class="fa fa-database"></i> Bucket Monitor'
-        . '</a>'
-        . '<a href="' . $_SERVER['PHP_SELF'] . '?module=cloudstorage&action=cluster_manager" class="list-group-item">'
-            . '<i class="fa fa-server"></i> Cluster Manager'
-        . '</a>'
-        . '<a href="' . $_SERVER['PHP_SELF'] . '?module=cloudstorage&action=migration_manager" class="list-group-item">'
-            . '<i class="fa fa-exchange-alt"></i> Migration Manager'
-        . '</a>'
-        . '<a href="' . $_SERVER['PHP_SELF'] . '?module=cloudstorage&action=migration_events" class="list-group-item">'
-            . '<i class="fa fa-history"></i> Migration Events'
-        . '</a>'
-        . '</div>';
+    $sidebar = '<div class="list-group">
+        <a href="' . $_SERVER['PHP_SELF'] . '?module=cloudstorage&action=bucket_monitor" class="list-group-item">
+            <i class="fa fa-database"></i> Bucket Monitor
+        </a>
+    </div>';
     
     return $sidebar;
 }

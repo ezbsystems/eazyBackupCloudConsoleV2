@@ -11,7 +11,7 @@ document.addEventListener('DOMContentLoaded', () => {
     return res.json();
   }
 
-  async function doResetPassword() {
+  async function doResetPassword(detail) {
     try {
       // Open a dedicated password reset modal with input + generate button.
       const chosen = await passwordResetModal();
@@ -22,9 +22,27 @@ document.addEventListener('DOMContentLoaded', () => {
       const modalCard = document.querySelector('.min-h-screen .container') || document.body;
       window.ebShowLoader?.(modalCard, 'Resetting password…');
 
-      const r = await call('resetPassword', { password: inputPassword });
+      // Determine service ID from event detail or fallback to data attribute
+      const sid = (detail && (detail.serviceid || detail.serviceId)) || serviceId;
+      if (!sid) { throw new Error('Missing service ID'); }
 
-      if (r && r.status === 'success') {
+      // Use Comet server AJAX endpoint directly; no dependency on services.js
+      let r;
+      try {
+        const form = new URLSearchParams();
+        form.append('serviceId', String(sid));
+        form.append('newpassword', String(inputPassword));
+        const res = await fetch('modules/servers/comet/ajax/changepassword.php', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: form.toString()
+        });
+        r = await res.json();
+      } catch (_) {
+        r = { result: 'error', message: 'Network error' };
+      }
+
+      if (r && r.result === 'success') {
         const newPassword = String(inputPassword);
 
         const actionPanel = `
@@ -63,7 +81,8 @@ document.addEventListener('DOMContentLoaded', () => {
         );
 
       } else {
-        toast((r && r.message) || 'Password reset failed.', 'error');
+        const msg = (r && (r.message || r.error)) || 'Password reset failed.';
+        toast(msg, 'error');
       }
 
     } catch (_) {
@@ -77,7 +96,7 @@ document.addEventListener('DOMContentLoaded', () => {
   
 
   // Alpine custom event from Actions menu
-  document.addEventListener('eb-reset-password', (e) => { doResetPassword(); });
+  document.addEventListener('eb-reset-password', (e) => { doResetPassword(e && e.detail); });
 
   function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c])); }
 

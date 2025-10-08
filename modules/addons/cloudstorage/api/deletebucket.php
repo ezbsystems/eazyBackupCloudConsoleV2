@@ -97,9 +97,10 @@
         $adminAccessKey = $module->where('setting', 'ceph_access_key')->pluck('value')->first();
         $adminSecretKey = $module->where('setting', 'ceph_secret_key')->pluck('value')->first();
         $encryptionKey = $module->where('setting', 'encryption_key')->pluck('value')->first();
+        $s3Region = $module->where('setting', 's3_region')->pluck('value')->first() ?: 'us-east-1';
         
         // Initialize bucket controller and S3 client connection
-        $bucketController = new BucketController($endpoint, $adminUser, $adminAccessKey, $adminSecretKey);
+        $bucketController = new BucketController($endpoint, $adminUser, $adminAccessKey, $adminSecretKey, $s3Region);
         $bucketOwner = \WHMCS\Database\Capsule::table('s3_users')->where('id', $bucket->user_id)->first();
         $connectionResult = $bucketController->connectS3Client($bucketOwner->id, $encryptionKey);
         

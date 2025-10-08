@@ -30,7 +30,7 @@
   >
     <p>If the problem persists, please contact support.</p>
     <p>
-      <a href="{{systemurl}}" style="color: #93c5fd; text-decoration: none;">
+      <a href="{$systemurl}" style="color: #93c5fd; text-decoration: none;">
         &laquo; Back to Dashboard
       </a>
     </p>

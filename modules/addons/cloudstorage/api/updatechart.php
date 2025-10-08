@@ -58,6 +58,7 @@
     $cephAdminUser = $module->where('setting', 'ceph_admin_user')->pluck('value')->first();
     $cephAdminAccessKey = $module->where('setting', 'ceph_access_key')->pluck('value')->first();
     $cephAdminSecretKey = $module->where('setting', 'ceph_secret_key')->pluck('value')->first();
+    $s3Region = $module->where('setting', 's3_region')->pluck('value')->first() ?: 'us-east-1';
 
     $username = $product->username;
     $user = DBController::getUser($username);
@@ -98,7 +99,7 @@
         }
     }
 
-    $bucketObject = new BucketController($s3Endpoint, $cephAdminUser, $cephAdminAccessKey, $cephAdminSecretKey);
+    $bucketObject = new BucketController($s3Endpoint, $cephAdminUser, $cephAdminAccessKey, $cephAdminSecretKey, $s3Region);
     $transferdata = $bucketObject->getUserTransferSummary($userIds, $_POST['time']);
 
     // Calculate totals using the same method as initial page load for consistency

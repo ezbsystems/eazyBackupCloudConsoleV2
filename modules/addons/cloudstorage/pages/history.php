@@ -40,7 +40,7 @@ function debugLog($context, $data, $message = '')
     file_put_contents($logFile, $logMessage, FILE_APPEND);
 }
 
-$bucketController = new BucketController();
+$bucketController = new BucketController(null, null, null, null, $vars['s3_region'] ?? 'us-east-1');
 
 $packageId = ProductConfig::$E3_PRODUCT_ID;
 $ca = new ClientArea();
@@ -67,13 +67,14 @@ $tenants = DBController::getResult('s3_users', [
 $userIds = array_merge(array_values($tenants), [$user->id]);
 
 $billingObject = new BillingController();
-$userActualCurrentBillingPeriod = $billingObject->calculateBillingMonth($loggedInUserId, $packageId);
+$displayPeriod = $billingObject->calculateDisplayPeriod($loggedInUserId, $packageId);
+$overdueNotice = $billingObject->getOverdueNotice($loggedInUserId, $packageId);
 
-debugLog('User Actual Current Billing Period', [
-    'period' => $userActualCurrentBillingPeriod,
+debugLog('Display Period', [
+    'period' => $displayPeriod,
     'loggedInUserId' => $loggedInUserId,
     'packageId' => $packageId
-], 'User\'s actual current billing period for reference. This is passed to template as \'billingPeriod\'.');
+], 'Rolling display period calculated for UI.');
 
 // Determine startDate and endDate for data fetching
 $action = $_GET['action'] ?? null;
@@ -87,8 +88,9 @@ $startDate = null;
 $endDate = null;
 
 if ($action === 'current_period') {
-    $startDate = $userActualCurrentBillingPeriod['start'];
-    $endDate = $userActualCurrentBillingPeriod['end'];
+    // Use display period for header, but end at today for queries
+    $startDate = $displayPeriod['start'];
+    $endDate = $displayPeriod['end_for_queries'];
 } elseif ($action === 'prev_period' && $refStartDateForNav) {
     try {
         new \DateTime($refStartDateForNav); // Validate date format
@@ -111,8 +113,8 @@ if ($action === 'current_period') {
 
 // Fallback if $startDate or $endDate are still null (e.g., error in nav logic, or no action/custom dates)
 if (is_null($startDate) || is_null($endDate)) {
-    $startDate = $userActualCurrentBillingPeriod['start'];
-    $endDate = $userActualCurrentBillingPeriod['end'];
+    $startDate = $displayPeriod['start'];
+    $endDate = $displayPeriod['end_for_queries'];
     debugLog('Date Fallback Applied', ['reason' => 'Primary logic did not set dates', 'applied_start' => $startDate, 'applied_end' => $endDate], 'Fell back to user actual current billing period.');
 }
 
@@ -128,14 +130,14 @@ if (is_null($startDate) || is_null($endDate)) {
 }
 
 // $startDate and $endDate are now set for data fetching.
-// $userActualCurrentBillingPeriod is used for display of \'Current Period: X to Y\' in template.
+// $displayPeriod is used for display of 'Current Service Period: X to Y' in template.
 
 // Debug log the final selected date range
 debugLog('Final Date Selection for Data', [
     'startDate' => $startDate,
     'endDate' => $endDate,
     'userIds' => $userIds,
-    'userActualCurrentBillingPeriod' => $userActualCurrentBillingPeriod
+    'displayPeriod' => $displayPeriod
 ], 'Data range selected for fetching');
 
 // Get the selected username from URL parameters
@@ -151,7 +153,7 @@ if (!empty($selectedUsername)) {
     }
 }
 
-$bucketObject = new BucketController($s3Endpoint, $cephAdminUser, $cephAdminAccessKey, $cephAdminSecretKey);
+$bucketObject = new BucketController($s3Endpoint, $cephAdminUser, $cephAdminAccessKey, $cephAdminSecretKey, $vars['s3_region'] ?? 'us-east-1');
 
 // Get historical usage data using the determined $startDate and $endDate
 $historicalData = $bucketController->getHistoricalUsage($userIds, $startDate, $endDate);
@@ -200,7 +202,7 @@ debugLog('Template Data Population', [
     'startDate' => $startDate,
     'endDate' => $endDate,
     'userIds' => $userIds,
-    'userActualCurrentBillingPeriod' => $userActualCurrentBillingPeriod,
+    'displayPeriod' => $displayPeriod,
     'peakUsageForTemplate' => $peakUsageForTemplate,
     'totalIngressFormatted' => $totalIngressFormatted,
     'totalEgressFormatted' => $totalEgressFormatted,
@@ -215,7 +217,7 @@ $transferReceivedData = [];
 $transferOpsData = []; 
 $transferDates = [];
 
-// Aggregation for Daily Usage (Storage)
+// Aggregation for Daily Usage (Storage) with last-value carry-forward to avoid drops on missing days
 $aggregatedDailyUsage = [];
 if (isset($historicalData['daily_usage']) && is_array($historicalData['daily_usage'])) {
     foreach ($historicalData['daily_usage'] as $usage) {
@@ -229,10 +231,27 @@ if (isset($historicalData['daily_usage']) && is_array($historicalData['daily_usa
     }
 }
 
-if (!empty($aggregatedDailyUsage)) {
-    ksort($aggregatedDailyUsage); // Sort by date key
-    $dailyUsageDates = array_keys($aggregatedDailyUsage);
-    $dailyUsageData = array_values($aggregatedDailyUsage);
+// Fill forward across the requested date range
+try {
+    $rangeStartDt = new \DateTime($startDate);
+    $rangeEndDt = new \DateTime($endDate);
+    $period = new \DatePeriod($rangeStartDt, new \DateInterval('P1D'), (clone $rangeEndDt)->modify('+1 day'));
+    $lastValue = 0;
+    foreach ($period as $dt) {
+        $d = $dt->format('Y-m-d');
+        if (isset($aggregatedDailyUsage[$d])) {
+            $lastValue = (float)$aggregatedDailyUsage[$d];
+        }
+        $dailyUsageDates[] = $d;
+        $dailyUsageData[] = $lastValue;
+    }
+} catch (\Exception $e) {
+    // Fallback to simple series if date parsing fails
+    if (!empty($aggregatedDailyUsage)) {
+        ksort($aggregatedDailyUsage);
+        $dailyUsageDates = array_keys($aggregatedDailyUsage);
+        $dailyUsageData = array_values($aggregatedDailyUsage);
+    }
 }
 
 // Aggregation for Transfer Data (Ingress, Egress, Ops)
@@ -287,7 +306,8 @@ if ($action === 'prev_period') {
 
 // Return variables for the template
 return [
-    'billingPeriod' => $userActualCurrentBillingPeriod, // User's actual current cycle for display
+    'billingPeriod' => $displayPeriod, // Rolling display period for header label
+    'overdueNotice' => $overdueNotice,
     'bucketStats' => $bucketStats, // For daily storage chart #sizeChart, from getUserBucketSummary
     
     'totalIngress' => $totalIngressFormatted,

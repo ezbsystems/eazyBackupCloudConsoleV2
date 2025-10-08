@@ -83,6 +83,17 @@
             </div>
         </div>
 
+        <!-- Important Notice -->
+        {* <div class="bg-amber-600 bg-opacity-20 border-l-4 border-amber-500 text-amber-300 p-4 rounded-md shadow-md mb-6" role="alert">
+            <p class="font-bold text-white">Important Notice Regarding New Bucket Creation</p>
+            <p class="text-sm text-gray-400 mb-3">August 7, 2025 - 8:00 AM EDT</p>
+            <p class="mb-2">Our team is aware of and actively working to resolve an issue that is affecting the creation of new storage buckets.</p>
+            <p class="mb-2">As a precaution, we have temporarily disabled the ability to create new buckets from the dashboard until this issue is resolved.</p>
+            <p class="mb-2">While some third-party tools or CLI commands may still allow bucket creation, we <strong class="text-white">strongly advise against this</strong>, as any new buckets created during this time may not be initialized properly.</p>
+            <p class="mb-2">All existing buckets and the data within them are unaffected. You can continue to read, write, and delete objects in your existing buckets normally.</p>
+            <p>We will provide another update as soon as more information is available. Thank you for your patience.</p>
+        </div> *}
+
         <!-- Buckets Container -->
         <div class="buckets-container grid grid-cols-1 gap-6">
             {foreach from=$buckets item=bucket}
@@ -120,7 +131,7 @@
                     <!-- Usage -->
                     <div>
                       <h6 class="text-sm font-medium text-slate-400">Usage</h6>
-                      <span class="text-md font-medium text-cyan-300" title="Bucket Size">
+                      <span class="text-md font-medium text-cyan-300 bucket-usage" data-bucket-name="{$bucket->name}" title="Bucket Size">
                         {if isset($stats[$bucket->id])}
                           {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($stats[$bucket->id]->size)}
                         {else}
@@ -132,7 +143,7 @@
                     <!-- Objects -->
                     <div>
                       <h6 class="text-sm font-medium text-slate-400">Objects</h6>
-                      <span class="text-md font-medium text-slate-300" title="Object Count">
+                      <span class="text-md font-medium text-slate-300 bucket-objects" data-bucket-name="{$bucket->name}" title="Object Count">
                         {if isset($stats[$bucket->id])}
                           {$stats[$bucket->id]->num_objects}
                         {else}
@@ -179,7 +190,7 @@
                       </span>
                     </div>
 
-                    <!-- New Actions column -->
+                    <!-- Actions column -->
                     <div>
 
                       <div class="mt-1">
@@ -390,9 +401,12 @@
 
         <!-- Delete Bucket Modal -->
         <div class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 hidden" id="deleteBucketModal">
-            <div class="bg-gray-800 rounded-lg shadow-lg w-full max-w-lg p-6">
+            <div class="bg-gray-800 rounded-lg shadow-lg w-full max-w-xl p-6 max-h-[85vh] overflow-y-auto">
                 <div class="flex justify-between items-center mb-4">
-                    <h2 class="text-xl font-semibold text-red-400" id="deleteModalTitle">Warning: Permanent Bucket Deletion</h2>
+                    <div class="flex items-center space-x-2">
+                        <h2 class="text-xl font-semibold text-red-400" id="deleteModalTitle">Warning: Permanent Bucket Deletion</h2>
+                        <span id="objectLockModeChip" class="hidden inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-slate-300"></span>
+                    </div>
                     <button type="button" onclick="closeModal('deleteBucketModal')" class="text-slate-300 hover:text-white focus:outline-none">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
@@ -403,32 +417,168 @@
                     <!-- Error Message -->
                     <div id="deleteBucketMessage" class="text-white px-4 py-2 rounded-md mb-4" role="alert"></div>
                     
-                    <!-- Object Lock Warning -->
+                    <!-- Object Lock Intro Banner (shown for OL buckets) -->
                     <div id="objectLockWarning" class="bg-amber-600 text-white px-4 py-3 rounded-md mb-4 hidden" role="alert">
-                        <div class="flex items-center">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <div class="flex items-start">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
                             </svg>
                             <div>
-                                <strong>Object Lock Enabled:</strong> This bucket can only be deleted if it's completely empty (no objects, versions, delete markers, or incomplete uploads).
+                                <p class="font-semibold">This bucket uses Object Lock.</p>
+                                <p class="text-sm">Buckets can only be deleted when they are empty — including all object versions and delete markers. We do not remove your data for you.</p>
                             </div>
                         </div>
                     </div>
                     
+                    <!-- Live Empty Check Panel -->
+                    <div id="emptyCheckPanel" class="hidden border border-slate-700 rounded-md p-4 mb-4 bg-slate-800">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-sm font-semibold text-slate-200">Empty Check</h3>
+                            <button type="button" id="checkStatusButton" class="bg-gray-700 hover:bg-gray-600 text-gray-200 px-3 py-1 rounded-md text-sm">Check status</button>
+                        </div>
+                        <div class="grid grid-cols-1 gap-2 text-sm">
+                            <div class="flex justify-between"><span>Current objects:</span><span><span class="text-cyan-300">0</span> / <span id="countObjects">0</span></span></div>
+                            <div class="flex justify-between"><span>Object versions (all):</span><span><span class="text-cyan-300">0</span> / <span id="countVersions">0</span></span></div>
+                            <div class="flex justify-between"><span>Delete markers:</span><span><span class="text-cyan-300">0</span> / <span id="countDeleteMarkers">0</span></span></div>
+                            <div class="flex justify-between"><span>Multipart uploads in progress:</span><span><span class="text-cyan-300">0</span> / <span id="countMultipart">0</span></span></div>
+                            <div class="flex justify-between"><span>Legal holds present:</span><span id="hasLegalHolds">No</span></div>
+                            <div class="flex justify-between"><span>Earliest retain-until (if any):</span><span id="earliestRetainUntil">—</span></div>
+                        </div>
+                        <div id="blockersContainer" class="hidden mt-3">
+                            <div class="text-sm text-red-300 font-semibold mb-1">Blockers</div>
+                            <ul id="blockersList" class="list-disc list-inside text-sm text-slate-300"></ul>
+                        </div>
+                    </div>
+
+                    <!-- Guidance Section -->
+                    <div id="guidanceSection" class="hidden border border-slate-700 rounded-md mb-4">
+                        <button type="button" id="guidanceToggleBtn" class="w-full text-left px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-t-md focus:outline-none">
+                        <span class="text-sm font-medium text-gray-200">How to empty this bucket yourself</span>
+                    </button>
+
+                        <div id="guidanceContent" class="hidden px-4 py-3 text-sm text-slate-300 space-y-4">
+
+                        <!-- Why this matters -->
+                        <div class="bg-slate-800/60 border border-slate-700 rounded p-3">                        
+                        <p class="text-slate-300">
+                            To delete this bucket, it must be <span class="font-semibold">completely empty</span> — no current objects, no object versions, no delete markers, and no in-progress multipart uploads. 
+                            If Object Lock protections (Retention or Legal Hold) exist on any version, you must remove the hold or wait for the retain-until date before you can delete those versions.
+                        </p>
+                        </div>
+
+                        <!-- Quick checklist -->
+                        <ol class="list-decimal list-inside space-y-1">
+                        <li>Remove any <span class="font-semibold">Legal Holds</span> you set on object versions.</li>
+                        <li>For <span class="font-semibold">Compliance mode</span>, wait until each version's <em>retain-until</em> date passes (cannot be shortened).</li>
+                        <li>For <span class="font-semibold">Governance mode</span>, either wait for retain-until or use your own governance-bypass tools/permissions (per your org's policy).</li>
+                        <li>Delete <span class="font-semibold">all object versions and delete markers</span>.</li>
+                        <li>Abort any <span class="font-semibold">in-progress multipart uploads</span>.</li>
+                        <li>Click <span class="font-semibold">Check status</span> again. When everything is zero, the Delete button unlocks.</li>
+                        </ol>
+
+                        <p class="mt-2 text-xs text-slate-400">Note: We don't delete objects or versions on your behalf.</p>
+
+                        <!-- Recommended tools -->
+                        <div class="border border-slate-700 rounded p-3">
+                        <p class="text-slate-200 font-medium mb-2">Recommended tools</p>
+                        <ul class="list-disc list-inside space-y-1">
+                            <li><span class="font-semibold">GUI:</span> Cyberduck, Mountain Duck, S3 Browser (Windows), Transmit (macOS). Good for visual cleanup of versions and delete markers.</li>
+                            <li><span class="font-semibold">Command-line (faster for large buckets):</span> AWS Command Line Interface (awscli), <code>s5cmd</code>, <code>rclone</code>.</li>
+                        </ul>                        
+                        </div>
+
+                        <!-- Copy/paste: Amazon Web Services Command Line Interface -->
+                        <div class="border border-slate-700 rounded p-3">
+                        <p class="text-slate-200 font-medium mb-2">Amazon Web Services Command Line Interface quick commands</p>
+                        <div class="grid gap-2">
+                            
+
+                            <div class="bg-slate-900/60 rounded p-2 text-xs leading-5 overflow-x-auto">
+                            <div class="text-slate-400 mb-1">List versions &amp; delete markersaa:</div>
+                    <pre>aws s3api list-object-versions --bucket &lt;bucket&gt; --max-items 20
+                    </pre>
+                            </div>
+
+                            <div class="bg-slate-900/60 rounded p-2 text-xs leading-5 overflow-x-auto">
+                            <div class="text-slate-400 mb-1">Check Legal Hold / Retention on a specific version:</div>
+                    <pre>aws s3api get-object-legal-hold --bucket &lt;bucket&gt; --key &lt;key&gt; --version-id &lt;vid&gt;
+                    aws s3api get-object-retention --bucket &lt;bucket&gt; --key &lt;key&gt; --version-id &lt;vid&gt;
+                    </pre>
+                            </div>
+
+                            <div class="bg-slate-900/60 rounded p-2 text-xs leading-5 overflow-x-auto">
+                            <div class="text-slate-400 mb-1">Delete a specific version (once eligible):</div>
+                    <pre># Compliance mode: only after retain-until passes
+                    aws s3api delete-object --bucket &lt;bucket&gt; --key &lt;key&gt; --version-id &lt;vid&gt;
+
+                    # Governance mode (if your IAM user is allowed to bypass):
+                    aws s3api delete-object --bucket &lt;bucket&gt; --key &lt;key&gt; --version-id &lt;vid&gt; \
+                    --bypass-governance-retention
+                    </pre>
+                            </div>
+
+                            <div class="bg-slate-900/60 rounded p-2 text-xs leading-5 overflow-x-auto">
+                            <div class="text-slate-400 mb-1">Abort in-progress multipart uploads:</div>
+                    <pre>aws s3api list-multipart-uploads --bucket &lt;bucket&gt;
+                    aws s3api abort-multipart-upload --bucket &lt;bucket&gt; --key &lt;key&gt; --upload-id &lt;uploadId&gt;
+                    </pre>
+                        </div>
+                    </div>
+                        </div>
+
+                        <!-- Copy/paste: s5cmd (super fast for huge buckets) -->
+                        <div class="border border-slate-700 rounded p-3">
+                        <p class="text-slate-200 font-medium mb-2">s5cmd quick commands (very fast for bulk work)</p>
+                        <div class="bg-slate-900/60 rounded p-2 text-xs leading-5 overflow-x-auto">
+                    <pre># List all versions (JSON output to inspect)
+                    s5cmd --endpoint-url https://s3.your-endpoint.example ls --all-versions s3://&lt;bucket&gt;/**
+
+                    # Delete all delete markers under a prefix (dangerous: ensure you intend this)
+                    s5cmd --endpoint-url https://s3.your-endpoint.example rm --all-versions s3://&lt;bucket&gt;/path/**
+
+                    # Note: s5cmd cannot override Object Lock; versions must be eligible (no Legal Hold, retention met)
+                    </pre>
+                        </div>
+                        </div>
+
+                        <!-- Copy/paste: rclone (good balance of speed + features) -->
+                        <div class="border border-slate-700 rounded p-3">
+                        <p class="text-slate-2 00 font-medium mb-2">rclone quick commands</p>
+                        <div class="bg-slate-900/60 rounded p-2 text-xs leading-5 overflow-x-auto">
+                    <pre># Example remote called "ceph": configure with your endpoint and provider = Ceph
+                    rclone lsf ceph:&lt;bucket&gt; --format "p"             # list prefixes
+                    rclone lsf ceph:&lt;bucket&gt; --format "spt" --recursive # quick scan items
+                    # rclone respects Object Lock; protected versions will not be removed
+                    </pre>
+                        </div>
+                        </div>
+
+                        <!-- Troubleshooting tips -->
+                        <div class="border border-slate-700 rounded p-3">
+                        <p class="text-slate-200 font-medium mb-2">Common issues &amp; fixes</p>
+                        <ul class="list-disc list-inside space-y-1">
+                            <li><span class="font-semibold">"It says empty in my app, but delete still fails"</span>: check for <em>delete markers</em> and <em>non-current versions</em> with <code>list-object-versions</code>.</li>
+                            <li><span class="font-semibold">"Lifecycle rules should have cleared this"</span>: lifecycle is eventual. If versions still list, they are not gone yet.</li>
+                            <li><span class="font-semibold">"Access denied deleting a version"</span>: verify you own that version or have permission; remove Legal Hold and ensure retain-until passed (Compliance) or use governance bypass (Governance) with the correct identity.</li>
+                            <li><span class="font-semibold">"Still blocked"</span>: check <em>multipart uploads</em> and abort them.</li>
+                        </ul>
+                        </div>
+
+                    </div>
+                    </div>
+
+                    
                     <p class="mb-4">
                         <strong>Proceed with caution</strong><br />
                         You are about to delete the bucket: <strong id="bucketNameDisplay"></strong>.
-                    </p>
-                    <p class="mb-4">
-                        This action is irreversible and will result in the permanent data loss of the following:
-                    </p>
-                    <ul class="list-disc list-inside mb-4">
-                        <li>All objects, including any hidden or system objects.</li>
-                        <li>All versions of versioned objects, including any previous versions.</li>                        
-                        <li>Any incomplete multipart uploads.</li>
-                    </ul>
-                    <p class="mb-2">To destroy all data, type the bucket name:</p>
-                    <div>
+                    </p>                    
+
+                    <!-- Destructive confirmation input -->
+                    <div class="mb-2" id="typedPhraseWrapper" class="hidden">
+                        <div id="typedPhraseHint" class="text-sm text-slate-400 mb-2 hidden">
+                            Delete Phrase: <code id="typedPhraseExact" class="bg-slate-700 px-1 py-0.5 rounded"></code>
+                        </div>
+                        <label for="bucketNameConfirm" id="typedConfirmLabel" class="block text-sm mb-1">To confirm, type:</label>
                         <input type="hidden" name="bucket_id" id="bucketId">
                         <input type="hidden" name="bucket_name" id="deletingBucketName">
                         <input type="hidden" name="object_lock_enabled" id="objectLockEnabled">
@@ -436,27 +586,30 @@
                             type="text"
                             id="bucketNameConfirm"
                             class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md shadow-sm focus:border-red-500 px-4 py-2 focus:outline-none focus:ring-0"
-                            placeholder="Type bucket name here"
+                            placeholder="Type confirmation here"
                             required
                         >
                     </div>
                 </div>
-                <div class="flex justify-end space-x-2 mt-4">
-                    <button
-                        type="button"
-                        id="cancelDeleteButton"
-                        class="bg-gray-700 hover:bg-gray-600 text-gray-300 px-4 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
-                        onclick="closeModal('deleteBucketModal')"
-                    >
-                        Cancel
-                    </button>
-                    <button
-                        type="button"
-                        class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-                        id="confirmDeleteButton"
-                    >
-                        Delete Bucket
-                    </button>
+                <div class="flex flex-col sm:flex-row sm:justify-end sm:space-x-2 mt-4">
+                    <div id="deleteHelperText" class="text-xs text-amber-400 mb-2 sm:mb-0 hidden"></div>
+                    <div class="flex justify-end space-x-2">
+                        <button
+                            type="button"
+                            id="cancelDeleteButton"
+                            class="bg-gray-700 hover:bg-gray-600 text-gray-300 px-4 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+                            onclick="closeModal('deleteBucketModal')"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                            id="confirmDeleteButton"
+                        >
+                            Delete Bucket
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -590,6 +743,63 @@
             }
         });
 
+        // Live stats: fetch from Admin Ops aggregator (30s cache) and update cards
+        function formatBytesDynamic(bytes) {
+            var units = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB'];
+            var i = 0;
+            var b = parseInt(bytes || 0, 10);
+            while (b >= 1024 && i < units.length - 1) {
+                b = b / 1024;
+                i++;
+            }
+            return (Math.round(b * 100) / 100) + ' ' + units[i];
+        }
+
+        function refreshLiveBucketStats() {
+            // Collect bucket names present on the page
+            var names = [];
+            jQuery('.bucket-usage').each(function(){
+                var n = jQuery(this).attr('data-bucket-name');
+                if (n) names.push(n);
+            });
+            if (names.length === 0) return;
+
+            jQuery.ajax({
+                url: 'modules/addons/cloudstorage/api/livebucketstats.php',
+                method: 'POST',
+                data: { bucket_names: names },
+                dataType: 'json',
+                timeout: 8000,
+                success: function(resp) {
+                    if (!resp || resp.status !== 'success' || !resp.data) return; // fallback to DB
+                    var data = resp.data;
+                    // Update each bucket card if live data exists
+                    jQuery('.bucket-usage').each(function(){
+                        var el = jQuery(this);
+                        var n = el.attr('data-bucket-name');
+                        if (data[n]) {
+                            el.text(formatBytesDynamic(data[n].size_bytes || 0));
+                        }
+                    });
+                    jQuery('.bucket-objects').each(function(){
+                        var el = jQuery(this);
+                        var n = el.attr('data-bucket-name');
+                        if (data[n]) {
+                            el.text(data[n].num_objects || 0);
+                        }
+                    });
+                },
+                error: function() {
+                    // ignore, DB values remain
+                }
+            });
+        }
+
+        // Kick off live stats on page load
+        jQuery(document).ready(function(){
+            refreshLiveBucketStats();
+        });
+
         jQuery('#createBucketModal').on('hide.bs.modal', function () {
             hideMessage('bucketCreationMessage');
         });
@@ -693,13 +903,39 @@
                 // Update the delete confirmation message with the bucket name
                 jQuery('#bucketNameDisplay').text(bucketName);
 
+                // Reset mode chip and sections
+                jQuery('#objectLockModeChip').addClass('hidden').text('');
+                jQuery('#emptyCheckPanel').addClass('hidden');
+                jQuery('#guidanceSection').addClass('hidden');
+                jQuery('#blockersContainer').addClass('hidden');
+                jQuery('#blockersList').empty();
+                jQuery('#countObjects').text('0');
+                jQuery('#countVersions').text('0');
+                jQuery('#countDeleteMarkers').text('0');
+                jQuery('#countMultipart').text('0');
+                jQuery('#hasLegalHolds').text('No');
+                jQuery('#earliestRetainUntil').text('—');
+                jQuery('#typedPhraseWrapper').addClass('hidden');
+                jQuery('#typedPhraseHint').addClass('hidden');
+                jQuery('#typedPhraseExact').text('');
+                jQuery('#deleteHelperText').addClass('hidden').text('');
+
                 // Show/hide object lock warning and update modal title
                 if (objectLockEnabled) {
                     jQuery('#objectLockWarning').removeClass('hidden');
-                    jQuery('#deleteModalTitle').text('Warning: Delete Object-Locked Bucket');
+                    jQuery('#deleteModalTitle').text('Delete Bucket (Object Lock enabled)');
+                    jQuery('#emptyCheckPanel').removeClass('hidden');
+                    jQuery('#guidanceSection').removeClass('hidden');
+                    // Preload status immediately
+                    fetchObjectLockStatus(bucketName);
                 } else {
                     jQuery('#objectLockWarning').addClass('hidden');
                     jQuery('#deleteModalTitle').text('Warning: Permanent Bucket Deletion');
+                    // For non-OL buckets, also show empty check and guidance
+                    jQuery('#emptyCheckPanel').removeClass('hidden');
+                    jQuery('#guidanceSection').removeClass('hidden');
+                    // Load status to decide actions (delete vs empty)
+                    fetchObjectLockStatus(bucketName);
                 }
 
                 // Reset modal state and open the delete bucket modal
@@ -708,6 +944,17 @@
                 jQuery('#cancelDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
                 hideMessage('deleteBucketMessage');
                 openModal('deleteBucketModal');
+            });
+
+            // Guidance accordion toggle
+            jQuery(document).on('click', '#guidanceToggleBtn', function(){
+                jQuery('#guidanceContent').toggleClass('hidden');
+            });
+
+            // Check status click handler
+            jQuery('#checkStatusButton').off('click').on('click', function(){
+                var bucketName = jQuery('#deletingBucketName').val();
+                fetchObjectLockStatus(bucketName, true);
             });
         });
 
@@ -756,6 +1003,10 @@
                     jQuery('#cancelDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
                     jQuery('#objectLockWarning').addClass('hidden');
                     jQuery('#deleteModalTitle').text('Warning: Permanent Bucket Deletion');
+                    jQuery('#objectLockModeChip').addClass('hidden').text('');
+                    jQuery('#emptyCheckPanel').addClass('hidden');
+                    jQuery('#guidanceSection').addClass('hidden');
+                    jQuery('#blockersContainer').addClass('hidden');
                     hideMessage('deleteBucketMessage');
                 }
             }
@@ -892,6 +1143,239 @@
 
         function hideMessage(containerId) {
             jQuery('#' + containerId).addClass('hidden');
+        }
+
+        // Fetch object lock status and update UI
+        function fetchObjectLockStatus(bucketName, manual = false) {
+            // disable delete until checks complete
+            jQuery('#confirmDeleteButton').prop('disabled', true).addClass('opacity-50 cursor-not-allowed');
+            jQuery.ajax({
+                url: 'modules/addons/cloudstorage/api/objectlockstatus.php',
+                method: 'POST',
+                data: { bucket_name: bucketName },
+                dataType: 'json',
+                success: function(resp) {
+                    if (resp.status !== 'success') {
+                        if (manual) {
+                            showModalMessage(resp.message || 'Status check failed.', 'deleteBucketMessage', 'error');
+                        }
+                        return;
+                    }
+
+                    const d = resp.data || {};
+                    const counts = d.counts || {};
+                    jQuery('#countObjects').text(counts.current_objects || 0);
+                    jQuery('#countVersions').text(counts.versions || 0);
+                    jQuery('#countDeleteMarkers').text(counts.delete_markers || 0);
+                    jQuery('#countMultipart').text(counts.multipart_uploads || 0);
+                    jQuery('#hasLegalHolds').text((counts.legal_holds || 0) > 0 ? 'Yes' : 'No');
+                    jQuery('#earliestRetainUntil').text(d.earliest_retain_until || '—');
+
+                    // Mode chip
+                    const mode = (d.object_lock && d.object_lock.default_mode) ? d.object_lock.default_mode : null;
+                    if (mode) {
+                        jQuery('#objectLockModeChip').removeClass('hidden').text(mode === 'COMPLIANCE' ? 'Compliance mode' : 'Governance mode');
+                    } else {
+                        jQuery('#objectLockModeChip').addClass('hidden').text('');
+                    }
+
+                    // Build blockers
+                    const blockers = [];
+                    if ((counts.legal_holds || 0) > 0) {
+                        const ex = (d.examples && d.examples.legal_holds) ? d.examples.legal_holds.slice(0,3) : [];
+                        blockers.push(counts.legal_holds + ' versions under Legal Hold — remove legal holds before you can delete those versions.' + exampleSuffix(ex));
+                    }
+                    if ((counts.compliance_retained || 0) > 0) {
+                        const when = d.earliest_retain_until ? d.earliest_retain_until : 'future date';
+                        const ex = (d.examples && d.examples.compliance) ? d.examples.compliance.slice(0,3) : [];
+                        blockers.push(counts.compliance_retained + ' versions in Compliance retention — deletion allowed after ' + when + '.' + exampleSuffix(ex, true));
+                    }
+                    if ((counts.governance_retained || 0) > 0) {
+                        const ex = (d.examples && d.examples.governance) ? d.examples.governance.slice(0,3) : [];
+                        blockers.push(counts.governance_retained + ' versions in Governance retention — delete after retain-until or use your own governance-bypass tools.' + exampleSuffix(ex, true));
+                    }
+                    if ((counts.multipart_uploads || 0) > 0) {
+                        const ex = (d.examples && d.examples.multipart) ? d.examples.multipart.slice(0,3) : [];
+                        blockers.push(counts.multipart_uploads + ' multipart upload in progress — abort the upload, then try again.' + exampleSuffix(ex));
+                    }
+                    if ((counts.versions || 0) > 0 && (counts.versions - (counts.compliance_retained||0) - (counts.governance_retained||0) - (counts.legal_holds||0)) > 0) {
+                        blockers.push('There are object versions remaining — delete all versions.');
+                    }
+                    if ((counts.delete_markers || 0) > 0) {
+                        blockers.push('Delete markers present — remove all delete markers.');
+                    }
+                    if ((counts.current_objects || 0) > 0) {
+                        blockers.push('Current objects present — delete all objects.');
+                    }
+
+                    function exampleSuffix(examples, showDate) {
+                        if (!examples || examples.length === 0) return '';
+                        const parts = examples.map(function(e){
+                            let s = e.Key;
+                            if (showDate && e.RetainUntil) {
+                                s += ' (until ' + new Date(e.RetainUntil * 1000).toUTCString().replace(':00 GMT',' GMT') + ')';
+                            }
+                            return s;
+                        });
+                        return ' Examples: ' + parts.join(', ') + '.';
+                    }
+
+                    if (blockers.length > 0) {
+                        jQuery('#blockersList').empty();
+                        blockers.forEach(function(b){
+                            jQuery('#blockersList').append('<li>' + b + '</li>');
+                        });
+                        jQuery('#blockersContainer').removeClass('hidden');
+                    } else {
+                        jQuery('#blockersContainer').addClass('hidden');
+                    }
+
+                    // Enable/disable delete and configure confirmation phrase
+                    if (d.empty === true) {
+                        // Enable delete and require typed phrase
+                        jQuery('#confirmDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
+                        const phrase = 'DELETE BUCKET ' + bucketName;
+                        jQuery('#typedConfirmLabel').text('Type the phrase to confirm:');
+                        jQuery('#typedPhraseWrapper').removeClass('hidden');
+                        jQuery('#typedPhraseExact').text(phrase);
+                        jQuery('#typedPhraseHint').removeClass('hidden');
+                        // Hide helper text when delete is enabled
+                        jQuery('#deleteHelperText').addClass('hidden').text('');
+
+                        // Validate input must match phrase exactly when deleting empty OL bucket
+                        jQuery('#confirmDeleteButton').off('click').on('click', function(){
+                            const input = jQuery('#bucketNameConfirm').val();
+                            if (input !== phrase) {
+                                showModalMessage('Confirmation text does not match. Paste: "' + phrase + '"', 'deleteBucketMessage', 'error');
+                                return;
+                            }
+                            // Disable buttons
+                            jQuery('#confirmDeleteButton').prop('disabled', true).addClass('opacity-50 cursor-not-allowed');
+                            jQuery('#cancelDeleteButton').prop('disabled', true).addClass('opacity-50 cursor-not-allowed');
+
+                            // Directly call delete API
+                            jQuery.ajax({
+                                url: 'modules/addons/cloudstorage/api/deletebucket.php',
+                                method: 'POST',
+                                data: { 'bucket_name': bucketName },
+                                dataType: 'json',
+                                success: function(response) {
+                                    jQuery('#bucketNameConfirm').val('');
+
+                                    // Re-enable buttons
+                                    jQuery('#confirmDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
+                                    jQuery('#cancelDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
+
+                                    if (response.status == 'fail') {
+                                        showModalMessage(response.message, 'deleteBucketMessage', 'error');
+                                        return;
+                                    }
+
+                                    // Show success message in global container
+                                    showGlobalMessage(response.message, 'success');
+
+                                    // Remove the bucket row from the display
+                                    jQuery('#bucketRow' + jQuery('#bucketId').val()).remove();
+
+                                    // Close modal immediately on success
+                                    closeModal('deleteBucketModal');
+                                },
+                                error: function(xhr, status, error) {
+                                    showModalMessage(error, 'deleteBucketMessage', 'error');
+
+                                    // Re-enable buttons
+                                    jQuery('#confirmDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
+                                    jQuery('#cancelDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
+                                }
+                            });
+                        });
+                    } else {
+                        // Disabled delete with reason; offer Empty Bucket for non-OL buckets
+                        jQuery('#confirmDeleteButton').prop('disabled', true).addClass('opacity-50 cursor-not-allowed');
+                        jQuery('#deleteHelperText').removeClass('hidden').text('Disabled — bucket is not empty.');
+                        jQuery('#typedPhraseWrapper').addClass('hidden');
+                        jQuery('#typedPhraseHint').addClass('hidden');
+                        jQuery('#typedPhraseExact').text('');
+                        // Add or show Empty bucket button
+                        if (jQuery('#emptyBucketButton').length === 0) {
+                            jQuery('<button type="button" id="emptyBucketButton" class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-amber-500 ml-2">Empty bucket</button>')
+                                .insertBefore('#confirmDeleteButton')
+                                .on('click', function(){ showEmptyBucketConfirm(bucketName); });
+                        } else {
+                            jQuery('#emptyBucketButton').off('click').on('click', function(){ showEmptyBucketConfirm(bucketName); }).removeClass('hidden');
+                        }
+                    }
+                },
+                error: function(xhr, status, error) {
+                    showModalMessage(error || 'Status check failed.', 'deleteBucketMessage', 'error');
+                }
+            });
+        }
+
+        // High-risk confirmation and queue for emptying a non-OL bucket
+        function showEmptyBucketConfirm(bucketName) {
+            // Remove any existing confirmation block first
+            jQuery('#emptyBucketConfirm').remove();
+            var block = ''
+              + '<div id="emptyBucketConfirm" class="mt-3 border border-red-700 bg-red-900/40 text-red-200 rounded p-3">'
+              +   '<div class="font-semibold mb-2">This will permanently delete all objects, all versions, and all delete markers in this bucket. If versioning is enabled, past versions will be destroyed. Deletions may propagate to any replication targets. This action cannot be undone.</div>'
+              +   '<div class="mb-2">'
+              +     '<label class="inline-flex items-center"><input type="checkbox" id="ackDeleteAll" class="mr-2"> I understand this deletes every object and version in this bucket.</label>'
+              +   '</div>'
+              +   '<div class="mb-2 text-sm">Type the phrase to confirm:</div>'
+              +   '<div class="mb-2"><code class="bg-slate-800 px-1 py-0.5 rounded">EMPTY BUCKET ' + bucketName + '</code></div>'
+              +   '<input type="text" id="emptyConfirmInput" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md shadow-sm px-3 py-2 mb-2" placeholder="Type confirmation here">'
+              +   '<div class="flex justify-end space-x-2">'
+              +     '<button type="button" id="emptyBucketCancel" class="bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 py-1 rounded-md">Cancel</button>'
+              +     '<button type="button" id="emptyBucketConfirmBtn" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded-md">Confirm empty</button>'
+              +   '</div>'
+              + '</div>';
+            // Append to modal content container
+            jQuery('#deleteBucketModal .bg-gray-800.rounded-lg').append(block);
+
+            jQuery('#emptyBucketCancel').off('click').on('click', function(){ jQuery('#emptyBucketConfirm').remove(); });
+            jQuery('#emptyBucketConfirmBtn').off('click').on('click', function(e){
+                e.preventDefault();
+                var phrase = 'EMPTY BUCKET ' + bucketName;
+                var typed = jQuery('#emptyConfirmInput').val();
+                var ack = jQuery('#ackDeleteAll').is(':checked');
+                if (!ack) { showModalMessage('Please acknowledge the deletion.', 'deleteBucketMessage', 'error'); return; }
+                if (typed !== phrase) { showModalMessage('Confirmation text does not match. Paste: "' + phrase + '"', 'deleteBucketMessage', 'error'); return; }
+                jQuery.ajax({
+                    url: 'modules/addons/cloudstorage/api/emptybucket.php',
+                    method: 'POST',
+                    data: { bucket_name: bucketName },
+                    dataType: 'json',
+                    success: function(resp) {
+                        if (resp.status !== 'success') {
+                            showModalMessage(resp.message || 'Unable to queue empty job.', 'deleteBucketMessage', 'error');
+                            return;
+                        }
+                        var msg = resp.message || ('Empty job queued. We\'ve started clearing ' + bucketName + ' in the background.');
+                        showGlobalMessage(msg, 'success');
+                        // Added badge to bucket card indicating emptying in progress
+                        var bucketId = jQuery('#bucketId').val();
+                        var badge = '<span class="ml-2 inline-flex items-center bg-amber-600 text-amber-100 text-xs font-medium px-2 py-0.5 rounded-full" id="emptyingBadge'+bucketId+'">Emptying…</span>';
+                        if (bucketId) {
+                            var ownerEl = jQuery('#bucketRow' + bucketId + ' .bucket-owner');
+                            if (ownerEl.length) {
+                                if (jQuery('#emptyingBadge' + bucketId).length === 0) {
+                                    ownerEl.after(badge);
+                                }
+                            }
+                        }
+                        jQuery('#emptyBucketConfirm').remove();
+                        jQuery('#emptyBucketButton').addClass('hidden');
+                        // Closing modal so toast is visible
+                        closeModal('deleteBucketModal');
+                        // Ensure toast is visible by scrolling to top
+                        try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (e) { window.scrollTo(0,0); }
+                    },
+                    error: function(xhr, status, error) {
+                        showModalMessage(error || 'Unable to queue empty job.', 'deleteBucketMessage', 'error');
+                    }
+                });
+            });
         }
 
         // Test function for console (available globally)

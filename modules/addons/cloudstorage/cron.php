@@ -8,8 +8,14 @@ if (!defined("WHMCS")) {
 use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Client\BucketController;
 
-// Initialize the bucket controller
-$bucketController = new BucketController();
+// Initialize the bucket controller with configured region if available
+$settings = Capsule::table('tbladdonmodules')
+    ->where('module', 'cloudstorage')
+    ->pluck('value', 'setting');
+
+$region = isset($settings['s3_region']) && $settings['s3_region'] ? $settings['s3_region'] : 'us-east-1';
+
+$bucketController = new BucketController(null, null, null, null, $region);
 
 try {
     // Update historical stats for all users

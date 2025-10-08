@@ -33,6 +33,7 @@
     $cephAdminAccessKey = $module->where('setting', 'ceph_access_key')->pluck('value')->first();
     $cephAdminSecretKey = $module->where('setting', 'ceph_secret_key')->pluck('value')->first();
     $encryptionKey = $module->where('setting', 'encryption_key')->pluck('value')->first();
+    $s3Region = $module->where('setting', 's3_region')->pluck('value')->first() ?: 'us-east-1';
 
     $message = '';
     $error = 0;
@@ -90,7 +91,7 @@
         $user = $tenant;
     }
 
-    $bucketObject = new BucketController($s3Endpoint, $cephAdminUser, $cephAdminAccessKey, $cephAdminSecretKey);
+    $bucketObject = new BucketController($s3Endpoint, $cephAdminUser, $cephAdminAccessKey, $cephAdminSecretKey, $s3Region);
     $s3Connection = $bucketObject->connectS3Client($userId, $encryptionKey);
     if ($s3Connection['status'] == 'fail') {
         $_SESSION['message'] = $s3Connection['message'];
