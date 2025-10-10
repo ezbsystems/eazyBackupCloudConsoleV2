@@ -1,6 +1,7 @@
 <script src="https://unpkg.com/@popperjs/core@2"></script>
 <script src="https://unpkg.com/tippy.js@6"></script>
 <script src="{$WEB_ROOT}/assets/js/tooltips.js"></script>
+<script src="{$WEB_ROOT}/modules/addons/eazybackup/templates/assets/js/ui.js"></script>
 
 <div class="min-h-screen bg-slate-800 text-gray-300">
   <div class="container mx-auto px-4 pb-8">
@@ -154,7 +155,7 @@
     <!-- Content Container -->
     <div class="mx-8 space-y-12">
       <div
-        class="min-h-[calc(100vh-14rem)] h-full p-6 xl:p-12 bg-[#11182759] rounded-lg border border-slate-700 shadow-lg max-w-6xl">
+        class="min-h-[calc(100vh-14rem)] h-full p-6 xl:p-12 bg-[#11182759] rounded-lg border border-slate-700 shadow-lg max-w-6xl" data-eb-loader-host="1">
         <div class="flex flex-col lg:flex-row gap-8" x-data="{
                 loading: false,
                 open: false,
@@ -241,6 +242,82 @@
                 syncEmailsHidden() { const h = document.getElementById('reportemail'); if (h) { h.value = this.emails.join(', '); } },
                 handleEmailBlur() { const added = this.addEmailsFromString(this.emailEntry); if (added>0) { this.emailEntry=''; } },
                 // (Stripe capture removed; use native Add Card page)
+                submitWithLoader(ev) {
+                  try {
+                    var host = (ev && ev.target) ? ev.target.closest('[data-eb-loader-host]') : null;
+                    if (!host) host = document.body;
+                    if (window.ebShowLoader) ebShowLoader(host, 'Placing your order...');
+                  } catch(_) { }
+                },
+                // Consolidated billing (hydrate from backend)
+                cb: {
+                  enabled: {if $cbPref.enabled}true{else}false{/if},
+                  dom: {if $cbPref.dom}{$cbPref.dom|escape:'html'}{else}1{/if},
+                  tz: '{$cbPref.timezone|escape:'html'}',
+                  locked: {if $cbPref.locked}true{else}false{/if},
+                  today: '{$cbPref.today|escape:'html'}',
+                  summary: '',
+                  nfree: 0,
+                },
+                domOpen: false,
+                domError: '',
+                // Date helpers (Toronto assumed)
+                clampDay(y,m,d){
+                  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+                  if (d < 1) d = 1; if (d > last) d = last; return d;
+                },
+                computeNextDue(){
+                  if (!this.cb.enabled) { this.cb.summary=''; this.cb.nfree=0; return; }
+                  const now = new Date();
+                  const y = now.getFullYear();
+                  const m = now.getMonth()+1; // 1..12
+                  const d = now.getDate();
+                  let dom = parseInt(this.cb.dom||0,10);
+                  if (!(dom>=1 && dom<=31)) { this.domError = 'Enter a day between 1 and 31'; return; } else { this.domError=''; }
+                  let ty=y, tm=m;
+                  // Cap initial free period to max one month by using monthly logic for both terms.
+                  if (d>dom) { // next month
+                    const dt = new Date(y, m, 1);
+                    dt.setMonth(dt.getMonth());
+                    ty = dt.getFullYear(); tm = dt.getMonth()+1;
+                    dom = this.clampDay(ty, tm, dom);
+                  } else {
+                    dom = this.clampDay(ty, tm, dom);
+                  }
+                  const cand = new Date(ty, tm-1, dom);
+                  const yyyy = cand.getFullYear();
+                  const mm = String(cand.getMonth()+1).padStart(2,'0');
+                  const dd = String(cand.getDate()).padStart(2,'0');
+                  const candStr = yyyy + '-' + mm + '-' + dd;
+                  const base = new Date(y, m-1, d);
+                  const msPerDay = 24*60*60*1000;
+                  const ndays = Math.max(0, Math.floor((cand - base)/msPerDay));
+                  this.cb.nfree = ndays;
+                  const termLabel = (this.billingTerm==='annual') ? 'Next due (annual)' : 'Next due';
+                  this.cb.summary = this.cb.today + ' • Promo — ' + ndays + ' days free • ' + termLabel + ': ' + candStr;
+                },
+                syncHidden(){
+                  const a = document.getElementById('cb_enabled');
+                  const b = document.getElementById('cb_dom');
+                  if (a) a.value = this.cb.enabled ? '1' : '0';
+                  if (b) b.value = String(this.cb.dom||'');
+                },
+                init(){
+                  this.updateProductType();
+                  this.$watch('selectedProduct', () => this.updateProductType());
+                  {if !empty($POST.reportemail)} this.addEmailsFromString('{$POST.reportemail|escape:'html'}'); {/if}
+                  {if !$isResellerClient}
+                  if ([60,57,54].includes(parseInt(this.selectedProduct||0,10))) {
+                    this.selectedProduct = '';
+                    this.selectedName='Choose a Service'; this.selectedDesc=''; this.selectedIcon=''; this.productType='';
+                  }
+                  {/if}
+                  this.computeNextDue();
+                  this.$watch('billingTerm', () => { this.computeNextDue(); });
+                  this.$watch('cb.enabled', () => { this.computeNextDue(); this.syncHidden(); });
+                  this.$watch('cb.dom', () => { this.computeNextDue(); this.syncHidden(); });
+                  this.syncHidden();
+                },
               }">
           <div class="w-full lg:w-1/2 col-form">
             <!-- Loader -->
@@ -264,7 +341,7 @@
                 }
               </style>
 
-              <form id="createorder" method="post" action="{$modulelink}&a=createorder" class="space-y-4 xl:space-y-8">
+              <form id="createorder" method="post" action="{$modulelink}&a=createorder" class="space-y-4 xl:space-y-8" @submit="loading=true; submitWithLoader($event)">
                 <!-- Product Selection -->
                 <div class="{if !empty($errors['product'])}border-red-500{/if}">
                   <label for="product" class="block text-sm font-medium text-gray-300 mb-1">
@@ -447,6 +524,57 @@
 
 
 
+
+                <!-- Consolidated Billing (Future Orders Only) -->
+                <div class="mb-8">
+                  <div class="flex items-start">
+                    <label class="w-1/4 text-sm font-medium text-gray-300">Consolidated billing</label>
+                    <div class="w-3/4 space-y-3">
+                      <!-- Toggle switch -->
+                      <div class="flex items-center gap-3">
+                        <button type="button"
+                          :aria-pressed="cb.enabled ? 'true' : 'false'"
+                          role="switch"
+                          :aria-checked="cb.enabled ? 'true' : 'false'"
+                          @click="if(!cb.locked){ cb.enabled = !cb.enabled }"
+                          :class="cb.locked ? 'opacity-50 cursor-not-allowed' : ''"
+                          class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-sky-500/50"
+                          :style="cb.enabled ? 'background-color: rgb(2 132 199 / 1)' : 'background-color: rgb(30 41 59 / 1)'"></button>
+                        <span class="text-sm text-gray-300" x-text="cb.locked ? 'Enabled' : 'Consolidate billing for future orders.'"></span>
+                        <input type="hidden" id="cb_enabled" name="cb_enabled" value="0">
+                      </div>
+
+                      <!-- Day picker (1–31) -->
+                      <div class="relative" x-show="cb.enabled" x-cloak>
+                        <div class="flex items-center gap-3">
+                          <span class="text-sm text-gray-300">Day of month</span>
+                          <button type="button" @click="!cb.locked && (domOpen=!domOpen)" :disabled="cb.locked"
+                            class="px-3 py-2 border border-slate-700 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600"
+                            :class="cb.locked ? 'opacity-50 cursor-not-allowed' : ''"
+                            x-text="cb.dom"></button>
+                          <input type="hidden" id="cb_dom" name="cb_dom" :value="cb.dom">
+                        </div>
+                        <div x-show="domOpen" @click.away="domOpen=false" x-cloak
+                          class="absolute z-10 mt-1 bg-[#151f2e] border border-sky-600 rounded shadow-lg max-h-48 overflow-auto w-40">
+                          <template x-for="n in 31" :key="n">
+                            <div @click="cb.dom=n; domOpen=false"
+                              class="px-3 py-1 cursor-pointer hover:bg-slate-700/50 text-gray-300"
+                              x-text="n"></div>
+                          </template>
+                        </div>
+                        <template x-if="domError">
+                          <p class="text-red-500 text-xs mt-1" x-text="domError"></p>
+                        </template>
+                        <p x-show="cb.enabled && !cb.locked" x-cloak class="text-xs text-gray-400 mt-2">Applies only to new orders. Existing plans keep their current billing dates. To change past orders, contact Sales.</p>
+                      </div>
+
+                      <!-- Summary row -->
+                      <div x-show="cb.enabled" x-cloak class="text-sm text-gray-300 select-none">
+                        <span x-text="cb.summary"></span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
 
                 <!-- Username Field -->
                 <div class="mb-8 {if !empty($errors.username)}border-red-500{/if}">
@@ -694,13 +822,13 @@
                 </div>
 
                 <!-- Billing start date (static) -->
-                <div class="mb-8">
+                <div class="mb-8" :class="cb.enabled ? 'opacity-50 pointer-events-none select-none' : ''">
                   <div class="flex items-center">
                     <label class="w-1/4 text-sm font-medium text-gray-300">
                       Billing start date
                     </label>
                     <div class="w-3/4">
-                      <template x-if="isResellerClient">
+                      <template x-if="isResellerClient && !cb.enabled">
                         <div>
                           <div class="text-xs text-gray-500 line-through" x-text="new Date().toISOString().slice(0,10)"></div>
                           <div class="mt-1 px-3 py-2 border border-slate-700 text-gray-300 bg-[#11182759] rounded select-none">
@@ -709,10 +837,17 @@
                           <p class="text-xs text-gray-400 mt-1">Reseller Promo Applied — 30 days free</p>
                         </div>
                       </template>
-                      <template x-if="!isResellerClient">
+                      <template x-if="!isResellerClient && !cb.enabled">
                         <div>
                           <div class="mt-1 px-3 py-2 border border-slate-700 text-gray-300 bg-[#11182759] rounded select-none">
                             <span x-text="new Date().toISOString().slice(0,10)"></span>
+                          </div>
+                        </div>
+                      </template>
+                      <template x-if="cb.enabled">
+                        <div>
+                          <div class="mt-1 px-3 py-2 border border-slate-700 text-gray-300 bg-[#11182759] rounded select-none">
+                            <span></span>
                           </div>
                         </div>
                       </template>

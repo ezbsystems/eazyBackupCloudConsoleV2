@@ -522,6 +522,22 @@
               </div>
               <!-- END: Quota Controls -->
             </div>
+
+            <!-- Storage usage (daily maxima) -->
+            <div id="eb-storage-card" class="mt-6 rounded-xl border border-slate-700 bg-slate-800/60">
+              <div class="px-4 py-3 border-b border-slate-700 flex items-center justify-between">
+                <h3 class="text-sm font-semibold text-slate-200">Storage usage</h3>
+                <div class="text-xs text-slate-400">Daily max, last 180 days</div>
+              </div>
+              <div class="px-4 py-3">
+                <div class="flex items-center gap-3 mb-2 text-xs">
+                  <span class="inline-flex items-center gap-1 text-slate-300"><span class="inline-block w-3 h-1.5 bg-blue-500"></span>Total</span>
+                  <span class="inline-flex items-center gap-1 text-slate-300"><span class="inline-block w-3 h-1.5 bg-emerald-500"></span>S3-compatible</span>
+                  <span class="inline-flex items-center gap-1 text-slate-300"><span class="inline-block w-3 h-1.5 bg-sky-500"></span>eazyBackup</span>
+                </div>
+                <div id="eb-storage-chart" style="width: 100%; height: 160px;"></div>
+              </div>
+            </div>
           </div>
 
           <div class="space-y-6">
@@ -1537,6 +1553,19 @@ function quotaCtrl(){
 </script>
 <script src="modules/addons/eazybackup/assets/js/eazybackup-ui-helpers.js" defer></script>
 <script src="modules/addons/eazybackup/assets/js/job-reports.js" defer></script>
+<script>
+  try { window.EB_MODULE_LINK = '{$modulelink}'; } catch(e) {}
+  try {
+    var elCard = document.getElementById('eb-storage-card');
+    if (elCard) { elCard.setAttribute('data-username', '{$username}'); }
+  } catch(e) {}
+  try {
+    var sc = document.createElement('script');
+    sc.src = 'modules/addons/eazybackup/assets/js/storage-history.js';
+    sc.defer = true;
+    document.currentScript?.parentNode?.insertBefore(sc, document.currentScript.nextSibling);
+  } catch(e) {}
+</script>
 {include file="modules/addons/eazybackup/templates/console/partials/job-report-modal.tpl"}
 <script>
 try {

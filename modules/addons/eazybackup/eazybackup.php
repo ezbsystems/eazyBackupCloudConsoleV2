@@ -168,6 +168,11 @@ function eazybackup_activate()
         Capsule::statement("CREATE TABLE IF NOT EXISTS mod_eazybackup_dismissals (\n  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,\n  user_id INT UNSIGNED NULL,\n  client_id INT UNSIGNED NULL,\n  announcement_key VARCHAR(191) NOT NULL,\n  dismissed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,\n  UNIQUE KEY uniq_user_announcement (user_id, announcement_key),\n  UNIQUE KEY uniq_client_announcement (client_id, announcement_key),\n  KEY idx_announcement_key (announcement_key)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
         } catch (\Throwable $e) { /* ignore */ }
 
+        // Consolidated billing preference table (client-scoped)
+        try {
+        Capsule::statement("CREATE TABLE IF NOT EXISTS mod_eazy_consolidated_billing (\n  clientid INT UNSIGNED NOT NULL PRIMARY KEY,\n  enabled TINYINT(1) NOT NULL DEFAULT 0,\n  dom TINYINT UNSIGNED NOT NULL DEFAULT 1,\n  timezone VARCHAR(64) NOT NULL DEFAULT 'America/Toronto',\n  effective_from DATE NULL,\n  created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,\n  updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,\n  KEY idx_enabled (enabled)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        } catch (\Throwable $e) { /* ignore */ }
+
         // Keep your original create logic for brand-new installs…
         eazybackup_migrate_schema(); // …and make sure existing installs get patched too.
         return ['status' => 'success'];
@@ -401,10 +406,82 @@ function eazybackup_migrate_schema(): void {
         });
     }
     // Used by rollup_items_daily.php as per README. :contentReference[oaicite:8]{index=8}
+
+    // ---------- eb_storage_daily (hourly rollup of per-user vault usage) ----------
+    if (!$schema->hasTable('eb_storage_daily')) {
+        $schema->create('eb_storage_daily', function (Blueprint $t) {
+            $t->date('d');
+            $t->integer('client_id')->default(0);
+            $t->string('username', 255);
+            $t->unsignedBigInteger('bytes_total')->default(0);
+            $t->unsignedBigInteger('bytes_t1000')->default(0);
+            $t->unsignedBigInteger('bytes_t1003')->default(0);
+            $t->timestamp('updated_at')->useCurrent()->useCurrentOnUpdate();
+            $t->primary(['d','client_id','username']);
+            $t->index('client_id', 'idx_client');
+            $t->index('username', 'idx_username');
+            $t->index('d', 'idx_date');
+        });
+    }
+
+    // --- mod_eazy_consolidated_billing ---
+    if (!$schema->hasTable('mod_eazy_consolidated_billing')) {
+        $schema->create('mod_eazy_consolidated_billing', function (Blueprint $t) {
+            $t->integer('clientid')->unsigned();
+            $t->tinyInteger('enabled')->default(0);
+            $t->tinyInteger('dom')->unsigned()->default(1);
+            $t->string('timezone', 64)->default('America/Toronto');
+            $t->date('effective_from')->nullable();
+            $t->timestamp('created_at')->nullable()->useCurrent();
+            $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
+            $t->primary('clientid');
+            $t->index('enabled', 'idx_enabled');
+        });
+    } else {
+        eb_add_column_if_missing('mod_eazy_consolidated_billing','enabled',       fn(Blueprint $t)=>$t->tinyInteger('enabled')->default(0));
+        eb_add_column_if_missing('mod_eazy_consolidated_billing','dom',           fn(Blueprint $t)=>$t->tinyInteger('dom')->unsigned()->default(1));
+        eb_add_column_if_missing('mod_eazy_consolidated_billing','timezone',      fn(Blueprint $t)=>$t->string('timezone',64)->default('America/Toronto'));
+        eb_add_column_if_missing('mod_eazy_consolidated_billing','effective_from',fn(Blueprint $t)=>$t->date('effective_from')->nullable());
+        eb_add_column_if_missing('mod_eazy_consolidated_billing','created_at',    fn(Blueprint $t)=>$t->timestamp('created_at')->nullable()->useCurrent());
+        eb_add_column_if_missing('mod_eazy_consolidated_billing','updated_at',    fn(Blueprint $t)=>$t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate());
+        eb_add_index_if_missing('mod_eazy_consolidated_billing', "CREATE INDEX IF NOT EXISTS idx_enabled ON mod_eazy_consolidated_billing (enabled)");
+    }
 }
 
 // Ensure schema upgrades are applied on runtime paths as well
 function eazybackup_ensure_permissions_schema() { /* removed */ }
+
+/**
+ * Clamp a desired day-of-month to that month’s last day in a timezone-safe way.
+ */
+function eb_clamp_day(int $year, int $month, int $dom): int {
+    $last = (int) Carbon::create($year, $month, 1)->endOfMonth()->day;
+    if ($dom < 1) { $dom = 1; }
+    if ($dom > $last) { $dom = $last; }
+    return $dom;
+}
+
+/**
+ * Compute consolidated next due date per rules.
+ * $cycle: 'monthly' | 'annual'
+ */
+function eb_computeConsolidatedDueDate(Carbon $baseLocal, int $dom, string $cycle, string $tz): Carbon {
+    $y = (int)$baseLocal->year;
+    $m = (int)$baseLocal->month;
+    $d = (int)$baseLocal->day;
+    $targetDay = eb_clamp_day($y, $m, $dom);
+    $candidate = Carbon::create($y, $m, $targetDay, 12, 0, 0, $tz)->startOfDay();
+
+    // Initial next due date should never exceed one month in the future for either cycle.
+    // Use monthly logic for both monthly and annual on creation.
+    if ($d > $dom) {
+        $next = $baseLocal->copy()->addMonthNoOverflow();
+        $y2 = (int)$next->year; $m2 = (int)$next->month;
+        $targetDay = eb_clamp_day($y2, $m2, $dom);
+        return Carbon::create($y2, $m2, $targetDay, 12, 0, 0, $tz)->startOfDay();
+    }
+    return $candidate;
+}
 
 /**
  * Retrieve custom fields for a specific product.
@@ -860,6 +937,11 @@ function eazybackup_clientarea(array $vars)
         // Snooze incidents
         require_once __DIR__ . "/pages/console/pulse.php";
         eb_pulse_snooze();
+        exit;
+    } else if ($_REQUEST["a"] == "storage-history") {
+        // JSON: per-user storage history (daily maxima)
+        require_once __DIR__ . "/pages/console/storage_history.php";
+        eb_storage_history();
         exit;
     } else if ($_REQUEST["a"] == "dashboard") {
         // Load the dashboard backend logic.
@@ -3333,6 +3415,33 @@ function eazybackup_createorder($vars)
                 }
                 logActivity("eazybackup: Client ID => " . $clientid);
 
+                // Persist consolidated billing preference once (immutable for client)
+                try {
+                    $cbEnabled = isset($_POST['cb_enabled']) && (string)$_POST['cb_enabled'] === '1';
+                    $cbDomRaw  = isset($_POST['cb_dom']) ? (int)$_POST['cb_dom'] : 0;
+                    if ($cbEnabled && $cbDomRaw >= 1 && $cbDomRaw <= 31) {
+                        $exists = Capsule::table('mod_eazy_consolidated_billing')
+                            ->where('clientid', (int)$clientid)
+                            ->where('enabled', 1)
+                            ->exists();
+                        if (!$exists) {
+                            $tz = 'America/Toronto';
+                            Capsule::table('mod_eazy_consolidated_billing')->updateOrInsert(
+                                ['clientid' => (int)$clientid],
+                                [
+                                    'enabled'        => 1,
+                                    'dom'            => (int)$cbDomRaw,
+                                    'timezone'       => $tz,
+                                    'effective_from' => Carbon::now($tz)->toDateString(),
+                                    'updated_at'     => Carbon::now()->toDateTimeString(),
+                                ]
+                            );
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    logActivity('eazybackup: consolidated billing persist failed: ' . $e->getMessage());
+                }
+
                 // --- Begin Order Creation ---
                 $orderData = [
                     "clientid" => $clientid,
@@ -3377,19 +3486,38 @@ function eazybackup_createorder($vars)
                     // handled below by universal billing settings
                 }
                 
-                // ----- Universal billing start date and cycle (30 days free) -----
+                // ----- Billing start date and cycle (respect consolidated billing if enabled) -----
                 $billingTerm = (($_POST['billingterm'] ?? 'monthly') === 'annual') ? 'annual' : 'monthly';
-                    $billingCycle = $billingTerm === 'annual' ? 'Annually' : 'Monthly';
-                $nextDate = date('Y-m-d', strtotime('+30 days'));
-                    $updateData = [
-                        'serviceid'       => $service->id,
-                        'billingcycle'    => $billingCycle,
-                        'nextduedate'     => $nextDate,
-                        'nextinvoicedate' => $nextDate,
-                    ];
-                    logActivity("eazybackup: UpdateClientProduct => " . json_encode($updateData));
-                    $updateResult = localAPI('UpdateClientProduct', $updateData);
-                    logActivity("eazybackup: UpdateClientProduct Response => " . json_encode($updateResult));
+                $billingCycle = $billingTerm === 'annual' ? 'Annually' : 'Monthly';
+                $pref = null;
+                try {
+                    $pref = Capsule::table('mod_eazy_consolidated_billing')
+                        ->where('clientid', (int)$clientid)
+                        ->where('enabled', 1)
+                        ->first();
+                } catch (\Throwable $e) { $pref = null; }
+
+                $tz = is_string($pref->timezone ?? '') && $pref->timezone !== '' ? (string)$pref->timezone : 'America/Toronto';
+                $updateData = [
+                    'serviceid'    => $service->id,
+                    'billingcycle' => $billingCycle,
+                ];
+                if ($pref) {
+                    $base = Carbon::now($tz)->startOfDay();
+                    $dom  = (int)$pref->dom;
+                    $candidate = eb_computeConsolidatedDueDate($base, $dom, $billingTerm, $tz);
+                    $candidateStr = $candidate->toDateString();
+                    $updateData['nextduedate']     = $candidateStr;
+                    $updateData['nextinvoicedate'] = $candidateStr;
+                    $updateData['regdate']         = $base->toDateString();
+                } else {
+                    $nextDate = date('Y-m-d', strtotime('+30 days'));
+                    $updateData['nextduedate']     = $nextDate;
+                    $updateData['nextinvoicedate'] = $nextDate;
+                }
+                logActivity("eazybackup: UpdateClientProduct => " . json_encode($updateData));
+                $updateResult = localAPI('UpdateClientProduct', $updateData);
+                logActivity("eazybackup: UpdateClientProduct Response => " . json_encode($updateResult));
 
                 // --- End Order Creation ---
 
@@ -3854,6 +3982,43 @@ function eazybackup_createorder($vars)
             "units" => $units,
             "currency" => $currencyData,
             "isResellerClient" => $isResellerClient,
+            // Consolidated billing preference for UI hydration
+            "cbPref" => (function() use ($clientId) {
+                try {
+                    $pref = Capsule::table('mod_eazy_consolidated_billing')
+                        ->where('clientid', (int)$clientId)
+                        ->where('enabled', 1)
+                        ->first();
+                    $tz = 'America/Toronto';
+                    $today = Carbon::now($tz)->toDateString();
+                    if ($pref) {
+                        return [
+                            'enabled' => true,
+                            'dom'     => (int)$pref->dom,
+                            'timezone'=> (string)($pref->timezone ?? $tz),
+                            'locked'  => true,
+                            'today'   => $today,
+                        ];
+                    }
+                    $todayDom = (int)Carbon::now($tz)->day;
+                    return [
+                        'enabled' => false, // default OFF when no saved preference
+                        'dom'     => $todayDom,
+                        'timezone'=> $tz,
+                        'locked'  => false,
+                        'today'   => $today,
+                    ];
+                } catch (\Throwable $e) {
+                    $tz = 'America/Toronto';
+                    return [
+                        'enabled' => false,
+                        'dom'     => (int)Carbon::now($tz)->day,
+                        'timezone'=> $tz,
+                        'locked'  => false,
+                        'today'   => Carbon::now($tz)->toDateString(),
+                    ];
+                }
+            })(),
             // Announcement modal
             "showCreateOrderAnnouncement" => (bool)$showCreateOrderAnnouncement,
             "createOrderAnnouncementKey" => ANNOUNCEMENT_KEY,
