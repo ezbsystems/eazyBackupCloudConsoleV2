@@ -413,7 +413,7 @@
                         <h3 class="text-md font-semibold text-gray-300 mb-4">eazyBackup</h3>
                         <ul class="space-y-1">
                             <li>
-                                <a href="{$WEB_ROOT}/index.php/store/eazybackup/eazybackup"
+                                <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=createorder"
                                 class="group flex items-start space-x-3 p-4 rounded-md hover:bg-gray-800 transition-colors duration-200">
                                     <!-- Icon -->
                                     <svg class="w-6 h-6 text-gray-400 group-hover:text-[#fe5000] transition-colors duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -428,7 +428,7 @@
                                             <li>Windows 10/11/Server, macOS, Linux</li>                                            
                                             <li>Protect unlimited files and folders</li>
                                             <li>Disk Image for Windows and Linux</li>
-                                            <li>Protect Hyper-V and VMware guests</li>
+                                            <li>Protect Hyper-V, Proxmox and VMware guests</li>
                                             <li>eazyBackup branded client</li>                                                                               
                                         </ul>
                                     </div>
@@ -464,12 +464,12 @@
                                     </svg>
                                 
                                     <div>
-                                        <h3 class="font-semibold text-gray-300 group-hover:text-[#fe5000]">Hyper-V Server</h3>
+                                        <h3 class="font-semibold text-gray-300 group-hover:text-[#fe5000]">Virtual Server Backup</h3>
                                         {* <p class="text-sm text-gray-300 mt-1">Comprehensive Data Protection including Disk Image.</p> *}
                                         <!-- Bullet Points -->
                                         <ul class="text-xs text-gray-400 list-disc ml-5 mt-2 space-y-1">                                            
-                                            <li>Windows Server</li>
-                                            <li>Hyper-V VM backups only</li> 
+                                            <li>For Windows and Linux Servers</li>
+                                            <li>Hyper-V, Proxmox, VMware guest VM backups only</li> 
                                             <li>eazyBackup branded client</li>                                                                             
                                         </ul>
                                     </div>
@@ -498,85 +498,85 @@
                             </li>
                         </ul>
                     </div>
-<!-- Column 2: OBC or Custom White Label Products -->
-<div>
-    {if isset($whitelabel_product_name) && $whitelabel_product_name neq "OBC"}
-        <h3 class="text-md font-semibold text-gray-300 mb-4">{$whitelabel_product_name}</h3>
-    {else}
-        <h3 class="text-md font-semibold text-gray-300 mb-4">OBC</h3>
-    {/if}
-    <ul class="space-y-1">
-        <li>
-            {if isset($whitelabel_product_name) && $whitelabel_product_name neq "OBC"}
-                <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=createorder"
-                   class="group flex items-start space-x-3 p-4 rounded-md hover:bg-gray-800 transition-colors duration-200">
-            {else}
-                <a href="{$WEB_ROOT}/index.php/store/obc/obc"
-                   class="group flex items-start space-x-3 p-4 rounded-md hover:bg-gray-800 transition-colors duration-200">
-            {/if}                    
-                    <svg class="w-6 h-6 text-gray-400 group-hover:text-indigo-600 transition-colors duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25a2.25 2.25 0 0 1-2.25-2.25V5.25" />
-                    </svg>
+                    <!-- Column 2: OBC or Custom White Label Products -->
                     <div>
                         {if isset($whitelabel_product_name) && $whitelabel_product_name neq "OBC"}
-                            <h3 class="font-semibold text-gray-300 group-hover:text-indigo-600">{$whitelabel_product_name}</h3>
+                            <h3 class="text-md font-semibold text-gray-300 mb-4">{$whitelabel_product_name}</h3>
                         {else}
-                            <h3 class="font-semibold text-gray-300 group-hover:text-indigo-600">OBC</h3>
+                            <h3 class="text-md font-semibold text-gray-300 mb-4">OBC</h3>
                         {/if}
-                        <!-- Bullet Points -->
-                        <ul class="text-xs text-gray-400 list-disc ml-5 mt-2 space-y-1">
-                            <li>Windows 10/11/Server, macOS, Linux</li>
-                            <li>Protect unlimited files and folders</li>
-                            <li>Disk Image for Windows and Linux</li>
-                            <li>Protect Hyper-V and VMware guests</li>
-                            <li>OBC branded client</li>
+                        <ul class="space-y-1">
+                            <li>
+                                {if isset($whitelabel_product_name) && $whitelabel_product_name neq "OBC"}
+                                    <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=createorder"
+                                    class="group flex items-start space-x-3 p-4 rounded-md hover:bg-gray-800 transition-colors duration-200">
+                                {else}
+                                    <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=createorder"
+                                    class="group flex items-start space-x-3 p-4 rounded-md hover:bg-gray-800 transition-colors duration-200">
+                                {/if}                    
+                                        <svg class="w-6 h-6 text-gray-400 group-hover:text-indigo-600 transition-colors duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25a2.25 2.25 0 0 1-2.25-2.25V5.25" />
+                                        </svg>
+                                        <div>
+                                            {if isset($whitelabel_product_name) && $whitelabel_product_name neq "OBC"}
+                                                <h3 class="font-semibold text-gray-300 group-hover:text-indigo-600">{$whitelabel_product_name}</h3>
+                                            {else}
+                                                <h3 class="font-semibold text-gray-300 group-hover:text-indigo-600">OBC</h3>
+                                            {/if}
+                                            <!-- Bullet Points -->
+                                            <ul class="text-xs text-gray-400 list-disc ml-5 mt-2 space-y-1">
+                                                <li>Windows 10/11/Server, macOS, Linux</li>
+                                                <li>Protect unlimited files and folders</li>
+                                                <li>Disk Image for Windows and Linux</li>
+                                                <li>Protect Hyper-V, Proxmox and VMware guests</li>
+                                                <li>OBC branded client</li>
+                                            </ul>
+                                        </div>
+                                    </a>
+                            </li>
+                                                        
+                            <li>
+                                <!-- Microsoft 365 Backup-->
+                                <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=createorder"
+                                class="group flex items-start space-x-3 p-4 rounded-md hover:bg-gray-800 transition-colors duration-200">
+                                    <!-- Icon -->
+                                    <svg class="w-6 h-6 text-gray-400 group-hover:text-indigo-600 transition-colors duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 17.25v-.228a4.5 4.5 0 0 0-.12-1.03l-2.268-9.64a3.375 3.375 0 0 0-3.285-2.602H7.923a3.375 3.375 0 0 0-3.285 2.602l-2.268 9.64a4.5 4.5 0 0 0-.12 1.03v.228m19.5 0a3 3 0 0 1-3 3H5.25a3 3 0 0 1-3-3m19.5 0a3 3 0 0 0-3-3H5.25a3 3 0 0 0-3 3m16.5 0h.008v.008h-.008v-.008Zm-3 0h.008v.008h-.008v-.008Z" />
+                                    </svg>
+                                    <div>
+                                        <h3 class="font-semibold text-gray-300 group-hover:text-indigo-600">Microsoft 365 Backup (OBC)</h3>
+                                        <!-- Bullet Points -->
+                                        <ul class="text-xs text-gray-400 list-disc ml-5 mt-2 space-y-1">
+                                            <li>Cloud Backup for Microsoft 365</li>
+                                            <li>OBC branded control panel</li>
+                                        </ul>
+                                    </div>
+                                </a>
+                            </li>
+                                                        
+                            <li>
+                                {if isset($whitelabel_product_name) && $whitelabel_product_name neq "OBC"}
+                                    <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=createorder"
+                                    class="group flex items-start space-x-3 p-4 rounded-md hover:bg-gray-800 transition-colors duration-200">
+                                {else}
+                                    <a href="{$WEB_ROOT}/index.php/store/obc/hyper-v-server"
+                                    class="group flex items-start space-x-3 p-4 rounded-md hover:bg-gray-800 transition-colors duration-200">
+                                {/if}                    
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-gray-400 group-hover:text-indigo-600 transition-colors duration-200">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 0 1-3-3m3 3a3 3 0 1 0 0 6h13.5a3 3 0 1 0 0-6m-16.5-3a3 3 0 0 1 3-3h13.5a3 3 0 0 1 3 3m-19.5 0a4.5 4.5 0 0 1 .9-2.7L5.737 5.1a3.375 3.375 0 0 1 2.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 0 1 .9 2.7m0 0a3 3 0 0 1-3 3m0 3h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Zm-3 6h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Z" />
+                                        </svg>
+                                        <div>
+                                            <h3 class="font-semibold text-gray-300 group-hover:text-indigo-600">Virtual Server Backup (OBC)</h3>                        
+                                            <ul class="text-xs text-gray-400 list-disc ml-5 mt-2 space-y-1">
+                                                <li>For Windows and Linux Servers</li>
+                                                <li>Hyper-V, Proxmox, VMware guest VM backups only</li> 
+                                                <li>OBC branded client</li>
+                                            </ul>
+                                        </div>
+                                    </a>
+                            </li>
                         </ul>
                     </div>
-                </a>
-        </li>
-                                    
-        <li>
-            <!-- Microsoft 365 Backup-->
-            <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=createorder"
-               class="group flex items-start space-x-3 p-4 rounded-md hover:bg-gray-800 transition-colors duration-200">
-                <!-- Icon -->
-                <svg class="w-6 h-6 text-gray-400 group-hover:text-indigo-600 transition-colors duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 17.25v-.228a4.5 4.5 0 0 0-.12-1.03l-2.268-9.64a3.375 3.375 0 0 0-3.285-2.602H7.923a3.375 3.375 0 0 0-3.285 2.602l-2.268 9.64a4.5 4.5 0 0 0-.12 1.03v.228m19.5 0a3 3 0 0 1-3 3H5.25a3 3 0 0 1-3-3m19.5 0a3 3 0 0 0-3-3H5.25a3 3 0 0 0-3 3m16.5 0h.008v.008h-.008v-.008Zm-3 0h.008v.008h-.008v-.008Z" />
-                </svg>
-                <div>
-                    <h3 class="font-semibold text-gray-300 group-hover:text-indigo-600">Microsoft 365 Backup</h3>
-                    <!-- Bullet Points -->
-                    <ul class="text-xs text-gray-400 list-disc ml-5 mt-2 space-y-1">
-                        <li>Cloud Backup for Microsoft 365</li>
-                        <li>OBC branded control panel</li>
-                    </ul>
-                </div>
-            </a>
-        </li>
-                                    
-        <li>
-            {if isset($whitelabel_product_name) && $whitelabel_product_name neq "OBC"}
-                <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=createorder"
-                   class="group flex items-start space-x-3 p-4 rounded-md hover:bg-gray-800 transition-colors duration-200">
-            {else}
-                <a href="{$WEB_ROOT}/index.php/store/obc/hyper-v-server"
-                   class="group flex items-start space-x-3 p-4 rounded-md hover:bg-gray-800 transition-colors duration-200">
-            {/if}                    
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-gray-400 group-hover:text-indigo-600 transition-colors duration-200">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 0 1-3-3m3 3a3 3 0 1 0 0 6h13.5a3 3 0 1 0 0-6m-16.5-3a3 3 0 0 1 3-3h13.5a3 3 0 0 1 3 3m-19.5 0a4.5 4.5 0 0 1 .9-2.7L5.737 5.1a3.375 3.375 0 0 1 2.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 0 1 .9 2.7m0 0a3 3 0 0 1-3 3m0 3h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Zm-3 6h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Z" />
-                    </svg>
-                    <div>
-                        <h3 class="font-semibold text-gray-300 group-hover:text-indigo-600">Hyper-V Server</h3>                        
-                        <ul class="text-xs text-gray-400 list-disc ml-5 mt-2 space-y-1">
-                            <li>Windows Server</li>
-                            <li>Hyper-V VM backups only</li>
-                            <li>OBC branded client</li>
-                        </ul>
-                    </div>
-                </a>
-        </li>
-    </ul>
-</div>
 
                 </div>
             </nav>

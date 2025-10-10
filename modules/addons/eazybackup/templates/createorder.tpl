@@ -5,6 +5,129 @@
 <div class="min-h-screen bg-slate-800 text-gray-300">
   <div class="container mx-auto px-4 pb-8">
 
+    {if $showCreateOrderAnnouncement}
+      <div
+  x-data="{ open: true }"
+  x-show="open"
+  x-cloak
+  x-on:keydown.escape.prevent.stop="open=false; dismissAnnouncement()"
+  class="fixed inset-0 z-50 flex items-center justify-center"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="order-process-title"
+>
+  <!-- Backdrop -->
+  <div
+    class="absolute inset-0 bg-black/60 backdrop-blur-sm"
+    @click="open=false; dismissAnnouncement()"
+    x-show="open"
+    x-transition.opacity
+  ></div>
+
+  <!-- Panel -->
+  <div
+    class="relative w-full max-w-xl mx-4 rounded-2xl bg-[#0b1220] text-gray-100 shadow-2xl ring-1 ring-white/10"
+    x-show="open"
+    x-transition:enter="transition ease-out duration-200"
+    x-transition:enter-start="opacity-0 scale-95"
+    x-transition:enter-end="opacity-100 scale-100"
+    x-transition:leave="transition ease-in duration-150"
+    x-transition:leave-start="opacity-100 scale-100"
+    x-transition:leave-end="opacity-0 scale-95"
+  >
+    <!-- Close button -->
+    <button
+      type="button"
+      class="absolute top-3 right-3 rounded-lg p-2 text-gray-400 hover:text-white hover:bg-white/5 focus:outline-none focus:ring-2 focus:ring-sky-500/50"
+      @click="open=false; dismissAnnouncement()"
+      aria-label="Close"
+    >
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
+        <path fill-rule="evenodd" d="M5.47 5.47a.75.75 0 011.06 0L12 10.94l5.47-5.47a.75.75 0 111.06 1.06L13.06 12l5.47 5.47a.75.75 0 01-1.06 1.06L12 13.06l-5.47 5.47a.75.75 0 01-1.06-1.06L10.94 12 5.47 6.53a.75.75 0 010-1.06z" clip-rule="evenodd" />
+      </svg>
+    </button>
+
+    <!-- Header -->
+    <div class="px-6 pt-6">
+      <div class="inline-flex items-center gap-2 rounded-full bg-sky-500/10 px-3 py-1 text-xs font-medium text-sky-300 ring-1 ring-inset ring-sky-500/20">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 2a10 10 0 100 20 10 10 0 000-20Zm1 15h-2v-6h2v6Zm0-8h-2V7h2v2Z"/>
+        </svg>
+        Announcement
+      </div>
+      <h3 id="order-process-title" class="mt-3 text-2xl font-semibold tracking-tight text-white">
+        New, simplified order process
+      </h3>
+      <p class="mt-2 text-sm text-gray-300 leading-6">
+        One form for all new backup accounts and services. 
+      </p>
+    </div>
+
+    <!-- Body -->
+    <div class="px-6 mt-4 space-y-5 text-[15px] leading-7 text-gray-200">
+      <div class="space-y-3">
+        <p class="text-gray-300">
+          Billing is usage-based for storage, devices, and add-ons. You do not need to select quantities — your actual usage is measured automatically and reflected each billing cycle.
+        </p>
+        <ul class="space-y-2">
+          <li class="flex gap-3">
+            <svg class="mt-1 h-4 w-4 flex-none" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.2l-3.5-3.5L4 14.2 9 19l11-11-1.4-1.4z"/></svg>
+            <span>Storage, devices, and add-ons are tracked continuously.</span>
+          </li>
+          <li class="flex gap-3">
+            <svg class="mt-1 h-4 w-4 flex-none" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.2l-3.5-3.5L4 14.2 9 19l11-11-1.4-1.4z"/></svg>
+            <span>No quantity pickers — you only pay for what you use.</span>
+          </li>
+        </ul>
+      </div>
+
+      <div class="border-t border-white/10 pt-4">
+        <h4 class="text-sm font-medium text-white">Annual plans & prorating</h4>
+        <p class="mt-2 text-gray-300">
+          On annual billing, new or changed usage (for example, adding a device or increasing storage) incurs a prorated charge for the days remaining in your annual term.
+          Credit is not applied for reduced usage during the term. If you expect usage to fluctuate, monthly billing may be a better fit.
+        </p>
+      </div>
+
+      <div class="border-t border-white/10 pt-4">
+        <p class="text-gray-400 text-sm">
+          Questions about short-term or temporary increases? Contact your eazyBackup account manager.
+        </p>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="px-6 pb-6 pt-4 flex flex-col sm:flex-row gap-3 sm:justify-end">
+      <button
+        type="button"
+        class="inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-sm font-medium text-white bg-sky-600 hover:bg-sky-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[#0b1220] focus:ring-sky-500 transition"
+        @click="open=false; dismissAnnouncement()"
+        x-ref="primaryBtn"
+      >
+        Got it
+      </button>
+      {* <a
+        href="/knowledgebase/billing-details"
+        class="inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-sm font-medium text-sky-300 hover:text-white hover:bg-white/5 ring-1 ring-white/10"
+      >
+        View billing details
+      </a> *}
+    </div>
+  </div>
+
+        <script>
+          function dismissAnnouncement(){
+            try {
+              const body = new URLSearchParams();
+              body.set('announcement_key', '{$createOrderAnnouncementKey|escape:'html'}');
+              body.set('token', '{$csrfTokenPlain|escape:'html'}');
+              fetch('{$dismissEndpointUrl|escape:'html'}', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString(), credentials: 'same-origin' }).catch(()=>{});
+            } catch(e) {}
+          }
+        </script>
+      </div>
+    {/if}
+
     <div class="flex flex-col sm:flex-row h-16 mx-12 justify-between items-start sm:items-center">
       <!-- Navigation Horizontal -->
       <div class="flex items-center">
@@ -58,12 +181,6 @@
                   lastFour: '{$payment.lastFour|escape:'html'}',
                   addCardUrl: '{$payment.addCardUrl|escape:'html'}'
                 },
-                stripePublishableKey: '{$payment.stripePublishableKey|escape:'html'}',
-                stripe: null,
-                stripeElements: null,
-                _stripeReadyTries: 0,
-                addCardLoading: false,
-                addCardError: '',
                 // email chips
                 emails: [],
                 emailEntry: '',
@@ -82,30 +199,16 @@
                   this.$watch('selectedProduct', () => this.updateProductType());
                   // hydrate emails
                   {if !empty($POST.reportemail)} this.addEmailsFromString('{$POST.reportemail|escape:'html'}'); {/if}
-                  // Mount Stripe after the element exists (robust wait for script load)
-                  this.$watch('payment.showStripeCapture', (v) => { if (v && this.stripePublishableKey) { this.waitForStripeAndMount(); } });
-                  if (this.payment.showStripeCapture && this.stripePublishableKey) { this.waitForStripeAndMount(); }
-                },
-                waitForStripeAndMount() {
-                  // ensure Stripe v3 script is present
-                  if (!window.Stripe) {
-                    let tag = document.getElementById('stripe-v3');
-                    if (!tag) {
-                      tag = document.createElement('script');
-                      tag.id = 'stripe-v3';
-                      tag.src = 'https://js.stripe.com/v3/';
-                      tag.async = true;
-                      document.head.appendChild(tag);
-                    }
+                  // Clear disallowed preselection for non-resellers
+                  {if !$isResellerClient}
+                  if ([60,57,54].includes(parseInt(this.selectedProduct||0,10))) {
+                    this.selectedProduct = '';
+                    this.selectedName = 'Choose a Service';
+                    this.selectedDesc = '';
+                    this.selectedIcon = '';
+                    this.productType = '';
                   }
-                  const tryMount = () => {
-                    if (window.Stripe && this.stripePublishableKey) { this.initStripe(); return; }
-                    if (this._stripeReadyTries > 20) { return; }
-                    this._stripeReadyTries++;
-                    setTimeout(tryMount, 150);
-                  };
-                  this._stripeReadyTries = 0;
-                  this.$nextTick(tryMount);
+                  {/if}
                 },
                 updateProductType() {
                   const pid = parseInt(this.selectedProduct || 0, 10);
@@ -120,56 +223,24 @@
                 priceFor(cid) { const key = this.billingTerm === 'annual' ? 'annually' : 'monthly'; const o = this.pricing[cid]; return o && o[key] ? o[key] : 'Not configured'; },
                 // emails
                 addEmailsFromString(str) {
-                  if (!str) return; const parts = String(str).split(/[\s,;]+/);
-                  for (const raw of parts) { const e = raw.trim(); if (!e) continue; if (!/^\S+@\S+\.\S+$/.test(e)) continue; const v = e.toLowerCase(); if (!this.emails.includes(v)) this.emails.push(v); }
+                  let added = 0;
+                  if (!str) return added;
+                  const parts = String(str).split(/[\s,;]+/);
+                  for (const raw of parts) {
+                    const e = raw.trim();
+                    if (!e) continue;
+                    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) continue;
+                    const v = e.toLowerCase();
+                    if (!this.emails.includes(v)) { this.emails.push(v); added++; }
+                  }
                   this.syncEmailsHidden();
+                  return added;
                 },
                 removeEmail(idx) { this.emails.splice(idx,1); this.syncEmailsHidden(); },
-                handleEmailKey(e) { if (['Enter','Tab'].includes(e.key) || e.key===',' || e.key===' ') { e.preventDefault(); this.addEmailsFromString(this.emailEntry); this.emailEntry=''; } },
+                handleEmailKey(e) { if (['Enter','Tab'].includes(e.key) || e.key===',' || e.key===' ') { e.preventDefault(); const added = this.addEmailsFromString(this.emailEntry); if (added>0) this.emailEntry=''; } },
                 syncEmailsHidden() { const h = document.getElementById('reportemail'); if (h) { h.value = this.emails.join(', '); } },
-                // stripe
-                initStripe() {
-                  const el = document.getElementById('stripe-card-element');
-                  if (!el) return; // element not yet in DOM
-                  if (!window.Stripe || !this.stripePublishableKey) return;
-                  if (!this.stripe) { this.stripe = window.Stripe(this.stripePublishableKey); }
-                  if (!this.stripeElements) { this.stripeElements = this.stripe.elements(); }
-                  // destroy existing card if remounting
-                  if (this._stripeCard && this._stripeCard.destroy) { try { this._stripeCard.destroy(); } catch(e) {} }
-                  const card = this.stripeElements.create('card', { style: { base: { color:'#e5e7eb', '::placeholder':{ color:'#9ca3af' } } } });
-                  card.mount(el);
-                  this._stripeCard = card;
-                },
-                async ensureStripeMounted() {
-                  const host = document.getElementById('stripe-card-element');
-                  const needsMount = !this._stripeCard || !host || host.childNodes.length === 0;
-                  if (needsMount) {
-                    await this.$nextTick(() => this.initStripe());
-                    // If Stripe may still be loading, retry once shortly after
-                    if (!this._stripeCard && window.Stripe && this.stripePublishableKey) {
-                      await new Promise(r => setTimeout(r, 250));
-                      this.initStripe();
-                    }
-                  }
-                },
-                async addCard() {
-                  try {
-                    this.addCardError=''; this.addCardLoading=true; await this.ensureStripeMounted();
-                    if (!this.stripe || !this._stripeCard) {
-                      this.addCardError = 'Payment library not ready. Please wait a moment and try again.';
-                      this.addCardLoading = false;
-                      return;
-                    }
-                    const pmResp = await this.stripe.createPaymentMethod({ type: 'card', card: this._stripeCard });
-                    const paymentMethod = pmResp && pmResp.paymentMethod;
-                    const error = pmResp && pmResp.error;
-                    if (error) { this.addCardError = (error.message || 'Unable to tokenize card.'); this.addCardLoading=false; return; }
-                    const fd = new FormData(); fd.append('gateway_module_name','stripe'); fd.append('payment_method_id', paymentMethod.id); fd.append('payment_method', paymentMethod.id);
-                    const resp = await fetch('{$payment.addCardUrl|escape:'html'}', { method:'POST', credentials:'same-origin', body: fd });
-                    const json = await resp.json(); if (json.status !== 'success') { this.addCardError = json.message || 'Card save failed'; this.addCardLoading=false; return; }
-                    this.payment.hasCardOnFile = true; this.payment.showStripeCapture = false; this.addCardLoading=false;
-                  } catch (err) { this.addCardError = (err && err.message) ? err.message : 'Unexpected error adding card.'; this.addCardLoading=false; }
-                }
+                handleEmailBlur() { const added = this.addEmailsFromString(this.emailEntry); if (added>0) { this.emailEntry=''; } },
+                // (Stripe capture removed; use native Add Card page)
               }">
           <div class="w-full lg:w-1/2 col-form">
             <!-- Loader -->
@@ -244,42 +315,10 @@
                             <div class="text-xs text-gray-400">Whitelabel backup client and Control Panel</div>
                           </div>
                         </div>
-                      {/foreach}
-
-                      {foreach $categories.ms365 as $product}
-                        <div @click="
-                                          selectedProduct = '{$product.pid}';
-                                          selectedName    = `{$product.name}`;
-                                          selectedDesc    = 'Cloud to Cloud backup for Microsoft 365 data';
-                                          selectedIcon    = $event.currentTarget.querySelector('svg').outerHTML;
-                                          productType     = 'ms365';
-                                          open            = false
-                                        " class="relative group flex items-start px-3 py-2 cursor-pointer">
-                          <span
-                            class="absolute left-0 inset-y-0 w-1 bg-sky-500 opacity-0 transition-opacity duration-200 group-hover:opacity-100"></span>
-                          <div class="flex-shrink-0">
-                            <!-- eazyBackup (gid=6) orange, OBC (gid=7) sky -->
-                            <svg xmlns="http://www.w3.org/2000/svg" x="0px" y="0px" width="24" height="24"
-                              viewBox="0 0 50 50" style="fill:currentColor;" class="mr-3 {if $product.gid == 7}text-sky-500{else}text-orange-600{/if}">
-                              <path d="M20.13,32.5c-2.79-1.69-4.53-4.77-4.53-8.04V8.9c0-1.63,0.39-3.19,1.11-4.57L7.54,9.88C4.74,11.57,3,14.65,3,17.92v14.15
-                                        c0,1.59,0.42,3.14,1.16,4.5c0.69,1.12,1.67,2.06,2.88,2.74c2.53,1.42,5.51,1.36,7.98-0.15l8.02-4.9L20.13,32.5z M42.84,27.14
-                                        l-8.44-5.05v2.29c0,3.25-1.72,6.33-4.49,8.02l-13.84,8.47c-1.52,0.93-3.19,1.42-4.87,1.46l8.93,5.41c1.5,0.91,3.19,1.36,4.87,1.36
-                                        s3.37-0.45,4.87-1.36l9.08-5.5l3.52-2.13c0.27-0.16,0.53-0.34,0.78-0.54c0.08-0.05,0.16-0.11,0.23-0.16
-                                        c0.65-0.53,1.23-1.13,1.71-1.79c0.02-0.03,0.04-0.06,0.06-0.09c0.77-1.19,1.2-2.59,1.19-4.06C46.43,30.85,45.09,28.48,42.84,27.14z
-                                        M42.46,9.88l-9.57-5.79l-3.02-1.83C29.45,2,29.01,1.79,28.56,1.61c-0.49-0.21-1-0.37-1.51-0.47c-1.84-0.38-3.76-0.08-5.46,0.89
-                                        c-2.5,1.43-3.99,3.99-3.99,6.87v9.6l2.8-1.65c2.84-1.67,6.36-1.66,9.19,0.03l14.28,8.54c1.29,0.78,2.35,1.81,3.12,3.02L47,17.92
-                                        C47,14.65,45.26,11.57,42.46,9.88z"></path>
-                            </svg>
-
-                          </div>
-                          <div class="ml-1">
-                            <div class="text-sm text-gray-100">{$product.name}</div>
-                            <div class="text-xs text-gray-400">Cloud to Cloud backup for Microsoft 365 data</div>
-                          </div>
-                        </div>
-                      {/foreach}
+                      {/foreach}                      
 
                       {foreach $categories.usage as $product}
+                        {if $isResellerClient || $product.pid != 60}
                           <div @click="
                           selectedProduct = '{$product.pid}';
                                           selectedName    = `{$product.name}`;
@@ -331,8 +370,46 @@
                             <div class="text-xs text-gray-400">{if $product.pid == 60}OBC Branded Backup Client{elseif $product.pid == 58}eazyBackup Branded Backup Client{else}Usage-based billing{/if}</div>
                           </div>
                         </div>
+                        {/if}
                       {/foreach}
+
+                      {foreach $categories.ms365 as $product}
+                        {if $isResellerClient || $product.pid != 57}
+                        <div @click="
+                                          selectedProduct = '{$product.pid}';
+                                          selectedName    = `{$product.name}`;
+                                          selectedDesc    = 'Cloud to Cloud backup for Microsoft 365 data';
+                                          selectedIcon    = $event.currentTarget.querySelector('svg').outerHTML;
+                                          productType     = 'ms365';
+                                          open            = false
+                                        " class="relative group flex items-start px-3 py-2 cursor-pointer">
+                          <span
+                            class="absolute left-0 inset-y-0 w-1 bg-sky-500 opacity-0 transition-opacity duration-200 group-hover:opacity-100"></span>
+                          <div class="flex-shrink-0">
+                            <!-- eazyBackup (gid=6) orange, OBC (gid=7) sky -->
+                            <svg xmlns="http://www.w3.org/2000/svg" x="0px" y="0px" width="24" height="24"
+                              viewBox="0 0 50 50" style="fill:currentColor;" class="mr-3 {if $product.gid == 7}text-sky-500{else}text-orange-600{/if}">
+                              <path d="M20.13,32.5c-2.79-1.69-4.53-4.77-4.53-8.04V8.9c0-1.63,0.39-3.19,1.11-4.57L7.54,9.88C4.74,11.57,3,14.65,3,17.92v14.15
+                                        c0,1.59,0.42,3.14,1.16,4.5c0.69,1.12,1.67,2.06,2.88,2.74c2.53,1.42,5.51,1.36,7.98-0.15l8.02-4.9L20.13,32.5z M42.84,27.14
+                                        l-8.44-5.05v2.29c0,3.25-1.72,6.33-4.49,8.02l-13.84,8.47c-1.52,0.93-3.19,1.42-4.87,1.46l8.93,5.41c1.5,0.91,3.19,1.36,4.87,1.36
+                                        s3.37-0.45,4.87-1.36l9.08-5.5l3.52-2.13c0.27-0.16,0.53-0.34,0.78-0.54c0.08-0.05,0.16-0.11,0.23-0.16
+                                        c0.65-0.53,1.23-1.13,1.71-1.79c0.02-0.03,0.04-0.06,0.06-0.09c0.77-1.19,1.2-2.59,1.19-4.06C46.43,30.85,45.09,28.48,42.84,27.14z
+                                        M42.46,9.88l-9.57-5.79l-3.02-1.83C29.45,2,29.01,1.79,28.56,1.61c-0.49-0.21-1-0.37-1.51-0.47c-1.84-0.38-3.76-0.08-5.46,0.89
+                                        c-2.5,1.43-3.99,3.99-3.99,6.87v9.6l2.8-1.65c2.84-1.67,6.36-1.66,9.19,0.03l14.28,8.54c1.29,0.78,2.35,1.81,3.12,3.02L47,17.92
+                                        C47,14.65,45.26,11.57,42.46,9.88z"></path>
+                            </svg>
+
+                          </div>
+                          <div class="ml-1">
+                            <div class="text-sm text-gray-100">{$product.name}</div>
+                            <div class="text-xs text-gray-400">Cloud to Cloud backup for Microsoft 365 data</div>
+                          </div>
+                        </div>
+                        {/if}
+                      {/foreach}
+                      
                       {foreach $categories.hyperv as $product}
+                        {if $isResellerClient || $product.pid != 54}
                         <div @click="
                                           selectedProduct = '{$product.pid}';
                                           selectedName    = `{$product.name}`;
@@ -356,6 +433,7 @@
                             <div class="text-xs text-gray-400">Backup for Hyper-V, Proxmox, and VMware, no device charges</div>
                             </div>
                           </div>
+                        {/if}
                         {/foreach}
 
                     </div>
@@ -508,7 +586,7 @@
                           </span>
                         </template>
                       </div>
-                      <input type="text" id="reportemail_entry" x-model="emailEntry" @keydown="handleEmailKey($event)" @blur="addEmailsFromString(emailEntry); emailEntry=''" placeholder="backupreports@example.com"
+                      <input type="text" id="reportemail_entry" x-model="emailEntry" @keydown="handleEmailKey($event)" @blur="handleEmailBlur()" placeholder="backupreports@example.com"
                         class="w-full px-3 py-2 border {if !empty($errors.reportemail)}border-red-500{else}border-slate-700{/if} text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600">
                       <input type="hidden" id="reportemail" name="reportemail" value="{$POST.reportemail|escape:'html'}">
                       <p class="text-xs text-gray-400 mt-1">Enter one or more emails where you would like backup reports sent</p>
@@ -600,18 +678,14 @@
                         <div class="text-sm text-gray-300">Your default payment method is <span class="font-medium" x-text="payment.defaultGateway || 'invoice'"></span>. You can proceed.</div>
                       </template>
                       <template x-if="payment.isStripeDefault && payment.hasCardOnFile">
-                        <div class="text-sm text-gray-300">A saved card <span x-text="payment.lastFour ? ('•••• ' + payment.lastFour) : ''"></span> will be used. You can place the order.</div>
+                        <div class="text-sm text-gray-300">Your saved card <span x-text="payment.lastFour ? ('•••• ' + payment.lastFour) : ''"></span> will be used. You can place the order.</div>
                       </template>
                       <template x-if="payment.isStripeDefault && !payment.hasCardOnFile">
-                        <div class="space-y-3" x-init="waitForStripeAndMount()">
-                          <div class="text-sm text-amber-300">Add a card to continue</div>
-                          <div id="stripe-card-element" class="px-3 py-2 border border-slate-700 rounded bg-[#11182759]"></div>
-                          <div id="stripe-card-errors" class="text-red-400 text-xs" x-text="addCardError"></div>
-                          <button type="button" @click="addCard()" :disabled="addCardLoading" class="inline-flex items-center px-3 py-2 rounded bg-sky-600 hover:bg-sky-700 disabled:opacity-50">
-                            <span x-text="addCardLoading ? 'Saving…' : 'Add Card'"></span>
-                          </button>
-                          <div class="text-xs text-gray-500" x-show="addCardError && !window.Stripe">
-                            If this persists, <a :href="payment.addCardExternalUrl" class="text-sky-400 underline">add your card in the Payment Methods page</a> and return here.
+                        <div class="space-y-3">
+                          <div class="text-sm text-amber-300">A saved card is required to complete the order.</div>
+                          <a href="{$payment.addCardExternalUrl|escape:'html'}" class="inline-flex items-center px-3 py-2 rounded bg-sky-600 hover:bg-sky-700">Add Card (Secure)</a>
+                          <div class="text-xs text-gray-500">
+                            After adding your card, <a href="{$modulelink}&a=createorder" class="text-sky-400 underline">refresh this page</a> to continue.
                           </div>
                         </div>
                       </template>
@@ -632,7 +706,7 @@
                           <div class="mt-1 px-3 py-2 border border-slate-700 text-gray-300 bg-[#11182759] rounded select-none">
                             <span x-text="(() => { const d = new Date(); d.setDate(d.getDate()+30); return d.toISOString().slice(0,10); })()"></span>
                           </div>
-                          <p class="text-xs text-gray-400 mt-1">Reseller Promo — 30 days free</p>
+                          <p class="text-xs text-gray-400 mt-1">Reseller Promo Applied — 30 days free</p>
                         </div>
                       </template>
                       <template x-if="!isResellerClient">
@@ -697,8 +771,11 @@
                   You're free to use all features without restriction; charges will automatically adjust each billing
                   cycle to match your actual consumption.
                 </p>
+                <p class="text-gray-400 mb-4">
+                  <strong>Tip:</strong> Avoid additional charges by setting hard quotas for storage, devices, VMs, on your <a href="{$modulelink}&a=dashboard&tab=users" class="text-md font-medium text-slate-300 hover:text-sky-300"> Dashbard -> Users</a> page to cap usage.
+                </p>
                 <p class="text-gray-400">
-                  <strong>Tip:</strong> You can set hard quotas on the My Services page to cap usage if you like.
+                  <strong>Special pricing:</strong> For instiutional and volume pricing, contact your eazyBackup account manager
                 </p>
               </div>
             </div>
@@ -775,7 +852,3 @@
     });
   });
 </script>
-{if $payment.stripePublishableKey}
-  <script id="stripe-v3" src="https://js.stripe.com/v3/"></script>
-  <script src="{$payment.stripeJsUrl}"></script>
-{/if}

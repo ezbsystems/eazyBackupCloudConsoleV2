@@ -163,7 +163,12 @@ function eazybackup_activate()
     // Billing rollups: protected item mix snapshot
     Capsule::statement("CREATE TABLE IF NOT EXISTS eb_items_daily (\n  d           DATE PRIMARY KEY,\n  di_devices  INT NOT NULL,\n  hv_vms      INT NOT NULL,\n  vw_vms      INT NOT NULL,\n  m365_users  INT NOT NULL,\n  ff_items    INT NOT NULL,\n  created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
 
-         // Keep your original create logic for brand-new installs…
+        // Create announcement dismissals table for client/user scoped dismissals
+        try {
+        Capsule::statement("CREATE TABLE IF NOT EXISTS mod_eazybackup_dismissals (\n  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,\n  user_id INT UNSIGNED NULL,\n  client_id INT UNSIGNED NULL,\n  announcement_key VARCHAR(191) NOT NULL,\n  dismissed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,\n  UNIQUE KEY uniq_user_announcement (user_id, announcement_key),\n  UNIQUE KEY uniq_client_announcement (client_id, announcement_key),\n  KEY idx_announcement_key (announcement_key)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        } catch (\Throwable $e) { /* ignore */ }
+
+        // Keep your original create logic for brand-new installs…
         eazybackup_migrate_schema(); // …and make sure existing installs get patched too.
         return ['status' => 'success'];
 }
@@ -191,6 +196,14 @@ function eazybackup_upgrade($vars = [])
             KEY idx_server (server_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
     } catch (\Throwable $e) {}
+
+    // Ensure announcement dismissals table and indexes exist on upgrade
+    try {
+        Capsule::statement("CREATE TABLE IF NOT EXISTS mod_eazybackup_dismissals (\n  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,\n  user_id INT UNSIGNED NULL,\n  client_id INT UNSIGNED NULL,\n  announcement_key VARCHAR(191) NOT NULL,\n  dismissed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,\n  UNIQUE KEY uniq_user_announcement (user_id, announcement_key),\n  UNIQUE KEY uniq_client_announcement (client_id, announcement_key),\n  KEY idx_announcement_key (announcement_key)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+    } catch (\Throwable $e) {}
+    try { Capsule::statement("CREATE UNIQUE INDEX uniq_user_announcement ON mod_eazybackup_dismissals (user_id, announcement_key)"); } catch (\Throwable $e) {}
+    try { Capsule::statement("CREATE UNIQUE INDEX uniq_client_announcement ON mod_eazybackup_dismissals (client_id, announcement_key)"); } catch (\Throwable $e) {}
+    try { Capsule::statement("CREATE INDEX idx_announcement_key ON mod_eazybackup_dismissals (announcement_key)"); } catch (\Throwable $e) {}
 }
 
 function eb_add_column_if_missing(string $table, string $column, callable $definition): void {
@@ -516,6 +529,8 @@ require_once __DIR__ . "/lib/Vault.php";
 require_once __DIR__ . "/lib/Helper.php";
 // Needed for comet_HumanFileSize and other helpers used in dashboard rendering
 require_once __DIR__ . "/../../servers/comet/functions.php";
+// Shared constants (e.g., ANNOUNCEMENT_KEY)
+require_once __DIR__ . '/lib/constants.php';
 
 
 
@@ -1375,7 +1390,7 @@ function eazybackup_clientarea(array $vars)
     } else if ($_REQUEST["a"] == "createorder") {
         return eazybackup_createorder($vars);
     } else if ($_REQUEST["a"] == "add-card") {
-        // Inline AddPayMethod JSON endpoint for Stripe card capture (no navigation)
+        // Short-circuit for Stripe: delegate to WHMCS native Add Card page
         header('Content-Type: application/json');
         try {
             if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) {
@@ -1385,11 +1400,31 @@ function eazybackup_clientarea(array $vars)
             $clientId = (int)$_SESSION['uid'];
             $adminUsername = 'API';
 
-            // Allow gateway override via POST; default to stripe
+            // Determine gateway: prefer explicit POST, else client's default, else fallback
             $gateway = isset($_POST['gateway_module_name']) && $_POST['gateway_module_name'] !== ''
                 ? (string)$_POST['gateway_module_name']
-                : 'stripe';
+                : (string)(Capsule::table('tblclients')->where('id', $clientId)->value('defaultgateway') ?? '');
+            if ($gateway === '') { $gateway = 'stripe'; }
+            $gatewayNormalized = strtolower($gateway);
 
+            // Safe debug trace: log keys only, no sensitive values
+            try {
+                $keys = implode(',', array_keys($_POST ?? []));
+                logActivity("eazybackup: add-card invoked (gateway={$gatewayNormalized}) keys={$keys}");
+            } catch (\Throwable $_) { /* ignore logging errors */ }
+
+            // If Stripe (tokenized gateway), instruct frontend to redirect to secure native page
+            if ($gatewayNormalized === 'stripe') {
+                $redirectUrl = rtrim((string)($vars['systemurl'] ?? ''), '/') . '/index.php/account/paymentmethods/add';
+                echo json_encode([
+                    'status'   => 'redirect',
+                    'redirect' => $redirectUrl,
+                    'message'  => 'Use the secure Add Card flow.'
+                ]);
+                exit;
+            }
+
+            // Optional: support non-Stripe gateways that accept AddPayMethod via API
             $payload = [
                 'clientid'            => $clientId,
                 'type'                => 'RemoteCreditCard',
@@ -1398,16 +1433,16 @@ function eazybackup_clientarea(array $vars)
                 'set_as_default'      => true,
             ];
 
-            // Normalize Stripe token parameter to what WHMCS expects
-            $pmId = $_POST['payment_method_id'] ?? $_POST['payment_method'] ?? $_POST['pm'] ?? $_POST['stripe_payment_method'] ?? '';
+            // Token/ID fields (non-PAN) if provided by the gateway
+            $pmId = $_POST['payment_method_id'] ?? $_POST['payment_method'] ?? $_POST['pm'] ?? '';
             if ($pmId !== '') {
-                $payload['payment_method_id'] = $pmId;      // WHMCS Stripe modern
-                $payload['payment_method']    = $pmId;      // some integrations
-                $payload['gateway_token']     = $pmId;      // generic remote token
-                $payload['gatewayid']         = $pmId;      // legacy gateway id field
-                $payload['gateway_id']        = $pmId;      // alt naming
-                $payload['remote_token']      = $pmId;      // alt naming
-                $payload['remoteStorageToken']= $pmId;      // legacy naming in some modules
+                $payload['payment_method_id'] = $pmId;
+                $payload['payment_method']    = $pmId;
+                $payload['gateway_token']     = $pmId;
+                $payload['gatewayid']         = $pmId;
+                $payload['gateway_id']        = $pmId;
+                $payload['remote_token']      = $pmId;
+                $payload['remoteStorageToken']= $pmId;
             }
 
             $result = localAPI('AddPayMethod', $payload, $adminUsername);
@@ -3260,6 +3295,34 @@ function eazybackup_createorder($vars)
 
         logActivity("eazybackup: Selected PID {$selectedPid} has group {$productGroupId}; isWhiteLabel=" . ($isWhiteLabel ? 'yes':'no'));
 
+        // POST enforcement: block OBC products for non-resellers before proceeding
+        if (empty($errors)) {
+            try {
+                $clientIdPost = isset($_SESSION['uid']) ? (int)$_SESSION['uid'] : 0;
+                $resellerGroupsSetting = (string)($vars['resellergroups'] ?? '');
+                if ($resellerGroupsSetting === '') {
+                    try {
+                        $resellerGroupsSetting = (string)(Capsule::table('tbladdonmodules')
+                            ->where('module','eazybackup')
+                            ->where('setting','resellergroups')
+                            ->value('value') ?? '');
+                    } catch (\Throwable $_) { /* ignore */ }
+                }
+                $isResellerClientPost = false;
+                if ($clientIdPost > 0 && $resellerGroupsSetting !== '') {
+                    $gid = (int)(Capsule::table('tblclients')->where('id', $clientIdPost)->value('groupid') ?? 0);
+                    if ($gid > 0) {
+                        $ids = array_filter(array_map('trim', explode(',', $resellerGroupsSetting)), function($v){ return $v !== ''; });
+                        $ids = array_map('intval', $ids);
+                        $isResellerClientPost = in_array($gid, $ids, true);
+                    }
+                }
+                if (!$isResellerClientPost && in_array((int)$selectedPid, [60,57,54], true)) {
+                    $errors['product'] = 'This product is available to resellers only.';
+                }
+            } catch (\Throwable $_) { /* fail open on error */ }
+        }
+
         if (empty($errors)) {
             $notes = "Reseller account created on " . date("Y-m-d H:i:s");
             try {
@@ -3449,6 +3512,28 @@ function eazybackup_createorder($vars)
     // Determine the current client id
     $clientid = $_SESSION['uid'] ?? ($vars['clientsdetails']['id'] ?? null);
 
+    // Resolve reseller group membership early for filtering
+    $resellerGroupsSetting = (string)($vars['resellergroups'] ?? '');
+    if ($resellerGroupsSetting === '') {
+        try {
+            $resellerGroupsSetting = (string)(Capsule::table('tbladdonmodules')
+                ->where('module','eazybackup')
+                ->where('setting','resellergroups')
+                ->value('value') ?? '');
+        } catch (\Throwable $e) { /* ignore */ }
+    }
+    $isResellerClient = false;
+    if ($clientid) {
+        try {
+            $gidEarly = (int)(Capsule::table('tblclients')->where('id', $clientid)->value('groupid') ?? 0);
+            if ($gidEarly > 0 && $resellerGroupsSetting !== '') {
+                $idsEarly = array_filter(array_map('trim', explode(',', $resellerGroupsSetting)), function($v){ return $v !== ''; });
+                $idsEarly = array_map('intval', $idsEarly);
+                $isResellerClient = in_array($gidEarly, $idsEarly, true);
+            }
+        } catch (\Throwable $e) { /* ignore */ }
+    }
+
     // Query the custom mapping to retrieve the product group for this client
     $mapping = Capsule::table('tbl_client_productgroup_map')
         ->where('client_id', $clientid)
@@ -3467,7 +3552,7 @@ function eazybackup_createorder($vars)
     $apiResponse = localAPI("GetProducts", []);
     logActivity("eazybackup: localAPI GetProducts => " . json_encode($apiResponse));
     $allProducts = $apiResponse["products"]["product"] ?? [];
-    logActivity("eazybackup: Total products => " . count($allProducts));
+    // logActivity("eazybackup: Total products => " . count($allProducts));
 
     // Define category arrays
     $categories = [
@@ -3486,15 +3571,20 @@ function eazybackup_createorder($vars)
         }
     }
 
-    // b) Include the six specified products regardless of group visibility
+    // b) Include the six specified products with reseller filtering for OBC
+    $blockedOBCPids = [60, 57, 54];
     foreach ($allProducts as $p) {
         $pid = (int)$p['pid'];
+        // Skip OBC products for non-reseller clients
+        if (!$isResellerClient && in_array($pid, $blockedOBCPids, true)) {
+            continue;
+        }
         if ($pid === 52 || $pid === 57) { $categories['ms365'][]  = $p; }
         if ($pid === 58 || $pid === 60) { $categories['usage'][]  = $p; }
         if ($pid === 53 || $pid === 54) { $categories['hyperv'][] = $p; }
     }
 
-    logActivity("eazybackup: Final categories => " . print_r($categories, true));
+    // logActivity("eazybackup: Final categories => " . print_r($categories, true));
 
     // -----------------------------
     // 3) Payment gating + Live pricing
@@ -3504,7 +3594,7 @@ function eazybackup_createorder($vars)
     $currencyData = $clientId ? getCurrency($clientId) : getCurrency();
     $currencyId = (int)($currencyData['id'] ?? 1);
 
-    // Detect default gateway and whether a Stripe card exists
+    // Detect default gateway and whether a non-deleted Stripe card pay method exists
     $defaultGateway = '';
     $lastFour = '';
     $hasStripePayMethod = false;
@@ -3515,19 +3605,28 @@ function eazybackup_createorder($vars)
             $lastFour = (string)($row->cardlastfour ?? '');
         }
         try {
-            if (Capsule::schema()->hasTable('tblpaymethods')) {
+            // Prefer WHMCS PayMethod model when available
+            if (class_exists('\\WHMCS\\Payment\\PayMethod\\PayMethod')) {
+                $hasStripePayMethod = (\WHMCS\Payment\PayMethod\PayMethod::where('userid', $clientId)
+                    ->whereNull('deleted_at')
+                    ->whereIn('payment_type', ['CreditCard','RemoteCreditCard'])
+                    ->where('gateway_name', 'stripe')
+                    ->count()) > 0;
+            } else if (Capsule::schema()->hasTable('tblpaymethods')) {
+                // Fallback direct DB query
                 $hasStripePayMethod = Capsule::table('tblpaymethods')
                     ->where('userid', $clientId)
-                    ->where(function($q){
-                        $q->where('gateway', 'stripe')->orWhere('gateway_name', 'stripe')->orWhere('gateway_module', 'stripe');
-                    })
+                    ->whereNull('deleted_at')
+                    ->whereIn('payment_type', ['CreditCard','RemoteCreditCard'])
+                    ->where('gateway_name', 'stripe')
                     ->exists();
             }
         } catch (\Throwable $e) {
-            // ignore – old installs may not have paymethods table
+            // ignore – environments may vary
         }
     }
     $isStripeDefault = in_array(strtolower($defaultGateway), ['stripe','creditcard'], true);
+    // Primary: non-deleted Stripe card pay method; Fallback: legacy last-4 value
     $hasCard = ($hasStripePayMethod || ($lastFour !== ''));
     $showStripeCapture = ($isStripeDefault && !$hasCard);
 
@@ -3605,17 +3704,94 @@ function eazybackup_createorder($vars)
         60  => 'account',
     ];
 
+    // Compute lastFour for UI display (tokenized gateways)
+    $lastFour = '';
+    $cardDisplayName = '';
+    try {
+        if (class_exists('\\WHMCS\\Payment\\PayMethod\\PayMethod')) {
+            $pm = \WHMCS\Payment\PayMethod\PayMethod::where('userid', $clientId)
+                ->whereNull('deleted_at')
+                ->whereIn('payment_type', ['CreditCard','RemoteCreditCard'])
+                ->orderBy('is_default', 'desc')
+                ->first();
+            if ($pm && $pm->payment && method_exists($pm->payment, 'getDisplayName')) {
+                $disp = $pm->payment->getDisplayName(); // e.g. "Visa - 4242"
+                if (is_string($disp) && $disp !== '') { $cardDisplayName = $disp; }
+                if (preg_match('/(\d{4})\s*$/', $disp, $m)) { $lastFour = $m[1]; }
+            } elseif ($pm && is_array($pm->data ?? null)) {
+                $lastFour = $pm->data['lastFour'] ?? ($pm->data['cardLastFour'] ?? '');
+                if ($lastFour === '' && !empty($pm->data['maskedCardNumber'])) {
+                    $lastFour = substr(preg_replace('/\D+/', '', $pm->data['maskedCardNumber']), -4);
+                }
+            }
+        }
+    } catch (\Throwable $e) { /* ignore */ }
+
+    if ($lastFour === '' && class_exists('\\WHMCS\\Database\\Capsule')) {
+        try {
+            $row = \WHMCS\Database\Capsule::table('tblpaymethods')
+                ->where('userid', $clientId)
+                ->whereNull('deleted_at')
+                ->whereIn('payment_type', ['CreditCard','RemoteCreditCard'])
+                ->orderBy('is_default','desc')
+                ->value('data');
+            if (is_string($row) && $row !== '') {
+                $data = json_decode($row, true) ?: [];
+                $lastFour = $data['lastFour'] ?? ($data['cardLastFour'] ?? '');
+                if ($lastFour === '' && !empty($data['maskedCardNumber'])) {
+                    $lastFour = substr(preg_replace('/\D+/', '', $data['maskedCardNumber']), -4);
+                }
+            }
+        } catch (\Throwable $e) { /* ignore */ }
+    }
+
+    // API fallback for environments where model/data not available
+    if ($lastFour === '') {
+        try {
+            $resp = localAPI('GetPayMethods', ['clientid' => $clientId]);
+            if (($resp['result'] ?? '') === 'success' && !empty($resp['paymethods']) && is_array($resp['paymethods'])) {
+                $card = null;
+                foreach ($resp['paymethods'] as $pm) {
+                    $ptype = $pm['payment_type'] ?? '';
+                    if ($ptype === 'CreditCard' || $ptype === 'RemoteCreditCard') {
+                        if (!empty($pm['is_default'])) { $card = $pm; break; }
+                        if ($card === null) { $card = $pm; }
+                    }
+                }
+                if ($card) {
+                    if (isset($card['last_four']) && is_scalar($card['last_four'])) {
+                        $lastFour = (string)$card['last_four'];
+                    }
+                    // Build display name if provided
+                    if (!empty($card['description']) && is_string($card['description'])) {
+                        $cardDisplayName = (string)$card['description'];
+                    } elseif (!empty($card['brand']) && $lastFour !== '') {
+                        $cardDisplayName = (string)$card['brand'] . ' - ' . $lastFour;
+                    }
+                }
+            }
+        } catch (\Throwable $e) { /* ignore */ }
+    }
+
+    if ($lastFour === '') {
+        try {
+            $legacyLast4 = \WHMCS\Database\Capsule::table('tblclients')->where('id', $clientId)->value('cardlastfour');
+            if (is_string($legacyLast4) && $legacyLast4 !== '') { $lastFour = $legacyLast4; }
+        } catch (\Throwable $e) { /* ignore */ }
+    }
+
     $payment = [
         'defaultGateway'     => $defaultGateway,
         'isStripeDefault'    => $isStripeDefault,
         'hasCardOnFile'      => $hasCard,
         'lastFour'           => $lastFour,
+        'cardDisplayName'    => $cardDisplayName,
         'showStripeCapture'  => $showStripeCapture,
         'addCardUrl'         => $vars['modulelink'] . '&a=add-card',
         'stripeJsUrl'        => $vars['systemurl'] . '/modules/gateways/stripe/stripe.js',
         'stripePublishableKey' => $stripePublishableKey,
         // Fallback: open WHMCS native Add Payment Method UI
-        'addCardExternalUrl' => $vars['systemurl'] . '/index.php?rp=/account/paymentmethods/add',
+        'addCardExternalUrl' => $vars['systemurl'] . '/index.php/account/paymentmethods/add',
     ];
 
     // -----------------------------
@@ -3643,6 +3819,24 @@ function eazybackup_createorder($vars)
         } catch (\Throwable $e) { /* ignore */ }
     }
 
+    // Determine announcement dismissal state for this session
+    $showCreateOrderAnnouncement = false;
+    try {
+        $userId = null;
+        try {
+            if (class_exists('\\WHMCS\\User\\User')) {
+                $u = \WHMCS\User\User::fromSession();
+                if ($u && $u->id) { $userId = (int)$u->id; }
+            }
+        } catch (\Throwable $e) { /* ignore */ }
+        $clientId = isset($_SESSION['uid']) ? (int)$_SESSION['uid'] : 0;
+        $q = Capsule::table('mod_eazybackup_dismissals')->where('announcement_key', ANNOUNCEMENT_KEY);
+        if ($userId) { $q->where(function($qq) use ($userId, $clientId) { $qq->where('user_id', $userId)->orWhere('client_id', $clientId); }); }
+        else if ($clientId) { $q->where('client_id', $clientId); }
+        $dismissed = $q->exists();
+        $showCreateOrderAnnouncement = !$dismissed;
+    } catch (\Throwable $e) { $showCreateOrderAnnouncement = false; }
+
     return [
         "pagetitle" => "Create Order",
         "breadcrumb" => ["index.php?m=eazybackup" => "createorder"],
@@ -3660,6 +3854,11 @@ function eazybackup_createorder($vars)
             "units" => $units,
             "currency" => $currencyData,
             "isResellerClient" => $isResellerClient,
+            // Announcement modal
+            "showCreateOrderAnnouncement" => (bool)$showCreateOrderAnnouncement,
+            "createOrderAnnouncementKey" => ANNOUNCEMENT_KEY,
+            "csrfTokenPlain" => function_exists('generate_token') ? generate_token('plain') : '',
+            "dismissEndpointUrl" => rtrim((string)($vars['systemurl'] ?? ''), '/') . '/modules/addons/eazybackup/endpoints/dismiss_announcement.php',
         ],
     ];
 }
