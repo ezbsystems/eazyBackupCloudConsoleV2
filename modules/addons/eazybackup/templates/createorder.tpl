@@ -565,7 +565,7 @@
                         <template x-if="domError">
                           <p class="text-red-500 text-xs mt-1" x-text="domError"></p>
                         </template>
-                        <p x-show="cb.enabled && !cb.locked" x-cloak class="text-xs text-gray-400 mt-2">Applies only to new orders. Existing plans keep their current billing dates. To change past orders, contact Sales.</p>
+                        <p x-show="cb.enabled && !cb.locked" x-cloak class="text-xs text-gray-400 mt-2">Selected billing date applies to this order and all future orders. Existing plans keep their current billing dates. To change past orders, contact Sales.</p>
                       </div>
 
                       <!-- Summary row -->

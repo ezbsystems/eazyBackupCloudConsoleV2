@@ -3562,6 +3562,21 @@ function eazybackup_createorder($vars)
                     logActivity("eazybackup: apply_default_config_options failed: " . $e->getMessage());
                 }
 
+                // Compute recurring amount from config options only and persist to hosting
+                try {
+                    $cycle = ($billingTerm === 'annual') ? 'annually' : 'monthly';
+                    $amount = eazybackup_compute_recurring_amount_from_options((int)$service->id, $cycle);
+                    // Persist to hosting: amount, recurringamount, firstpaymentamount
+                    localAPI('UpdateClientProduct', [
+                        'serviceid'          => (int)$service->id,
+                        'amount'             => $amount,
+                        'recurringamount'    => $amount,
+                        'firstpaymentamount' => $amount,
+                    ]);
+                } catch (\Throwable $e) {
+                    logActivity('eazybackup: set recurring amount failed for service ' . (int)$service->id . ' - ' . $e->getMessage());
+                }
+
                 // --- Begin Redirect Logic ---
                 // Default settings
                 $redirectProductParam = "eazybackup";  // default product param
@@ -4437,9 +4452,7 @@ function eazybackup_apply_default_config_options(int $serviceId, int $pid): void
     $map = [
         58 => [67, 88], // eazyBackup
         60 => [67, 88], // OBC
-        53 => [67],     // Hyper-V/Proxmox Server
-        54 => [67],     // OBC Hyper-V/Proxmox Server
-        // 52,57 (MS 365) => no defaults
+        // 52,57,53,54 => no defaults
     ];
     if (!isset($map[$pid])) { return; }
 
@@ -4468,6 +4481,68 @@ function eazybackup_apply_default_config_options(int $serviceId, int $pid): void
                 'qty'      => 1,
             ]);
         }
+    }
+}
+
+/**
+ * Compute the recurring amount for a service from config options only.
+ * $cycle: 'monthly' | 'annually'
+ * Missing or -1.00 prices are treated as 0.
+ */
+function eazybackup_compute_recurring_amount_from_options(int $serviceId, string $cycle): float {
+    $cycleCol = ($cycle === 'annually') ? 'annually' : 'monthly';
+    try {
+        $hosting = Capsule::table('tblhosting')->select('userid','packageid')->where('id', $serviceId)->first();
+        if (!$hosting) { return 0.0; }
+        $clientId = (int)($hosting->userid ?? 0);
+        $pid      = (int)($hosting->packageid ?? 0);
+
+        // Resolve currency for client
+        $currency = function_exists('getCurrency') ? getCurrency($clientId) : null;
+        $currencyId = (int)($currency['id'] ?? 1);
+
+        // Only bill the intended config options per product rules
+        $allowedCids = [];
+        if ($pid === 58 || $pid === 60) {
+            $allowedCids = [67, 88];
+        } else {
+            // Other PIDs (52,57,53,54, etc.) → no config billing per rules
+            return 0.0;
+        }
+
+        $rows = Capsule::table('tblhostingconfigoptions')
+            ->select('configid','optionid','qty')
+            ->where('relid', $serviceId)
+            ->whereIn('configid', $allowedCids)
+            ->get();
+
+        if (!$rows || count($rows) === 0) { return 0.0; }
+
+        $total = 0.0;
+        foreach ($rows as $r) {
+            $relid = isset($r->optionid) ? (int)$r->optionid : 0;
+            if ($relid <= 0) { continue; }
+            $qty = isset($r->qty) ? (int)$r->qty : 0;
+            if ($qty <= 0) { continue; } // Only bill positive quantities
+
+            $priceRow = Capsule::table('tblpricing')
+                ->where('type', 'configoptions')
+                ->where('currency', $currencyId)
+                ->where('relid', $relid)
+                ->first();
+            if (!$priceRow) { continue; }
+
+            $raw = $priceRow->{$cycleCol} ?? null;
+            $price = is_numeric($raw) ? (float)$raw : 0.0;
+            if ($price < 0) { $price = 0.0; } // treat -1.00 as 0
+
+            $total += ($price * $qty);
+        }
+
+        return round($total, 2);
+    } catch (\Throwable $e) {
+        try { logActivity('eazybackup: compute amount failed for service ' . (int)$serviceId . ' - ' . $e->getMessage()); } catch (\Throwable $_) {}
+        return 0.0;
     }
 }
 
