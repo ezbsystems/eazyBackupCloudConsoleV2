@@ -915,6 +915,106 @@ function eazybackup_clientarea(array $vars)
         // Isolated Job Reports AJAX endpoint (shared between profile and dashboard)
         require_once __DIR__ . "/pages/console/job-reports.php";
         exit; // script handles output
+    } else if ($_REQUEST["a"] == "bulk_validate") {
+        header('Content-Type: application/json');
+        try {
+            if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) {
+                echo json_encode(['ok' => false, 'errors' => ['Not authenticated'], 'row_errors' => []]);
+                exit;
+            }
+            $clientId = (int)$_SESSION['uid'];
+            $payload = json_decode(file_get_contents('php://input'), true) ?: [];
+            $mode = (string)($payload['mode'] ?? '');
+            $pid  = (int)($payload['product_pid'] ?? 0);
+            $term = (string)($payload['billing_term'] ?? 'monthly');
+            $consolidated = (int)($payload['consolidated_billing'] ?? 0);
+            $rows = is_array($payload['rows'] ?? null) ? $payload['rows'] : [];
+
+            if ($mode !== 'bulk') { echo json_encode(['ok'=>false,'errors'=>['Invalid mode'],'row_errors'=>[]]); exit; }
+            if (!in_array($pid, [52,53,54,58,60,57], true)) { echo json_encode(['ok'=>false,'errors'=>['Invalid product selection'],'row_errors'=>[]]); exit; }
+            $currencyData = getCurrency($clientId);
+            $currencyId = (int)($currencyData['id'] ?? 1);
+
+            $res = eb_bulk_validate_rows($clientId, $pid, $term, $rows, $currencyId);
+            // Add estimate string
+            $perAccount = eazybackup_estimate_amount_for_pid($pid, $term === 'annual' ? 'annually' : 'monthly', $currencyId);
+            $estimateFloat = $perAccount * (int)($res['valid_count'] ?? 0);
+            $estimateStr = eazybackup_format_currency($estimateFloat, $currencyId) . ' / ' . ($term === 'annual' ? 'annually' : 'monthly');
+            $ok = empty($res['errors']) && empty($res['row_errors']);
+            echo json_encode([
+                'ok' => $ok,
+                'summary' => 'Validated ' . (int)($res['valid_count'] ?? 0) . ' rows; ' . (int)($res['error_count'] ?? 0) . ' errors.',
+                'estimate' => $ok ? $estimateStr : null,
+                'errors' => $res['errors'] ?? [],
+                'row_errors' => $res['row_errors'] ?? [],
+            ]);
+            exit;
+        } catch (\Throwable $e) {
+            echo json_encode(['ok'=>false,'errors'=>['Server error'],'row_errors'=>[]]);
+            exit;
+        }
+    } else if ($_REQUEST["a"] == "bulk_create") {
+        header('Content-Type: application/json');
+        try {
+            if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) {
+                echo json_encode(['ok' => false, 'errors' => ['Not authenticated']]);
+                exit;
+            }
+            $clientId = (int)$_SESSION['uid'];
+            $payload = json_decode(file_get_contents('php://input'), true) ?: [];
+            $pid  = (int)($payload['product_pid'] ?? 0);
+            $term = (string)($payload['billing_term'] ?? 'monthly');
+            $consolidated = (int)($payload['consolidated_billing'] ?? 0);
+            $rows = is_array($payload['rows'] ?? null) ? $payload['rows'] : [];
+
+            if (!in_array($pid, [52,53,54,58,60,57], true)) { echo json_encode(['ok'=>false,'errors'=>['Invalid product selection']]); exit; }
+            // Require payment method when default gateway is stripe
+            $defaultGateway = (string)(Capsule::table('tblclients')->where('id', $clientId)->value('defaultgateway') ?? '');
+            $needsCard = (strtolower($defaultGateway) === 'stripe');
+            $hasCard = false;
+            if ($needsCard) {
+                try {
+                    if (class_exists('\\WHMCS\\Payment\\PayMethod\\PayMethod')) {
+                        $hasCard = (\WHMCS\Payment\PayMethod\PayMethod::where('userid', $clientId)
+                            ->whereNull('deleted_at')
+                            ->whereIn('payment_type', ['CreditCard','RemoteCreditCard'])
+                            ->where('gateway_name', 'stripe')
+                            ->count()) > 0;
+                    } else if (Capsule::schema()->hasTable('tblpaymethods')) {
+                        $hasCard = Capsule::table('tblpaymethods')
+                            ->where('userid', $clientId)
+                            ->whereNull('deleted_at')
+                            ->whereIn('payment_type', ['CreditCard','RemoteCreditCard'])
+                            ->where('gateway_name', 'stripe')
+                            ->exists();
+                    }
+                } catch (\Throwable $_) { $hasCard = false; }
+                if (!$hasCard) { echo json_encode(['ok'=>false,'errors'=>['Payment method required']]); exit; }
+            }
+
+            $currencyData = getCurrency($clientId);
+            $currencyId = (int)($currencyData['id'] ?? 1);
+            $validation = eb_bulk_validate_rows($clientId, $pid, $term, $rows, $currencyId);
+            if (!empty($validation['errors']) || !empty($validation['row_errors'])) {
+                echo json_encode(['ok'=>false,'errors'=>['Validation failed'],'row_errors'=>$validation['row_errors']]);
+                exit;
+            }
+
+            $results = eazybackup_bulk_create_accounts($clientId, $pid, $term, $consolidated, $rows, $currencyId);
+            echo json_encode($results);
+            exit;
+        } catch (\Throwable $e) {
+            echo json_encode(['ok'=>false,'errors'=>['Server error']]);
+            exit;
+        }
+    } else if ($_REQUEST["a"] == "bulk_csv_sample") {
+        header('Content-Type: text/csv');
+        header('Content-Disposition: attachment; filename="bulk_sample.csv"');
+        echo "username,password,email\n";
+        echo "acme-001,ExamplePass!234,backupreports+001@example.com\n";
+        echo "acme-002,ExamplePass!234,backupreports+002@example.com\n";
+        echo "acme-003,ExamplePass!234,backupreports+003@example.com\n";
+        exit;
     } else if ($_REQUEST["a"] == "user-actions") {
         // Isolated User Actions AJAX endpoint
         require_once __DIR__ . "/pages/console/user-actions.php";
@@ -4544,6 +4644,162 @@ function eazybackup_compute_recurring_amount_from_options(int $serviceId, string
         try { logActivity('eazybackup: compute amount failed for service ' . (int)$serviceId . ' - ' . $e->getMessage()); } catch (\Throwable $_) {}
         return 0.0;
     }
+}
+
+/** Validate bulk rows and return errors and counts. */
+function eb_bulk_validate_rows(int $clientId, int $pid, string $term, array $rows, int $currencyId): array {
+    $maxRows = 100;
+    $out = ['errors' => [], 'row_errors' => [], 'valid_count' => 0, 'error_count' => 0];
+    if (count($rows) > $maxRows) {
+        $out['errors'][] = 'Too many rows. Max 100.';
+        return $out;
+    }
+    // Basic validators
+    $seenUsernames = [];
+    $indices = range(0, count($rows)-1);
+    foreach ($indices as $i) {
+        $r = $rows[$i] ?? [];
+        $u = (string)($r['username'] ?? '');
+        $p = (string)($r['password'] ?? '');
+        $e = (string)($r['email'] ?? '');
+        $errs = [];
+        if (!preg_match('/^[a-z0-9._-]{3,64}$/i', $u)) { $errs['username'] = 'Invalid username format'; }
+        if (isset($seenUsernames[strtolower($u)])) { $errs['username'] = 'Duplicate in submission'; }
+        // Bulk policy: at least 10 chars and at least 3 of 4 classes (upper, lower, digit, symbol)
+        $lenOk = (strlen($p) >= 10);
+        $classes = 0;
+        if (preg_match('/[A-Z]/', $p)) { $classes++; }
+        if (preg_match('/[a-z]/', $p)) { $classes++; }
+        if (preg_match('/\d/', $p))   { $classes++; }
+        if (preg_match('/[^a-zA-Z\d]/', $p)) { $classes++; }
+        if (!($lenOk && $classes >= 3)) { $errs['password'] = 'Password must be 10+ chars and include 3 of: upper, lower, number, symbol.'; }
+        if (!filter_var($e, FILTER_VALIDATE_EMAIL)) { $errs['email'] = 'Invalid email'; }
+        // Check exists in system
+        if (empty($errs['username'])) {
+            try {
+                comet_Server(['pid' => $pid])->AdminGetUserProfile($u);
+                $errs['username'] = 'Username already exists';
+            } catch (\Throwable $_) { /* available */ }
+        }
+        if (!empty($errs)) {
+            $out['row_errors'][] = array_merge(['index' => $i], $errs);
+            $out['error_count']++;
+        } else {
+            $seenUsernames[strtolower($u)] = true;
+            $out['valid_count']++;
+        }
+    }
+    return $out;
+}
+
+/** Estimate per-account amount for product pid using existing rules. */
+function eazybackup_estimate_amount_for_pid(int $pid, string $cycleCol, int $currencyId): float {
+    // Only PIDs 58/60 have billed config options: cid 67 + 88
+    if ($pid !== 58 && $pid !== 60) { return 0.0; }
+    $sum = 0.0;
+    foreach ([67, 88] as $configId) {
+        try {
+            $subId = Capsule::table('tblproductconfigoptionssub')
+                ->where('configid', $configId)
+                ->orderBy('sortorder')->orderBy('id')
+                ->value('id');
+            $relid = $subId ? (int)$subId : (int)$configId;
+            $row = Capsule::table('tblpricing')
+                ->where('type','configoptions')
+                ->where('currency', $currencyId)
+                ->where('relid', $relid)
+                ->first();
+            if ($row) {
+                $raw = $row->{$cycleCol} ?? null;
+                $v = is_numeric($raw) ? (float)$raw : 0.0;
+                if ($v < 0) { $v = 0.0; }
+                $sum += $v; // qty=1 for estimate
+            }
+        } catch (\Throwable $_) {}
+    }
+    return round($sum, 2);
+}
+
+/** Create accounts in bulk: one order per account; partial failures allowed. */
+function eazybackup_bulk_create_accounts(int $clientId, int $pid, string $term, int $consolidated, array $rows, int $currencyId): array {
+    $results = ['ok' => true, 'results' => [], 'summary' => '' ];
+    $adminUser = 'API';
+    $success = 0; $fail = 0; $i = 0;
+    foreach ($rows as $row) {
+        $i++;
+        $username = (string)($row['username'] ?? '');
+        $password = (string)($row['password'] ?? '');
+        $email    = (string)($row['email'] ?? '');
+        try {
+            // Persist consolidated billing preference once when enabled
+            if ($consolidated) {
+                try {
+                    $exists = Capsule::table('mod_eazy_consolidated_billing')
+                        ->where('clientid', $clientId)->where('enabled', 1)->exists();
+                    if (!$exists) {
+                        $tz = 'America/Toronto';
+                        Capsule::table('mod_eazy_consolidated_billing')->updateOrInsert(
+                            ['clientid' => $clientId],
+                            [ 'enabled' => 1, 'dom' => (int)date('j'), 'timezone' => $tz, 'effective_from' => Carbon::now($tz)->toDateString(), 'updated_at' => Carbon::now()->toDateTimeString() ]
+                        );
+                    }
+                } catch (\Throwable $_) {}
+            }
+
+            // One order per account
+            $order = localAPI('AddOrder', [
+                'clientid' => $clientId,
+                'pid' => [$pid],
+                'promocode' => 'trial',
+                'paymentmethod' => 'stripe',
+                'noinvoice' => false,
+            ]);
+            if (($order['result'] ?? '') !== 'success') { throw new \Exception('AddOrder failed: ' . ($order['message'] ?? '')); }
+
+            $accept = localAPI('AcceptOrder', [
+                'orderid' => $order['orderid'],
+                'autosetup' => true,
+                'sendemail' => true,
+                'serviceusername' => $username,
+                'servicepassword' => $password,
+            ], $adminUser);
+            if (($accept['result'] ?? '') !== 'success') { throw new \Exception('AcceptOrder failed: ' . ($accept['message'] ?? '')); }
+
+            $service = Capsule::table('tblhosting')->where('orderid', $order['orderid'])->first();
+            if (!$service) { throw new \Exception('Service not found'); }
+
+            // Comet user update for report emails
+            try {
+                $params = comet_ServiceParams($service->id);
+                $params['username'] = $username;
+                $params['clientsdetails'] = ['email' => $email];
+                comet_UpdateUser($params);
+            } catch (\Throwable $_) {}
+
+            // Defaults and amount
+            try { eazybackup_apply_default_config_options((int)$service->id, (int)$pid); } catch (\Throwable $_) {}
+            try {
+                $cycle = ($term === 'annual') ? 'annually' : 'monthly';
+                $amount = eazybackup_compute_recurring_amount_from_options((int)$service->id, $cycle);
+                localAPI('UpdateClientProduct', [
+                    'serviceid' => (int)$service->id,
+                    'billingcycle' => ($term === 'annual' ? 'Annually' : 'Monthly'),
+                    'amount' => $amount,
+                    'recurringamount' => $amount,
+                    'firstpaymentamount' => $amount,
+                ]);
+            } catch (\Throwable $_) {}
+
+            $results['results'][] = ['index' => $i-1, 'username' => $username, 'serviceid' => (int)$service->id];
+            $success++;
+        } catch (\Throwable $e) {
+            $results['results'][] = ['index' => $i-1, 'username' => $username, 'error' => $e->getMessage()];
+            $results['ok'] = false;
+            $fail++;
+        }
+    }
+    $results['summary'] = 'Created ' . $success . ' of ' . ($success + $fail) . ' accounts.';
+    return $results;
 }
 
 function customFileLog($message, $data = null)
