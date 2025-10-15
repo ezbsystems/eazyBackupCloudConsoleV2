@@ -175,6 +175,8 @@ function eazybackup_activate()
 
         // Keep your original create logic for brand-new installs…
         eazybackup_migrate_schema(); // …and make sure existing installs get patched too.
+        // Attempt to restore saved addon settings (if any) so config survives deactivate/activate cycles
+        try { eb_restore_settings(); } catch (\Throwable $e) { /* ignore */ }
         return ['status' => 'success'];
 }
 
@@ -209,6 +211,15 @@ function eazybackup_upgrade($vars = [])
     try { Capsule::statement("CREATE UNIQUE INDEX uniq_user_announcement ON mod_eazybackup_dismissals (user_id, announcement_key)"); } catch (\Throwable $e) {}
     try { Capsule::statement("CREATE UNIQUE INDEX uniq_client_announcement ON mod_eazybackup_dismissals (client_id, announcement_key)"); } catch (\Throwable $e) {}
     try { Capsule::statement("CREATE INDEX idx_announcement_key ON mod_eazybackup_dismissals (announcement_key)"); } catch (\Throwable $e) {}
+}
+
+/**
+ * Module deactivate handler: back up current addon settings so they persist across deactivation.
+ */
+function eazybackup_deactivate()
+{
+    try { eb_backup_settings(); } catch (\Throwable $e) { /* ignore */ }
+    return ['status' => 'success'];
 }
 
 function eb_add_column_if_missing(string $table, string $column, callable $definition): void {
@@ -473,6 +484,15 @@ function eazybackup_migrate_schema(): void {
         eb_add_index_if_missing('eb_notifications_sent', "CREATE INDEX IF NOT EXISTS idx_service_created ON eb_notifications_sent (service_id, created_at)");
     }
 
+    // --- eb_module_settings (addon config backup store) ---
+    if (!$schema->hasTable('eb_module_settings')) {
+        $schema->create('eb_module_settings', function (Blueprint $t) {
+            $t->string('setting', 191)->primary();
+            $t->text('value');
+            $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
+        });
+    }
+
     // --- eb_billing_grace ---
     if (!$schema->hasTable('eb_billing_grace')) {
         $schema->create('eb_billing_grace', function (Blueprint $t) {
@@ -501,6 +521,50 @@ function eazybackup_migrate_schema(): void {
         eb_add_index_if_missing('eb_billing_grace', "CREATE UNIQUE INDEX IF NOT EXISTS uq_grace ON eb_billing_grace (username, category, entity_key)");
         eb_add_index_if_missing('eb_billing_grace', "CREATE INDEX IF NOT EXISTS idx_service ON eb_billing_grace (service_id)");
         eb_add_index_if_missing('eb_billing_grace', "CREATE INDEX IF NOT EXISTS idx_user_cat ON eb_billing_grace (username, category)");
+    }
+}
+
+/**
+ * Backup all current addon settings from tbladdonmodules(module='eazybackup') to eb_module_settings.
+ */
+function eb_backup_settings(): void
+{
+    $rows = Capsule::table('tbladdonmodules')
+        ->where('module', 'eazybackup')
+        ->get(['setting','value']);
+    foreach ($rows as $r) {
+        $setting = (string)($r->setting ?? ''); if ($setting === '') continue;
+        $value = (string)($r->value ?? '');
+        try {
+            // Try insert, then update on duplicate
+            Capsule::table('eb_module_settings')->insert(['setting'=>$setting,'value'=>$value,'updated_at'=>date('Y-m-d H:i:s')]);
+        } catch (\Throwable $e) {
+            try {
+                Capsule::table('eb_module_settings')->where('setting',$setting)->update(['value'=>$value,'updated_at'=>date('Y-m-d H:i:s')]);
+            } catch (\Throwable $e2) { /* ignore */ }
+        }
+    }
+}
+
+/**
+ * Restore addon settings from eb_module_settings back into tbladdonmodules(module='eazybackup').
+ */
+function eb_restore_settings(): void
+{
+    $rows = Capsule::table('eb_module_settings')->get(['setting','value']);
+    foreach ($rows as $r) {
+        $setting = (string)($r->setting ?? ''); if ($setting === '') continue;
+        $value = (string)($r->value ?? '');
+        // Upsert into tbladdonmodules
+        $exists = Capsule::table('tbladdonmodules')
+            ->where('module','eazybackup')
+            ->where('setting',$setting)
+            ->exists();
+        if ($exists) {
+            try { Capsule::table('tbladdonmodules')->where('module','eazybackup')->where('setting',$setting)->update(['value'=>$value]); } catch (\Throwable $e) { /* ignore */ }
+        } else {
+            try { Capsule::table('tbladdonmodules')->insert(['module'=>'eazybackup','setting'=>$setting,'value'=>$value]); } catch (\Throwable $e) { /* ignore */ }
+        }
     }
 }
 
