@@ -446,6 +446,62 @@ function eazybackup_migrate_schema(): void {
         eb_add_column_if_missing('mod_eazy_consolidated_billing','updated_at',    fn(Blueprint $t)=>$t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate());
         eb_add_index_if_missing('mod_eazy_consolidated_billing', "CREATE INDEX IF NOT EXISTS idx_enabled ON mod_eazy_consolidated_billing (enabled)");
     }
+
+    // --- eb_notifications_sent ---
+    if (!$schema->hasTable('eb_notifications_sent')) {
+        $schema->create('eb_notifications_sent', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->unsignedInteger('service_id');
+            $t->unsignedInteger('client_id');
+            $t->string('username', 191);
+            $t->enum('category', ['storage','device','addon']);
+            $t->string('threshold_key', 191);
+            $t->string('template', 191);
+            $t->string('subject', 255);
+            $t->text('recipients');
+            $t->json('merge_json');
+            $t->unsignedInteger('email_log_id')->nullable();
+            $t->enum('status', ['sent','failed'])->default('sent');
+            $t->text('error')->nullable();
+            $t->timestamp('created_at')->useCurrent();
+            $t->timestamp('updated_at')->useCurrent()->useCurrentOnUpdate();
+            $t->unique(['username','category','threshold_key'], 'uq_user_cat_key');
+            $t->index(['service_id','created_at'], 'idx_service_created');
+        });
+    } else {
+        eb_add_index_if_missing('eb_notifications_sent', "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_cat_key ON eb_notifications_sent (username, category, threshold_key)");
+        eb_add_index_if_missing('eb_notifications_sent', "CREATE INDEX IF NOT EXISTS idx_service_created ON eb_notifications_sent (service_id, created_at)");
+    }
+
+    // --- eb_billing_grace ---
+    if (!$schema->hasTable('eb_billing_grace')) {
+        $schema->create('eb_billing_grace', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->unsignedInteger('service_id')->default(0)->index();
+            $t->unsignedInteger('client_id')->default(0);
+            $t->string('username', 191);
+            $t->enum('category', ['device','addon']);
+            $t->string('entity_key', 191);
+            $t->integer('quantity')->nullable();
+            $t->timestamp('first_seen_at');
+            $t->integer('grace_days')->default(0);
+            $t->timestamp('grace_expires_at')->nullable();
+            $t->string('source', 32)->default('ws');
+            $t->timestamp('created_at')->useCurrent();
+            $t->timestamp('updated_at')->useCurrent()->useCurrentOnUpdate();
+            $t->unique(['username','category','entity_key'], 'uq_grace');
+            $t->index(['username','category'], 'idx_user_cat');
+        });
+    } else {
+        // Backfill columns if upgrading
+        eb_add_column_if_missing('eb_billing_grace','quantity',         fn(Blueprint $t)=>$t->integer('quantity')->nullable());
+        eb_add_column_if_missing('eb_billing_grace','grace_days',       fn(Blueprint $t)=>$t->integer('grace_days')->default(0));
+        eb_add_column_if_missing('eb_billing_grace','grace_expires_at', fn(Blueprint $t)=>$t->timestamp('grace_expires_at')->nullable());
+        eb_add_column_if_missing('eb_billing_grace','source',           fn(Blueprint $t)=>$t->string('source',32)->default('ws'));
+        eb_add_index_if_missing('eb_billing_grace', "CREATE UNIQUE INDEX IF NOT EXISTS uq_grace ON eb_billing_grace (username, category, entity_key)");
+        eb_add_index_if_missing('eb_billing_grace', "CREATE INDEX IF NOT EXISTS idx_service ON eb_billing_grace (service_id)");
+        eb_add_index_if_missing('eb_billing_grace', "CREATE INDEX IF NOT EXISTS idx_user_cat ON eb_billing_grace (username, category)");
+    }
 }
 
 // Ensure schema upgrades are applied on runtime paths as well
@@ -624,7 +680,7 @@ function eazybackup_config()
         'description' => 'WHMCS addon module for eazyBackup',
         'author'      => 'eazyBackup Systems Ltd.',
         'language'    => 'english',
-        'version'     => '1.1', // bump so you can see the change
+        'version'     => '1.2', // bump so you can see the change
         'fields'      => [
             'trialsignupgid' => [
                 'FriendlyName' => 'Trial Signup Product Group',
@@ -661,6 +717,101 @@ function eazybackup_config()
                 'Rows'         => '3',
                 'Cols'         => '60',
                 'Description'  => eazybackup_AdminGroupsDescription(),
+            ],
+
+            // ---- Notifications: module-level defaults ----
+            'notify_storage' => [
+                'FriendlyName' => 'Notify: Storage',
+                'Type' => 'yesno',
+                'Description' => 'Send storage threshold/overage notifications',
+            ],
+            'notify_devices' => [
+                'FriendlyName' => 'Notify: Devices',
+                'Type' => 'yesno',
+                'Description' => 'Send device added notifications',
+            ],
+            'notify_addons' => [
+                'FriendlyName' => 'Notify: Add-ons',
+                'Type' => 'yesno',
+                'Description' => 'Send add-on enabled notifications',
+            ],
+            'notify_threshold_percent' => [
+                'FriendlyName' => 'Storage Threshold %',
+                'Type' => 'text',
+                'Size' => '5',
+                'Default' => '90',
+                'Description' => 'Trigger at this % of each TiB milestone (e.g., 90)',
+            ],
+            'notify_routing' => [
+                'FriendlyName' => 'Recipient Routing',
+                'Type' => 'dropdown',
+                'Options' => [
+                    'primary' => 'Primary contact',
+                    'billing' => 'Billing contacts',
+                    'technical' => 'Technical contacts',
+                    'custom' => 'Custom list',
+                ],
+                'Default' => 'billing',
+                'Description' => 'Default recipient policy (per-user overrides may apply later)',
+            ],
+            'notify_custom_emails' => [
+                'FriendlyName' => 'Custom Recipients',
+                'Type' => 'text',
+                'Size' => '200',
+                'Description' => 'Comma/semicolon separated list when routing=custom',
+            ],
+            'notify_test_mode' => [
+                'FriendlyName' => 'Notifications Test Mode',
+                'Type' => 'yesno',
+                'Description' => 'Route all notifications ONLY to the test recipient(s); customers will NOT receive copies',
+            ],
+            'notify_test_recipient' => [
+                'FriendlyName' => 'Test Recipient(s)',
+                'Type' => 'text',
+                'Size' => '200',
+                'Description' => 'CSV/SSV emails to receive test-mode notifications',
+            ],
+            'notify_test_client_id' => [
+                'FriendlyName' => 'Test Client ID (optional)',
+                'Type' => 'text',
+                'Size' => '10',
+                'Description' => 'Client ID to associate custom test emails with WHMCS Email Log',
+            ],
+            // Template selectors
+            'tpl_storage_warning' => [
+                'FriendlyName' => 'Template: Storage Warning',
+                'Type'         => 'dropdown',
+                'Options'      => eazybackup_EmailTemplatesLoader(),
+            ],
+            'tpl_storage_overage' => [
+                'FriendlyName' => 'Template: Storage Overage',
+                'Type'         => 'dropdown',
+                'Options'      => eazybackup_EmailTemplatesLoader(),
+            ],
+            'tpl_device_added' => [
+                'FriendlyName' => 'Template: Device Added',
+                'Type'         => 'dropdown',
+                'Options'      => eazybackup_EmailTemplatesLoader(),
+            ],
+            'tpl_addon_enabled' => [
+                'FriendlyName' => 'Template: Add-on Enabled',
+                'Type'         => 'dropdown',
+                'Options'      => eazybackup_EmailTemplatesLoader(),
+            ],
+            // Grace periods
+            'grace_days_devices' => [
+                'FriendlyName' => 'Grace Period (days) — Devices',
+                'Type' => 'text',
+                'Size' => '6',
+                'Default' => '0',
+                'Description' => 'Days before device billing starts (0 to disable)'
+            ],
+            'grace_days_addons' => [
+                'FriendlyName' => 'Grace Period (days) — Add-ons',
+                'Type' => 'text',
+                'Size' => '6',
+                'Default' => '0',
+                'Description' => 'Days before add-on billing starts (0 to disable)'
             ],
         ],
     ];
@@ -915,6 +1066,10 @@ function eazybackup_clientarea(array $vars)
         // Isolated Job Reports AJAX endpoint (shared between profile and dashboard)
         require_once __DIR__ . "/pages/console/job-reports.php";
         exit; // script handles output
+    } else if ($_REQUEST["a"] == "notifications") {
+        // Simple client list of recent notifications (scoped)
+        require_once __DIR__ . "/pages/notifications.php";
+        exit; // script outputs HTML
     } else if ($_REQUEST["a"] == "bulk_validate") {
         header('Content-Type: application/json');
         try {
@@ -1349,6 +1504,25 @@ function eazybackup_clientarea(array $vars)
             ];
         }
 
+        // Upcoming Charges panel data (last 30 days from sent log scoped to this client)
+        $serviceIds = Capsule::table('tblhosting')
+            ->where('userid', $clientId)
+            ->where('domainstatus','Active')
+            ->pluck('id');
+        $upcomingCharges = [];
+        try {
+            $upcomingCharges = Capsule::table('eb_notifications_sent as n')
+                ->leftJoin('eb_billing_grace as g', function($j){ $j->on('g.username','=','n.username'); })
+                ->whereIn('n.service_id', $serviceIds)
+                ->where('n.created_at', '>=', date('Y-m-d H:i:s', strtotime('-30 days')))
+                ->orderBy('n.created_at','desc')
+                ->limit(8)
+                ->get([
+                    'n.created_at','n.category','n.subject',
+                    'g.first_seen_at as grace_first_seen_at','g.grace_expires_at as grace_expires_at','g.grace_days as grace_days'
+                ]);
+        } catch (\Throwable $e) { /* table may not exist yet */ }
+
         // Merge the dashboard-specific data into the existing $vars array.
         return [
             "pagetitle" => "Dashboard",
@@ -1365,6 +1539,7 @@ function eazybackup_clientarea(array $vars)
                 'totalStorageUsed' => Helper::humanFileSize($totalStorageUsed),
                 'devices' => $devices,
                 'accounts' => $accounts,
+                'upcomingCharges' => $upcomingCharges,
             ]
         ];
 
@@ -2120,6 +2295,37 @@ function eazybackup_output($vars)
                     'username' => '#', 'server' => '#', 'bytes' => '#', 'units' => '#'
                 ];
 
+                // --- Notifications: Test send (admin-only) ---
+                $testNotice = '';
+                if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['eb_send_test']) && check_token('WHMCS.admin.default')) {
+                    try {
+                        require_once __DIR__ . '/lib/Notifications/bootstrap.php';
+                        if (function_exists('eb_notifications_service')) { eb_notifications_service(); }
+                        $choice = isset($_POST['eb_test_template']) ? (string)$_POST['eb_test_template'] : 'device';
+                        $map = [
+                            'device' => ['key' => 'tpl_device_added', 'subject' => 'Test: Device Added', 'vars' => [
+                                'username' => 'testuser', 'service_id' => 0, 'client_id' => 0, 'device_id' => 'TESTHASH', 'device_name' => 'Test Device'
+                            ]],
+                            'addon' => ['key' => 'tpl_addon_enabled', 'subject' => 'Test: Add-on Enabled', 'vars' => [
+                                'username' => 'testuser', 'service_id' => 0, 'client_id' => 0, 'addon_code' => 'disk_image'
+                            ]],
+                            'storage_warning' => ['key' => 'tpl_storage_warning', 'subject' => 'Test: Storage Warning', 'vars' => [
+                                'username' => 'testuser', 'service_id' => 0, 'client_id' => 0, 'paid_tib' => 1, 'current_usage_tib' => 0.95, 'threshold_k_tib' => 1, 'projected_tib' => 1, 'projected_monthly_delta' => 0
+                            ]],
+                            'storage_overage' => ['key' => 'tpl_storage_overage', 'subject' => 'Test: Storage Overage', 'vars' => [
+                                'username' => 'testuser', 'service_id' => 0, 'client_id' => 0, 'paid_tib' => 1, 'current_usage_tib' => 1.25, 'threshold_k_tib' => 1, 'projected_tib' => 2, 'projected_monthly_delta' => 25
+                            ]],
+                        ];
+                        $cfg = $map[$choice] ?? $map['device'];
+                        $varsToSend = array_merge(['subject' => $cfg['subject']], $cfg['vars']);
+                        $resp = \EazyBackup\Notifications\TemplateRenderer::send($cfg['key'], $varsToSend);
+                        $ok = (is_array($resp) && (isset($resp['result']) ? $resp['result'] === 'success' : true));
+                        $testNotice = '<div class="alert ' . ($ok ? 'alert-success' : 'alert-danger') . '"><strong>Test Send</strong> ' . $e(json_encode($resp)) . '</div>';
+                    } catch (\Throwable $ex) {
+                        $testNotice = '<div class="alert alert-danger"><strong>Test Send</strong> Error: ' . $e($ex->getMessage()) . '</div>';
+                    }
+                }
+
                 $html = '';
                 $html .= '<div class="container-fluid">';
                 $html .= '<ul class="nav nav-tabs mb-3">'
@@ -2128,6 +2334,23 @@ function eazybackup_output($vars)
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=items">Protected Items</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=billing">Billing</a></li>'
                       . '</ul>';
+
+                // Test notification UI
+                $html .= ($testNotice ?: '');
+                $html .= '<form method="post" class="mb-3" style="padding:10px;border:1px solid #ddd;border-radius:4px;background:#f8f9fa">'
+                      . generate_token('input')
+                      . '<div class="form-inline">'
+                      . '<label class="mr-2">Send Test Notification to Test Recipient(s):</label>'
+                      . '<select name="eb_test_template" class="form-control mr-2">'
+                      . '<option value="device">Device Added</option>'
+                      . '<option value="addon">Add-on Enabled</option>'
+                      . '<option value="storage_warning">Storage Warning</option>'
+                      . '<option value="storage_overage">Storage Overage</option>'
+                      . '</select>'
+                      . '<button type="submit" name="eb_send_test" value="1" class="btn btn-primary">Send Test</button>'
+                      . '</div>'
+                      . '<div class="text-muted small" style="margin-top:6px">Uses current module template settings. In Test Mode, emails are sent only to Test Recipient(s).</div>'
+                      . '</form>';
 
                 $html .= '<form method="get" class="mb-3 form-inline" style="margin-bottom:15px">'
                       . '<input type="hidden" name="module" value="eazybackup"/>'
@@ -2696,6 +2919,21 @@ function eazybackup_output($vars)
                 echo '<div class="alert alert-info">This section is under construction.</div>';
                 return;
         }
+    } else if ($action === 'billing-cooldown') {
+        // Admin endpoint to extend grace by +3 days for a service
+        if (!function_exists('check_token') || !check_token('WHMCS.admin.default')) { echo json_encode(['ok'=>false,'message'=>'Invalid token']); exit; }
+        $sid = isset($_GET['serviceid']) ? (int)$_GET['serviceid'] : 0;
+        if ($sid <= 0) { echo json_encode(['ok'=>false,'message'=>'Invalid service id']); exit; }
+        try {
+            $rc = Capsule::table('eb_billing_grace')->where('service_id',$sid)->update([
+                'grace_expires_at' => Capsule::raw("DATE_ADD(grace_expires_at, INTERVAL 3 DAY)"),
+                'updated_at' => Capsule::raw('NOW()'),
+            ]);
+            echo json_encode(['ok'=>true,'affected'=>$rc,'message'=>'+3 days applied to grace expiry']);
+        } catch (\Throwable $e) {
+            echo json_encode(['ok'=>false,'message'=>'Error applying cooldown']);
+        }
+        exit;
     }
 
     $linkStorage = 'addonmodules.php?module=eazybackup&action=powerpanel&view=storage';

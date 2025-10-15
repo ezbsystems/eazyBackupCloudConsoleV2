@@ -97,6 +97,7 @@
                     </div>                   
 
                     <div class="mt-8">
+                        {include file="modules/addons/eazybackup/templates/console/partials/upcoming-charges.tpl"}
                         <div class="flex justify-between items-center mb-4 px-2">
                             <h2 class="text-mdl font-medium text-gray-300">Backup status</h2>
                             <div class="flex items-center space-x-4 text-xs text-gray-400">

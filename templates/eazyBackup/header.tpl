@@ -624,15 +624,15 @@ x-data="{ openModal: null }"
           <!-- macOS Button -->
           <button 
             @click="openModal = 'eazyMacos'" 
-            class="flex-1 flex items-center justify-center bg-orange-600 hover:bg-orange-700 text-white font-semibold py-2 px-4 text-sm transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-orange-500">
+            class="flex-1 flex items-center justify-center bg-orange-600 hover:bg-orange-700 text-white font-semibold rounded-b-md md:rounded-r-md md:rounded-bl-none py-2 px-4 text-sm transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-orange-500">
             <i class="fa-brands fa-apple mr-2"></i> macOS
           </button>
           <!-- Synology Button -->
-          <button 
+          {* <button 
             @click="openModal = 'eazySynology'" 
             class="flex-1 flex items-center justify-center bg-orange-600 hover:bg-orange-700 text-white font-semibold py-2 px-4 text-sm rounded-b-md md:rounded-r-md md:rounded-bl-none transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-orange-500">
             <i class="fa-solid fa-server mr-2"></i> Synology
-          </button>
+          </button> *}
         </div>
       </div>
                                   
@@ -656,15 +656,15 @@ x-data="{ openModal: null }"
           <!-- macOS Button -->
           <button 
             @click="openModal = 'obcMacos'" 
-            class="flex-1 flex items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 text-sm transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            class="flex-1 flex items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-b-md md:rounded-r-md md:rounded-bl-none py-2 px-4 text-sm transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500">
             <i class="fa-brands fa-apple mr-2"></i> macOS
           </button>
           <!-- Synology Button -->
-          <button 
+          {* <button 
             @click="openModal = 'obcSynology'" 
             class="flex-1 flex items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 text-sm rounded-b-md md:rounded-r-md md:rounded-bl-none transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500">
             <i class="fa-solid fa-server mr-2"></i> Synology
-          </button>
+          </button> *}
         </div>
       </div>
     </div>
@@ -863,7 +863,7 @@ x-data="{ openModal: null }"
     </div>
     
     <!-- Synology Modal -->
-    <div x-show="openModal === 'eazySynology'" class="fixed inset-0 flex items-center justify-center z-50" x-cloak>
+    {* <div x-show="openModal === 'eazySynology'" class="fixed inset-0 flex items-center justify-center z-50" x-cloak>
         <div @click.away="openModal = null" class="bg-gray-800 rounded-lg w-full max-w-3xl mx-4">
             <div class="flex justify-between items-center bg-orange-600 text-white p-4 rounded-t-lg">
                 <h5 class="text-gray-100 text-lg font-semibold flex items-center">
@@ -908,7 +908,7 @@ x-data="{ openModal: null }"
                 </div>
             </div>
         </div>
-    </div>
+    </div> *}
 
 
     <!-- Example: OBC Windows Modal -->
@@ -1100,7 +1100,7 @@ x-data="{ openModal: null }"
     </div>
 
     <!-- Synology Modal -->
-    <div x-show="openModal === 'obcSynology'" class="fixed inset-0 flex items-center justify-center z-50" x-cloak>
+    {* <div x-show="openModal === 'obcSynology'" class="fixed inset-0 flex items-center justify-center z-50" x-cloak>
         <div @click.away="openModal = null" class="bg-gray-800 rounded-lg w-full max-w-3xl mx-4">
             <div class="flex justify-between items-center bg-indigo-600 text-white p-4 rounded-t-lg">
                 <h5 class="text-lg font-semibold flex items-center">
@@ -1145,7 +1145,7 @@ x-data="{ openModal: null }"
                 </div>
             </div>
         </div>
-    </div>
+    </div> *}
    
     </div>
 </div>

@@ -32,6 +32,12 @@ function logLine(string $profile, string $msg): void {
 }
 define('EB_WS_DEBUG', getenv('EB_WS_DEBUG') === '1');
 define('EB_DB_DEBUG', getenv('EB_DB_DEBUG') === '1');
+// Mirror notification debug when worker is in debug
+if (EB_WS_DEBUG && getenv('EB_NOTIFY_DEBUG') !== '1') {
+    putenv('EB_NOTIFY_DEBUG=1');
+    $_ENV['EB_NOTIFY_DEBUG'] = '1';
+    $_SERVER['EB_NOTIFY_DEBUG'] = '1';
+}
 
 function pick(array $src, array $keys, $default = '') {
     foreach ($keys as $k) {
@@ -914,6 +920,13 @@ function handleEvent(PDO $pdo, string $profile, array $evt): void {
             // Prefer the target account's Username over Actor (Actor may be an admin)
             $who = $username !== '' ? $username : $actor;
             upsertCometDevice($pdo, $profile, $who, $resourceId, $payload);
+            // Notify: device registered (delegated; ignore failures)
+            try {
+                @require_once __DIR__ . '/../lib/Notifications/bootstrap.php';
+                if (function_exists('eb_notify_device_registered')) {
+                    eb_notify_device_registered($pdo, $profile, $who, $resourceId, $payload);
+                }
+            } catch (Throwable $_) {}
         }
     } elseif ($lab === 'SEVT_DEVICE_REMOVED') {
         if ($resourceId !== '') {
@@ -942,6 +955,13 @@ function handleEvent(PDO $pdo, string $profile, array $evt): void {
             // Refresh protected items and vaults
             syncUserProtectedItems($pdo, $profile, $acctUser);
             syncUserVaults($pdo, $profile, $acctUser);
+            // Notify: addons may have become enabled (evaluate)
+            try {
+                @require_once __DIR__ . '/../lib/Notifications/bootstrap.php';
+                if (function_exists('eb_notify_account_updated')) {
+                    eb_notify_account_updated($pdo, $profile, $acctUser);
+                }
+            } catch (Throwable $_) {}
         }
     } elseif ($lab === 'SEVT_JOB_NEW') {
         // Treat as job start
@@ -960,7 +980,8 @@ function handleEvent(PDO $pdo, string $profile, array $evt): void {
             upsertCometJobStart($pdo, $profile, $data);
             if (EB_WS_DEBUG) logLine($profile, "START NEW job={$jobId}");
         }
-    } elseif ($lab === 'SEVT_JOB_COMPLETED' || $lab === 'SEVT_JOB_COMPLETE' || $lab === 'SEVT_JOB_FINISH' || $lab === 'SEVT_JOB_END') {
+    } elseif ($lab === 'SEVT_JOB_COMPLETED' || $lab === 'SEVT_JOB_COMPLETE' || $lab === 'SEVT_JOB_FINISH' || $lab === 'SEVT_JOB_END'
+        || $lab === 'SEVT_JOB_FAILED' || $lab === 'SEVT_JOB_CANCELLED' || $lab === 'SEVT_JOB_ABORTED') {
         if ($jobId !== '') {
             $status = mapStatus($statusRaw);
             finishJob($pdo, [
@@ -976,7 +997,44 @@ function handleEvent(PDO $pdo, string $profile, array $evt): void {
             ]);
             // Upsert final into comet_jobs
             upsertCometJobComplete($pdo, $profile, $data);
-            if (EB_WS_DEBUG) logLine($profile, "END job={$jobId} status={$status}");
+            if (EB_WS_DEBUG) logLine($profile, "END job={$jobId} status={$status} lab={$lab}");
+            // Fallback username if missing: try comet_jobs
+            if ($username === '') {
+                try {
+                    $st = $pdo->prepare("SELECT username FROM comet_jobs WHERE id=? LIMIT 1");
+                    $st->execute([$jobId]);
+                    $u = $st->fetchColumn();
+                    if ($u) { $username = (string)$u; }
+                } catch (Throwable $_) {}
+            }
+            // Refresh vault usage to ensure comet_vaults reflects latest stats before scanning
+            if ($username !== '') {
+                try {
+                    if (EB_WS_DEBUG) logLine($profile, "syncUserVaults start user={$username}");
+                    syncUserVaults($pdo, $profile, (string)$username);
+                    if (EB_WS_DEBUG) logLine($profile, "syncUserVaults done user={$username}");
+                } catch (Throwable $_) { if (EB_WS_DEBUG) logLine($profile, "syncUserVaults error: " . $_->getMessage()); }
+            }
+            // Notify: backup completed → quick storage scan for this user
+            try {
+                @require_once __DIR__ . '/../lib/Notifications/bootstrap.php';
+                if (function_exists('eb_notify_backup_completed')) {
+                    eb_notify_backup_completed($pdo, $profile, (string)$username);
+                }
+            } catch (Throwable $_) {}
+            // For non-success terminal statuses, schedule a one-shot delayed re-scan to tolerate stat lag
+            if ($status !== 'success' && $username !== '') {
+                async(function() use ($pdo, $profile, $username) {
+                    try {
+                        if (EB_WS_DEBUG) logLine($profile, "delayed rescan (3s) user={$username}");
+                        delay(3.0);
+                        @require_once __DIR__ . '/../lib/Notifications/bootstrap.php';
+                        if (function_exists('eb_notify_backup_completed')) {
+                            eb_notify_backup_completed($pdo, $profile, (string)$username);
+                        }
+                    } catch (Throwable $_) {}
+                });
+            }
         } else {
             if (EB_WS_DEBUG) logLine($profile, "END without jobId — ignored");
         }
@@ -1071,4 +1129,5 @@ foreach ($profiles as $p) {
     $futures[] = async(fn() => runOneProfile($pdo, $cfg));
 }
 Future\awaitAll($futures);
+
 
