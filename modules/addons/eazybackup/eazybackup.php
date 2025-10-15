@@ -2844,6 +2844,8 @@ function eazybackup_output($vars)
                       . '<th class="text-right"><a href="' . $e($sortLinks['m365_units'] ?? '#')    . '">Office 365 Billing</a></th>'
                       . '<th class="text-right"><a href="' . $e($sortLinks['vmw'] ?? '#')           . '">VMware</a></th>'
                       . '<th class="text-right"><a href="' . $e($sortLinks['vmw_units'] ?? '#')     . '">VMware Billing</a></th>'
+                      . '<th class="text-right"><a href="' . $e($sortLinks['pmx'] ?? '#')           . '">Proxmox</a></th>'
+                      . '<th class="text-right"><a href="' . $e($sortLinks['pmx_units'] ?? '#')     . '">Proxmox Billing</a></th>'
                       . '<th class="text-right">Adjustments</th>'
                       . '</tr></thead><tbody>';
 
@@ -2923,15 +2925,16 @@ function eazybackup_output($vars)
                             $deviceBillingDisplay = ($dLabelStart ?: '') . (int)$deviceUnits . ($dLabelEnd ?: '');
                         }
 
-                        // Items categories
+                        // Items categories (include Proxmox now)
                         $cats = [
                             ['count' => (int)$r['hv_count'],   'units' => (int)$r['hv_units']],
                             ['count' => (int)$r['di_count'],   'units' => (int)$r['di_units']],
                             ['count' => (int)$r['m365_count'], 'units' => (int)$r['m365_units']],
                             ['count' => (int)$r['vmw_count'],  'units' => (int)$r['vmw_units']],
+                            ['count' => (int)($r['pmx_count'] ?? 0),  'units' => (int)($r['pmx_units'] ?? 0)],
                         ];
                         // Per-category unit label wrappers (danger for increase, warning for decrease)
-                        $hvLabelStart = $hvLabelEnd = $diLabelStart = $diLabelEnd = $m365LabelStart = $m365LabelEnd = $vmwLabelStart = $vmwLabelEnd = '';
+                        $hvLabelStart = $hvLabelEnd = $diLabelStart = $diLabelEnd = $m365LabelStart = $m365LabelEnd = $vmwLabelStart = $vmwLabelEnd = $pmxLabelStart = $pmxLabelEnd = '';
                         if ((int)$r['hv_count'] > (int)$r['hv_units']) { $hvLabelStart = '<span class="label label-danger" style="display:inline-block;padding:4px 6px">'; $hvLabelEnd = '</span>'; }
                         else if ((int)$r['hv_count'] < (int)$r['hv_units']) { $hvLabelStart = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">'; $hvLabelEnd = '</span>'; }
                         if ((int)$r['di_count'] > (int)$r['di_units']) { $diLabelStart = '<span class="label label-danger" style="display:inline-block;padding:4px 6px">'; $diLabelEnd = '</span>'; }
@@ -2940,6 +2943,8 @@ function eazybackup_output($vars)
                         else if ((int)$r['m365_count'] < (int)$r['m365_units']) { $m365LabelStart = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">'; $m365LabelEnd = '</span>'; }
                         if ((int)$r['vmw_count'] > (int)$r['vmw_units']) { $vmwLabelStart = '<span class="label label-danger" style="display:inline-block;padding:4px 6px">'; $vmwLabelEnd = '</span>'; }
                         else if ((int)$r['vmw_count'] < (int)$r['vmw_units']) { $vmwLabelStart = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">'; $vmwLabelEnd = '</span>'; }
+                        if ((int)($r['pmx_count'] ?? 0) > (int)($r['pmx_units'] ?? 0)) { $pmxLabelStart = '<span class="label label-danger" style="display:inline-block;padding:4px 6px">'; $pmxLabelEnd = '</span>'; }
+                        else if ((int)($r['pmx_count'] ?? 0) < (int)($r['pmx_units'] ?? 0)) { $pmxLabelStart = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">'; $pmxLabelEnd = '</span>'; }
                         $adjParts = [];
                         foreach ($cats as $pair) {
                             $c = $pair['count']; $u = $pair['units'];
@@ -2952,26 +2957,39 @@ function eazybackup_output($vars)
                             $adjParts[] = ($delta !== 0 ? ($labelStart ?: '') . $deltaText . ($labelEnd ?: '') : '-');
                         }
 
+                        // Build grace badges
+                        $badge = function ($dueNow, $grace, $days) {
+                            if ((int)$dueNow > 0) {
+                                return ' <span class="label label-danger" style="display:inline-block;padding:2px 4px">Due now +' . (int)$dueNow . '</span>';
+                            } elseif ((int)$grace > 0) {
+                                $d = (int)$days; $txt = $d > 0 ? ($d . ' days') : 'due';
+                                return ' <span class="label label-warning" style="display:inline-block;padding:2px 4px">Grace ' . (int)$grace . ' (' . $txt . ')</span>';
+                            }
+                            return '';
+                        };
+
                         $html .= '<tr>'
                               . '<td>' . $e($r['product_name']) . '</td>'
                               . '<td><a href="' . $e($serviceLink) . '">' . $e($r['username']) . '</a></td>'
                               . '<td class="text-right">' . $e($r['total_bytes_hr'] ?? '') . '<div class="text-muted small">' . (int)$r['total_bytes'] . ' bytes</div></td>'
                               . '<td class="text-right">' . ($sLabelStart ?: '') . $storageUnits . ($sLabelEnd ?: '') . '</td>'
                               . '<td class="text-right">' . $devices . '</td>'
-                              . '<td class="text-right">' . $deviceBillingDisplay . '</td>'
+                              . '<td class="text-right">' . $deviceBillingDisplay . $badge(($r['devices_due_now'] ?? 0), ($r['devices_grace'] ?? 0), ($r['devices_grace_days'] ?? 0)) . '</td>'
                               . '<td class="text-right">' . (int)$r['hv_count'] . '</td>'
-                              . '<td class="text-right">' . ($hvLabelStart ?: '') . (int)$r['hv_units'] . ($hvLabelEnd ?: '') . '</td>'
+                              . '<td class="text-right">' . ($hvLabelStart ?: '') . (int)$r['hv_units'] . ($hvLabelEnd ?: '') . $badge(($r['hv_due_now'] ?? 0), ($r['hv_grace'] ?? 0), ($r['hv_grace_days'] ?? 0)) . '</td>'
                               . '<td class="text-right">' . (int)$r['di_count'] . '</td>'
-                              . '<td class="text-right">' . ($diLabelStart ?: '') . (int)$r['di_units'] . ($diLabelEnd ?: '') . '</td>'
+                              . '<td class="text-right">' . ($diLabelStart ?: '') . (int)$r['di_units'] . ($diLabelEnd ?: '') . $badge(($r['di_due_now'] ?? 0), ($r['di_grace'] ?? 0), ($r['di_grace_days'] ?? 0)) . '</td>'
                               . '<td class="text-right">' . (int)$r['m365_count'] . '</td>'
-                              . '<td class="text-right">' . ($m365LabelStart ?: '') . (int)$r['m365_units'] . ($m365LabelEnd ?: '') . '</td>'
+                              . '<td class="text-right">' . ($m365LabelStart ?: '') . (int)$r['m365_units'] . ($m365LabelEnd ?: '') . $badge(($r['m365_due_now'] ?? 0), ($r['m365_grace'] ?? 0), ($r['m365_grace_days'] ?? 0)) . '</td>'
                               . '<td class="text-right">' . (int)$r['vmw_count'] . '</td>'
-                              . '<td class="text-right">' . ($vmwLabelStart ?: '') . (int)$r['vmw_units'] . ($vmwLabelEnd ?: '') . '</td>'
+                              . '<td class="text-right">' . ($vmwLabelStart ?: '') . (int)$r['vmw_units'] . ($vmwLabelEnd ?: '') . $badge(($r['vmw_due_now'] ?? 0), ($r['vmw_grace'] ?? 0), ($r['vmw_grace_days'] ?? 0)) . '</td>'
+                              . '<td class="text-right">' . (int)($r['pmx_count'] ?? 0) . '</td>'
+                              . '<td class="text-right">' . ($pmxLabelStart ?: '') . (int)($r['pmx_units'] ?? 0) . ($pmxLabelEnd ?: '') . $badge(($r['pmx_due_now'] ?? 0), ($r['pmx_grace'] ?? 0), ($r['pmx_grace_days'] ?? 0)) . '</td>'
                               . '<td class="text-right">' . implode(' | ', array_merge([$sDeltaText, $dDeltaText], $adjParts)) . '</td>'
                               . '</tr>';
                     }
                 } else {
-                    $html .= '<tr><td colspan="15" class="text-center text-muted">No results</td></tr>';
+                    $html .= '<tr><td colspan="17" class="text-center text-muted">No results</td></tr>';
                 }
                 $html .= '</tbody></table></div>';
                 $html .= '<div class="mt-2">' . $pagination . '</div>';

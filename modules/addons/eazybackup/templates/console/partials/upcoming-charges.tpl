@@ -3,7 +3,7 @@
 <div class="bg-[#11182759] p-4 rounded-lg shadow mb-6">
   <div class="flex items-center justify-between mb-3">
     <h3 class="text-md font-medium text-gray-300">Upcoming Charges</h3>
-    <a href="{$modulelink}&a=notifications" class="text-sky-400 text-sm hover:underline">View all</a>
+    {* <a href="{$modulelink}&a=notifications" class="text-sky-400 text-sm hover:underline">View all</a> *}
   </div>
   <div class="space-y-2">
     {foreach from=$upcomingCharges item=row}

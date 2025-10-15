@@ -42,6 +42,8 @@ return (function () {
 		'm365_units'     => 'b.m365_units',
 		'vmw'            => 'vmw.vmw_count',
 		'vmw_units'      => 'b.vmw_units',
+		'pmx'            => 'pmx.pmx_count',
+		'pmx_units'      => 'b.pmx_units',
 	];
 	$orderByExpr = $sortMap[$sort] ?? $sortMap['username'];
 
@@ -171,13 +173,37 @@ return (function () {
 			GROUP BY BINARY i.username
 		) vmw ON BINARY vmw.username = u.username
 		LEFT JOIN (
+			SELECT username, COUNT(*) AS pmx_count
+			FROM comet_items
+			WHERE type='engine1/proxmox' AND username IS NOT NULL AND username<>''
+			GROUP BY BINARY username
+		) pmx ON BINARY pmx.username = u.username
+		LEFT JOIN (
+			SELECT username,
+			       SUM(CASE WHEN category='device' AND grace_expires_at>=NOW() THEN 1 ELSE 0 END) AS device_grace_active,
+			       MIN(CASE WHEN category='device' AND grace_expires_at>=NOW() THEN grace_expires_at END) AS device_grace_earliest,
+			       SUM(CASE WHEN category='addon' AND entity_key LIKE 'disk_image%'  AND grace_expires_at>=NOW() THEN 1 ELSE 0 END) AS di_grace_active,
+			       MIN(CASE WHEN category='addon' AND entity_key LIKE 'disk_image%'  AND grace_expires_at>=NOW() THEN grace_expires_at END) AS di_grace_earliest,
+			       SUM(CASE WHEN category='addon' AND entity_key LIKE 'hyperv_vm%'   AND grace_expires_at>=NOW() THEN 1 ELSE 0 END) AS hv_grace_active,
+			       MIN(CASE WHEN category='addon' AND entity_key LIKE 'hyperv_vm%'   AND grace_expires_at>=NOW() THEN grace_expires_at END) AS hv_grace_earliest,
+			       SUM(CASE WHEN category='addon' AND entity_key LIKE 'vmware_vm%'   AND grace_expires_at>=NOW() THEN 1 ELSE 0 END) AS vmw_grace_active,
+			       MIN(CASE WHEN category='addon' AND entity_key LIKE 'vmware_vm%'   AND grace_expires_at>=NOW() THEN grace_expires_at END) AS vmw_grace_earliest,
+			       SUM(CASE WHEN category='addon' AND entity_key LIKE 'proxmox_vm%'  AND grace_expires_at>=NOW() THEN 1 ELSE 0 END) AS pmx_grace_active,
+			       MIN(CASE WHEN category='addon' AND entity_key LIKE 'proxmox_vm%'  AND grace_expires_at>=NOW() THEN grace_expires_at END) AS pmx_grace_earliest,
+			       SUM(CASE WHEN category='addon' AND entity_key LIKE 'm365_accounts%' AND grace_expires_at>=NOW() THEN 1 ELSE 0 END) AS m365_grace_active,
+			       MIN(CASE WHEN category='addon' AND entity_key LIKE 'm365_accounts%' AND grace_expires_at>=NOW() THEN grace_expires_at END) AS m365_grace_earliest
+			FROM eb_billing_grace
+			GROUP BY BINARY username
+		) gr ON BINARY gr.username = u.username
+		LEFT JOIN (
 			SELECT hco.relid AS service_id,
 			       SUM(CASE WHEN hco.configid IN (61,67)  THEN hco.qty ELSE 0 END) AS storage_units,
                            SUM(CASE WHEN hco.configid IN (88,89,93)  THEN hco.qty ELSE 0 END) AS device_units,
-			       SUM(CASE WHEN hco.configid IN (97,82)  THEN hco.qty ELSE 0 END) AS hv_units,
-			       SUM(CASE WHEN hco.configid IN (91,94)  THEN hco.qty ELSE 0 END) AS di_units,
-			       SUM(CASE WHEN hco.configid IN (60,59)  THEN hco.qty ELSE 0 END) AS m365_units,
-			       SUM(CASE WHEN hco.configid IN (99,101) THEN hco.qty ELSE 0 END) AS vmw_units
+		       SUM(CASE WHEN hco.configid IN (97,82)  THEN hco.qty ELSE 0 END) AS hv_units,
+		       SUM(CASE WHEN hco.configid IN (91,94)  THEN hco.qty ELSE 0 END) AS di_units,
+		       SUM(CASE WHEN hco.configid IN (60,59)  THEN hco.qty ELSE 0 END) AS m365_units,
+		       SUM(CASE WHEN hco.configid IN (99,101) THEN hco.qty ELSE 0 END) AS vmw_units,
+		       SUM(CASE WHEN hco.configid IN (102)    THEN hco.qty ELSE 0 END) AS pmx_units
 			FROM tblhostingconfigoptions hco
 			GROUP BY hco.relid
 		) b ON b.service_id = h.id
@@ -238,9 +264,15 @@ $where[] = 'p.id <> 48';
 		. 'p.id AS product_id, p.name AS product_name, u.username, '
 		. 'COALESCE(v.total_bytes,0) AS total_bytes, '
 		. 'COALESCE(d.device_count,0) AS device_count, '
-		. 'COALESCE(hv.hv_count,0) AS hv_count, COALESCE(i.di_count,0) AS di_count, COALESCE(i.m365_count,0) AS m365_count, COALESCE(vmw.vmw_count,0) AS vmw_count, '
+		. 'COALESCE(hv.hv_count,0) AS hv_count, COALESCE(i.di_count,0) AS di_count, COALESCE(i.m365_count,0) AS m365_count, COALESCE(vmw.vmw_count,0) AS vmw_count, COALESCE(pmx.pmx_count,0) AS pmx_count, '
 		. 'COALESCE(b.storage_units,0) AS storage_units, COALESCE(b.device_units,0) AS device_units, '
-		. 'COALESCE(b.hv_units,0) AS hv_units, COALESCE(b.di_units,0) AS di_units, COALESCE(b.m365_units,0) AS m365_units, COALESCE(b.vmw_units,0) AS vmw_units, '
+		. 'COALESCE(b.hv_units,0) AS hv_units, COALESCE(b.di_units,0) AS di_units, COALESCE(b.m365_units,0) AS m365_units, COALESCE(b.vmw_units,0) AS vmw_units, COALESCE(b.pmx_units,0) AS pmx_units, '
+		. 'COALESCE(gr.device_grace_active,0) AS device_grace_active, gr.device_grace_earliest, '
+		. 'COALESCE(gr.di_grace_active,0) AS di_grace_active, gr.di_grace_earliest, '
+		. 'COALESCE(gr.hv_grace_active,0) AS hv_grace_active, gr.hv_grace_earliest, '
+		. 'COALESCE(gr.vmw_grace_active,0) AS vmw_grace_active, gr.vmw_grace_earliest, '
+		. 'COALESCE(gr.pmx_grace_active,0) AS pmx_grace_active, gr.pmx_grace_earliest, '
+		. 'COALESCE(gr.m365_grace_active,0) AS m365_grace_active, gr.m365_grace_earliest, '
 		. 'h.id AS service_id, h.userid AS user_id '
 		. $sqlBase . ' '
 		. $whereSql . ' '
@@ -263,6 +295,62 @@ $productRows = DB::select($productsSql, $baseParams);
 
 	$rowsOut = [];
 	foreach ($rows as $r) {
+		$nowTs = time();
+		$daysLeft = function ($earliest) use ($nowTs) {
+			if (!$earliest) return 0;
+			$ts = strtotime((string)$earliest);
+			if ($ts === false) return 0;
+			$delta = $ts - $nowTs;
+			return $delta > 0 ? (int)ceil($delta / 86400) : 0;
+		};
+
+		$devUsed = (int)$r->device_count;
+		$devBilled = (int)$r->device_units;
+		$devDelta = max(0, $devUsed - $devBilled);
+		$devGraceActive = (int)($r->device_grace_active ?? 0);
+		$devGraceCovered = min($devDelta, $devGraceActive);
+		$devDueNow = max(0, $devDelta - $devGraceCovered);
+		$devGraceDaysLeft = $devGraceCovered > 0 ? $daysLeft($r->device_grace_earliest ?? null) : 0;
+
+		$diUsed = (int)$r->di_count;
+		$diBilled = (int)$r->di_units;
+		$diDelta = max(0, $diUsed - $diBilled);
+		$diGraceActive = (int)($r->di_grace_active ?? 0);
+		$diGraceCovered = min($diDelta, $diGraceActive);
+		$diDueNow = max(0, $diDelta - $diGraceCovered);
+		$diGraceDaysLeft = $diGraceCovered > 0 ? $daysLeft($r->di_grace_earliest ?? null) : 0;
+
+		$hvUsed = (int)$r->hv_count;
+		$hvBilled = (int)$r->hv_units;
+		$hvDelta = max(0, $hvUsed - $hvBilled);
+		$hvGraceActive = (int)($r->hv_grace_active ?? 0);
+		$hvGraceCovered = min($hvDelta, $hvGraceActive);
+		$hvDueNow = max(0, $hvDelta - $hvGraceCovered);
+		$hvGraceDaysLeft = $hvGraceCovered > 0 ? $daysLeft($r->hv_grace_earliest ?? null) : 0;
+
+		$vmwUsed = (int)$r->vmw_count;
+		$vmwBilled = (int)$r->vmw_units;
+		$vmwDelta = max(0, $vmwUsed - $vmwBilled);
+		$vmwGraceActive = (int)($r->vmw_grace_active ?? 0);
+		$vmwGraceCovered = min($vmwDelta, $vmwGraceActive);
+		$vmwDueNow = max(0, $vmwDelta - $vmwGraceCovered);
+		$vmwGraceDaysLeft = $vmwGraceCovered > 0 ? $daysLeft($r->vmw_grace_earliest ?? null) : 0;
+
+		$pmxUsed = (int)($r->pmx_count ?? 0);
+		$pmxBilled = (int)($r->pmx_units ?? 0);
+		$pmxDelta = max(0, $pmxUsed - $pmxBilled);
+		$pmxGraceActive = (int)($r->pmx_grace_active ?? 0);
+		$pmxGraceCovered = min($pmxDelta, $pmxGraceActive);
+		$pmxDueNow = max(0, $pmxDelta - $pmxGraceCovered);
+		$pmxGraceDaysLeft = $pmxGraceCovered > 0 ? $daysLeft($r->pmx_grace_earliest ?? null) : 0;
+
+		$m365Used = (int)$r->m365_count;
+		$m365Billed = (int)$r->m365_units;
+		$m365Delta = max(0, $m365Used - $m365Billed);
+		$m365GraceActive = (int)($r->m365_grace_active ?? 0);
+		$m365GraceCovered = min($m365Delta, $m365GraceActive);
+		$m365DueNow = max(0, $m365Delta - $m365GraceCovered);
+		$m365GraceDaysLeft = $m365GraceCovered > 0 ? $daysLeft($r->m365_grace_earliest ?? null) : 0;
 		$rowsOut[] = [
 			'product_id'     => (int)$r->product_id,
 			'product_name'   => (string)$r->product_name,
@@ -274,14 +362,40 @@ $productRows = DB::select($productsSql, $baseParams);
 			'di_count'       => (int)$r->di_count,
 			'm365_count'     => (int)$r->m365_count,
 			'vmw_count'      => (int)$r->vmw_count,
+			'pmx_count'      => (int)($r->pmx_count ?? 0),
 			'storage_units'  => (int)$r->storage_units,
 			'device_units'   => (int)$r->device_units,
 			'hv_units'       => (int)$r->hv_units,
 			'di_units'       => (int)$r->di_units,
 			'm365_units'     => (int)$r->m365_units,
 			'vmw_units'      => (int)$r->vmw_units,
+			'pmx_units'      => (int)($r->pmx_units ?? 0),
 			'service_id'     => (int)$r->service_id,
 			'user_id'        => (int)$r->user_id,
+			'devices_delta'        => $devDelta,
+			'devices_grace'        => $devGraceCovered,
+			'devices_due_now'      => $devDueNow,
+			'devices_grace_days'   => $devGraceDaysLeft,
+			'di_delta'             => $diDelta,
+			'di_grace'             => $diGraceCovered,
+			'di_due_now'           => $diDueNow,
+			'di_grace_days'        => $diGraceDaysLeft,
+			'hv_delta'             => $hvDelta,
+			'hv_grace'             => $hvGraceCovered,
+			'hv_due_now'           => $hvDueNow,
+			'hv_grace_days'        => $hvGraceDaysLeft,
+			'vmw_delta'            => $vmwDelta,
+			'vmw_grace'            => $vmwGraceCovered,
+			'vmw_due_now'          => $vmwDueNow,
+			'vmw_grace_days'       => $vmwGraceDaysLeft,
+			'pmx_delta'            => $pmxDelta,
+			'pmx_grace'            => $pmxGraceCovered,
+			'pmx_due_now'          => $pmxDueNow,
+			'pmx_grace_days'       => $pmxGraceDaysLeft,
+			'm365_delta'           => $m365Delta,
+			'm365_grace'           => $m365GraceCovered,
+			'm365_due_now'         => $m365DueNow,
+			'm365_grace_days'      => $m365GraceDaysLeft,
 		];
 	}
 
@@ -316,6 +430,8 @@ $productRows = DB::select($productsSql, $baseParams);
 		'm365_units'    => $buildUrl(['sort' => 'm365_units',    'dir' => ($sort === 'm365_units'    ? $toggleDir : 'asc')]),
 		'vmw'           => $buildUrl(['sort' => 'vmw',           'dir' => ($sort === 'vmw'           ? $toggleDir : 'asc')]),
 		'vmw_units'     => $buildUrl(['sort' => 'vmw_units',     'dir' => ($sort === 'vmw_units'     ? $toggleDir : 'asc')]),
+		'pmx'           => $buildUrl(['sort' => 'pmx',           'dir' => ($sort === 'pmx'           ? $toggleDir : 'asc')]),
+		'pmx_units'     => $buildUrl(['sort' => 'pmx_units',     'dir' => ($sort === 'pmx_units'     ? $toggleDir : 'asc')]),
 	];
 
 	$totalPages = max(1, (int)ceil($totalRows / $perPage));

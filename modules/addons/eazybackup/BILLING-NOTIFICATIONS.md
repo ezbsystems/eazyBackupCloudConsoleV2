@@ -86,7 +86,10 @@ File: `bin/comet_ws_worker.php`
 - Calls service via shims at key events:
   - `SEVT_DEVICE_NEW` → `eb_notify_device_registered($pdo, $profile, $username, $deviceHash, $payload)`
   - `SEVT_ACCOUNT_UPDATED` → `eb_notify_account_updated($pdo, $profile, $username)`
-  - `SEVT_JOB_*END*` → `eb_notify_backup_completed($pdo, $profile, $username)`
+  - Job end (terminal): `SEVT_JOB_COMPLETED|COMPLETE|FINISH|END|FAILED|CANCELLED|ABORTED` → `eb_notify_backup_completed($pdo, $profile, $username)`
+- On job-end, the worker first refreshes vault usage (`syncUserVaults`) and then triggers the storage scan.
+- For non-success terminal jobs, the worker performs a one-shot delayed re-scan (~3s) to tolerate stats lag.
+- When `EB_WS_DEBUG=1`, notification debug is mirrored (`EB_NOTIFY_DEBUG=1`) so storage scan decisions are logged.
 
 The worker remains focused on ingesting events and persisting live state. All email logic lives in notifications components.
 
@@ -94,6 +97,7 @@ The worker remains focused on ingesting events and persisting live state. All em
 File: `bin/notifications_storage_sweep.php`
 - Iterates active services for product IDs `{52, 57, 53, 54, 58, 60}` and calls `scanStorageForUser()` to evaluate storage thresholds/overage.
 - Use this as a once-daily cron to backstop missed events.
+- Supports CLI flags: `--user=<username>` to target a single user and `--debug` to enable verbose logs.
 
 ---
 
@@ -108,6 +112,7 @@ File: `bin/notifications_storage_sweep.php`
 - Default threshold percent: 90% (configurable).
 - Milestones: K ∈ { paidTiB, paidTiB+1, ... } with threshold TiB = `0.90 × K`.
 - Trigger when usage first crosses a milestone threshold.
+- Warning projections: for milestone `K` warnings, the projected next tier is `K+1` (not simply `ceil(usage)`). Pricing deltas reflect the incremental units from current paid tier to `K+1`.
 
 ### Leap Handling
 - If a backup jumps usage across multiple milestones in a single check or if usage ≥ paidTiB, send a single `storage_overage` email that states the current usage and paid tier.
@@ -119,7 +124,7 @@ File: `bin/notifications_storage_sweep.php`
 
 ### Categories
 - Device Added — immediate on device registration
-- Add-on Enabled — on account/profile updates that enable add-ons
+- Add-on Enabled — when usage exceeds billed quantity for the add-on (compares WHMCS config options vs Comet usage)
 - Storage Warning — at milestone threshold (e.g., 90% of K)
 - Storage Overage — usage ≥ paid tier or leap across milestones
 
@@ -221,8 +226,8 @@ In `eazybackup_config()` (Addon Settings):
 - Storage milestones: `storage:tib_<K>`
 
 ### Behavior
-- Attempt to reserve a `(username,category,key)` before sending.
-- If reserved, proceed to `SendEmail` and attach the `email_log_id` if available.
+- Attempt to reserve a `(username,category,key)` before sending; the reservation is created with `status='pending'`.
+- If reserved, proceed to `SendEmail`, attach `email_log_id` when available, then mark the row `status='sent'`.
 - If duplicate, skip to avoid re-sending.
 
 ---

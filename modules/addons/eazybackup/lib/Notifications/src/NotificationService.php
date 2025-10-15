@@ -284,8 +284,9 @@ class NotificationService
             ->where('relid', $svc['service_id'])
 			->where('configid', 67)
             ->value('optionid');
-        $requiredTiB = (int)max(0, ceil($usageTiB));
-        $deltaTiB = max(0, $requiredTiB - $paidTiB);
+        // For a warning at milestone K, project the NEXT tier (K+1), not ceil(usage)
+        $projectedTiB = (int)($k + 1);
+        $deltaTiB = max(0, $projectedTiB - $paidTiB);
         $projected = $optionRelid ? PricingCalculator::priceDeltaForConfigOption($svc['service_id'], $optionRelid, $deltaTiB) : 0.0;
 
 		$rowId = IdempotencyStore::reserve($username, 'storage', $key, [
@@ -301,7 +302,7 @@ class NotificationService
                 'usage_tib'=>$usageTiB,
                 'threshold_k'=>$k,
                 'projected_monthly_delta'=>$projected,
-                'projected_tib'=>$requiredTiB,
+                'projected_tib'=>$projectedTiB,
             ], JSON_UNESCAPED_SLASHES),
         ]);
 		$this->debug("warning reserve key={$key} rowId=" . ($rowId ?? 0));
@@ -315,7 +316,7 @@ class NotificationService
                 'current_usage_tib' => $usageTiB,
                 'threshold_k_tib' => $k,
                 'projected_monthly_delta' => $projected,
-                'projected_tib' => $requiredTiB,
+                'projected_tib' => $projectedTiB,
                 'recipients' => implode(',', $recips),
             ]);
 			$emailLogId = (int)($resp['id'] ?? 0);
