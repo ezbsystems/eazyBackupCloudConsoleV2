@@ -12,10 +12,7 @@
       <!-- Content Container -->
       <div class="bg-gray-800 shadow rounded-b p-4 mx-4 mb-4">
         <!-- Loader icon, hidden by default -->
-        <div id="loader" class="loader text-center hidden">
-          <img src="{$BASE_PATH_IMG}/loader.svg" alt="Loading..." class="mx-auto mb-2">
-          <p class="text-gray-300">Processing your request...</p>
-        </div>
+        <div id="loader" class="loader text-center hidden"></div>
 
         <div class="col-form w-full max-w-lg">
           {if !empty($errors["error"])}
@@ -104,7 +101,7 @@
             {/if}
           </div>
 
-          <form id="whitelabelSignupForm" method="post" action="{$modulelink}&a=whitelabel-signup" enctype="multipart/form-data" class="space-y-4">
+          <form id="whitelabelSignupForm" method="post" action="{if isset($form_action) && $form_action ne ''}{$form_action}{else}{$modulelink}&a=whitelabel-signup{/if}" enctype="multipart/form-data" class="space-y-4">
             <!-- Product Name -->
             <div class="mb-4 {if !empty($errors["product_name"])}border-red-500{/if}">
               <label for="product_name" class="block text-sm font-medium text-gray-300 mb-1">
@@ -313,7 +310,7 @@
                   Custom Control Panel Domain
                 </label>
                 <div class="flex items-center">
-                  <input type="text" id="custom_domain" name="custom_domain" value="{$custom_domain}" readonly class="w-full px-3 py-2 border border-gray-600 text-gray-300 bg-gray-700 rounded focus:outline-none focus:ring-0 focus:border-sky-600">
+                  <input type="text" id="custom_domain" name="custom_domain" value="{$custom_domain|default:($generated_subdomain|cat:'.'|cat:$WHMCSAppConfig.whitelabel_base_domain)}" readonly class="w-full px-3 py-2 border border-gray-600 text-gray-300 bg-gray-700 rounded focus:outline-none focus:ring-0 focus:border-sky-600">
                   <button type="button" id="copyButton" class="ml-2 inline-flex items-center px-3 py-2 border border-transparent text-xs font-medium rounded text-white bg-sky-600 hover:bg-sky-700 focus:outline-none"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 0 0-3.375-3.375h-1.5a1.125 1.125 0 0 1-1.125-1.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H9.75" />
                 </svg>
@@ -324,6 +321,9 @@
                 <li class="text-xs text-gray-300">To access it using your own domain, create a CNAME record in your DNS settings.</li>
               </ul>
               </div>
+              
+              <!-- Hidden: Suggested subdomain for new intake route -->
+              <input type="hidden" name="subdomain" value="{$generated_subdomain}">
 
               <!-- Page Title -->
               <div class="mb-4 {if !empty($errors["page_title"])}border-red-500{/if}">
@@ -501,10 +501,16 @@
 
 <!-- JavaScript to show loader, sync color inputs, copy domain, and toggle SMTP section -->
 <script>
-  document.getElementById("whitelabelSignupForm").addEventListener("submit", function(event) {
-    document.getElementById("loader").classList.remove("hidden");
-    document.querySelector(".col-form").style.display = "none";
-  });
+  (function(){
+    try{
+      var form = document.getElementById('whitelabelSignupForm');
+      if (!form) return;
+      form.addEventListener('submit', function(){
+        try { if (window.ebShowLoader) window.ebShowLoader(document.body, 'Submitting…'); } catch(_){ }
+        try { var cf = document.querySelector('.col-form'); if (cf) cf.style.opacity = '0.5'; } catch(_){ }
+      });
+    } catch(_){ }
+  })();
 
   // Sync text and color picker for hex inputs
   function syncColor(textInputId, colorPickerId, previewId) {
@@ -545,6 +551,8 @@
     }
   });
 </script>
+
+<script src="modules/addons/eazybackup/templates/assets/js/ui.js"></script>
 
 <style>
   .col-form {

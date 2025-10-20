@@ -26,10 +26,18 @@ include_once 'config.php';
  *  Autoload for eazyBackup\CometCompat shim classes
  *  ------------------------------------------------------------------ */
 
-// Prefer Composer autoload if present
+// Prefer Composer autoload if present, then fall back to Comet server module vendor, then WHMCS root
 $__addonAutoload = __DIR__ . '/vendor/autoload.php';
-if (is_file($__addonAutoload)) {
-    require_once $__addonAutoload;
+if (is_file($__addonAutoload)) { require_once $__addonAutoload; }
+// If CometAPI isn't available yet, try the Comet server module's vendor autoloader
+if (!class_exists('CometAPI')) {
+    $__cometServerAutoload = dirname(__DIR__, 2) . '/servers/comet/vendor/autoload.php';
+    if (is_file($__cometServerAutoload)) { require_once $__cometServerAutoload; }
+}
+// As a last resort, try the WHMCS root vendor
+if (!class_exists('CometAPI')) {
+    $__whmcsRootAutoload = dirname(__DIR__, 3) . '/vendor/autoload.php';
+    if (is_file($__whmcsRootAutoload)) { require_once $__whmcsRootAutoload; }
 }
 
 // Always register a tiny PSR-4 autoloader for our shim namespace
@@ -45,6 +53,17 @@ spl_autoload_register(function ($class) {
     if (is_file($file)) {
         require_once $file;
     }
+});
+
+// PSR-4 autoload for EazyBackup\Whitelabel services
+spl_autoload_register(function ($class) {
+    $prefix  = 'EazyBackup\\Whitelabel\\';
+    $baseDir = __DIR__ . '/lib/Whitelabel/';
+    $len = strlen($prefix);
+    if (strncmp($prefix, $class, $len) !== 0) { return; }
+    $relative = substr($class, $len);
+    $file = $baseDir . str_replace('\\', '/', $relative) . '.php';
+    if (is_file($file)) { require_once $file; }
 });
 
 
@@ -458,6 +477,31 @@ function eazybackup_migrate_schema(): void {
         eb_add_index_if_missing('mod_eazy_consolidated_billing', "CREATE INDEX IF NOT EXISTS idx_enabled ON mod_eazy_consolidated_billing (enabled)");
     }
 
+    // --- eb_client_notify_prefs (per-client notification preferences) ---
+    if (!$schema->hasTable('eb_client_notify_prefs')) {
+        $schema->create('eb_client_notify_prefs', function (Blueprint $t) {
+            $t->integer('client_id')->unsigned();
+            $t->tinyInteger('notify_storage')->default(1);
+            $t->tinyInteger('notify_devices')->default(1);
+            $t->tinyInteger('notify_addons')->default(1);
+            $t->string('routing_policy', 16)->default('billing'); // primary|billing|technical|custom
+            $t->text('custom_recipients')->nullable();
+            $t->tinyInteger('show_upcoming_charges')->default(1);
+            $t->timestamp('created_at')->nullable()->useCurrent();
+            $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
+            $t->primary('client_id');
+            $t->index('routing_policy','idx_notify_route');
+        });
+    } else {
+        eb_add_column_if_missing('eb_client_notify_prefs','notify_storage',         fn(Blueprint $t)=>$t->tinyInteger('notify_storage')->default(1));
+        eb_add_column_if_missing('eb_client_notify_prefs','notify_devices',         fn(Blueprint $t)=>$t->tinyInteger('notify_devices')->default(1));
+        eb_add_column_if_missing('eb_client_notify_prefs','notify_addons',          fn(Blueprint $t)=>$t->tinyInteger('notify_addons')->default(1));
+        eb_add_column_if_missing('eb_client_notify_prefs','routing_policy',         fn(Blueprint $t)=>$t->string('routing_policy',16)->default('billing'));
+        eb_add_column_if_missing('eb_client_notify_prefs','custom_recipients',      fn(Blueprint $t)=>$t->text('custom_recipients')->nullable());
+        eb_add_column_if_missing('eb_client_notify_prefs','show_upcoming_charges',  fn(Blueprint $t)=>$t->tinyInteger('show_upcoming_charges')->default(1));
+        eb_add_index_if_missing('eb_client_notify_prefs', "CREATE INDEX IF NOT EXISTS idx_notify_route ON eb_client_notify_prefs (routing_policy)");
+    }
+
     // --- eb_notifications_sent ---
     if (!$schema->hasTable('eb_notifications_sent')) {
         $schema->create('eb_notifications_sent', function (Blueprint $t) {
@@ -522,6 +566,65 @@ function eazybackup_migrate_schema(): void {
         eb_add_index_if_missing('eb_billing_grace', "CREATE INDEX IF NOT EXISTS idx_service ON eb_billing_grace (service_id)");
         eb_add_index_if_missing('eb_billing_grace', "CREATE INDEX IF NOT EXISTS idx_user_cat ON eb_billing_grace (username, category)");
     }
+
+    // --- eb_whitelabel_tenants ---
+    if (!$schema->hasTable('eb_whitelabel_tenants')) {
+        $schema->create('eb_whitelabel_tenants', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->integer('client_id');
+            $t->enum('status', ['queued','building','active','failed','suspended','removing'])->default('queued');
+            $t->string('org_id',191)->nullable();
+            $t->string('subdomain',191);
+            $t->string('fqdn',255);
+            $t->string('custom_domain',255)->nullable();
+            $t->integer('product_id')->nullable();
+            $t->integer('server_id')->nullable();
+            $t->integer('servergroup_id')->nullable();
+            $t->string('comet_admin_user',191)->nullable();
+            $t->text('comet_admin_pass_enc')->nullable();
+            $t->json('brand_json')->nullable();
+            $t->json('email_json')->nullable();
+            $t->json('policy_ids_json')->nullable();
+            $t->json('storage_template_json')->nullable();
+            $t->string('idempotency_key',191);
+            $t->bigInteger('last_build_id')->nullable();
+            $t->timestamp('created_at')->nullable()->useCurrent();
+            $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
+            $t->index(['client_id','status'],'idx_wl_client_status');
+            $t->unique(['fqdn'],'uq_wl_fqdn');
+        });
+    }
+
+    // --- eb_whitelabel_builds ---
+    if (!$schema->hasTable('eb_whitelabel_builds')) {
+        $schema->create('eb_whitelabel_builds', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->bigInteger('tenant_id');
+            $t->enum('step', ['dns','nginx','cert','org','admin','branding','email','storage','whmcs','verify']);
+            $t->enum('status', ['queued','running','success','failed'])->default('queued');
+            $t->json('log_json')->nullable();
+            $t->text('last_error')->nullable();
+            $t->timestamp('started_at')->nullable();
+            $t->timestamp('finished_at')->nullable();
+            $t->string('idempotency_key',191);
+            $t->index(['tenant_id','step'],'idx_wlb_tenant_step');
+        });
+    }
+
+    // --- eb_whitelabel_assets ---
+    if (!$schema->hasTable('eb_whitelabel_assets')) {
+        $schema->create('eb_whitelabel_assets', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->bigInteger('tenant_id');
+            $t->enum('asset_type', ['logo','header','icon','tile','app_icon']);
+            $t->string('filename',255);
+            $t->string('comet_resource_hash',191)->nullable();
+            $t->string('mime',64)->nullable();
+            $t->integer('size')->nullable();
+            $t->timestamp('created_at')->nullable()->useCurrent();
+            $t->index(['tenant_id','asset_type'],'idx_wla_tenant_type');
+        });
+    }
 }
 
 /**
@@ -572,7 +675,7 @@ function eb_restore_settings(): void
 function eazybackup_ensure_permissions_schema() { /* removed */ }
 
 /**
- * Clamp a desired day-of-month to that month’s last day in a timezone-safe way.
+ * Clamp a desired day-of-month to that month's last day in a timezone-safe way.
  */
 function eb_clamp_day(int $year, int $month, int $dom): int {
     $last = (int) Carbon::create($year, $month, 1)->endOfMonth()->day;
@@ -744,7 +847,7 @@ function eazybackup_config()
         'description' => 'WHMCS addon module for eazyBackup',
         'author'      => 'eazyBackup Systems Ltd.',
         'language'    => 'english',
-        'version'     => '1.2', // bump so you can see the change
+        'version'     => '1.3', // white-label automation
         'fields'      => [
             'trialsignupgid' => [
                 'FriendlyName' => 'Trial Signup Product Group',
@@ -877,6 +980,162 @@ function eazybackup_config()
                 'Default' => '0',
                 'Description' => 'Days before add-on billing starts (0 to disable)'
             ],
+            // White-Label Automation settings
+            'whitelabel_enabled' => [
+                'FriendlyName' => 'White-Label: Enable',
+                'Type' => 'yesno',
+                'Description' => 'Enable White-Label Tenant automation and UI',
+            ],
+            // AWS Route 53
+            'aws_access_key_id' => [
+                'FriendlyName' => 'AWS Access Key ID',
+                'Type' => 'password',
+                'Size' => '60',
+                'Description' => 'Used for Route 53 DNS record management',
+            ],
+            'aws_secret_access_key' => [
+                'FriendlyName' => 'AWS Secret Access Key',
+                'Type' => 'password',
+                'Size' => '60',
+                'Description' => 'Stored encrypted by WHMCS',
+            ],
+            'aws_session_token' => [
+                'FriendlyName' => 'AWS Session Token (optional)',
+                'Type' => 'password',
+                'Size' => '120',
+                'Description' => 'If using temporary credentials, provide the session token',
+            ],
+            'aws_region' => [
+                'FriendlyName' => 'AWS Region',
+                'Type' => 'text',
+                'Size' => '32',
+                'Default' => 'us-east-1',
+            ],
+            'route53_hosted_zone_id' => [
+                'FriendlyName' => 'Route 53 Hosted Zone ID',
+                'Type' => 'text',
+                'Size' => '48',
+                'Description' => 'HostedZoneId for your base domain',
+            ],
+            'whitelabel_dns_target' => [
+                'FriendlyName' => 'DNS Target (CNAME)',
+                'Type' => 'text',
+                'Size' => '120',
+                'Description' => 'Target hostname for tenant CNAME records (e.g., proxy1.example.com)',
+            ],
+            'whitelabel_base_domain' => [
+                'FriendlyName' => 'Base Domain for Tenants',
+                'Type' => 'text',
+                'Size' => '60',
+                'Description' => 'e.g., examplebrand.tld',
+            ],
+            // Comet root admin
+            'comet_server_id' => [
+                'FriendlyName' => 'Comet Server (from WHMCS Servers)',
+                'Type' => 'dropdown',
+                'Options' => eazybackup_CometServersLoader(),
+                'Description' => 'Select a configured Comet server (System Settings → Servers). Preferred over legacy fields below.',
+            ],
+            'comet_root_url' => [
+                'FriendlyName' => 'Comet Root URL',
+                'Type' => 'text',
+                'Size' => '120',
+                'Description' => 'Deprecated – prefer Comet Server dropdown. e.g., https://panel.example.com/',
+            ],
+            'comet_root_admin' => [
+                'FriendlyName' => 'Comet Root Admin',
+                'Type' => 'text',
+                'Size' => '60',
+                'Description' => 'Deprecated – prefer Comet Server dropdown.',
+            ],
+            'comet_root_password' => [
+                'FriendlyName' => 'Comet Root Password',
+                'Type' => 'password',
+                'Size' => '60',
+                'Description' => 'Deprecated – prefer Comet Server dropdown.',
+            ],
+            // Host operations
+            'ops_mode' => [
+                'FriendlyName' => 'Ops Mode',
+                'Type' => 'dropdown',
+                'Options' => [ 'ssh' => 'SSH', 'sudo' => 'Local sudo script' ],
+                'Default' => 'ssh',
+            ],
+            'ops_ssh_host' => [
+                'FriendlyName' => 'Ops SSH Host',
+                'Type' => 'text',
+                'Size' => '120',
+            ],
+            'ops_ssh_user' => [
+                'FriendlyName' => 'Ops SSH User',
+                'Type' => 'text',
+                'Size' => '60',
+            ],
+            'ops_ssh_key_path' => [
+                'FriendlyName' => 'Ops SSH Key Path',
+                'Type' => 'text',
+                'Size' => '120',
+            ],
+            'ops_sudo_script' => [
+                'FriendlyName' => 'Ops sudo Script',
+                'Type' => 'text',
+                'Size' => '120',
+            ],
+            // Host ops extras
+            'certbot_email' => [
+                'FriendlyName' => 'Certbot Email',
+                'Type' => 'text',
+                'Size' => '120',
+                'Description' => 'Email address used for cert issuance/renewal',
+            ],
+            'nginx_upstream' => [
+                'FriendlyName' => 'Nginx Upstream',
+                'Type' => 'text',
+                'Size' => '120',
+                'Default' => 'http://obc_servers',
+                'Description' => 'Upstream to use when writing HTTPS vhost',
+            ],
+            'acme_selftest_ip' => [
+                'FriendlyName' => 'ACME Self-Test IP',
+                'Type' => 'text',
+                'Size' => '64',
+                'Description' => 'Optional. Sets ACME_SELFTEST_IP environment for cert issuance.',
+            ],
+            // WHMCS wiring
+            'whitelabel_template_pid' => [
+                'FriendlyName' => 'Template Product PID',
+                'Type' => 'text',
+                'Size' => '8',
+                'Description' => 'Product to clone per tenant (PID)',
+            ],
+            'server_module_name' => [
+                'FriendlyName' => 'Server Module Name',
+                'Type' => 'text',
+                'Size' => '40',
+                'Default' => 'comet',
+            ],
+            // DEV mode toggles
+            'whitelabel_dev_mode' => [
+                'FriendlyName' => 'DEV Mode',
+                'Type' => 'yesno',
+            ],
+            'whitelabel_dev_fixture_dir' => [
+                'FriendlyName' => 'DEV Fixtures Dir',
+                'Type' => 'text',
+                'Size' => '120',
+            ],
+            'whitelabel_dev_skip_dns' => [
+                'FriendlyName' => 'DEV: Skip DNS',
+                'Type' => 'yesno',
+            ],
+            'whitelabel_dev_skip_cert' => [
+                'FriendlyName' => 'DEV: Skip Certbot',
+                'Type' => 'yesno',
+            ],
+            'whitelabel_dev_skip_nginx' => [
+                'FriendlyName' => 'DEV: Skip nginx',
+                'Type' => 'yesno',
+            ],
         ],
     ];
 }
@@ -896,6 +1155,25 @@ function eazybackup_ProductGroupsLoader()
     }
 
     return $options;
+}
+
+/**
+ * Load Comet servers from WHMCS Servers (tblservers)
+ */
+function eazybackup_CometServersLoader(): array
+{
+    $opts = [];
+    try {
+        $rows = Capsule::table('tblservers')->where('type','comet')->orderBy('name','asc')->get();
+        foreach ($rows as $r) {
+            $label = trim((string)($r->name ?? ''));
+            $host  = trim((string)($r->hostname ?? ''));
+            if ($host !== '') { $label .= ' (' . $host . ')'; }
+            $opts[(string)$r->id] = $label;
+        }
+    } catch (\Throwable $_) { /* ignore */ }
+    if (empty($opts)) { $opts = ['' => '— No Comet servers found —']; }
+    return $opts;
 }
 
 /**
@@ -1134,6 +1412,92 @@ function eazybackup_clientarea(array $vars)
         // Simple client list of recent notifications (scoped)
         require_once __DIR__ . "/pages/notifications.php";
         exit; // script outputs HTML
+    } else if ($_REQUEST["a"] == "notify-settings") {
+        // Client-managed notification preferences
+        try {
+            if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) {
+                return [
+                    "pagetitle" => "Notification Preferences",
+                    "templatefile" => "templates/error",
+                    "requirelogin" => true,
+                    "vars" => ["error" => "Not authenticated"],
+                ];
+            }
+            $clientId = (int)$_SESSION['uid'];
+            $successful = false;
+            $errormessage = '';
+
+            if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+                $notify_storage = isset($_POST['notify_storage']) ? 1 : 0;
+                $notify_devices = isset($_POST['notify_devices']) ? 1 : 0;
+                $notify_addons  = isset($_POST['notify_addons'])  ? 1 : 0;
+                $routing_policy = isset($_POST['routing_policy']) ? strtolower(trim((string)$_POST['routing_policy'])) : 'billing';
+                if (!in_array($routing_policy, ['primary','billing','technical','custom'], true)) {
+                    $routing_policy = 'billing';
+                }
+                $custom_recipients = isset($_POST['custom_recipients']) ? trim((string)$_POST['custom_recipients']) : '';
+                $show_upcoming = isset($_POST['show_upcoming_charges']) ? 1 : 0;
+
+                try {
+                    Capsule::table('eb_client_notify_prefs')->updateOrInsert(
+                        ['client_id' => $clientId],
+                        [
+                            'notify_storage' => $notify_storage,
+                            'notify_devices' => $notify_devices,
+                            'notify_addons' => $notify_addons,
+                            'routing_policy' => $routing_policy,
+                            'custom_recipients' => $custom_recipients,
+                            'show_upcoming_charges' => $show_upcoming,
+                            'updated_at' => date('Y-m-d H:i:s'),
+                        ]
+                    );
+                    try { logActivity('eazybackup: Client updated notification preferences: storage=' . $notify_storage . ', devices=' . $notify_devices . ', addons=' . $notify_addons . ', routing=' . $routing_policy . ', upcoming=' . $show_upcoming, $clientId); } catch (\Throwable $_) {}
+                    $successful = true;
+                } catch (\Throwable $e) {
+                    $errormessage = 'Failed to save preferences.';
+                }
+            }
+
+            $prefs = [
+                'notify_storage' => 1,
+                'notify_devices' => 1,
+                'notify_addons' => 1,
+                'routing_policy' => 'billing',
+                'custom_recipients' => '',
+                'show_upcoming_charges' => 1,
+            ];
+            try {
+                $row = Capsule::table('eb_client_notify_prefs')->where('client_id', $clientId)->first();
+                if ($row) {
+                    $prefs['notify_storage'] = (int)$row->notify_storage;
+                    $prefs['notify_devices'] = (int)$row->notify_devices;
+                    $prefs['notify_addons']  = (int)$row->notify_addons;
+                    $prefs['routing_policy'] = (string)$row->routing_policy;
+                    $prefs['custom_recipients'] = (string)($row->custom_recipients ?? '');
+                    $prefs['show_upcoming_charges'] = (int)$row->show_upcoming_charges;
+                }
+            } catch (\Throwable $_) { /* defaults */ }
+
+            return [
+                "pagetitle" => "Notifications",
+                "breadcrumb" => ["index.php?m=eazybackup" => "eazyBackup"],
+                "templatefile" => "templates/clientarea/notify-settings",
+                "requirelogin" => true,
+                "forcessl" => true,
+                "vars" => array_merge($vars, [
+                    'prefs' => $prefs,
+                    'successful' => $successful,
+                    'errormessage' => $errormessage,
+                ]),
+            ];
+        } catch (\Throwable $e) {
+            return [
+                "pagetitle" => "Notifications",
+                "templatefile" => "templates/error",
+                "requirelogin" => true,
+                "vars" => ["error" => "Server error"],
+            ];
+        }
     } else if ($_REQUEST["a"] == "bulk_validate") {
         header('Content-Type: application/json');
         try {
@@ -1568,19 +1932,24 @@ function eazybackup_clientarea(array $vars)
             ];
         }
 
-        // Upcoming Charges panel data (last 30 days from sent log scoped to this client)
+        // Upcoming Charges panel data: show entries until grace_expires_at (when available), otherwise recent (30 days)
         $serviceIds = Capsule::table('tblhosting')
             ->where('userid', $clientId)
             ->where('domainstatus','Active')
             ->pluck('id');
         $upcomingCharges = [];
         try {
+            $now = date('Y-m-d H:i:s');
             $upcomingCharges = Capsule::table('eb_notifications_sent as n')
                 ->leftJoin('eb_billing_grace as g', function($j){ $j->on('g.username','=','n.username'); })
                 ->whereIn('n.service_id', $serviceIds)
-                ->where('n.created_at', '>=', date('Y-m-d H:i:s', strtotime('-30 days')))
+                ->where(function($q) use ($now){
+                    // keep if grace active OR no grace row (fallback to last 30 days)
+                    $q->whereNotNull('g.grace_expires_at')->where('g.grace_expires_at','>=',$now)
+                      ->orWhere(function($q2) use ($now){ $q2->whereNull('g.grace_expires_at')->where('n.created_at','>=', date('Y-m-d H:i:s', strtotime('-30 days'))); });
+                })
                 ->orderBy('n.created_at','desc')
-                ->limit(8)
+                ->limit(20)
                 ->get([
                     'n.created_at','n.category','n.subject',
                     'g.first_seen_at as grace_first_seen_at','g.grace_expires_at as grace_expires_at','g.grace_days as grace_days'
@@ -1604,6 +1973,13 @@ function eazybackup_clientarea(array $vars)
                 'devices' => $devices,
                 'accounts' => $accounts,
                 'upcomingCharges' => $upcomingCharges,
+                // Client notification prefs for template conditionals
+                'notifyPrefs' => (function() use ($clientId){
+                    try { $r = Capsule::table('eb_client_notify_prefs')->where('client_id', $clientId)->first(); if ($r) { return [
+                        'show_upcoming_charges' => (int)$r->show_upcoming_charges,
+                    ]; } } catch (\Throwable $_) {}
+                    return ['show_upcoming_charges' => 1];
+                })(),
             ]
         ];
 
@@ -1808,6 +2184,20 @@ function eazybackup_clientarea(array $vars)
 
     } else if ($_REQUEST["a"] == "whitelabel-signup") {
         return whitelabel_signup($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'whitelabel') {
+        // New intake controller
+        require_once __DIR__ . "/pages/whitelabel/BuildController.php";
+        return eazybackup_whitelabel_intake($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'whitelabel-branding') {
+        require_once __DIR__ . "/pages/whitelabel/BuildController.php";
+        return eazybackup_whitelabel_branding($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'whitelabel-status') {
+        require_once __DIR__ . "/pages/whitelabel/BuildController.php";
+        eazybackup_whitelabel_status($vars);
+        exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'whitelabel-loader') {
+        require_once __DIR__ . "/pages/whitelabel/BuildController.php";
+        return eazybackup_whitelabel_loader($vars);
     } else if ($_REQUEST["a"] == "createorder") {
         return eazybackup_createorder($vars);
     } else if ($_REQUEST["a"] == "add-card") {
@@ -2397,6 +2787,7 @@ function eazybackup_output($vars)
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=devices">Devices</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=items">Protected Items</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=billing">Billing</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=whitelabel">White-Label</a></li>'
                       . '</ul>';
 
                 // Test notification UI
@@ -2521,6 +2912,7 @@ function eazybackup_output($vars)
                       . '<li class="nav-item"><a class="nav-link active" href="#">Devices</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=items">Protected Items</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=billing">Billing</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=whitelabel">White-Label</a></li>'
                       . '</ul>';
 
                 $html .= '<form method="get" class="mb-3 form-inline" style="margin-bottom:15px">'
@@ -2684,6 +3076,7 @@ function eazybackup_output($vars)
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=devices">Devices</a></li>'
                       . '<li class="nav-item"><a class="nav-link active" href="#">Protected Items</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=billing">Billing</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=whitelabel">White-Label</a></li>'
                       . '</ul>';
 
                 $html .= '<form method="get" class="mb-3 form-inline" style="margin-bottom:15px">'
@@ -2789,6 +3182,7 @@ function eazybackup_output($vars)
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=devices">Devices</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=items">Protected Items</a></li>'
                       . '<li class="nav-item"><a class="nav-link active" href="#">Billing</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=whitelabel">White-Label</a></li>'
                       . '</ul>';
 
                 $html .= '<form method="get" class="mb-3 form-inline" style="margin-bottom:15px">'
@@ -2998,8 +3392,14 @@ function eazybackup_output($vars)
                 return;
             }
             default:
-                echo '<div class="alert alert-info">This section is under construction.</div>';
-                return;
+                // Admin white-label tenants view
+                if ($view === 'whitelabel') {
+                    $controller = __DIR__ . '/pages/admin/whitelabel/index.php';
+                    if (!is_file($controller)) { echo '<div class="alert alert-danger">Controller not found.</div>'; return; }
+                    $html = require $controller;
+                    echo $html; return;
+                }
+                echo '<div class="alert alert-info">This section is under construction.</div>'; return;
         }
     } else if ($action === 'billing-cooldown') {
         // Admin endpoint to extend grace by +3 days for a service
@@ -3373,11 +3773,6 @@ function eazybackup_signup($vars)
         ],
     ];
 }
-
-
-
-
-
 function obc_signup($vars)
 {
     // Ensure session is active
@@ -3651,10 +4046,10 @@ function whitelabel_signup(array $vars)
         logActivity("eazybackup: OpenTicket Response => " . json_encode($ticketResponse));
 
         /* ------------------------------------------------------------------
-         *  Product‑Group creation (if it doesn’t exist yet)
+         *  Product‑Group creation (if it doesn't exist yet)
          * ------------------------------------------------------------------*/
         $groupId = Capsule::table('tblproductgroups')
-            ->where('name', $product_name)           // “Acme Backup”, etc.
+            ->where('name', $product_name)           // "Acme Backup", etc.
             ->value('id');
 
         if (!$groupId) {
@@ -3772,8 +4167,6 @@ function cloneProduct(int $templatePid, int $targetGroup, string $newName)
         return false;
     }
 }
-
-
 function eazybackup_createorder($vars)
 {
     // Debug: confirm function invocation
@@ -3956,7 +4349,7 @@ function eazybackup_createorder($vars)
                     ->where('orderid', $order["orderid"])
                     ->first();
 
-                // 1) Build the “module parameters” that comet_UpdateUser() expects
+                // 1) Build the "module parameters" that comet_UpdateUser() expects
                 $params = comet_ServiceParams($service->id);
 
                 // overwrite/add the two things we care about:
@@ -3966,7 +4359,7 @@ function eazybackup_createorder($vars)
                     'email' => $_POST['reportemail'] ?? ''
                 ];
 
-                // 2) Call the Comet helper to update that user’s notification email
+                // 2) Call the Comet helper to update that user's notification email
                 try {
                     logActivity("eazybackup: Updating Comet user email to {$params['clientsdetails']['email']}");
                     comet_UpdateUser($params);
@@ -4002,7 +4395,7 @@ function eazybackup_createorder($vars)
                 $redirectProductParam = "eazybackup";  // default product param
                 $template = "complete";                // default template action
 
-                // 1) Check user’s client group ID (legacy check)
+                // 1) Check user's client group ID (legacy check)
                 $clientGroupId = Capsule::table('tblclients')
                     ->where('id', $clientid)
                     ->value('groupid');
@@ -4042,7 +4435,7 @@ function eazybackup_createorder($vars)
                                 ->value('gid');
 
                 if (!in_array($productGroupId, $PUBLIC_GROUP_IDS, true)) {
-                    // Anything outside groups 6 & 7 is a white‑label product
+                    // Anything outside groups 6 & 7 is a white-label product
                     $redirectProductParam = 'whitelabel';
                 } elseif ($productGroupId == 7) {
                     $redirectProductParam = 'obc';        // optional: treat OBC separately
@@ -4399,7 +4792,6 @@ function eazybackup_createorder($vars)
         $dismissed = $q->exists();
         $showCreateOrderAnnouncement = !$dismissed;
     } catch (\Throwable $e) { $showCreateOrderAnnouncement = false; }
-
     return [
         "pagetitle" => "Create Order",
         "breadcrumb" => ["index.php?m=eazybackup" => "createorder"],
@@ -5039,7 +5431,6 @@ function eazybackup_estimate_amount_for_pid(int $pid, string $cycleCol, int $cur
     }
     return round($sum, 2);
 }
-
 /** Create accounts in bulk: one order per account; partial failures allowed. */
 function eazybackup_bulk_create_accounts(int $clientId, int $pid, string $term, int $consolidated, array $rows, int $currencyId): array {
     $results = ['ok' => true, 'results' => [], 'summary' => '' ];

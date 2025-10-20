@@ -12,7 +12,7 @@ final class TemplateRenderer
         $templateName = Config::templateName($templateSettingKey);
         if ($templateName === '') { throw new \RuntimeException('Template not configured: ' . $templateSettingKey); }
         // Normal payload uses template by name
-        $payload = [ 'messagename' => $templateName, 'mergefields' => $mergeVars ];
+        $payload = [ 'messagename' => $templateName ];
 
         // In test mode, we must not email customers. Build a custom email from the template content
         // and send to explicit email(s) without requiring a related client ID.
@@ -48,10 +48,27 @@ final class TemplateRenderer
             }
             return ['result'=>($last['result'] ?? 'success'), 'responses'=>$all];
         } else {
-            // Normal mode: associate with client when available so merge fields like names can resolve
+            // Normal mode: associate with client when available so built-in merge fields can resolve
             if (isset($mergeVars['client_id']) && (int)$mergeVars['client_id'] > 0) {
                 $payload['id'] = (int)$mergeVars['client_id'];
             }
+            // Provide custom variables to the template. WHMCS expects 'customvars'
+            // (supports associative array; older versions expect base64-encoded serialized array).
+            // To maximize compatibility, serialize.
+            $customVars = [];
+            foreach ($mergeVars as $k => $v) {
+                // Cast scalars/arrays to string-safe representations
+                if (is_array($v)) {
+                    $customVars[$k] = implode(',', array_map('strval', $v));
+                } else if (is_bool($v)) {
+                    $customVars[$k] = $v ? '1' : '0';
+                } else if (is_object($v)) {
+                    $customVars[$k] = json_encode($v);
+                } else {
+                    $customVars[$k] = (string)$v;
+                }
+            }
+            $payload['customvars'] = base64_encode(serialize($customVars));
         }
 
         if (getenv('EB_WS_DEBUG') === '1') {

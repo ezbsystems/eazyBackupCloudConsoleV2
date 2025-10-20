@@ -306,11 +306,25 @@ $productRows = DB::select($productsSql, $baseParams);
 
 		$devUsed = (int)$r->device_count;
 		$devBilled = (int)$r->device_units;
+		$productId = (int)$r->product_id;
+		// Product-specific device rules:
+		// - M365 products (52,57): billed devices are always 0 and correct; never flag upgrades for device count
+		// - Virtual Server products (53,54): unlimited devices; treat billed as 0 and do not flag
+		if ($productId === 52 || $productId === 57 || $productId === 53 || $productId === 54) {
+			$devBilled = 0; // considered correct for these products
+		}
 		$devDelta = max(0, $devUsed - $devBilled);
 		$devGraceActive = (int)($r->device_grace_active ?? 0);
 		$devGraceCovered = min($devDelta, $devGraceActive);
 		$devDueNow = max(0, $devDelta - $devGraceCovered);
 		$devGraceDaysLeft = $devGraceCovered > 0 ? $daysLeft($r->device_grace_earliest ?? null) : 0;
+		// Never flag device upgrades for these product IDs
+		if ($productId === 52 || $productId === 57 || $productId === 53 || $productId === 54) {
+			$devDelta = 0;
+			$devGraceCovered = 0;
+			$devDueNow = 0;
+			$devGraceDaysLeft = 0;
+		}
 
 		$diUsed = (int)$r->di_count;
 		$diBilled = (int)$r->di_units;

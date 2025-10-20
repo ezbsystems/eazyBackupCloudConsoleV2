@@ -35,6 +35,19 @@
                 </a>
             </li>
             
+            <!-- Notifications Tab -->
+            <li>
+                <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=notify-settings" 
+                   class="flex items-center py-2 px-2 [@media(max-width:1160px)]:px-2 [@media(min-width:1161px)]:px-3
+                          text-gray-300 block text-sm text-gray-300 hover:border-b-2 hover:border-gray-600">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-5 mr-2">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0" />
+                        </svg>
+                        
+                    <span class="block font-medium text-gray-300 whitespace-nowrap text-gray-300">Notifications</span>
+                </a>
+            </li>
+            
             <!-- Payment Methods Tab -->
             <li>
                 <a href="{$WEB_ROOT}/index.php/account/paymentmethods" 
@@ -270,6 +283,25 @@
                     <div>
                         <span class="block font-medium text-gray-300">Users</span>
                         <p class="block text-sm text-gray-300">Manage user accounts.</p>
+                    </div>
+                </a>
+            </li>
+            
+            <!-- Notifications Tab (Mobile) -->
+            <li>
+                <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=notify-settings" 
+                   class="flex items-center space-x-3 text-gray-300 hover:text-sky-600">
+                    <svg xmlns="http://www.w3.org/2000/svg" 
+                        fill="none" 
+                        viewBox="0 0 24 24" 
+                        stroke-width="1.5" 
+                        stroke="currentColor" 
+                        class="w-6 h-6 text-gray-300 hover:text-sky-600">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M14.25 18.25h-4.5m9-6.75c0 5.25-2.25 7.5-6.75 7.5s-6.75-2.25-6.75-7.5a6.75 6.75 0 1 1 13.5 0Z" />
+                    </svg>
+                    <div>
+                        <span class="block font-medium text-gray-300">Notifications</span>
+                        <p class="block text-sm text-gray-300">Manage email alerts & routing.</p>
                     </div>
                 </a>
             </li>

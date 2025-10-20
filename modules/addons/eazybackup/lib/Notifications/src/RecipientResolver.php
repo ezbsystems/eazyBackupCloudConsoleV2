@@ -27,6 +27,16 @@ final class RecipientResolver
         $emails = [];
         $service = Capsule::table('tblhosting')->where('id', $serviceId)->first(['userid']);
         if (!$service) return [];
+        // Load client-level overrides
+        try {
+            $pref = Capsule::table('eb_client_notify_prefs')->where('client_id', (int)$service->userid)->first();
+            if ($pref) {
+                $p = (string)($pref->routing_policy ?? '');
+                if ($p !== '') { $policy = $p; }
+                if ($policy === 'custom') { $customCsv = (string)($pref->custom_recipients ?? $customCsv); }
+            }
+        } catch (\Throwable $_) { /* ignore */ }
+
         $client = Capsule::table('tblclients')->where('id', $service->userid)->first(['email']);
         $primary = is_object($client) ? (string)$client->email : '';
 

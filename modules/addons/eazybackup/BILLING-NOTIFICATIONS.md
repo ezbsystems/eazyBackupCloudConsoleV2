@@ -178,6 +178,15 @@ In `eazybackup_config()` (Addon Settings):
 - `Template: Device Added` (`tpl_device_added`)
 - `Template: Add-on Enabled` (`tpl_addon_enabled`)
 
+### Product-level Gates (Built-in)
+- Storage and Device notifications are suppressed for the following packages (unlimited storage; single device):
+  - Microsoft 365 Backup — package id 52
+  - Microsoft 365 Backup (OBC) — package id 57
+- Implementation details:
+  - `NotificationService::isStorageDeviceNotificationsDisabled(serviceId)` reads `tblhosting.packageid` and returns true for 52 or 57.
+  - When true, `onDeviceRegistered` and `scanStorageForUser` return early, skipping notification sends.
+  - Add‑on notifications are not affected by this gate.
+
 ---
 
 ## Recipient Resolution

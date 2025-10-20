@@ -8,6 +8,41 @@ use WHMCS\Database\Capsule;
 
 class NotificationService
 {
+    private function billingTermLabelForService(int $serviceId): string
+    {
+        try {
+            $cycle = (string)Capsule::table('tblhosting')->where('id', $serviceId)->value('billingcycle');
+            $cycle = trim($cycle);
+            // Normalize to human-friendly label
+            return match ($cycle) {
+                'Monthly' => 'monthly',
+                'Quarterly' => 'quarterly',
+                'Semi-Annually', 'Semiannually' => 'semi-annually',
+                'Annually', 'Yearly' => 'annually',
+                'Biennially' => 'biennially',
+                'Triennially' => 'triennially',
+                default => 'monthly',
+            };
+        } catch (\Throwable $e) { return 'monthly'; }
+    }
+
+    private function isStorageDeviceNotificationsDisabled(int $serviceId): bool
+    {
+        try {
+            $pid = (int)Capsule::table('tblhosting')->where('id', $serviceId)->value('packageid');
+            return ($pid === 52 || $pid === 57);
+        } catch (\Throwable $e) { return false; }
+    }
+
+    private function isDeviceNotificationsDisabled(int $serviceId): bool
+    {
+        try {
+            $pid = (int)Capsule::table('tblhosting')->where('id', $serviceId)->value('packageid');
+            // Suppress device notifications for M365 (52,57) and Virtual Server (53,54)
+            return ($pid === 52 || $pid === 57 || $pid === 53 || $pid === 54);
+        } catch (\Throwable $e) { return false; }
+    }
+
     private function debugEnabled(): bool
     {
         return getenv('EB_NOTIFY_DEBUG') === '1' || Config::bool('notify_debug', false);
@@ -21,6 +56,7 @@ class NotificationService
     public function onDeviceRegistered(PDO $pdo, string $profile, string $username, string $deviceId, array $payload): void
     {
         if (getenv('EB_WS_DEBUG') === '1') { error_log("[{$profile}] notify:onDeviceRegistered user={$username} device={$deviceId}"); }
+        // Global gate, then client-level preference
         if (!Config::bool('notify_devices', true)) return;
         $svc = $this->serviceForUsername($pdo, $username);
         if (!$svc) {
@@ -34,6 +70,18 @@ class NotificationService
                 return; // unknown or suspended/canceled suppressed in helper
             }
         }
+
+        // Suppress device notifications for product packages that include unlimited storage and a single device
+        if ($this->isDeviceNotificationsDisabled((int)$svc['service_id'])) {
+            $this->debug('device notify suppressed for excluded product package');
+            return;
+        }
+
+        // Client preference gate
+        try {
+            $pref = Capsule::table('eb_client_notify_prefs')->where('client_id', (int)$svc['client_id'])->value('notify_devices');
+            if ($pref !== null && (int)$pref === 0) { $this->debug('device notify suppressed by client preference'); return; }
+        } catch (\Throwable $_) { /* ignore */ }
 
         $recips = RecipientResolver::resolve($svc['service_id'], (string)Config::get('notify_routing','billing'), (string)Config::get('notify_custom_emails',''));
         if (empty($recips)) return;
@@ -103,6 +151,8 @@ class NotificationService
         if (!Config::bool('notify_addons', true)) return;
         $svc = $this->serviceForUsername($pdo, $username);
         if (!$svc) return;
+        // Client preference gate
+        try { $pref = Capsule::table('eb_client_notify_prefs')->where('client_id', (int)$svc['client_id'])->value('notify_addons'); if ($pref !== null && (int)$pref === 0) { $this->debug('addon notify suppressed by client preference'); return; } } catch (\Throwable $_) {}
         // Only these add-ons are gated by usage > billed qty
         $addons = [
             91 => 'disk_image',
@@ -152,7 +202,14 @@ class NotificationService
                 'template' => (string)Config::get('tpl_addon_enabled',''),
                 'subject' => $subject,
                 'recipients' => implode(',', $recips),
-                'merge_json' => json_encode(['username'=>$username,'service_id'=>$svc['service_id'],'addon_code'=>$code,'used_units'=>$usedUnits,'billed_qty'=>$billedQty], JSON_UNESCAPED_SLASHES),
+                'merge_json' => json_encode([
+                    'username'=>$username,
+                    'service_id'=>$svc['service_id'],
+                    'addon_code'=>$code,
+                    'used_units'=>$usedUnits,
+                    'billed_qty'=>$billedQty,
+                    'billing_term'=>$this->billingTermLabelForService($svc['service_id']),
+                ], JSON_UNESCAPED_SLASHES),
             ]);
             if ($rowId === null) { $this->debug('addon: reserve returned null (already sent); skip'); continue; }
             try {
@@ -160,7 +217,9 @@ class NotificationService
                     'subject' => $subject,
                     'username' => $username,
                     'service_id' => $svc['service_id'],
+                    'client_id' => $svc['client_id'],
                     'addon_code' => $code,
+                    'billing_term' => $this->billingTermLabelForService($svc['service_id']),
                     'recipients' => implode(',', $recips),
                 ]);
                 $emailLogId = (int)($resp['id'] ?? 0);
@@ -185,6 +244,15 @@ class NotificationService
 		$svc = $this->serviceForUsername($pdo, $username);
         if (!$svc) return;
 		$this->debug("service mapped service_id={$svc['service_id']} client_id={$svc['client_id']}");
+
+        // Suppress storage notifications for excluded product packages
+        if ($this->isStorageDeviceNotificationsDisabled((int)$svc['service_id'])) {
+            $this->debug('storage notify suppressed for excluded product package');
+            return;
+        }
+
+        // Client preference gate
+        try { $pref = Capsule::table('eb_client_notify_prefs')->where('client_id', (int)$svc['client_id'])->value('notify_storage'); if ($pref !== null && (int)$pref === 0) { $this->debug('storage notify suppressed by client preference'); return; } } catch (\Throwable $_) {}
 
 		// Paid TiB from configurable option Cloud Storage cid=67
 		$paidTiB = (int)Capsule::table('tblhostingconfigoptions')
@@ -236,7 +304,7 @@ class NotificationService
             $projected = $optionRelid ? PricingCalculator::priceDeltaForConfigOption($svc['service_id'], $optionRelid, $deltaTiB) : 0.0;
             foreach ($crossed as $k) {
                 $key = 'storage:tib_' . $k;
-				$rowId = IdempotencyStore::reserve($username, 'storage', $key, [
+                $rowId = IdempotencyStore::reserve($username, 'storage', $key, [
                     'service_id' => $svc['service_id'],
                     'client_id' => $svc['client_id'],
                     'template' => (string)Config::get('tpl_storage_overage',''),
@@ -250,6 +318,7 @@ class NotificationService
                         'threshold_k'=>$k,
                         'projected_monthly_delta'=>$projected,
                         'projected_tib'=>$requiredTiB,
+                        'billing_term'=>$this->billingTermLabelForService($svc['service_id']),
                     ], JSON_UNESCAPED_SLASHES),
                 ]);
 				$this->debug("overage reserve key={$key} rowId=" . ($rowId ?? 0));
@@ -259,11 +328,13 @@ class NotificationService
                         'subject' => $subject,
                         'username' => $username,
                         'service_id' => $svc['service_id'],
+                'client_id' => $svc['client_id'],
                         'paid_tib' => $paidTiB,
                         'current_usage_tib' => $usageTiB,
                         'threshold_k_tib' => $k,
                         'projected_monthly_delta' => $projected,
                         'projected_tib' => $requiredTiB,
+                        'billing_term' => $this->billingTermLabelForService($svc['service_id']),
                         'recipients' => implode(',', $recips),
                     ]);
 					$emailLogId = (int)($resp['id'] ?? 0);
@@ -289,7 +360,7 @@ class NotificationService
         $deltaTiB = max(0, $projectedTiB - $paidTiB);
         $projected = $optionRelid ? PricingCalculator::priceDeltaForConfigOption($svc['service_id'], $optionRelid, $deltaTiB) : 0.0;
 
-		$rowId = IdempotencyStore::reserve($username, 'storage', $key, [
+        $rowId = IdempotencyStore::reserve($username, 'storage', $key, [
             'service_id' => $svc['service_id'],
             'client_id' => $svc['client_id'],
             'template' => (string)Config::get('tpl_storage_warning',''),
@@ -303,6 +374,7 @@ class NotificationService
                 'threshold_k'=>$k,
                 'projected_monthly_delta'=>$projected,
                 'projected_tib'=>$projectedTiB,
+                'billing_term'=>$this->billingTermLabelForService($svc['service_id']),
             ], JSON_UNESCAPED_SLASHES),
         ]);
 		$this->debug("warning reserve key={$key} rowId=" . ($rowId ?? 0));
@@ -312,11 +384,13 @@ class NotificationService
                 'subject' => $subject,
                 'username' => $username,
                 'service_id' => $svc['service_id'],
+                'client_id' => $svc['client_id'],
                 'paid_tib' => $paidTiB,
                 'current_usage_tib' => $usageTiB,
                 'threshold_k_tib' => $k,
                 'projected_monthly_delta' => $projected,
                 'projected_tib' => $projectedTiB,
+                'billing_term' => $this->billingTermLabelForService($svc['service_id']),
                 'recipients' => implode(',', $recips),
             ]);
 			$emailLogId = (int)($resp['id'] ?? 0);

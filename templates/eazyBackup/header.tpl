@@ -84,16 +84,20 @@
                     <nav class="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
                     {if $loggedin}
                         <!-- Dashboard -->
-                        <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=dashboard"
-                        class="flex items-center px-2 py-2 text-gray-400 rounded-md hover:bg-[#1B2C50]
-                                {if $smarty.get.m == 'eazybackup' && $smarty.get.a == 'dashboard'}bg-[#1B2C50] font-semibold{/if}"
-                        >
-                            {* <i class="fas fa-gauge mr-3 text-lg"></i> *}
+                        <div x-data="{ open:false }" class="relative">
+                          <button @click="open=!open" class="flex items-center w-full px-2 py-2 text-left text-gray-400 rounded-md hover:bg-[#1B2C50]
+                                  {if $smarty.get.m == 'eazybackup' && $smarty.get.a == 'dashboard'}bg-[#1B2C50] font-semibold{/if}">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-3">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" />
                             </svg>
                             Dashboard
-                        </a>
+                            <svg class="w-4 h-4 ml-auto text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                          </button>
+                          <div x-show="open" x-cloak class="absolute mt-1 w-56 bg-gray-900 border border-gray-700 rounded shadow-lg z-10">
+                            <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=dashboard" class="block px-3 py-2 text-gray-300 hover:bg-[#1B2C50]">Overview</a>
+                            <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=whitelabel-branding" class="block px-3 py-2 text-gray-300 hover:bg-[#1B2C50]">Branding & Hostname</a>
+                          </div>
+                        </div>
 
                         <!-- My Services -->
                         <a href="/clientarea.php?action=services"
