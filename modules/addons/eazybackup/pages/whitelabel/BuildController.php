@@ -239,15 +239,72 @@ function eazybackup_whitelabel_branding(array $vars)
     if (strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         // Update branding/email; apply via builder (partial)
         $brand = [
-            'ProductName' => (string)($_POST['product_name'] ?? ''),
-            'CompanyName' => (string)($_POST['company_name'] ?? ''),
-            'CloudStorageName' => (string)($_POST['product_name'] ?? ''),
-            'HelpURL' => (string)($_POST['help_url'] ?? ''),
-            // Comet keys
-            'TopColor' => (string)($_POST['header_color'] ?? ''),
-            'AccentColor' => (string)($_POST['accent_color'] ?? ''),
-            'TileBackgroundColor' => (string)($_POST['tile_background'] ?? ''),
+            'BrandName' => trim((string)($_POST['brand_name'] ?? '')),
+            'ProductName' => trim((string)($_POST['product_name'] ?? '')),
+            'CompanyName' => trim((string)($_POST['company_name'] ?? '')),
+            'CloudStorageName' => trim((string)($_POST['product_name'] ?? '')),
+            'HelpURL' => trim((string)($_POST['help_url'] ?? '')),
+            // Comet color keys
+            'TopColor' => trim((string)($_POST['header_color'] ?? '')),
+            'AccentColor' => trim((string)($_POST['accent_color'] ?? '')),
+            'TileBackgroundColor' => trim((string)($_POST['tile_background'] ?? '')),
         ];
+
+        // Handle asset uploads (mirror intake approach) + EULA
+        try {
+            $uploadBase = realpath(__DIR__ . '/../../');
+            if ($uploadBase === false) { $uploadBase = __DIR__ . '/../../'; }
+            $tenantDir = rtrim($uploadBase, DIRECTORY_SEPARATOR) . '/uploads/whitelabel/' . (int)$tenantId;
+            if (!is_dir($tenantDir)) { @mkdir($tenantDir, 0775, true); }
+
+            $saveUpload = function(string $key, string $namePrefix) use ($tenantDir): string {
+                if (!isset($_FILES[$key]) || !is_array($_FILES[$key]) || (int)($_FILES[$key]['error'] ?? 4) !== 0) { return ''; }
+                $tmp = (string)($_FILES[$key]['tmp_name'] ?? ''); if ($tmp === '' || !is_uploaded_file($tmp)) { return ''; }
+                $ext = strtolower(pathinfo((string)($_FILES[$key]['name'] ?? ''), PATHINFO_EXTENSION));
+                if ($ext === '') { $ext = 'bin'; }
+                $dest = $tenantDir . '/' . $namePrefix . '.' . preg_replace('/[^a-z0-9]+/i', '', $ext);
+                if (@move_uploaded_file($tmp, $dest)) { @chmod($dest, 0664); return $dest; }
+                return '';
+            };
+
+            // Initialize keys expected by Comet branding
+            foreach (['Favicon','LogoImage','PathHeaderImage','PathAppIconImage','PathTilePng','PathIcoFile','PathIcnsFile','PathMenuBarIcnsFile','PathEulaRtf'] as $k) {
+                if (!isset($brand[$k])) { $brand[$k] = ''; }
+            }
+
+            // Map uploads from form → brand keys
+            $map = [
+                'favicon_file' => ['Favicon','tab_icon'],
+                'logo_file' => ['LogoImage','logo'],
+                'header_image_file' => ['PathHeaderImage','header'],
+                'app_icon_file' => ['PathAppIconImage','app_icon_image'],
+                'tile_image_file' => ['PathTilePng','tile_image'],
+                'win_ico_file' => ['PathIcoFile','icon_windows'],
+                'mac_icns_file' => ['PathIcnsFile','icon_macos'],
+                'mac_menubar_icns_file' => ['PathMenuBarIcnsFile','menu_bar_icon_macos'],
+                'eula_file' => ['PathEulaRtf','eula'],
+                // Non-Comet extra asset preserved in our JSON for UI completeness
+                'background_logo_file' => ['BackgroundLogo','background_logo'],
+            ];
+            foreach ($map as $formKey => $pair) {
+                $brandKey = (string)$pair[0]; $prefix = (string)$pair[1];
+                $p = $saveUpload($formKey, $prefix);
+                if ($p !== '') { $brand[$brandKey] = $p; }
+            }
+
+            // Optional: EULA text → save to file if no file upload provided
+            if ((string)($brand['PathEulaRtf'] ?? '') === '' && isset($_POST['eula_text']) && trim((string)$_POST['eula_text']) !== '') {
+                $eulaPath = $tenantDir . '/eula.rtf';
+                @file_put_contents($eulaPath, (string)$_POST['eula_text']);
+                @chmod($eulaPath, 0664);
+                if (is_file($eulaPath)) { $brand['PathEulaRtf'] = $eulaPath; }
+                try { logModuleCall('eazybackup','branding_post_eula_source',['tenant'=>$tenantId,'source'=>'text'], ''); } catch (\Throwable $_) {}
+            } else if ((string)($brand['PathEulaRtf'] ?? '') !== '') {
+                try { logModuleCall('eazybackup','branding_post_eula_source',['tenant'=>$tenantId,'source'=>'file'], ''); } catch (\Throwable $_) {}
+            } else {
+                try { logModuleCall('eazybackup','branding_post_eula_source',['tenant'=>$tenantId,'source'=>'none'], ''); } catch (\Throwable $_) {}
+            }
+        } catch (\Throwable $_) { /* non-fatal; proceed */ }
         // Email mapping (flattened for Comet EmailOptions)
         $rawSec = (string)($_POST['smtp_security'] ?? '');
         $smtpHost = (string)($_POST['smtp_server'] ?? '');
@@ -280,25 +337,134 @@ function eazybackup_whitelabel_branding(array $vars)
             'email_json' => json_encode($email),
             'updated_at' => date('Y-m-d H:i:s'),
         ]);
+        try { logModuleCall('eazybackup','branding_post_draft_saved',['tenant'=>$tenantId], 'ok'); } catch (\Throwable $_) {}
 
+        // Guard: org must exist before applying branding
+        $orgIdNow = (string)($tenantObj->org_id ?? '');
+        if ($orgIdNow === '') {
+            try { logModuleCall('eazybackup','branding_post_apply',['tenant'=>$tenantId], 'missing_org'); } catch (\Throwable $_) {}
+            header('Location: ' . $vars['modulelink'] . '&a=whitelabel-branding&id=' . urlencode((string)$tenantId) . '&error=missing_org');
+            exit;
+        }
+
+        $applyOk = false;
         try {
             $builder = new \EazyBackup\Whitelabel\Builder($vars);
-            $builder->applyBranding((int)$tenantId);
+            $applyOk = (bool)$builder->applyBranding((int)$tenantId);
+            try { logModuleCall('eazybackup','branding_post_apply',['tenant'=>$tenantId], $applyOk ? 'ok' : 'failed'); } catch (\Throwable $_) {}
         } catch (\Throwable $e) {
-            // soft-fail
+            $applyOk = false;
+            try { logModuleCall('eazybackup','branding_post_apply',['tenant'=>$tenantId], 'error: '.$e->getMessage()); } catch (\Throwable $_) {}
         }
-        // reload tenant
-        $tenantObj = Capsule::table('eb_whitelabel_tenants')->where('id', $tenantId)->first();
+
+        // After apply, re-read from Comet and overwrite DB cache if available, then redirect
+        if ($applyOk) {
+            // Only on success do we re-pull Comet and refresh cache for this tenant
+            try {
+                $rowAfter = Capsule::table('eb_whitelabel_tenants')->where('id', $tenantId)->first();
+                $orgIdAfter = $rowAfter ? (string)($rowAfter->org_id ?? '') : '';
+                $ct = new \EazyBackup\Whitelabel\CometTenant($vars);
+                $live = $orgIdAfter !== '' ? (array)$ct->getOrgBranding($orgIdAfter) : [];
+                if (empty($live)) { throw new \RuntimeException('empty_live_branding'); }
+
+                // Optional mini-diff logging on keystone keys
+                $keys = ['ProductName','TopColor','AccentColor','TileBackgroundColor','LogoImage'];
+                $diff = [];
+                foreach ($keys as $k) {
+                    $want = isset($brand[$k]) ? (string)$brand[$k] : '';
+                    $got  = isset($live[$k]) ? (string)$live[$k] : '';
+                    if ($k === 'TopColor' || $k === 'AccentColor' || $k === 'TileBackgroundColor') { $want = strtoupper($want); $got = strtoupper($got); }
+                    if ($k === 'LogoImage') {
+                        // Loosen check: only record mismatch if want was set but got is empty
+                        if ($want !== '' && $got === '') { $diff[$k] = ['want'=>$want,'got'=>$got]; }
+                    } else if ($want !== '' && $got !== '' && $want !== $got) {
+                        $diff[$k] = ['want'=>$want,'got'=>$got];
+                    }
+                }
+                if (!empty($diff)) { try { logModuleCall('eazybackup','branding_post_diff',['tenant'=>$tenantId,'diff'=>$diff], 'mismatch'); } catch (\Throwable $_) {} }
+
+                Capsule::table('eb_whitelabel_tenants')->where('id', $tenantId)->update([
+                    'brand_json' => json_encode($live),
+                    'updated_at' => date('Y-m-d H:i:s'),
+                ]);
+                try { logModuleCall('eazybackup','branding_post_cache_update',['tenant'=>$tenantId], 'ok'); } catch (\Throwable $_) {}
+                header('Location: ' . $vars['modulelink'] . '&a=whitelabel-branding&id=' . urlencode((string)$tenantId) . '&saved=1');
+                exit;
+            } catch (\Throwable $e) {
+                try { logModuleCall('eazybackup','branding_reload_after_apply',['tenant'=>$tenantId], 'error: ' . $e->getMessage()); } catch (\Throwable $_) {}
+                header('Location: ' . $vars['modulelink'] . '&a=whitelabel-branding&id=' . urlencode((string)$tenantId) . '&error=reload_failed');
+                exit;
+            }
+        }
+
+        // Failure path
+        header('Location: ' . $vars['modulelink'] . '&a=whitelabel-branding&id=' . urlencode((string)$tenantId) . '&error=apply_failed');
+        exit;
     }
 
-    $tenant = (array)$tenantObj;
-    $brandJson  = (string)($tenantObj->brand_json ?? '{}');
-    $emailJson  = (string)($tenantObj->email_json ?? '{}');
+    // Comet is canonical: fetch live branding, refresh DB cache, render live
+    $row = Capsule::table('eb_whitelabel_tenants')->find($tenantId);
+    $tenant = $row ? (array)$row : (array)$tenantObj;
+    $emailJson  = (string)($row->email_json ?? '{}');
+    $orgId = (string)($row->org_id ?? '');
 
-    $brandArr = json_decode($brandJson, true) ?: [];
-    // Provide template-friendly aliases for legacy keys
-    if (!isset($brandArr['HeaderColor']) && isset($brandArr['TopColor'])) { $brandArr['HeaderColor'] = $brandArr['TopColor']; }
-    if (!isset($brandArr['TileBackground']) && isset($brandArr['TileBackgroundColor'])) { $brandArr['TileBackground'] = $brandArr['TileBackgroundColor']; }
+    $ct = new \EazyBackup\Whitelabel\CometTenant($vars);
+    $brand = []; $syncNotice = '';
+    try {
+        $live = $orgId ? $ct->getOrgBranding($orgId) : null; // assoc array
+        if (is_array($live) && !empty($live)) {
+            $brand = $live;
+            $affected = Capsule::table('eb_whitelabel_tenants')
+                ->where('id', $tenantId)
+                ->update([
+                    'brand_json' => json_encode($brand, JSON_UNESCAPED_SLASHES),
+                    'updated_at' => date('Y-m-d H:i:s'),
+                ]);
+            try { logModuleCall('eazybackup','branding_get_cache_refreshed',['tenant'=>$tenantId,'rows'=>$affected], 'ok'); } catch (\Throwable $_) {}
+            $syncNotice = 'Branding synced from Comet.';
+        } else {
+            $brand = json_decode((string)($row->brand_json ?? '[]'), true) ?: [];
+            $syncNotice = 'Live Comet unavailable; showing cached branding.';
+            try { logModuleCall('eazybackup','branding_get_comet_empty_fallback',['tenant'=>$tenantId], ''); } catch (\Throwable $_) {}
+        }
+    } catch (\Throwable $e) {
+        $brand = json_decode((string)($row->brand_json ?? '[]'), true) ?: [];
+        $syncNotice = 'Live Comet unavailable; showing cached branding.';
+        try { logModuleCall('eazybackup','branding_get_comet_error',['tenant'=>$tenantId,'err'=>$e->getMessage()], ''); } catch (\Throwable $_) {}
+    }
+
+    // Legacy aliases for template only
+    if (!isset($brand['HeaderColor']) && isset($brand['TopColor'])) { $brand['HeaderColor'] = $brand['TopColor']; }
+    if (!isset($brand['TileBackground']) && isset($brand['TileBackgroundColor'])) { $brand['TileBackground'] = $brand['TileBackgroundColor']; }
+    try { logModuleCall('eazybackup','branding_get_render_summary',['tenant'=>$tenantId,'brand_keys'=>array_keys((array)$brand)], ''); } catch (\Throwable $_) {}
+    // Asset status + EULA prefill
+    $assetStatus = [];
+    try { $assetStatus = (new \EazyBackup\Whitelabel\CometTenant($vars))->getBrandingAssetStatus($brand); } catch (\Throwable $_) {}
+    try {
+        $counts = ['uploaded'=>0,'local'=>0,'missing'=>0];
+        foreach ($assetStatus as $st) { $s = (string)($st['state'] ?? ''); if (isset($counts[$s])) { $counts[$s]++; } }
+        logModuleCall('eazybackup','branding_get_asset_status_ready',['tenant'=>$tenantId,'counts'=>$counts], '');
+    } catch (\Throwable $_) {}
+    $eulaText = '';
+    if (!empty($brand['PathEulaRtf']) && strpos((string)$brand['PathEulaRtf'], 'resource://') === 0) {
+        try {
+            $eulaText = (string)((new \EazyBackup\Whitelabel\CometTenant($vars))->getEulaTextFromResource((string)$brand['PathEulaRtf']) ?: '');
+            logModuleCall('eazybackup','branding_get_eula_prefill',['tenant'=>$tenantId,'len'=>strlen($eulaText)], '');
+        } catch (\Throwable $_) {}
+    }
+
+    // Load custom domain row if present
+    $customDomainRow = null;
+    try {
+        if (!empty($tenant['custom_domain'])) {
+            $cdr = Capsule::table('eb_whitelabel_custom_domains')
+                ->where('tenant_id', $tenantId)
+                ->where('hostname', (string)$tenant['custom_domain'])
+                ->orderBy('updated_at','desc')
+                ->first();
+            if ($cdr) { $customDomainRow = (array)$cdr; }
+        }
+    } catch (\Throwable $__) {}
 
     return [
         'pagetitle' => 'Branding & Hostname',
@@ -309,8 +475,15 @@ function eazybackup_whitelabel_branding(array $vars)
         'vars' => [
             'modulelink' => $vars['modulelink'],
             'tenant' => $tenant,
-            'brand' => $brandArr,
-            'email' => json_decode($emailJson, true),
+            'brand' => $brand,
+            'email' => json_decode($emailJson, true) ?: [],
+            'assetStatus' => $assetStatus,
+            'eula_text' => $eulaText,
+            'sync_notice' => $syncNotice,
+            'flash_saved' => (int)(($_GET['saved'] ?? 0)) === 1 ? 1 : 0,
+            'flash_error' => (string)($_GET['error'] ?? '') === 'apply_failed' ? 1 : 0,
+            'csrf_token' => (function(){ try { if (function_exists('generate_token')) { return (string)generate_token('plain'); } } catch (\Throwable $_) {} return ''; })(),
+            'custom_domain_row' => $customDomainRow,
         ],
     ];
 }
@@ -422,6 +595,195 @@ function eazybackup_whitelabel_loader(array $vars)
             'devMode' => (int)($vars['whitelabel_dev_mode'] ?? 0),
         ],
     ];
+}
+
+/** AJAX: Check DNS for custom domain */
+function eazybackup_whitelabel_branding_checkdns(array $vars)
+{
+    header('Content-Type: application/json');
+    try {
+        if (!((int)($_SESSION['uid'] ?? 0) > 0)) { echo json_encode(['ok'=>false,'error'=>'Not authenticated']); return; }
+        if (strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') { echo json_encode(['ok'=>false,'error'=>'Invalid method']); return; }
+        $token = (string)($_POST['token'] ?? '');
+        if (function_exists('check_token')) { try { if (!check_token('plain', $token)) { echo json_encode(['ok'=>false,'error'=>'Invalid token']); return; } } catch (\Throwable $_) {} }
+        $devMode = (int)($vars['whitelabel_dev_mode'] ?? 0) === 1;
+        // Ensure custom domains table exists; attempt migration if missing
+        $hasCustomTable = false;
+        try { $hasCustomTable = Capsule::schema()->hasTable('eb_whitelabel_custom_domains'); } catch (\Throwable $__) { $hasCustomTable = false; }
+        if (!$hasCustomTable && function_exists('eazybackup_migrate_schema')) {
+            try { eazybackup_migrate_schema(); $hasCustomTable = Capsule::schema()->hasTable('eb_whitelabel_custom_domains'); } catch (\Throwable $__) { $hasCustomTable = false; }
+        }
+        $tenantId = (int)($_POST['tenant_id'] ?? 0);
+        $hostname = strtolower(trim((string)($_POST['hostname'] ?? '')));
+        if ($tenantId <= 0 || $hostname === '') { echo json_encode(['ok'=>false,'error'=>'Missing tenant or hostname']); return; }
+        // Basic hostname validation (no apex-only unless later supported)
+        if (!preg_match('/^(?=.{1,255}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/', $hostname) || substr_count($hostname, '.') < 2) {
+            echo json_encode(['ok'=>false,'error'=>'Invalid hostname']); return; }
+        // Duplicate guard across tenants (skip if table missing)
+        if ($hasCustomTable) {
+            try {
+                $dupe = Capsule::table('eb_whitelabel_custom_domains')->where('hostname',$hostname)->where('tenant_id','<>',$tenantId)->first();
+                if ($dupe) { echo json_encode(['ok'=>false,'error'=>'Hostname already in use by another tenant']); return; }
+            } catch (\Throwable $__) { /* ignore duplicate check on environments without table */ }
+        }
+        $tenant = Capsule::table('eb_whitelabel_tenants')->where('id',$tenantId)->first();
+        if (!$tenant || (int)$tenant->client_id !== (int)$_SESSION['uid']) { echo json_encode(['ok'=>false,'error'=>'Tenant not found']); return; }
+        $expected = (string)$tenant->fqdn;
+        $expectedTarget = $expected;
+        // dns_get_record check
+        $answers = @dns_get_record($hostname, DNS_CNAME) ?: [];
+        $seen = [];
+        foreach ($answers as $a) { if (isset($a['target'])) { $seen[] = rtrim(strtolower((string)$a['target']), '.'); } }
+        $okExact = in_array($expectedTarget, $seen, true);
+        // Detect Cloudflare proxy (A instead of CNAME)
+        $aRecords = [];
+        if (!$okExact) {
+            $aRows = @dns_get_record($hostname, DNS_A) ?: [];
+            foreach ($aRows as $ar) { if (isset($ar['ip'])) { $aRecords[] = (string)$ar['ip']; } }
+        }
+        $digAnswers = [];
+        if (!$okExact) {
+            try {
+                $hop = new \EazyBackup\Whitelabel\HostOps($vars);
+                foreach (['1.1.1.1','8.8.8.8'] as $res) {
+                    $res1 = $hop->dig($hostname, $res, 'CNAME');
+                    if (is_array($res1) && !empty($res1['answer'])) { $digAnswers[] = rtrim(strtolower((string)$res1['answer']), '.'); }
+                }
+                $okExact = in_array($expectedTarget, $digAnswers, true);
+            } catch (\Throwable $__) { /* ignore */ }
+        }
+        $now = date('Y-m-d H:i:s');
+        $row = [
+            'tenant_id' => $tenantId,
+            'hostname' => $hostname,
+            'status' => $okExact ? 'dns_ok' : 'pending_dns',
+            'last_error' => $okExact ? null : ((empty($aRecords) ? '' : 'A record detected; Cloudflare proxy likely. ') . 'Expected CNAME ' . $hostname . ' → ' . $expectedTarget . '; got: ' . implode(',', array_unique(array_merge($seen,$digAnswers)))) ,
+            'checked_at' => $now,
+            'updated_at' => $now,
+        ];
+        // Upsert (only if table exists); always update tenant shortcut
+        if ($hasCustomTable) {
+            try {
+                $exists = Capsule::table('eb_whitelabel_custom_domains')->where('tenant_id',$tenantId)->where('hostname',$hostname)->first();
+                if ($exists) {
+                    Capsule::table('eb_whitelabel_custom_domains')->where('id', $exists->id)->update($row);
+                } else {
+                    $row['created_at'] = $now; Capsule::table('eb_whitelabel_custom_domains')->insert($row);
+                }
+            } catch (\Throwable $__) { /* ignore upsert errors */ }
+        }
+        try { Capsule::table('eb_whitelabel_tenants')->where('id',$tenantId)->update(['custom_domain'=>$hostname,'custom_domain_status'=>$row['status'],'updated_at'=>$now]); } catch (\Throwable $__) {}
+        try { logModuleCall('eazybackup','custom_domain_checkdns',[ 'tenant'=>$tenantId,'host'=>$hostname,'expected'=>$expectedTarget ], json_encode(['status'=>$row['status'],'answers'=>$seen,'dig'=>$digAnswers,'aRecords'=>$aRecords,'table'=>$hasCustomTable?'present':'missing'])); } catch (\Throwable $_) {}
+        $payload = ['ok'=>true,'status'=>$row['status']];
+        if ($devMode) { $payload['debug'] = ['answers'=>$seen,'dig'=>$digAnswers,'aRecords'=>$aRecords,'table'=>$hasCustomTable?'present':'missing']; }
+        echo json_encode($payload);
+    } catch (\Throwable $e) {
+        try { logModuleCall('eazybackup','custom_domain_checkdns_error', ['post_keys'=>array_keys($_POST ?? [])], (string)$e->getMessage()); } catch (\Throwable $_) {}
+        $devMode = (int)($vars['whitelabel_dev_mode'] ?? 0) === 1;
+        $msg = 'Server error';
+        if ($devMode) { $msg .= ': ' . $e->getMessage(); }
+        echo json_encode(['ok'=>false,'error'=>$msg]);
+    }
+}
+
+/** POST: Attach custom domain (create vhost, cert, update Comet, verify) */
+function eazybackup_whitelabel_branding_attachdomain(array $vars)
+{
+    header('Content-Type: application/json');
+    try {
+        if (!((int)($_SESSION['uid'] ?? 0) > 0)) { echo json_encode(['ok'=>false,'error'=>'Not authenticated']); return; }
+        if (strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') { echo json_encode(['ok'=>false,'error'=>'Invalid method']); return; }
+        $token = (string)($_POST['token'] ?? '');
+        if (function_exists('check_token')) { try { if (!check_token('plain', $token)) { echo json_encode(['ok'=>false,'error'=>'Invalid token']); return; } } catch (\Throwable $_) {} }
+        $devMode = (int)($vars['whitelabel_dev_mode'] ?? 0) === 1;
+        // Ensure custom domains table exists; attempt migration if missing
+        $hasCustomTable = false;
+        try { $hasCustomTable = Capsule::schema()->hasTable('eb_whitelabel_custom_domains'); } catch (\Throwable $__) { $hasCustomTable = false; }
+        if (!$hasCustomTable && function_exists('eazybackup_migrate_schema')) {
+            try { eazybackup_migrate_schema(); $hasCustomTable = Capsule::schema()->hasTable('eb_whitelabel_custom_domains'); } catch (\Throwable $__) { $hasCustomTable = false; }
+        }
+        $tenantId = (int)($_POST['tenant_id'] ?? 0);
+        $hostname = strtolower(trim((string)($_POST['hostname'] ?? '')));
+        if ($tenantId <= 0 || $hostname === '') { echo json_encode(['ok'=>false,'error'=>'Missing tenant or hostname']); return; }
+        if (!preg_match('/^(?=.{1,255}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/', $hostname) || substr_count($hostname, '.') < 2) { echo json_encode(['ok'=>false,'error'=>'Invalid hostname']); return; }
+
+        $tenant = Capsule::table('eb_whitelabel_tenants')->where('id',$tenantId)->first();
+        if (!$tenant || (int)$tenant->client_id !== (int)$_SESSION['uid']) { echo json_encode(['ok'=>false,'error'=>'Tenant not found']); return; }
+        // Duplicate guard
+        if ($hasCustomTable) {
+            try { $dupe = Capsule::table('eb_whitelabel_custom_domains')->where('hostname',$hostname)->where('tenant_id','<>',$tenantId)->first(); if ($dupe) { echo json_encode(['ok'=>false,'error'=>'Hostname already in use by another tenant']); return; } } catch (\Throwable $__) {}
+        }
+        $expectedTarget = (string)$tenant->fqdn;
+
+        // Ensure DNS OK or re-run quick check
+        $cd = Capsule::table('eb_whitelabel_custom_domains')->where('tenant_id',$tenantId)->where('hostname',$hostname)->first();
+        $dnsOk = $cd && (string)$cd->status === 'dns_ok';
+        if (!$dnsOk) {
+            $answers = @dns_get_record($hostname, DNS_CNAME) ?: [];
+            $seen = [];
+            foreach ($answers as $a) { if (isset($a['target'])) { $seen[] = rtrim(strtolower((string)$a['target']), '.'); } }
+            $dnsOk = in_array($expectedTarget, $seen, true);
+        }
+        if (!$dnsOk) { echo json_encode(['ok'=>false,'error'=>'DNS not ready. Expected CNAME ' . $hostname . ' → ' . $expectedTarget]); return; }
+
+        $now = date('Y-m-d H:i:s');
+        // HostOps steps
+        $ops = new \EazyBackup\Whitelabel\HostOps($vars);
+        if (!$ops->writeHttpStub($hostname)) { Capsule::table('eb_whitelabel_custom_domains')->updateOrInsert(['tenant_id'=>$tenantId,'hostname'=>$hostname],[ 'status'=>'failed','last_error'=>'http_stub_failed','updated_at'=>$now ]); echo json_encode(['ok'=>false,'error'=>'Failed to write HTTP stub']); return; }
+        if (!$ops->issueCert($hostname)) {
+            try { $ops->deleteHost($hostname); } catch (\Throwable $__) {}
+            Capsule::table('eb_whitelabel_custom_domains')->updateOrInsert(['tenant_id'=>$tenantId,'hostname'=>$hostname],[ 'status'=>'failed','last_error'=>'cert_issuance_failed','updated_at'=>$now ]);
+            echo json_encode(['ok'=>false,'error'=>'Certificate issuance failed']); return; }
+        if (!$ops->writeHttps($hostname)) {
+            try { $ops->deleteHost($hostname); } catch (\Throwable $__) {}
+            Capsule::table('eb_whitelabel_custom_domains')->updateOrInsert(['tenant_id'=>$tenantId,'hostname'=>$hostname],[ 'status'=>'failed','last_error'=>'https_write_failed','updated_at'=>$now ]);
+            echo json_encode(['ok'=>false,'error'=>'Failed to write HTTPS vhost']); return; }
+        // Try to probe certificate expiry via TLS handshake
+        $expAt = null;
+        try {
+            $ctx = stream_context_create(['ssl'=>['SNI_enabled'=>true,'verify_peer'=>false,'verify_peer_name'=>false,'capture_peer_cert'=>true]]);
+            $soc = @stream_socket_client('ssl://'.$hostname.':443', $errno, $errstr, 6, STREAM_CLIENT_CONNECT, $ctx);
+            if ($soc) {
+                $params = stream_context_get_params($soc);
+                if (isset($params['options']['ssl']['peer_certificate'])) {
+                    $cert = $params['options']['ssl']['peer_certificate'];
+                    if ($cert) { $info = @openssl_x509_parse($cert); if (is_array($info) && isset($info['validTo_time_t'])) { $expAt = date('Y-m-d H:i:s', (int)$info['validTo_time_t']); } }
+                }
+                @fclose($soc);
+            }
+        } catch (\Throwable $__) { $expAt = null; }
+        $upd = [ 'status'=>'cert_ok','checked_at'=>$now,'updated_at'=>$now ]; if ($expAt) { $upd['cert_expires_at'] = $expAt; }
+        if ($hasCustomTable) { try { Capsule::table('eb_whitelabel_custom_domains')->updateOrInsert(['tenant_id'=>$tenantId,'hostname'=>$hostname], $upd); } catch (\Throwable $__) {} }
+
+        // Comet: add host and set default URL
+        $orgId = (string)($tenant->org_id ?? '');
+        if ($orgId === '') { if ($hasCustomTable) { try { Capsule::table('eb_whitelabel_custom_domains')->where('tenant_id',$tenantId)->where('hostname',$hostname)->update(['status'=>'failed','last_error'=>'org_missing','updated_at'=>$now]); } catch (\Throwable $__) {} } echo json_encode(['ok'=>false,'error'=>'Comet organization not ready']); return; }
+        $ct = new \EazyBackup\Whitelabel\CometTenant($vars);
+        if (!$ct->addHostAndSetDefaultURL($orgId, $hostname)) { if ($hasCustomTable) { try { Capsule::table('eb_whitelabel_custom_domains')->where('tenant_id',$tenantId)->where('hostname',$hostname)->update(['status'=>'failed','last_error'=>'org_update_failed','updated_at'=>$now]); } catch (\Throwable $__) {} } echo json_encode(['ok'=>false,'error'=>'Comet update failed']); return; }
+        if ($hasCustomTable) { try { Capsule::table('eb_whitelabel_custom_domains')->where('tenant_id',$tenantId)->where('hostname',$hostname)->update(['status'=>'org_updated','updated_at'=>$now]); } catch (\Throwable $__) {} }
+        Capsule::table('eb_whitelabel_tenants')->where('id',$tenantId)->update(['custom_domain'=>$hostname,'custom_domain_status'=>'org_updated','updated_at'=>$now]);
+
+        // Verify reachability
+        $url = 'https://' . $hostname . '/';
+        $ok = false;
+        // Tolerate protected endpoints: accept 2xx/3xx/401/403
+        $ok = $ct->verifyOrgReachable($url);
+        if (!$ok) { $ok = $ct->verifyOrgReachable($url . 'api/v1/'); }
+        if (!$ok) {
+            if ($hasCustomTable) { try { Capsule::table('eb_whitelabel_custom_domains')->where('tenant_id',$tenantId)->where('hostname',$hostname)->update(['status'=>'failed','last_error'=>'https_probe_failed','updated_at'=>$now]); } catch (\Throwable $__) {} }
+            echo json_encode(['ok'=>false,'error'=>'Host not reachable over HTTPS']); return;
+        }
+
+        if ($hasCustomTable) { try { Capsule::table('eb_whitelabel_custom_domains')->where('tenant_id',$tenantId)->where('hostname',$hostname)->update(['status'=>'verified','updated_at'=>$now]); } catch (\Throwable $__) {} }
+        Capsule::table('eb_whitelabel_tenants')->where('id',$tenantId)->update(['custom_domain'=>$hostname,'custom_domain_status'=>'verified','updated_at'=>$now]);
+        try { logModuleCall('eazybackup','custom_domain_attach', ['tenant'=>$tenantId,'host'=>$hostname], 'verified'); } catch (\Throwable $_) {}
+        echo json_encode(['ok'=>true,'status'=>'verified','message'=>'Custom domain attached and secured.']);
+    } catch (\Throwable $e) {
+        try { logModuleCall('eazybackup','custom_domain_attach_error', ['post_keys'=>array_keys($_POST ?? [])], (string)$e->getMessage()); } catch (\Throwable $_) {}
+        $devMode = (int)($vars['whitelabel_dev_mode'] ?? 0) === 1;
+        $msg = 'Server error'; if ($devMode) { $msg .= ': ' . $e->getMessage(); }
+        echo json_encode(['ok'=>false,'error'=>$msg]);
+    }
 }
 
 

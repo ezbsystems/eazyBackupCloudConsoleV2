@@ -577,6 +577,7 @@ function eazybackup_migrate_schema(): void {
             $t->string('subdomain',191);
             $t->string('fqdn',255);
             $t->string('custom_domain',255)->nullable();
+            $t->string('custom_domain_status', 32)->nullable();
             $t->integer('product_id')->nullable();
             $t->integer('server_id')->nullable();
             $t->integer('servergroup_id')->nullable();
@@ -593,6 +594,10 @@ function eazybackup_migrate_schema(): void {
             $t->index(['client_id','status'],'idx_wl_client_status');
             $t->unique(['fqdn'],'uq_wl_fqdn');
         });
+    } else {
+        // Ensure columns exist on upgrade
+        eb_add_column_if_missing('eb_whitelabel_tenants','custom_domain', fn(Blueprint $t)=>$t->string('custom_domain',255)->nullable());
+        eb_add_column_if_missing('eb_whitelabel_tenants','custom_domain_status', fn(Blueprint $t)=>$t->string('custom_domain_status',32)->nullable());
     }
 
     // --- eb_whitelabel_builds ---
@@ -624,6 +629,28 @@ function eazybackup_migrate_schema(): void {
             $t->timestamp('created_at')->nullable()->useCurrent();
             $t->index(['tenant_id','asset_type'],'idx_wla_tenant_type');
         });
+    }
+
+    // --- eb_whitelabel_custom_domains ---
+    if (!$schema->hasTable('eb_whitelabel_custom_domains')) {
+        $schema->create('eb_whitelabel_custom_domains', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->bigInteger('tenant_id')->index();
+            $t->string('hostname', 255);
+            $t->enum('status', ['pending_dns','dns_ok','cert_ok','org_updated','verified','failed'])->default('pending_dns');
+            $t->text('last_error')->nullable();
+            $t->timestamp('checked_at')->nullable();
+            $t->timestamp('cert_expires_at')->nullable();
+            $t->timestamp('created_at')->nullable()->useCurrent();
+            $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
+            $t->unique(['tenant_id','hostname'], 'uq_wlcd_tenant_host');
+        });
+    } else {
+        eb_add_column_if_missing('eb_whitelabel_custom_domains','status', fn(Blueprint $t)=>$t->enum('status', ['pending_dns','dns_ok','cert_ok','org_updated','verified','failed'])->default('pending_dns'));
+        eb_add_column_if_missing('eb_whitelabel_custom_domains','last_error', fn(Blueprint $t)=>$t->text('last_error')->nullable());
+        eb_add_column_if_missing('eb_whitelabel_custom_domains','checked_at', fn(Blueprint $t)=>$t->timestamp('checked_at')->nullable());
+        eb_add_column_if_missing('eb_whitelabel_custom_domains','cert_expires_at', fn(Blueprint $t)=>$t->timestamp('cert_expires_at')->nullable());
+        eb_add_index_if_missing('eb_whitelabel_custom_domains', "CREATE UNIQUE INDEX IF NOT EXISTS uq_wlcd_tenant_host ON eb_whitelabel_custom_domains (tenant_id, hostname)");
     }
 }
 
@@ -2191,6 +2218,15 @@ function eazybackup_clientarea(array $vars)
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'whitelabel-branding') {
         require_once __DIR__ . "/pages/whitelabel/BuildController.php";
         return eazybackup_whitelabel_branding($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'whitelabel-branding-checkdns') {
+        // CSRF/token is handled by WHMCS; this endpoint returns JSON
+        require_once __DIR__ . "/pages/whitelabel/BuildController.php";
+        eazybackup_whitelabel_branding_checkdns($vars);
+        exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'whitelabel-branding-attachdomain') {
+        require_once __DIR__ . "/pages/whitelabel/BuildController.php";
+        eazybackup_whitelabel_branding_attachdomain($vars);
+        exit;
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'whitelabel-status') {
         require_once __DIR__ . "/pages/whitelabel/BuildController.php";
         eazybackup_whitelabel_status($vars);
@@ -3907,6 +3943,59 @@ function whitelabel_signup(array $vars)
     // If the request method is not POST, generate a custom domain and pass it to the template.
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
         $custom_domain = substr(uniqid(), 0, 8) . '.obcbackup.com';
+        // Compute payment + reseller flags (same logic as createorder)
+        $clientId = isset($_SESSION['uid']) ? (int)$_SESSION['uid'] : 0;
+        $defaultGateway = '';
+        $lastFour = '';
+        $hasStripePayMethod = false;
+        $isStripeDefault = false;
+        try {
+            $row = \WHMCS\Database\Capsule::table('tblclients')->where('id', $clientId)->first();
+            if ($row) {
+                $defaultGateway = (string)($row->defaultgateway ?? '');
+                $lastFour = (string)($row->cardlastfour ?? '');
+            }
+        } catch (\Throwable $e) { /* ignore */ }
+        $isStripeDefault = in_array(strtolower($defaultGateway), ['stripe','creditcard'], true);
+        try {
+            $hasStripePayMethod = \WHMCS\Database\Capsule::table('tblpaymethods')
+                ->where('userid', $clientId)
+                ->whereNull('deleted_at')
+                ->whereIn('payment_type', ['CreditCard','RemoteCreditCard'])
+                ->exists();
+        } catch (\Throwable $e) { /* ignore */ }
+        $hasCard = ($hasStripePayMethod || ($lastFour !== ''));
+
+        $payment = [
+            'defaultGateway'       => $defaultGateway,
+            'isStripeDefault'      => $isStripeDefault,
+            'hasCardOnFile'        => $hasCard,
+            'lastFour'             => $lastFour,
+            'addCardExternalUrl'   => rtrim((string)($vars['systemurl'] ?? ''), '/') . '/index.php/account/paymentmethods/add',
+        ];
+
+        // Reseller detection from module setting 'resellergroups'
+        $resellerGroupsSetting = (string)($vars['resellergroups'] ?? '');
+        if ($resellerGroupsSetting === '') {
+            try {
+                $resellerGroupsSetting = (string)(\WHMCS\Database\Capsule::table('tbladdonmodules')
+                    ->where('module','eazybackup')
+                    ->where('setting','resellergroups')
+                    ->value('value') ?? '');
+            } catch (\Throwable $e) { /* ignore */ }
+        }
+        $isResellerClient = false;
+        if ($clientId > 0) {
+            try {
+                $gid = (int)(\WHMCS\Database\Capsule::table('tblclients')->where('id', $clientId)->value('groupid') ?? 0);
+                if ($gid > 0 && $resellerGroupsSetting !== '') {
+                    $ids = array_filter(array_map('trim', explode(',', $resellerGroupsSetting)), function($v){ return $v !== ''; });
+                    $ids = array_map('intval', $ids);
+                    $isResellerClient = in_array($gid, $ids, true);
+                }
+            } catch (\Throwable $e) { /* ignore */ }
+        }
+
         return [
             "pagetitle" => "White Label Signup",
             "breadcrumb" => ["index.php?m=eazybackup" => "eazyBackup"],
@@ -3915,6 +4004,8 @@ function whitelabel_signup(array $vars)
             "forcessl" => true,
             "vars" => array_merge($vars, [
                 "custom_domain" => $custom_domain,
+                "payment" => $payment,
+                "isResellerClient" => $isResellerClient,
             ]),
         ];
     }

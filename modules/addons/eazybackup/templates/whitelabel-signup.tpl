@@ -14,59 +14,35 @@
         <!-- Loader icon, hidden by default -->
         <div id="loader" class="loader text-center hidden"></div>
 
-        <div class="col-form w-full max-w-lg">
-          {if !empty($errors["error"])}
-            <div class="bg-red-700 text-gray-100 px-4 py-3 rounded mb-4">
-              {$errors["error"]}
-            </div>
-          {/if}
-
-          {if !empty($successMessage)}
-            <div class="bg-green-700 text-gray-100 px-4 py-3 rounded mb-4">
-              {$successMessage}
-            </div>
-          {/if}
-
-
-          <div class="max-w-lg mx-auto bg-gray-700 border-2 border-sky-500 text-gray-200 p-4 rounded-lg shadow-md mb-4">
+        <!-- Info callout -->
+        <div class="max-w-3xl mx-auto bg-gray-700 border-2 border-sky-500 text-gray-200 p-4 rounded-lg shadow-md mb-4">
           <div class="flex items-center">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-2">
               <path stroke-linecap="round" stroke-linejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
             </svg>
-        
               <div>                  
                   <p class="text-sm">
                         Visit our 
-                      <a href="https://docs.eazybackup.com/eazybackup-rebranding/backup-client-and-control-panel-branding" target="_blank" class="text-sky-400 underline font-medium">Knowledge Base</a> for step-by-step instructions.
+                <a href="https://docs.eazybackup.com/eazybackup-rebranding/backup-client-and-control-panel-branding" target="_blank" class="text-sky-400 underline font-medium">Knowledge Base</a>
+                for step-by-step instructions.
                   </p>
               </div>
           </div>
       </div>
 
-              <!-- White-Label Requirements Toggle -->
+        <!-- Requirements toggle -->
               {literal}
-                <div x-data="{ open: false }" class="max-w-lg mx-auto mb-4">
+        <div x-data="{ open: false }" class="max-w-3xl mx-auto mb-4">
                   <button
                     @click="open = !open"
                     class="flex items-center w-full px-4 py-2 bg-gray-700 border border-sky-500 rounded-lg hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-sky-400"
                   >
-                    <svg
-                      :class="open ? 'rotate-180' : ''"
-                      class="h-5 w-5 text-sky-400 transition-transform"
-                      xmlns="http://www.w3.org/2000/svg"
-                      fill="none" viewBox="0 0 24 24" stroke="currentColor"
-                    >
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M19 9l-7 7-7-7" />
+            <svg :class="open ? 'rotate-180' : ''" class="h-5 w-5 text-sky-400 transition-transform" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
                     </svg>
                     <span class="ml-3 text-gray-200 font-medium">White Label Service Requirements</span>
                   </button>
-        
-                  <div
-                    x-show="open"
-                    x-transition
-                    class="mt-4 bg-gray-800 border border-sky-500 p-4 rounded-lg text-gray-200 space-y-2 text-sm"
-                  >
+          <div x-show="open" x-transition class="mt-4 bg-gray-800 border border-sky-500 p-4 rounded-lg text-gray-200 space-y-2 text-sm">
                     <ul class="list-disc list-inside space-y-1">
                       <li>
                         <strong>Existing Partners:</strong>  
@@ -84,478 +60,243 @@
                   </div>
                 </div>
                 {/literal}
-          <!-- Company Name -->
-          <div class="mb-4 {if !empty($errors["company_name"])}border-red-500{/if}">
-            <label for="company_name" class="block text-sm font-medium text-gray-300 mb-1">
-              Company Name *
-            </label>
-            <input
-              type="text"
-              id="company_name"
-              name="company_name"
-              class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-gray-700 rounded focus:outline-none focus:ring-0 focus:border-sky-600"
-              value="{$POST.company_name|escape:'html'}"
-            >
-            {if !empty($errors["company_name"])}
-              <span class="text-red-500 text-sm">{$errors["company_name"]}</span>
+
+        <!-- Payment gating (same behavior as createorder) -->
+        <div class="max-w-3xl mx-auto mb-4">
+          <div class="bg-gray-900/50 p-4 rounded-lg border border-gray-700">
+            {if $payment.isStripeDefault && !$payment.hasCardOnFile}
+              <div class="space-y-2">
+                <div class="text-sm text-amber-300">A saved card is required to proceed with White Label setup.</div>
+                <a href="{$payment.addCardExternalUrl|escape:'html'}" class="inline-flex items-center px-3 py-2 rounded bg-sky-600 hover:bg-sky-700 text-white text-sm">Add Card (Secure)</a>
+                <div class="text-xs text-gray-400">After adding your card, refresh this page to continue.</div>
+              </div>
+            {else}
+              <div class="text-sm text-emerald-300">Payment method on file. You can proceed.</div>
             {/if}
           </div>
+        </div>
 
-          <form id="whitelabelSignupForm" method="post" action="{if isset($form_action) && $form_action ne ''}{$form_action}{else}{$modulelink}&a=whitelabel-signup{/if}" enctype="multipart/form-data" class="space-y-4">
-            <!-- Product Name -->
-            <div class="mb-4 {if !empty($errors["product_name"])}border-red-500{/if}">
-              <label for="product_name" class="block text-sm font-medium text-gray-300 mb-1">
-                Product Name *
-              </label>
-              <input
-                type="text"
-                id="product_name"
-                name="product_name"
-                required
-                aria-required="true"
-                class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-gray-700 rounded focus:outline-none focus:ring-0 focus:border-sky-600"
-                value="{$POST.product_name|escape:'html'}"
-              >
-              {if !empty($errors["product_name"])}
-                <span class="text-red-500 text-sm">{$errors["product_name"]}</span>
-              {/if}
-            </div>
+        <!-- Signup form (matches branding page styling) -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mt-4 px-2">
+          <div class="md:col-span-2 bg-gray-900/50 p-6 rounded-lg" x-data="{ useParent: {if $POST.smtp_server|default:'' eq ''}true{else}false{/if} }">
+            <form id="whitelabelSignupForm" method="post" action="{if isset($form_action) && $form_action ne ''}{$form_action}{else}{$modulelink}&a=whitelabel-signup{/if}" enctype="multipart/form-data" class="space-y-6">
 
-            <!-- Help URL -->
-            <div class="mb-4 {if !empty($errors["help_url"])}border-red-500{/if}">
-              <label for="help_url" class="block text-sm font-medium text-gray-300 mb-1">
-                Help URL
-              </label>
-              <input
-                type="url"
-                id="help_url"
-                name="help_url"
-                class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-gray-700 rounded focus:outline-none focus:ring-0 focus:border-sky-600"
-                value="{$POST.help_url|escape:'html'}"
-              >
-              {if !empty($errors["help_url"])}
-                <span class="text-red-500 text-sm">{$errors["help_url"]}</span>
-              {/if}
-            </div>
-            
-            <!-- EULA -->
-            <div class="mb-4 {if !empty($errors["eula"])}border-red-500{/if}">
-              <label for="eula" class="block text-sm font-medium text-gray-300 mb-1">
-                EULA
-              </label>
-              <textarea
-                id="eula"
-                name="eula"
-                rows="4"
-                class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-gray-700 rounded focus:outline-none focus:ring-0 focus:border-sky-600"
-              >{$POST.eula|escape:'html'}</textarea>
-              {if !empty($errors["eula"])}
-                <span class="text-red-500 text-sm">{$errors["eula"]}</span>
-              {/if}
-            </div>
+              <!-- System Branding -->
+              <div class="bg-gray-800/60 border border-gray-700 rounded-lg p-4 space-y-4">
+                <h4 class="text-white font-semibold">System Branding</h4>
+                <!-- Hidden: Suggested subdomain for new intake route -->
+                <input type="hidden" name="subdomain" value="{$generated_subdomain}">
 
-            <!-- Tile Background (Hex Color) -->
-            <div class="mb-4">
-              <label for="tile_background" class="block text-sm font-medium text-gray-300 mb-1">
-                Tile Background (Hex)
-              </label>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <label class="block text-gray-300 mb-1">Control Panel Page Title *</label>
+                    <input type="text" id="page_title" name="page_title" required aria-required="true" value="{$POST.page_title|escape:'html'}" class="w-full rounded-md border border-slate-600/70 bg-slate-900 px-2 py-2 text-slate-100" />
+            </div>
+                  <div>
+                    <label class="block text-gray-300 mb-1">Custom Control Panel Domain</label>
               <div class="flex items-center">
-                <input
-                  type="text"
-                  id="tile_background"
-                  name="tile_background"
-                  class="w-1/2 px-3 py-2 border border-gray-600 text-gray-300 bg-gray-700 rounded focus:outline-none focus:ring-0 focus:border-sky-600"
-                  value="{$POST.tile_background|escape:'html'}"
-                  placeholder="#FFFFFF"
-                >
-                <input
-                  type="color"
-                  id="tile_background_picker"
-                  class="ml-2 h-10 w-10 border"
-                  value="{$POST.tile_background|default:'#FFFFFF'}"
-                >
+                      <input type="text" id="custom_domain" name="custom_domain" value="{$custom_domain|default:($generated_subdomain|cat:'.'|cat:$WHMCSAppConfig.whitelabel_base_domain)}" readonly class="w-full rounded-md border border-slate-600/70 bg-slate-900 px-2 py-2 text-slate-100" />
+                      <button type="button" id="copyButton" class="ml-2 inline-flex items-center px-3 py-2 text-xs font-medium rounded text-white bg-sky-600 hover:bg-sky-700 focus:outline-none" title="Copy">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-5"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75A1.125 1.125 0 0 1 3.75 19.875V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 0 0-3.375-3.375h-1.5a1.125 1.125 0 0 1-1.125-1.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H9.75"/></svg>
+                      </button>
               </div>              
             </div>
 
-            <!-- Header (Existing file field above already handles header image) -->
-            <!-- Icon (Windows) -->
-            <div class="mb-4 {if !empty($errors["icon_windows"])}border-red-500{/if}">
-              <label for="icon_windows" class="block text-sm font-medium text-gray-300 mb-1">
-                Icon (Windows)
-              </label>
-              <input
-                type="file"
-                id="icon_windows"
-                name="icon_windows"
-                accept=".jpg,.jpeg,.png,.svg,.ico"
-                class="block w-full text-sm text-slate-500 file:mr-4 file:py-1 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-medium file:bg-sky-50 file:text-sky-700 hover:file:bg-sky-100"
-              >
-              {if !empty($errors["icon_windows"])}
-                <span class="text-red-500 text-sm">{$errors["icon_windows"]}</span>
-              {/if}
+                  <div>
+                    <label class="block text-gray-300 mb-1">Header Image</label>
+                    <input type="file" id="header" name="header" accept=".jpg,.jpeg,.gif,.png,.svg" class="block w-full text-sm text-slate-300" />
+            </div>
+                  <div></div>
+
+                  <div>
+                    <label class="block text-gray-300 mb-1">Header Color (Hex)</label>
+                    <div class="flex items-center">
+                      <input type="text" id="header_color" name="header_color" class="w-1/2 rounded-md border border-slate-600/70 bg-slate-900 px-2 py-2 text-slate-100" value="{$POST.header_color|escape:'html'}" placeholder="#FFFFFF" />
+                      <input type="color" id="header_color_picker" class="ml-2 h-8 w-8 border" value="{$POST.header_color|default:'#FFFFFF'}" />
+            </div>
+            </div>
+                  <div>
+                    <label class="block text-gray-300 mb-1">Accent Color (Hex)</label>
+                    <div class="flex items-center">
+                      <input type="text" id="accent_color" name="accent_color" class="w-1/2 rounded-md border border-slate-600/70 bg-slate-900 px-2 py-2 text-slate-100" value="{$POST.accent_color|escape:'html'}" placeholder="#FFFFFF" />
+                      <input type="color" id="accent_color_picker" class="ml-2 h-8 w-8 border" value="{$POST.accent_color|default:'#FFFFFF'}" />
+            </div>
             </div>
 
-            <!-- Icon (macOS) -->
-            <div class="mb-4 {if !empty($errors["icon_macos"])}border-red-500{/if}">
-              <label for="icon_macos" class="block text-sm font-medium text-gray-300 mb-1">
-                Icon (macOS)
-              </label>
-              <input
-                type="file"
-                id="icon_macos"
-                name="icon_macos"
-                accept=".jpg,.jpeg,.png,.svg,.ico"
-                class="block w-full text-sm text-slate-500 file:mr-4 file:py-1 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-medium file:bg-sky-50 file:text-sky-700 hover:file:bg-sky-100"
-              >
-              {if !empty($errors["icon_macos"])}
-                <span class="text-red-500 text-sm">{$errors["icon_macos"]}</span>
-              {/if}
+                  <div>
+                    <label class="block text-gray-300 mb-1">Tab icon (favicon)</label>
+                    <input type="file" id="tab_icon" name="tab_icon" accept=".ico" class="block w-full text-sm text-slate-300" />
             </div>
-
-            <!-- Menu Bar Icon (macOS) -->
-            <div class="mb-4 {if !empty($errors["menu_bar_icon_macos"])}border-red-500{/if}">
-              <label for="menu_bar_icon_macos" class="block text-sm font-medium text-gray-300 mb-1">
-                Menu Bar Icon (macOS)
-              </label>
-              <input
-                type="file"
-                id="menu_bar_icon_macos"
-                name="menu_bar_icon_macos"
-                accept=".jpg,.jpeg,.png,.svg,.ico"
-                class="block w-full text-sm text-slate-500 file:mr-4 file:py-1 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-medium file:bg-sky-50 file:text-sky-700 hover:file:bg-sky-100"
-              >
-              {if !empty($errors["menu_bar_icon_macos"])}
-                <span class="text-red-500 text-sm">{$errors["menu_bar_icon_macos"]}</span>
-              {/if}
-            </div>
-
-            <!-- Logo Image (100x32) -->
-            <div class="mb-4 {if !empty($errors["logo_image"])}border-red-500{/if}">
-              <label for="logo_image" class="block text-sm font-medium text-gray-300 mb-1">
-                Logo Image (100x32)
-              </label>
-              <input
-                type="file"
-                id="logo_image"
-                name="logo_image"
-                accept=".jpg,.jpeg,.png,.svg,.ico"
-                class="block w-full text-sm text-slate-500 file:mr-4 file:py-1 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-medium file:bg-sky-50 file:text-sky-700 hover:file:bg-sky-100"
-              >
-              {if !empty($errors["logo_image"])}
-                <span class="text-red-500 text-sm">{$errors["logo_image"]}</span>
-              {/if}
-            </div>
-
-            <!-- Tile Image (150x150) -->
-            <div class="mb-4 {if !empty($errors["tile_image"])}border-red-500{/if}">
-              <label for="tile_image" class="block text-sm font-medium text-gray-300 mb-1">
-                Tile Image (150x150)
-              </label>
-              <input
-                type="file"
-                id="tile_image"
-                name="tile_image"
-                accept=".jpg,.jpeg,.png,.svg,.ico"
-                class="block w-full text-sm text-slate-500 file:mr-4 file:py-1 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-medium file:bg-sky-50 file:text-sky-700 hover:file:bg-sky-100"
-              >
-              {if !empty($errors["tile_image"])}
-                <span class="text-red-500 text-sm">{$errors["tile_image"]}</span>
-              {/if}
-            </div>
-
-            <!-- Background Logo -->
-            <div class="mb-4 {if !empty($errors["background_logo"])}border-red-500{/if}">
-              <label for="background_logo" class="block text-sm font-medium text-gray-300 mb-1">
-                Background Logo
-              </label>
-              <input
-                type="file"
-                id="background_logo"
-                name="background_logo"
-                accept=".jpg,.jpeg,.png,.svg,.ico"
-                class="block w-full text-sm text-slate-500 file:mr-4 file:py-1 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-medium file:bg-sky-50 file:text-sky-700 hover:file:bg-sky-100"
-              >
-              {if !empty($errors["background_logo"])}
-                <span class="text-red-500 text-sm">{$errors["background_logo"]}</span>
-              {/if}
-            </div>
-
-            <!-- App Icon Image (256x256) -->
-            <div class="mb-4 {if !empty($errors["app_icon_image"])}border-red-500{/if}">
-              <label for="app_icon_image" class="block text-sm font-medium text-gray-300 mb-1">
-                App Icon Image (256x256)
-              </label>
-              <input
-                type="file"
-                id="app_icon_image"
-                name="app_icon_image"
-                accept=".jpg,.jpeg,.png,.svg,.ico"
-                class="block w-full text-sm text-slate-500 file:mr-4 file:py-1 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-medium file:bg-sky-50 file:text-sky-700 hover:file:bg-sky-100"
-              >
-              {if !empty($errors["app_icon_image"])}
-                <span class="text-red-500 text-sm">{$errors["app_icon_image"]}</span>
-              {/if}
-            </div>
-
-            <!-- Header (Image Upload) -->
-            <div class="mb-4 {if !empty($errors["header"])}border-red-500{/if}">
-
-              <h1 class="text-xl font-semibold text-gray-300 border-b border-gray-700 mb-4">
-                Control Panel Branding
-              </h1>
-
-              <!-- Custom Control Panel Domain (Read-only with Copy Button) -->
-              <div class="mb-4">
-                <label for="custom_domain" class="block text-sm font-medium text-gray-300 mb-1">
-                  Custom Control Panel Domain
-                </label>
-                <div class="flex items-center">
-                  <input type="text" id="custom_domain" name="custom_domain" value="{$custom_domain|default:($generated_subdomain|cat:'.'|cat:$WHMCSAppConfig.whitelabel_base_domain)}" readonly class="w-full px-3 py-2 border border-gray-600 text-gray-300 bg-gray-700 rounded focus:outline-none focus:ring-0 focus:border-sky-600">
-                  <button type="button" id="copyButton" class="ml-2 inline-flex items-center px-3 py-2 border border-transparent text-xs font-medium rounded text-white bg-sky-600 hover:bg-sky-700 focus:outline-none"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 0 0-3.375-3.375h-1.5a1.125 1.125 0 0 1-1.125-1.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H9.75" />
-                </svg>
-                </button>
                 </div>
-                <ul>
-                <li class="text-xs text-gray-300">We generate a unique subdomain for your account.</li>
-                <li class="text-xs text-gray-300">To access it using your own domain, create a CNAME record in your DNS settings.</li>
-              </ul>
               </div>
               
-              <!-- Hidden: Suggested subdomain for new intake route -->
-              <input type="hidden" name="subdomain" value="{$generated_subdomain}">
-
-              <!-- Page Title -->
-              <div class="mb-4 {if !empty($errors["page_title"])}border-red-500{/if}">
-                <label for="page_title" class="block text-sm font-medium text-gray-300 mb-1">
-                  Control Panel Page Title *
-                </label>
-                <input
-                  type="text"
-                  id="page_title"
-                  name="page_title"
-                  required
-                  aria-required="true"
-                  class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-gray-700 rounded focus:outline-none focus:ring-0 focus:border-sky-600"
-                  value="{$POST.page_title|escape:'html'}"
-                >
-                {if !empty($errors["page_title"])}
-                  <span class="text-red-500 text-sm">{$errors["page_title"]}</span>
-                {/if}
+              <!-- Backup Agent Branding -->
+              <div class="bg-gray-800/60 border border-gray-700 rounded-lg p-4 space-y-4">
+                <h4 class="text-white font-semibold">Backup Agent Branding</h4>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <label class="block text-gray-300 mb-1">Company Name *</label>
+                    <input type="text" id="company_name" name="company_name" value="{$POST.company_name|escape:'html'}" class="w-full rounded-md border border-slate-600/70 bg-slate-900 px-2 py-2 text-slate-100" />
+                  </div>
+                  <div>
+                    <label class="block text-gray-300 mb-1">Product Name *</label>
+                    <input type="text" id="product_name" name="product_name" required aria-required="true" value="{$POST.product_name|escape:'html'}" class="w-full rounded-md border border-slate-600/70 bg-slate-900 px-2 py-2 text-slate-100" />
+                  </div>
+                  <div class="md:col-span-2">
+                    <label class="block text-gray-300 mb-1">Help URL</label>
+                    <input type="url" id="help_url" name="help_url" value="{$POST.help_url|escape:'html'}" class="w-full rounded-md border border-slate-600/70 bg-slate-900 px-2 py-2 text-slate-100" />
               </div>
 
-
-              <label for="header" class="block text-sm font-medium text-gray-300 mb-1">
-                Header Image
-              </label>
-              <input
-                type="file"
-                id="header"
-                name="header"
-                accept=".jpg,.jpeg,.png,.svg,.ico"
-                class="block w-full text-sm text-slate-500 file:mr-4 file:py-1 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-medium file:bg-sky-50 file:text-sky-700 hover:file:bg-sky-100"
-              >
-              {if !empty($errors["header"])}
-                <span class="text-red-500 text-sm">{$errors["header"]}</span>
-              {/if}
+                  <div>
+                    <label class="block text-gray-300 mb-1">Icon (Windows)</label>
+                    <input type="file" id="icon_windows" name="icon_windows" accept=".ico,.jpg,.jpeg,.gif,.png" class="block w-full text-sm text-slate-300" />
+                  </div>
+                  <div>
+                    <label class="block text-gray-300 mb-1">Icon (macOS)</label>
+                    <input type="file" id="icon_macos" name="icon_macos" accept=".ico,.jpg,.jpeg,.gif,.png" class="block w-full text-sm text-slate-300" />
+                  </div>
+                  <div>
+                    <label class="block text-gray-300 mb-1">Menu Bar Icon (macOS)</label>
+                    <input type="file" id="menu_bar_icon_macos" name="menu_bar_icon_macos" accept=".ico,.jpg,.jpeg,.gif,.png" class="block w-full text-sm text-slate-300" />
+            </div>
+                  <div>
+                    <label class="block text-gray-300 mb-1">Logo Image (100x32)</label>
+                    <input type="file" id="logo_image" name="logo_image" accept=".jpg,.jpeg,.gif,.png,.svg" class="block w-full text-sm text-slate-300" />
+              </div>              
+                  <div>
+                    <label class="block text-gray-300 mb-1">Tile Image (150x150)</label>
+                    <input type="file" id="tile_image" name="tile_image" accept=".jpg,.jpeg,.gif,.png,.svg" class="block w-full text-sm text-slate-300" />
             </div>
 
-            <!-- Header Color -->
-            <div class="mb-4">
-              <label for="header_color" class="block text-sm font-medium text-gray-300 mb-1">
-                Header Color (Hex)
-              </label>
+                  <div class="md:col-span-2">
+                    <label class="block text-gray-300 mb-1">Tile Background (Hex)</label>
               <div class="flex items-center">
-                <input
-                  type="text"
-                  id="header_color"
-                  name="header_color"
-                  class="w-1/2 px-3 py-2 border border-gray-600 text-gray-300 bg-gray-700 rounded focus:outline-none focus:ring-0 focus:border-sky-600"
-                  value="{$POST.header_color|escape:'html'}"
-                  placeholder="#FFFFFF"
-                >
-                <input
-                  type="color"
-                  id="header_color_picker"
-                  class="ml-2 h-10 w-10 border"
-                  value="{$POST.header_color|default:'#FFFFFF'}"
-                >
+                      <input type="text" id="tile_background" name="tile_background" value="{$POST.tile_background|escape:'html'}" class="w-1/2 rounded-md border border-slate-600/70 bg-slate-900 px-2 py-2 text-slate-100" placeholder="#FFFFFF" />
+                      <input type="color" id="tile_background_picker" class="ml-2 h-8 w-8 border" value="{$POST.tile_background|default:'#FFFFFF'}" />
               </div>              
             </div>
-
-            <!-- Accent Color -->
-            <div class="mb-4">
-              <label for="accent_color" class="block text-sm font-medium text-gray-300 mb-1">
-                Accent Color (Hex)
-              </label>
-              <div class="flex items-center">
-                <input
-                  type="text"
-                  id="accent_color"
-                  name="accent_color"
-                  class="w-1/2 px-3 py-2 border border-gray-600 text-gray-300 bg-gray-700 rounded focus:outline-none focus:ring-0 focus:border-sky-600"
-                  value="{$POST.accent_color|escape:'html'}"
-                  placeholder="#FFFFFF"
-                >
-                <input
-                  type="color"
-                  id="accent_color_picker"
-                  class="ml-2 h-10 w-10 border"
-                  value="{$POST.accent_color|default:'#FFFFFF'}"
-                >
-              </div>              
+                  <div class="md:col-span-2">
+                    <label class="block text-gray-300 mb-1">App Icon Image (256x256)</label>
+                    <input type="file" id="app_icon_image" name="app_icon_image" accept=".jpg,.jpeg,.gif,.png,.svg" class="block w-full text-sm text-slate-300" />
             </div>
 
-            <!-- Tab Icon -->
-            <div class="mb-4 {if !empty($errors["tab_icon"])}border-red-500{/if}">
-              <label for="tab_icon" class="block text-sm font-medium text-gray-300 mb-1">
-                Tab Icon
-              </label>
-              <input
-                type="file"
-                id="tab_icon"
-                name="tab_icon"
-                accept=".jpg,.jpeg,.png,.svg,.ico"
-                class="block w-full text-sm text-slate-500 file:mr-4 file:py-1 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-medium file:bg-sky-50 file:text-sky-700 hover:file:bg-sky-100"
-              >
-              {if !empty($errors["tab_icon"])}
-                <span class="text-red-500 text-sm">{$errors["tab_icon"]}</span>
-              {/if}
-            </div>
-            <!-- Custom SMTP Server Section -->
-            <div class="mb-4">
-              <button type="button" id="toggleSmtp" class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-sky-600 hover:bg-sky-700 focus:outline-none">
-                Custom SMTP Server (optional)
-              </button>
-            </div>
-            <div id="smtpSection" class="hidden border border-gray-600 p-4 rounded">
-              <!-- Send as (display name) -->
-              <div class="mb-4">
-                <label for="smtp_sendas_name" class="block text-sm font-medium text-gray-300 mb-1">
-                  Send as (display name)
-                </label>
-                <input type="text" id="smtp_sendas_name" name="smtp_sendas_name" class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-gray-700 rounded focus:outline-none focus:ring-0 focus:border-sky-600" value="{$POST.smtp_sendas_name|escape:'html'}">
+                  <!-- EULA: textarea with optional upload -->
+                  <div class="md:col-span-2">
+                    <label for="eula" class="block text-sm font-medium text-gray-300 mb-1">EULA</label>
+                    <textarea id="eula" name="eula" rows="6" class="w-full rounded-md border border-slate-600/70 bg-slate-900 px-2 py-2 text-slate-100" placeholder="Paste or edit your EULA here…">{$POST.eula|escape:'html'}</textarea>
+                    <div class="mt-2">
+                      <label class="block text-sm text-gray-300 mb-1">…or upload EULA file (.rtf/.txt/.pdf)</label>
+                      <input type="file" name="eula_file" accept=".rtf,.txt,.pdf" class="block w-full text-sm text-slate-300" />
               </div>
-              <!-- Send as (email) -->
-              <div class="mb-4">
-                <label for="smtp_sendas_email" class="block text-sm font-medium text-gray-300 mb-1">
-                  Send as (email)
-                </label>
-                <input type="email" id="smtp_sendas_email" name="smtp_sendas_email" class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-gray-700 rounded focus:outline-none focus:ring-0 focus:border-sky-600" value="{$POST.smtp_sendas_email|escape:'html'}">
-              </div>
-              <!-- SMTP Server and Port -->
-              <div class="mb-4 flex space-x-4">
-                <div class="w-2/3">
-                  <label for="smtp_server" class="block text-sm font-medium text-gray-300 mb-1">
-                    SMTP Server
-                  </label>
-                  <input type="text" id="smtp_server" name="smtp_server" class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-gray-700 rounded focus:outline-none focus:ring-0 focus:border-sky-600" value="{$POST.smtp_server|escape:'html'}">
+                    <p class="text-xs text-gray-400 mt-1">If you provide both EULA text and a file, the file takes precedence.</p>
                 </div>
-                <div class="w-1/3">
-                  <label for="smtp_port" class="block text-sm font-medium text-gray-300 mb-1">
-                    Port
-                  </label>
-                  <input type="number" id="smtp_port" name="smtp_port" class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-gray-700 rounded focus:outline-none focus:ring-0 focus:border-sky-600" value="{$POST.smtp_port|escape:'html'}">
                 </div>
               </div>
-              <!-- SMTP Username -->
-              <div class="mb-4">
-                <label for="smtp_username" class="block text-sm font-medium text-gray-300 mb-1">
-                  Username
+
+              <!-- Email Reporting -->
+              <div class="bg-gray-800/60 border border-gray-700 rounded-lg p-4 space-y-4">
+                <h4 class="text-white font-semibold">Email Reporting</h4>
+                <label class="inline-flex items-center gap-2 text-slate-200">
+                  <input type="checkbox" name="use_parent_mail" value="1" class="rounded" x-model="useParent" {if $POST.smtp_server|default:'' eq ''}checked{/if} />
+                  Use parent mail server
                 </label>
-                <input type="text" id="smtp_username" name="smtp_username" class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-gray-700 rounded focus:outline-none focus:ring-0 focus:border-sky-600" value="{$POST.smtp_username|escape:'html'}">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm" :class="useParent ? 'opacity-50 pointer-events-none' : ''">
+                  <div>
+                    <label class="block text-gray-300 mb-1">From Name</label>
+                    <input name="smtp_sendas_name" value="{$POST.smtp_sendas_name|escape:'html'}" class="w-full rounded-md border border-slate-600/70 bg-slate-900 px-2 py-2 text-slate-100" />
+                  </div>
+                  <div>
+                    <label class="block text-gray-300 mb-1">From Email</label>
+                    <input type="email" name="smtp_sendas_email" value="{$POST.smtp_sendas_email|escape:'html'}" class="w-full rounded-md border border-slate-600/70 bg-slate-900 px-2 py-2 text-slate-100" />
+                  </div>
+                  <div>
+                    <label class="block text-gray-300 mb-1">SMTP Server</label>
+                    <input name="smtp_server" value="{$POST.smtp_server|escape:'html'}" class="w-full rounded-md border border-slate-600/70 bg-slate-900 px-2 py-2 text-slate-100" />
+                  </div>
+                  <div>
+                    <label class="block text-gray-300 mb-1">Port</label>
+                    <input type="number" name="smtp_port" value="{$POST.smtp_port|escape:'html'}" class="w-full rounded-md border border-slate-600/70 bg-slate-900 px-2 py-2 text-slate-100" />
+                  </div>
+                  <div>
+                    <label class="block text-gray-300 mb-1">Username</label>
+                    <input name="smtp_username" value="{$POST.smtp_username|escape:'html'}" class="w-full rounded-md border border-slate-600/70 bg-slate-900 px-2 py-2 text-slate-100" />
               </div>
-              <!-- SMTP Password -->
-              <div class="mb-4">
-                <label for="smtp_password" class="block text-sm font-medium text-gray-300 mb-1">
-                  Password
-                </label>
-                <input type="password" id="smtp_password" name="smtp_password" class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-gray-700 rounded focus:outline-none focus:ring-0 focus:border-sky-600">
+                  <div>
+                    <label class="block text-gray-300 mb-1">Password</label>
+                    <input type="password" name="smtp_password" class="w-full rounded-md border border-slate-600/70 bg-slate-900 px-2 py-2 text-slate-100" />
               </div>
-              <!-- Security -->
-              <div class="mb-4">
-                <label for="smtp_security" class="block text-sm font-medium text-gray-300 mb-1">
-                  Security
-                </label>
-                <select id="smtp_security" name="smtp_security" class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-gray-700 rounded focus:outline-none focus:ring-0 focus:border-sky-600">
+                  <div class="md:col-span-2">
+                    <label class="block text-gray-300 mb-1">Security</label>
+                    <select name="smtp_security" class="w-full rounded-md border border-slate-600/70 bg-slate-900 px-2 py-2 text-slate-100">
                   <option value="SSL/TLS" {if $POST.smtp_security == "SSL/TLS"}selected{/if}>SSL/TLS</option>
                   <option value="STARTTLS" {if $POST.smtp_security == "STARTTLS"}selected{/if}>STARTTLS</option>
                   <option value="Plain" {if $POST.smtp_security == "Plain"}selected{/if}>Plain</option>
                 </select>
+                  </div>
               </div>
             </div>
 
-            <!-- Submit Button -->
-            <button
-              type="submit"
-              class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-emerald-600 hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-700"
-            >
-              Confirm
-            </button>
+              <!-- Submit Button -->
+              <div class="flex justify-end">
+                <button type="submit" class="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 {if $payment.isStripeDefault && !$payment.hasCardOnFile}opacity-50 cursor-not-allowed{/if}" {if $payment.isStripeDefault && !$payment.hasCardOnFile}disabled{/if}>Confirm</button>
+              </div>
           </form>
+          </div>
         </div>
       </div>
     </div>
   </div>
 </div>
 
-<!-- JavaScript to show loader, sync color inputs, copy domain, and toggle SMTP section -->
+<!-- JavaScript to show loader, sync color inputs, copy domain, and disable SMTP when using parent mail -->
 <script>
   (function(){
     try{
       var form = document.getElementById('whitelabelSignupForm');
-      if (!form) return;
+      if (form) {
       form.addEventListener('submit', function(){
         try { if (window.ebShowLoader) window.ebShowLoader(document.body, 'Submitting…'); } catch(_){ }
-        try { var cf = document.querySelector('.col-form'); if (cf) cf.style.opacity = '0.5'; } catch(_){ }
-      });
+          // If Use parent mail is checked, blank SMTP fields so backend inherits
+          try {
+            var useParent = form.querySelector('input[name="use_parent_mail"]');
+            if (useParent && useParent.checked) {
+              ['smtp_server','smtp_port','smtp_username','smtp_password'].forEach(function(n){
+                var el = form.querySelector('[name="'+n+'"]'); if (el) { el.value = ''; }
+              });
+            }
+          } catch(_){}
+        });
+      }
     } catch(_){ }
   })();
 
   // Sync text and color picker for hex inputs
-  function syncColor(textInputId, colorPickerId, previewId) {
-    var textInput = document.getElementById(textInputId);
-    var colorPicker = document.getElementById(colorPickerId);
-    var preview = document.getElementById(previewId);
-    textInput.addEventListener("input", function() {
-      colorPicker.value = textInput.value;
-      preview.style.backgroundColor = textInput.value;
-    });
-    colorPicker.addEventListener("input", function() {
-      textInput.value = colorPicker.value;
-      preview.style.backgroundColor = colorPicker.value;
-    });
+  function wireColor(textId, pickerId){
+    try{
+      var t=document.getElementById(textId), c=document.getElementById(pickerId);
+      if(!t||!c) return;
+      t.addEventListener('input', function(){ c.value = t.value; });
+      c.addEventListener('input', function(){ t.value = c.value; });
+    }catch(_){ }
   }
-  syncColor("header_color", "header_color_picker", "header_color_preview");
-  syncColor("accent_color", "accent_color_picker", "accent_color_preview");
-  syncColor("tile_background", "tile_background_picker", "tile_background_preview");
+  wireColor('header_color','header_color_picker');
+  wireColor('accent_color','accent_color_picker');
+  wireColor('tile_background','tile_background_picker');
 
   // Copy custom domain to clipboard
-  document.getElementById("copyButton").addEventListener("click", function() {
-    var domainField = document.getElementById("custom_domain");
-    domainField.select();
-    domainField.setSelectionRange(0, 99999);
-    document.execCommand("copy");
-    alert("Copied: " + domainField.value);
-  });
-
-  // Toggle Custom SMTP Server section
-  document.getElementById("toggleSmtp").addEventListener("click", function() {
-    var smtpSection = document.getElementById("smtpSection");
-    if (smtpSection.classList.contains("hidden")) {
-      smtpSection.classList.remove("hidden");
-      this.textContent = "Hide SMTP Server Settings";
-    } else {
-      smtpSection.classList.add("hidden");
-      this.textContent = "Custom SMTP Server (optional)";
-    }
-  });
+  (function(){ try{
+    var btn = document.getElementById('copyButton');
+    if(!btn) return;
+    btn.addEventListener('click', function(){
+      try{
+        var domainField = document.getElementById('custom_domain');
+        if(!domainField) return;
+        domainField.select(); domainField.setSelectionRange(0, 99999);
+        document.execCommand('copy');
+        window.showToast ? window.showToast('Copied: '+(domainField.value||''), 'success') : alert('Copied: '+domainField.value);
+      }catch(_){ }
+    });
+  }catch(_){ }})();
 </script>
 
 <script src="modules/addons/eazybackup/templates/assets/js/ui.js"></script>
-
-<style>
-  .col-form {
-    /* Additional custom styling if needed */
-  }
-</style>

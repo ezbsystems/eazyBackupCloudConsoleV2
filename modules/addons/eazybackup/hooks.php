@@ -99,6 +99,49 @@ add_hook('ClientAreaHeadOutput', 1, function ($vars) {
     return implode("\n", $tags);
 });
 
+/**
+ * Provide branding-aware download variables for the theme header (flyout + modals)
+ * Exposes: {$eb_brand_download.base}, {$eb_brand_download.base_urlenc}, {$eb_brand_download.productName}, {$eb_brand_download.accent}, {$eb_brand_download.isBranded}
+ */
+add_hook('ClientAreaPage', 1, function ($vars) {
+    try {
+        $clientId = (int)($_SESSION['uid'] ?? 0);
+        $out = [
+            'base' => 'https://panel.obcbackup.com/',
+            'base_urlenc' => rawurlencode('https://panel.obcbackup.com/'),
+            'productName' => 'OBC Branded Client',
+            'accent' => '#4f46e5', // indigo-600
+            'isBranded' => 0,
+        ];
+        if ($clientId > 0) {
+            $row = Capsule::table('eb_whitelabel_tenants')
+                ->where('client_id', $clientId)
+                ->where('status', 'active')
+                ->orderBy('updated_at', 'desc')
+                ->first();
+            if ($row) {
+                $brand = json_decode((string)($row->brand_json ?? '{}'), true) ?: [];
+                $product = (string)($brand['ProductName'] ?? $brand['BrandName'] ?? '');
+                $accent = (string)($brand['AccentColor'] ?? '#4f46e5');
+                $host = '';
+                $cd = (string)($row->custom_domain ?? '');
+                $cdStatus = (string)($row->custom_domain_status ?? '');
+                if ($cd !== '' && in_array($cdStatus, ['verified','org_updated','cert_ok','dns_ok'], true)) { $host = $cd; }
+                if ($host === '') { $host = (string)$row->fqdn; }
+                if ($host !== '') {
+                    $base = 'https://' . $host . '/';
+                    $out['base'] = $base;
+                    $out['base_urlenc'] = rawurlencode($base);
+                }
+                if ($product !== '') { $out['productName'] = $product; }
+                if ($accent !== '') { $out['accent'] = $accent; }
+                $out['isBranded'] = 1;
+            }
+        }
+        return ['eb_brand_download' => $out];
+    } catch (\Throwable $_) { return []; }
+});
+
 
 
 

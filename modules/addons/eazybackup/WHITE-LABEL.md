@@ -16,19 +16,31 @@ Provisioning runs as a sequence of idempotent steps (logged in DB), with a frien
 - Issue/renew SSL via Certbot (non‑interactive).
 
 4) Comet Organization — “Creating your private management space…”
-- `AdminOrganizationSet(Name, Hosts, Branding.DefaultLoginServerURL, IsSuspended=false)` and store `org_id`.
+- Create/Update via `AdminOrganizationSet(Name, Hosts, Branding.DefaultLoginServerURL, IsSuspended=false)` and store `org_id`.
 
-5) Admin user — “Setting up your admin access…”
-- `AdminAdminUserNew(TargetOrgID)` with a strong generated password; stored encrypted in DB (never shown to customers).
+5) Admin user & policy — “Setting up your admin access…”
+- Create tenant admin via `AdminAdminUserNew(TargetOrgID)` with a generated strong password (stored encrypted in DB; never shown to customers).
+- Clone the template Group Policy (deterministic ID per org) using `AdminPoliciesGet`/`AdminPoliciesListFull` + `AdminPoliciesSet`, then attach it to the new admin by setting `Permissions.AllowedUserPolicies=[<newPolicyId>]` and guard-rail flags (`PreventEditServerSettings=true`, `PreventServerShutdown=true`) in a single `AdminMetaServerConfigSet`. After this write, Comet restarts, so we wait for readiness before continuing.
 
 6) Branding — “Applying your branding…”
-- `AdminMetaBrandingConfigSet` using Product/Company names, colors, Help URL (assets may use `AdminMetaResourceNew`).
+- Upload binary assets with `AdminMetaResourceNew` and rewrite all asset paths in Branding to `resource://<hash>` (LogoImage, Favicon, PathHeaderImage, PathAppIconImage, PathTilePng, PathIcoFile, PathIcnsFile, PathMenuBarIcnsFile, PathEulaRtf).
+- Merge Branding on the org and write via `AdminOrganizationSet`. Also set:
+  - `CompanyName` (from Company input; fallback to ProductName)
+  - `CloudStorageName` (defaults to ProductName)
+  - Colors via Comet keys `TopColor`, `AccentColor`, `TileBackgroundColor`
+  - DefaultLoginServerURL if empty.
+- Enable `SoftwareBuildRole` on the Organization (`RoleEnabled=true`, `AllowUnauthenticatedDownloads=false`, `MaxBuilders=0`).
 
 7) Email — “Configuring email options…”
-- If not inheriting parent email, `AdminMetaEmailOptionsSet` (FromName/FromEmail/SMTP).
+- If SMTP host is blank, inherit parent mail (`Mode=""`, skip). Otherwise map security to `Mode` (`smtp-ssl` for SSL/TLS; `smtp` for STARTTLS or Plain) and set `SMTPAllowUnencrypted=true` only for Plain. Merge on org and write via `AdminOrganizationSet`.
 
 8) Storage — “Preparing storage templates…”
-- `AdminMetaRemoteStorageVaultSet` + `AdminMetaRemoteStorageVaultTest` (store template JSON).
+- Build a tenant storage template under `Organization.RemoteStorage` (Type=`comet`, `RebrandStorage=true`, `Default=true`).
+  - `ID`: deterministic per-org
+  - `Description`: `<ProductName> Cloud Storage` (fallback: `<fqdn> Cloud Storage`)
+  - `RemoteAddress`: `https://<fqdn>/`
+  - `Username` / `Password`: the tenant admin credentials
+- Upsert by ID and write via `AdminOrganizationSet`. Verify visibility with `AdminRequestStorageVaultProviders(TargetOrganization=<orgId>)`, and (optionally) test connectivity via `AdminMetaRemoteStorageVaultTest`.
 
 9) WHMCS wiring — “Finalizing your product…”
 - Insert server + group; clone template product; set module server group and defaults.
@@ -55,6 +67,10 @@ All steps are idempotent and safe to re‑run individually in DEV.
   - `accounts/modules/addons/eazybackup/templates/whitelabel/loader.tpl` (loader + DEV debug panel)
   - `accounts/modules/addons/eazybackup/templates/whitelabel/branding.tpl` (dark UI, consistent with `console/user-profile.tpl`)
   - `accounts/modules/addons/eazybackup/templates/whitelabel/branding-list.tpl` (multi‑tenant list)
+  
+- Theme download integration
+  - `accounts/templates/eazyBackup/header.tpl` (Download flyout + modals adopt MSP branding: product name, accent color, base URL)
+  - `accounts/modules/addons/eazybackup/hooks.php` (exposes `{$eb_brand_download}` to templates: `base`, `base_urlenc`, `productName`, `accent`, `isBranded`)
 
 - Admin page
   - `accounts/modules/addons/eazybackup/pages/admin/whitelabel/index.php` (admin tenants list: search/sort/paginate, suspend/unsuspend/remove)
@@ -70,6 +86,12 @@ All steps are idempotent and safe to re‑run individually in DEV.
 
 - `eb_whitelabel_assets`
   - `id BIGINT PK`, `tenant_id`, `asset_type` (`logo|header|icon|tile|app_icon`), `filename`, `comet_resource_hash`, `mime`, `size`, `created_at`.
+
+- `eb_whitelabel_custom_domains`
+  - `id BIGINT PK`, `tenant_id BIGINT INDEX`, `hostname VARCHAR(255)`, `status ENUM('pending_dns','dns_ok','cert_ok','org_updated','verified','failed')`, `last_error TEXT NULL`, `checked_at DATETIME NULL`, `cert_expires_at DATETIME NULL`, `created_at DATETIME`, `updated_at DATETIME`, `UNIQUE (tenant_id, hostname)`.
+
+- `eb_whitelabel_tenants` additions
+  - `custom_domain VARCHAR(255) NULL`, `custom_domain_status VARCHAR(32) NULL`.
 
 ## Addon configuration (WHMCS Addon Settings)
 
@@ -106,6 +128,10 @@ All steps are idempotent and safe to re‑run individually in DEV.
 2) Intake at `?m=eazybackup&a=whitelabel` — collects Subdomain, Product/Company names, Help URL, colors, optional custom domain (CNAME), and email settings (inherit or SMTP).
 3) Loader at `?m=eazybackup&a=whitelabel-loader&id=TENANT_ID` shows friendly status; redirects to Branding page on success.
 4) Branding page at `?m=eazybackup&a=whitelabel-branding&id=TENANT_ID` allows future edits to branding/email.
+5) Custom Domain (optional): In Hostname, enter a custom subdomain and:
+   - Click "Check DNS" — validates CNAME to tenant vanity across multiple resolvers; warns on Cloudflare proxy (A record).
+   - Click "Attach Domain" — creates HTTP stub, issues certificate, writes HTTPS vhost, updates Comet Organization (Hosts + DefaultLoginServerURL), verifies HTTPS.
+   - UI shows inline loader ("Checking DNS…" / "Attaching domain…") and status pill; shows "Primary:" and "Custom:" hostnames after success.
 
 ## DEV / Test mode
 
@@ -118,6 +144,7 @@ All steps are idempotent and safe to re‑run individually in DEV.
   - `app_icon.png` — desktop/app icon
   - `tile.png` — installer/tile background
 - All steps log to `logModuleCall('eazybackup', …)`; secrets are masked where possible. Steps are idempotent.
+  - Custom Domain diagnostics: in DEV mode, JSON includes resolver details and table presence; server errors include exception text.
 
 ## Reverse proxy & certificate operations
 
@@ -134,7 +161,51 @@ All steps are idempotent and safe to re‑run individually in DEV.
 ## Dependencies
 
 - **AWS SDK:** `aws/aws-sdk-php` must be available to PHP for Route 53 calls (`Aws\\Route53\\Route53Client`).
-- **Comet API SDK:** A `CometAPI` client must be autoloaded for organization/admin/branding/email/storage calls. If missing, the system logs a fallback and continues without breaking UI.
+- **Comet API SDK:** A Comet SDK client must be autoloaded for organization/admin/branding/email/storage/policy calls. We use the native `Comet\Server` client when available and fall back to compatible clients. `AdminUserPermissions.AllowedUserPolicies` requires Comet ≥ 23.9.11.
+
+## Comet API summary used
+
+- Organizations: `AdminOrganizationSet`, `AdminOrganizationList` (read; with fallback when unavailable)
+- Resources: `AdminMetaResourceNew`
+- Email: merged via `AdminOrganizationSet` (`Organization.Email`)
+- Policies: `AdminPoliciesGet` / `AdminPoliciesListFull`, `AdminPoliciesSet`
+- Server config: `AdminMetaServerConfigGet` / `AdminMetaServerConfigSet` (single write; then readiness wait)
+- Storage: `AdminRequestStorageVaultProviders`, `AdminMetaRemoteStorageVaultTest`
+ - Organization hosts + URL: `AdminOrganizationSet` to append `Organization.Hosts` and set `Branding.DefaultLoginServerURL` during custom domain attach.
+
+## Resiliency & restarts
+
+- `AdminMetaServerConfigSet` restarts Comet. We consolidate to a single write (policy attach) and wait for readiness before subsequent calls. Transient 5xx from Comet or the reverse proxy are handled with short retries and exponential backoff on critical calls (policy clone/set, org reads).
+
+## Branding keys & assets
+
+- Colors: use Comet keys `TopColor`, `AccentColor`, `TileBackgroundColor` (legacy template aliases are supported for display only).
+- Assets: all local file paths are uploaded via `AdminMetaResourceNew` and rewritten to `resource://…` before writing to Comet.
+- EULA: textarea content is saved to a local file, uploaded as a resource, and the Branding key `PathEulaRtf` is set to the resulting `resource://…` URL (never leaves a server-local path in Comet).
+- Background logo: Removed from UI and backend. Comet no longer supports a distinct "Background logo" asset; corresponding fields have been removed from the intake form and branding management page.
+
+### UI/Backend updates (Oct 2025)
+- Custom Domain card added with DNS check/attach flow, inline loader, detailed status, and timestamps. HTTPS verification accepts 2xx/3xx and 401/403.
+- Download flyout + modals now dynamically reflect MSP branding (product name, accent color) and use the tenant vanity or verified custom domain base for links (e.g., `{$base}dl/1`). Linux cURL/wget SelfAddress uses the same base URL‑encoded.
+
+### UI/Backend updates (Oct 2025)
+- Branding page (client area) redesigned with Tailwind/Alpine and split into three sections (System Branding, Backup Agent Branding, Email Reporting), with Comet as source of truth on GET and after POST (cache refresh).
+- Asset status badges and persistent EULA editor added; color pickers standardized; updated accepted file types per asset.
+- Toast notifications standardized to user-profile behavior with a global container and robust on-load trigger.
+- White-label intake form restyled to match branding page (same three sections, inputs, and upload accept lists) and now includes payment gating: if Stripe is default and no card is on file, submit is disabled and users are linked to the Add Card page.
+- Menu gating: “White Label” menu item appears only for reseller clients (based on addon-configured client group IDs); $isResellerClient is computed in controller and passed to templates.
+
+## Email options mapping
+
+- Inherit when SMTP host is empty (`Mode=""`).
+- Otherwise set `Mode` to `smtp-ssl` (SSL/TLS) or `smtp` (STARTTLS/Plain); for Plain also set `SMTPAllowUnencrypted=true`.
+
+## Storage template details
+
+- Template lives under `Organization.RemoteStorage` as a `RemoteStorageOption` (Type=`comet`).
+- Deterministic per-tenant `ID` ensures idempotent upsert and safe retries.
+- Defaults: `RebrandStorage=true`, `Default=true`, `RemoteAddress=https://<fqdn>/`, credentials from the tenant admin.
+- Visibility and connectivity can be checked via `AdminRequestStorageVaultProviders(TargetOrganization)` and `AdminMetaRemoteStorageVaultTest`.
 
 ## Idempotency, logging, safety
 
@@ -153,11 +224,13 @@ All steps are idempotent and safe to re‑run individually in DEV.
    - Optional DEV mode + fixtures directory + skip toggles.
 2) Customer submits branding intake; loader shows progress; redirect to Branding.
 3) Admin monitors tenants in the **White‑Label** tab (search/sort/paginate).
+4) (Optional) Customer attaches a custom domain from the Branding page.
+5) Download flyout automatically adopts branding and uses tenant/custome domain base for downloads.
 
 ## Roadmap
 
 - Full “Remove” teardown orchestration (DNS/nginx/cert + Comet Organization delete) via the Builder.
-- Branding asset upload from client UI using `AdminMetaResourceNew`.
+- Tenant suspend/unsuspend mapping to Comet Organization suspension.
 - Health checks and enhanced error reporting.
 
 # eazyBackup White-Label Proxy: Full Nginx Setup & Ops Guide

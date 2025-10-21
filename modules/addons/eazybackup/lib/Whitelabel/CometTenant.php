@@ -307,13 +307,17 @@ class CometTenant
                     $cur->IsSuspended = false;
                     $cur->Hosts = [$fqdn];
                 }
+                // Load current org and merge new branding over existing to preserve untouched fields
                 $branding = $this->rewriteBrandingAssetsToResources($server, $branding);
                 $this->log('comet branding upload: posting keys=' . json_encode(array_keys($branding)));
 
                 // Ensure CompanyName and CloudStorageName are set
                 if (!isset($branding['CompanyName'])) { $branding['CompanyName'] = (string)($branding['ProductName'] ?? ''); }
                 if (!isset($branding['CloudStorageName'])) { $branding['CloudStorageName'] = (string)($branding['ProductName'] ?? ''); }
-                $cur->Branding = \Comet\BrandingOptions::createFromArray($branding);
+                $existingBrandArr = is_object($cur->Branding) && method_exists($cur->Branding,'toArray') ? (array)$cur->Branding->toArray() : (array)($cur->Branding ?? []);
+                $mergedBrand = $existingBrandArr;
+                foreach ($branding as $bk => $bv) { $mergedBrand[$bk] = $bv; }
+                $cur->Branding = \Comet\BrandingOptions::createFromArray($mergedBrand);
                 if ((string)($cur->Branding->DefaultLoginServerURL ?? '') === '' && is_array($cur->Hosts) && count($cur->Hosts) > 0) {
                     $cur->Branding->DefaultLoginServerURL = 'https://' . (string)$cur->Hosts[0] . '/';
                 }
@@ -324,20 +328,24 @@ class CometTenant
                 $sbro->MaxBuilders = 0;
                 $cur->SoftwareBuildRole = $sbro;
                 $server->AdminOrganizationSet($orgId, $cur);
-                // Round-trip verify branding values
+                // Round-trip verify branding values and return boolean
                 try {
                     $ver = $this->loadOrgOrThrow($server, $orgId);
-                    $posted = isset($cur->Branding) ? (array)$cur->Branding->toArray() : [];
-                    $stored = isset($ver->Branding) ? (array)$ver->Branding->toArray() : [];
-                    $this->log('comet branding verify: posted_keys=' . json_encode(array_keys($posted)) . ' stored_keys=' . json_encode(array_keys($stored)));
-                    $checkKeys = ['LogoImage','Favicon','PathHeaderImage','PathAppIconImage','PathTilePng','PathIcoFile','PathIcnsFile','PathMenuBarIcnsFile','PathEulaRtf','TopColor','TileBackgroundColor','CompanyName','ProductName'];
-                    $result = [];
-                    foreach ($checkKeys as $ck) {
-                        $v = isset($stored[$ck]) ? (string)$stored[$ck] : '';
-                        $result[$ck] = ($v !== '' && strpos($v, 'resource://') === 0) ? 'resource' : ($v !== '' ? 'value' : 'empty');
+                    $storedArr = isset($ver->Branding) && is_object($ver->Branding) && method_exists($ver->Branding,'toArray') ? (array)$ver->Branding->toArray() : (array)($ver->Branding ?? []);
+                    $keys = ['ProductName','TopColor','AccentColor','TileBackgroundColor'];
+                    $ok = true;
+                    foreach ($keys as $k) {
+                        $want = isset($branding[$k]) ? (string)$branding[$k] : '';
+                        $got  = isset($storedArr[$k]) ? (string)$storedArr[$k] : '';
+                        if (in_array($k, ['TopColor','AccentColor','TileBackgroundColor'], true)) { $want = strtoupper($want); $got = strtoupper($got); }
+                        if ($want !== '' && $got !== '' && $want !== $got) {
+                            $ok = false;
+                            try { logModuleCall('eazybackup','branding_verify_diff', ['org'=>$orgId,'key'=>$k,'want'=>$want,'got'=>$got], 'mismatch'); } catch (\Throwable $___) {}
+                        }
                     }
-                    $this->log('comet branding verify summary: ' . json_encode($result));
-                } catch (\Throwable $__) {}
+                    try { logModuleCall('eazybackup','branding_verify_summary', ['org'=>$orgId,'keys_checked'=>$keys], $ok ? 'ok' : 'failed'); } catch (\Throwable $___) {}
+                    if (!$ok) { return false; }
+                } catch (\Throwable $__) { return false; }
                 return true;
             }
 
@@ -366,26 +374,35 @@ class CometTenant
                     if (!($cur instanceof \Comet\Organization)) { $cur = \Comet\Organization::createFromArray((array)$cur); }
                     if (!isset($branding2['CompanyName'])) { $branding2['CompanyName'] = (string)($branding2['ProductName'] ?? ''); }
                     if (!isset($branding2['CloudStorageName'])) { $branding2['CloudStorageName'] = (string)($branding2['ProductName'] ?? ''); }
-                    $cur->Branding = \Comet\BrandingOptions::createFromArray($branding2);
+                    $existingBrandArr2 = is_object($cur->Branding) && method_exists($cur->Branding,'toArray') ? (array)$cur->Branding->toArray() : (array)($cur->Branding ?? []);
+                    $mergedBrand2 = $existingBrandArr2;
+                    foreach ($branding2 as $bk => $bv) { $mergedBrand2[$bk] = $bv; }
+                    $cur->Branding = \Comet\BrandingOptions::createFromArray($mergedBrand2);
                     if ((string)($cur->Branding->DefaultLoginServerURL ?? '') === '' && is_array($cur->Hosts) && count($cur->Hosts) > 0) {
                         $cur->Branding->DefaultLoginServerURL = 'https://' . (string)$cur->Hosts[0] . '/';
                     }
                     $sbro = new \Comet\SoftwareBuildRoleOptions(); $sbro->RoleEnabled = true; $sbro->AllowUnauthenticatedDownloads = false; $sbro->MaxBuilders = 0; $cur->SoftwareBuildRole = $sbro;
                     $api->AdminOrganizationSet($orgId, $cur);
-                    // Round-trip verify branding values
+                    // Round-trip verify branding values and return boolean
                     try {
                         $ver = $this->loadOrgViaClient($api, $orgId);
                         $stored = [];
                         if ($ver instanceof \Comet\Organization) { $stored = (array)$ver->Branding->toArray(); }
                         else if (is_array($ver) && isset($ver['Branding']) && is_array($ver['Branding'])) { $stored = $ver['Branding']; }
-                        $checkKeys = ['LogoImage','Favicon','PathHeaderImage','PathAppIconImage','PathTilePng','PathIcoFile','PathIcnsFile','PathMenuBarIcnsFile','PathEulaRtf','TopColor','TileBackgroundColor','CompanyName','ProductName'];
-                        $result = [];
-                        foreach ($checkKeys as $ck) {
-                            $v = isset($stored[$ck]) ? (string)$stored[$ck] : '';
-                            $result[$ck] = ($v !== '' && strpos($v, 'resource://') === 0) ? 'resource' : ($v !== '' ? 'value' : 'empty');
+                        $keys = ['ProductName','TopColor','AccentColor','TileBackgroundColor'];
+                        $ok = true;
+                        foreach ($keys as $k) {
+                            $want = isset($branding2[$k]) ? (string)$branding2[$k] : '';
+                            $got  = isset($stored[$k]) ? (string)$stored[$k] : '';
+                            if (in_array($k, ['TopColor','AccentColor','TileBackgroundColor'], true)) { $want = strtoupper($want); $got = strtoupper($got); }
+                            if ($want !== '' && $got !== '' && $want !== $got) {
+                                $ok = false;
+                                try { logModuleCall('eazybackup','branding_verify_diff', ['org'=>$orgId,'key'=>$k,'want'=>$want,'got'=>$got], 'mismatch'); } catch (\Throwable $___) {}
+                            }
                         }
-                        $this->log('comet branding verify (Client): ' . json_encode($result));
-                    } catch (\Throwable $__) {}
+                        try { logModuleCall('eazybackup','branding_verify_summary', ['org'=>$orgId,'keys_checked'=>$keys], $ok ? 'ok' : 'failed'); } catch (\Throwable $___) {}
+                        if (!$ok) { return false; }
+                    } catch (\Throwable $__) { return false; }
                     return true;
                 } catch (\Throwable $__) {}
             }
@@ -401,24 +418,37 @@ class CometTenant
                     if (!isset($branding2['CompanyName'])) { $branding2['CompanyName'] = (string)($branding2['ProductName'] ?? ''); }
                     if (!isset($branding2['CloudStorageName'])) { $branding2['CloudStorageName'] = (string)($branding2['ProductName'] ?? ''); }
                     $sbro = ['RoleEnabled' => true, 'AllowUnauthenticatedDownloads' => false, 'MaxBuilders' => 0];
+                    // Merge over existing branding
+                    $existing = $this->loadOrgViaClient($api, $orgId);
+                    $existingBrandArr3 = [];
+                    if ($existing instanceof \Comet\Organization) { $existingBrandArr3 = is_object($existing->Branding) && method_exists($existing->Branding,'toArray') ? (array)$existing->Branding->toArray() : []; }
+                    else if (is_array($existing) && isset($existing['Branding']) && is_array($existing['Branding'])) { $existingBrandArr3 = $existing['Branding']; }
+                    $mergedBrand3 = $existingBrandArr3;
+                    foreach ($branding2 as $bk => $bv) { $mergedBrand3[$bk] = $bv; }
                     $payload = [
                         'OrganizationID' => $orgId,
-                        'Branding' => $branding2,
+                        'Branding' => $mergedBrand3,
                         'SoftwareBuildRole' => $sbro,
                     ];
                     $api->AdminOrganizationSet($payload);
-                    // Round-trip verify branding values
+                    // Round-trip verify branding values and return boolean
                     try {
                         $ver = $this->loadOrgViaClient($api, $orgId);
                         $stored = is_array($ver) ? (isset($ver['Branding']) ? (array)$ver['Branding'] : []) : [];
-                        $checkKeys = ['LogoImage','Favicon','PathHeaderImage','PathAppIconImage','PathTilePng','PathIcoFile','PathIcnsFile','PathMenuBarIcnsFile','PathEulaRtf','TopColor','TileBackgroundColor','CompanyName','ProductName'];
-                        $result = [];
-                        foreach ($checkKeys as $ck) {
-                            $v = isset($stored[$ck]) ? (string)$stored[$ck] : '';
-                            $result[$ck] = ($v !== '' && strpos($v, 'resource://') === 0) ? 'resource' : ($v !== '' ? 'value' : 'empty');
+                        $keys = ['ProductName','TopColor','AccentColor','TileBackgroundColor'];
+                        $ok = true;
+                        foreach ($keys as $k) {
+                            $want = isset($branding2[$k]) ? (string)$branding2[$k] : '';
+                            $got  = isset($stored[$k]) ? (string)$stored[$k] : '';
+                            if (in_array($k, ['TopColor','AccentColor','TileBackgroundColor'], true)) { $want = strtoupper($want); $got = strtoupper($got); }
+                            if ($want !== '' && $got !== '' && $want !== $got) {
+                                $ok = false;
+                                try { logModuleCall('eazybackup','branding_verify_diff', ['org'=>$orgId,'key'=>$k,'want'=>$want,'got'=>$got], 'mismatch'); } catch (\Throwable $___) {}
+                            }
                         }
-                        $this->log('comet branding verify (CometAPI): ' . json_encode($result));
-                    } catch (\Throwable $__) {}
+                        try { logModuleCall('eazybackup','branding_verify_summary', ['org'=>$orgId,'keys_checked'=>$keys], $ok ? 'ok' : 'failed'); } catch (\Throwable $___) {}
+                        if (!$ok) { return false; }
+                    } catch (\Throwable $__) { return false; }
                     return true;
                 } catch (\Throwable $__) {}
             }
@@ -770,6 +800,226 @@ class CometTenant
         $u = $scheme . '://' . $host;
         if ($port !== null) { $u .= ':' . $port; }
         return $u;
+    }
+
+    /**
+     * Build status map for known branding assets from a live Branding array.
+     * Returns: [ key => ['state'=>'uploaded|local|missing','hash'=>'...','filename'=>'...'] ]
+     */
+    public function getBrandingAssetStatus(array $brand): array
+    {
+        $keys = [
+            'Favicon','LogoImage','PathHeaderImage','PathAppIconImage','PathTilePng',
+            'PathIcoFile','PathIcnsFile','PathMenuBarIcnsFile','PathEulaRtf',
+        ];
+        $out = [];
+        foreach ($keys as $k) {
+            $v = isset($brand[$k]) ? (string)$brand[$k] : '';
+            if ($v === '') {
+                $out[$k] = ['state' => 'missing'];
+            } elseif (strpos($v, 'resource://') === 0) {
+                $out[$k] = ['state' => 'uploaded', 'hash' => substr($v, 11), 'filename' => null];
+            } else {
+                $out[$k] = ['state' => 'local', 'filename' => basename($v)];
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Download EULA content for a resource:// hash and return readable text.
+     * Performs a naive RTF -> text conversion for readability.
+     */
+    public function getEulaTextFromResource(string $resourceUri): ?string
+    {
+        try {
+            if (strpos($resourceUri, 'resource://') !== 0) { return null; }
+            $hash = substr($resourceUri, 11);
+            $creds = $this->resolveCreds(); if (!$creds) { return null; }
+            $server = $this->getServerClient($creds['url'], $creds['user'], $creds['pass']);
+            if (!$server || !method_exists($server, 'AdminMetaResourceGet')) { return null; }
+            $bytes = $server->AdminMetaResourceGet($hash);
+            if (!is_string($bytes) || $bytes === '') { return null; }
+            $isRtf = strncmp($bytes, "{\\rtf", 5) === 0;
+            if ($isRtf) {
+                $text = @preg_replace('/\\{\\\\\*?[^{}]*\\}|\\\\[a-z]+-?\\d* ?|[{}]|\\r\\n?/i', '', $bytes);
+                if (!is_string($text)) { $text = ''; }
+                $text = @html_entity_decode($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+                return trim((string)$text);
+            }
+            // Return UTF-8-ish text as-is
+            if (@preg_match('//u', $bytes)) { return trim($bytes); }
+        } catch (\Throwable $__) {}
+        return null;
+    }
+
+    /**
+     * Fetch live BrandingOptions for an organization from Comet and return as associative array.
+     * Soft-fails to empty array if Comet is unavailable.
+     */
+    public function getOrgBranding(string $orgId): array
+    {
+        try {
+            $creds = $this->resolveCreds();
+            if (!$creds) { return []; }
+
+            // Preferred: native \Comet\Server
+            $server = $this->getServerClient($creds['url'], $creds['user'], $creds['pass']);
+            if ($server) {
+                $this->log('comet getOrgBranding via Comet\\Server org=' . $orgId);
+                try {
+                    $org = $this->loadOrgOrThrow($server, $orgId);
+                    if ($org && isset($org->Branding)) {
+                        if (is_object($org->Branding) && method_exists($org->Branding, 'toArray')) {
+                            return (array)$org->Branding->toArray();
+                        }
+                        return (array)$org->Branding;
+                    }
+                } catch (\Throwable $e) {
+                    $this->log('getOrgBranding(Server) error: ' . $e->getMessage());
+                }
+            }
+
+            // Fallback: Comet\API\CometClient
+            if (class_exists('\\Comet\\API\\CometClient')) {
+                try {
+                    $this->log('comet getOrgBranding via CometClient org=' . $orgId);
+                    $api = new \Comet\API\CometClient($creds['url'], $creds['user'], $creds['pass']);
+                    $org = $this->loadOrgViaClient($api, $orgId);
+                    if ($org) {
+                        if (is_object($org) && isset($org->Branding)) {
+                            if (is_object($org->Branding) && method_exists($org->Branding, 'toArray')) {
+                                return (array)$org->Branding->toArray();
+                            }
+                            return (array)$org->Branding;
+                        }
+                        if (is_array($org) && isset($org['Branding'])) {
+                            return (array)$org['Branding'];
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    $this->log('getOrgBranding(Client) error: ' . $e->getMessage());
+                }
+            }
+
+            // Legacy: CometAPI
+            if (class_exists('CometAPI')) {
+                try {
+                    $this->log('comet getOrgBranding via CometAPI org=' . $orgId);
+                    $api = new \CometAPI($creds['url'], $creds['user'], $creds['pass']);
+                    if (is_object($api) && method_exists($api, 'AdminOrganizationList')) {
+                        $list = $api->AdminOrganizationList();
+                        if (is_array($list)) {
+                            // Try direct index
+                            if (isset($list[$orgId])) {
+                                $item = $list[$orgId];
+                                if (is_array($item) && isset($item['Branding'])) { return (array)$item['Branding']; }
+                            }
+                            // Search
+                            foreach ($list as $v) {
+                                if (is_array($v) && isset($v['ID']) && (string)$v['ID'] === (string)$orgId) {
+                                    if (isset($v['Branding'])) { return (array)$v['Branding']; }
+                                }
+                            }
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    $this->log('getOrgBranding(CometAPI) error: ' . $e->getMessage());
+                }
+            }
+        } catch (\Throwable $e) {
+            $this->log('getOrgBranding fatal: ' . $e->getMessage());
+        }
+        return [];
+    }
+
+    /**
+     * Add a hostname to Organization.Hosts (if missing) and set DefaultLoginServerURL to https://<hostname>/
+     */
+    public function addHostAndSetDefaultURL(string $orgId, string $hostname): bool
+    {
+        try {
+            $hostname = strtolower(trim($hostname));
+            if ($hostname === '') { return false; }
+            $creds = $this->resolveCreds(); if (!$creds) { return false; }
+            $server = $this->getServerClient($creds['url'], $creds['user'], $creds['pass']);
+            if ($server) {
+                $org = null;
+                for ($i=0;$i<3;$i++) { try { $org = $this->loadOrgOrThrow($server, $orgId); break; } catch (\Throwable $e) { try { usleep(200000); } catch(\Throwable$_){} } }
+                if (!$org) {
+                    $fqdn = $this->lookupFqdnByOrgId($orgId); if ($fqdn === '') { return false; }
+                    $org = new \Comet\Organization(); $org->Name = $fqdn; $org->IsSuspended = false; $org->Hosts = [$fqdn];
+                }
+                $hosts = is_array($org->Hosts) ? $org->Hosts : [];
+                $hosts[] = $hostname;
+                $hosts = array_values(array_unique(array_map('strval', $hosts)));
+                $org->Hosts = $hosts;
+                $brand = isset($org->Branding) ? $org->Branding : new \Comet\BrandingOptions();
+                $brand->DefaultLoginServerURL = 'https://' . $hostname . '/';
+                $org->Branding = $brand;
+                $server->AdminOrganizationSet($orgId, $org);
+                return true;
+            }
+            // Fallback: API clients
+            if (class_exists('\\Comet\\API\\CometClient')) {
+                $api = new \Comet\API\CometClient($creds['url'], $creds['user'], $creds['pass']);
+                $org = $this->loadOrgViaClient($api, $orgId);
+                if (!$org) { $fqdn = $this->lookupFqdnByOrgId($orgId); $org = new \Comet\Organization(); $org->Name=$fqdn; $org->IsSuspended=false; $org->Hosts=[$fqdn]; }
+                if (!($org instanceof \Comet\Organization)) { $org = \Comet\Organization::createFromArray((array)$org); }
+                $hosts = is_array($org->Hosts) ? $org->Hosts : [];
+                $hosts[] = $hostname; $hosts = array_values(array_unique(array_map('strval', $hosts)));
+                $org->Hosts = $hosts;
+                $brand = isset($org->Branding) ? $org->Branding : new \Comet\BrandingOptions();
+                $brand->DefaultLoginServerURL = 'https://' . $hostname . '/';
+                $org->Branding = $brand;
+                $api->AdminOrganizationSet($orgId, $org);
+                return true;
+            }
+            if (class_exists('CometAPI')) {
+                $api = new \CometAPI($creds['url'], $creds['user'], $creds['pass']);
+                $org = $this->loadOrgViaClient($api, $orgId);
+                if (!is_array($org)) {
+                    $fqdn = $this->lookupFqdnByOrgId($orgId);
+                    $org = ['Name'=>$fqdn,'IsSuspended'=>false,'Hosts'=>[$fqdn],'Branding'=>[]];
+                }
+                $hosts = isset($org['Hosts']) && is_array($org['Hosts']) ? $org['Hosts'] : [];
+                $hosts[] = $hostname; $hosts = array_values(array_unique(array_map('strval', $hosts)));
+                $org['Hosts'] = $hosts;
+                if (!isset($org['Branding']) || !is_array($org['Branding'])) { $org['Branding'] = []; }
+                $org['Branding']['DefaultLoginServerURL'] = 'https://' . $hostname . '/';
+                $api->AdminOrganizationSet(['OrganizationID'=>$orgId] + $org);
+                return true;
+            }
+            return false;
+        } catch (\Throwable $e) {
+            $this->log('comet addHostAndSetDefaultURL error: ' . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Simple reachability probe: expect HTTP 200/302 from URL.
+     */
+    public function verifyOrgReachable(string $url): bool
+    {
+        $url = trim($url);
+        if ($url === '') { return false; }
+        try {
+            $ctx = stream_context_create(['http'=>['method'=>'GET','timeout'=>5,'ignore_errors'=>true], 'ssl'=>['verify_peer'=>false,'verify_peer_name'=>false]]);
+            $f = @fopen($url, 'r', false, $ctx);
+            if (!$f) { return false; }
+            $meta = stream_get_meta_data($f);
+            @fclose($f);
+            $headers = isset($meta['wrapper_data']) && is_array($meta['wrapper_data']) ? $meta['wrapper_data'] : [];
+            foreach ($headers as $h) {
+                if (preg_match('/^HTTP\/\S+\s+(\d{3})/', (string)$h, $m)) {
+                    $code = (int)$m[1];
+                    // Accept 2xx and common 3xx (redirects), and tolerate 401/403 typical for protected endpoints
+                    if (($code >= 200 && $code < 300) || in_array($code, [301,302,303,307,308,401,403], true)) { return true; }
+                }
+            }
+        } catch (\Throwable $__) {}
+        return false;
     }
 }
 

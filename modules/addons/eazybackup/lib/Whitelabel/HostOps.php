@@ -27,6 +27,32 @@ class HostOps
         return $this->invokeArgs('write_https', [$fqdn, $upstream]);
     }
 
+    public function disableHost(string $fqdn): bool
+    {
+        return $this->invokeArgs('disable', [$fqdn]);
+    }
+
+    public function deleteHost(string $fqdn): bool
+    {
+        return $this->invokeArgs('delete', [$fqdn]);
+    }
+
+    /** Optional: dig helper for robust DNS checks via specific resolver */
+    public function dig(string $host, string $resolver = '1.1.1.1', string $type = 'CNAME'): array
+    {
+        $host = trim($host);
+        if ($host === '') { return ['ok'=>false,'answer'=>null,'raw'=>'']; }
+        $type = preg_replace('/[^A-Z0-9]/','', strtoupper($type));
+        $resolver = preg_replace('/[^0-9.]/','', $resolver);
+        $cmd = 'dig +short ' . escapeshellarg($host) . ' ' . escapeshellarg($type) . ' @' . escapeshellarg($resolver);
+        $out = [];
+        try { $rc = 0; @exec($cmd . ' 2>&1', $out, $rc); } catch (\Throwable $e) { $this->log('dig error: '.$e->getMessage()); return ['ok'=>false,'answer'=>null,'raw'=>'']; }
+        $raw = implode("\n", $out);
+        $ans = '';
+        foreach ($out as $line) { $line = trim($line); if ($line !== '') { $ans = $line; break; } }
+        return ['ok'=>($ans !== ''), 'answer'=>$ans !== '' ? $ans : null, 'raw'=>$raw];
+    }
+
     private function invokeArgs(string $action, array $args, array $env = []): bool
     {
         $mode = (string)($this->cfg['ops_mode'] ?? 'ssh');

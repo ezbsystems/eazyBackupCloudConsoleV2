@@ -127,25 +127,55 @@ class Builder
         ]);
     }
 
-    public function applyBranding(int $tenantId): void
+    public function applyBranding(int $tenantId): bool
     {
         $t = Capsule::table('eb_whitelabel_tenants')->where('id', $tenantId)->first();
-        if (!$t) { return; }
+        if (!$t) {
+            try { logModuleCall('eazybackup','branding_apply_start', ['tenant'=>$tenantId], 'not_found'); } catch (\Throwable $__) {}
+            return false;
+        }
         $orgId = (string)($t->org_id ?? '');
-        if ($orgId === '') { return; }
+        if ($orgId === '') {
+            // Guard: cannot apply without an organization on Comet
+            try { logModuleCall('eazybackup','branding_apply_start', ['tenant'=>$tenantId], 'missing_org'); } catch (\Throwable $__) {}
+            return false;
+        }
         $brand = json_decode((string)($t->brand_json ?? '{}'), true) ?: [];
         $email = json_decode((string)($t->email_json ?? '{}'), true) ?: [];
 
+        // Step bookkeeping
+        $this->ensureStep($tenantId, 'branding', 'queued');
+        $this->startStep($tenantId, 'branding');
+
         $ct = new \EazyBackup\Whitelabel\CometTenant($this->cfg);
-        $okBrand = (bool)$ct->applyBranding($orgId, $brand);
+        $okBrand = false;
+        try {
+            $okBrand = (bool)$ct->applyBranding($orgId, $brand);
+        } catch (\Throwable $e) {
+            $okBrand = false;
+            try { logModuleCall('eazybackup','branding_apply_exception', ['tenant'=>$tenantId], $e->getMessage()); } catch (\Throwable $__) {}
+        }
         $this->setStep($tenantId, 'branding', $okBrand ? 'success' : 'failed');
 
-        $okEmail = (bool)$ct->applyEmailOptions($orgId, $email);
+        // Email is coupled on this page; apply and track as separate step
+        $this->ensureStep($tenantId, 'email', 'queued');
+        $this->startStep($tenantId, 'email');
+        $okEmail = true; // treat inherit as true in CometTenant
+        try {
+            $okEmail = (bool)$ct->applyEmailOptions($orgId, $email);
+        } catch (\Throwable $e) {
+            $okEmail = false;
+            try { logModuleCall('eazybackup','branding_apply_email_exception', ['tenant'=>$tenantId], $e->getMessage()); } catch (\Throwable $__) {}
+        }
         $this->setStep($tenantId, 'email', $okEmail ? 'success' : 'failed');
 
         Capsule::table('eb_whitelabel_tenants')->where('id', $tenantId)->update([
             'updated_at' => date('Y-m-d H:i:s'),
         ]);
+
+        $ok = ($okBrand && $okEmail);
+        try { logModuleCall('eazybackup','branding_apply_result', ['tenant'=>$tenantId], $ok ? 'ok' : 'failed'); } catch (\Throwable $__) {}
+        return $ok;
     }
 
     private function ensureStep(int $tenantId, string $step, string $status): void

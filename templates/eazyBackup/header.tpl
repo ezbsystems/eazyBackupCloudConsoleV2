@@ -480,6 +480,7 @@
                                 </a>
                             </li>
 
+                            {if $isResellerClient}
                             <li>
                                 <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=whitelabel-signup"
                                 class="group flex items-start space-x-3 p-4 rounded-md hover:bg-gray-800 transition-colors duration-200">
@@ -488,10 +489,8 @@
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M9.53 16.122a3 3 0 0 0-5.78 1.128 2.25 2.25 0 0 1-2.4 2.245 4.5 4.5 0 0 0 8.4-2.245c0-.399-.078-.78-.22-1.128Zm0 0a15.998 15.998 0 0 0 3.388-1.62m-5.043-.025a15.994 15.994 0 0 1 1.622-3.395m3.42 3.42a15.995 15.995 0 0 0 4.764-4.648l3.876-5.814a1.151 1.151 0 0 0-1.597-1.597L14.146 6.32a15.996 15.996 0 0 0-4.649 4.763m3.42 3.42a6.776 6.776 0 0 0-3.42-3.42" />
                                     </svg>
                                   
-                                
                                     <div>
                                         <h3 class="font-semibold text-gray-300 group-hover:text-[#fe5000]">White Label</h3>
-                                        {* <p class="text-sm text-gray-300 mt-1">Comprehensive Data Protection including Disk Image.</p> *}
                                         <!-- Bullet Points -->
                                         <ul class="text-xs text-gray-400 list-disc ml-5 mt-2 space-y-1">                                            
                                             <li>Fully branded backup client</li>
@@ -500,6 +499,7 @@
                                     </div>
                                 </a>
                             </li>
+                            {/if}
                         </ul>
                     </div>
                     <!-- Column 2: OBC or Custom White Label Products -->
@@ -642,25 +642,28 @@ x-data="{ openModal: null }"
                                   
       <!-- OBC Branded Section -->
       <div>
-        <h3 class="text-md font-semibold text-gray-100 mb-4">OBC Branded Client</h3>
+        <h3 class="text-md font-semibold text-gray-100 mb-4">{$eb_brand_download.productName|default:'OBC Branded Client'}</h3>
         <!-- Stack vertically on small devices, row on md+ -->
         <div class="flex flex-col md:flex-row justify-center divide-y md:divide-y-0 md:divide-x divide-indigo-700">
           <!-- Windows Button -->
           <button 
             @click="openModal = 'obcWindows'" 
-            class="flex-1 flex items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 text-sm rounded-t-md md:rounded-l-md md:rounded-tr-none transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            class="flex-1 flex items-center justify-center text-white font-semibold py-2 px-4 text-sm rounded-t-md md:rounded-l-md md:rounded-tr-none transition-colors duration-200 focus:outline-none"
+            style="background-color: {$eb_brand_download.accent|default:'#4f46e5'};">
             <i class="fa-brands fa-windows mr-2"></i> Windows
           </button>
           <!-- Linux Button -->
           <button 
             @click="openModal = 'obcLinux'" 
-            class="flex-1 flex items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 text-sm transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            class="flex-1 flex items-center justify-center text-white font-semibold py-2 px-4 text-sm transition-colors duration-200 focus:outline-none"
+            style="background-color: {$eb_brand_download.accent|default:'#4f46e5'};">
             <i class="fa-brands fa-linux mr-2"></i> Linux
           </button>
           <!-- macOS Button -->
           <button 
             @click="openModal = 'obcMacos'" 
-            class="flex-1 flex items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-b-md md:rounded-r-md md:rounded-bl-none py-2 px-4 text-sm transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            class="flex-1 flex items-center justify-center text-white font-semibold rounded-b-md md:rounded-r-md md:rounded-bl-none py-2 px-4 text-sm transition-colors duration-200 focus:outline-none"
+            style="background-color: {$eb_brand_download.accent|default:'#4f46e5'};">
             <i class="fa-brands fa-apple mr-2"></i> macOS
           </button>
           <!-- Synology Button -->
@@ -918,9 +921,9 @@ x-data="{ openModal: null }"
     <!-- Example: OBC Windows Modal -->
     <div x-show="openModal === 'obcWindows'" class="fixed inset-0 flex items-center justify-center z-50" x-cloak>
         <div @click.away="openModal = null" class="bg-gray-800 rounded-lg w-full max-w-3xl mx-4">
-        <div class="flex justify-between items-center bg-indigo-600 text-white p-4 rounded-t-lg">
+        <div class="flex justify-between items-center text-white p-4 rounded-t-lg" style="background-color: {$eb_brand_download.accent|default:'#4f46e5'};">
             <h5 class="text-lg font-semibold flex items-center">
-            <i class="fa-brands fa-windows mr-2"></i> Download Client Software - Windows (OBC)
+            <i class="fa-brands fa-windows mr-2"></i> Download Client Software - Windows {if $eb_brand_download.isBranded}({$eb_brand_download.productName}){else}(OBC){/if}
             </h5>
             <button @click="openModal = null" class="text-white text-2xl">&times;</button>
         </div>
@@ -943,13 +946,13 @@ x-data="{ openModal: null }"
             </div>
             </div>
             <div class="download-button-container my-4 flex flex-wrap justify-start">
-            <a class="flex items-center bg-indigo-500 hover:bg-indigo-600 text-white text-sm font-semibold py-2 px-4 rounded m-1" href="https://panel.obcbackup.com/dl/1">
+            <a class="flex items-center text-white text-sm font-semibold py-2 px-4 rounded m-1" style="background-color: {$eb_brand_download.accent|default:'#4f46e5'};" href="{$eb_brand_download.base}dl/1">
                 <i class="fa-solid fa-file-arrow-down mr-2"></i> Any CPU
             </a>
-            <a class="flex items-center bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2 px-4 rounded m-1" href="https://panel.obcbackup.com/dl/5">
+            <a class="flex items-center text-white text-sm font-semibold py-2 px-4 rounded m-1" style="background-color: {$eb_brand_download.accent|default:'#4f46e5'};" href="{$eb_brand_download.base}dl/5">
                 <i class="fa-solid fa-file-arrow-down mr-2"></i> x86_64 only
             </a>
-            <a class="flex items-center bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2 px-4 rounded m-1" href="https://panel.obcbackup.com/dl/3">
+            <a class="flex items-center text-white text-sm font-semibold py-2 px-4 rounded m-1" style="background-color: {$eb_brand_download.accent|default:'#4f46e5'};" href="{$eb_brand_download.base}dl/3">
                 <i class="fa-solid fa-file-arrow-down mr-2"></i> x86_32 only
             </a>
             </div>
@@ -969,7 +972,7 @@ x-data="{ openModal: null }"
     <!-- Linux Modal -->
     <div x-show="openModal === 'obcLinux'" class="fixed inset-0 flex items-center justify-center z-50" x-cloak>
         <div @click.away="openModal = null" class="bg-gray-800 rounded-lg w-full max-w-3xl mx-4">
-            <div class="flex justify-between items-center bg-indigo-600 text-white p-4 rounded-t-lg">
+            <div class="flex justify-between items-center text-white p-4 rounded-t-lg" style="background-color: {$eb_brand_download.accent|default:'#4f46e5'};">
                 <h5 class="text-lg font-semibold flex items-center">
                     <i class="fa-brands fa-linux mr-2"></i> Download client software - Linux
                 </h5>
@@ -1005,14 +1008,14 @@ x-data="{ openModal: null }"
                     <h6 class="text-gray-100 text-md font-medium mb-2">.deb</h6>
                     <div class="flex items-center mb-4 flex-wrap">
                         <!-- Download Button -->
-                        <a class="flex items-center bg-indigo-400 hover:bg-indigo-600 text-white text-sm font-semibold py-2 px-4 rounded mr-3 mb-2" href="https://panel.obcbackup.com/dl/21">
+                        <a class="flex items-center text-white text-sm font-semibold py-2 px-4 rounded mr-3 mb-2" style="background-color: {$eb_brand_download.accent|default:'#4f46e5'};" href="{$eb_brand_download.base}dl/21">
                             <i class="fa-solid fa-file-arrow-down mr-2"></i> Download
                         </a>
                         <!-- Copy Buttons -->
-                        <button class="flex items-center bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2 px-4 rounded mr-2 mb-2 copy-btn" data-clipboard-text="curl -O -J -d 'SelfAddress=https%3A%2F%2Fpanel.obcbackup.com%2F&Platform=21' -X POST 'https://panel.obcbackup.com/api/v1/admin/branding/generate-client/by-platform'">
+                        <button class="flex items-center text-white text-sm font-semibold py-2 px-4 rounded mr-2 mb-2 copy-btn" style="background-color: {$eb_brand_download.accent|default:'#4f46e5'};" data-clipboard-text="curl -O -J -d 'SelfAddress={$eb_brand_download.base_urlenc|default:rawurlencode('https://panel.obcbackup.com/')}&Platform=21' -X POST '{$eb_brand_download.base}api/v1/admin/branding/generate-client/by-platform'">
                             <i class="fa-regular fa-copy mr-1"></i> Copy as cURL
                         </button>
-                        <button class="flex items-center bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2 px-4 rounded mb-2 copy-btn" data-clipboard-text="wget --content-disposition --post-data 'SelfAddress=https%3A%2F%2Fpanel.obcbackup.com%2F&Platform=21' 'https://panel.obcbackup.com/api/v1/admin/branding/generate-client/by-platform'">
+                        <button class="flex items-center text-white text-sm font-semibold py-2 px-4 rounded mb-2 copy-btn" style="background-color: {$eb_brand_download.accent|default:'#4f46e5'};" data-clipboard-text="wget --content-disposition --post-data 'SelfAddress={$eb_brand_download.base_urlenc|default:rawurlencode('https://panel.obcbackup.com/')}&Platform=21' '{$eb_brand_download.base}api/v1/admin/branding/generate-client/by-platform'">
                             <i class="fa-regular fa-copy mr-1"></i> Copy as wget
                         </button>
                     </div>
@@ -1023,14 +1026,14 @@ x-data="{ openModal: null }"
                     <h6 class="text-gray-100 text-md font-medium mb-2">.tar.gz</h6>
                     <div class="flex items-center mb-4 flex-wrap">
                         <!-- Download Button -->
-                        <a class="flex items-center bg-indigo-400 hover:bg-indigo-600 text-white text-sm font-semibold py-2 px-4 rounded mr-3 mb-2" href="https://panel.obcbackup.com/dl/7">
+                        <a class="flex items-center text-white text-sm font-semibold py-2 px-4 rounded mr-3 mb-2" style="background-color: {$eb_brand_download.accent|default:'#4f46e5'};" href="{$eb_brand_download.base}dl/7">
                             <i class="fa-solid fa-file-arrow-down mr-2"></i> Download
                         </a>
                         <!-- Copy Buttons -->
-                        <button class="flex items-center bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2 px-4 rounded mr-2 mb-2 copy-btn" data-clipboard-text="curl -O -J -d 'SelfAddress=https%3A%2F%2Fpanel.obcbackup.com%2F&Platform=7' -X POST 'https://panel.obcbackup.com/api/v1/admin/branding/generate-client/by-platform'">
+                        <button class="flex items-center text-white text-sm font-semibold py-2 px-4 rounded mr-2 mb-2 copy-btn" style="background-color: {$eb_brand_download.accent|default:'#4f46e5'};" data-clipboard-text="curl -O -J -d 'SelfAddress={$eb_brand_download.base_urlenc|default:rawurlencode('https://panel.obcbackup.com/')}&Platform=7' -X POST '{$eb_brand_download.base}api/v1/admin/branding/generate-client/by-platform'">
                             <i class="fa-regular fa-copy mr-1"></i> Copy as cURL
                         </button>
-                        <button class="flex items-center bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2 px-4 rounded mb-2 copy-btn" data-clipboard-text="wget --content-disposition --post-data 'SelfAddress=https%3A%2F%2Fpanel.obcbackup.com%2F&Platform=7' 'https://panel.obcbackup.com/api/v1/admin/branding/generate-client/by-platform'">
+                        <button class="flex items-center text-white text-sm font-semibold py-2 px-4 rounded mb-2 copy-btn" style="background-color: {$eb_brand_download.accent|default:'#4f46e5'};" data-clipboard-text="wget --content-disposition --post-data 'SelfAddress={$eb_brand_download.base_urlenc|default:rawurlencode('https://panel.obcbackup.com/')}&Platform=7' '{$eb_brand_download.base}api/v1/admin/branding/generate-client/by-platform'">
                             <i class="fa-regular fa-copy mr-1"></i> Copy as wget
                         </button>
                     </div>
@@ -1083,10 +1086,10 @@ x-data="{ openModal: null }"
                     </div>
                 </div>
                 <div class="download-button-container dl-macos my-4 flex flex-wrap">
-                    <a class="flex items-center bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2 px-4 rounded m-1" href="https://panel.obcbackup.com/dl/8">
+                    <a class="flex items-center text-white text-sm font-semibold py-2 px-4 rounded m-1" style="background-color: {$eb_brand_download.accent|default:'#4f46e5'};" href="{$eb_brand_download.base}dl/8">
                         <i class="fa-solid fa-file-arrow-down mr-2"></i> x86_64
                     </a>
-                    <a class="flex items-center bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2 px-4 rounded m-1" href="https://panel.obcbackup.com/dl/20">
+                    <a class="flex items-center text-white text-sm font-semibold py-2 px-4 rounded m-1" style="background-color: {$eb_brand_download.accent|default:'#4f46e5'};" href="{$eb_brand_download.base}dl/20">
                         <i class="fa-solid fa-file-arrow-down mr-2"></i> Apple Silicon
                     </a>
                 </div>
