@@ -31,10 +31,13 @@
               </div>
               <div>
                 <label class="block text-gray-300 mb-1">Header Image</label>
-                <input type="file" name="header_image_file" accept=".jpg,.jpeg,.gif,.png,.svg" class="block w-full text-sm text-slate-300"/>
-                {if $brand.PathHeaderImage}
-                  <div class="text-xs text-slate-400 mt-1">Current: {$brand.PathHeaderImage}</div>
-                {/if}
+                <div class="flex items-center gap-3">
+                  <input type="file" name="header_image_file" accept=".jpg,.jpeg,.gif,.png,.svg" class="block w-full text-sm text-slate-300"/>
+                  {assign var=st value=$assetStatus.PathHeaderImage}
+                  {if $st.state=='uploaded'}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-emerald-300"></span><span>Uploaded</span></span>
+                  {elseif $st.state=='local'}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-amber-300"></span><span>Pending upload{if $st.filename}: {$st.filename|escape}{/if}</span></span>
+                  {else}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-white/30"></span><span>Not set</span></span>{/if}
+                </div>
               </div>
               <div>
                 <label for="header_color" class="block text-gray-300 mb-1">Header Color</label>
@@ -55,13 +58,9 @@
                 <div class="flex items-center gap-3">
                   <input type="file" name="favicon_file" accept=".ico" class="block w-full text-sm text-slate-300"/>
                   {assign var=st value=$assetStatus.Favicon}
-                  {if $st.state=='uploaded'}
-                    <span class="text-xs px-2 py-1 rounded bg-green-100 text-green-800">Uploaded</span>
-                  {elseif $st.state=='local'}
-                    <span class="text-xs px-2 py-1 rounded bg-amber-100 text-amber-800">Pending upload{if $st.filename}: {$st.filename|escape}{/if}</span>
-                  {else}
-                    <span class="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700 whitespace-nowrap">Not set</span>
-                  {/if}
+                  {if $st.state=='uploaded'}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-emerald-300"></span><span>Uploaded</span></span>
+                  {elseif $st.state=='local'}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-amber-300"></span><span>Pending upload{if $st.filename}: {$st.filename|escape}{/if}</span></span>
+                  {else}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-white/30"></span><span>Not set</span></span>{/if}
                 </div>
               </div>
             </div>
@@ -89,9 +88,9 @@
                 <div class="flex items-center gap-3">
                   <input type="file" name="win_ico_file" accept=".ico,.jpg,.jpeg,.gif,.png" class="block w-full text-sm text-slate-300"/>
                   {assign var=st value=$assetStatus.PathIcoFile}
-                  {if $st.state=='uploaded'}<span class="text-xs px-2 py-1 rounded bg-green-100 text-green-800">Uploaded</span>
-                  {elseif $st.state=='local'}<span class="text-xs px-2 py-1 rounded bg-amber-100 text-amber-800">Pending upload{if $st.filename}: {$st.filename|escape}{/if}</span>
-                  {else}<span class="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700 whitespace-nowrap">Not set</span>{/if}
+                  {if $st.state=='uploaded'}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-emerald-300"></span><span>Uploaded</span></span>
+                  {elseif $st.state=='local'}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-amber-300"></span><span>Pending upload{if $st.filename}: {$st.filename|escape}{/if}</span></span>
+                  {else}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-white/30"></span><span>Not set</span></span>{/if}
                 </div>
               </div>
               <div>
@@ -99,9 +98,9 @@
                 <div class="flex items-center gap-3">
                   <input type="file" name="mac_icns_file" accept=".ico,.jpg,.jpeg,.gif,.png" class="block w-full text-sm text-slate-300"/>
                   {assign var=st value=$assetStatus.PathIcnsFile}
-                  {if $st.state=='uploaded'}<span class="text-xs px-2 py-1 rounded bg-green-100 text-green-800">Uploaded</span>
-                  {elseif $st.state=='local'}<span class="text-xs px-2 py-1 rounded bg-amber-100 text-amber-800">Pending upload{if $st.filename}: {$st.filename|escape}{/if}</span>
-                  {else}<span class="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700 whitespace-nowrap">Not set</span>{/if}
+                  {if $st.state=='uploaded'}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-emerald-300"></span><span>Uploaded</span></span>
+                  {elseif $st.state=='local'}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-amber-300"></span><span>Pending upload{if $st.filename}: {$st.filename|escape}{/if}</span></span>
+                  {else}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-white/30"></span><span>Not set</span></span>{/if}
                 </div>
               </div>
               <div>
@@ -109,9 +108,9 @@
                 <div class="flex items-center gap-3">
                   <input type="file" name="mac_menubar_icns_file" accept=".ico,.jpg,.jpeg,.gif,.png" class="block w-full text-sm text-slate-300"/>
                   {assign var=st value=$assetStatus.PathMenuBarIcnsFile}
-                  {if $st.state=='uploaded'}<span class="text-xs px-2 py-1 rounded bg-green-100 text-green-800">Uploaded</span>
-                  {elseif $st.state=='local'}<span class="text-xs px-2 py-1 rounded bg-amber-100 text-amber-800">Pending upload{if $st.filename}: {$st.filename|escape}{/if}</span>
-                  {else}<span class="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700 whitespace-nowrap">Not set</span>{/if}
+                  {if $st.state=='uploaded'}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-emerald-300"></span><span>Uploaded</span></span>
+                  {elseif $st.state=='local'}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-amber-300"></span><span>Pending upload{if $st.filename}: {$st.filename|escape}{/if}</span></span>
+                  {else}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-white/30"></span><span>Not set</span></span>{/if}
                 </div>
               </div>
               <div>
@@ -119,9 +118,9 @@
                 <div class="flex items-center gap-3">
                   <input type="file" name="logo_file" accept=".jpg,.jpeg,.gif,.png,.svg" class="block w-full text-sm text-slate-300"/>
                   {assign var=st value=$assetStatus.LogoImage}
-                  {if $st.state=='uploaded'}<span class="text-xs px-2 py-1 rounded bg-green-100 text-green-800">Uploaded</span>
-                  {elseif $st.state=='local'}<span class="text-xs px-2 py-1 rounded bg-amber-100 text-amber-800">Pending upload{if $st.filename}: {$st.filename|escape}{/if}</span>
-                  {else}<span class="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700 whitespace-nowrap">Not set</span>{/if}
+                  {if $st.state=='uploaded'}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-emerald-300"></span><span>Uploaded</span></span>
+                  {elseif $st.state=='local'}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-amber-300"></span><span>Pending upload{if $st.filename}: {$st.filename|escape}{/if}</span></span>
+                  {else}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-white/30"></span><span>Not set</span></span>{/if}
                 </div>
               </div>
               <div>
@@ -129,9 +128,9 @@
                 <div class="flex items-center gap-3">
                   <input type="file" name="tile_image_file" accept=".jpg,.jpeg,.gif,.png,.svg" class="block w-full text-sm text-slate-300"/>
                   {assign var=st value=$assetStatus.PathTilePng}
-                  {if $st.state=='uploaded'}<span class="text-xs px-2 py-1 rounded bg-green-100 text-green-800">Uploaded</span>
-                  {elseif $st.state=='local'}<span class="text-xs px-2 py-1 rounded bg-amber-100 text-amber-800">Pending upload{if $st.filename}: {$st.filename|escape}{/if}</span>
-                  {else}<span class="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700 whitespace-nowrap">Not set</span>{/if}
+                  {if $st.state=='uploaded'}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-emerald-300"></span><span>Uploaded</span></span>
+                  {elseif $st.state=='local'}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-amber-300"></span><span>Pending upload{if $st.filename}: {$st.filename|escape}{/if}</span></span>
+                  {else}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-white/30"></span><span>Not set</span></span>{/if}
                 </div>
               </div>
               <div class="md:col-span-2">
@@ -146,9 +145,9 @@
                 <div class="flex items-center gap-3">
                   <input type="file" name="app_icon_file" accept=".jpg,.jpeg,.gif,.png,.svg" class="block w-full text-sm text-slate-300"/>
                   {assign var=st value=$assetStatus.PathAppIconImage}
-                  {if $st.state=='uploaded'}<span class="text-xs px-2 py-1 rounded bg-green-100 text-green-800">Uploaded</span>
-                  {elseif $st.state=='local'}<span class="text-xs px-2 py-1 rounded bg-amber-100 text-amber-800">Pending upload{if $st.filename}: {$st.filename|escape}{/if}</span>
-                  {else}<span class="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700 whitespace-nowrap">Not set</span>{/if}
+                  {if $st.state=='uploaded'}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-emerald-300"></span><span>Uploaded</span></span>
+                  {elseif $st.state=='local'}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-amber-300"></span><span>Pending upload{if $st.filename}: {$st.filename|escape}{/if}</span></span>
+                  {else}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-white/30"></span><span>Not set</span></span>{/if}
                 </div>
               </div>
               <div class="md:col-span-2">
@@ -230,7 +229,7 @@
             <div class="text-sm text-slate-300 mb-2">Custom Domain (optional)</div>
             <div class="text-xs text-slate-400 mb-2">Create CNAME <span class="font-mono">backup.acme.com</span> → <span class="font-mono">{$tenant.fqdn}</span>.</div>
             <div class="flex gap-2 items-center">
-              <input id="eb-cd-host" type="text" class="w-full rounded-md border border-slate-600/70 bg-slate-900 px-2 py-2 text-slate-100 text-sm" placeholder="backup.acme.com" value="{$tenant.custom_domain|default:''}" />
+              <input id="eb-cd-host" type="text" class="w-full rounded-md border border-slate-600/70 bg-slate-900 px-2 py-2 text-slate-100 text-sm" placeholder="backup.acme.com"  />
               <button id="eb-cd-check" type="button" class="rounded bg-slate-700 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-800" aria-controls="eb-cd-status" aria-label="Check DNS for custom domain">Check DNS</button>
               <button id="eb-cd-attach" type="button" class="rounded bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-800" aria-controls="eb-cd-status" aria-label="Attach custom domain">Attach Domain</button>
             </div>
@@ -242,7 +241,7 @@
               {if $tenant.custom_domain}
                 <span class="text-slate-300">{$tenant.custom_domain}</span>
                 <span class="ml-2 px-2 py-1 rounded {if $tenant.custom_domain_status=='verified'}bg-emerald-100 text-emerald-800{elseif $tenant.custom_domain_status=='dns_ok'}bg-blue-100 text-blue-800{elseif $tenant.custom_domain_status=='cert_ok'||$tenant.custom_domain_status=='org_updated'}bg-amber-100 text-amber-800{elseif $tenant.custom_domain_status=='failed'}bg-red-100 text-red-800{else}bg-gray-100 text-gray-700{/if}">
-                  {if $tenant.custom_domain_status=='verified'}Verified{elseif $tenant.custom_domain_status=='dns_ok'}DNS OK{elseif $tenant.custom_domain_status=='cert_ok'}TLS OK{elseif $tenant.custom_domain_status=='org_updated'}Organization updated{elseif $tenant.custom_domain_status=='failed'}Error{else}Not configured{/if}
+                  {if $tenant.custom_domain_status=='verified'}Verified{elseif $tenant.custom_domain_status=='dns_ok'}DNS OK{elseif $tenant.custom_domain_status=='cert_ok'}TLS OK{elseif $tenant.custom_domain_status=='org_updated'}Organization updated{elseif $tenant.custom_domain_status=='failed'}Error{else}Custom Domain not configured{/if}
                 </span>
                 {if $custom_domain_row.checked_at}
                   <div class="text-slate-400 mt-2">Last checked: {$custom_domain_row.checked_at}</div>

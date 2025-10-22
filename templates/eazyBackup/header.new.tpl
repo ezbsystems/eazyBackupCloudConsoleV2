@@ -8,6 +8,7 @@
     </title>
     {include file="$template/includes/head.tpl"}
     {$headoutput}
+    <link rel="stylesheet" href="{$WEB_ROOT}/templates/{$template}/assets/css/ui.css" />
 
     <style>
 /* Hide tooltips by default */
@@ -60,11 +61,11 @@
     </button>
 
     <!-- Sidebar Container -->
-    <div class="relative">
+    <div class="relative" x-data="{ldelim} orderOpen:false, downloadOpen:false {rdelim}" @keydown.escape="orderOpen=false; downloadOpen=false">
         <!-- Sidebar (Desktop + Mobile) -->
         <aside
             id="sidebar"
-            class="fixed top-0 left-0 w-64 bg-gray-900 shadow-md ring-1 ring-inset ring-white/10 h-screen flex-shrink-0 z-40 hidden lg:block"
+            class="fixed top-0 left-0 w-64 h-screen flex-shrink-0 z-40 hidden lg:block backdrop-blur-xl border-r border-black/10 dark:border-white/10 bg-white/40 dark:bg-white/5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03),0_10px_30px_-15px_rgba(0,0,0,0.6)]"
         >
             <div class="h-full flex flex-col">
                     <!-- Logo -->
@@ -81,12 +82,12 @@
                 </div>
 
                     <!-- Navigation Items -->
-                    <nav class="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
+                    <nav class="flex-1 px-2 py-4 space-y-1 overflow-y-auto sidebar-scroll">
                     {if $loggedin}
                         <!-- Dashboard -->
                         <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=dashboard"
-                        class="flex items-center px-2 py-2 text-gray-400 rounded-md hover:bg-[#1B2C50]
-                                {if $smarty.get.m == 'eazybackup' && $smarty.get.a == 'dashboard'}bg-[#1B2C50] font-semibold{/if}"
+                        class="group nav-item flex items-center px-3 py-2 text-sm text-gray-300 rounded-xl hover:bg-white/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40
+                                {if $smarty.get.m == 'eazybackup' && $smarty.get.a == 'dashboard'}bg-[#1B2C50] font-semibold nav-active{/if}"
                         >
                             {* <i class="fas fa-gauge mr-3 text-lg"></i> *}
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-3">
@@ -101,8 +102,8 @@
 
                         <!-- My Services -->
                         <a href="/clientarea.php?action=services"
-                        class="flex items-center px-2 py-2 text-gray-400 rounded-md hover:bg-[#1B2C50]
-                                {if $smarty.server.REQUEST_URI == '/clientarea.php?action=services'}bg-[#1B2C50] font-semibold{/if}"
+                        class="group nav-item flex items-center px-3 py-2 text-sm text-gray-300 rounded-xl hover:bg-white/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40
+                                {if $smarty.server.REQUEST_URI == '/clientarea.php?action=services'}bg-[#1B2C50] font-semibold nav-active{/if}"
                         >
                             {* <i class="fas fa-users-gear mr-3 text-lg"></i> *}
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-3">
@@ -114,7 +115,7 @@
                         <!-- Order New Services button to open flyout) -->
                         <button
                             id="order-services-button"
-                            class="flex items-center w-full px-2 py-2 text-gray-400 rounded-md hover:bg-[#1B2C50] focus:outline-none"
+                            class="group nav-item flex items-center w-full px-3 py-2 text-sm text-gray-300 rounded-xl hover:bg-white/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40"
                             aria-haspopup="true"
                             aria-expanded="false"
                             aria-controls="sidebar-flyout"
@@ -137,7 +138,7 @@
                         
                         <button
                         id="download-backup-client-button"
-                        class="flex items-center w-full px-2 py-2 text-gray-400 rounded-md hover:bg-[#1B2C50] focus:outline-none"
+                        class="group nav-item flex items-center w-full px-3 py-2 text-sm text-gray-300 rounded-xl hover:bg-white/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40"
                         aria-haspopup="true"
                         aria-expanded="false"
                         aria-controls="sidebar-download-flyout"
@@ -154,8 +155,8 @@
 
                         <!-- Support -->
                         <a href="{$WEB_ROOT}/supporttickets.php"
-                        class="flex items-center px-2 py-2 text-gray-400 rounded-md hover:bg-[#1B2C50]
-                                {if $smarty.server.REQUEST_URI == '/supporttickets.php'}bg-[#1B2C50] font-semibold{/if}"
+                        class="group nav-item flex items-center px-3 py-2 text-sm text-gray-300 rounded-xl hover:bg-white/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40
+                                {if $smarty.server.REQUEST_URI == '/supporttickets.php'}bg-[#1B2C50] font-semibold nav-active{/if}"
                         >
                             {* <i class="fas fa-question-circle mr-3 text-lg"></i> *}
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-3">
@@ -166,8 +167,8 @@
 
                         <!-- Billing -->
                         <a href="{$WEB_ROOT}/clientarea.php?action=invoices"
-                        class="flex items-center px-2 py-2 text-gray-400 rounded-md hover:bg-[#1B2C50]
-                                {if $smarty.server.REQUEST_URI == '/clientarea.php?action=invoices'}bg-[#1B2C50] font-semibold{/if}"
+                        class="group nav-item flex items-center px-3 py-2 text-sm text-gray-300 rounded-xl hover:bg-white/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40
+                                {if $smarty.server.REQUEST_URI == '/clientarea.php?action=invoices'}bg-[#1B2C50] font-semibold nav-active{/if}"
                         >
                             {* <i class="fas fa-file-invoice mr-3 text-lg"></i> *}
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-3">
@@ -179,8 +180,8 @@
 
                         <!-- Affiliates -->
                         <a href="{$WEB_ROOT}/affiliates.php"
-                        class="flex items-center px-2 py-2 text-gray-400 rounded-md hover:bg-[#1B2C50]
-                                {if $smarty.server.REQUEST_URI == '/affiliates.php'}bg-[#1B2C50] font-semibold{/if}"
+                        class="group nav-item flex items-center px-3 py-2 text-sm text-gray-300 rounded-xl hover:bg-white/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40
+                                {if $smarty.server.REQUEST_URI == '/affiliates.php'}bg-[#1B2C50] font-semibold nav-active{/if}"
                         >
                             {* <i class="fas fa-file-invoice mr-3 text-lg"></i> *}
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-3">
@@ -192,11 +193,11 @@
 
 
                         <!-- Control Panel (Dropdown) -->
-                        <div x-data="{ open: false }" class="relative">
+                        <div x-data="{ldelim} open: false {rdelim}" class="relative">
                         <button
                             @click="open = !open"
-                            class="flex items-center w-full px-2 py-2 text-left text-gray-400 rounded-md hover:bg-[#1B2C50]
-                                {if $smarty.server.REQUEST_URI == '/control-panel-path'}bg-[#1B2C50] font-semibold{/if}"
+                            class="group nav-item flex items-center w-full px-3 py-2 text-left text-sm text-gray-300 rounded-xl hover:bg-white/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40
+                                {if $smarty.server.REQUEST_URI == '/control-panel-path'}bg-[#1B2C50] font-semibold nav-active{/if}"
                         >
                             {* <i class="fas fa-up-right-from-square mr-3 text-lg"></i> *}
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-3">
@@ -233,8 +234,8 @@
 
                     <!-- Knowledgebase -->
                     <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=knowledgebase"
-                    class="flex items-center px-2 py-2 text-gray-400 rounded-md hover:bg-[#1B2C50]
-                            {if $smarty.server.REQUEST_URI == '/index.php?m=eazybackup&a=knowledgebase'}bg-[#1B2C50] font-semibold{/if}"
+                    class="group nav-item flex items-center px-3 py-2 text-sm text-gray-300 rounded-xl hover:bg-white/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40
+                            {if $smarty.server.REQUEST_URI == '/index.php?m=eazybackup&a=knowledgebase'}bg-[#1B2C50] font-semibold nav-active{/if}"
                     >
                         {* <i class="fas fa-file-invoice mr-3 text-lg"></i> *}
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-3">
@@ -245,7 +246,7 @@
                     </a>
 
                     <!-- Cloud Storage (Dropdown) -->
-                    <div x-data="{
+                    <div x-data="{ldelim}
                         // Include the 'dashboard' URL so that if it's active, our dropdown stays open.
                         open: [
                             'index.php?m=cloudstorage', 
@@ -254,11 +255,11 @@
                             'index.php?m=cloudstorage&page=access_keys', 
                             'index.php?m=cloudstorage&page=billing'
                         ].some(path => window.location.href.includes(path))
-                    }">
+                    {rdelim}">
                         <button
                             @click="open = !open"
-                            class="flex items-center w-full px-2 py-2 text-left text-gray-400 rounded-md hover:bg-[#1B2C50]
-                                {if $smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage'} bg-[#1B2C50] font-semibold {/if}"
+                            class="group nav-item flex items-center w-full px-3 py-2 text-left text-sm text-gray-300 rounded-xl hover:bg-white/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40
+                                {if $smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage'} bg-[#1B2C50] font-semibold nav-active {/if}"
                         >
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-3">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15a4.5 4.5 0 0 0 4.5 4.5H18a3.75 3.75 0 0 0 1.332-7.257 3 3 0 0 0-3.758-3.848 5.25 5.25 0 0 0-10.233 2.33A4.502 4.502 0 0 0 2.25 15Z" />
@@ -278,39 +279,39 @@
                         >
                             <!-- Dashboard -->
                             <a href="{$WEB_ROOT}/index.php?m=cloudstorage" 
-                            class="block px-2 py-1 text-gray-400 rounded-md hover:bg-[#1B2C50]
+                            class="group nav-item block px-3 py-2 text-sm text-gray-300 rounded-xl hover:bg-white/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40
                                 {if $smarty.get.m == 'cloudstorage' and (empty($smarty.get.page) or $smarty.get.page == 'dashboard')}
-                                    bg-[#1B2C50] font-semibold
+                                    bg-[#1B2C50] font-semibold nav-active
                                 {/if}">
                             Dashboard
                             </a>
                             <!-- Buckets -->
                             <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=buckets" 
-                            class="block px-2 py-1 text-gray-400 rounded-md hover:bg-[#1B2C50]
-                                    {if $smarty.server.REQUEST_URI|strstr:'page=buckets'} bg-[#1B2C50] font-semibold {/if}">
+                            class="group nav-item block px-3 py-2 text-sm text-gray-300 rounded-xl hover:bg-white/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40
+                                    {if $smarty.server.REQUEST_URI|strstr:'page=buckets'} bg-[#1B2C50] font-semibold nav-active {/if}">
                                 Buckets
                             </a>
                             <!-- Access Keys -->
                             <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=access_keys" 
-                            class="block px-2 py-1 text-gray-400 rounded-md hover:bg-[#1B2C50]
-                                    {if $smarty.server.REQUEST_URI|strstr:'page=access_keys'} bg-[#1B2C50] font-semibold {/if}">
+                            class="group nav-item block px-3 py-2 text-sm text-gray-300 rounded-xl hover:bg-white/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40
+                                    {if $smarty.server.REQUEST_URI|strstr:'page=access_keys'} bg-[#1B2C50] font-semibold nav-active {/if}">
                                 Access Keys
                             </a>
                             <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=users" 
-                            class="block px-2 py-1 text-gray-400 rounded-md hover:bg-[#1B2C50]
-                                    {if $smarty.server.REQUEST_URI|strstr:'page=users'} bg-[#1B2C50] font-semibold {/if}">
+                            class="group nav-item block px-3 py-2 text-sm text-gray-300 rounded-xl hover:bg-white/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40
+                                    {if $smarty.server.REQUEST_URI|strstr:'page=users'} bg-[#1B2C50] font-semibold nav-active {/if}">
                                 Users
                             </a>
                             <!-- Billing -->
                             <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=billing" 
-                            class="block px-2 py-1 text-gray-400 rounded-md hover:bg-[#1B2C50]
-                                    {if $smarty.server.REQUEST_URI|strstr:'page=billing'} bg-[#1B2C50] font-semibold {/if}">
+                            class="group nav-item block px-3 py-2 text-sm text-gray-300 rounded-xl hover:bg-white/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40
+                                    {if $smarty.server.REQUEST_URI|strstr:'page=billing'} bg-[#1B2C50] font-semibold nav-active {/if}">
                                 Billing
                             </a>
                             <!-- History -->
                             <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=history"
-                            class="block px-2 py-1 text-gray-400 rounded-md hover:bg-[#1B2C50]
-                                    {if $smarty.server.REQUEST_URI|strstr:'page=history'} bg-[#1B2C50] font-semibold {/if}">
+                            class="group nav-item block px-3 py-2 text-sm text-gray-300 rounded-xl hover:bg-white/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40
+                                    {if $smarty.server.REQUEST_URI|strstr:'page=history'} bg-[#1B2C50] font-semibold nav-active {/if}">
                                 Historical Stats
                             </a>
                             
@@ -354,15 +355,8 @@
                                 {/if}
                             </div>
                         </div>                    
-                        <!-- Theme Toggle Button (swaps icons) -->
-                        <button id="sidebarThemeToggle" class="p-2 focus:outline-none">
-                            <span id="sidebarThemeIcon">
-                                <!-- Default icon: if light mode is active, show night icon (inactive mode) -->
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" />
-                                </svg>
-                            </span>
-                        </button>
+                        <!-- Theme Toggle Button -->
+                        <button class="icon-btn cardish js-theme-toggle" aria-label="Toggle theme"></button>
                     </div>
                         <div class="mt-3">
                             {if $loggedin}
@@ -395,9 +389,11 @@
         {* sidebar-flyout    *}
         <div 
             id="sidebar-flyout" 
-            class="fixed top-0 left-[1rem] h-screen w-[40rem] transform -translate-x-full transition-transform duration-300 ease-in-out bg-white shadow-md z-30 pointer-events-none"
-            aria-hidden="true"
-            role="menu"            
+            class="fixed inset-x-0 bottom-0 z-50 rounded-t-2xl border border-black/10 dark:border-white/10 p-3 bg-white dark:bg-gray-900 shadow-[0_-10px_30px_-10px_rgba(0,0,0,0.8)] sm:inset-auto sm:top-0 sm:left-[1rem] sm:bottom-auto sm:w-[40rem] sm:rounded-none sm:border sm:shadow-md"
+            x-cloak
+            x-show="orderOpen"
+            x-transition.opacity.scale.origin.top.left
+            role="menu"
         >
         <div class="flex flex-col h-full">
             <!-- Fly-Out Header -->
@@ -611,10 +607,12 @@
  <!-- Download Backup Client Flyout -->
 <div 
 id="sidebar-download-flyout" 
-class="fixed top-0 left-[1rem] h-screen w-[40rem] transform -translate-x-full transition-transform duration-300 ease-in-out bg-white shadow-md z-30 pointer-events-none"
-aria-hidden="true"
+class="fixed inset-x-0 bottom-0 z-50 rounded-t-2xl border border-black/10 dark:border-white/10 p-3 bg-white dark:bg-gray-900 shadow-[0_-10px_30px_-10px_rgba(0,0,0,0.8)] sm:inset-auto sm:top-0 sm:left-[1rem] sm:bottom-auto sm:w-[40rem] sm:rounded-none sm:border sm:shadow-md"
+x-cloak
+x-show="downloadOpen"
+x-transition.opacity.scale.origin.top.left
 role="menu"
-x-data="{ openModal: null }"
+x-data="{ldelim} openModal: null {rdelim}"
 @keydown.escape="openModal = null"
 >
 <div class="flex flex-col h-full">
@@ -1195,8 +1193,51 @@ x-data="{ openModal: null }"
 <!-- Overlay for Mobile (if toggling the sidebar) -->
 {* <div id="overlay" class="fixed inset-0 bg-black bg-opacity-50 hidden"></div> *}
 
+<!-- Top Bar -->
+<div id="topbar" class="fixed inset-x-0 top-0 z-40 lg:left-64 h-14 flex items-center bg-white/40 dark:bg-white/5 backdrop-blur-xl border-b border-black/10 dark:border-white/10 px-3 sm:px-4">
+  <div class="flex items-center gap-2">
+    <!-- Optional: breadcrumb/title -->
+  </div>
+  <div class="ml-auto flex items-center gap-1.5">
+    <button class="hidden md:inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-white/10 transition focus-visible:ring-2 focus-visible:ring-sky-400/50" @click="cmd=true">
+      <svg class="w-4 h-4 opacity-70" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 21l-4.35-4.35M11 18a7 7 0 1 1 0-14 7 7 0 0 1 0 14Z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Quick Search
+      <kbd class="ml-2 rounded-md border border-black/10 dark:border-white/20 px-1.5 text-[10px] opacity-70">⌘K</kbd>
+    </button>
+    <button class="icon-btn cardish focus-sky" aria-label="Notifications">
+      <svg class="w-4 h-4 text-gray-700 dark:text-gray-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14.243 17H5.5a2 2 0 0 1-2-2v-3a7.5 7.5 0 0 1 15 0v3a2 2 0 0 1-2 2h-.257M9 21h6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span class="badge">2</span>
+    </button>
+    <button class="icon-btn cardish focus-sky js-theme-toggle" aria-label="Toggle theme"></button>
+  </div>
+</div>
+
+<!-- Command-K Palette -->
+<div x-data="{ldelim}cmd:false, q:'', items: []{rdelim}" x-init="items = window.NAV_ROUTES"
+     @keydown.window.meta.k.prevent="cmd = !cmd" @keydown.window.ctrl.k.prevent="cmd = !cmd">
+  <div x-show="cmd" x-transition.opacity x-cloak class="fixed inset-0 z-50 bg-black/60 backdrop-blur" @click="cmd=false"></div>
+  <div x-show="cmd" x-transition.scale.origin.top class="fixed left-1/2 top-20 z-50 w-[90vw] max-w-lg -translate-x-1/2 cardish p-3 shadow-2xl">
+    <input x-model="q" placeholder="Type to search…" class="w-full rounded-lg bg-black/5 dark:bg-white/5 px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-sky-400/50" />
+    <ul class="mt-2 max-h-72 overflow-y-auto" role="listbox">
+      <template x-for="item in items.filter(i => i.label.toLowerCase().includes(q.toLowerCase()))" :key="item.href">
+        <li>
+          <a :href="item.href" role="option" class="group flex items-start gap-3 rounded-xl px-3 py-2 transition hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40">
+            <div class="mt-0.5">
+              <svg class="w-5 h-5 text-gray-400 group-hover:text-white transition" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 12h14" stroke-linecap="round"/></svg>
+            </div>
+            <div class="min-w-0">
+              <h3 class="truncate text-sm font-medium text-gray-700 dark:text-gray-200 group-hover:text-white" x-text="item.label"></h3>
+              <p class="mt-0.5 text-xs text-gray-400" x-text="item.href"></p>
+            </div>
+          </a>
+        </li>
+      </template>
+    </ul>
+  </div>
+</div>
+
 <!-- Main Content Container (right side) -->
-<div class="flex flex-col flex-1 min-h-screen lg:ml-64 transition-all duration-300">
+<div class="flex flex-col flex-1 min-h-screen lg:ml-64 pt-14 transition-all duration-300 motion-reduce:transition-none">
     <!-- The main content area -->
     {$maincontent}
 
@@ -1516,53 +1557,10 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-  // Function to update the icon based on current theme
-  function updateSidebarThemeIcon() {
-    const iconWrapper = document.getElementById('sidebarThemeIcon');
-    if (!iconWrapper) return; 
-
-    if (document.documentElement.classList.contains('dark')) {
-      console.log('Dark mode active');
-      iconWrapper.innerHTML = `
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-gray-400">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
-        </svg>`;
-    } else {
-      console.log('Light mode active');
-      iconWrapper.innerHTML = `
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-gray-400">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" />
-        </svg>`;
-    }
-  }
-
-  // Apply saved theme preference on load
-  if (localStorage.theme === 'dark') {
-    document.documentElement.classList.add('dark');
-  } else {
-    document.documentElement.classList.remove('dark');
-  }
-  updateSidebarThemeIcon();  
-
-  const toggleButton = document.getElementById('sidebarThemeToggle');
-  if (toggleButton) {
-    toggleButton.addEventListener('click', function() {
-      console.log('Toggle button clicked');
-      const isDark = document.documentElement.classList.toggle('dark');
-      localStorage.theme = isDark ? 'dark' : 'light';
-      console.log('New theme:', isDark ? 'dark' : 'light');
-      updateSidebarThemeIcon();
-    });
-  } else {
-    console.error('Element with id "sidebarThemeToggle" not found.');
-  }
-});
-
-</script>
+<!-- Theme handled by navbar.js -->
 
 
 
+    <script src="{$WEB_ROOT}/templates/{$template}/assets/js/navbar.js" defer></script>
 </body>
 </html>

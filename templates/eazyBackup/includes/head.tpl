@@ -16,6 +16,8 @@
 
 
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script>window.jQuery||document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"><\\/script>')</script>
+<script>window.jQuery||document.write('<script src="{$WEB_ROOT}/modules/addons/cloudstorage/assets/js/jquery.min.js"><\\/script>')</script>
 
 {assetExists file="custom.css"}
 <link href="{$__assetPath__}" rel="stylesheet">

@@ -57,8 +57,20 @@ if ($q !== '') {
 if ($status !== '') {
     $base = $base->where('t.status', $status);
 }
-// Count for pagination
-$totalRows = (int) $base->clone()->count('t.id');
+// Count for pagination without using clone (build a dedicated count query)
+$countBase = Capsule::table('eb_whitelabel_tenants as t')
+    ->leftJoin('tblclients as c', 'c.id', '=', 't.client_id');
+if ($q !== '') {
+    $countBase = $countBase->where(function($qq) use ($q){
+        $qq->where('t.fqdn','like','%'.$q.'%')
+           ->orWhere('t.custom_domain','like','%'.$q.'%')
+           ->orWhere('c.email','like','%'.$q.'%');
+    });
+}
+if ($status !== '') {
+    $countBase = $countBase->where('t.status', $status);
+}
+$totalRows = (int) $countBase->count('t.id');
 // Apply sort + pagination
 $rows = $base->orderByRaw($sortCol . ' ' . $dir)
     ->offset(($page - 1) * $perPage)

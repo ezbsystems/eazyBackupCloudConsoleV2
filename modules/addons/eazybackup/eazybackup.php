@@ -132,6 +132,16 @@ function eazybackup_activate()
         });
     }
 
+    // Track client -> product group mapping for white-label products
+    if (!Capsule::schema()->hasTable('tbl_client_productgroup_map')) {
+        Capsule::schema()->create('tbl_client_productgroup_map', function ($table) {
+            $table->increments('id');
+            $table->integer('client_id')->index();
+            $table->integer('product_group_id')->index();
+            $table->dateTime('created_at')->nullable();
+        });
+    }
+
     if (!Capsule::schema()->hasTable('comet_vaults')) {
         Capsule::schema()->create('comet_vaults', function ($table) {
             $table->uuid('id')->primary();
@@ -1121,6 +1131,19 @@ function eazybackup_config()
                 'Size' => '120',
                 'Default' => 'http://obc_servers',
                 'Description' => 'Upstream to use when writing HTTPS vhost',
+            ],
+            // Partner Hub (public signup) settings
+            'PARTNER_HUB_SIGNUP_ENABLED' => [
+                'FriendlyName' => 'Partner Hub: Public Signup',
+                'Type' => 'yesno',
+                'Description' => 'Enable MSP-branded public signup and downloads (Partner Hub Phase 1). When disabled, public routes render a disabled/invalid page.',
+            ],
+            'ops_whmcs_upstream' => [
+                'FriendlyName' => 'Ops WHMCS Upstream',
+                'Type' => 'text',
+                'Size' => '120',
+                'Default' => 'http://billing.internal',
+                'Description' => 'Base URL of WHMCS upstream for signup.* hosts (reverse proxy target).',
             ],
             'acme_selftest_ip' => [
                 'FriendlyName' => 'ACME Self-Test IP',
@@ -2234,6 +2257,21 @@ function eazybackup_clientarea(array $vars)
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'whitelabel-loader') {
         require_once __DIR__ . "/pages/whitelabel/BuildController.php";
         return eazybackup_whitelabel_loader($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'whitelabel-signup-settings') {
+        require_once __DIR__ . "/pages/whitelabel/SignupSettingsController.php";
+        return eazybackup_whitelabel_signup_settings($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'whitelabel-signup-checkdns') {
+        require_once __DIR__ . "/pages/whitelabel/SignupSettingsController.php";
+        eazybackup_whitelabel_signup_checkdns($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'whitelabel-signup-attachdomain') {
+        require_once __DIR__ . "/pages/whitelabel/SignupSettingsController.php";
+        eazybackup_whitelabel_signup_attachdomain($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'public-signup') {
+        require_once __DIR__ . '/pages/whitelabel/PublicSignupController.php';
+        return eazybackup_public_signup($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'public-download') {
+        require_once __DIR__ . '/pages/whitelabel/PublicDownloadController.php';
+        return eazybackup_public_download($vars);
     } else if ($_REQUEST["a"] == "createorder") {
         return eazybackup_createorder($vars);
     } else if ($_REQUEST["a"] == "add-card") {
@@ -4137,32 +4175,15 @@ function whitelabel_signup(array $vars)
         logActivity("eazybackup: OpenTicket Response => " . json_encode($ticketResponse));
 
         /* ------------------------------------------------------------------
-         *  Product‑Group creation (if it doesn't exist yet)
+         *  Ensure one product group per client (mapping is source of truth)
+         *  Never associate by matching names.
          * ------------------------------------------------------------------*/
-        $groupId = Capsule::table('tblproductgroups')
-            ->where('name', $product_name)           // "Acme Backup", etc.
-            ->value('id');
-
-        if (!$groupId) {
-            $groupId = Capsule::table('tblproductgroups')->insertGetId([
-                'name' => $product_name,
-                'headline' => $company_name . ' Cloud Backup',
-                'created_at'       => Carbon::now()->format('Y-m-d H:i:s'),
-                'orderfrmtpl' => '',       // use default order‑form template
-            ]);
+        try {
+            $ops = new \EazyBackup\Whitelabel\WhmcsOps();
+            $groupId = (int)$ops->ensureClientProductGroup((int)$clientId);
+        } catch (\Throwable $e) {
+            logActivity('eazybackup: ensureClientProductGroup failed for client '.$clientId.' => '.$e->getMessage());
         }
-
-        /* ------------------------------------------------------------------
-         * Upsert the client group mapping row
-         * ------------------------------------------------------------------*/
-        Capsule::table('tbl_client_productgroup_map')
-            ->updateOrInsert(
-                ['client_id' => $clientId],
-                [
-                    'product_group_id' => $groupId,
-                    'created_at'       => Carbon::now()->format('Y-m-d H:i:s'),
-                ]
-            );
 
 
         // Return success with the custom domain included.
@@ -4609,13 +4630,54 @@ function eazybackup_createorder($vars)
         'hyperv'     => [], // 53, 54
     ];
 
-    // a) If user has a custom mapping, filter products with gid equal to client's custom group id.
-    if (!empty($customGroupId)) {
-        foreach ($allProducts as $p) {
-            if ($p['gid'] == $customGroupId) {
-                $categories['whitelabel'][] = $p;
+    // a) White‑label products for this client
+    //    1) All tenant-bound products for this client (multi-tenant)
+    try {
+        $tenantPids = [];
+        if ($clientid) {
+            $rows = Capsule::table('eb_whitelabel_tenants')
+                ->select('product_id')
+                ->where('client_id', (int)$clientid)
+                ->where('status', 'active')
+                ->whereNotNull('product_id')
+                ->get();
+            foreach ($rows as $r) {
+                $pid = (int)($r->product_id ?? 0);
+                if ($pid > 0) { $tenantPids[$pid] = true; }
             }
         }
+        if (!empty($tenantPids)) {
+            $pidList = array_keys($tenantPids);
+            // Fetch exact products by PID to avoid leaking other clients' products
+            $prodRows = Capsule::table('tblproducts')
+                ->select(['id','name','gid'])
+                ->whereIn('id', $pidList)
+                ->get();
+            $wl = [];
+            foreach ($prodRows as $pr) {
+                $wl[] = [
+                    'pid' => (int)$pr->id,
+                    'name' => (string)$pr->name,
+                    'gid' => (int)$pr->gid,
+                ];
+            }
+            // Deduplicate by pid (defensive)
+            if (!empty($wl)) {
+                $seen = [];
+                $out = [];
+                foreach ($wl as $p) {
+                    $pp = (int)($p['pid'] ?? 0);
+                    if ($pp > 0 && !isset($seen[$pp])) { $seen[$pp] = true; $out[] = $p; }
+                }
+                $categories['whitelabel'] = $out;
+            }
+        } else {
+            // No tenant rows for this client → leave whitelabel empty (do not fallback to group to avoid cross-client leakage)
+            $categories['whitelabel'] = [];
+        }
+    } catch (\Throwable $e) {
+        try { logActivity('eazybackup: unable to load tenant products: ' . $e->getMessage()); } catch (\Throwable $_) {}
+        $categories['whitelabel'] = [];
     }
 
     // b) Include the six specified products with reseller filtering for OBC

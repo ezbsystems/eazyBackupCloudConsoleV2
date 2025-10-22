@@ -47,6 +47,21 @@
       const r = await fetch(url, { cache:'no-store' });
       const j = await r.json();
       if(!j||!j.ok) return setTimeout(poll, 1500);
+      // Stop immediately on failure and show results
+      if ((j.status||'') === 'failed') {
+        if (Array.isArray(j.timeline) && el){
+          el.innerHTML = j.timeline.map(function(s){
+            return '<div><span>' + (s.label||'') + '</span> — <span>' + (s.status||'') + '</span></div>';
+          }).join('');
+          // Append a simple failure note
+          var note = document.createElement('div');
+          note.className = 'mt-3 text-xs text-red-300';
+          note.textContent = 'Provisioning failed. Review the steps above and try again.';
+          el.appendChild(note);
+        }
+        try { if (window.ebHideLoader) { ebHideLoader(); } } catch(_) {}
+        return; // do not continue polling
+      }
       // Ensure background kickoff happens as soon as we see queued steps
       try{
         if (Array.isArray(j.timeline)){

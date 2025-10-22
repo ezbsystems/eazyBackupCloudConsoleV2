@@ -106,16 +106,23 @@ class Builder
         $ct->configureStorageTemplate($orgId, []);
         $this->setStep($tenantId, 'storage', 'success');
 
-        // 9) WHMCS wiring
-        $this->startStep($tenantId, 'whmcs');
-        $ops = new \EazyBackup\Whitelabel\WhmcsOps();
-        $srv = $ops->addServerAndGroup($fqdn, $fqdn, (string)($this->cfg['server_module_name'] ?? 'comet'));
-        $tplPid = (int)($this->cfg['whitelabel_template_pid'] ?? 0);
-        $newPid = $tplPid > 0 ? $ops->cloneProduct($tplPid, (int)$srv['servergroup_id'], $fqdn . ' Plan') : 0;
-        Capsule::table('eb_whitelabel_tenants')->where('id',$tenantId)->update([
-            'server_id' => (int)$srv['server_id'], 'servergroup_id' => (int)$srv['servergroup_id'], 'product_id' => (int)$newPid
-        ]);
-        $this->setStep($tenantId, 'whmcs', 'success');
+		// 9) WHMCS wiring
+		$this->startStep($tenantId, 'whmcs');
+		$ops = new \EazyBackup\Whitelabel\WhmcsOps();
+		$srv = $ops->addServerAndGroup($fqdn, $fqdn, (string)($this->cfg['server_module_name'] ?? 'comet'));
+		$tplPid = (int)($this->cfg['whitelabel_template_pid'] ?? 0);
+		// Resolve target PRODUCT GROUP id per client (one group per customer)
+		$targetGroupId = (int)$ops->ensureClientProductGroup((int)$t->client_id);
+		// Determine product display name from intake branding (fallback to FQDN Plan)
+		$brandForName = json_decode((string)($t->brand_json ?? '{}'), true) ?: [];
+		$productName = trim((string)($brandForName['ProductName'] ?? ''));
+		if ($productName === '') { $productName = trim((string)($brandForName['BrandName'] ?? '')); }
+		if ($productName === '') { $productName = $fqdn . ' Plan'; }
+		$newPid = ($tplPid > 0 && $targetGroupId > 0) ? $ops->cloneProduct($tplPid, $targetGroupId, $productName) : 0;
+		Capsule::table('eb_whitelabel_tenants')->where('id',$tenantId)->update([
+			'server_id' => (int)$srv['server_id'], 'servergroup_id' => (int)$srv['servergroup_id'], 'product_id' => (int)$newPid
+		]);
+		$this->setStep($tenantId, 'whmcs', 'success');
 
         // 10) verify
         $this->startStep($tenantId, 'verify');
@@ -255,9 +262,20 @@ class Builder
             case 'storage':
                 $this->ensureStep($tenantId,'storage','queued'); $this->startStep($tenantId,'storage');
                 $ct5 = new \EazyBackup\Whitelabel\CometTenant($this->cfg); $ct5->configureStorageTemplate($orgId?:'',[]); $this->setStep($tenantId,'storage','success'); break;
-            case 'whmcs':
-                $this->ensureStep($tenantId,'whmcs','queued'); $this->startStep($tenantId,'whmcs');
-                $ops = new \EazyBackup\Whitelabel\WhmcsOps(); $srv=$ops->addServerAndGroup($fqdn,$fqdn,(string)($this->cfg['server_module_name']??'comet')); $tplPid=(int)($this->cfg['whitelabel_template_pid']??0); $newPid=$tplPid>0?$ops->cloneProduct($tplPid,(int)$srv['servergroup_id'],$fqdn.' Plan'):0; Capsule::table('eb_whitelabel_tenants')->where('id',$tenantId)->update(['server_id'=>(int)$srv['server_id'],'servergroup_id'=>(int)$srv['servergroup_id'],'product_id'=>(int)$newPid]); $this->setStep($tenantId,'whmcs','success'); break;
+			case 'whmcs':
+				$this->ensureStep($tenantId,'whmcs','queued'); $this->startStep($tenantId,'whmcs');
+				$ops = new \EazyBackup\Whitelabel\WhmcsOps();
+				$srv = $ops->addServerAndGroup($fqdn,$fqdn,(string)($this->cfg['server_module_name']??'comet'));
+				$tplPid = (int)($this->cfg['whitelabel_template_pid']??0);
+				$targetGroupId = (int)$ops->ensureClientProductGroup((int)$t->client_id);
+				$brandForName = json_decode((string)($t->brand_json??'{}'), true) ?: [];
+				$productName = trim((string)($brandForName['ProductName'] ?? ''));
+				if ($productName === '') { $productName = trim((string)($brandForName['BrandName'] ?? '')); }
+				if ($productName === '') { $productName = $fqdn.' Plan'; }
+				$newPid = ($tplPid>0 && $targetGroupId>0) ? $ops->cloneProduct($tplPid,$targetGroupId,$productName) : 0;
+				Capsule::table('eb_whitelabel_tenants')->where('id',$tenantId)->update(['server_id'=>(int)$srv['server_id'],'servergroup_id'=>(int)$srv['servergroup_id'],'product_id'=>(int)$newPid]);
+				$this->setStep($tenantId,'whmcs','success');
+				break;
             case 'verify':
                 $this->ensureStep($tenantId,'verify','queued'); $this->startStep($tenantId,'verify'); $this->setStep($tenantId,'verify','success'); break;
         }

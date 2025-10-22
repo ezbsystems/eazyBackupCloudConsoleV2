@@ -27,6 +27,26 @@ class HostOps
         return $this->invokeArgs('write_https', [$fqdn, $upstream]);
     }
 
+    /**
+     * Write HTTPS vhost for a host with a specific upstream.
+     * Useful for routing signup.<domain> to a WHMCS upstream instead of Comet.
+     */
+    public function writeHttpsWithUpstream(string $fqdn, string $upstream): bool
+    {
+        $up = trim($upstream) !== '' ? trim($upstream) : (string)($this->cfg['nginx_upstream'] ?? 'http://obc_servers');
+        return $this->invokeArgs('write_https', [$fqdn, $up]);
+    }
+
+    /**
+     * Convenience: write HTTPS vhost for signup host using ops_whmcs_upstream.
+     */
+    public function writeSignupHttps(string $fqdn): bool
+    {
+        $up = (string)($this->cfg['ops_whmcs_upstream'] ?? '');
+        if ($up === '') { $up = (string)($this->cfg['nginx_upstream'] ?? 'http://obc_servers'); }
+        return $this->invokeArgs('write_https', [$fqdn, $up]);
+    }
+
     public function disableHost(string $fqdn): bool
     {
         return $this->invokeArgs('disable', [$fqdn]);

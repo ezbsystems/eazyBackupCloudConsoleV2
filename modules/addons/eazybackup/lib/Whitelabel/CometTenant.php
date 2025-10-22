@@ -462,7 +462,28 @@ class CometTenant
     public function applyEmailOptions(string $orgId, array $email): bool
     {
         try {
-            if (!empty($email['inherit'])) { return true; }
+            if (!empty($email['inherit'])) {
+                // Explicitly reset Email to inherit-from-parent by writing Mode=""
+                $creds = $this->resolveCreds(); if (!$creds) { return false; }
+                $server = $this->getServerClient($creds['url'], $creds['user'], $creds['pass']);
+                if ($server) {
+                    $cur = null;
+                    for ($__i=0; $__i<3; $__i++) {
+                        try { $cur = $this->loadOrgOrThrow($server, $orgId); break; } catch (\Throwable $__e) { try { usleep(250000 * ($__i+1)); } catch (\Throwable $_) {} }
+                    }
+                    if (!$cur) { return false; }
+                    $cur->Email = \Comet\EmailOptions::createFromArray(['Mode' => '']);
+                    $server->AdminOrganizationSet($orgId, $cur);
+                    return true;
+                }
+                if (class_exists('CometAPI')) {
+                    $api = new \CometAPI($creds['url'], $creds['user'], $creds['pass']);
+                    $payload = [ 'OrganizationID' => $orgId, 'Email' => ['Mode' => ''] ];
+                    $api->AdminOrganizationSet($payload);
+                    return true;
+                }
+                return false;
+            }
             $creds = $this->resolveCreds(); if (!$creds) { return false; }
             $server = $this->getServerClient($creds['url'], $creds['user'], $creds['pass']);
             if ($server) {
@@ -929,6 +950,70 @@ class CometTenant
             }
         } catch (\Throwable $e) {
             $this->log('getOrgBranding fatal: ' . $e->getMessage());
+        }
+        return [];
+    }
+
+    /**
+     * Fetch live EmailOptions for an organization from Comet and return as associative array.
+     * Adds a computed 'inherit' flag (1 when Mode is empty, else 0).
+     */
+    public function getOrgEmailOptions(string $orgId): array
+    {
+        try {
+            $creds = $this->resolveCreds(); if (!$creds) { return []; }
+
+            // Preferred: native \Comet\Server
+            $server = $this->getServerClient($creds['url'], $creds['user'], $creds['pass']);
+            if ($server) {
+                try {
+                    $org = $this->loadOrgOrThrow($server, $orgId);
+                    if ($org && isset($org->Email)) {
+                        $arr = is_object($org->Email) && method_exists($org->Email, 'toArray') ? (array)$org->Email->toArray() : (array)$org->Email;
+                        $mode = isset($arr['Mode']) ? (string)$arr['Mode'] : '';
+                        $arr['inherit'] = ($mode === '') ? 1 : 0;
+                        return $arr;
+                    }
+                } catch (\Throwable $e) { $this->log('getOrgEmailOptions(Server) error: ' . $e->getMessage()); }
+            }
+
+            // Fallback: CometClient
+            if (class_exists('\\Comet\\API\\CometClient')) {
+                try {
+                    $api = new \Comet\API\CometClient($creds['url'], $creds['user'], $creds['pass']);
+                    $org = $this->loadOrgViaClient($api, $orgId);
+                    if ($org) {
+                        if ($org instanceof \Comet\Organization && isset($org->Email)) {
+                            $arr = is_object($org->Email) && method_exists($org->Email, 'toArray') ? (array)$org->Email->toArray() : (array)$org->Email;
+                            $mode = isset($arr['Mode']) ? (string)$arr['Mode'] : '';
+                            $arr['inherit'] = ($mode === '') ? 1 : 0;
+                            return $arr;
+                        }
+                        if (is_array($org) && isset($org['Email'])) {
+                            $arr = (array)$org['Email'];
+                            $mode = isset($arr['Mode']) ? (string)$arr['Mode'] : '';
+                            $arr['inherit'] = ($mode === '') ? 1 : 0;
+                            return $arr;
+                        }
+                    }
+                } catch (\Throwable $e) { $this->log('getOrgEmailOptions(Client) error: ' . $e->getMessage()); }
+            }
+
+            // Legacy: CometAPI array payloads
+            if (class_exists('CometAPI')) {
+                try {
+                    $api = new \CometAPI($creds['url'], $creds['user'], $creds['pass']);
+                    $org = $this->loadOrgViaClient($api, $orgId);
+                    if (is_array($org) && isset($org['Email'])) {
+                        $arr = (array)$org['Email'];
+                        $mode = isset($arr['Mode']) ? (string)$arr['Mode'] : '';
+                        $arr['inherit'] = ($mode === '') ? 1 : 0;
+                        return $arr;
+                    }
+                } catch (\Throwable $e) { $this->log('getOrgEmailOptions(CometAPI) error: ' . $e->getMessage()); }
+            }
+        } catch (\Throwable $e) {
+            $this->log('getOrgEmailOptions fatal: ' . $e->getMessage());
         }
         return [];
     }

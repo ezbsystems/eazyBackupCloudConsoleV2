@@ -123,15 +123,21 @@ function eazybackup_whitelabel_intake(array $vars)
         $pathAppIconImage  = $saveUpload('app_icon_image', 'app_icon_image');
 
         // Build brand mapping for Comet Organization BrandingOptions
+        // Default color if blank
+        $def = '#1B2C50';
+        $top = (string)($_POST['header_color'] ?? ''); if ($top === '') { $top = $def; }
+        $acc = (string)($_POST['accent_color'] ?? ''); if ($acc === '') { $acc = $def; }
+        $tile = (string)($_POST['tile_background'] ?? ''); if ($tile === '') { $tile = $def; }
+
         $brand = [
             'BrandName' => (string)($_POST['product_name'] ?? ''),
             'ProductName' => (string)($_POST['product_name'] ?? ''),
             'CompanyName' => (string)($_POST['company_name'] ?? ''),
             'HelpURL' => (string)($_POST['help_url'] ?? ''),
             'DefaultLoginServerURL' => 'https://' . $fqdn . '/',
-            'TopColor' => (string)($_POST['header_color'] ?? ''),
-            'AccentColor' => (string)($_POST['accent_color'] ?? ''),
-            'TileBackgroundColor' => (string)($_POST['tile_background'] ?? ''),
+            'TopColor' => $top,
+            'AccentColor' => $acc,
+            'TileBackgroundColor' => $tile,
             // Assets (local paths)
             'PathIcoFile' => $pathIcoFile,
             'PathIcnsFile' => $pathIcnsFile,
@@ -162,7 +168,7 @@ function eazybackup_whitelabel_intake(array $vars)
             $mode = 'smtp';
         }
         $email = [
-            'inherit' => ($smtpHost === '' ? 1 : 0),
+            'inherit' => isset($_POST['use_parent_mail']) ? 1 : 0,
             'FromName' => (string)($_POST['smtp_sendas_name'] ?? ''),
             'FromEmail' => (string)($_POST['smtp_sendas_email'] ?? ''),
             'SMTPHost' => $smtpHost,
@@ -322,7 +328,8 @@ function eazybackup_whitelabel_branding(array $vars)
             $mode = 'smtp';
         }
         $email = [
-            'inherit' => (int)($_POST['use_parent_mail'] ?? 1) ? 1 : 0,
+            // Checkbox posts only when checked; default to 0 when missing
+            'inherit' => isset($_POST['use_parent_mail']) ? 1 : 0,
             'FromName' => (string)($_POST['smtp_sendas_name'] ?? ''),
             'FromEmail' => (string)($_POST['smtp_sendas_email'] ?? ''),
             'SMTPHost' => $smtpHost,
@@ -382,6 +389,23 @@ function eazybackup_whitelabel_branding(array $vars)
                     }
                 }
                 if (!empty($diff)) { try { logModuleCall('eazybackup','branding_post_diff',['tenant'=>$tenantId,'diff'=>$diff], 'mismatch'); } catch (\Throwable $_) {} }
+
+                // Rename WHMCS product to match current ProductName (fallback BrandName → "<fqdn> Plan")
+                try {
+                    $pid = (int)($rowAfter->product_id ?? 0);
+                    if ($pid > 0) {
+                        $newName = trim((string)($live['ProductName'] ?? ''));
+                        if ($newName === '') { $newName = trim((string)($live['BrandName'] ?? '')); }
+                        if ($newName === '') {
+                            $fqdnAfter = (string)($rowAfter->fqdn ?? '');
+                            if ($fqdnAfter !== '') { $newName = $fqdnAfter . ' Plan'; }
+                        }
+                        if ($newName !== '') {
+                            Capsule::table('tblproducts')->where('id', $pid)->update(['name' => $newName]);
+                            try { logModuleCall('eazybackup','branding_post_product_rename',['tenant'=>$tenantId,'pid'=>$pid], $newName); } catch (\Throwable $_) {}
+                        }
+                    }
+                } catch (\Throwable $__) { /* non-fatal rename */ }
 
                 Capsule::table('eb_whitelabel_tenants')->where('id', $tenantId)->update([
                     'brand_json' => json_encode($live),
@@ -476,7 +500,11 @@ function eazybackup_whitelabel_branding(array $vars)
             'modulelink' => $vars['modulelink'],
             'tenant' => $tenant,
             'brand' => $brand,
-            'email' => json_decode($emailJson, true) ?: [],
+        'email' => (function() use ($ct, $orgId, $emailJson){
+            $liveEmail = $orgId ? $ct->getOrgEmailOptions($orgId) : [];
+            if (!empty($liveEmail)) { return $liveEmail; }
+            return json_decode($emailJson, true) ?: [];
+        })(),
             'assetStatus' => $assetStatus,
             'eula_text' => $eulaText,
             'sync_notice' => $syncNotice,
