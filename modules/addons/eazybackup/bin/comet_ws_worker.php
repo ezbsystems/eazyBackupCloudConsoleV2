@@ -1,31 +1,39 @@
 <?php
 declare(strict_types=1);
 
-/**
- * EazyBackup — Comet WebSocket Worker (Amp v2+)
- * One instance per server profile (eazybackup / obc).
- */
 
-////////////////////////
-// Composer autoload //
-////////////////////////
-$autoloads = [
-    __DIR__ . '/../vendor/autoload.php',                                // addon-local (preferred)
-    dirname(__DIR__, 3) . '/modules/servers/comet/vendor/autoload.php', // Comet SDK bundled with server module
-    dirname(__DIR__, 3) . '/vendor/autoload.php',                       // WHMCS root (fallback)
-];
-$found = false;
-foreach ($autoloads as $a) { if (is_file($a)) { require $a; $found = true; break; } }
-if (!$found) {
-    fwrite(STDERR, "[comet_ws_worker] Composer autoload not found. Run composer in the addon dir.\n");
+// Load ONLY the addon vendor autoloader and pin it to the front of SPL stack.
+$loader = require __DIR__ . '/../vendor/autoload.php';
+if ($loader instanceof \Composer\Autoload\ClassLoader) {
+    // Make sure our loader remains first, even if others register later.
+    $loader->unregister();
+    $loader->register(true); // prepend = true
+}
+
+// Runtime guard + forensic: make sure we really have league/uri v7 here.
+if (!class_exists(\League\Uri\Http::class, true) || !\method_exists(\League\Uri\Http::class, 'new')) {
+    $where = class_exists(\League\Uri\Http::class, false)
+        ? (new \ReflectionClass(\League\Uri\Http::class))->getFileName()
+        : '(not autoloaded)';
+    fwrite(STDERR, "[ws-worker] Need league/uri v7+: Http::new() missing. Loaded from: {$where}\n");
     exit(1);
 }
 
-// Try to include WHMCS bootstrap so we can use localAPI for password decrypt
-$whmcsInit = dirname(__DIR__, 4) . '/init.php';
-if (is_file($whmcsInit)) {
-    try { require_once $whmcsInit; } catch (Throwable $e) { /* ignore */ }
+// Amp v3 helpers must be present.
+if (!\function_exists('\Amp\delay')) {
+    fwrite(STDERR, "[ws-worker] amphp/amp ^3 not loaded\n");
+    exit(1);
 }
+
+/**
+ * EazyBackup — Comet WebSocket Worker (Amp v3 + amphp/websocket v2)
+ * One instance per server profile (eazybackup / obc).
+ */
+
+use Amp\Websocket\Client\WebsocketHandshake;
+use function Amp\Websocket\Client\connect;
+
+// Do NOT load WHMCS bootstrap or other vendor autoloaders to avoid autoloader conflicts.
 
 function logLine(string $profile, string $msg): void {
     fwrite(STDOUT, '[' . $profile . '] ' . $msg . PHP_EOL);
@@ -48,11 +56,8 @@ function pick(array $src, array $keys, $default = '') {
 
 
 
-use Amp\Future;
-use function Amp\async;
-use function Amp\delay;
-use function Amp\Websocket\Client\connect;
-use Amp\Websocket\Client\WebsocketHandshake;
+// Amp v3 helpers will be referenced via fully-qualified names (\\Amp\\async, \\Amp\\delay, \\Amp\\Future\\awaitAll)
+// Websocket client (v2) used via fully-qualified names
 use Comet\Server as CometServer;
 
 /////////////////
@@ -1024,10 +1029,10 @@ function handleEvent(PDO $pdo, string $profile, array $evt): void {
             } catch (Throwable $_) {}
             // For non-success terminal statuses, schedule a one-shot delayed re-scan to tolerate stat lag
             if ($status !== 'success' && $username !== '') {
-                async(function() use ($pdo, $profile, $username) {
+                \Amp\async(function() use ($pdo, $profile, $username) {
                     try {
                         if (EB_WS_DEBUG) logLine($profile, "delayed rescan (3s) user={$username}");
-                        delay(3.0);
+                        \Amp\delay(3.0);
                         @require_once __DIR__ . '/../lib/Notifications/bootstrap.php';
                         if (function_exists('eb_notify_backup_completed')) {
                             eb_notify_backup_completed($pdo, $profile, (string)$username);
@@ -1066,8 +1071,8 @@ function runOneProfile(PDO $pdo, array $cfg): never {
     while (true) {
         try {
             // Build handshake and set Origin header.
-            $hs = new WebsocketHandshake($url);
-            $hs = $hs->withHeader('Origin', $origin);
+            $hs = (new WebsocketHandshake($url))
+            ->withHeader('Origin', $origin);
 
             // Connect (returns Amp\Websocket\Client\Connection)
             $conn = connect($hs);
@@ -1104,7 +1109,7 @@ function runOneProfile(PDO $pdo, array $cfg): never {
             error_log("[{$profile}] WS error: {$e->getMessage()}");
         }
         // backoff
-        delay(2.0);
+        \Amp\delay(2.0);
     }
 }
 
@@ -1126,8 +1131,8 @@ $profiles = array_filter(array_map('trim', explode(',', cfg('COMET_PROFILES', 'e
 $futures = [];
 foreach ($profiles as $p) {
     $cfg = loadCometProfile($p);
-    $futures[] = async(fn() => runOneProfile($pdo, $cfg));
+$futures[] = \Amp\async(fn() => runOneProfile($pdo, $cfg));
 }
-Future\awaitAll($futures);
+\Amp\Future\awaitAll($futures);
 
 

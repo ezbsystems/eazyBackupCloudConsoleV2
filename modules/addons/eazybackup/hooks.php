@@ -221,3 +221,89 @@ add_hook('ClientAreaPage', 1, function ($vars) {
 
 
 
+// Admin dashboard widget: Comet WebSocket Workers status (read-only)
+add_hook('AdminHomeWidgets', 1, function () {
+    return new class extends \WHMCS\Module\AbstractWidget {
+        protected $title = 'Comet WebSocket Workers';
+        protected $description = 'Read-only status of systemd-managed Comet WebSocket workers';
+        protected $weight = 150;
+        protected $columns = 1;
+        protected $cache = false; // we handle caching server-side
+
+        public function getData()
+        {
+            return [];
+        }
+
+        public function generateOutput($data)
+        {
+            $html = '';
+            $html .= '<div class="panel panel-default">';
+            $html .= '<div class="panel-heading">Comet WebSocket Workers';
+            $html .= '<div class="pull-right">';
+            $html .= '<span id="eb-summary" class="label label-default">-- / --</span>';
+            $html .= '<label style="margin-left:8px"><input type="checkbox" id="eb-auto"/> Auto-refresh</label>';
+            $html .= '<button id="eb-refresh" class="btn btn-default btn-xs" style="margin-left:8px">Refresh</button>';
+            $html .= '</div></div>';
+            $html .= '<div class="panel-body">';
+            $html .= '<table class="table table-condensed" id="eb-workers">';
+            $html .= '<thead><tr><th style="width:18px"></th><th>Worker</th><th>Unit</th><th>PID</th><th>Uptime</th><th>Started</th><th>Last Exit</th><th>Restarts</th></tr></thead>';
+            $html .= '<tbody></tbody></table>';
+            $html .= '<div class="text-muted" id="eb-checked"></div>';
+            $html .= '<div class="text-muted" id="eb-server-time"></div>';
+            $html .= '</div></div>';
+            $html .= '<style>.eb-dot{display:inline-block;width:8px;height:8px;border-radius:50%}.eb-green{background:#22c55e}.eb-yellow{background:#eab308}.eb-red{background:#ef4444}.eb-gray{background:#9ca3af}</style>';
+
+            $script = <<<'JS'
+<script>(function(){
+var api="addonmodules.php?module=eazybackup&action=admin-workers&op=list";
+var tbody=document.querySelector("#eb-workers tbody");
+var summary=document.getElementById("eb-summary");
+var checked=document.getElementById("eb-checked");
+var serverTimeEl=document.getElementById("eb-server-time");
+var auto=document.getElementById("eb-auto");
+var btn=document.getElementById("eb-refresh");
+var timer=null;
+function fmtRel(seconds){seconds=Math.max(0,parseInt(seconds||0,10));var h=Math.floor(seconds/3600);var m=Math.floor((seconds%3600)/60);var s=seconds%60;return (h>0?(h+"h "):"")+(m>0?(m+"m "):"")+(h===0? (s+"s"):"").trim();}
+function dot(c){return "<span class=\"eb-dot eb-"+c+"\"></span>";}
+function esc(s){return String(s==null?"":s).replace(/[&<>]/g,function(ch){return {"&":"&amp;","<":"&lt;",">":"&gt;"}[ch];});}
+function load(){
+ fetch(api,{credentials:"same-origin"}).then(function(r){return r.text().then(function(t){ try { return JSON.parse(t);} catch(e){ console.error('Workers API returned non-JSON. HTTP', r.status, 'Body:', t); throw e; } });}).then(function(j){
+  var rows=j.workers||[]; var run=0; var total=rows.length;
+  tbody.innerHTML="";
+  rows.forEach(function(w){
+    if(w.color==="green"){run++;}
+    var sinceLocal = (w.sinceEpochMs && w.sinceEpochMs>0)? new Date(w.sinceEpochMs).toLocaleString():"";
+    var lastExit = (w.lastExitCode!=null || w.lastExitStatus!=null)? ("code="+(w.lastExitCode==null?"":w.lastExitCode)+" status="+(w.lastExitStatus==null?"":w.lastExitStatus)):"";
+    var tr="<tr>"
+          +"<td>"+dot(w.color||"gray")+"</td>"
+          +"<td>"+esc(w.label||"")+"</td>"
+          +"<td><code>"+esc(w.unit||"")+"</code></td>"
+          +"<td>"+esc(w.mainPid||0)+"</td>"
+          +"<td>"+esc(fmtRel(w.uptimeSeconds||0))+"</td>"
+          +"<td>"+esc(sinceLocal)+"</td>"
+          +"<td>"+esc(lastExit)+"</td>"
+          +"<td>"+esc(w.restartCount==null?"":w.restartCount)+"</td>"
+        +"</tr>";
+    tbody.insertAdjacentHTML("beforeend", tr);
+  });
+  summary.textContent=run+" / "+total+" running";
+  var ck = (j.checkedAtIso||""); var cached = j.cached?" (cached)":"";
+  checked.textContent = ck? ("Last checked: "+ck+cached):"";
+  serverTimeEl.textContent = j.serverTimeIso? ("Server time: "+j.serverTimeIso):"";
+  if((rows.length===0) && j.error){ tbody.innerHTML = "<tr><td colspan=8 class=\"text-muted\">"+esc(j.error)+"</td></tr>"; }
+ }).catch(function(){ tbody.innerHTML = "<tr><td colspan=8 class=\"text-muted\">Cannot read status</td></tr>"; });
+}
+btn.addEventListener("click", function(e){ e.preventDefault(); load(); });
+auto.addEventListener("change", function(){ if(timer){ clearInterval(timer); timer=null;} if(this.checked){ timer=setInterval(load,30000);} });
+load();
+})();</script>
+JS;
+            $html .= $script;
+
+            return $html;
+        }
+    };
+});
+
+
