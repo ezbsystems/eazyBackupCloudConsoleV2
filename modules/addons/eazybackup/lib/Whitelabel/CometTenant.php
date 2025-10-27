@@ -307,27 +307,53 @@ class CometTenant
                     $cur->IsSuspended = false;
                     $cur->Hosts = [$fqdn];
                 }
-                // Load current org and merge new branding over existing to preserve untouched fields
-                $branding = $this->rewriteBrandingAssetsToResources($server, $branding);
-                $this->log('comet branding upload: posting keys=' . json_encode(array_keys($branding)));
+                // Ensure server is ready (in case of recent restart)
+                $this->waitForCometReady($server, 60);
 
-                // Ensure CompanyName and CloudStorageName are set
-                if (!isset($branding['CompanyName'])) { $branding['CompanyName'] = (string)($branding['ProductName'] ?? ''); }
-                if (!isset($branding['CloudStorageName'])) { $branding['CloudStorageName'] = (string)($branding['ProductName'] ?? ''); }
+                // Phase 1: apply non-asset branding only (text/colors/URL) with retries
+                $assetKeys = ['LogoImage','Favicon','PathHeaderImage','PathAppIconImage','PathTilePng','PathIcoFile','PathIcnsFile','PathMenuBarIcnsFile','PathEulaRtf'];
+                $nonAsset = $branding; foreach ($assetKeys as $ak) { unset($nonAsset[$ak]); }
+                if (!isset($nonAsset['CompanyName'])) { $nonAsset['CompanyName'] = (string)($nonAsset['ProductName'] ?? ''); }
+                if (!isset($nonAsset['CloudStorageName'])) { $nonAsset['CloudStorageName'] = (string)($nonAsset['ProductName'] ?? ''); }
                 $existingBrandArr = is_object($cur->Branding) && method_exists($cur->Branding,'toArray') ? (array)$cur->Branding->toArray() : (array)($cur->Branding ?? []);
-                $mergedBrand = $existingBrandArr;
-                foreach ($branding as $bk => $bv) { $mergedBrand[$bk] = $bv; }
+                $mergedBrand = $existingBrandArr; foreach ($nonAsset as $bk => $bv) { $mergedBrand[$bk] = $bv; }
+                if (!isset($mergedBrand['BrandingStyleType'])) { $mergedBrand['BrandingStyleType'] = 3; }
+                foreach (['TopColor','AccentColor','TileBackgroundColor'] as $ck) {
+                    if (isset($mergedBrand[$ck]) && is_string($mergedBrand[$ck])) {
+                        $c = strtoupper(trim($mergedBrand[$ck])); if ($c !== '' && $c[0] !== '#') { $c = '#' . $c; }
+                        if (preg_match('/^#[0-9A-F]{6}$/', $c)) { $mergedBrand[$ck] = $c; }
+                    }
+                }
                 $cur->Branding = \Comet\BrandingOptions::createFromArray($mergedBrand);
                 if ((string)($cur->Branding->DefaultLoginServerURL ?? '') === '' && is_array($cur->Hosts) && count($cur->Hosts) > 0) {
                     $cur->Branding->DefaultLoginServerURL = 'https://' . (string)$cur->Hosts[0] . '/';
                 }
-                // Enable SoftwareBuildRole minimally
-                $sbro = new \Comet\SoftwareBuildRoleOptions();
-                $sbro->RoleEnabled = true;
-                $sbro->AllowUnauthenticatedDownloads = false;
-                $sbro->MaxBuilders = 0;
-                $cur->SoftwareBuildRole = $sbro;
-                $server->AdminOrganizationSet($orgId, $cur);
+                $sbro = new \Comet\SoftwareBuildRoleOptions(); $sbro->RoleEnabled = true; $sbro->AllowUnauthenticatedDownloads = true; $sbro->MaxBuilders = 0; $cur->SoftwareBuildRole = $sbro;
+                for ($ri=0; $ri<3; $ri++) {
+                    try { $server->AdminOrganizationSet($orgId, $cur); break; } catch (\Throwable $e) {
+                        $code = $this->httpCodeFromThrowable($e); $this->log('comet branding error (phase1 try '.($ri+1).'): '.$e->getMessage());
+                        if (!($code>=500 && $code<600) || $ri===2) { return false; }
+                        try { usleep(250000 * ($ri+1)); } catch (\Throwable $_) {}
+                    }
+                }
+
+                // Phase 2: upload assets and set those keys only, with retries
+                $this->waitForCometReady($server, 60);
+                $brandingRes = $this->rewriteBrandingAssetsToResources($server, $branding);
+                $assetsOnly = [];
+                foreach ($assetKeys as $ak) { if (!empty($brandingRes[$ak])) { $assetsOnly[$ak] = $brandingRes[$ak]; } }
+                if (!empty($assetsOnly)) {
+                    $merged2 = is_object($cur->Branding) && method_exists($cur->Branding,'toArray') ? (array)$cur->Branding->toArray() : (array)($cur->Branding ?? []);
+                    foreach ($assetsOnly as $bk => $bv) { $merged2[$bk] = $bv; }
+                    $cur->Branding = \Comet\BrandingOptions::createFromArray($merged2);
+                    for ($rj=0; $rj<3; $rj++) {
+                        try { $server->AdminOrganizationSet($orgId, $cur); break; } catch (\Throwable $e) {
+                            $code = $this->httpCodeFromThrowable($e); $this->log('comet branding error (phase2 try '.($rj+1).'): '.$e->getMessage());
+                            if (!($code>=500 && $code<600) || $rj===2) { return false; }
+                            try { usleep(250000 * ($rj+1)); } catch (\Throwable $_) {}
+                        }
+                    }
+                }
                 // Round-trip verify branding values and return boolean
                 try {
                     $ver = $this->loadOrgOrThrow($server, $orgId);
@@ -354,10 +380,7 @@ class CometTenant
                 $this->log('comet client=CometClient url=' . $this->maskUrl($creds['url']));
                 try {
                     $api = new \Comet\API\CometClient($creds['url'], $creds['user'], $creds['pass']);
-                    $branding2 = $this->rewriteBrandingAssetsToResourcesViaClient($api, $branding);
-                    $this->log('comet branding upload(Client): posting keys=' . json_encode(array_keys($branding2)));
-
-                    // Load existing org then merge branding
+                    // Load existing org then merge branding (phase 1 - no assets)
                     $cur = null;
                     for ($__i=0; $__i<3; $__i++) {
                         try { $cur = $this->loadOrgViaClient($api, $orgId); if ($cur) break; } catch (\Throwable $__e) {
@@ -372,17 +395,48 @@ class CometTenant
                         $cur->Name = $fqdn; $cur->IsSuspended = false; $cur->Hosts = [$fqdn];
                     }
                     if (!($cur instanceof \Comet\Organization)) { $cur = \Comet\Organization::createFromArray((array)$cur); }
-                    if (!isset($branding2['CompanyName'])) { $branding2['CompanyName'] = (string)($branding2['ProductName'] ?? ''); }
-                    if (!isset($branding2['CloudStorageName'])) { $branding2['CloudStorageName'] = (string)($branding2['ProductName'] ?? ''); }
+                    $assetKeys = ['LogoImage','Favicon','PathHeaderImage','PathAppIconImage','PathTilePng','PathIcoFile','PathIcnsFile','PathMenuBarIcnsFile','PathEulaRtf'];
+                    $branding2 = $branding; $nonAsset2 = $branding2; foreach ($assetKeys as $ak) { unset($nonAsset2[$ak]); }
+                    if (!isset($nonAsset2['CompanyName'])) { $nonAsset2['CompanyName'] = (string)($nonAsset2['ProductName'] ?? ''); }
+                    if (!isset($nonAsset2['CloudStorageName'])) { $nonAsset2['CloudStorageName'] = (string)($nonAsset2['ProductName'] ?? ''); }
                     $existingBrandArr2 = is_object($cur->Branding) && method_exists($cur->Branding,'toArray') ? (array)$cur->Branding->toArray() : (array)($cur->Branding ?? []);
-                    $mergedBrand2 = $existingBrandArr2;
-                    foreach ($branding2 as $bk => $bv) { $mergedBrand2[$bk] = $bv; }
+                    $mergedBrand2 = $existingBrandArr2; foreach ($nonAsset2 as $bk => $bv) { $mergedBrand2[$bk] = $bv; }
+                    if (!isset($mergedBrand2['BrandingStyleType'])) { $mergedBrand2['BrandingStyleType'] = 3; }
+                    foreach (['TopColor','AccentColor','TileBackgroundColor'] as $ck) {
+                        if (isset($mergedBrand2[$ck]) && is_string($mergedBrand2[$ck])) {
+                            $c = strtoupper(trim($mergedBrand2[$ck])); if ($c !== '' && $c[0] !== '#') { $c = '#' . $c; }
+                            if (preg_match('/^#[0-9A-F]{6}$/', $c)) { $mergedBrand2[$ck] = $c; }
+                        }
+                    }
                     $cur->Branding = \Comet\BrandingOptions::createFromArray($mergedBrand2);
                     if ((string)($cur->Branding->DefaultLoginServerURL ?? '') === '' && is_array($cur->Hosts) && count($cur->Hosts) > 0) {
                         $cur->Branding->DefaultLoginServerURL = 'https://' . (string)$cur->Hosts[0] . '/';
                     }
-                    $sbro = new \Comet\SoftwareBuildRoleOptions(); $sbro->RoleEnabled = true; $sbro->AllowUnauthenticatedDownloads = false; $sbro->MaxBuilders = 0; $cur->SoftwareBuildRole = $sbro;
-                    $api->AdminOrganizationSet($orgId, $cur);
+                    $sbro = new \Comet\SoftwareBuildRoleOptions(); $sbro->RoleEnabled = true; $sbro->AllowUnauthenticatedDownloads = true; $sbro->MaxBuilders = 0; $cur->SoftwareBuildRole = $sbro;
+                    for ($ri=0; $ri<3; $ri++) {
+                        try { $api->AdminOrganizationSet($orgId, $cur); break; } catch (\Throwable $e) {
+                            $code = $this->httpCodeFromThrowable($e); $this->log('comet branding error (Client phase1 try '.($ri+1).'): '.$e->getMessage());
+                            if (!($code>=500 && $code<600) || $ri===2) { return false; }
+                            try { usleep(250000 * ($ri+1)); } catch (\Throwable $_) {}
+                        }
+                    }
+
+                    // Phase 2 assets via Client
+                    $brandingRes = $this->rewriteBrandingAssetsToResourcesViaClient($api, $branding2);
+                    $assetsOnly2 = [];
+                    foreach ($assetKeys as $ak) { if (!empty($brandingRes[$ak])) { $assetsOnly2[$ak] = $brandingRes[$ak]; } }
+                    if (!empty($assetsOnly2)) {
+                        $merged3 = is_object($cur->Branding) && method_exists($cur->Branding,'toArray') ? (array)$cur->Branding->toArray() : (array)($cur->Branding ?? []);
+                        foreach ($assetsOnly2 as $bk => $bv) { $merged3[$bk] = $bv; }
+                        $cur->Branding = \Comet\BrandingOptions::createFromArray($merged3);
+                        for ($rj=0; $rj<3; $rj++) {
+                            try { $api->AdminOrganizationSet($orgId, $cur); break; } catch (\Throwable $e) {
+                                $code = $this->httpCodeFromThrowable($e); $this->log('comet branding error (Client phase2 try '.($rj+1).'): '.$e->getMessage());
+                                if (!($code>=500 && $code<600) || $rj===2) { return false; }
+                                try { usleep(250000 * ($rj+1)); } catch (\Throwable $_) {}
+                            }
+                        }
+                    }
                     // Round-trip verify branding values and return boolean
                     try {
                         $ver = $this->loadOrgViaClient($api, $orgId);
@@ -417,7 +471,7 @@ class CometTenant
 
                     if (!isset($branding2['CompanyName'])) { $branding2['CompanyName'] = (string)($branding2['ProductName'] ?? ''); }
                     if (!isset($branding2['CloudStorageName'])) { $branding2['CloudStorageName'] = (string)($branding2['ProductName'] ?? ''); }
-                    $sbro = ['RoleEnabled' => true, 'AllowUnauthenticatedDownloads' => false, 'MaxBuilders' => 0];
+                    $sbro = ['RoleEnabled' => true, 'AllowUnauthenticatedDownloads' => true, 'MaxBuilders' => 0];
                     // Merge over existing branding
                     $existing = $this->loadOrgViaClient($api, $orgId);
                     $existingBrandArr3 = [];
@@ -612,10 +666,20 @@ class CometTenant
     {
         if ($absPath === '' || !@is_readable($absPath)) { return null; }
         try {
+            try { $size = @filesize($absPath); if (is_int($size) && $size > 10*1024*1024) { $this->log('resource skip too_large path='.$absPath.' size='.$size); return null; } } catch (\Throwable $__) {}
             $bytes = @file_get_contents($absPath);
             if ($bytes === false) { return null; }
-            $resp = $server->AdminMetaResourceNew($bytes);
-            if ($resp && isset($resp->ResourceHash) && $resp->ResourceHash !== '') { return (string)$resp->ResourceHash; }
+            for ($ri=0; $ri<3; $ri++) {
+                try {
+                    $resp = $server->AdminMetaResourceNew($bytes);
+                    if ($resp && isset($resp->ResourceHash) && $resp->ResourceHash !== '') { return (string)$resp->ResourceHash; }
+                } catch (\Throwable $e) {
+                    $this->log('resource upload (server) error try '.($ri+1).' path='.$absPath.' msg='.$e->getMessage());
+                    try { usleep(250000 * ($ri+1)); } catch (\Throwable $_) {}
+                    continue;
+                }
+                break;
+            }
         } catch (\Throwable $__) {}
         return null;
     }
@@ -623,25 +687,33 @@ class CometTenant
     private function uploadResourceViaClient($client, string $absPath): ?string
     {
         if ($absPath === '' || !@is_readable($absPath)) { return null; }
+        // Guard extremely large files to avoid timeouts
+        try { $size = @filesize($absPath); if (is_int($size) && $size > 10*1024*1024) { $this->log('resource skip too_large path='.$absPath.' size='.$size); return null; } } catch (\Throwable $__) {}
         try {
             $bytes = @file_get_contents($absPath);
             if ($bytes === false) { return null; }
-            // Try method call with raw bytes
-            if (is_object($client) && method_exists($client, 'AdminMetaResourceNew')) {
-                $resp = $client->AdminMetaResourceNew($bytes);
-                if (is_object($resp)) {
-                    if (property_exists($resp, 'ResourceHash') && (string)$resp->ResourceHash !== '') { return (string)$resp->ResourceHash; }
-                    if (property_exists($resp, 'Hash') && (string)$resp->Hash !== '') { return (string)$resp->Hash; }
-                } else if (is_array($resp)) {
-                    if (isset($resp['ResourceHash']) && (string)$resp['ResourceHash'] !== '') { return (string)$resp['ResourceHash']; }
-                    if (isset($resp['Hash']) && (string)$resp['Hash'] !== '') { return (string)$resp['Hash']; }
+            for ($ri=0; $ri<3; $ri++) {
+                try {
+                    if (is_object($client) && method_exists($client, 'AdminMetaResourceNew')) {
+                        $resp = $client->AdminMetaResourceNew($bytes);
+                        if (is_object($resp)) {
+                            if (property_exists($resp, 'ResourceHash') && (string)$resp->ResourceHash !== '') { return (string)$resp->ResourceHash; }
+                            if (property_exists($resp, 'Hash') && (string)$resp->Hash !== '') { return (string)$resp->Hash; }
+                        } else if (is_array($resp)) {
+                            if (isset($resp['ResourceHash']) && (string)$resp['ResourceHash'] !== '') { return (string)$resp['ResourceHash']; }
+                            if (isset($resp['Hash']) && (string)$resp['Hash'] !== '') { return (string)$resp['Hash']; }
+                        }
+                        // Legacy associative payload variant
+                        $resp = $client->AdminMetaResourceNew(['Bytes' => $bytes]);
+                        if (is_object($resp) && property_exists($resp, 'ResourceHash') && (string)$resp->ResourceHash !== '') { return (string)$resp->ResourceHash; }
+                        if (is_array($resp) && isset($resp['ResourceHash']) && (string)$resp['ResourceHash'] !== '') { return (string)$resp['ResourceHash']; }
+                    }
+                } catch (\Throwable $e) {
+                    $this->log('resource upload error try '.($ri+1).' path='.$absPath.' msg='.$e->getMessage());
+                    try { usleep(250000 * ($ri+1)); } catch (\Throwable $_) {}
+                    continue;
                 }
-            }
-            // Legacy clients might expect associative payload
-            if (is_object($client) && method_exists($client, 'AdminMetaResourceNew')) {
-                $resp = $client->AdminMetaResourceNew(['Bytes' => $bytes]);
-                if (is_object($resp) && property_exists($resp, 'ResourceHash') && (string)$resp->ResourceHash !== '') { return (string)$resp->ResourceHash; }
-                if (is_array($resp) && isset($resp['ResourceHash']) && (string)$resp['ResourceHash'] !== '') { return (string)$resp['ResourceHash']; }
+                break;
             }
         } catch (\Throwable $__) {}
         return null;

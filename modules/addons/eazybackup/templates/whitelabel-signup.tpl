@@ -116,9 +116,9 @@
             <label class="block">
               <span class="text-sm text-[rgb(var(--text-secondary))]">Accent Color (Hex)</span>
               <div class="mt-2 flex items-center gap-2">
-                <input type="text" id="accent_color" name="accent_color" value="{$POST.accent_color|default:'#1B2C50'|escape:'html'}" placeholder="#1B2C50" required aria-required="true" title="Use hex color like #1B2C50 or #123" class="w-full rounded-xl bg-[rgb(var(--bg-input))] text-white/90 placeholder-white/30 ring-1 ring-white/10 focus:ring-2 focus:ring-[rgb(var(--accent))] focus:outline-none px-3.5 py-2.5" />
-                <button type="button" data-swatch-for="accent_color_picker" class="h-10 w-12 rounded-xl ring-1 ring-white/10 hover:ring-2 hover:ring-[rgb(var(--accent))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--accent))]" style="background:{$POST.accent_color|default:'#1B2C50'|escape:'html'}"></button>
-                <input type="color" id="accent_color_picker" class="hidden" value="{$POST.accent_color|default:'#1B2C50'}" />
+                <input type="text" id="accent_color" name="accent_color" value="{$POST.accent_color|default:'#D88463'|escape:'html'}" placeholder="#D88463" required aria-required="true" title="Use hex color like #D88463 or #123" class="w-full rounded-xl bg-[rgb(var(--bg-input))] text-white/90 placeholder-white/30 ring-1 ring-white/10 focus:ring-2 focus:ring-[rgb(var(--accent))] focus:outline-none px-3.5 py-2.5" />
+                <button type="button" data-swatch-for="accent_color_picker" class="h-10 w-12 rounded-xl ring-1 ring-white/10 hover:ring-2 hover:ring-[rgb(var(--accent))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--accent))]" style="background:{$POST.accent_color|default:'#D88463'|escape:'html'}"></button>
+                <input type="color" id="accent_color_picker" class="hidden" value="{$POST.accent_color|default:'#D88463'}" />
             </div>
             </label>
             </div>
@@ -135,6 +135,7 @@
                     <span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-xs text-white/70">
                       <span class="h-1.5 w-1.5 rounded-full bg-emerald-300"></span>
                       <span x-text="name"></span>
+                      <button type="button" class="ml-1 inline-flex items-center justify-center h-4 w-4 rounded bg-white/10 hover:bg-white/20" @click.prevent.stop="name=''; var f=document.getElementById('header'); if(f){ f.value=''; f.dispatchEvent(new Event('change')); }" title="Remove file">×</button>
                     </span>
                   </template>
                   <template x-if="!name">
@@ -158,6 +159,7 @@
                     <span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-xs text-white/70">
                       <span class="h-1.5 w-1.5 rounded-full bg-emerald-300"></span>
                       <span x-text="name"></span>
+                      <button type="button" class="ml-1 inline-flex items-center justify-center h-4 w-4 rounded bg-white/10 hover:bg-white/20" @click.prevent.stop="name=''; var f=document.getElementById('tab_icon'); if(f){ f.value=''; f.dispatchEvent(new Event('change')); }" title="Remove file">×</button>
                     </span>
                   </template>
                   <template x-if="!name">
@@ -208,6 +210,7 @@
                     <span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-xs text-white/70">
                       <span class="h-1.5 w-1.5 rounded-full bg-emerald-300"></span>
                       <span x-text="name"></span>
+                      <button type="button" class="ml-1 inline-flex items-center justify-center h-4 w-4 rounded bg-white/10 hover:bg-white/20" @click.prevent.stop="name=''; var f=document.getElementById('icon_windows'); if(f){ f.value=''; f.dispatchEvent(new Event('change')); }" title="Remove file">×</button>
                     </span>
                   </template>
                   <template x-if="!name">
@@ -231,6 +234,7 @@
                     <span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-xs text-white/70">
                       <span class="h-1.5 w-1.5 rounded-full bg-emerald-300"></span>
                       <span x-text="name"></span>
+                      <button type="button" class="ml-1 inline-flex items-center justify-center h-4 w-4 rounded bg-white/10 hover:bg-white/20" @click.prevent.stop="name=''; var f=document.getElementById('icon_macos'); if(f){ f.value=''; f.dispatchEvent(new Event('change')); }" title="Remove file">×</button>
                     </span>
                   </template>
                   <template x-if="!name">
@@ -254,6 +258,7 @@
                     <span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-xs text-white/70">
                       <span class="h-1.5 w-1.5 rounded-full bg-emerald-300"></span>
                       <span x-text="name"></span>
+                      <button type="button" class="ml-1 inline-flex items-center justify-center h-4 w-4 rounded bg-white/10 hover:bg-white/20" @click.prevent.stop="name=''; var f=document.getElementById('menu_bar_icon_macos'); if(f){ f.value=''; f.dispatchEvent(new Event('change')); }" title="Remove file">×</button>
                     </span>
                   </template>
                   <template x-if="!name">
@@ -277,6 +282,7 @@
                     <span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-xs text-white/70">
                       <span class="h-1.5 w-1.5 rounded-full bg-emerald-300"></span>
                       <span x-text="name"></span>
+                      <button type="button" class="ml-1 inline-flex items-center justify-center h-4 w-4 rounded bg-white/10 hover:bg-white/20" @click.prevent.stop="name=''; var f=document.getElementById('logo_image'); if(f){ f.value=''; f.dispatchEvent(new Event('change')); }" title="Remove file">×</button>
                     </span>
                   </template>
                   <template x-if="!name">
@@ -300,6 +306,7 @@
                     <span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-xs text-white/70">
                       <span class="h-1.5 w-1.5 rounded-full bg-emerald-300"></span>
                       <span x-text="name"></span>
+                      <button type="button" class="ml-1 inline-flex items-center justify-center h-4 w-4 rounded bg-white/10 hover:bg-white/20" @click.prevent.stop="name=''; var f=document.getElementById('tile_image'); if(f){ f.value=''; f.dispatchEvent(new Event('change')); }" title="Remove file">×</button>
                     </span>
                   </template>
                   <template x-if="!name">
@@ -334,6 +341,7 @@
                     <span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-xs text-white/70">
                       <span class="h-1.5 w-1.5 rounded-full bg-emerald-300"></span>
                       <span x-text="name"></span>
+                      <button type="button" class="ml-1 inline-flex items-center justify-center h-4 w-4 rounded bg-white/10 hover:bg-white/20" @click.prevent.stop="name=''; var f=document.getElementById('app_icon_image'); if(f){ f.value=''; f.dispatchEvent(new Event('change')); }" title="Remove file">×</button>
                     </span>
                   </template>
                   <template x-if="!name">
@@ -357,12 +365,13 @@
                     <span class="px-3.5 py-2.5 text-white/70" x-text="name ? 'Change file…' : 'Choose file…'"></span>
                     <input type="file" id="eula_file" name="eula_file" accept=".rtf,.txt,.pdf" class="hidden" @change="name=$event.target.files?.[0]?.name || ''" />
                     <span class="px-3.5 py-2.5">
-                      <template x-if="name">
-                        <span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-xs text-white/70">
-                          <span class="h-1.5 w-1.5 rounded-full bg-emerald-300"></span>
-                          <span x-text="name"></span>
-                        </span>
-                      </template>
+                  <template x-if="name">
+                    <span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-xs text-white/70">
+                      <span class="h-1.5 w-1.5 rounded-full bg-emerald-300"></span>
+                      <span x-text="name"></span>
+                      <button type="button" class="ml-1 inline-flex items-center justify-center h-4 w-4 rounded bg-white/10 hover:bg-white/20" @click.prevent.stop="name=''; var f=document.getElementById('eula_file'); if(f){ f.value=''; f.dispatchEvent(new Event('change')); }" title="Remove file">×</button>
+                    </span>
+                  </template>
                       <template x-if="!name">
                         <span class="text-xs text-white/40">RTF, TXT, PDF</span>
                       </template>

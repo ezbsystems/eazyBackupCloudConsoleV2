@@ -37,6 +37,7 @@ This document describes the eazyBackup Partner Hub project and Phase 1 deliverab
   - Template: `templates/whitelabel/branding-list.tpl` includes a slide-over panel with two actions for the selected tenant:
     - Signup Settings -> `a=whitelabel-signup-settings&id=<tenantId>`
     - Manage Branding -> `a=whitelabel-branding&id=<tenantId>`
+    - Email Templates -> `a=whitelabel-email-templates&tid=<tenantPublicId>` (per-tenant templates with enable/disable toggle and test send)
 - Partner Hub Nav
   - Theme include: `accounts/templates/eazyBackup/includes/nav_partner_hub.tpl`
   - Variables injected via `hooks.php` (`eb_partner_hub_enabled`, `eb_partner_hub_links`).
@@ -73,13 +74,85 @@ All tables InnoDB + utf8mb4.
   - Unique(tenant_id,email), Key(tenant_id), Key(status)
 - Existing: `eb_whitelabel_tenants` is the canonical tenant record (client ownership, org_id, FQDN, product/server refs, branding/email JSON).
 
+## Database Schema (Email Templates)
+All tables InnoDB + utf8mb4.
+
+- `eb_whitelabel_tenant_mail`
+  - id (PK), tenant_id (UNIQUE), mode (`builtin|smtp|smtp-ssl`), host, port, username, password_enc (encrypted via WHMCS), from_name, from_email, allow_unencrypted (TINYINT), created_at, updated_at
+- `eb_whitelabel_email_templates`
+  - id (PK), tenant_id, key (e.g., `welcome`), name, subject, body_html (LONGTEXT), body_text (LONGTEXT), is_active (TINYINT), created_at, updated_at
+  - UNIQUE (tenant_id, key)
+- `eb_whitelabel_email_log`
+  - id (PK), tenant_id, template_id, to_email, status (`queued|sent|failed`), provider_resp, created_at
+
 SQL Files:
 - `sql/partner_hub_phase1.sql` creates the 3 new tables above.
 - `sql/partner_hub_emails.sql` seeds templates: customer welcome, MSP order notice.
+  
+Note: Email template tables are also created/maintained automatically by `eazybackup_migrate_schema()`; no manual SQL is required in typical deployments.
 
 ## Files Added/Updated (Highlights)
 - Controllers: PublicSignupController.php (new), PublicDownloadController.php (new), SignupSettingsController.php (new), BuildController.php (updated)
-- Templates: public-signup.tpl (new), public-download.tpl (new), public-invalid-host.tpl (new), signup-settings.tpl (new), branding-list.tpl (updated with slide-over)
+- Controllers (Email Templates): `pages/whitelabel/EmailTemplatesController.php` (new) — lists/templates edit, toggle active, test send
+- Library: `lib/Whitelabel/MailService.php` (new) — per-tenant SMTP, token rendering, PHPMailer send; `pages/whitelabel/EmailTriggers.php` (new) — simple trigger facade
+- Templates: public-signup.tpl (new), public-download.tpl (new), public-invalid-host.tpl (new), signup-settings.tpl (new), branding-list.tpl (updated with Email Templates button)
+- Templates (Email): `templates/whitelabel/email-templates.tpl` (new), `templates/whitelabel/email-template-edit.tpl` (new, TinyMCE editor, test-send modal, merge fields)
+- Routing: `eazybackup.php` (updated) — routes for `whitelabel-email-templates` and `whitelabel-email-template-edit`
+- Branding save: `pages/whitelabel/BuildController.php` (updated) — upserts `eb_whitelabel_tenant_mail` when SMTP settings are saved on Branding page
+
+## Email Templates & MSP SMTP
+
+### Overview
+- MSPs can configure a custom SMTP server per tenant and manage multiple email templates from the client area (Partner Hub → White‑Label → Email Templates).
+- The system sends through the tenant’s SMTP for enabled templates. If SMTP is not configured, custom emails are disabled and the UI shows a callout.
+
+### UI
+- Access via tenant slide‑over button “Email Templates”.
+- List page (`email-templates.tpl`): shows Name, Key, Subject, Active toggle, Edit link, Configure SMTP callout.
+- Edit page (`email-template-edit.tpl`):
+  - Fields: Active checkbox, Subject, HTML body (WYSIWYG), optional plain text body.
+  - Editor: self-hosted TinyMCE (dark theme) under `modules/addons/eazybackup/assets/vendor/tinymce/`.
+  - Test send: styled modal to capture recipient email; success/error shown as toasts (consistent with Branding page toasts).
+  - Merge fields: `{{customer_name}}`, `{{brand_name}}`, `{{portal_url}}`, `{{help_url}}` listed with examples.
+
+### Backend Components
+- `MailService.php`:
+  - `seedSmtpIfMissing(tenantId)` — pulls from `eb_whitelabel_tenants.email_json` into `eb_whitelabel_tenant_mail` on first access.
+  - `seedDefaultTemplatesIfMissing(tenantId)` — inserts `welcome` template if missing.
+  - `isSmtpConfigured(tenantId)` — validates tenant SMTP is usable.
+  - `sendTemplate(tenantId, key, toEmail, vars, allowInactiveForTest=false)` — renders tokens and sends via PHPMailer; logs to `eb_whitelabel_email_log`.
+  - HTML rendering uses simple token replacement: `{{token}}`.
+- `EmailTemplatesController.php`:
+  - `whitelabel-email-templates` — list + toggle `is_active` (CSRF protected).
+  - `whitelabel-email-template-edit` — GET (load template), POST (save with sanitization), POST (test send).
+  - Sanitization on save strips scripts/on* attributes and disallows `javascript:` URLs.
+- `EmailTriggers.php`:
+  - Provides `EmailTriggers::trigger($tenantId, $key, $toEmail, $vars)`; used by business events.
+
+### Sending Flow
+1) MSP configures SMTP on Branding page (or via seeding) → `eb_whitelabel_tenant_mail` upserted.
+2) MSP enables a template and edits Subject/Body in the editor.
+3) Trigger fires (e.g., Welcome on signup) → system calls `EmailTriggers::trigger($tenantId,'welcome',to,vars)`.
+4) `MailService` checks SMTP + template `is_active`, renders tokens, sends via PHPMailer, logs status.
+5) If SMTP is missing or template disabled, sending is skipped; Public Signup controller falls back to WHMCS native email for welcome.
+
+### Triggers
+- Implemented: `WELCOME_ON_SIGNUP` in `PublicSignupController.php` — after provisioning, attempt custom Welcome; fallback to WHMCS `SendEmail` when unavailable.
+- Future: add more triggers (password reset, onboarding, notices) by calling `EmailTriggers::trigger()` with the appropriate key.
+
+### Security & Privacy
+- SMTP passwords stored encrypted (`password_enc`) using WHMCS encrypt/decrypt.
+- CSRF protection on POST routes (`generate_token` / `check_token`).
+- HTML sanitized on save; plain text optional; messages sent as HTML with AltText when available.
+- Template ownership enforced by tenant client context.
+
+### TinyMCE (Self‑Hosted)
+- Path: `modules/addons/eazybackup/assets/vendor/tinymce/` (include `tinymce.min.js`, `skins/`, `plugins/`, etc.).
+- Init (dark theme):
+  - `skin: 'oxide-dark'`, `content_css: 'dark'`, plugins `'link lists'`, toolbar `'bold italic underline | bullist numlist | link | undo redo'`.
+  - `license_key: 'gpl'` to use Open Source terms; ensure no cloud-only plugins (e.g., `licensekeymanager`) are referenced.
+  - Use `base_url` pointing to the self-host directory so TinyMCE can resolve skins/plugins.
+
 - Library: HostOps.php (updated, adds writeSignupHttps), CometTenant.php (updated)
 - Routing/Hook: eazybackup.php (routes), hooks.php (Partner Hub nav + download branding)
 - Theme: accounts/templates/eazyBackup/header.tpl (includes Partner Hub nav), includes/nav_partner_hub.tpl (new)

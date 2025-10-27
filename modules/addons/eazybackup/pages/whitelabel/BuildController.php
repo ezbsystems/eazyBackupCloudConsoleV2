@@ -57,12 +57,17 @@ function eazybackup_whitelabel_intake(array $vars)
     $fqdn = strtolower($subdomain . '.' . $baseDomain);
 
     // Create tenant row (idempotent by fqdn)
-    $tenantId = null;
+    $tenantId = null; $publicId = '';
     $now = date('Y-m-d H:i:s');
     $existing = Capsule::table('eb_whitelabel_tenants')->where('fqdn', $fqdn)->first();
     if ($existing) {
         $tenantId = (int)$existing->id;
+        $publicId = (string)($existing->public_id ?? '');
+        if ($publicId === '' && function_exists('eazybackup_generate_ulid')) {
+            try { $publicId = eazybackup_generate_ulid(); Capsule::table('eb_whitelabel_tenants')->where('id', $tenantId)->update(['public_id'=>$publicId]); } catch (\Throwable $__) { $publicId = ''; }
+        }
     } else {
+        if (function_exists('eazybackup_generate_ulid')) { try { $publicId = eazybackup_generate_ulid(); } catch (\Throwable $__) { $publicId = ''; } }
         $tenantId = Capsule::table('eb_whitelabel_tenants')->insertGetId([
             'client_id' => $clientId,
             'status' => 'queued',
@@ -81,6 +86,7 @@ function eazybackup_whitelabel_intake(array $vars)
             'storage_template_json' => json_encode([]),
             'idempotency_key' => sha1($clientId . ':' . $fqdn),
             'last_build_id' => null,
+            'public_id' => $publicId !== '' ? $publicId : null,
             'created_at' => $now,
             'updated_at' => $now,
         ]);
@@ -123,11 +129,23 @@ function eazybackup_whitelabel_intake(array $vars)
         $pathAppIconImage  = $saveUpload('app_icon_image', 'app_icon_image');
 
         // Build brand mapping for Comet Organization BrandingOptions
-        // Default color if blank
-        $def = '#1B2C50';
-        $top = (string)($_POST['header_color'] ?? ''); if ($top === '') { $top = $def; }
-        $acc = (string)($_POST['accent_color'] ?? ''); if ($acc === '') { $acc = $def; }
-        $tile = (string)($_POST['tile_background'] ?? ''); if ($tile === '') { $tile = $def; }
+        // Default colors if blank (accent defaults to Comet default #D88463)
+        $defTop = '#1B2C50';
+        $defAcc = '#D88463';
+        $defTile = '#1B2C50';
+        $top = (string)($_POST['header_color'] ?? ''); if ($top === '') { $top = $defTop; }
+        $acc = (string)($_POST['accent_color'] ?? ''); if ($acc === '') { $acc = $defAcc; }
+        $tile = (string)($_POST['tile_background'] ?? ''); if ($tile === '') { $tile = $defTile; }
+        // Normalize to #RRGGBB uppercase; fallback to default on invalid
+        foreach (['top','acc','tile'] as $cvar) {
+            $$cvar = strtoupper(trim((string)$$cvar));
+            if ($$cvar !== '' && $$cvar[0] !== '#') { $$cvar = '#' . $$cvar; }
+            if (!preg_match('/^#[0-9A-F]{6}$/', $$cvar)) {
+                if ($cvar === 'acc') { $$cvar = $defAcc; }
+                else if ($cvar === 'top') { $$cvar = $defTop; }
+                else { $$cvar = $defTile; }
+            }
+        }
 
         $brand = [
             'BrandName' => (string)($_POST['product_name'] ?? ''),
@@ -135,6 +153,8 @@ function eazybackup_whitelabel_intake(array $vars)
             'CompanyName' => (string)($_POST['company_name'] ?? ''),
             'HelpURL' => (string)($_POST['help_url'] ?? ''),
             'DefaultLoginServerURL' => 'https://' . $fqdn . '/',
+            // Ensure Comet uses custom branding colors
+            'BrandingStyleType' => 3,
             'TopColor' => $top,
             'AccentColor' => $acc,
             'TileBackgroundColor' => $tile,
@@ -201,8 +221,18 @@ function eazybackup_whitelabel_intake(array $vars)
         ]);
     } catch (\Throwable $_) { /* safe to ignore; loader can still runImmediate */ }
 
+    // Ticket creation moved to status endpoint after all steps succeed
+
     // Redirect to Loader page for this tenant immediately so user sees progress
-    header('Location: ' . $vars['modulelink'] . '&a=whitelabel-loader&id=' . urlencode((string)$tenantId));
+    $redirTid = $publicId;
+    if ($redirTid === '') {
+        try { $row = Capsule::table('eb_whitelabel_tenants')->where('id',$tenantId)->first(); $redirTid = (string)($row->public_id ?? ''); } catch (\Throwable $__) { $redirTid = ''; }
+    }
+    if ($redirTid !== '') {
+        header('Location: ' . $vars['modulelink'] . '&a=whitelabel-loader&tid=' . urlencode($redirTid));
+    } else {
+        header('Location: ' . $vars['modulelink'] . '&a=whitelabel-loader&id=' . urlencode((string)$tenantId));
+    }
     exit;
 }
 
@@ -216,9 +246,17 @@ function eazybackup_whitelabel_branding(array $vars)
             'vars' => ['error' => 'Please sign in to continue.']
         ];
     }
-    $tenantId = (int)($_GET['id'] ?? 0);
+    // Resolve by public_id (tid) or fallback to numeric id
+    $tenantId = 0; $tenantObj = null; $tid = strtoupper(trim((string)($_GET['tid'] ?? '')));
+    if ($tid !== '' && preg_match('/^[0-9A-HJ-NP-TV-Z]{26}$/', $tid)) {
+        try { $tenantObj = Capsule::table('eb_whitelabel_tenants')->where('public_id', $tid)->first(); } catch (\Throwable $__) { $tenantObj = null; }
+        if ($tenantObj) { $tenantId = (int)$tenantObj->id; }
+    }
+    if ($tenantId <= 0) {
+        $tenantId = (int)($_GET['id'] ?? 0);
+        $tenantObj = $tenantId ? Capsule::table('eb_whitelabel_tenants')->where('id', $tenantId)->first() : null;
+    }
     $clientId = (int)$_SESSION['uid'];
-    $tenantObj = $tenantId ? Capsule::table('eb_whitelabel_tenants')->where('id', $tenantId)->first() : null;
     if (!$tenantObj || (int)$tenantObj->client_id !== $clientId) {
         // Fallback: show tenant list so users can pick a tenant
         $tenants = [];
@@ -227,7 +265,13 @@ function eazybackup_whitelabel_branding(array $vars)
                 ->where('client_id', $clientId)
                 ->orderBy('created_at', 'desc')
                 ->get();
-            foreach ($rows as $r) { $tenants[] = (array)$r; }
+            foreach ($rows as $r) {
+                // Lazy backfill public_id if missing
+                if ((string)($r->public_id ?? '') === '' && function_exists('eazybackup_generate_ulid')) {
+                    try { $pid = eazybackup_generate_ulid(); Capsule::table('eb_whitelabel_tenants')->where('id',(int)$r->id)->update(['public_id'=>$pid]); $r->public_id = $pid; } catch (\Throwable $__) {}
+                }
+                $tenants[] = (array)$r;
+            }
         } catch (\Throwable $_) { /* ignore */ }
         return [
             'pagetitle' => 'Branding & Hostname',
@@ -241,6 +285,12 @@ function eazybackup_whitelabel_branding(array $vars)
             ],
         ];
     }
+    // Canonicalize to tid on GET when available
+    if ((string)($tenantObj->public_id ?? '') !== '' && isset($_GET['id']) && !isset($_GET['tid'])) {
+        $dest = $vars['modulelink'] . '&a=whitelabel-branding&tid=' . urlencode((string)$tenantObj->public_id);
+        header('Location: ' . $dest, true, 302);
+        exit;
+    }
 
     if (strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         // Update branding/email; apply via builder (partial)
@@ -250,6 +300,7 @@ function eazybackup_whitelabel_branding(array $vars)
             'CompanyName' => trim((string)($_POST['company_name'] ?? '')),
             'CloudStorageName' => trim((string)($_POST['product_name'] ?? '')),
             'HelpURL' => trim((string)($_POST['help_url'] ?? '')),
+            'BrandingStyleType' => 3,
             // Comet color keys
             'TopColor' => trim((string)($_POST['header_color'] ?? '')),
             'AccentColor' => trim((string)($_POST['accent_color'] ?? '')),
@@ -344,13 +395,60 @@ function eazybackup_whitelabel_branding(array $vars)
             'email_json' => json_encode($email),
             'updated_at' => date('Y-m-d H:i:s'),
         ]);
+        // Upsert per-tenant SMTP settings table for Partner Hub emails
+        try {
+            $inherit = isset($_POST['use_parent_mail']) ? 1 : 0;
+            if ($inherit || $smtpHost === '') {
+                // Disable custom SMTP (builtin)
+                Capsule::table('eb_whitelabel_tenant_mail')->updateOrInsert(
+                    ['tenant_id' => (int)$tenantId],
+                    [
+                        'mode' => 'builtin',
+                        'host' => '',
+                        'port' => 0,
+                        'username' => '',
+                        'password_enc' => null,
+                        'from_name' => (string)($_POST['smtp_sendas_name'] ?? ''),
+                        'from_email' => (string)($_POST['smtp_sendas_email'] ?? ''),
+                        'allow_unencrypted' => 0,
+                        'updated_at' => date('Y-m-d H:i:s'),
+                        'created_at' => date('Y-m-d H:i:s'),
+                    ]
+                );
+            } else {
+                $postedPass = (string)($_POST['smtp_password'] ?? '');
+                $encPass = null;
+                if ($postedPass !== '' && function_exists('encrypt')) { $encPass = encrypt($postedPass); }
+                else {
+                    $existing = Capsule::table('eb_whitelabel_tenant_mail')->where('tenant_id', (int)$tenantId)->first();
+                    if ($existing) { $encPass = (string)($existing->password_enc ?? null); }
+                }
+                Capsule::table('eb_whitelabel_tenant_mail')->updateOrInsert(
+                    ['tenant_id' => (int)$tenantId],
+                    [
+                        'mode' => (string)$mode,
+                        'host' => (string)$smtpHost,
+                        'port' => (int)($_POST['smtp_port'] ?? 0),
+                        'username' => (string)($_POST['smtp_username'] ?? ''),
+                        'password_enc' => $encPass,
+                        'from_name' => (string)($_POST['smtp_sendas_name'] ?? ''),
+                        'from_email' => (string)($_POST['smtp_sendas_email'] ?? ''),
+                        'allow_unencrypted' => $allowUnenc ? 1 : 0,
+                        'updated_at' => date('Y-m-d H:i:s'),
+                        'created_at' => date('Y-m-d H:i:s'),
+                    ]
+                );
+            }
+        } catch (\Throwable $_) { /* ignore SMTP upsert errors */ }
         try { logModuleCall('eazybackup','branding_post_draft_saved',['tenant'=>$tenantId], 'ok'); } catch (\Throwable $_) {}
 
         // Guard: org must exist before applying branding
         $orgIdNow = (string)($tenantObj->org_id ?? '');
         if ($orgIdNow === '') {
             try { logModuleCall('eazybackup','branding_post_apply',['tenant'=>$tenantId], 'missing_org'); } catch (\Throwable $_) {}
-            header('Location: ' . $vars['modulelink'] . '&a=whitelabel-branding&id=' . urlencode((string)$tenantId) . '&error=missing_org');
+            $redirTid = (string)($tenantObj->public_id ?? '');
+            $dest = $vars['modulelink'] . '&a=whitelabel-branding&' . ($redirTid !== '' ? ('tid=' . urlencode($redirTid)) : ('id=' . urlencode((string)$tenantId)));
+            header('Location: ' . $dest . '&error=missing_org');
             exit;
         }
 
@@ -412,17 +510,23 @@ function eazybackup_whitelabel_branding(array $vars)
                     'updated_at' => date('Y-m-d H:i:s'),
                 ]);
                 try { logModuleCall('eazybackup','branding_post_cache_update',['tenant'=>$tenantId], 'ok'); } catch (\Throwable $_) {}
-                header('Location: ' . $vars['modulelink'] . '&a=whitelabel-branding&id=' . urlencode((string)$tenantId) . '&saved=1');
+                $redirTid = (string)($tenantObj->public_id ?? '');
+                $dest = $vars['modulelink'] . '&a=whitelabel-branding&' . ($redirTid !== '' ? ('tid=' . urlencode($redirTid)) : ('id=' . urlencode((string)$tenantId)));
+                header('Location: ' . $dest . '&saved=1');
                 exit;
             } catch (\Throwable $e) {
                 try { logModuleCall('eazybackup','branding_reload_after_apply',['tenant'=>$tenantId], 'error: ' . $e->getMessage()); } catch (\Throwable $_) {}
-                header('Location: ' . $vars['modulelink'] . '&a=whitelabel-branding&id=' . urlencode((string)$tenantId) . '&error=reload_failed');
+                $redirTid = (string)($tenantObj->public_id ?? '');
+                $dest = $vars['modulelink'] . '&a=whitelabel-branding&' . ($redirTid !== '' ? ('tid=' . urlencode($redirTid)) : ('id=' . urlencode((string)$tenantId)));
+                header('Location: ' . $dest . '&error=reload_failed');
                 exit;
             }
         }
 
         // Failure path
-        header('Location: ' . $vars['modulelink'] . '&a=whitelabel-branding&id=' . urlencode((string)$tenantId) . '&error=apply_failed');
+        $redirTid = (string)($tenantObj->public_id ?? '');
+        $dest = $vars['modulelink'] . '&a=whitelabel-branding&' . ($redirTid !== '' ? ('tid=' . urlencode($redirTid)) : ('id=' . urlencode((string)$tenantId)));
+        header('Location: ' . $dest . '&error=apply_failed');
         exit;
     }
 
@@ -520,9 +624,15 @@ function eazybackup_whitelabel_branding(array $vars)
 function eazybackup_whitelabel_status(array $vars = []): void
 {
     header('Content-Type: application/json');
-    $tenantId = (int)($_GET['id'] ?? 0);
-    if ($tenantId <= 0) { echo json_encode(['ok' => false, 'message' => 'Invalid id']); exit; }
-    $tenant = Capsule::table('eb_whitelabel_tenants')->where('id', $tenantId)->first();
+    // Resolve by tid or id
+    $tenantId = 0; $tenant = null; $tid = strtoupper(trim((string)($_GET['tid'] ?? '')));
+    if ($tid !== '' && preg_match('/^[0-9A-HJ-NP-TV-Z]{26}$/', $tid)) {
+        $trow = Capsule::table('eb_whitelabel_tenants')->where('public_id',$tid)->first();
+        if ($trow) { $tenantId = (int)$trow->id; $tenant = $trow; }
+    }
+    if ($tenantId <= 0) { $tenantId = (int)($_GET['id'] ?? 0); }
+    if ($tenant === null && $tenantId > 0) { $tenant = Capsule::table('eb_whitelabel_tenants')->where('id', $tenantId)->first(); }
+    if ($tenantId <= 0 || !$tenant) { echo json_encode(['ok' => false, 'message' => 'Not found']); exit; }
     if (!$tenant) { echo json_encode(['ok' => false, 'message' => 'Not found']); exit; }
     $steps = Capsule::table('eb_whitelabel_builds')->where('tenant_id', $tenantId)->orderBy('id', 'asc')->get();
     $publicMap = [
@@ -565,6 +675,28 @@ function eazybackup_whitelabel_status(array $vars = []): void
                 'status' => 'active', 'updated_at' => date('Y-m-d H:i:s'),
             ]);
             $tenant = Capsule::table('eb_whitelabel_tenants')->where('id', $tenantId)->first();
+            // Open support ticket now that all steps succeeded
+            try {
+                $brand = json_decode((string)($tenant->brand_json ?? '{}'), true) ?: [];
+                $product_name = trim((string)($brand['ProductName'] ?? 'eazyBackup White-Label'));
+                $ticketSubject = "White-Label for " . $product_name;
+                $ticketMessage = "Thank you for creating a new white-label tenant. Our sales and support team are available if you have questions getting started. You can place an order for your white-label product in the \"Partner Hub -> White-Label Tenants menu\".\n\nIf you have any questions in the meantime, feel free to reply to this ticket.";
+                $ticketData = [
+                    'deptid' => '2',
+                    'subject' => $ticketSubject,
+                    'message' => $ticketMessage,
+                    'clientid' => (int)$tenant->client_id,
+                    'priority' => 'Medium',
+                    'markdown' => true,
+                    'preventClientClosure' => true,
+                    'responsetype' => 'json',
+                ];
+                $adminUsername = 'API';
+                $ticketResponse = localAPI('OpenTicket', $ticketData, $adminUsername);
+                logActivity('eazybackup: Intake success ticket created tenant '.$tenantId.' => '.json_encode($ticketResponse));
+            } catch (\Throwable $e) {
+                logActivity('eazybackup: Intake success ticket failed tenant '.$tenantId.' => '.$e->getMessage());
+            }
         }
     } catch (\Throwable $_) { /* non-fatal */ }
 
@@ -582,14 +714,28 @@ function eazybackup_whitelabel_loader(array $vars)
             'vars' => ['error' => 'Please sign in to continue.']
         ];
     }
-    $tenantId = (int)($_GET['id'] ?? 0);
-    $tenantObj = $tenantId ? Capsule::table('eb_whitelabel_tenants')->where('id', $tenantId)->first() : null;
+    // Resolve by tid or id
+    $tenantObj = null; $tenantId = 0; $tid = strtoupper(trim((string)($_GET['tid'] ?? '')));
+    if ($tid !== '' && preg_match('/^[0-9A-HJ-NP-TV-Z]{26}$/', $tid)) {
+        $tenantObj = Capsule::table('eb_whitelabel_tenants')->where('public_id', $tid)->first();
+        if ($tenantObj) { $tenantId = (int)$tenantObj->id; }
+    }
+    if ($tenantId <= 0) {
+        $tenantId = (int)($_GET['id'] ?? 0);
+        $tenantObj = $tenantId ? Capsule::table('eb_whitelabel_tenants')->where('id', $tenantId)->first() : null;
+    }
     if (!$tenantObj || (int)$tenantObj->client_id !== (int)$_SESSION['uid']) {
         return [
             'pagetitle' => 'Setting up your tenant…',
             'templatefile' => 'templates/error',
             'vars' => ['error' => 'Tenant not found.']
         ];
+    }
+    // Canonicalize to tid on GET when available
+    if ((string)($tenantObj->public_id ?? '') !== '' && isset($_GET['id']) && !isset($_GET['tid'])) {
+        $dest = $vars['modulelink'] . '&a=whitelabel-loader&tid=' . urlencode((string)$tenantObj->public_id);
+        header('Location: ' . $dest, true, 302);
+        exit;
     }
     // DEV: handle step runner
     if (strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['dev_step'])) {
@@ -641,7 +787,13 @@ function eazybackup_whitelabel_branding_checkdns(array $vars)
         if (!$hasCustomTable && function_exists('eazybackup_migrate_schema')) {
             try { eazybackup_migrate_schema(); $hasCustomTable = Capsule::schema()->hasTable('eb_whitelabel_custom_domains'); } catch (\Throwable $__) { $hasCustomTable = false; }
         }
-        $tenantId = (int)($_POST['tenant_id'] ?? 0);
+        // Resolve by tid or id
+        $tenantId = 0; $tidPost = strtoupper(trim((string)($_POST['tenant_tid'] ?? '')));
+        if ($tidPost !== '' && preg_match('/^[0-9A-HJ-NP-TV-Z]{26}$/', $tidPost)) {
+            $trow = Capsule::table('eb_whitelabel_tenants')->where('public_id',$tidPost)->first();
+            if ($trow) { $tenantId = (int)$trow->id; }
+        }
+        if ($tenantId <= 0) { $tenantId = (int)($_POST['tenant_id'] ?? 0); }
         $hostname = strtolower(trim((string)($_POST['hostname'] ?? '')));
         if ($tenantId <= 0 || $hostname === '') { echo json_encode(['ok'=>false,'error'=>'Missing tenant or hostname']); return; }
         // Basic hostname validation (no apex-only unless later supported)
@@ -730,7 +882,13 @@ function eazybackup_whitelabel_branding_attachdomain(array $vars)
         if (!$hasCustomTable && function_exists('eazybackup_migrate_schema')) {
             try { eazybackup_migrate_schema(); $hasCustomTable = Capsule::schema()->hasTable('eb_whitelabel_custom_domains'); } catch (\Throwable $__) { $hasCustomTable = false; }
         }
-        $tenantId = (int)($_POST['tenant_id'] ?? 0);
+        // Resolve by tid or id
+        $tenantId = 0; $tidPost = strtoupper(trim((string)($_POST['tenant_tid'] ?? '')));
+        if ($tidPost !== '' && preg_match('/^[0-9A-HJ-NP-TV-Z]{26}$/', $tidPost)) {
+            $trow = Capsule::table('eb_whitelabel_tenants')->where('public_id',$tidPost)->first();
+            if ($trow) { $tenantId = (int)$trow->id; }
+        }
+        if ($tenantId <= 0) { $tenantId = (int)($_POST['tenant_id'] ?? 0); }
         $hostname = strtolower(trim((string)($_POST['hostname'] ?? '')));
         if ($tenantId <= 0 || $hostname === '') { echo json_encode(['ok'=>false,'error'=>'Missing tenant or hostname']); return; }
         if (!preg_match('/^(?=.{1,255}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/', $hostname) || substr_count($hostname, '.') < 2) { echo json_encode(['ok'=>false,'error'=>'Invalid hostname']); return; }

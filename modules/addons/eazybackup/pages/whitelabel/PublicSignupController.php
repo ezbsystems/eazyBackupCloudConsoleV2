@@ -238,7 +238,20 @@ function eazybackup_public_signup(array $vars)
                     'Downloads_Url' => $downloadsUrl,
                     'Brand_ServerAddress' => 'https://' . (string)($tenant->fqdn ?? $host) . '/',
                 ];
-                @localAPI('SendEmail', ['messagename'=>'eB Partner Hub — Customer Welcome','id'=>$clientId,'customvars'=>$msgVars], $adminUser);
+                // Attempt MSP custom welcome via template; fall back to WHMCS email if not configured
+                try {
+                    require_once __DIR__ . '/EmailTriggers.php';
+                    $brandName = (string)($tenant->product_name ?? 'eazyBackup');
+                    $varsSend = [
+                        'customer_name' => $first . ' ' . $last,
+                        'brand_name' => $brandName,
+                        'portal_url' => $downloadsUrl,
+                        'help_url' => rtrim((string)($vars['systemurl'] ?? ''), '/') . '/index.php?m=eazybackup&a=knowledgebase',
+                    ];
+                    EmailTriggers::trigger((int)$tenant->id, 'welcome', (string)$email, $varsSend);
+                } catch (\Throwable $___) {
+                    @localAPI('SendEmail', ['messagename'=>'eB Partner Hub — Customer Welcome','id'=>$clientId,'customvars'=>$msgVars], $adminUser);
+                }
             }
             // MSP Notice (route to module setting notify_test_recipient as a simple default or admin email)
             if ((int)($flow->send_msp_notice ?? 1) === 1) {

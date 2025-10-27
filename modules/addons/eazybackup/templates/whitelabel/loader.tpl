@@ -13,7 +13,7 @@
           <div class="text-xs text-slate-400 mb-2">Run specific steps to test failures and retries.</div>
           <div class="flex flex-wrap gap-2">
             {foreach from=['dns','nginx','cert','org','admin','branding','email','storage','whmcs','verify'] item=s}
-              <form method="post" action="{$modulelink}&a=whitelabel-loader&id={$tenant.id}">
+              <form method="post" action="{$modulelink}&a=whitelabel-loader&tid={$tenant.public_id}">
                 <input type="hidden" name="dev_step" value="{$s}"/>
                 <button class="px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 rounded text-white">Run {$s}</button>
               </form>
@@ -27,8 +27,8 @@
 </div>
 <script>
 (function(){
-  const url = '{$modulelink}&a=whitelabel-status&id={$tenant.id}';
-  const destBranding = '{$modulelink}&a=whitelabel-branding&id={$tenant.id}';
+  const url = '{$modulelink}&a=whitelabel-status&tid={$tenant.public_id}';
+  const destBranding = '{$modulelink}&a=whitelabel-branding&tid={$tenant.public_id}';
   const el = document.getElementById('wl-steps');
   // Step runner: background trigger to execute steps sequentially without blocking UI
   let __kickoffSent = false;

@@ -10,12 +10,18 @@
   ],
   "require": {
     "ext-json": "*",
-    "aws/aws-sdk-php": "^3"
+    "aws/aws-sdk-php": "^3",
+    "amphp/amp": "^3",
+    "amphp/websocket-client": "^2",
+    "revolt/event-loop": "^1",
+    "league/uri": "^7.5",
+    "league/uri-components": "^7.5"
   },
   "autoload": {
     "psr-4": {
       "eazyBackup\\CometCompat\\": "lib/CometCompat/"
     }
-  }
+  },
+  "minimum-stability": "stable",
+  "prefer-stable": true
 }
-

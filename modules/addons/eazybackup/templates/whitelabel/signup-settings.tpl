@@ -148,12 +148,12 @@
   function xhr(url, data, cb){ var x=new XMLHttpRequest(); x.open('POST', url, true); x.setRequestHeader('Content-Type','application/x-www-form-urlencoded'); x.onreadystatechange=function(){ if (x.readyState===4){ try{ cb(null, JSON.parse(x.responseText||'{}')); }catch(e){ cb(e); } } }; x.send(data); }
   var btnC=document.getElementById('su-check'); var btnA=document.getElementById('su-attach'); var hostI=document.getElementById('su-host'); var loader=document.getElementById('su-loader'); var loaderText=document.getElementById('su-loader-text');
   if (!btnC || !btnA || !hostI) return;
-  var tenantId = {$tenant.id|default:0};
+  var tenantTid = '{$tenant.public_id|default:""|escape:"javascript"}';
   var token = '{$csrf_token|default:''}';
   function enc(s){ return encodeURIComponent(s); }
   function setBusy(b){ btnC.disabled=b; btnA.disabled=b; btnC.classList.toggle('opacity-50', b); btnA.classList.toggle('opacity-50', b); if (loader) loader.classList.toggle('hidden', !b); }
-  btnC.addEventListener('click', function(){ var h=(hostI.value||'').trim(); if (!h){ alert('Enter a hostname'); return; } if (loaderText) loaderText.textContent='Checking DNS…'; setBusy(true); xhr('{$modulelink}&a=whitelabel-signup-checkdns', 'tenant_id='+enc(tenantId)+'&hostname='+enc(h)+'&token='+enc(token), function(err,res){ setBusy(false); if (err||!res){ alert('Check failed'); return; } if (res.ok){ alert('DNS '+(res.status==='dns_ok'?'OK':'pending')); } else { alert(res.error||'DNS check failed'); } }); });
-  btnA.addEventListener('click', function(){ var h=(hostI.value||'').trim(); if (!h){ alert('Enter a hostname'); return; } if (loaderText) loaderText.textContent='Attaching domain…'; setBusy(true); xhr('{$modulelink}&a=whitelabel-signup-attachdomain', 'tenant_id='+enc(tenantId)+'&hostname='+enc(h)+'&token='+enc(token), function(err,res){ setBusy(false); if (err||!res){ alert('Attach failed'); return; } if (res.ok){ alert(res.message||'Attached'); location.reload(); } else { alert(res.error||'Attach failed'); } }); });
+  btnC.addEventListener('click', function(){ var h=(hostI.value||'').trim(); if (!h){ alert('Enter a hostname'); return; } if (loaderText) loaderText.textContent='Checking DNS…'; setBusy(true); xhr('{$modulelink}&a=whitelabel-signup-checkdns', 'tenant_tid='+enc(tenantTid)+'&hostname='+enc(h)+'&token='+enc(token), function(err,res){ setBusy(false); if (err||!res){ alert('Check failed'); return; } if (res.ok){ alert('DNS '+(res.status==='dns_ok'?'OK':'pending')); } else { alert(res.error||'DNS check failed'); } }); });
+  btnA.addEventListener('click', function(){ var h=(hostI.value||'').trim(); if (!h){ alert('Enter a hostname'); return; } if (loaderText) loaderText.textContent='Attaching domain…'; setBusy(true); xhr('{$modulelink}&a=whitelabel-signup-attachdomain', 'tenant_tid='+enc(tenantTid)+'&hostname='+enc(h)+'&token='+enc(token), function(err,res){ setBusy(false); if (err||!res){ alert('Attach failed'); return; } if (res.ok){ alert(res.message||'Attached'); location.reload(); } else { alert(res.error||'Attach failed'); } }); });
 })();
 </script>
 

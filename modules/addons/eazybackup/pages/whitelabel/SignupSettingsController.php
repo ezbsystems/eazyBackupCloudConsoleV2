@@ -11,15 +11,29 @@ function eazybackup_whitelabel_signup_settings(array $vars)
             'vars' => ['error' => 'Please sign in to continue.']
         ];
     }
-    $tenantId = (int)($_GET['id'] ?? 0);
-    $clientId = (int)$_SESSION['uid'];
-    $tenantObj = $tenantId ? Capsule::table('eb_whitelabel_tenants')->where('id', $tenantId)->first() : null;
+    // Resolve by public_id (tid) or fallback to numeric id
+    $tenantId = 0; $clientId = (int)$_SESSION['uid']; $tenantObj = null;
+    $tid = strtoupper(trim((string)($_GET['tid'] ?? '')));
+    if ($tid !== '' && preg_match('/^[0-9A-HJ-NP-TV-Z]{26}$/', $tid)) {
+        try { $tenantObj = Capsule::table('eb_whitelabel_tenants')->where('public_id', $tid)->first(); } catch (\Throwable $__) { $tenantObj = null; }
+        if ($tenantObj) { $tenantId = (int)$tenantObj->id; }
+    }
+    if ($tenantId <= 0) {
+        $tenantId = (int)($_GET['id'] ?? 0);
+        $tenantObj = $tenantId ? Capsule::table('eb_whitelabel_tenants')->where('id', $tenantId)->first() : null;
+    }
     if (!$tenantObj || (int)$tenantObj->client_id !== $clientId) {
         return [
             'pagetitle' => 'Signup Settings',
             'templatefile' => 'templates/error',
             'vars' => ['error' => 'Tenant not found.']
         ];
+    }
+    // Canonicalize to tid on GET when available
+    if ((string)($tenantObj->public_id ?? '') !== '' && isset($_GET['id']) && !isset($_GET['tid'])) {
+        $dest = $vars['modulelink'] . '&a=whitelabel-signup-settings&tid=' . urlencode((string)$tenantObj->public_id);
+        header('Location: ' . $dest, true, 302);
+        exit;
     }
 
     // Ensure Partner Hub tables exist (runtime safe-guard for environments where SQL hasn't been applied)
@@ -149,7 +163,9 @@ function eazybackup_whitelabel_signup_settings(array $vars)
             }
         } catch (\Throwable $__) {}
 
-        header('Location: ' . $vars['modulelink'] . '&a=whitelabel-signup-settings&id=' . urlencode((string)$tenantId) . '&saved=1');
+        $redirTid = (string)($tenantObj->public_id ?? '');
+        $dest = $vars['modulelink'] . '&a=whitelabel-signup-settings&' . ($redirTid !== '' ? ('tid=' . urlencode($redirTid)) : ('id=' . urlencode((string)$tenantId)));
+        header('Location: ' . $dest . '&saved=1');
         exit;
     }
 
@@ -193,7 +209,13 @@ function eazybackup_whitelabel_signup_checkdns(array $vars)
         if (strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') { echo json_encode(['ok'=>false,'error'=>'Invalid method']); return; }
         $token = (string)($_POST['token'] ?? '');
         if (function_exists('check_token')) { try { if (!check_token('plain', $token)) { echo json_encode(['ok'=>false,'error'=>'Invalid token']); return; } } catch (\Throwable $_) {} }
-        $tenantId = (int)($_POST['tenant_id'] ?? 0);
+        // Resolve by tid or id
+        $tenantId = 0; $tid = strtoupper(trim((string)($_POST['tenant_tid'] ?? '')));
+        if ($tid !== '' && preg_match('/^[0-9A-HJ-NP-TV-Z]{26}$/', $tid)) {
+            $trow = Capsule::table('eb_whitelabel_tenants')->where('public_id',$tid)->first();
+            if ($trow) { $tenantId = (int)$trow->id; }
+        }
+        if ($tenantId <= 0) { $tenantId = (int)($_POST['tenant_id'] ?? 0); }
         $hostname = strtolower(trim((string)($_POST['hostname'] ?? '')));
         if ($tenantId <= 0 || $hostname === '') { echo json_encode(['ok'=>false,'error'=>'Missing tenant or hostname']); return; }
         $tenant = Capsule::table('eb_whitelabel_tenants')->where('id',$tenantId)->first();
@@ -222,7 +244,13 @@ function eazybackup_whitelabel_signup_attachdomain(array $vars)
         if (strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') { echo json_encode(['ok'=>false,'error'=>'Invalid method']); return; }
         $token = (string)($_POST['token'] ?? '');
         if (function_exists('check_token')) { try { if (!check_token('plain', $token)) { echo json_encode(['ok'=>false,'error'=>'Invalid token']); return; } } catch (\Throwable $_) {} }
-        $tenantId = (int)($_POST['tenant_id'] ?? 0);
+        // Resolve by tid or id
+        $tenantId = 0; $tid = strtoupper(trim((string)($_POST['tenant_tid'] ?? '')));
+        if ($tid !== '' && preg_match('/^[0-9A-HJ-NP-TV-Z]{26}$/', $tid)) {
+            $trow = Capsule::table('eb_whitelabel_tenants')->where('public_id',$tid)->first();
+            if ($trow) { $tenantId = (int)$trow->id; }
+        }
+        if ($tenantId <= 0) { $tenantId = (int)($_POST['tenant_id'] ?? 0); }
         $hostname = strtolower(trim((string)($_POST['hostname'] ?? '')));
         if ($tenantId <= 0 || $hostname === '') { echo json_encode(['ok'=>false,'error'=>'Missing tenant or hostname']); return; }
         $tenant = Capsule::table('eb_whitelabel_tenants')->where('id',$tenantId)->first();

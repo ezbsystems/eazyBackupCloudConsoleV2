@@ -608,6 +608,9 @@ function eazybackup_migrate_schema(): void {
         // Ensure columns exist on upgrade
         eb_add_column_if_missing('eb_whitelabel_tenants','custom_domain', fn(Blueprint $t)=>$t->string('custom_domain',255)->nullable());
         eb_add_column_if_missing('eb_whitelabel_tenants','custom_domain_status', fn(Blueprint $t)=>$t->string('custom_domain_status',32)->nullable());
+        // Public ULID used for customer-facing URLs
+        eb_add_column_if_missing('eb_whitelabel_tenants','public_id', fn(Blueprint $t)=>$t->char('public_id',26)->nullable());
+        eb_add_index_if_missing('eb_whitelabel_tenants', "CREATE UNIQUE INDEX IF NOT EXISTS idx_eb_wl_tenants_public_id ON eb_whitelabel_tenants (public_id)");
     }
 
     // --- eb_whitelabel_builds ---
@@ -661,6 +664,92 @@ function eazybackup_migrate_schema(): void {
         eb_add_column_if_missing('eb_whitelabel_custom_domains','checked_at', fn(Blueprint $t)=>$t->timestamp('checked_at')->nullable());
         eb_add_column_if_missing('eb_whitelabel_custom_domains','cert_expires_at', fn(Blueprint $t)=>$t->timestamp('cert_expires_at')->nullable());
         eb_add_index_if_missing('eb_whitelabel_custom_domains', "CREATE UNIQUE INDEX IF NOT EXISTS uq_wlcd_tenant_host ON eb_whitelabel_custom_domains (tenant_id, hostname)");
+    }
+
+    // --- eb_whitelabel_tenant_mail (per-tenant SMTP settings) ---
+    if (!$schema->hasTable('eb_whitelabel_tenant_mail')) {
+        $schema->create('eb_whitelabel_tenant_mail', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->bigInteger('tenant_id')->unique();
+            $t->string('mode', 16)->default('builtin'); // builtin|smtp|smtp-ssl
+            $t->string('host', 255)->default('');
+            $t->unsignedInteger('port')->default(0);
+            $t->string('username', 255)->default('');
+            $t->text('password_enc')->nullable();
+            $t->string('from_name', 255)->default('');
+            $t->string('from_email', 255)->default('');
+            $t->tinyInteger('allow_unencrypted')->default(0);
+            $t->timestamp('created_at')->nullable()->useCurrent();
+            $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
+            $t->index('tenant_id','idx_wl_mail_tenant');
+        });
+    } else {
+        eb_add_column_if_missing('eb_whitelabel_tenant_mail','allow_unencrypted', fn(Blueprint $t)=>$t->tinyInteger('allow_unencrypted')->default(0));
+        eb_add_index_if_missing('eb_whitelabel_tenant_mail', "CREATE INDEX IF NOT EXISTS idx_wl_mail_tenant ON eb_whitelabel_tenant_mail (tenant_id)");
+    }
+
+    // --- eb_whitelabel_email_templates ---
+    if (!$schema->hasTable('eb_whitelabel_email_templates')) {
+        $schema->create('eb_whitelabel_email_templates', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->bigInteger('tenant_id');
+            $t->string('key', 64); // e.g., welcome
+            $t->string('name', 191);
+            $t->string('subject', 255);
+            $t->longText('body_html')->nullable();
+            $t->longText('body_text')->nullable();
+            $t->tinyInteger('is_active')->default(1);
+            $t->timestamp('created_at')->nullable()->useCurrent();
+            $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
+            $t->unique(['tenant_id','key'], 'uq_tenant_key');
+            $t->index(['tenant_id','is_active'],'idx_tenant_active');
+        });
+    } else {
+        eb_add_column_if_missing('eb_whitelabel_email_templates','is_active', fn(Blueprint $t)=>$t->tinyInteger('is_active')->default(1));
+        eb_add_index_if_missing('eb_whitelabel_email_templates', "CREATE UNIQUE INDEX IF NOT EXISTS uq_tenant_key ON eb_whitelabel_email_templates (tenant_id, key)");
+        eb_add_index_if_missing('eb_whitelabel_email_templates', "CREATE INDEX IF NOT EXISTS idx_tenant_active ON eb_whitelabel_email_templates (tenant_id, is_active)");
+    }
+
+    // --- eb_whitelabel_email_log ---
+    if (!$schema->hasTable('eb_whitelabel_email_log')) {
+        $schema->create('eb_whitelabel_email_log', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->bigInteger('tenant_id')->index();
+            $t->bigInteger('template_id')->nullable()->index();
+            $t->string('to_email', 255);
+            $t->enum('status', ['queued','sent','failed'])->default('queued');
+            $t->text('provider_resp')->nullable();
+            $t->timestamp('created_at')->nullable()->useCurrent();
+        });
+    }
+}
+
+// ULID generator for public tenant IDs (Crockford Base32, 26 chars)
+if (!function_exists('eazybackup_generate_ulid')) {
+    function eazybackup_generate_ulid(): string {
+        $alphabet = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+        try {
+            $time = (int) floor(microtime(true) * 1000);
+        } catch (\Throwable $__) {
+            $time = (int) (time() * 1000);
+        }
+        // 48 bits time, 80 bits randomness -> 128 bits total
+        // Build 16-byte binary string: 6 bytes time (big-endian) + 10 bytes random
+        $timeBytes = '';
+        for ($i = 5; $i >= 0; $i--) { $timeBytes .= chr(($time >> ($i * 8)) & 0xFF); }
+        try { $rand = random_bytes(10); } catch (\Throwable $__) { $rand = substr(hash('sha256', uniqid('', true), true), 0, 10); }
+        $bin = $timeBytes . $rand; // 16 bytes
+        // Encode to base32 (26 chars)
+        $bits = '';
+        for ($i = 0; $i < 16; $i++) { $bits .= str_pad(decbin(ord($bin[$i])), 8, '0', STR_PAD_LEFT); }
+        $out = '';
+        for ($i = 0; $i < 26; $i++) {
+            $chunk = substr($bits, $i * 5, 5);
+            if ($chunk === '') { $chunk = '00000'; }
+            $idx = bindec(str_pad($chunk, 5, '0'));
+            $out .= $alphabet[$idx % 32];
+        }
+        return $out;
     }
 }
 
@@ -2276,6 +2365,12 @@ function eazybackup_clientarea(array $vars)
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'public-download') {
         require_once __DIR__ . '/pages/whitelabel/PublicDownloadController.php';
         return eazybackup_public_download($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'whitelabel-email-templates') {
+        require_once __DIR__ . '/pages/whitelabel/EmailTemplatesController.php';
+        return eazybackup_whitelabel_email_templates($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'whitelabel-email-template-edit') {
+        require_once __DIR__ . '/pages/whitelabel/EmailTemplatesController.php';
+        return eazybackup_whitelabel_email_template_edit($vars);
     } else if ($_REQUEST["a"] == "createorder") {
         return eazybackup_createorder($vars);
     } else if ($_REQUEST["a"] == "add-card") {
