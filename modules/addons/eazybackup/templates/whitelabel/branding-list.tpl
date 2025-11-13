@@ -1,39 +1,46 @@
-<div class="bg-gray-800">
-  <div class="min-h-screen bg-gray-800 container mx-auto pb-8">
-    <div class="flex justify-between items-center h-16 space-y-12 px-2">
-      <h2 class="text-2xl font-semibold text-white">Your White-Label Tenants</h2>
-    </div>
-    <div class="px-2">
-      <div class="flex items-center justify-end mb-2">
-        <input id="tenant-search" type="text" placeholder="Search tenants…" class="w-full md:w-72 rounded-md border border-slate-600/70 bg-slate-900 px-3 py-2 text-slate-100 text-sm" aria-label="Search tenants" />
+{include file="modules/addons/eazybackup/templates/partials/_ui-tokens.tpl"}
+
+<div class="min-h-screen bg-[rgb(var(--bg-page))] text-[rgb(var(--text-primary))]">
+  <div class="mx-auto max-w-none px-6 py-8">
+    <section class="rounded-2xl bg-[rgb(var(--bg-card))] shadow-xl shadow-black/20 ring-1 ring-white/10 overflow-hidden">
+      <div class="px-6 py-5 flex items-center justify-between">
+        <h2 class="text-lg font-medium">Your White‑Label Tenants</h2>
+        <div class="w-full md:w-72">
+          <input id="tenant-search" type="text" placeholder="Search tenants…" aria-label="Search tenants" class="mt-0 w-full rounded-xl bg-[rgb(var(--bg-input))] text-white/90 placeholder-white/30 ring-1 ring-white/10 focus:ring-2 focus:ring-[rgb(var(--accent))] focus:outline-none px-3.5 py-2.5" />
+        </div>
       </div>
-      <div class="bg-gray-900/50 rounded-lg overflow-hidden">
-        <table class="min-w-full divide-y divide-gray-700">
-          <thead class="bg-gray-800/50">
-            <tr>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer select-none" data-sort-key="fqdn" aria-sort="none">FQDN <span class="sort-indicator ml-1 opacity-60"></span></th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer select-none" data-sort-key="custom" aria-sort="none">Custom Domain <span class="sort-indicator ml-1 opacity-60"></span></th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer select-none" data-sort-key="status" aria-sort="none">Status <span class="sort-indicator ml-1 opacity-60"></span></th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Actions</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-gray-700">
-            {foreach from=$tenants item=t}
-              <tr class="hover:bg-gray-800/60">
-                <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$t.fqdn}</td>
-                <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$t.custom_domain|default:'-'}</td>
-                <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$t.status}</td>
-                <td class="px-4 py-4 whitespace-nowrap text-sm">
-                  <button type="button" class="px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 rounded text-white btn-tenant-manage" data-tenant-tid="{$t.public_id}" data-fqdn="{$t.fqdn}" data-custom-domain="{$t.custom_domain|default:''}">Manage</button>
-                </td>
-              </tr>
-            {foreachelse}
+      <div class="border-t border-white/10"></div>
+      <div class="px-6 py-6">
+        <div class="rounded-2xl bg-[rgb(var(--bg-card))] ring-1 ring-white/10 overflow-hidden">
+          <table class="min-w-full text-sm">
+            <thead class="bg-gray-900/60 text-white/70">
               <tr>
-                <td colspan="4" class="text-center py-6 text-sm text-gray-400">No tenants yet.</td>
+                <th class="px-4 py-3 text-left cursor-pointer select-none" data-sort-key="fqdn" aria-sort="none">FQDN <span class="sort-indicator ml-1 opacity-60"></span></th>
+                <th class="px-4 py-3 text-left cursor-pointer select-none" data-sort-key="product" aria-sort="none">Product <span class="sort-indicator ml-1 opacity-60"></span></th>
+                <th class="px-4 py-3 text-left cursor-pointer select-none" data-sort-key="custom" aria-sort="none">Custom Domain <span class="sort-indicator ml-1 opacity-60"></span></th>
+                <th class="px-4 py-3 text-left cursor-pointer select-none" data-sort-key="status" aria-sort="none">Status <span class="sort-indicator ml-1 opacity-60"></span></th>
+                <th class="px-4 py-3 text-left">Actions</th>
               </tr>
-            {/foreach}
-          </tbody>
-        </table>
+            </thead>
+            <tbody class="divide-y divide-white/10">
+              {foreach from=$tenants item=t}
+                <tr class="hover:bg-white/5">
+                  <td class="px-4 py-4 whitespace-nowrap text-sm">{$t.fqdn}</td>
+                  <td class="px-4 py-4 whitespace-nowrap text-sm">{$t.product_name|default:'Unknown'}</td>
+                  <td class="px-4 py-4 whitespace-nowrap text-sm">{$t.custom_domain|default:'-'}</td>
+                  <td class="px-4 py-4 whitespace-nowrap text-sm">{$t.status}</td>
+                  <td class="px-4 py-4 whitespace-nowrap text-sm">
+                    <button type="button" class="rounded-lg px-3 py-1.5 ring-1 ring-white/10 hover:bg-white/10 text-white/90 btn-tenant-manage" data-tenant-tid="{$t.public_id}" data-fqdn="{$t.fqdn}" data-custom-domain="{$t.custom_domain|default:''}">Manage</button>
+                  </td>
+                </tr>
+              {foreachelse}
+                <tr>
+                  <td colspan="5" class="text-center py-6 text-sm text-white/70">No tenants yet.</td>
+                </tr>
+              {/foreach}
+            </tbody>
+          </table>
+        </div>
       </div>
       <script>
       (function(){
@@ -103,7 +110,7 @@
         } catch(e) {}
       })();
       </script>
-    </div>
+    </section>
   </div>
 </div>
 

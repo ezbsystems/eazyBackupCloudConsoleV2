@@ -13,7 +13,7 @@ function cloudstorage_config()
         'description' => 'This module show the usage of your buckets.',
         'author' => 'eazybackup',
         'language' => 'english',
-        'version' => '1.0',
+        'version' => '1.1.0',
         'fields' => [
             's3_region' => [
                 'FriendlyName' => 'S3 Region',
@@ -56,7 +56,30 @@ function cloudstorage_config()
                 'Type' => 'text',
                 'Size' => '100',
                 'Description' => 'Enter the Ceph secret key.'
-            ]
+            ],
+            'turnstile_site_key' => [
+                'FriendlyName' => 'Turnstile Site Key',
+                'Type' => 'text',
+                'Size' => '100',
+                'Description' => 'Cloudflare Turnstile site key used on the signup form.'
+            ],
+            'turnstile_secret_key' => [
+                'FriendlyName' => 'Turnstile Secret Key',
+                'Type' => 'password',
+                'Size' => '100',
+                'Description' => 'Secret key for server-side Turnstile verification.'
+            ],
+            'default_logging_prefix' => [
+                'FriendlyName' => 'Default Logging Prefix',
+                'Type' => 'text',
+                'Size' => '100',
+                'Description' => 'Default prefix when enabling S3 server access logging (e.g., <bucket>/).',
+            ],
+            'allow_customer_target_choice' => [
+                'FriendlyName' => 'Allow Custom Target Log Bucket',
+                'Type' => 'yesno',
+                'Description' => 'If unchecked, target bucket will default to <bucket>-logs and cannot be changed by customers.'
+            ],
         ]
     ];
 }
@@ -281,25 +304,79 @@ function cloudstorage_deactivate() {
     ];
 }
 
+/**
+ * Upgrade.
+ *
+ * Called when the module version increases. Used to apply schema changes.
+ *
+ * @param array $vars
+ * @return array
+ */
+function cloudstorage_upgrade($vars) {
+    try {
+        // Add logging columns to s3_buckets if missing
+        if (\WHMCS\Database\Capsule::schema()->hasTable('s3_buckets')) {
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_buckets', 'logging_enabled')) {
+                \WHMCS\Database\Capsule::schema()->table('s3_buckets', function ($table) {
+                    $table->tinyInteger('logging_enabled')->default(0);
+                });
+            }
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_buckets', 'logging_target_bucket')) {
+                \WHMCS\Database\Capsule::schema()->table('s3_buckets', function ($table) {
+                    $table->string('logging_target_bucket', 255)->nullable();
+                });
+            }
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_buckets', 'logging_target_prefix')) {
+                \WHMCS\Database\Capsule::schema()->table('s3_buckets', function ($table) {
+                    $table->string('logging_target_prefix', 255)->nullable();
+                });
+            }
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_buckets', 'logging_last_synced_at')) {
+                \WHMCS\Database\Capsule::schema()->table('s3_buckets', function ($table) {
+                    $table->timestamp('logging_last_synced_at')->nullable();
+                });
+            }
+        }
+        return ['status' => 'success'];
+    } catch (\Exception $e) {
+        logModuleCall('cloudstorage', 'upgrade', $vars, $e->getMessage());
+        return ['status' => 'success'];
+    }
+}
+
 function cloudstorage_clientarea($vars) {
     $page = $_GET['page'];
-    $encryptionKey = $vars['encryption_key'];
-    $s3Endpoint = $vars['s3_endpoint'];
-    $cephAdminUser = $vars['ceph_admin_user'];
-    $cephAdminAccessKey = $vars['ceph_access_key'];
-    $cephAdminSecretKey = $vars['ceph_secret_key'];
+    // Preserve module configuration values separately from view variables
+    $config = $vars;
+    $encryptionKey = $config['encryption_key'];
+    $s3Endpoint = $config['s3_endpoint'];
+    $cephAdminUser = $config['ceph_admin_user'];
+    $cephAdminAccessKey = $config['ceph_access_key'];
+    $cephAdminSecretKey = $config['ceph_secret_key'];
+    $turnstileSiteKey = $config['turnstile_site_key'] ?? '';
+    $turnstileSecretKey = $config['turnstile_secret_key'] ?? '';
 
     switch ($page) {
         case 'signup':
             $pagetitle = 'e3 Storage Signup';
             $templatefile = 'templates/signup';
-            $vars = [];
+            $viewVars = [
+                'TURNSTILE_SITE_KEY' => $turnstileSiteKey,
+            ];
             break;
 
         case 'handlesignup':
             $pagetitle = 'e3 Storage Signup';
-            $templatefile = 'signup';
-            $vars = require 'pages/handlesignup.php';
+            // Re-render the same signup template on POST/validation errors
+            $templatefile = 'templates/signup';
+            // Make Turnstile keys available to the included page
+            $routeVars = (function () use ($turnstileSiteKey, $turnstileSecretKey) {
+                return require __DIR__ . '/pages/handlesignup.php';
+            })();
+            $viewVars = is_array($routeVars) ? $routeVars : [];
+            if (empty($viewVars['TURNSTILE_SITE_KEY'])) {
+                $viewVars['TURNSTILE_SITE_KEY'] = $turnstileSiteKey;
+            }
             break;
 
         case 'test':
@@ -313,49 +390,49 @@ function cloudstorage_clientarea($vars) {
         case 'dashboard':
             $pagetitle = 'Storage Dashboard';
             $templatefile = 'templates/dashboard';
-            $vars = require 'pages/dashboard.php';
+            $viewVars = require 'pages/dashboard.php';
             break;
 
         case 'access_keys':
             $pagetitle = 'Access Keys';
             $templatefile = 'templates/access_keys';
-            $vars = require 'pages/access_keys.php';
+            $viewVars = require 'pages/access_keys.php';
             break;
 
         case 'buckets':
             $pagetitle = 'Buckets';
             $templatefile = 'templates/buckets';
-            $vars = require 'pages/buckets.php';
+            $viewVars = require 'pages/buckets.php';
             break;
 
         case 'billing':
             $pagetitle = "Billing";
             $templatefile = 'templates/billing';
-            $vars = require 'pages/billing.php';
+            $viewVars = require 'pages/billing.php';
             break;
 
         case 'history':
             $pagetitle = "Usage History";
             $templatefile = 'templates/history';
-            $vars = require 'pages/history.php';
+            $viewVars = require 'pages/history.php';
             break;
 
         case 'browse':
             $pagetitle = "Browse Bucket";
             $templatefile = 'templates/browse';
-            $vars = require 'pages/browse.php';
+            $viewVars = require 'pages/browse.php';
             break;
 
         case 'subusers':
             $pagetitle = "Sub Users";
             $templatefile = 'templates/subuser';
-            $vars = require 'pages/subusers.php';
+            $viewVars = require 'pages/subusers.php';
             break;
 
         case 'users':
             $pagetitle = "Users";
             $templatefile = 'templates/users';
-            $vars = require 'pages/users.php';
+            $viewVars = require 'pages/users.php';
             break;
 
         case 'savebucket':
@@ -365,7 +442,7 @@ function cloudstorage_clientarea($vars) {
         case 'services':
             $pagetitle = "e3 Cloud Storage";
             $templatefile = 'templates/services';
-            $vars = require 'pages/services.php';
+            $viewVars = require 'pages/services.php';
             break;
 
         case 'deletebucket':
@@ -375,19 +452,19 @@ function cloudstorage_clientarea($vars) {
         default:
             $pagetitle = 'S3 Storage';
             $templatefile = 'templates/s3storage';
-            $vars = require 'pages/s3storage.php';
+            $viewVars = require 'pages/s3storage.php';
             break;
     }
 
     if (isset($_SESSION['message'])) {
-        $vars['message'] = $_SESSION['message'];
+        $viewVars['message'] = $_SESSION['message'];
         unset($_SESSION['message']);
     }
 
     return [
         'pagetitle' => $pagetitle,
         'templatefile' => $templatefile,
-        'vars' => $vars,
+        'vars' => $viewVars ?? [],
     ];
 }
 

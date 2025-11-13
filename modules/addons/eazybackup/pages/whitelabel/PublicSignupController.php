@@ -1,6 +1,7 @@
 <?php
 
 use WHMCS\Database\Capsule;
+use PartnerHub\StripeService;
 
 /**
  * Public Signup Controller (GET/POST)
@@ -37,6 +38,16 @@ function eazybackup_public_signup(array $vars)
             }
         } catch (\Throwable $__) {}
         $turnstileSiteKey = (string)($vars['turnstilesitekey'] ?? '');
+        // Fetch plan/price selection for display (optional)
+        $plans = []; $prices = [];
+        try {
+            $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',(int)$tenant->client_id)->first();
+            if ($msp) {
+                $plans = Capsule::table('eb_plans')->where('msp_id',(int)$msp->id)->orderBy('name','asc')->get();
+                $prices = Capsule::table('eb_plan_prices')->join('eb_plans','eb_plans.id','=','eb_plan_prices.plan_id')->where('eb_plans.msp_id',(int)$msp->id)->get(['eb_plan_prices.*']);
+            }
+        } catch (\Throwable $__) { $plans = []; $prices = []; }
+
         return [
             'pagetitle' => 'Start your trial',
             'templatefile' => 'templates/whitelabel/public-signup',
@@ -47,6 +58,8 @@ function eazybackup_public_signup(array $vars)
                 'flow' => $flow ? (array)$flow : [],
                 'brand' => $brand,
                 'turnstile_site_key' => $turnstileSiteKey,
+                'plans' => $plans,
+                'prices' => $prices,
             ],
         ];
     }
@@ -65,6 +78,8 @@ function eazybackup_public_signup(array $vars)
     $flow = Capsule::table('eb_whitelabel_signup_flows')->where('tenant_id',(int)$tenant->id)->first();
     $pid  = (int)($flow->product_pid ?? 0);
     $paymentMethod = (string)($flow->payment_method ?? '');
+    $planPriceId = (int)($flow->plan_price_id ?? 0);
+    $requireCard  = (int)($flow->require_card ?? 0);
 
     // Basic validation
     $errs = [];
@@ -191,6 +206,20 @@ function eazybackup_public_signup(array $vars)
         if ($clientId <= 0) { throw new \RuntimeException('client_create_failed'); }
 
         try { logModuleCall('eazybackup','signup_post',['tenant_id'=>(int)$tenant->id,'event_id'=>$eventId,'clientId'=>$clientId],'client_ok'); } catch (\Throwable $__) {}
+
+        // If card is required, attach payment method to platform Stripe Customer and set default
+        $requireCard = (int)($flow->require_card ?? 0);
+        $pmId = trim((string)($_POST['payment_method_id'] ?? ''));
+        if ($requireCard) {
+            if ($pmId === '') { throw new \RuntimeException('payment_method_missing'); }
+            $svc = new StripeService();
+            $cust = $svc->createCustomerBasic(trim($first.' '.$last), $email);
+            $scus = (string)($cust['id'] ?? '');
+            if ($scus === '') { throw new \RuntimeException('stripe_customer_create_failed'); }
+            $svc->attachPaymentMethod($pmId, $scus);
+            $svc->updateCustomerDefaultPaymentMethod($scus, $pmId);
+        }
+
         // Create order
         $orderPayload = [
             'clientid' => $clientId,
@@ -282,6 +311,18 @@ function eazybackup_public_signup(array $vars)
         } catch (\Throwable $__) {}
         try { logModuleCall('eazybackup','signup_post',['tenant_id'=>(int)$tenant->id,'event_id'=>$eventId,'email'=>$email],'failed: '.$e->getMessage()); } catch (\Throwable $___) {}
         return [ 'pagetitle'=>'Start your trial', 'templatefile'=>'templates/whitelabel/public-signup', 'vars'=>['errors'=>['server'], 'tenant'=>(array)$tenant, 'host'=>$host] ];
+    }
+}
+
+function eazybackup_public_setupintent(array $vars): void
+{
+    header('Content-Type: application/json');
+    try {
+        $svc = new StripeService();
+        $si = $svc->createSetupIntentAdhoc();
+        echo json_encode(['status'=>'success','client_secret'=>$si['client_secret'] ?? null,'publishable'=>$svc->getPublishable()]);
+    } catch (\Throwable $e) {
+        echo json_encode(['status'=>'error','message'=>$e->getMessage()]);
     }
 }
 

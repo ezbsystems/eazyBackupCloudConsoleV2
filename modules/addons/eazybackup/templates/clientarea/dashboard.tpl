@@ -445,7 +445,7 @@
     function dropdown() {
         return {
             open: false, selected: '',
-            options: ['All Statuses', 'Running', 'Success', 'Warning', 'Error', 'Skipped', 'Cancelled', 'Timeout', 'Unknown'],
+            options: ['All Statuses', 'Running', 'Success', 'Warning', 'Error', 'Missed', 'Skipped', 'Cancelled', 'Timeout', 'Unknown'],
             toggle() { this.open = !this.open; },
             close() { this.open = false; },
             select(option) {
@@ -500,7 +500,7 @@
                 };
             },
             getWorstStatus(jobs) {
-                const statusPriority = { 'Error': 1, 'Timeout': 2, 'Warning': 3, 'Cancelled': 4, 'Skipped': 5, 'Running': 6, 'Success': 7, 'Unknown': 8 };
+                const statusPriority = { 'Error': 1, 'Timeout': 2, 'Missed': 3, 'Warning': 4, 'Cancelled': 5, 'Skipped': 6, 'Running': 7, 'Success': 8, 'Unknown': 9 };
                 let worstStatus = 'Unknown';
                 let minPriority = 9;
                 for (const job of jobs) {
@@ -559,6 +559,8 @@
       window.EB_PULSE_SNAPSHOT = '{$modulelink}&a=pulse-snapshot';
     </script>
 
+    <!-- Load shared UI helpers before any script that uses EB.* -->
+    <script src="modules/addons/eazybackup/assets/js/eazybackup-ui-helpers.js" defer></script>
     <script src="modules/addons/eazybackup/assets/js/job-reports.js" defer></script>
     <script>
       // Initialize job reports helpers once ready

@@ -11,6 +11,7 @@
     use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
     use WHMCS\Module\Addon\CloudStorage\Client\DBController;
     use WHMCS\Module\Addon\CloudStorage\Client\BucketController;
+    use WHMCS\Database\Capsule;
 
     $ca = new ClientArea();
     if (!$ca->isLoggedIn()) {
@@ -26,6 +27,25 @@
 
     $packageId = ProductConfig::$E3_PRODUCT_ID;
     $loggedInUserId = $ca->getUserID();
+
+    // Require recent password verification (defense-in-depth)
+    $verifiedAt = isset($_SESSION['cloudstorage_pw_verified_at']) ? (int)$_SESSION['cloudstorage_pw_verified_at'] : 0;
+    $freshWindow = 15 * 60; // 15 minutes
+    if ($verifiedAt <= 0 || (time() - $verifiedAt) > $freshWindow) {
+        // Optional context: confirm the client does own the product before prompting
+        $ownsE3 = false;
+        try {
+            $ownsE3 = Capsule::table('tblhosting')->where('userid', $loggedInUserId)->where('packageid', $packageId)->count() > 0;
+        } catch (\Throwable $__) {}
+        $jsonData = [
+            'status' => 'fail',
+            'message' => 'Please verify your password to roll access keys.'
+        ];
+
+        $response = new JsonResponse($jsonData, 200);
+        $response->send();
+        exit();
+    }
     $product = DBController::getProduct($loggedInUserId, $packageId);
 
     if (is_null($product) || empty($product->username)) {

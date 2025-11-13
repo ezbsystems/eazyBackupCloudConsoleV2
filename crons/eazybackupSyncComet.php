@@ -179,34 +179,34 @@ logModuleCall(
 );
 
 // // Process jobs in batches to reduce API calls (disabled for testing)
-// $allJobs = [];
-// foreach ($serverClients as $packageId => $serverClient) {
-//     try {
-//         $endTimestamp = time();
-//         // $startTimestamp = strtotime('-5 minutes');
-//         $startTimestamp = strtotime('-30 minutes');
-//         $jobs = $serverClient->AdminGetJobsForDateRange($startTimestamp, $endTimestamp);
-//         $allJobs = array_merge($allJobs, $jobs);
-//         logModuleCall(
-//             'eazybackup',
-//             'cron JobsFetched',
-//             [
-//                 'package_id' => $packageId,
-//                 'start' => $startTimestamp,
-//                 'end' => $endTimestamp,
-//                 'jobs_count' => is_array($jobs) ? count($jobs) : 0,
-//             ],
-//             'Fetched jobs for date range'
-//         );
-//     } catch (\Exception $e) {
-//         logModuleCall(
-//             'eazybackup',
-//             'cron AdminGetJobsForDateRange error',
-//             ['package_id' => $packageId, 'trace' => $e->getTraceAsString()],
-//             $e->getMessage()
-//         );
-//     }
-// }
+$allJobs = [];
+foreach ($serverClients as $packageId => $serverClient) {
+    try {
+        $endTimestamp = time();
+        // $startTimestamp = strtotime('-5 minutes');
+        $startTimestamp = strtotime('-14 days');
+        $jobs = $serverClient->AdminGetJobsForDateRange($startTimestamp, $endTimestamp);
+        $allJobs = array_merge($allJobs, $jobs);
+        logModuleCall(
+            'eazybackup',
+            'cron JobsFetched',
+            [
+                'package_id' => $packageId,
+                'start' => $startTimestamp,
+                'end' => $endTimestamp,
+                'jobs_count' => is_array($jobs) ? count($jobs) : 0,
+            ],
+            'Fetched jobs for date range'
+        );
+    } catch (\Exception $e) {
+        logModuleCall(
+            'eazybackup',
+            'cron AdminGetJobsForDateRange error',
+            ['package_id' => $packageId, 'trace' => $e->getTraceAsString()],
+            $e->getMessage()
+        );
+    }
+}
 
 // // Batch process all jobs at once (disabled for testing)
 // if (!empty($allJobs)) {

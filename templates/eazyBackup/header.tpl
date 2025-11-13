@@ -8,6 +8,7 @@
     </title>
     {include file="$template/includes/head.tpl"}
     {$headoutput}
+    {include file="modules/addons/eazybackup/templates/partials/_ui-tokens.tpl"}
 
     <style>
 /* Hide tooltips by default */
@@ -40,7 +41,7 @@
 </style>
 </head>
 
-<body data-phone-cc-input="{$phoneNumberInputStyle}" class="flex bg-gray-800">
+<body data-phone-cc-input="{$phoneNumberInputStyle}" class="flex eb-bg-page">
 
     {$headeroutput}
 
@@ -95,9 +96,7 @@
                             Dashboard
                         </a>
 
-                        {if $eb_partner_hub_enabled}
-                        {include file="$template/includes/nav_partner_hub.tpl" links=$eb_partner_hub_links}
-                        {/if}
+                        {include file="$template/includes/nav_partner_hub.tpl"}
 
                         <!-- My Services -->
                         <a href="/clientarea.php?action=services"

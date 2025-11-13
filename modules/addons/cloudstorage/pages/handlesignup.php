@@ -11,9 +11,11 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-function validateTurnstile($cfToken)
+function validateTurnstile($cfToken, $secretKey)
 {
-    $secretKey = TURNSTILE_SECRET_KEY;
+    if (!$secretKey) {
+        return false;
+    }
     $url = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 
     // Prepare POST data
@@ -58,7 +60,7 @@ $vars = [
     'old'       => [],
     'message'   => '',
     'debugInfo' => '',
-    'TURNSTILE_SITE_KEY'    => $vars['turnstile_site_key'],
+    'TURNSTILE_SITE_KEY'    => $turnstileSiteKey ?? '',
 ];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -81,7 +83,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errors['last_name']  = "Last Name may only contain letters.";
     }
 
-     // 2) Bail early on errors
+    // Turnstile validation
+    $cfToken = $_POST['cf-turnstile-response'] ?? '';
+    if (!validateTurnstile($cfToken, $turnstileSecretKey ?? '')) {
+        $errors['turnstile'] = 'Captcha validation failed. Please try again.';
+    }
+
+    // 2) Bail early on errors
      if (!empty($errors)) {
         $_SESSION['old'] = [
             'first_name' => $firstName,
@@ -93,6 +101,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'POST'      => $_SESSION['old'],
             'message'   => "Please correct the indicated fields.",
             'debugInfo' => print_r($debugInfo, true),
+            'TURNSTILE_SITE_KEY' => $turnstileSiteKey ?? '',
         ];
     }
 

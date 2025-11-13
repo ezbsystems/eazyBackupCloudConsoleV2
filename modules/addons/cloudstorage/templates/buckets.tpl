@@ -190,10 +190,34 @@
                       </span>
                     </div>
 
+                    <!-- Logging -->
+                    <div>
+                      <h6 class="text-sm font-medium text-slate-400">Logging</h6>
+                      <span
+                        class="text-md font-medium text-slate-300 bucket-logging-status"
+                        data-bucket-name="{$bucket->name}"
+                        id="loggingStatus-{$bucket->id}"
+                        title="Server access logging status"
+                      >Checking…</span>
+                    </div>
+
                     <!-- Actions column -->
                     <div>
 
                       <div class="mt-1">
+                        <button
+                          class="float-right bg-gray-800 text-gray-300 p-2 rounded-md ml-2 manage-logging"
+                          type="button"
+                          data-bucket-name="{$bucket->name}"
+                          data-bucket-id="{$bucket->id}"
+                          title="Manage server access logging"
+                          onclick="openModal('manageLoggingModal')"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-slate-400 hover:text-sky-400 inline-block" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="3"></circle>
+                            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c0 .66.26 1.3.73 1.77.47.47 1.11.73 1.77.73H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                          </svg>
+                        </button>
                         <button
                           class="float-right bg-gray-800 text-gray-300 p-2 rounded-md delete-bucket"
                           type="button"
@@ -394,6 +418,54 @@
                         >
                             Submit
                         </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Manage Logging Modal -->
+        <div class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 hidden" id="manageLoggingModal">
+            <div class="bg-gray-800 rounded-lg shadow-lg w-full max-w-lg p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <div class="flex items-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 3a3 3 0 00-3 3v.75H5.25A2.25 2.25 0 003 9v9.75A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V9a2.25 2.25 0 00-2.25-2.25H17.25V6a3 3 0 00-3-3h-4.5z" />
+                        </svg>
+                        <h2 class="text-xl font-semibold text-white">Manage Bucket Logging</h2>
+                    </div>
+                    <button type="button" onclick="closeModal('manageLoggingModal')" class="text-slate-300 hover:text-white focus:outline-none">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+                <div>
+                    <div id="loggingMessage" class="text-white px-4 py-2 rounded-md mb-4 hidden" role="alert"></div>
+                    <form id="manageLoggingForm">
+                        <input type="hidden" id="loggingBucketName" value="">
+                        <div class="mb-4 flex items-center">
+                            <input type="checkbox" id="loggingEnabledToggle" class="h-4 w-4 text-sky-600 bg-gray-700 border-gray-600 rounded focus:ring-sky-500">
+                            <label for="loggingEnabledToggle" class="ml-2 block text-sm text-slate-300">Enable server access logging</label>
+                        </div>
+                        <div id="loggingConfigSection" class="mb-4 ml-6 hidden">
+                            <div class="mb-3">
+                                <label for="loggingTargetBucket" class="block text-sm font-medium text-slate-300">Target Bucket</label>
+                                <input type="text" id="loggingTargetBucket" class="mt-1 block w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md shadow-sm focus:ring-sky-500 focus:border-sky-500 focus:outline-none px-4 py-2" placeholder="example-logs">
+                            </div>
+                            <div class="mb-3">
+                                <label for="loggingPrefix" class="block text-sm font-medium text-slate-300">Log Prefix</label>
+                                <input type="text" id="loggingPrefix" class="mt-1 block w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md shadow-sm focus:ring-sky-500 focus:border-sky-500 focus:outline-none px-4 py-2" placeholder="bucket-name/">
+                                <p class="mt-2 text-xs text-slate-400">Logs appear after a short delay (5–15 minutes).</p>
+                            </div>
+                            <div class="mb-3 flex items-center">
+                                <input type="checkbox" id="createTargetBucket" class="h-4 w-4 text-sky-600 bg-gray-700 border-gray-600 rounded focus:ring-sky-500">
+                                <label for="createTargetBucket" class="ml-2 block text-sm text-slate-300">Create target bucket if it doesn't exist</label>
+                            </div>
+                        </div>
+                        <div class="flex justify-end space-x-2">
+                            <button type="button" class="bg-gray-700 hover:bg-gray-600 text-gray-300 px-4 py-2 rounded-md" onclick="closeModal('manageLoggingModal')">Cancel</button>
+                            <button type="submit" id="saveLoggingBtn" class="bg-sky-600 hover:bg-sky-700 text-white px-4 py-2 rounded-md">Save</button>
+                        </div>
                     </form>
                 </div>
             </div>
@@ -955,6 +1027,102 @@
             jQuery('#checkStatusButton').off('click').on('click', function(){
                 var bucketName = jQuery('#deletingBucketName').val();
                 fetchObjectLockStatus(bucketName, true);
+            });
+        });
+
+        // Load logging status for each bucket on page load
+        jQuery(document).ready(function() {
+            jQuery('.bucket-logging-status').each(function(){
+                var el = jQuery(this);
+                var bucket = el.data('bucket-name');
+                jQuery.post('modules/addons/cloudstorage/api/getbucketlogging.php', { bucket_name: bucket }, function(resp){
+                    if (!resp || resp.status !== 'success') { el.text('—'); return; }
+                    var d = resp.data || {};
+                    if (d.enabled) {
+                        var tgt = d.target_bucket || '—';
+                        var pfx = d.target_prefix || '';
+                        el.text('On: ' + tgt + '/' + pfx);
+                        el.removeClass('text-slate-600').addClass('text-cyan-300');
+                    } else {
+                        el.text('Off');
+                        el.removeClass('text-cyan-300').addClass('text-slate-600');
+                    }
+                }, 'json').fail(function(){ el.text('—'); });
+            });
+
+            // Open manage logging modal with context
+            jQuery('.manage-logging').click(function(){
+                var bucket = jQuery(this).data('bucket-name');
+                jQuery('#loggingBucketName').val(bucket);
+                // Reset form
+                jQuery('#loggingEnabledToggle').prop('checked', false);
+                jQuery('#loggingConfigSection').addClass('hidden');
+                jQuery('#loggingTargetBucket').val(bucket + '-logs');
+                jQuery('#loggingPrefix').val(bucket + '/');
+                jQuery('#createTargetBucket').prop('checked', true);
+                // Fetch current status and prefill
+                jQuery.post('modules/addons/cloudstorage/api/getbucketlogging.php', { bucket_name: bucket }, function(resp){
+                    if (resp && resp.status === 'success' && resp.data) {
+                        var d = resp.data;
+                        if (d.enabled) {
+                            jQuery('#loggingEnabledToggle').prop('checked', true);
+                            jQuery('#loggingConfigSection').removeClass('hidden');
+                            if (d.target_bucket) jQuery('#loggingTargetBucket').val(d.target_bucket);
+                            if (d.target_prefix) jQuery('#loggingPrefix').val(d.target_prefix);
+                        }
+                    }
+                }, 'json');
+            });
+
+            // Toggle config section when enabling/disabling
+            jQuery('#loggingEnabledToggle').on('change', function(){
+                if (jQuery(this).is(':checked')) {
+                    jQuery('#loggingConfigSection').removeClass('hidden');
+                } else {
+                    jQuery('#loggingConfigSection').addClass('hidden');
+                }
+            });
+
+            // Save logging configuration
+            jQuery('#manageLoggingForm').on('submit', function(e){
+                e.preventDefault();
+                var bucket = jQuery('#loggingBucketName').val();
+                var enabled = jQuery('#loggingEnabledToggle').is(':checked');
+                if (!enabled) {
+                    jQuery.post('modules/addons/cloudstorage/api/disablebucketlogging.php', { bucket_name: bucket }, function(resp){
+                        if (resp && resp.status === 'success') {
+                            showGlobalMessage(resp.message || 'Logging disabled', 'success');
+                            jQuery(".bucket-logging-status[data-bucket-name='"+bucket+"']").text('Off').removeClass('text-cyan-300').addClass('text-slate-600');
+                            closeModal('manageLoggingModal');
+                        } else {
+                            showModalMessage((resp && resp.message) ? resp.message : 'Failed to disable logging.', 'loggingMessage', 'error');
+                        }
+                    }, 'json').fail(function(xhr){
+                        showModalMessage('Failed to disable logging.', 'loggingMessage', 'error');
+                    });
+                    return;
+                }
+
+                var target = jQuery('#loggingTargetBucket').val();
+                var prefix = jQuery('#loggingPrefix').val();
+                var createTarget = jQuery('#createTargetBucket').is(':checked') ? 1 : 0;
+                jQuery.post('modules/addons/cloudstorage/api/setbucketlogging.php', {
+                    bucket_name: bucket,
+                    target_bucket: target,
+                    prefix: prefix,
+                    create_target: createTarget
+                }, function(resp){
+                    if (resp && resp.status === 'success') {
+                        showGlobalMessage(resp.message || 'Logging enabled', 'success');
+                        jQuery(".bucket-logging-status[data-bucket-name='"+bucket+"']").text('On: ' + target + '/' + (prefix||''))
+                            .removeClass('text-slate-600').addClass('text-cyan-300');
+                        closeModal('manageLoggingModal');
+                    } else {
+                        showModalMessage((resp && resp.message) ? resp.message : 'Failed to enable logging.', 'loggingMessage', 'error');
+                    }
+                }, 'json').fail(function(){
+                    showModalMessage('Failed to enable logging.', 'loggingMessage', 'error');
+                });
             });
         });
 

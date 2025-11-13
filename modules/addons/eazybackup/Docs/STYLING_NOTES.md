@@ -1,34 +1,15 @@
 eazyBackup Dark UI Playbook (Client Area)
-Core idea
 
 Use three surfaces, one accent, neutral separators, and consistent spacing/typography. No new background colors—structure comes from rings, borders, and layout.
 
 1) Tokens (drop-in partial)
 
-Create a tiny partial you can include on any page (e.g., templates/partials/_ui-tokens.tpl). This avoids touching Tailwind config.
+We have created a partial that can be included on any page (templates/partials/_ui-tokens.tpl). This avoids touching Tailwind config.
 
-<style>
-  :root {
-    /* Surfaces */
-    --bg-page: #0B1420;   /* lowest elevation */
-    --bg-card: #0F1B2A;   /* raised containers */
-    --bg-input: #0A1624;  /* inset controls */
-
-    /* Text (as RGB for Tailwind arbitrary values) */
-    --text-primary: 229 231 235;  /* slate-200 */
-    --text-secondary: 148 163 184;/* slate-400 */
-
-    /* Accent */
-    --accent: 27 44 80;   /* #1B2C50 brand blue */
-
-    /* Neutrals */
-    --ring-neutral: 255 255 255; /* use opacity with /10, /20 etc */
-  }
-</style>
 
 Page wrapper (add to each page)
 <div class="min-h-screen bg-[rgb(var(--bg-page))] text-[rgb(var(--text-primary))]">
-  <div class="mx-auto max-w-5xl px-6 py-8"> <!-- page container -->
+  <div class="mx-auto max-w-none px-6 py-8"> <!-- page container -->
     <!-- your content -->
   </div>
 </div>
@@ -115,6 +96,81 @@ Buttons
   Cancel
 </button>
 
+Number stepper (increment/decrement)
+
+Use this Alpine/Tailwind stepper for numeric inputs to keep controls consistent across the app. It is fully keyboard accessible, keeps the neutral input shell, and uses our accent for focus.
+
+Markup (wrap your input):
+
+```html
+<div class="mt-2 flex rounded-xl overflow-hidden ring-1 ring-white/10 bg-[rgb(var(--bg-input))]" x-data="ebStepper({ min: 0, step: 1 })">
+  <button type="button" class="px-3 py-2.5 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--accent))]" aria-label="Decrease" @click="dec">−</button>
+  <input x-ref="input" x-model.number="value" type="number" name="fieldName" min="0" step="1" class="flex-1 text-center bg-transparent text-white/90 placeholder-white/30 focus:outline-none focus:ring-0 px-3.5 py-2.5" />
+  <button type="button" class="px-3 py-2.5 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--accent))]" aria-label="Increase" @click="inc">+</button>
+  </div>
+```
+
+Behavior (add once on the page—already present in client pages near other JS):
+
+```html
+<script>
+  // Alpine helper: numeric stepper with min/max/step and safe coercion
+  window.ebStepper = function(opts){
+    return {
+      value: 0,
+      min: isFinite(opts && opts.min) ? Number(opts.min) : -Infinity,
+      max: isFinite(opts && opts.max) ? Number(opts.max) : Infinity,
+      step: isFinite(opts && opts.step) && Number(opts.step) > 0 ? Number(opts.step) : 1,
+      dec(){ var v = Number(this.value)||0; v -= this.step; if (isFinite(this.min) && v < this.min) v = this.min; this.value = v; if (this.$refs && this.$refs.input) this.$refs.input.dispatchEvent(new Event('input')); },
+      inc(){ var v = Number(this.value)||0; v += this.step; if (isFinite(this.max) && v > this.max) v = this.max; this.value = v; if (this.$refs && this.$refs.input) this.$refs.input.dispatchEvent(new Event('input')); }
+    };
+  };
+</script>
+```
+
+Notes:
+- Keep the neutral shell: `bg-[rgb(var(--bg-input))] ring-1 ring-white/10` and rounded-xl.
+- Buttons sit inside the input shell; they use hover `bg-white/10` and accent focus ring.
+- Center text in the input for stepper fields to reinforce the single-value interaction.
+
+Bespoke money stepper (0.01) — recommended pattern
+
+Use this for currency fields with 0.01 increments. It hides the native spinners and keeps +/- inside the neutral shell. Hover highlight is state-driven to avoid bleed.
+
+```html
+<style>
+  .eb-no-spinner::-webkit-outer-spin-button,
+  .eb-no-spinner::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .eb-no-spinner { -moz-appearance: textfield; appearance: textfield; }
+</style>
+
+<div class="mt-2 flex items-center rounded-xl overflow-hidden ring-1 ring-white/10 bg-[rgb(var(--bg-input))]"
+     x-data="ebPriceStepper(0.01)"
+     x-init="value = Number(model||0)"
+     x-effect="model = Number(value||0)">
+  <button type="button" class="shrink-0 w-8 flex items-center justify-center py-2.5 text-white/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--accent))]" :class="hovered==='dec' ? 'bg-white/10' : ''" aria-label="Decrease" @mouseenter="hovered='dec'" @mouseleave="hovered=''" @click.stop="dec">−</button>
+  <input x-ref="input" x-model.number="value" type="number" step="0.01" class="eb-no-spinner flex-1 min-w-0 text-center bg-transparent text-white/90 placeholder-white/30 focus:outline-none focus:ring-0 px-3.5 py-2.5" />
+  <button type="button" class="shrink-0 w-8 flex items-center justify-center py-2.5 text-white/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--accent))]" :class="hovered==='inc' ? 'bg-white/10' : ''" aria-label="Increase" @mouseenter="hovered='inc'" @mouseleave="hovered=''" @click.stop="inc">+</button>
+</div>
+```
+
+JS wrapper (include once)
+
+```html
+<script>
+  window.ebPriceStepper = window.ebPriceStepper || function(step){
+    var base = window.ebStepper({ min: 0, step: (isFinite(step)? Number(step): 0.01) || 0.01 });
+    base.hovered = '';
+    return base;
+  };
+</script>
+```
+
+Tips:
+- Keep buttons `shrink-0` and set input `min-w-0` to prevent overflow.
+- Use `@click.stop` so parent handlers don’t interfere.
+- Prefer state-driven hover (`hovered`) over Tailwind `hover:` utilities on the container.
+
 Banners (Info / Success / Warning)
 
 Keep the shell consistent; change only hue and icon.
@@ -171,8 +227,8 @@ Tabs (underline style—no extra backgrounds)
 
 Modals (overlay + card)
 <div class="fixed inset-0 z-50 flex items-center justify-center">
-  <div class="absolute inset-0 bg-black/60"></div>
-  <div class="relative w-full max-w-lg rounded-2xl bg-[rgb(var(--bg-card))]
+  <div class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+  <div class="relative w-full max-w-lg rounded-2xl bg-slate-900
               ring-1 ring-white/10 shadow-xl shadow-black/30">
     <div class="px-6 py-5">
       <h3 class="text-lg font-medium">Modal title</h3>
@@ -261,6 +317,17 @@ templates/partials/card-close.tpl
 
   </div>
 </section>
+
+Form fields (canonical classes)
+
+Use this class for all inputs, selects, and textareas to ensure consistent spacing, colors, and focus rings:
+
+class="mt-2 w-full rounded-xl bg-[rgb(var(--bg-input))] text-white/90 placeholder-white/30 ring-1 ring-white/10 focus:ring-2 focus:ring-[rgb(var(--accent))] focus:outline-none px-3.5 py-2.5"
+
+Notes:
+- Add `placeholder-white/30` to provide soft placeholder contrast.
+- For selects, add `appearance-none pr-10` and position a chevron if needed.
+- Keep labels with `text-sm text-[rgb(var(--text-secondary))]` and wrap each field in a `<label class="block">`.
 
 
 templates/partials/banner.tpl (params: type=neutral|success|warning, text=…).

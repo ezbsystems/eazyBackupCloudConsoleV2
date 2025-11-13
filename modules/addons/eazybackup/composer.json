@@ -19,7 +19,8 @@
   },
   "autoload": {
     "psr-4": {
-      "eazyBackup\\CometCompat\\": "lib/CometCompat/"
+      "eazyBackup\\CometCompat\\": "lib/CometCompat/",
+      "PartnerHub\\": "lib/PartnerHub/"
     }
   },
   "minimum-stability": "stable",

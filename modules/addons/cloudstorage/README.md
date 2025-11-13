@@ -97,6 +97,94 @@ Defined in `cloudstorage.php` activation:
 - Guidance section is now an accordion (collapsed by default).
 - Destructive flows require typed phrases; success toasts show in the page chrome, and modals close promptly to surface the toast.
 
+## Recent updates: Trial signup Turnstile (Cloudflare)
+
+Adds Cloudflare Turnstile (captcha) to the trial signup form to reduce automated signups. Keys are stored in WHMCS addon settings and survive module disable/enable.
+
+### Configuration (Addon Settings)
+- `turnstile_site_key` — Cloudflare Turnstile site key for the widget
+- `turnstile_secret_key` — Cloudflare Turnstile secret for server-side verification
+
+These are defined in the module config and saved in WHMCS `tbladdonmodules` (persist across deactivate/activate). See:
+
+```60:71:accounts/modules/addons/cloudstorage/cloudstorage.php
+'turnstile_site_key' => [
+    'FriendlyName' => 'Turnstile Site Key',
+    'Type' => 'text',
+    'Size' => '100',
+    'Description' => 'Cloudflare Turnstile site key used on the signup form.'
+],
+'turnstile_secret_key' => [
+    'FriendlyName' => 'Turnstile Secret Key',
+    'Type' => 'password',
+    'Size' => '100',
+    'Description' => 'Secret key for server-side Turnstile verification.'
+]
+```
+
+### Client Area integration
+- The `signup` page receives `TURNSTILE_SITE_KEY` and renders the widget. POST re-renders the same template on validation errors and continues to include the site key.
+
+```308:329:accounts/modules/addons/cloudstorage/cloudstorage.php
+case 'signup':
+    $pagetitle = 'e3 Storage Signup';
+    $templatefile = 'templates/signup';
+    $viewVars = [
+        'TURNSTILE_SITE_KEY' => $turnstileSiteKey,
+    ];
+    break;
+
+case 'handlesignup':
+    $pagetitle = 'e3 Storage Signup';
+    $templatefile = 'templates/signup';
+    $routeVars = (function () use ($turnstileSiteKey, $turnstileSecretKey) {
+        return require __DIR__ . '/pages/handlesignup.php';
+    })();
+    $viewVars = is_array($routeVars) ? $routeVars : [];
+    if (empty($viewVars['TURNSTILE_SITE_KEY'])) {
+        $viewVars['TURNSTILE_SITE_KEY'] = $turnstileSiteKey;
+    }
+    break;
+```
+
+### Template usage
+In `templates/signup.tpl` the widget is embedded and the script is loaded from Cloudflare. The widget uses the site key variable provided by the route.
+
+```273:277:accounts/modules/addons/cloudstorage/templates/signup.tpl
+<div class="flex justify-center">
+  <div class="cf-turnstile" data-sitekey="{$TURNSTILE_SITE_KEY}" data-theme="light"></div>
+</div>
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+```
+
+### Server-side verification
+`pages/handlesignup.php` validates the `cf-turnstile-response` token against Cloudflare using the secret from settings. On failure, a readable error is returned and the form is re-rendered.
+
+```14:22:accounts/modules/addons/cloudstorage/pages/handlesignup.php
+function validateTurnstile($cfToken, $secretKey)
+{
+    if (!$secretKey) {
+        return false;
+    }
+    $url = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
+    // ...
+}
+```
+
+```86:94:accounts/modules/addons/cloudstorage/pages/handlesignup.php
+// Turnstile validation
+$cfToken = $_POST['cf-turnstile-response'] ?? '';
+if (!validateTurnstile($cfToken, $turnstileSecretKey ?? '')) {
+    $errors['turnstile'] = 'Captcha validation failed. Please try again.';
+}
+```
+
+### Troubleshooting
+- Widget not visible: ensure `Turnstile Site Key` is set in the addon settings and the domain is allowed in Cloudflare Turnstile configuration.
+- Script blocked: confirm no restrictive CSP or ad-blockers are preventing `https://challenges.cloudflare.com/turnstile/v0/api.js`.
+- Always use HTTPS on production pages where the widget renders.
+- On POST validation errors, the signup page reuses `templates/signup.tpl` and preserves the site key.
+
 ## Notable implementation details
 - Real-time current object count in emptiness checks now uses paginated S3 `listObjectsV2` to avoid stale DB snapshots.
 - Emptiness checks for versions, delete markers, multipart uploads, Legal Hold, and per-version retention use S3 APIs: `listObjectVersions`, `listMultipartUploads`, `getObjectLegalHold`, `getObjectRetention`.
@@ -107,6 +195,7 @@ Module settings are managed via WHMCS addon settings:
 - `s3_endpoint`, `s3_region`
 - `ceph_admin_user`, `ceph_access_key`, `ceph_secret_key`
 - `encryption_key` (for stored access keys)
+- `turnstile_site_key`, `turnstile_secret_key` (for Turnstile captcha)
 
 ## Development notes
 - Key touchpoints for the delete flow:

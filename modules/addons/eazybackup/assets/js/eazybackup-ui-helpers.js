@@ -57,7 +57,7 @@
     7001: 'Warning',
     7002: 'Error',
     7003: 'Error',
-    7004: 'Skipped',
+    7004: 'Missed',
     7006: 'Skipped',
     7005: 'Cancelled'
   };
@@ -76,8 +76,9 @@
     Timeout: 'bg-amber-500',
     Warning: 'bg-amber-500',
     Error: 'bg-red-500',
-    Skipped: 'bg-gray-500',
-    Cancelled: 'bg-gray-500',
+    Missed: 'bg-slate-400',
+    Skipped: 'bg-violet-500',
+    Cancelled: 'bg-red-500',
     Unknown: 'bg-gray-400'
   };
 
@@ -95,6 +96,7 @@
     if (u === 'TIMEOUT') return 'Timeout';
     if (u === 'WARNING') return 'Warning';
     if (u === 'ERROR' || u === 'QUOTA_EXCEEDED' || u === 'ABANDONED') return 'Error';
+    if (u === 'MISSED') return 'Missed';
     if (u === 'SKIPPED') return 'Skipped';
     if (u === 'CANCELLED' || u === 'CANCELED') return 'Cancelled';
     return 'Unknown';
@@ -118,6 +120,7 @@
       case 'Timeout':  return 'text-amber-500';
       case 'Warning':  return 'text-amber-500';
       case 'Error':    return 'text-red-500';
+      case 'Missed':   return 'text-amber-500';
       case 'Skipped':  return 'text-gray-500';
       case 'Cancelled':return 'text-gray-500';
       default:         return 'text-gray-400';

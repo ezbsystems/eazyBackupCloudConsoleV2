@@ -1,14 +1,5 @@
 <!-- accounts/modules/addons/eazybackup/templates/whitelabel-signup.tpl -->
-<style>
-  :root {
-    --bg-page: #0B1420;
-    --bg-card: #0F1B2A;
-    --bg-input: #0A1624;
-    --text-primary: 229 231 235;   /* slate-200 */
-    --text-secondary: 148 163 184; /* slate-400 */
-    --accent: 12 74 110;           /* #1B2C50 */
-  }
-</style>
+{include file="modules/addons/eazybackup/templates/partials/_ui-tokens.tpl"}
 
 <div class="min-h-screen bg-[rgb(var(--bg-page))] text-[rgb(var(--text-primary))]">
   <div class="mx-auto max-w-5xl px-6 py-8">

@@ -40,6 +40,18 @@
     }
 
     $username = $product->username;
+    // Log context before attempting decryption (no secrets)
+    logModuleCall(
+        'cloudstorage',
+        'DecryptKeysRequest',
+        [
+            'userId' => $loggedInUserId,
+            'username' => $username,
+        ],
+        null,
+        null,
+        []
+    );
     $user = DBController::getUser($username);
     $accessKey = DBController::getRow('s3_user_access_keys', [
         ['user_id', '=', $user->id]
@@ -65,6 +77,20 @@
     $decryptedSecretKey = HelperController::decryptKey($accessKey->secret_key, $encryptionKey->value);
     $accessKey->access_key = $decryptedAccessKey;
     $accessKey->secret_key = $decryptedSecretKey;
+
+    // Log successful decryption (only metadata, not actual keys)
+    logModuleCall(
+        'cloudstorage',
+        'DecryptKeysSuccess',
+        [
+            'userId' => $loggedInUserId,
+            'username' => $username,
+            'accessKeyId' => $accessKey->id ?? null,
+        ],
+        'Decryption completed',
+        null,
+        []
+    );
 
     $jsonData = [
         'status' => 'success',

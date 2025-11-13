@@ -57,7 +57,41 @@
             </div>
         </div>
 
-        <div class="text-white px-4 py-3 rounded-md mb-6 hidden" role="alert" id="alertMessage"></div>
+        <!-- Alpine Toast (global) -->
+        <div x-data="{
+                visible:false,
+                message:'',
+                type:'info',
+                timeout:null,
+                show(msg,t='info'){
+                    this.message=msg; this.type=t; this.visible=true;
+                    if(this.timeout) clearTimeout(this.timeout);
+                    this.timeout=setTimeout(()=>{ this.visible=false; }, t==='error'?7000:4000);
+                }
+            }"
+             x-init="window.toast={
+                success:(m)=>show(m,'success'),
+                error:(m)=>show(m,'error'),
+                info:(m)=>show(m,'info')
+             }"
+             class="fixed top-4 right-4 z-50">
+            <div x-show="visible" x-transition
+                 class="rounded-md px-4 py-3 text-white shadow-lg min-w-[260px]"
+                 :class="{
+                    'bg-green-600': type==='success',
+                    'bg-red-600': type==='error',
+                    'bg-blue-600': type==='info'
+                 }">
+                <div class="flex items-start justify-between">
+                    <div class="pr-2" x-text="message"></div>
+                    <button type="button" class="ml-2 text-white/80 hover:text-white" @click="visible=false" aria-label="Close">
+                        <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
 
         <!-- Access Keys Table -->
         <div class="container mt-3 bg-slate-800 rounded-lg border border-slate-700 shadow-lg p-6">
@@ -299,18 +333,18 @@
                 dataType: 'json',
                 success: function(response) {
                     if (response.status === 'fail') {
-                        showMessage(response.message, 'alertMessage', 'error');
+                        window.toast.error(response.message || 'Failed to decrypt keys.');
                         return;
                     }
                     localStorage.setItem('passwordModalOpened', 'true');
-                    showMessage(response.message, 'alertMessage', 'success');
+                    window.toast.success(response.message || 'Keys decrypted.');
                     jQuery('#accessKey').val(response.keys.access_key);
                     jQuery('#secretKey').val(response.keys.secret_key);
                     jQuery('#copyIconAccessKey').removeClass('hidden');
                     jQuery('#copyIconSecretKey').removeClass('hidden');
                 },
                 error: function(xhr, status, error) {
-                    showMessage(error, 'alertMessage', 'error');
+                    window.toast.error(error || 'Request failed.');
                 }
             });
         }
@@ -335,17 +369,17 @@
                                 rollKeys();
                             }
                         } else {
-                            showMessage(response.message, 'passwordErrorMessage', 'error');
+                            window.toast.error(response.message || 'Password verification failed.');
                         }
                         jQuery('#submitPassword').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
                     },
                     error: function(xhr, status, error) {
-                        showMessage(error, 'passwordErrorMessage', 'error');
+                        window.toast.error(error || 'Password verification failed.');
                         jQuery('#submitPassword').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
                     }
                 });
             } else {
-                showMessage('Action is not appropriate.', 'alertMessage', 'error');
+                window.toast.error('Action is not appropriate.');
             }
         });
 
@@ -372,11 +406,11 @@
                 dataType: 'json',
                 success: function(response) {
                     if (response.status == 'fail') {
-                        showMessage(response.message, 'alertMessage', 'error');
+                        window.toast.error(response.message || 'Failed to roll keys.');
                         return;
                     }
                     localStorage.setItem('passwordModalOpened', 'true');
-                    showMessage(response.message, 'alertMessage', 'success');
+                    window.toast.success(response.message || 'Access keys rolled.');
                     // Hide the icons and mask the fields
                     jQuery('#copyIconAccessKey').addClass('hidden');
                     jQuery('#copyIconSecretKey').addClass('hidden');
@@ -384,7 +418,7 @@
                     jQuery('#secretKey').val('********');
                 },
                 error: function(xhr, status, error) {
-                    showMessage(error, 'alertMessage', 'error');
+                    window.toast.error(error || 'Request failed.');
                 }
             });
         }

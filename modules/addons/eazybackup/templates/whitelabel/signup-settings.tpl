@@ -9,6 +9,9 @@
       <div class="bg-gray-900/50 p-4 rounded border border-gray-700">
         <h3 class="text-white font-semibold mb-3">Flow Configuration</h3>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+          <div class="md:col-span-2 flex items-center gap-2">
+            <label class="inline-flex items-center gap-2"><input type="checkbox" name="is_enabled" value="1" {if $flow.is_enabled}checked{/if}/> Enable public signup</label>
+          </div>
           <div>
             {if $products|@count > 0}
               <label class="block text-slate-300 mb-1">Product</label>
@@ -45,6 +48,18 @@
           <div>
             <label class="block text-slate-300 mb-1">Payment method</label>
             <input name="payment_method" value="{$flow.payment_method|default:''}" class="w-full rounded border border-slate-600 bg-slate-900 px-2 py-2 text-slate-100" />
+          </div>
+          <div>
+            <label class="block text-slate-300 mb-1">Plan / Price</label>
+            <select name="plan_price_id" class="w-full rounded border border-slate-600 bg-slate-900 px-2 py-2 text-slate-100">
+              <option value="">— Select —</option>
+              {foreach from=$prices item=pr}
+                <option value="{$pr.id}" {if $flow.plan_price_id==$pr.id}selected{/if}>{$pr.nickname|default:'Standard'|escape} ({$pr.billing_cycle|escape})</option>
+              {/foreach}
+            </select>
+          </div>
+          <div class="flex items-center gap-2">
+            <label class="inline-flex items-center gap-2"><input type="checkbox" name="require_card" value="1" {if $flow.require_card}checked{/if}/> Require card at signup</label>
           </div>
           <div class="flex items-center gap-2 mt-6">
             <label class="inline-flex items-center gap-2"><input type="checkbox" name="require_email_verify" value="1" {if $flow.require_email_verify}checked{/if}/> Require email verification</label>

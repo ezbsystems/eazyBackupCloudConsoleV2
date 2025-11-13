@@ -114,7 +114,16 @@ class Comet {
         try {
             $canonicalUsername = (string)$client->username;
             $clientId = (int)$client->userid;
-            foreach ($userProfile->Sources as $itemId => $item) {
+            // Normalize Sources to an array to handle stdClass safely
+            $sources = isset($userProfile->Sources)
+                ? (is_array($userProfile->Sources) ? $userProfile->Sources : (is_object($userProfile->Sources) ? get_object_vars($userProfile->Sources) : []))
+                : [];
+
+            // Wrap upsert + prune in a transaction for consistency
+            Capsule::connection()->transaction(function () use ($sources, $clientId, $canonicalUsername) {
+                $seenIds = [];
+
+                foreach ($sources as $itemId => $item) {
                 // Backward compatibility: capture OwnerDevice if present for new schema
                 $ownerDevice = property_exists($item, 'OwnerDevice') ? $item->OwnerDevice : (isset($item->OwnerDevice) ? $item->OwnerDevice : null);
                 // Handle invalid creation dates
@@ -165,7 +174,23 @@ class Comet {
                     ['id' => $protectedItem['id']],
                     $protectedItem
                 );
-            }
+                    $seenIds[] = (string)$itemId;
+                }
+
+                // Prune rows not present upstream for this user
+                if (empty($seenIds)) {
+                    Capsule::table('comet_items')
+                        ->where('client_id', $clientId)
+                        ->where('username', $canonicalUsername)
+                        ->delete();
+                } else {
+                    Capsule::table('comet_items')
+                        ->where('client_id', $clientId)
+                        ->where('username', $canonicalUsername)
+                        ->whereNotIn('id', $seenIds)
+                        ->delete();
+                }
+            });
         } catch (\Exception $e) {
             /*
             logModuleCall(

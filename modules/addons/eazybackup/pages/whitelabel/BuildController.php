@@ -261,9 +261,11 @@ function eazybackup_whitelabel_branding(array $vars)
         // Fallback: show tenant list so users can pick a tenant
         $tenants = [];
         try {
-            $rows = Capsule::table('eb_whitelabel_tenants')
-                ->where('client_id', $clientId)
-                ->orderBy('created_at', 'desc')
+            $rows = Capsule::table('eb_whitelabel_tenants as t')
+                ->leftJoin('tblproducts as p', 'p.id', '=', 't.product_id')
+                ->where('t.client_id', $clientId)
+                ->orderBy('t.created_at', 'desc')
+                ->select(['t.*', Capsule::raw('p.name as product_name')])
                 ->get();
             foreach ($rows as $r) {
                 // Lazy backfill public_id if missing

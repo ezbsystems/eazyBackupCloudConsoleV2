@@ -11,6 +11,7 @@ add_hook('ClientAreaHeadOutput', 1, function($vars) {
         <link href="{$webRoot}/modules/addons/cloudstorage/assets/css/responsive.css" rel="stylesheet" type="text/css" />
         <link href="{$webRoot}/modules/addons/cloudstorage/assets/css/scrollbar.css" rel="stylesheet" type="text/css" />
         <script src="{$webRoot}/modules/addons/cloudstorage/assets/js/tailwind.min.js"></script>
+        <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
         <script src="{$webRoot}/modules/addons/cloudstorage/assets/js/moment.min.js"></script>
         <script src="{$webRoot}/modules/addons/cloudstorage/assets/js/popper.min.js"></script>
         <script src="{$webRoot}/modules/addons/cloudstorage/assets/js/jquery.dataTables.min.js"></script>
@@ -83,5 +84,29 @@ add_hook('CancellationRequest132', 1, function($vars) {
             // 'customvars' => base64_encode(serialize($mergeFields)),
         ]);
     }
+});
+
+/**
+ * Password change/reset diagnostics
+ * - Logs user/client password change events for troubleshooting cases where
+ *   password-based validation (for unlocking access keys) appears to fail.
+ */
+add_hook('UserChangePassword', 1, function($vars) {
+    // $vars commonly contains: userId, email
+    $context = [
+        'hook' => 'UserChangePassword',
+        'userId' => $vars['userId'] ?? null,
+        'email' => $vars['email'] ?? null,
+    ];
+    logModuleCall('cloudstorage', 'PasswordChange', $context, 'User password changed', null, []);
+});
+
+add_hook('ClientChangePassword', 1, function($vars) {
+    // $vars commonly contains: userid (client ID)
+    $context = [
+        'hook' => 'ClientChangePassword',
+        'clientId' => $vars['userid'] ?? null,
+    ];
+    logModuleCall('cloudstorage', 'PasswordChange', $context, 'Client password changed', null, []);
 });
 

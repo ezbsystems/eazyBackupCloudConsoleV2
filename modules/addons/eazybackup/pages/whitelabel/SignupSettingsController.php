@@ -79,6 +79,7 @@ function eazybackup_whitelabel_signup_settings(array $vars)
                         'hero_title' => 'string', 'hero_subtitle'=>'string', 'feature_bullets'=>'text',
                         'tos_url'=>'string','privacy_url'=>'string','support_url'=>'string','accent_override'=>'string',
                         'allow_domains'=>'text','deny_domains'=>'text','rate_ip'=>'integer','rate_email'=>'integer','turnstile_sitekey_override'=>'string',
+                        'is_enabled'=>'integer','plan_price_id'=>'integer','require_card'=>'integer',
                     ];
                     foreach ($targets as $col=>$type) {
                         if (!$schema->hasColumn('eb_whitelabel_signup_flows', $col)) {
@@ -98,6 +99,9 @@ function eazybackup_whitelabel_signup_settings(array $vars)
             $requireVerify = isset($_POST['require_email_verify']) ? 1 : 0;
             $sendWelcome   = isset($_POST['send_customer_welcome']) ? 1 : 0;
             $sendMsp       = isset($_POST['send_msp_notice']) ? 1 : 0;
+            $isEnabled     = isset($_POST['is_enabled']) ? 1 : 0;
+            $planPriceId   = (int)($_POST['plan_price_id'] ?? 0);
+            $requireCard   = isset($_POST['require_card']) ? 1 : 0;
             // Content & abuse
             $heroTitle = trim((string)($_POST['hero_title'] ?? ''));
             $heroSubtitle = trim((string)($_POST['hero_subtitle'] ?? ''));
@@ -134,6 +138,9 @@ function eazybackup_whitelabel_signup_settings(array $vars)
                     'rate_ip' => $rateIp,
                     'rate_email' => $rateEmail,
                     'turnstile_sitekey_override' => $turnstileOverride,
+                    'is_enabled' => $isEnabled,
+                    'plan_price_id' => $planPriceId,
+                    'require_card' => $requireCard,
                     'updated_at' => $now,
                 ]);
             } else {
@@ -157,6 +164,9 @@ function eazybackup_whitelabel_signup_settings(array $vars)
                     'rate_ip' => $rateIp,
                     'rate_email' => $rateEmail,
                     'turnstile_sitekey_override' => $turnstileOverride,
+                    'is_enabled' => $isEnabled,
+                    'plan_price_id' => $planPriceId,
+                    'require_card' => $requireCard,
                     'created_at' => $now,
                     'updated_at' => $now,
                 ]);
@@ -185,6 +195,16 @@ function eazybackup_whitelabel_signup_settings(array $vars)
         }
     } catch (\Throwable $__) { /* ignore */ }
 
+    // Load MSP plans/prices
+    $plans = []; $prices = [];
+    try {
+        $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',(int)$tenantObj->client_id)->first();
+        if ($msp) {
+            $plans = Capsule::table('eb_plans')->where('msp_id',(int)$msp->id)->orderBy('name','asc')->get();
+            $prices = Capsule::table('eb_plan_prices')->join('eb_plans','eb_plans.id','=','eb_plan_prices.plan_id')->where('eb_plans.msp_id',(int)$msp->id)->get(['eb_plan_prices.*']);
+        }
+    } catch (\Throwable $__) { $plans = []; $prices = []; }
+
     return [
         'pagetitle' => 'Signup Settings',
         'templatefile' => 'templates/whitelabel/signup-settings',
@@ -197,6 +217,8 @@ function eazybackup_whitelabel_signup_settings(array $vars)
             'signup_domain_row' => $domainRow ? (array)$domainRow : [],
             'csrf_token' => $csrf,
             'products' => $products,
+            'plans' => $plans,
+            'prices' => $prices,
         ],
     ];
 }

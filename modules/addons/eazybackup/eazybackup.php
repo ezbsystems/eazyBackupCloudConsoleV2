@@ -28,7 +28,13 @@ include_once 'config.php';
 
 // Prefer Composer autoload if present, then fall back to Comet server module vendor, then WHMCS root
 $__addonAutoload = __DIR__ . '/vendor/autoload.php';
-if (is_file($__addonAutoload)) { require_once $__addonAutoload; }
+if (is_file($__addonAutoload)) {
+    require_once $__addonAutoload;
+    // Ensure Composer class maps are up to date (for PartnerHub namespace)
+    if (class_exists('Composer\\Autoload\\ClassLoader')) {
+        try { $loader = require __DIR__ . '/vendor/autoload.php'; if ($loader instanceof Composer\Autoload\ClassLoader) { $loader->register(true); } } catch (\Throwable $__) { /* ignore */ }
+    }
+}
 // If CometAPI isn't available yet, try the Comet server module's vendor autoloader
 if (!class_exists('CometAPI')) {
     $__cometServerAutoload = dirname(__DIR__, 2) . '/servers/comet/vendor/autoload.php';
@@ -326,7 +332,6 @@ function eazybackup_migrate_schema(): void {
         eb_add_column_if_missing('comet_items','total_directories',fn(Blueprint $t)=>$t->bigInteger('total_directories')->nullable());
         eb_add_index_if_missing('comet_items',"CREATE INDEX IF NOT EXISTS idx_client_user ON comet_items (client_id, username)");
     }
-
     // --- comet_vaults ---
     if (!$schema->hasTable('comet_vaults')) {
         $schema->create('comet_vaults', function (Blueprint $t) {
@@ -370,6 +375,52 @@ function eazybackup_migrate_schema(): void {
             $t->unsignedInteger('last_ts');
             $t->string('last_id',128)->nullable();
         });
+    }
+
+    // --- eb_nfr --- (applications + grants)
+    if (!$schema->hasTable('eb_nfr')) {
+        $schema->create('eb_nfr', function (Blueprint $t) {
+            $t->increments('id');
+            $t->unsignedInteger('client_id');
+            $t->unsignedInteger('product_id')->nullable();
+            $t->unsignedInteger('service_id')->nullable();
+            $t->string('service_username', 255)->nullable();
+            $t->string('requested_username', 255)->nullable();
+            $t->string('requested_password', 255)->nullable();
+            $t->enum('status', ['pending','approved','provisioned','rejected','suspended','expired','converted','cancelled'])->default('pending');
+            $t->string('company_name', 255);
+            $t->string('contact_name', 255)->nullable();
+            $t->string('job_title', 255)->nullable();
+            $t->string('work_email', 255);
+            $t->string('phone', 64)->nullable();
+            $t->text('markets')->nullable();
+            $t->text('use_cases')->nullable();
+            $t->text('platforms')->nullable();
+            $t->text('virtualization')->nullable();
+            $t->boolean('disk_image')->default(0);
+            $t->unsignedInteger('requested_quota_gib')->nullable();
+            $t->unsignedInteger('approved_quota_gib')->nullable();
+            $t->enum('overage', ['block','allow_notice'])->default('block');
+            $t->unsignedInteger('device_cap')->nullable();
+            $t->unsignedInteger('duration_days')->nullable();
+            $t->date('start_date')->nullable();
+            $t->date('end_date')->nullable();
+            $t->timestamp('end_reminder_sent_at')->nullable();
+            $t->text('notes')->nullable();
+            $t->timestamp('created_at')->useCurrent();
+            $t->timestamp('updated_at')->useCurrent()->useCurrentOnUpdate();
+            $t->index('client_id', 'idx_nfr_client');
+            $t->index('status', 'idx_nfr_status');
+            $t->index('service_id', 'idx_nfr_service');
+        });
+    } else {
+        // Ensure key columns and indexes exist if upgrading from early draft
+        try { Capsule::statement("ALTER TABLE eb_nfr ADD INDEX idx_nfr_client (client_id)"); } catch (\Throwable $e) {}
+        try { Capsule::statement("ALTER TABLE eb_nfr ADD INDEX idx_nfr_status (status)"); } catch (\Throwable $e) {}
+        try { Capsule::statement("ALTER TABLE eb_nfr ADD INDEX idx_nfr_service (service_id)"); } catch (\Throwable $e) {}
+        try { Capsule::statement("ALTER TABLE eb_nfr ADD COLUMN requested_username VARCHAR(255) NULL"); } catch (\Throwable $e) {}
+        try { Capsule::statement("ALTER TABLE eb_nfr ADD COLUMN requested_password VARCHAR(255) NULL"); } catch (\Throwable $e) {}
+        try { Capsule::statement("ALTER TABLE eb_nfr ADD COLUMN end_reminder_sent_at TIMESTAMP NULL"); } catch (\Throwable $e) {}
     }
 
     // --- eb_jobs_live ---
@@ -628,7 +679,6 @@ function eazybackup_migrate_schema(): void {
             $t->index(['tenant_id','step'],'idx_wlb_tenant_step');
         });
     }
-
     // --- eb_whitelabel_assets ---
     if (!$schema->hasTable('eb_whitelabel_assets')) {
         $schema->create('eb_whitelabel_assets', function (Blueprint $t) {
@@ -720,6 +770,432 @@ function eazybackup_migrate_schema(): void {
             $t->enum('status', ['queued','sent','failed'])->default('queued');
             $t->text('provider_resp')->nullable();
             $t->timestamp('created_at')->nullable()->useCurrent();
+        });
+    }
+
+    // ========= Partner Hub: MSP + Customers + Billing (Phase 1 schema) =========
+    // eb_msp_accounts
+    if (!$schema->hasTable('eb_msp_accounts')) {
+        $schema->create('eb_msp_accounts', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->integer('whmcs_client_id')->unique();
+            $t->string('name', 191)->default('');
+            $t->enum('status', ['active','suspended','pending'])->default('active');
+            $t->json('branding_json')->nullable();
+            $t->enum('billing_mode', ['whmcs','stripe_connect'])->default('stripe_connect');
+            $t->string('stripe_connect_id', 255)->nullable();
+            $t->tinyInteger('charges_enabled')->default(0);
+            $t->tinyInteger('payouts_enabled')->default(0);
+            $t->json('connect_capabilities')->nullable();
+            $t->json('connect_requirements')->nullable();
+            $t->timestamp('onboarded_at')->nullable();
+            $t->timestamp('last_verification_check')->nullable();
+            $t->decimal('default_fee_percent', 5, 2)->nullable();
+            $t->json('invoice_branding_json')->nullable();
+            $t->timestamp('created_at')->nullable()->useCurrent();
+            $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
+            $t->index(['status'], 'idx_msp_status');
+        });
+    }
+    // Backfill Connect mirrors on upgrade
+    else {
+        eb_add_column_if_missing('eb_msp_accounts','charges_enabled', fn(Blueprint $t)=>$t->tinyInteger('charges_enabled')->default(0));
+        eb_add_column_if_missing('eb_msp_accounts','payouts_enabled', fn(Blueprint $t)=>$t->tinyInteger('payouts_enabled')->default(0));
+        eb_add_column_if_missing('eb_msp_accounts','connect_capabilities', fn(Blueprint $t)=>$t->json('connect_capabilities')->nullable());
+        eb_add_column_if_missing('eb_msp_accounts','connect_requirements', fn(Blueprint $t)=>$t->json('connect_requirements')->nullable());
+        eb_add_column_if_missing('eb_msp_accounts','onboarded_at', fn(Blueprint $t)=>$t->timestamp('onboarded_at')->nullable());
+        eb_add_column_if_missing('eb_msp_accounts','last_verification_check', fn(Blueprint $t)=>$t->timestamp('last_verification_check')->nullable());
+        eb_add_column_if_missing('eb_msp_accounts','default_fee_percent', fn(Blueprint $t)=>$t->decimal('default_fee_percent',5,2)->nullable());
+    }
+
+    // eb_customers
+    if (!$schema->hasTable('eb_customers')) {
+        $schema->create('eb_customers', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->bigInteger('msp_id')->index();
+            $t->integer('whmcs_client_id')->unique();
+            $t->string('name', 191)->default('');
+            $t->string('external_ref', 191)->nullable();
+            $t->enum('status', ['active','inactive'])->default('active');
+            $t->text('notes')->nullable();
+            $t->string('stripe_customer_id', 255)->nullable()->index();
+            $t->timestamp('created_at')->nullable()->useCurrent();
+            $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
+            $t->index(['msp_id','status'], 'idx_customer_msp_status');
+        });
+    }
+
+    // eb_customer_user_links
+    if (!$schema->hasTable('eb_customer_user_links')) {
+        $schema->create('eb_customer_user_links', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->bigInteger('customer_id');
+            $t->integer('whmcs_user_id');
+            $t->enum('role', ['Owner','Viewer'])->default('Owner');
+            $t->unique(['customer_id','whmcs_user_id'], 'uq_customer_user');
+            $t->index('customer_id', 'idx_cul_customer');
+            $t->index('whmcs_user_id', 'idx_cul_user');
+        });
+    }
+
+    // eb_customer_comet_accounts (pivot)
+    if (!$schema->hasTable('eb_customer_comet_accounts')) {
+        $schema->create('eb_customer_comet_accounts', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->bigInteger('customer_id');
+            $t->string('comet_user_id', 191);
+            $t->unique(['customer_id','comet_user_id'], 'uq_customer_comet');
+            $t->index('customer_id', 'idx_cca_customer');
+            $t->index('comet_user_id', 'idx_cca_comet');
+        });
+    }
+
+    // eb_service_links (WHMCS service → Comet user association)
+    if (!$schema->hasTable('eb_service_links')) {
+        $schema->create('eb_service_links', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->integer('whmcs_service_id');
+            $t->bigInteger('msp_id')->nullable();
+            $t->bigInteger('customer_id')->nullable();
+            $t->string('comet_user_id', 191)->nullable();
+            $t->unique('whmcs_service_id', 'uq_service');
+            $t->index(['msp_id','customer_id'], 'idx_service_msp_customer');
+        });
+    }
+
+    // Add nullable MSP/Customer scoping columns to Comet mirrors if present
+    foreach (['comet_users','comet_devices','comet_items','comet_jobs'] as $mirror) {
+        if ($schema->hasTable($mirror)) {
+            eb_add_column_if_missing($mirror, 'msp_id', fn(Blueprint $t)=>$t->bigInteger('msp_id')->nullable()->index());
+            eb_add_column_if_missing($mirror, 'customer_id', fn(Blueprint $t)=>$t->bigInteger('customer_id')->nullable()->index());
+        }
+    }
+
+    // Plans & billing primitives (created in Phase 1 for forward-compat)
+    if (!$schema->hasTable('eb_plans')) {
+        $schema->create('eb_plans', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->bigInteger('msp_id')->index();
+            $t->string('name', 191);
+            $t->string('currency', 8)->default('USD');
+            $t->string('stripe_product_id', 255)->nullable()->index();
+            $t->enum('status', ['active','archived'])->default('active');
+            $t->timestamp('created_at')->nullable()->useCurrent();
+            $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
+        });
+    }
+
+    if (!$schema->hasTable('eb_plan_prices')) {
+        $schema->create('eb_plan_prices', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->bigInteger('plan_id')->index();
+            $t->string('nickname', 191)->nullable();
+            $t->enum('billing_cycle', ['month','year'])->default('month');
+            $t->string('stripe_price_id', 255)->nullable()->unique();
+            $t->tinyInteger('is_metered')->default(0);
+            $t->string('metric_code', 64)->nullable();
+            $t->decimal('application_fee_percent', 5, 2)->nullable();
+            $t->timestamp('created_at')->nullable()->useCurrent();
+            $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
+        });
+    }
+    else {
+        eb_add_column_if_missing('eb_plan_prices','application_fee_percent', fn(Blueprint $t)=>$t->decimal('application_fee_percent',5,2)->nullable());
+    }
+
+    if (!$schema->hasTable('eb_subscriptions')) {
+        $schema->create('eb_subscriptions', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->bigInteger('msp_id')->index();
+            $t->bigInteger('customer_id')->index();
+            $t->bigInteger('plan_id')->nullable()->index();
+            $t->string('stripe_subscription_id', 255)->nullable()->unique();
+            $t->string('stripe_status', 32)->default('active');
+            $t->bigInteger('current_price_id')->nullable();
+            $t->timestamp('started_at')->nullable();
+            $t->timestamp('cancel_at')->nullable();
+            $t->tinyInteger('cancel_at_period_end')->default(0);
+            $t->timestamp('created_at')->nullable()->useCurrent();
+            $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
+            $t->index(['customer_id','stripe_status'], 'idx_sub_customer_status');
+        });
+    }
+
+    if (!$schema->hasTable('eb_usage_ledger')) {
+        $schema->create('eb_usage_ledger', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->bigInteger('customer_id')->index();
+            $t->string('metric', 64);
+            $t->bigInteger('qty')->default(0);
+            $t->timestamp('period_start');
+            $t->timestamp('period_end');
+            $t->string('source', 32)->default('manual');
+            $t->string('idempotency_key', 191)->nullable()->unique();
+            $t->timestamp('pushed_to_stripe_at')->nullable();
+            $t->timestamp('created_at')->nullable()->useCurrent();
+        });
+    }
+
+    if (!$schema->hasTable('eb_invoice_cache')) {
+        $schema->create('eb_invoice_cache', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->bigInteger('customer_id')->index();
+            $t->string('stripe_invoice_id', 255)->unique();
+            $t->bigInteger('amount_total')->default(0);
+            $t->bigInteger('amount_tax')->default(0);
+            $t->string('status', 32)->default('draft');
+            $t->string('hosted_invoice_url', 255)->nullable();
+            $t->unsignedInteger('created')->default(0); // epoch seconds
+            $t->string('currency', 8)->default('USD');
+            $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
+        });
+    }
+
+    if (!$schema->hasTable('eb_payment_cache')) {
+        $schema->create('eb_payment_cache', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->bigInteger('customer_id')->index();
+            $t->string('stripe_payment_intent_id', 255)->unique();
+            $t->bigInteger('amount')->default(0);
+            $t->string('currency', 8)->default('USD');
+            $t->string('status', 32)->default('requires_payment_method');
+            $t->unsignedInteger('created')->default(0); // epoch seconds
+            $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
+        });
+    }
+
+    // --- Partner Hub Catalog: Products ---
+    if (!$schema->hasTable('eb_catalog_products')) {
+        $schema->create('eb_catalog_products', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->bigInteger('msp_id')->index();
+            $t->string('name', 160);
+            $t->text('description')->nullable();
+            $t->enum('category', ['Backup','Services','Other'])->default('Backup');
+            $t->string('stripe_product_id', 64)->nullable();
+            $t->tinyInteger('active')->default(1);
+            $t->tinyInteger('is_published')->default(0);
+            $t->dateTime('published_at')->nullable();
+            $t->char('default_currency',3)->nullable();
+            $t->bigInteger('created_by')->nullable();
+            $t->bigInteger('updated_by')->nullable();
+            $t->text('features_json')->nullable();
+            $t->timestamp('created_at')->nullable()->useCurrent();
+            $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
+            $t->index('active');
+        });
+    } else {
+        eb_add_column_if_missing('eb_catalog_products','is_published', fn(Blueprint $t)=>$t->tinyInteger('is_published')->default(0));
+        eb_add_column_if_missing('eb_catalog_products','published_at', fn(Blueprint $t)=>$t->dateTime('published_at')->nullable());
+        eb_add_column_if_missing('eb_catalog_products','default_currency', fn(Blueprint $t)=>$t->char('default_currency',3)->nullable());
+        eb_add_column_if_missing('eb_catalog_products','created_by', fn(Blueprint $t)=>$t->bigInteger('created_by')->nullable());
+        eb_add_column_if_missing('eb_catalog_products','updated_by', fn(Blueprint $t)=>$t->bigInteger('updated_by')->nullable());
+        eb_add_column_if_missing('eb_catalog_products','base_metric_code', fn(Blueprint $t)=>$t->enum('base_metric_code',[ 'STORAGE_TB','DEVICE_COUNT','DISK_IMAGE','HYPERV_VM','PROXMOX_VM','VMWARE_VM','M365_USER','GENERIC' ])->nullable());
+        eb_add_column_if_missing('eb_catalog_products','features_json', fn(Blueprint $t)=>$t->text('features_json')->nullable());
+    }
+    // --- Partner Hub Catalog: Prices ---
+    if (!$schema->hasTable('eb_catalog_prices')) {
+        $schema->create('eb_catalog_prices', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->bigInteger('product_id')->index();
+            $t->string('name', 160);
+            $t->enum('kind', ['recurring','metered','one_time']);
+            $t->char('currency', 3)->default('CAD');
+            $t->string('unit_label', 32)->nullable();
+            $t->integer('unit_amount'); // cents
+            $t->enum('interval', ['month','year','none'])->default('month');
+            $t->enum('aggregate_usage', ['sum','last_during_period','max','avg'])->nullable();
+            $t->enum('metric_code', ['STORAGE_TB','DEVICE_COUNT','DISK_IMAGE','HYPERV_VM','PROXMOX_VM','VMWARE_VM','M365_USER','GENERIC'])->default('GENERIC');
+            $t->string('stripe_price_id', 64)->nullable()->unique();
+            $t->tinyInteger('active')->default(1);
+            $t->enum('billing_type',['per_unit','metered','one_time'])->default('per_unit');
+            $t->integer('version')->default(1);
+            $t->bigInteger('supersedes_price_id')->nullable();
+            $t->tinyInteger('is_published')->default(0);
+            $t->dateTime('published_at')->nullable();
+            $t->string('last_publish_request_id',64)->nullable();
+            $t->integer('amount_per_gb_cents')->nullable();
+            $t->integer('display_per_tb_money')->nullable();
+            $t->timestamp('created_at')->nullable()->useCurrent();
+            $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
+            $t->index(['kind']);
+            $t->index(['metric_code']);
+            $t->index(['active']);
+            $t->index(['product_id','version']);
+            $t->index(['is_published']);
+        });
+    } else {
+        eb_add_column_if_missing('eb_catalog_prices','billing_type', fn(Blueprint $t)=>$t->enum('billing_type',['per_unit','metered','one_time'])->default('per_unit'));
+        eb_add_column_if_missing('eb_catalog_prices','version', fn(Blueprint $t)=>$t->integer('version')->default(1));
+        eb_add_column_if_missing('eb_catalog_prices','supersedes_price_id', fn(Blueprint $t)=>$t->bigInteger('supersedes_price_id')->nullable());
+        eb_add_column_if_missing('eb_catalog_prices','is_published', fn(Blueprint $t)=>$t->tinyInteger('is_published')->default(0));
+        eb_add_column_if_missing('eb_catalog_prices','published_at', fn(Blueprint $t)=>$t->dateTime('published_at')->nullable());
+        eb_add_column_if_missing('eb_catalog_prices','last_publish_request_id', fn(Blueprint $t)=>$t->string('last_publish_request_id',64)->nullable());
+        eb_add_column_if_missing('eb_catalog_prices','amount_per_gb_cents', fn(Blueprint $t)=>$t->integer('amount_per_gb_cents')->nullable());
+        eb_add_column_if_missing('eb_catalog_prices','display_per_tb_money', fn(Blueprint $t)=>$t->integer('display_per_tb_money')->nullable());
+    }
+
+    // MSP default currency
+    if ($schema->hasTable('eb_msp_accounts')) {
+        eb_add_column_if_missing('eb_msp_accounts','default_currency', fn(Blueprint $t)=>$t->char('default_currency',3)->nullable());
+    }
+
+    // MSP settings (Checkout & Dunning JSON)
+    if (!$schema->hasTable('eb_msp_settings')) {
+        $schema->create('eb_msp_settings', function (Blueprint $t) {
+            $t->bigInteger('msp_id')->primary();
+            $t->json('checkout_json');
+            $t->json('tax_json')->nullable();
+            $t->json('email_json')->nullable();
+            $t->timestamp('created_at')->nullable()->useCurrent();
+            $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
+        });
+    } else {
+        eb_add_column_if_missing('eb_msp_settings','checkout_json', fn(Blueprint $t)=>$t->json('checkout_json'));
+        eb_add_column_if_missing('eb_msp_settings','tax_json', fn(Blueprint $t)=>$t->json('tax_json')->nullable());
+        eb_add_column_if_missing('eb_msp_settings','email_json', fn(Blueprint $t)=>$t->json('email_json')->nullable());
+        eb_add_column_if_missing('eb_msp_settings','created_at', fn(Blueprint $t)=>$t->timestamp('created_at')->nullable()->useCurrent());
+        eb_add_column_if_missing('eb_msp_settings','updated_at', fn(Blueprint $t)=>$t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate());
+    }
+
+    // MSP Tax Registrations (local mirror)
+    if (!$schema->hasTable('eb_msp_tax_regs')) {
+        $schema->create('eb_msp_tax_regs', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->bigInteger('msp_id')->index();
+            $t->char('country', 2);
+            $t->string('region', 8)->nullable();
+            $t->string('registration_number', 191);
+            $t->string('legal_name', 191)->nullable();
+            $t->string('stripe_registration_id', 191)->nullable()->index();
+            $t->enum('source', ['stripe','local'])->default('local');
+            $t->tinyInteger('is_active')->default(1);
+            $t->timestamp('created_at')->nullable()->useCurrent();
+            $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
+            $t->index(['msp_id','country','region']);
+        });
+    }
+
+    // MSP Tax Audit trail
+    if (!$schema->hasTable('eb_msp_tax_audit')) {
+        $schema->create('eb_msp_tax_audit', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->bigInteger('msp_id')->index();
+            $t->integer('user_id')->nullable();
+            $t->enum('action', ['create','update','delete','sync']);
+            $t->json('before_json')->nullable();
+            $t->json('after_json')->nullable();
+            $t->json('meta_json')->nullable();
+            $t->timestamp('created_at')->nullable()->useCurrent();
+        });
+    }
+
+    // --- Partner Hub Catalog: Plan templates ---
+    if (!$schema->hasTable('eb_plan_templates')) {
+        $schema->create('eb_plan_templates', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->bigInteger('msp_id')->index();
+            $t->string('name', 160);
+            $t->text('description')->nullable();
+            $t->integer('trial_days')->default(0);
+            $t->integer('version')->default(1);
+            $t->tinyInteger('active')->default(1);
+            $t->timestamp('created_at')->nullable()->useCurrent();
+            $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
+            $t->index('active');
+        });
+    }
+
+    // --- Partner Hub Catalog: Plan components ---
+    if (!$schema->hasTable('eb_plan_components')) {
+        $schema->create('eb_plan_components', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->bigInteger('plan_id')->index();
+            $t->bigInteger('price_id')->index();
+            $t->enum('metric_code', ['STORAGE_TB','DEVICE_COUNT','DISK_IMAGE','HYPERV_VM','PROXMOX_VM','VMWARE_VM','M365_USER','GENERIC']);
+            $t->integer('default_qty')->default(0);
+            $t->enum('overage_mode', ['bill_all','cap_at_default'])->default('bill_all');
+            $t->timestamp('created_at')->nullable()->useCurrent();
+            $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
+            $t->index(['plan_id']);
+            $t->index(['price_id']);
+            $t->index(['metric_code']);
+        });
+    }
+
+    // --- Partner Hub Catalog: Plan instances ---
+    if (!$schema->hasTable('eb_plan_instances')) {
+        $schema->create('eb_plan_instances', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->bigInteger('msp_id')->index();
+            $t->bigInteger('customer_id')->index();
+            $t->string('comet_user_id', 128)->index();
+            $t->bigInteger('plan_id')->index();
+            $t->integer('plan_version');
+            $t->string('stripe_account_id', 64);
+            $t->string('stripe_customer_id', 64);
+            $t->string('stripe_subscription_id', 64);
+            $t->date('anchor_date');
+            $t->enum('status', ['active','trialing','past_due','canceled','paused']);
+            $t->timestamp('created_at')->nullable()->useCurrent();
+            $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
+            $t->index(['stripe_subscription_id']);
+        });
+    }
+
+    // --- Partner Hub Catalog: Plan instance items ---
+    if (!$schema->hasTable('eb_plan_instance_items')) {
+        $schema->create('eb_plan_instance_items', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->bigInteger('plan_instance_id')->index();
+            $t->bigInteger('plan_component_id')->index();
+            $t->string('stripe_subscription_item_id', 64);
+            $t->enum('metric_code', ['STORAGE_TB','DEVICE_COUNT','DISK_IMAGE','HYPERV_VM','PROXMOX_VM','VMWARE_VM','M365_USER','GENERIC']);
+            $t->integer('last_qty')->nullable();
+            $t->timestamp('created_at')->nullable()->useCurrent();
+            $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
+            $t->index(['metric_code']);
+        });
+    }
+
+    // Webhook idempotency store (processed Stripe event ids)
+    if (!$schema->hasTable('eb_stripe_events')) {
+        $schema->create('eb_stripe_events', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->string('event_id', 255)->unique();
+            $t->timestamp('created_at')->nullable()->useCurrent();
+        });
+    }
+
+    // Payouts cache (per MSP)
+    if (!$schema->hasTable('eb_payouts')) {
+        $schema->create('eb_payouts', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->bigInteger('msp_id')->index();
+            $t->string('stripe_payout_id', 255)->unique();
+            $t->bigInteger('amount')->default(0);
+            $t->string('currency', 8)->default('USD');
+            $t->string('status', 32)->default('pending');
+            $t->unsignedInteger('arrival_date')->default(0);
+            $t->unsignedInteger('created')->default(0);
+            $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
+        });
+    }
+
+    // Disputes cache (per MSP)
+    if (!$schema->hasTable('eb_disputes')) {
+        $schema->create('eb_disputes', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->bigInteger('msp_id')->index();
+            $t->string('stripe_dispute_id', 255)->unique();
+            $t->bigInteger('amount')->default(0);
+            $t->string('currency', 8)->default('USD');
+            $t->string('reason', 64)->nullable();
+            $t->string('status', 32)->default('warning_needs_response');
+            $t->unsignedInteger('evidence_due_by')->default(0);
+            $t->string('charge_id', 255)->nullable();
+            $t->unsignedInteger('created')->default(0);
+            $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
         });
     }
 }
@@ -912,7 +1388,6 @@ if (!function_exists('fetchDistinctDiskImageDevicesMaps')) {
         return ['byCU' => $byCU, 'byC' => $byC];
     }
 }
-
 // Backward-compatible wrapper: older call sites referenced the singular name
 if (!function_exists('fetchDistinctDiskImageDevicesMap')) {
     /**
@@ -1091,6 +1566,15 @@ function eazybackup_config()
                 'Type'         => 'dropdown',
                 'Options'      => eazybackup_EmailTemplatesLoader(),
             ],
+            // Partner Hub defaults
+            'partnerhub_default_fee_percent' => [
+                'FriendlyName' => 'Partner Hub: Default Application Fee %',
+                'Type' => 'text',
+                'Size' => '6',
+                'Default' => '0',
+                'Description' => 'Default fee percent for MSP subscriptions when a price has no explicit default. Range 0–100 (max two decimals).',
+            ],
+            // (Removed Partner Hub nav controls - visibility managed in template)
             // Grace periods
             'grace_days_devices' => [
                 'FriendlyName' => 'Grace Period (days) — Devices',
@@ -1227,6 +1711,31 @@ function eazybackup_config()
                 'Type' => 'yesno',
                 'Description' => 'Enable MSP-branded public signup and downloads (Partner Hub Phase 1). When disabled, public routes render a disabled/invalid page.',
             ],
+            // Stripe Connect (platform-level)
+            'stripe_platform_publishable_key' => [
+                'FriendlyName' => 'Stripe Publishable Key',
+                'Type' => 'text',
+                'Size' => '120',
+                'Description' => 'pk_live_xxx or pk_test_xxx (used by Stripe.js in client area)'
+            ],
+            'stripe_platform_secret' => [
+                'FriendlyName' => 'Stripe Secret Key',
+                'Type' => 'password',
+                'Size' => '120',
+                'Description' => 'sk_live_xxx or sk_test_xxx (stored encrypted by WHMCS)'
+            ],
+            'stripe_webhook_secret' => [
+                'FriendlyName' => 'Stripe Webhook Secret',
+                'Type' => 'password',
+                'Size' => '120',
+                'Description' => 'whsec_xxx for webhook signature verification'
+            ],
+            'stripe_connect_client_id' => [
+                'FriendlyName' => 'Stripe Connect Client ID',
+                'Type' => 'text',
+                'Size' => '120',
+                'Description' => 'ca_xxx for OAuth (Standard Connect)'
+            ],
             'ops_whmcs_upstream' => [
                 'FriendlyName' => 'Ops WHMCS Upstream',
                 'Type' => 'text',
@@ -1274,6 +1783,75 @@ function eazybackup_config()
             'whitelabel_dev_skip_nginx' => [
                 'FriendlyName' => 'DEV: Skip nginx',
                 'Type' => 'yesno',
+            ],
+            // NFR Settings
+            'nfr_enable' => [
+                'FriendlyName' => 'NFR: Enable',
+                'Type' => 'yesno',
+                'Description' => 'Enable NFR application flow and admin tracking',
+            ],
+            'nfr_pids' => [
+                'FriendlyName' => 'NFR: Product IDs',
+                'Type' => 'text',
+                'Size' => '120',
+                'Description' => 'Comma-separated list of WHMCS Product IDs eligible for NFR',
+            ],
+            'nfr_admin_email' => [
+                'FriendlyName' => 'NFR: Admin notify email',
+                'Type' => 'text',
+                'Size' => '120',
+                'Description' => 'Where NFR submissions and approvals are sent',
+            ],
+            'nfr_require_approval' => [
+                'FriendlyName' => 'NFR: Require approval',
+                'Type' => 'yesno',
+                'Description' => 'When off, single-PID flows may auto-approve. Multiple PIDs always require approval.',
+            ],
+            'nfr_default_duration_days' => [
+                'FriendlyName' => 'NFR: Default duration (days)',
+                'Type' => 'text',
+                'Size' => '8',
+                'Default' => '365',
+            ],
+            'nfr_default_quota_gib' => [
+                'FriendlyName' => 'NFR: Default quota (GiB)',
+                'Type' => 'text',
+                'Size' => '8',
+                'Default' => '0',
+            ],
+            'nfr_max_active_per_client' => [
+                'FriendlyName' => 'NFR: Max active grants per client',
+                'Type' => 'text',
+                'Size' => '4',
+                'Default' => '1',
+            ],
+            'nfr_conversion_behavior' => [
+                'FriendlyName' => 'NFR: Conversion behavior',
+                'Type' => 'text',
+                'Size' => '60',
+                'Default' => 'suspend',
+                'Description' => 'suspend | convert_to_pid:<id> | do_nothing',
+            ],
+            'nfr_captcha' => [
+                'FriendlyName' => 'NFR: Captcha on client form',
+                'Type' => 'yesno',
+                'Description' => 'Uses Cloudflare Turnstile settings when enabled',
+            ],
+            'nfr_auto_ticket' => [
+                'FriendlyName' => 'NFR: Auto-create ticket on approval',
+                'Type' => 'yesno',
+            ],
+            'nfr_admin_email_template' => [
+                'FriendlyName' => 'NFR: Admin email template (optional)',
+                'Type' => 'dropdown',
+                'Options' => eazybackup_EmailTemplatesLoader(),
+                'Description' => 'If set, this template is used as a reference for admin notifications. Custom send is used to the configured admin email.'
+            ],
+            'nfr_end_admin_email_template' => [
+                'FriendlyName' => 'NFR: End-date Admin Email Template',
+                'Type' => 'dropdown',
+                'Options' => eazybackup_EndReminderTemplateLoader(),
+                'Description' => 'Choose from General or Product/Service templates. We send to the admin address using this template content.'
             ],
         ],
     ];
@@ -1330,6 +1908,50 @@ function eazybackup_EmailTemplatesLoader()
     }
 
     return $templates;
+}
+
+/**
+ * List Admin email templates by name for SendAdminEmail(messagename).
+ */
+function eazybackup_AdminEmailTemplatesLoader(): array
+{
+    try {
+        $results = localAPI('GetEmailTemplates', ['type' => 'admin']);
+        $out = [];
+        if (isset($results['emailtemplates']['emailtemplate']) && is_array($results['emailtemplates']['emailtemplate'])) {
+            foreach ($results['emailtemplates']['emailtemplate'] as $tpl) {
+                $name = (string)($tpl['name'] ?? '');
+                if ($name !== '') { $out[$name] = $name; }
+            }
+        }
+        return $out ?: ['' => '— No admin templates —'];
+    } catch (\Throwable $e) {
+        return ['' => '— Error loading admin templates —'];
+    }
+}
+
+/**
+ * End-date reminder template loader: show General and Product/Service templates.
+ * Keys encode "type:id" for later retrieval of subject/body.
+ */
+function eazybackup_EndReminderTemplateLoader(): array
+{
+    $opts = ['' => '— None (use built-in message) —'];
+    try {
+        foreach (['general' => 'General', 'product' => 'Product/Service'] as $type => $label) {
+            $res = localAPI('GetEmailTemplates', ['type' => $type]);
+            if (isset($res['emailtemplates']['emailtemplate']) && is_array($res['emailtemplates']['emailtemplate'])) {
+                foreach ($res['emailtemplates']['emailtemplate'] as $tpl) {
+                    $id = isset($tpl['id']) ? (string)$tpl['id'] : '';
+                    $name = (string)($tpl['name'] ?? '');
+                    if ($id !== '' && $name !== '') {
+                        $opts[$type . ':' . $id] = $label . ' — ' . $name;
+                    }
+                }
+            }
+        }
+    } catch (\Throwable $_) {}
+    return $opts;
 }
 
 
@@ -1481,7 +2103,6 @@ function eazybackup_clientarea(array $vars)
             "templatefile" => "templates/usagereport",
             "vars" => array_merge($vars, $reportData)
         ];
-
     } else if ($_REQUEST["a"] == "api") {
         header('Content-Type: application/json');
         
@@ -1539,6 +2160,10 @@ function eazybackup_clientarea(array $vars)
         // Isolated TOTP AJAX endpoint
         require_once __DIR__ . "/pages/console/totp.php";
         exit; // script handles output
+    } else if ($_REQUEST["a"] == "nfr-apply") {
+        // Client NFR application form
+        $ret = require __DIR__ . "/pages/client/nfr-apply.php";
+        return $ret;
     } else if ($_REQUEST["a"] == "email-reports") {
         // Isolated Email Reports AJAX endpoint
         require_once __DIR__ . "/pages/console/email-reports.php";
@@ -1817,13 +2442,13 @@ function eazybackup_clientarea(array $vars)
             ->sum('total_bytes');
 
         // Get all devices for the client, but only from active WHMCS services
+        // Include raw DeviceID in 'hash' so we can derive a stable join key for jobs
         $devices = Capsule::table('comet_devices')
-            ->select('id', 'is_active', 'name', 'username', 'content')
+            ->select('id', 'hash', 'is_active', 'name', 'username', 'content')
             ->where('client_id', $clientId)
             ->whereIn('username', $activeUsernames)
             ->whereNull('revoked_at') // <-- ADD THIS LINE to hide revoked devices
             ->get();
-
         // Add version and platform information to each device
         foreach ($devices as $device) {
             $content = json_decode($device->content, true);
@@ -1851,6 +2476,9 @@ function eazybackup_clientarea(array $vars)
         $endDate = date('Y-m-d');
         $startDate = date('Y-m-d', strtotime('-15 days'));
         foreach ($devices as $device) {
+            // Derive the stable Comet device key used in comet_jobs: sha256(client_id . OwnerDevice)
+            // Fall back to the stored id if raw hash is unavailable
+            $cometDeviceKey = (!empty($device->hash)) ? hash('sha256', (string)$clientId . $device->hash) : $device->id;
             // 1) grab the raw rows
             $rawJobs = Capsule::table('comet_jobs')
                 ->select(
@@ -1867,7 +2495,7 @@ function eazybackup_clientarea(array $vars)
                 )
                 ->leftJoin('comet_items',  'comet_items.id',  '=', 'comet_jobs.comet_item_id')
                 ->leftJoin('comet_vaults', 'comet_vaults.id', '=', 'comet_jobs.comet_vault_id')
-                ->where('comet_jobs.comet_device_id', $device->id)
+                ->where('comet_jobs.comet_device_id', $cometDeviceKey)
                 ->whereDate('started_at', '>=', $startDate)
                 ->whereDate('started_at', '<=', $endDate)
                 ->orderBy('comet_jobs.started_at', 'desc')
@@ -2094,7 +2722,7 @@ function eazybackup_clientarea(array $vars)
                 ->orderBy('n.created_at','desc')
                 ->limit(20)
                 ->get([
-                    'n.created_at','n.category','n.subject',
+                    'n.created_at','n.category','n.subject','n.username as username',
                     'g.first_seen_at as grace_first_seen_at','g.grace_expires_at as grace_expires_at','g.grace_days as grace_days'
                 ]);
         } catch (\Throwable $e) { /* table may not exist yet */ }
@@ -2130,10 +2758,6 @@ function eazybackup_clientarea(array $vars)
         // This action is now merged into the dashboard
         header('Location: ' . $vars['modulelink'] . '&a=dashboard&tab=users');
         exit;
-    
-
-
-
     } else if ($_REQUEST["a"] == "vaults") {
         // Load the dashboard backend logic.
         $clientId = $_SESSION['uid'];
@@ -2365,12 +2989,186 @@ function eazybackup_clientarea(array $vars)
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'public-download') {
         require_once __DIR__ . '/pages/whitelabel/PublicDownloadController.php';
         return eazybackup_public_download($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'public-setupintent') {
+        require_once __DIR__ . '/pages/whitelabel/PublicSignupController.php';
+        eazybackup_public_setupintent($vars); exit;
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'whitelabel-email-templates') {
         require_once __DIR__ . '/pages/whitelabel/EmailTemplatesController.php';
         return eazybackup_whitelabel_email_templates($vars);
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'whitelabel-email-template-edit') {
         require_once __DIR__ . '/pages/whitelabel/EmailTemplatesController.php';
         return eazybackup_whitelabel_email_template_edit($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-clients') {
+        require_once __DIR__ . '/pages/partnerhub/ClientsController.php';
+        return eb_ph_clients_index($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-client') {
+        require_once __DIR__ . '/pages/partnerhub/ClientViewController.php';
+        return eb_ph_client_view($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-stripe-onboard') {
+        require_once __DIR__ . '/pages/partnerhub/StripeController.php';
+        eb_ph_stripe_onboard($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-stripe-account-session') {
+        require_once __DIR__ . '/pages/partnerhub/StripeController.php';
+        eb_ph_stripe_account_session($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-stripe-manage') {
+        require_once __DIR__ . '/pages/partnerhub/StripeController.php';
+        return eb_ph_stripe_manage($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-stripe-manage-redirect') {
+        require_once __DIR__ . '/pages/partnerhub/StripeController.php';
+        eb_ph_stripe_manage_redirect($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-stripe-setupintent') {
+        require_once __DIR__ . '/pages/partnerhub/StripeController.php';
+        eb_ph_stripe_setup_intent($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-stripe-connect') {
+        require_once __DIR__ . '/pages/partnerhub/StripeController.php';
+        return eb_ph_stripe_connect_status($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-stripe-webhook') {
+        require_once __DIR__ . '/pages/partnerhub/StripeWebhookController.php';
+        eb_ph_stripe_webhook(); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-subscriptions') {
+        require_once __DIR__ . '/pages/partnerhub/SubscriptionsController.php';
+        return eb_ph_subscriptions_new($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-billing-subscriptions') {
+        require_once __DIR__ . '/pages/partnerhub/BillingController.php';
+        return eb_ph_billing_subscriptions($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-billing-invoices') {
+        require_once __DIR__ . '/pages/partnerhub/BillingController.php';
+        return eb_ph_billing_invoices($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-billing-payments') {
+        require_once __DIR__ . '/pages/partnerhub/BillingController.php';
+        return eb_ph_billing_payments($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-billing-payment-new') {
+        require_once __DIR__ . '/pages/partnerhub/BillingController.php';
+        return eb_ph_billing_payment_new($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-billing-create-payment') {
+        require_once __DIR__ . '/pages/partnerhub/BillingController.php';
+        eb_ph_billing_create_payment($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-money-payouts') {
+        require_once __DIR__ . '/pages/partnerhub/BillingController.php';
+        return eb_ph_money_payouts($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-money-disputes') {
+        require_once __DIR__ . '/pages/partnerhub/BillingController.php';
+        return eb_ph_money_disputes($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-money-balance') {
+        require_once __DIR__ . '/pages/partnerhub/BillingController.php';
+        return eb_ph_money_balance($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-plans') {
+        require_once __DIR__ . '/pages/partnerhub/PlansController.php';
+        return eb_ph_plans_index($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-catalog-products') {
+        require_once __DIR__ . '/pages/partnerhub/CatalogProductsController.php';
+        return eb_ph_catalog_products_list($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-catalog-product') {
+        require_once __DIR__ . '/pages/partnerhub/CatalogProductsController.php';
+        return eb_ph_catalog_product_show($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-catalog-products-create') {
+        require_once __DIR__ . '/pages/partnerhub/CatalogProductsController.php';
+        eb_ph_catalog_products_create($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-catalog-price-create') {
+        require_once __DIR__ . '/pages/partnerhub/CatalogProductsController.php';
+        eb_ph_catalog_price_create($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-catalog-product-toggle') {
+        require_once __DIR__ . '/pages/partnerhub/CatalogProductsController.php';
+        eb_ph_catalog_product_toggle($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-catalog-price-toggle') {
+        require_once __DIR__ . '/pages/partnerhub/CatalogProductsController.php';
+        eb_ph_catalog_price_toggle($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-catalog-plans') {
+        require_once __DIR__ . '/pages/partnerhub/CatalogPlansController.php';
+        return eb_ph_catalog_plans_index($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-catalog-product-save') {
+        require_once __DIR__ . '/pages/partnerhub/CatalogProductsController.php';
+        eb_ph_catalog_product_save($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-catalog-product-split') {
+        require_once __DIR__ . '/pages/partnerhub/CatalogProductsController.php';
+        eb_ph_catalog_product_split($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-catalog-product-get') {
+        require_once __DIR__ . '/pages/partnerhub/CatalogProductsController.php';
+        eb_ph_catalog_product_get($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-catalog-product-get-stripe') {
+        require_once __DIR__ . '/pages/partnerhub/CatalogProductsController.php';
+        eb_ph_catalog_product_get_stripe($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-catalog-product-save-stripe') {
+        require_once __DIR__ . '/pages/partnerhub/CatalogProductsController.php';
+        eb_ph_catalog_product_save_stripe($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-settings-checkout') {
+        require_once __DIR__ . '/pages/partnerhub/SettingsController.php';
+        return eb_ph_settings_checkout_show($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-settings-checkout-save') {
+        require_once __DIR__ . '/pages/partnerhub/SettingsController.php';
+        eb_ph_settings_checkout_save($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-settings-tax') {
+        require_once __DIR__ . '/pages/partnerhub/TaxSettingsController.php';
+        return eb_ph_settings_tax_show($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-settings-tax-save') {
+        require_once __DIR__ . '/pages/partnerhub/TaxSettingsController.php';
+        eb_ph_settings_tax_save($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tax-registrations') {
+        require_once __DIR__ . '/pages/partnerhub/TaxSettingsController.php';
+        eb_ph_tax_registrations($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tax-registration-upsert') {
+        require_once __DIR__ . '/pages/partnerhub/TaxSettingsController.php';
+        eb_ph_tax_registration_upsert($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tax-registration-delete') {
+        require_once __DIR__ . '/pages/partnerhub/TaxSettingsController.php';
+        eb_ph_tax_registration_delete($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-settings-email') {
+        require_once __DIR__ . '/pages/partnerhub/EmailSettingsController.php';
+        return eb_ph_settings_email_show($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-settings-email-save') {
+        require_once __DIR__ . '/pages/partnerhub/EmailSettingsController.php';
+        eb_ph_settings_email_save($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-email-test') {
+        require_once __DIR__ . '/pages/partnerhub/EmailSettingsController.php';
+        eb_ph_email_test($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-email-restore-default') {
+        require_once __DIR__ . '/pages/partnerhub/EmailSettingsController.php';
+        eb_ph_email_restore_default($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-catalog-product-unarchive-stripe') {
+        require_once __DIR__ . '/pages/partnerhub/CatalogProductsController.php';
+        eb_ph_catalog_product_unarchive_stripe($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-catalog-export-products') {
+        require_once __DIR__ . '/pages/partnerhub/CatalogProductsController.php';
+        eb_ph_catalog_export_products($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-catalog-export-prices') {
+        require_once __DIR__ . '/pages/partnerhub/CatalogProductsController.php';
+        eb_ph_catalog_export_prices($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-catalog-product-archive-stripe') {
+        require_once __DIR__ . '/pages/partnerhub/CatalogProductsController.php';
+        eb_ph_catalog_product_archive_stripe($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-catalog-product-delete-stripe') {
+        require_once __DIR__ . '/pages/partnerhub/CatalogProductsController.php';
+        eb_ph_catalog_product_delete_stripe($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-plan-template-create') {
+        require_once __DIR__ . '/pages/partnerhub/CatalogPlansController.php';
+        eb_ph_plan_template_create($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-plan-component-add') {
+        require_once __DIR__ . '/pages/partnerhub/CatalogPlansController.php';
+        eb_ph_plan_component_add($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-plan-assign') {
+        require_once __DIR__ . '/pages/partnerhub/CatalogPlansController.php';
+        eb_ph_plan_assign($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-stripe-subscribe') {
+        require_once __DIR__ . '/pages/partnerhub/SubscriptionsController.php';
+        return eb_ph_stripe_subscribe($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-services-link') {
+        require_once __DIR__ . '/pages/partnerhub/ServicesController.php';
+        eb_ph_services_link($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-usage-push') {
+        require_once __DIR__ . '/pages/partnerhub/UsageController.php';
+        eb_ph_usage_push($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-invoices-refresh') {
+        require_once __DIR__ . '/pages/partnerhub/BackfillController.php';
+        eb_ph_invoices_refresh($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-payouts-refresh') {
+        require_once __DIR__ . '/pages/partnerhub/BackfillController.php';
+        eb_ph_payouts_refresh($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-disputes-refresh') {
+        require_once __DIR__ . '/pages/partnerhub/BackfillController.php';
+        eb_ph_disputes_refresh($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-client-profile-update') {
+        require_once __DIR__ . '/pages/partnerhub/ProfileController.php';
+        eb_ph_client_profile_update($vars); exit;
     } else if ($_REQUEST["a"] == "createorder") {
         return eazybackup_createorder($vars);
     } else if ($_REQUEST["a"] == "add-card") {
@@ -2716,7 +3514,6 @@ function eazybackup_clientarea(array $vars)
                         // Adjust the sso_redirect_path as needed. Here we redirect to the download page.
                         'sso_redirect_path' => 'index.php?m=eazybackup&a=msp-welcome',
                     ], $adminUser);
-
                     // Log the SSO token response for debugging:
                     customFileLog("Reseller SSO Token Debug", $ssoResult);
 
@@ -2965,6 +3762,7 @@ function eazybackup_output($vars)
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=devices">Devices</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=items">Protected Items</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=billing">Billing</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=nfr">NFR</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=whitelabel">White-Label</a></li>'
                       . '</ul>';
 
@@ -3063,6 +3861,179 @@ function eazybackup_output($vars)
                 echo $html;
                 return;
             }
+            case 'partnerhub': {
+                $controller = __DIR__ . '/pages/admin/partnerhub/settings.php';
+                if (!is_file($controller)) { echo '<div class="alert alert-danger">Controller not found.</div>'; return; }
+                $data = require $controller;
+                $e = function ($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); };
+                $rows = $data['rows'] ?? [];
+                echo '<div class="container-fluid">';
+                echo '<ul class="nav nav-tabs mb-3">'
+                   . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=storage">Storage</a></li>'
+                   . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=devices">Devices</a></li>'
+                   . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=items">Protected Items</a></li>'
+                   . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=billing">Billing</a></li>'
+                   . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=nfr">NFR</a></li>'
+                   . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=whitelabel">White-Label</a></li>'
+                   . '<li class="nav-item"><a class="nav-link active" href="#">Partner Hub</a></li>'
+                   . '</ul>';
+                echo ($data['notice'] ?? '');
+                echo '<div class="panel panel-default">'
+                   . ' <div class="panel-heading"><strong>MSP Defaults</strong></div>'
+                   . ' <div class="panel-body">'
+                   . '   <div class="table-responsive">'
+                   . '   <table class="table table-striped table-condensed">'
+                   . '     <thead><tr>'
+                   . '       <th>ID</th><th>Client</th><th>Email</th><th>Stripe Account</th><th>Charges</th><th>Payouts</th><th>Default Fee %</th><th>Action</th>'
+                   . '     </tr></thead><tbody>';
+                foreach ($rows as $r) {
+                    $clientName = ($r->companyname ?: trim(($r->firstname ?: '') . ' ' . ($r->lastname ?: '')));
+                    echo '<tr>'
+                       . ' <td>' . (int)$r->id . '</td>'
+                       . ' <td>' . $e($clientName) . '</td>'
+                       . ' <td>' . $e((string)$r->email) . '</td>'
+                       . ' <td>' . $e((string)$r->stripe_connect_id) . '</td>'
+                       . ' <td>' . ((int)$r->charges_enabled ? '<span class="label label-success">Yes</span>' : '<span class="label label-default">No</span>') . '</td>'
+                       . ' <td>' . ((int)$r->payouts_enabled ? '<span class="label label-success">Yes</span>' : '<span class="label label-default">No</span>') . '</td>'
+                       . ' <td>'
+                       . '   <form method="post" class="form-inline" style="margin:0">'
+                       .        generate_token('input')
+                       . '     <input type="hidden" name="save_msp_fee" value="1"/>'
+                       . '     <input type="hidden" name="msp_id" value="' . (int)$r->id . '"/>'
+                       . '     <input type="text" name="default_fee_percent" value="' . $e((string)($r->default_fee_percent ?? '')) . '" class="form-control" style="width:90px" placeholder="e.g., 10.00"/>'
+                       . '     <button type="submit" class="btn btn-primary btn-sm" style="margin-left:6px">Save</button>'
+                       . '   </form>'
+                       . ' </td>'
+                       . ' <td><a class="btn btn-default btn-sm" href="addonmodules.php?module=eazybackup&action=powerpanel&view=partnerhub">Refresh</a></td>'
+                       . '</tr>';
+                }
+                if (empty($rows)) {
+                    echo '<tr><td colspan="8" class="text-center text-muted">No MSPs found.</td></tr>';
+                }
+                echo '    </tbody></table></div></div></div></div>';
+                return;
+            }
+            case 'nfr': {
+                $controller = __DIR__ . '/pages/admin/nfr.php';
+                if (!is_file($controller)) { echo '<div class="alert alert-danger">Controller not found.</div>'; return; }
+                $data = require $controller;
+                $e = function ($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); };
+                $tab = $data['tab'] ?? 'applications';
+                $rows = $data['rows'] ?? [];
+                $products = $data['products'] ?? [];
+                echo '<div class="container-fluid">';
+                echo '<ul class="nav nav-tabs mb-3">'
+                   . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=storage">Storage</a></li>'
+                   . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=devices">Devices</a></li>'
+                   . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=items">Protected Items</a></li>'
+                   . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=billing">Billing</a></li>'
+                   . '<li class="nav-item"><a class="nav-link active" href="#">NFR</a></li>'
+                   . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=whitelabel">White-Label</a></li>'
+                   . '</ul>';
+
+                echo ($data['notice'] ?? '');
+                echo '<ul class="nav nav-pills" style="margin-bottom:10px">'
+                   . '<li role="presentation"' . ($tab==='applications'?' class="active"':'') . '><a href="addonmodules.php?module=eazybackup&action=powerpanel&view=nfr&tab=applications">Applications</a></li>'
+                   . '<li role="presentation"' . ($tab==='active'?' class="active"':'') . '><a href="addonmodules.php?module=eazybackup&action=powerpanel&view=nfr&tab=active">Active NFRs</a></li>'
+                   . '<li role="presentation"' . ($tab==='all'?' class="active"':'') . '><a href="addonmodules.php?module=eazybackup&action=powerpanel&view=nfr&tab=all">All</a></li>'
+                   . '</ul>';
+
+                echo '<div class="table-responsive">'
+                   . '<table class="table table-striped table-condensed">'
+                   . '<thead><tr>'
+                   . '<th>ID</th><th>Client ID</th><th>Date Registered</th><th>Username</th><th>Company</th><th>Status</th><th>Start</th><th>End</th><th>Quota (GiB)</th><th>Device Cap</th><th>Actions</th>'
+                   . '</tr></thead><tbody>';
+                if (!empty($rows)) {
+                    foreach ($rows as $r) {
+                        echo '<tr>'
+                           . '<td>' . (int)$r->id . '</td>'
+                           . '<td>' . ($tab==='active' ? '<a href="clientsservices.php?userid=' . (int)$r->client_id . '">' . (int)$r->client_id . '</a>' : (string)(int)$r->client_id) . '</td>'
+                           . '<td>' . $e((string)$r->created_at) . '</td>'
+                           . '<td>' . $e((string)($r->service_username ?? '')) . '</td>'
+                           . '<td>' . $e((string)$r->company_name) . '</td>'
+                           . '<td>' . $e((string)$r->status) . '</td>'
+                           . '<td>' . $e((string)($r->start_date ?? '')) . '</td>'
+                           . '<td>' . $e((string)($r->end_date ?? '')) . '</td>'
+                           . '<td class="text-right">' . ($r->approved_quota_gib !== null ? (int)$r->approved_quota_gib : '-') . '</td>'
+                           . '<td class="text-right">' . ($r->device_cap !== null ? (int)$r->device_cap : '-') . '</td>'
+                           . '<td>';
+                        if ($r->status === 'pending') {
+                            echo '<form method="post" class="form-inline" style="display:inline-block;margin-right:6px">'
+                               . generate_token('input')
+                               . '<input type="hidden" name="nfr_action" value="approve"/>'
+                               . '<input type="hidden" name="id" value="' . (int)$r->id . '"/>'
+                               . '<select name="product_id" class="form-control" style="width:140px;margin-right:6px">';
+                            foreach ($products as $p) {
+                                echo '<option value="' . (int)$p['id'] . '">' . $e($p['name']) . '</option>';
+                            }
+                            echo '</select>'
+                               . '<input type="number" name="duration_days" class="form-control" style="width:90px;margin-right:6px" placeholder="Days" value="' . (int)(\WHMCS\Module\Addon\Eazybackup\Nfr::defaultDurationDays()) . '"/>'
+                               . '<input type="number" name="approved_quota_gib" class="form-control" style="width:110px;margin-right:6px" placeholder="Quota GiB" value="' . (int)(\WHMCS\Module\Addon\Eazybackup\Nfr::defaultQuotaGiB()) . '"/>'
+                               . '<input type="number" name="device_cap" class="form-control" style="width:100px;margin-right:6px" placeholder="Devices"/>'
+                               . '<button class="btn btn-success btn-sm" type="submit">Approve</button>'
+                               . '</form>';
+                            echo '<form method="post" style="display:inline-block">'
+                               . generate_token('input')
+                               . '<input type="hidden" name="nfr_action" value="reject"/>'
+                               . '<input type="hidden" name="id" value="' . (int)$r->id . '"/>'
+                               . '<button class="btn btn-default btn-sm" type="submit">Reject</button>'
+                               . '</form>';
+                        } elseif (in_array($r->status, ['approved','provisioned','suspended'], true)) {
+                            // Provision only when not yet provisioned (approved without service)
+                            if ($r->status === 'approved' && (int)($r->service_id ?? 0) === 0) {
+                                echo '<form method="post" style="display:inline-block;margin-right:6px">'
+                                   . generate_token('input')
+                                   . '<input type="hidden" name="nfr_action" value="provision"/>'
+                                   . '<input type="hidden" name="id" value="' . (int)$r->id . '"/>'
+                                   . '<button class="btn btn-primary btn-sm" type="submit">Provision</button>'
+                                   . '</form>';
+                            }
+                            if ($r->status !== 'suspended') {
+                                echo '<form method="post" style="display:inline-block;margin-right:6px">'
+                                   . generate_token('input')
+                                   . '<input type="hidden" name="nfr_action" value="suspend"/>'
+                                   . '<input type="hidden" name="id" value="' . (int)$r->id . '"/>'
+                                   . '<button class="btn btn-warning btn-sm" type="submit">Suspend</button>'
+                                   . '</form>';
+                            }
+                            if ($r->status === 'suspended') {
+                                echo '<form method="post" style="display:inline-block;margin-right:6px">'
+                                   . generate_token('input')
+                                   . '<input type="hidden" name="nfr_action" value="resume"/>'
+                                   . '<input type="hidden" name="id" value="' . (int)$r->id . '"/>'
+                                   . '<button class="btn btn-default btn-sm" type="submit">Resume</button>'
+                                   . '</form>';
+                            }
+                            // Removed Convert action per requirements
+                            // Inline update: End date, Quota GiB, Device cap
+                            echo '<form method="post" class="form-inline" style="display:inline-block;margin-right:6px">'
+                               . generate_token('input')
+                               . '<input type="hidden" name="nfr_action" value="update_active"/>'
+                               . '<input type="hidden" name="id" value="' . (int)$r->id . '"/>'
+                               . '<input type="date" name="end_date" class="form-control" style="width:140px;margin-right:6px" value="' . $e((string)($r->end_date ?? '')) . '" placeholder="End date"/>'
+                               . '<input type="number" name="approved_quota_gib" class="form-control" style="width:110px;margin-right:6px" placeholder="Quota GiB" value="' . ($r->approved_quota_gib !== null ? (int)$r->approved_quota_gib : '') . '"/>'
+                               . '<input type="number" name="device_cap" class="form-control" style="width:100px;margin-right:6px" placeholder="Devices" value="' . ($r->device_cap !== null ? (int)$r->device_cap : '') . '"/>'
+                               . '<button class="btn btn-success btn-sm" type="submit">Update</button>'
+                               . '</form>';
+                            echo '<form method="post" style="display:inline-block">'
+                               . generate_token('input')
+                               . '<input type="hidden" name="nfr_action" value="expire_now"/>'
+                               . '<input type="hidden" name="id" value="' . (int)$r->id . '"/>'
+                               . '<button class="btn btn-default btn-sm" type="submit">Expire now</button>'
+                               . '</form>';
+                        } else {
+                            echo '-';
+                        }
+                        echo '</td>'
+                           . '</tr>';
+                    }
+                } else {
+                    echo '<tr><td colspan="11" class="text-center text-muted">No results</td></tr>';
+                }
+                echo '</tbody></table></div>';
+                echo '</div>';
+                return;
+            }
             case 'devices': {
                 $controller = __DIR__ . '/pages/admin/powerpanel/devices.php';
                 if (!is_file($controller)) {
@@ -3090,6 +4061,7 @@ function eazybackup_output($vars)
                       . '<li class="nav-item"><a class="nav-link active" href="#">Devices</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=items">Protected Items</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=billing">Billing</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=nfr">NFR</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=whitelabel">White-Label</a></li>'
                       . '</ul>';
 
@@ -3254,6 +4226,7 @@ function eazybackup_output($vars)
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=devices">Devices</a></li>'
                       . '<li class="nav-item"><a class="nav-link active" href="#">Protected Items</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=billing">Billing</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=nfr">NFR</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=whitelabel">White-Label</a></li>'
                       . '</ul>';
 
@@ -3360,6 +4333,7 @@ function eazybackup_output($vars)
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=devices">Devices</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=items">Protected Items</a></li>'
                       . '<li class="nav-item"><a class="nav-link active" href="#">Billing</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=nfr">NFR</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=whitelabel">White-Label</a></li>'
                       . '</ul>';
 
@@ -3680,7 +4654,6 @@ function eazybackup_sidebar($vars)
 //                 customFileLog("AddOrder failed", $order);
 //                 throw new \Exception("AddOrder: " . $order['message']);
 //             }
-
 //             $acceptData = [
 //                 "orderid" => $order["orderid"],
 //                 "autosetup" => true,
@@ -4029,7 +5002,6 @@ function obc_signup($vars)
                 // Consider updating this to a client area page that requires login
                 'sso_redirect_path' => 'index.php?m=eazybackup&a=download-obc&product=obc',
             ], $adminUser);
-
             customFileLog("SSO Token Debug", $ssoResult);
 
             if ($ssoResult['result'] === 'success') {
@@ -4675,7 +5647,6 @@ function eazybackup_createorder($vars)
             }
         }
     }
-
     // -----------------------------
     // 2) Build Category Arrays
     // -----------------------------
@@ -5349,7 +6320,6 @@ function eazybackup_validate_reseller(array $vars)
 
     return $errors;
 }
-
 function eazybackup_validate_order(array $vars)
 {
     $errors = [];
@@ -5499,7 +6469,7 @@ function eazybackup_get_config_unit_price(int $configId, int $currencyId, string
             ->orderBy('sortorder')
             ->orderBy('id')
             ->value('id');
-        $relid = $subId ? (int)$subId : $configId; // fallback
+        $relid = $subId ? (int)$subId : (int)$configId; // fallback
         $row = Capsule::table('tblpricing')
             ->where('type','configoptions')
             ->where('currency', $currencyId)
