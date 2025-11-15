@@ -1,0 +1,83 @@
+<?php
+
+require_once __DIR__ . '/../../../../init.php';
+
+if (!defined("WHMCS")) {
+    die("This file cannot be accessed directly");
+}
+
+use Symfony\Component\HttpFoundation\JsonResponse;
+use WHMCS\ClientArea;
+use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
+use WHMCS\Module\Addon\CloudStorage\Client\DBController;
+use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
+use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupLogFormatter;
+
+$ca = new ClientArea();
+if (!$ca->isLoggedIn()) {
+    $jsonData = [
+        'status' => 'fail',
+        'message' => 'Session timeout.'
+    ];
+    $response = new JsonResponse($jsonData, 200);
+    $response->send();
+    exit();
+}
+
+$packageId = ProductConfig::$E3_PRODUCT_ID;
+$loggedInUserId = $ca->getUserID();
+
+$product = DBController::getProduct($loggedInUserId, $packageId);
+if (is_null($product) || empty($product->username)) {
+    $jsonData = [
+        'status' => 'fail',
+        'message' => 'Product not found.'
+    ];
+    $response = new JsonResponse($jsonData, 200);
+    $response->send();
+    exit();
+}
+
+$runId = $_GET['run_id'] ?? null;
+if (!$runId) {
+    $jsonData = [
+        'status' => 'fail',
+        'message' => 'Run ID is required.'
+    ];
+    $response = new JsonResponse($jsonData, 200);
+    $response->send();
+    exit();
+}
+
+// Verify run ownership and get run details
+$run = CloudBackupController::getRun($runId, $loggedInUserId);
+if (!$run) {
+    $jsonData = [
+        'status' => 'fail',
+        'message' => 'Run not found or access denied.'
+    ];
+    $response = new JsonResponse($jsonData, 200);
+    $response->send();
+    exit();
+}
+
+// Format logs using CloudBackupLogFormatter
+$formattedBackupLog = CloudBackupLogFormatter::formatRcloneLogs($run['log_excerpt'] ?? null);
+$formattedValidationLog = null;
+
+// Format validation log if available
+if (!empty($run['validation_log_excerpt']) && $run['validation_mode'] === 'post_run') {
+    $formattedValidationLog = CloudBackupLogFormatter::formatValidationLogs($run['validation_log_excerpt']);
+}
+
+$jsonData = [
+    'status' => 'success',
+    'backup_log' => $formattedBackupLog,
+    'validation_log' => $formattedValidationLog,
+    'has_validation' => !empty($run['validation_log_excerpt']) && $run['validation_mode'] === 'post_run'
+];
+
+$response = new JsonResponse($jsonData, 200);
+$response->send();
+exit();
+

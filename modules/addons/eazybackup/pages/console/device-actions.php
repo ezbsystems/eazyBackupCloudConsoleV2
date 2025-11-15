@@ -31,7 +31,8 @@ try {
     if ($username === '') { $username = $account->username; }
     if ($username !== $account->username) { echo json_encode(['status' => 'error', 'message' => 'Access denied']); exit; }
 
-    $params = comet_ServiceParams($serviceId);
+    // Use product-level server mapping (align with user-profile.php) so migrations that update the product/server group are respected
+    $params = comet_ProductParams($account->packageid);
     $params['username'] = $username;
     $server = comet_Server($params);
 

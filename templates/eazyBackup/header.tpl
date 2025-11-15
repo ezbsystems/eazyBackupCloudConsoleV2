@@ -250,8 +250,11 @@
                             'index.php?m=cloudstorage', 
                             'index.php?m=cloudstorage&page=dashboard',
                             'index.php?m=cloudstorage&page=buckets', 
-                            'index.php?m=cloudstorage&page=access_keys', 
-                            'index.php?m=cloudstorage&page=billing'
+                            'index.php?m=cloudstorage&page=access_keys',
+                            'index.php?m=cloudstorage&page=users',
+                            'index.php?m=cloudstorage&page=cloudbackup',
+                            'index.php?m=cloudstorage&page=billing',
+                            'index.php?m=cloudstorage&page=history'
                         ].some(path => window.location.href.includes(path))
                     }">
                         <button
@@ -299,6 +302,12 @@
                             class="block px-2 py-1 text-gray-400 rounded-md hover:bg-[#1B2C50]
                                     {if $smarty.server.REQUEST_URI|strstr:'page=users'} bg-[#1B2C50] font-semibold {/if}">
                                 Users
+                            </a>
+                            <!-- Cloud Backups -->
+                            <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=cloudbackup" 
+                            class="block px-2 py-1 text-gray-400 rounded-md hover:bg-[#1B2C50]
+                                    {if $smarty.server.REQUEST_URI|strstr:'page=cloudbackup'} bg-[#1B2C50] font-semibold {/if}">
+                                Cloud Backups
                             </a>
                             <!-- Billing -->
                             <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=billing" 

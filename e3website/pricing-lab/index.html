@@ -1,0 +1,845 @@
+<!doctype html>
+<html lang="en" class="scroll-smooth">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Pricing Lab — eazyBackup e3</title>
+		<meta name="description" content="Compare eazyBackup e3 pricing with Wasabi, AWS, OVH, Leaseweb, IDrive e2, and Backblaze B2. Interactive cost calculator for object storage." />
+		<link rel="icon" href="/assets/images/e3logo_icon.svg" type="image/svg+xml" />
+		<script>
+			(() => {
+				const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+				const saved = localStorage.getItem('theme');
+				const isDark = saved ? saved === 'dark' : prefersDark;
+				document.documentElement.classList.toggle('dark', isDark);
+				window.setTheme = (mode) => {
+					const dark = mode === 'dark' ? true : mode === 'light' ? false : !document.documentElement.classList.contains('dark');
+					document.documentElement.classList.toggle('dark', dark);
+					localStorage.setItem('theme', dark ? 'dark' : 'light');
+				};
+			})();
+		</script>
+		<link rel="stylesheet" href="/assets/css/app.css" />
+		<script defer src="/assets/js/alpine-init.js"></script>
+		<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+		<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+	</head>
+	<body class="bg-surface text-foreground">
+
+		<!-- App shell: top bar -->
+		<div class="min-h-screen bg-surface text-foreground">
+
+			<!-- Desktop command dock (visible on lg+) -->
+			<!-- Desktop sidebar is included via template above -->
+  
+			<!-- Main column -->
+			<div class="flex-1 flex flex-col min-h-screen">
+				<!-- Top bar -->
+				<div data-include="/templates/header.html"></div>
+				<div data-include="/templates/sidebar.html"></div>
+
+				<!-- Page content -->
+				<main class="flex-1">
+					<!-- Pricing Lab -->
+					<section id="pricing"
+					  class="section border-y border-muted bg-surface-2/60 backdrop-blur"
+					  style="scroll-margin-top: 80px"
+					  x-data="pricingCalculator()"
+					  x-init="init()"
+					>
+					  <div class="container space-y-10 lg:space-y-12">
+					    <!-- Intro -->
+					    <div class="grid gap-8 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] lg:items-start">
+					      <div class="space-y-4 max-w-2xl">
+					        <p class="eyebrow">Pricing &amp; Cost Comparison</p>
+					        <h2 class="heading-lg">
+					          Transparent pricing, with a live cost lab
+					        </h2>
+					        <p class="lead text-muted-foreground">
+					          Model your bill and see how eazyBackup e3 stacks up against Wasabi, Amazon Web Services,
+					          OVH, Leaseweb, IDrive e2, and Backblaze B2. Costs include object storage, API requests, and outbound transfer, shown in Canadian dollars.
+					        </p>
+					      </div>
+
+					      <div class="space-y-3 text-sm text-muted-foreground">
+					        <ul class="space-y-1.5">
+					          <li class="flex items-start gap-2">
+					            <span class="mt-1 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-brand-orange"></span>
+					            <span><strong>e3:</strong> volume-based storage pricing, 5X free egress, no request fees.</span>
+					          </li>
+					          <li class="flex items-start gap-2">
+					            <span class="mt-1 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-brand-wasabi-green"></span>
+					            <span><strong>Wasabi:</strong> 1&nbsp;TB monthly minimum and a <strong>90-day minimum storage duration</strong>.</span>
+					          </li>
+					          <li class="flex items-start gap-2">
+					            <span class="mt-1 h-1.5 w-1.5 flex-shrink-0 rounded-full" style="background-color: rgb(249,90,83)"></span>
+					            <span><strong>Amazon Web Services:</strong> metered egress and API request fees; calculator includes storage, outbound data, and API calls.</span>
+					          </li>
+					          <li class="flex items-start gap-2">
+					            <span class="mt-1 h-1.5 w-1.5 flex-shrink-0 rounded-full" style="background-color: #3b0764"></span>
+					            <span><strong>Leaseweb:</strong> metered egress and API request fees; calculator includes storage, outbound data, and API calls.</span>
+					          </li>
+					          <li class="flex items-start gap-2">
+					            <span class="mt-1 h-1.5 w-1.5 flex-shrink-0 rounded-full" style="background-color: #000e9c"></span>
+					            <span><strong>OVH:</strong> metered egress; calculator includes storage plus outbound data.</span>
+					          </li>
+					          <li class="flex items-start gap-2">
+					            <span class="mt-1 h-1.5 w-1.5 flex-shrink-0 rounded-full" style="background-color: #0772BA"></span>
+					            <span><strong>IDrive e2:</strong> 3X free egress, then metered charges.</span>
+					          </li>
+					          <li class="flex items-start gap-2">
+					            <span class="mt-1 h-1.5 w-1.5 flex-shrink-0 rounded-full" style="background-color: #D30035"></span>
+					            <span><strong>Backblaze B2:</strong> 3X free egress, then metered charges.</span>
+					          </li>
+					        </ul>
+					      </div>
+					    </div>
+
+					    <!-- Pricing Lab card -->
+					    <div class="tw-gradient-frame rounded-3xl">
+					      <div class="tw-gradient-inner space-y-6 lg:space-y-8">
+
+					        <!-- Lab header -->
+					        <div class="flex flex-wrap items-center justify-between gap-4 border-b border-muted/70 pb-4">
+					          <div class="space-y-1">
+					            <p class="text-[11px] uppercase tracking-[0.16em] text-slate-400">
+					              Pricing Lab
+					            </p>
+					            <h3 class="text-base md:text-lg font-semibold tracking-tight">
+					              Tune your scenario and compare total spend in CAD
+					            </h3>
+					            <p class="text-xs md:text-sm text-muted-foreground max-w-xl">
+					              Adjust stored capacity, outbound transfer, and retention. We apply each provider's published rates,
+					              including egress and minimums, then convert to Canadian dollars.
+					            </p>
+					          </div>
+					        </div>
+
+					        <!-- Main grid: presets + controls (left), results (right) -->
+					        <div class="grid gap-8 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1.1fr)] lg:items-start">
+					          <!-- LEFT: Presets + controls -->
+					          <div class="space-y-6">
+
+					            <!-- Scenario presets -->
+					            <div class="space-y-2">
+					              <p class="text-[11px] uppercase tracking-wide text-slate-400">
+					                Scenario presets
+					              </p>
+					              <div class="flex flex-wrap gap-2 text-xs">
+					                <button
+					                  type="button"
+					                  class="inline-flex items-center gap-2 rounded-full border border-muted bg-surface-2 px-3 py-1.5 hover:border-slate-400 hover:bg-surface-2/80 transition"
+					                  @click="
+					                    tib = 20;
+					                    egressPercent = 10;
+					                    retentionMonths = 12;
+					                    shortLivedPercent = 10;
+					                    apiRequestsPerMonth = 2000000;
+					                    apiRequestGetRatio = 0.6;
+					                    preset = 'msp';
+					                  "
+					                  :class="preset === 'msp' ? 'ring-1 ring-emerald-400/70 text-emerald-100' : ''"
+					                >
+					                  <span class="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
+					                  <span>MSP backup workloads</span>
+					                </button>
+
+					                <button
+					                  type="button"
+					                  class="inline-flex items-center gap-2 rounded-full border border-muted bg-surface-2 px-3 py-1.5 hover:border-slate-400 hover:bg-surface-2/80 transition"
+					                  @click="
+					                    tib = 50;
+					                    egressPercent = 5;
+					                    retentionMonths = 12;
+					                    shortLivedPercent = 5;
+					                    apiRequestsPerMonth = 1000000;
+					                    apiRequestGetRatio = 0.8;
+					                    preset = 'media';
+					                  "
+					                  :class="preset === 'media' ? 'ring-1 ring-sky-400/70 text-sky-100' : ''"
+					                >
+					                  <span class="h-1.5 w-1.5 rounded-full bg-sky-400"></span>
+					                  <span>Media archive</span>
+					                </button>
+
+					                <button
+					                  type="button"
+					                  class="inline-flex items-center gap-2 rounded-full border border-muted bg-surface-2 px-3 py-1.5 hover:border-slate-400 hover:bg-surface-2/80 transition"
+					                  @click="
+					                    tib = 10;
+					                    egressPercent = 20;
+					                    retentionMonths = 6;
+					                    shortLivedPercent = 40;
+					                    apiRequestsPerMonth = 2500000;
+					                    apiRequestGetRatio = 0.75;
+					                    preset = 'saas';
+					                  "
+					                  :class="preset === 'saas' ? 'ring-1 ring-violet-400/70 text-violet-100' : ''"
+					                >
+					                  <span class="h-1.5 w-1.5 rounded-full bg-violet-400"></span>
+					                  <span>SaaS logs &amp; objects</span>
+					                </button>
+					              </div>
+					            </div>
+
+					            <!-- Controls -->
+					            <div class="card-muted p-4 sm:p-5 space-y-5">
+					              <!-- Capacity -->
+					              <div class="space-y-2">
+					                <div class="flex items-center justify-between text-sm">
+					                  <p class="font-medium text-muted-foreground">
+					                    Stored capacity
+					                  </p>
+					                  <p class="font-mono" x-text="tib.toFixed(1) + ' TiB'"></p>
+					                </div>
+					                <input type="range"
+					                  min="1"
+					                  max="100"
+					                  step="1"
+					                  x-model.number="tib"
+					                  @input="updateApiRequestsDefault()"
+					                  class="pricing-range w-full accent-primary/80">
+					                <div class="flex justify-between text-xs text-muted-foreground">
+					                  <span>1&nbsp;TiB</span>
+					                  <span>50&nbsp;TiB</span>
+					                  <span>100&nbsp;TiB</span>
+					                </div>
+					              </div>
+
+					              <!-- Egress -->
+					              <div class="space-y-2">
+					                <div class="flex items-center justify-between text-sm">
+					                  <p class="font-medium text-muted-foreground">
+					                    Outbound transfer per month
+					                  </p>
+					                  <p class="font-mono" x-text="egressPercent.toFixed(0) + '% of stored data'"></p>
+					                </div>
+					                <input type="range"
+					                  min="0"
+					                  max="100"
+					                  step="5"
+					                  x-model.number="egressPercent"
+					                  class="pricing-range w-full accent-primary/80">
+					                <div class="flex justify-between text-xs text-muted-foreground">
+					                  <span>0%</span>
+					                  <span>25%</span>
+					                  <span>50%</span>
+					                  <span>75%</span>
+					                  <span>100%</span>
+					                </div>
+					              </div>
+
+					              <!-- API Requests -->
+					              <div class="space-y-2">
+					                <div class="flex items-center justify-between text-sm">
+					                  <p class="font-medium text-muted-foreground">
+					                    API requests per month
+					                  </p>
+					                  <p class="font-mono" x-text="(apiRequestsPerMonth / 1000).toFixed(0) + 'K'"></p>
+					                </div>
+					                <input type="range"
+					                  min="0"
+					                  max="5000000"
+					                  step="50000"
+					                  x-model.number="apiRequestsPerMonth"
+					                  class="pricing-range w-full accent-primary/80">
+					                <div class="flex justify-between text-xs text-muted-foreground">
+					                  <span>0</span>
+					                  <span>1M</span>
+					                  <span>2.5M</span>
+					                  <span>5M</span>
+					                </div>
+					                <p class="text-[11px] text-muted-foreground">
+					                  <span class="font-mono" x-text="(awsPutRequests() / 1000).toFixed(0) + 'K PUT'"></span>
+					                  <span> / </span>
+					                  <span class="font-mono" x-text="(awsGetRequests() / 1000).toFixed(0) + 'K GET'"></span>
+					                  <span> (</span><span class="font-mono" x-text="(apiRequestGetRatio * 100).toFixed(0)"></span><span>% GET)</span>
+					                </p>
+					                <p class="text-[11px] text-muted-foreground">
+					                  Typical: 200K ops/month for 300–500 GiB, 1.5–3M ops/month for 10–15 TiB
+					                </p>
+					              </div>
+
+					              <!-- Retention -->
+					              <div class="space-y-2">
+					                <div class="flex items-center justify-between text-sm">
+					                  <p class="font-medium text-muted-foreground">
+					                    Billing period for this estimate
+					                  </p>
+					                  <p class="font-mono" x-text="retentionMonths + (retentionMonths === 1 ? ' month' : ' months')"></p>
+					                </div>
+					                <input type="range"
+					                  min="1"
+					                  max="12"
+					                  step="1"
+					                  x-model.number="retentionMonths"
+					                  class="pricing-range w-full accent-primary/80">
+					                <div class="flex justify-between text-xs text-muted-foreground">
+					                  <span>1 month</span>
+					                  <span>Quarter</span>
+					                  <span>Year</span>
+					                </div>
+					                <p class="text-[11px] text-muted-foreground">
+					                  Used to calculate total spend over the selected billing period.
+					                </p>
+					              </div>
+
+					              <!-- Short-lived data (Wasabi) -->
+					              <div class="space-y-2">
+					                <div class="flex items-center justify-between text-sm">
+					                  <p class="font-medium text-muted-foreground">
+					                    Short-lived data (deleted within 90 days)
+					                  </p>
+					                  <p class="font-mono" x-text="shortLivedPercent.toFixed(0) + '%'"></p>
+					                </div>
+					                <input type="range"
+					                  min="0"
+					                  max="50"
+					                  step="5"
+					                  x-model.number="shortLivedPercent"
+					                  class="pricing-range w-full accent-primary/80">
+					                <div class="flex justify-between text-xs text-muted-foreground">
+					                  <span>0%</span>
+					                  <span>25%</span>
+					                  <span>50%</span>
+					                </div>
+					                <p class="text-[11px] text-muted-foreground">
+					                  Fraction of stored data that churns quickly (e.g., VM snapshots, log archives, temp backups).
+					                  Used to model Wasabi's 90-day minimum storage duration penalty.
+					                </p>
+					              </div>
+					            </div>
+
+					            <!-- e3 monthly card + recipe -->
+					            <div class="grid gap-4 sm:grid-cols-2">
+					              <div class="relative overflow-hidden card-muted p-4 sm:p-5 space-y-2">
+					                <p class="text-[11px] font-semibold tracking-wide uppercase text-brand-gold">
+					                  Estimated monthly bill (e3)
+					                </p>
+					                <p class="text-2xl font-semibold" x-text="formatCAD(e3CostCAD())"></p>
+					                <p class="text-[11px] text-slate-400">
+					                  Approximate total over
+					                  <span class="font-mono" x-text="retentionMonths + (retentionMonths === 1 ? ' month' : ' months')"></span>:
+					                  <span class="font-mono" x-text="formatCAD(e3TotalCAD())"></span>
+					                </p>
+					                <p class="text-[11px] text-muted-foreground mt-1">
+					                  Storage plus egress (5X free egress included). Ingress and API calls are included at no extra charge.
+					                </p>
+					              </div>
+
+					              <div class="space-y-2 text-xs text-muted-foreground rounded-2xl bg-surface-2/80 border border-muted px-3 py-3">
+					                <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+					                  How we calculate e3
+					                </p>
+					                <ol class="space-y-1.5">
+					                  <li class="flex gap-2">
+					                    <span class="mt-0.5 h-4 w-4 flex items-center justify-center rounded-full bg-surface text-[10px] font-semibold text-slate-400">1</span>
+					                    <span>Apply tiered CAD rates to <span class="font-mono" x-text="tib.toFixed(1) + ' TiB'"></span> of storage.</span>
+					                  </li>
+					                  <li class="flex gap-2">
+					                    <span class="mt-0.5 h-4 w-4 flex items-center justify-center rounded-full bg-surface text-[10px] font-semibold text-slate-400">2</span>
+					                    <span>Sum monthly storage charges across the volume bands.</span>
+					                  </li>
+					                  <li class="flex gap-2">
+					                    <span class="mt-0.5 h-4 w-4 flex items-center justify-center rounded-full bg-surface text-[10px] font-semibold text-slate-400">3</span>
+					                    <span>Add egress charges if egress exceeds 5X storage (<span class="font-mono" x-text="formatCAD(e3EgressCAD())"></span>/month).</span>
+					                  </li>
+					                  <li class="flex gap-2">
+					                    <span class="mt-0.5 h-4 w-4 flex items-center justify-center rounded-full bg-surface text-[10px] font-semibold text-slate-400">4</span>
+					                    <span>Multiply by <span class="font-mono" x-text="retentionMonths"></span> months. Ingress and API calls remain $0.</span>
+					                  </li>
+					                </ol>
+					              </div>
+					            </div>
+					          </div>
+
+					          <!-- RIGHT: Results board -->
+					          <div class="space-y-6">
+					            <!-- Summary + savings chip -->
+					            <div class="flex flex-wrap items-end justify-between gap-4">
+					              <div class="space-y-1">
+					                <p class="text-[11px] tracking-wide text-brand-gold">
+					                  eazyBackup e3 total over selected period
+					                </p>
+					                <p class="text-2xl md:text-3xl font-semibold" x-text="formatCAD(e3TotalCAD())"></p>
+					                <p class="text-xs text-muted-foreground">
+					                  <span class="font-mono" x-text="tib.toFixed(1) + ' TiB'"></span> stored for
+					                  <span class="font-mono" x-text="retentionMonths + (retentionMonths === 1 ? ' month' : ' months')"></span>,
+					                  including outbound data.
+					                </p>
+					              </div>
+
+					              <template x-if="savingsVsMax() > 0">
+					                <div
+					                  class="inline-flex items-center gap-2 rounded-full px-3 py-1.5 ring-1 ring-emerald-400/70 text-xs text-slate-500 dark:text-slate-400"
+					                  x-transition
+					                >
+					                  <span class="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
+					                  <span>
+					                    You save
+					                    <span class="font-mono" x-text="formatCAD(savingsVsMax())"></span>
+					                    vs the most expensive provider.
+					                  </span>
+					                </div>
+					              </template>
+					            </div>
+
+					            <!-- Provider bar chart -->
+					            <div class="space-y-4">
+					              <!-- e3 -->
+					              <div class="flex items-center gap-4 text-sm">
+					                <div class="w-40" style="width:10rem">
+					                  <p class="font-semibold">e3</p>
+					                  <p class="text-xs text-slate-400"
+					                    x-text="formatCAD(e3TotalCAD())"></p>
+					                </div>
+					                <div class="flex-1 overflow-hidden rounded-full bg-slate-900/70" style="height:12px">
+					                  <div class="rounded-full shadow-sm h-full"
+					                    :style="{ width: barWidth(e3TotalCAD()), background: 'linear-gradient(to right,#fe5000 0%, #fe5000 35%, #ffd199 100%)' }"></div>
+					                </div>
+					              </div>
+
+					              <!-- Wasabi -->
+					              <div class="space-y-2">
+					                <div class="flex items-center gap-4 text-sm">
+					                  <div class="w-40" style="width:10rem">
+					                    <p class="font-semibold flex items-center gap-1">
+					                      <span>Wasabi</span>
+					                      <span class="inline-flex items-center rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-semibold text-black">
+					                        90-day min
+					                      </span>
+					                    </p>
+					                    <p class="text-xs text-slate-400"
+					                      x-text="formatCAD(wasabiTotalCAD())"></p>
+					                  </div>
+					                  <div class="flex-1 overflow-hidden rounded-full bg-slate-900/70" style="height:12px">
+					                    <div class="rounded-full shadow-sm h-full transition-all"
+					                      :style="{
+					                        width: barWidth(wasabiTotalCAD()),
+					                        backgroundImage: wasabiTotalCAD() > 0 && wasabiBaseCAD() > 0 && wasabiBaseCAD() <= wasabiTotalCAD()
+					                          ? 'linear-gradient(to right, #17D24F 0%, #17D24F ' + Math.min(100, ((wasabiBaseCAD() / wasabiTotalCAD()) * 100)).toFixed(1) + '%, rgba(239,68,68,0.75) ' + Math.min(100, ((wasabiBaseCAD() / wasabiTotalCAD()) * 100)).toFixed(1) + '%, rgba(239,68,68,0.75) 100%)'
+					                          : 'linear-gradient(to right,#17D24F 0%, #17D24F 35%, #9ff7c0 100%)'
+					                      }"></div>
+					                  </div>
+					                </div>
+					                <div x-show="shortLivedPercent > 0 && wasabiHiddenCAD() > 0" class="text-xs leading-relaxed text-slate-400 pl-44">
+					                  <p>
+					                    The green part is what you'd pay if every object stayed in Wasabi for at least 90 days.
+					                    The red part is the ongoing "hidden" cost from
+					                    <span class="font-semibold" x-text="shortLivedPercent + '%'"></span>
+					                    of your data being written and deleted in under 90 days.
+					                  </p>
+					                  <p class="mt-1">
+					                    With your current settings, that hidden cost adds about
+					                    <span class="font-semibold" x-text="formatCAD(wasabiHiddenCAD())"></span>
+					                    CAD on top of Wasabi's headline price over this period.
+					                    As long as you keep deleting short-lived data, that red segment never goes away.
+					                  </p>
+					                </div>
+					              </div>
+
+					              <!-- AWS -->
+					              <div class="flex items-center gap-4 text-sm">
+					                <div class="w-40" style="width:10rem">
+					                  <p class="font-semibold">Amazon Web Services</p>
+					                  <p class="text-xs text-slate-400"
+					                    x-text="formatCAD(awsTotalCAD())"></p>
+					                </div>
+					                <div class="flex-1 overflow-hidden rounded-full bg-slate-900/70" style="height:12px">
+					                  <div class="rounded-full shadow-sm h-full"
+					                    :style="{ width: barWidth(awsTotalCAD()), background: 'linear-gradient(to right,rgb(249,90,83),rgb(252,85,139))' }"></div>
+					                </div>
+					              </div>
+
+					              <!-- OVH -->
+					              <div class="flex items-center gap-4 text-sm">
+					                <div class="w-40" style="width:10rem">
+					                  <p class="font-semibold">OVH</p>
+					                  <p class="text-xs text-slate-400"
+					                    x-text="formatCAD(ovhTotalCAD())"></p>
+					                </div>
+					                <div class="flex-1 overflow-hidden rounded-full bg-slate-900/70" style="height:12px">
+					                  <div class="rounded-full shadow-sm h-full"
+					                    :style="{ width: barWidth(ovhTotalCAD()), background: 'linear-gradient(to right,#000e9c,#93b4ff)' }"></div>
+					                </div>
+					              </div>
+
+					              <!-- Leaseweb -->
+					              <div class="flex items-center gap-4 text-sm">
+					                <div class="w-40" style="width:10rem">
+					                  <p class="font-semibold">Leaseweb</p>
+					                  <p class="text-xs text-slate-400"
+					                    x-text="formatCAD(leasewebTotalCAD())"></p>
+					                </div>
+					                <div class="flex-1 overflow-hidden rounded-full bg-slate-900/70" style="height:12px">
+					                  <div class="rounded-full shadow-sm h-full"
+					                    :style="{ width: barWidth(leasewebTotalCAD()), background: 'linear-gradient(to right,#3b0764,#a78bfa)' }"></div>
+					                </div>
+					              </div>
+
+					              <!-- IDrive e2 -->
+					              <div class="flex items-center gap-4 text-sm">
+					                <div class="w-40" style="width:10rem">
+					                  <p class="font-semibold">IDrive e2</p>
+					                  <p class="text-xs text-slate-400"
+					                    x-text="formatCAD(idriveE2TotalCAD())"></p>
+					                </div>
+					                <div class="flex-1 overflow-hidden rounded-full bg-slate-900/70" style="height:12px">
+					                  <div class="rounded-full shadow-sm h-full"
+					                    :style="{ width: barWidth(idriveE2TotalCAD()), background: 'linear-gradient(to right,#0772BA,#c4b5fd)' }"></div>
+					                </div>
+					              </div>
+
+					              <!-- Backblaze B2 -->
+					              <div class="flex items-center gap-4 text-sm">
+					                <div class="w-40" style="width:10rem">
+					                  <p class="font-semibold">Backblaze B2</p>
+					                  <p class="text-xs text-slate-400"
+					                    x-text="formatCAD(backblazeB2TotalCAD())"></p>
+					                </div>
+					                <div class="flex-1 overflow-hidden rounded-full bg-slate-900/70" style="height:12px">
+					                  <div class="rounded-full shadow-sm h-full"
+					                    :style="{ width: barWidth(backblazeB2TotalCAD()), background: 'linear-gradient(to right,#D30035,#a5b4fc)' }"></div>
+					                </div>
+					              </div>
+					            </div>
+
+					            <!-- Details trigger -->
+					            <div class="mt-4 border-t border-muted pt-4">
+					              <button
+					                type="button"
+					                @click="detailsOpen = true"
+					                class="inline-flex items-center gap-2 rounded-full border border-muted bg-surface-2 px-3 py-1.5 text-xs font-medium hover:border-slate-500 hover:bg-surface-2/80 transition"
+					              >
+					                <span>Show calculation details</span>
+					                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"
+					                  class="h-3 w-3">
+					                  <path fill="currentColor" d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.085l3.71-3.855a.75.75 0 1 1 1.08 1.04l-4.24 4.4a.75.75 0 0 1-1.08 0l-4.24-4.4a.75.75 0 0 1 .02-1.06Z" />
+					                </svg>
+					              </button>
+					            </div>
+					          </div>
+					        </div>
+					      </div>
+					    </div>
+
+					    <!-- Bottom-sheet: calculation details -->
+					    <div
+					      x-show="detailsOpen"
+					      x-cloak
+					      class="fixed inset-0 z-40 flex items-end justify-center"
+					    >
+					      <!-- backdrop -->
+					      <div class="absolute inset-0 bg-slate-950/70 backdrop-blur-sm" @click="detailsOpen = false"></div>
+
+					      <!-- sheet -->
+					      <div
+					        x-transition
+					        class="relative w-full max-w-5xl rounded-t-2xl border border-muted bg-surface-2 shadow-2xl shadow-black/60 p-4 md:p-6 max-h-[80vh] overflow-y-auto"
+					      >
+
+					        <div class="flex items-center justify-between gap-3 pb-3 border-b border-muted/70 mb-3">
+					          <div>
+					            <p class="text-[11px] uppercase tracking-[0.16em] text-slate-400">
+					              Calculation details
+					            </p>
+					            <p class="text-xs md:text-sm text-muted-foreground">
+					              How we apply each provider's published prices to your scenario.
+					            </p>
+					          </div>
+					          <button
+					            type="button"
+					            class="inline-flex h-8 w-8 items-center justify-center rounded-full border border-muted hover:border-slate-400 hover:bg-surface"
+					            @click="detailsOpen = false"
+					          >
+					            <span class="sr-only">Close</span>
+					            ✕
+					          </button>
+					        </div>
+
+					        <div x-data="{ providerTab: 'e3' }" class="space-y-4 text-xs md:text-[13px] leading-relaxed">
+					          <!-- Provider tabs -->
+					          <div class="pill-toggle flex flex-wrap gap-2 text-xs font-medium mb-1">
+					            <button type="button"
+					              class="inline-flex items-center gap-2 rounded-full border border-muted bg-surface-2 px-3 py-1.5 hover:border-slate-500 hover:bg-surface-2/80 transition"
+					              @click="providerTab = 'e3'"
+					              :data-active="(providerTab === 'e3').toString()">e3</button>
+					            <button type="button"
+					              class="inline-flex items-center gap-2 rounded-full border border-muted bg-surface-2 px-3 py-1.5 hover:border-slate-500 hover:bg-surface-2/80 transition"
+					              @click="providerTab = 'wasabi'"
+					              :data-active="(providerTab === 'wasabi').toString()">Wasabi</button>
+					            <button type="button"
+					              class="inline-flex items-center gap-2 rounded-full border border-muted bg-surface-2 px-3 py-1.5 hover:border-slate-500 hover:bg-surface-2/80 transition"
+					              @click="providerTab = 'aws'"
+					              :data-active="(providerTab === 'aws').toString()">AWS</button>
+					            <button type="button"
+					              class="inline-flex items-center gap-2 rounded-full border border-muted bg-surface-2 px-3 py-1.5 hover:border-slate-500 hover:bg-surface-2/80 transition"
+					              @click="providerTab = 'ovh'"
+					              :data-active="(providerTab === 'ovh').toString()">OVH</button>
+					            <button type="button"
+					              class="inline-flex items-center gap-2 rounded-full border border-muted bg-surface-2 px-3 py-1.5 hover:border-slate-500 hover:bg-surface-2/80 transition"
+					              @click="providerTab = 'leaseweb'"
+					              :data-active="(providerTab === 'leaseweb').toString()">Leaseweb</button>
+					            <button type="button"
+					              class="inline-flex items-center gap-2 rounded-full border border-muted bg-surface-2 px-3 py-1.5 hover:border-slate-500 hover:bg-surface-2/80 transition"
+					              @click="providerTab = 'idrive'"
+					              :data-active="(providerTab === 'idrive').toString()">IDrive e2</button>
+					            <button type="button"
+					              class="inline-flex items-center gap-2 rounded-full border border-muted bg-surface-2 px-3 py-1.5 hover:border-slate-500 hover:bg-surface-2/80 transition"
+					              @click="providerTab = 'backblaze'"
+					              :data-active="(providerTab === 'backblaze').toString()">Backblaze B2</button>
+					          </div>
+
+					          <!-- Tab content -->
+					          <div class="space-y-3">
+					            <!-- e3 -->
+					            <template x-if="providerTab === 'e3'">
+					              <div class="space-y-3">
+					                <p class="text-xs md:text-sm font-semibold">e3</p>
+					                <div class="space-y-1.5">
+					                  <p class="font-semibold">Advertised price</p>
+					                  <ul class="mt-1 grid gap-0.5 text-xs md:text-[13px]">
+					                    <li>
+					                      <span class="font-mono">$9.00 CAD / TiB / month</span>
+					                      <span class="text-slate-400"> · 1–4&nbsp;TiB stored</span>
+					                    </li>
+					                    <li>
+					                      <span class="font-mono">$8.10 CAD / TiB / month</span>
+					                      <span class="text-slate-400"> · 4–10&nbsp;TiB stored</span>
+					                    </li>
+					                    <li>
+					                      <span class="font-mono">$7.65 CAD / TiB / month</span>
+					                      <span class="text-slate-400"> · 10–25&nbsp;TiB stored</span>
+					                    </li>
+					                    <li>
+					                      <span class="font-mono">$6.75 CAD / TiB / month</span>
+					                      <span class="text-slate-400"> · 25–50&nbsp;TiB stored</span>
+					                    </li>
+					                    <li>
+					                      <span class="font-mono">$5.85 CAD / TiB / month</span>
+					                      <span class="text-slate-400"> · 50+&nbsp;TiB stored</span>
+					                    </li>
+					                  </ul>
+
+					                  <p class="font-semibold mt-2">For your scenario</p>
+					                  <ul class="list-disc pl-4 space-y-0.5">
+					                    <li><span x-text="tib.toFixed(1)"></span> TiB selected.</li>
+					                    <li>Monthly storage (tiered across those bands) = <span class="font-mono" x-text="formatCAD(e3CostCAD())"></span>.</li>
+					                    <li>Monthly egress (5X free) = <span class="font-mono" x-text="formatCAD(e3EgressCAD())"></span>.</li>
+					                    <li>Total over <span class="font-mono" x-text="retentionMonths"></span> months = <span class="font-mono" x-text="formatCAD(e3TotalCAD())"></span>.</li>
+					                  </ul>
+
+					                  <p class="font-semibold">Steps</p>
+					                  <ul class="list-disc pl-4 space-y-0.5">
+					                    <li>Apply tiered CAD rates to selected capacity.</li>
+					                    <li>Sum monthly storage charges across tiers.</li>
+					                    <li>Add egress charges if egress exceeds 5X storage.</li>
+					                    <li>Multiply by selected months (ingress/API are included).</li>
+					                  </ul>
+					                </div>
+					              </div>
+					            </template>
+
+					            <!-- Wasabi -->
+					            <template x-if="providerTab === 'wasabi'">
+					              <div class="space-y-3">
+					                <p class="text-xs md:text-sm font-semibold">Wasabi (Pay-as-You-Go)</p>
+					                <div class="space-y-1.5">
+					                  <p><span class="font-semibold">Advertised price:</span> <span class="font-mono">$6.99 USD / TB / month</span>
+					                    (≈ <span class="font-mono">$0.0068 USD / GB</span>) with a <strong>1&nbsp;TB minimum</strong> and
+					                    <strong>90-day minimum storage duration</strong>.
+					                  </p>
+					                  <p class="font-semibold">For your scenario</p>
+					                  <ul class="list-disc pl-4 space-y-0.5">
+					                    <li>Effective billed size = <span class="font-mono">max(selected TiB, 1 TB)</span>.</li>
+					                    <li>Base monthly charge = <span class="font-mono" x-text="formatUSD(wasabiBaseMonthlyUSD())"></span>.</li>
+					                    <li>Short-lived data fraction = <span class="font-mono" x-text="shortLivedPercent + '%'"></span>.</li>
+					                    <li>Hidden cost from 90-day penalty = <span class="font-mono" x-text="formatCAD(wasabiHiddenCAD())"></span> (ongoing).</li>
+					                    <li>Total monthly USD (with churn) = <span class="font-mono" x-text="formatUSD(wasabiMonthlyUSDWithChurn())"></span>.</li>
+					                    <li>Total CAD over <span class="font-mono" x-text="retentionMonths"></span> months = <span class="font-mono" x-text="formatCAD(wasabiTotalCAD())"></span>.</li>
+					                  </ul>
+					                  <p class="font-semibold">Steps</p>
+					                  <ul class="list-disc pl-4 space-y-0.5">
+					                    <li>Enforce 1&nbsp;TB minimum.</li>
+					                    <li>Calculate base monthly charge.</li>
+					                    <li>Add ongoing penalty for short-lived data (2× base × short-lived fraction).</li>
+					                    <li>Multiply by retention months and convert to CAD.</li>
+					                  </ul>
+					                  <p class="text-xs text-amber-300 mt-2">
+					                    <strong>Note:</strong> The 90-day minimum storage duration means every GB that touches Wasabi is charged for at least 90 days.
+					                    If you delete objects before 90 days, you still pay for the remaining days. This penalty is ongoing as long as you have short-lived data churn.
+					                  </p>
+					                </div>
+					              </div>
+					            </template>
+
+					            <!-- AWS -->
+					            <template x-if="providerTab === 'aws'">
+					              <div class="space-y-3">
+					                <p class="text-xs md:text-sm font-semibold">Amazon Web Services (Canada Central)</p>
+					                <div class="space-y-1.5">
+					                  <p><span class="font-semibold">Advertised price:</span>
+					                    storage tiered: <span class="font-mono">$0.025 USD / GB</span> (first 50 TB),
+					                    <span class="font-mono">$0.024 USD / GB</span> (next 450 TB),
+					                    <span class="font-mono">$0.023 USD / GB</span> (over 500 TB);
+					                    transfer out per published tiers;
+					                    API requests: PUT/COPY/POST/LIST <span class="font-mono">$0.0055 / 1000</span>, GET/SELECT <span class="font-mono">$0.00044 / 1000</span>.
+					                  </p>
+					                  <p class="font-semibold">For your scenario</p>
+					                  <ul class="list-disc pl-4 space-y-0.5">
+					                    <li>Monthly storage (tiered) = <span class="font-mono" x-text="formatUSD(awsStorageUSD())"></span>.</li>
+					                    <li>Egress (tiered by GB) = <span class="font-mono" x-text="formatUSD(awsEgressUSD())"></span>.</li>
+					                    <li>API requests: <span class="font-mono" x-text="(awsPutRequests() / 1000).toFixed(0) + 'K PUT'"></span> = <span class="font-mono" x-text="formatUSD((awsPutRequests() / 1000) * 0.0055)"></span>, <span class="font-mono" x-text="(awsGetRequests() / 1000).toFixed(0) + 'K GET'"></span> = <span class="font-mono" x-text="formatUSD((awsGetRequests() / 1000) * 0.00044)"></span>.</li>
+					                    <li>Total API requests cost = <span class="font-mono" x-text="formatUSD(awsAPIRequestsUSD())"></span>.</li>
+					                    <li>Total USD per month = <span class="font-mono" x-text="formatUSD(awsCostUSD())"></span>.</li>
+					                    <li>Total CAD over <span class="font-mono" x-text="retentionMonths"></span> months = <span class="font-mono" x-text="formatCAD(awsTotalCAD())"></span>.</li>
+					                  </ul>
+					                  <p class="font-semibold">Steps</p>
+					                  <ul class="list-disc pl-4 space-y-0.5">
+					                    <li>Apply tiered storage pricing.</li>
+					                    <li>Add tiered egress and API request costs.</li>
+					                    <li>Convert USD totals to CAD and multiply by months.</li>
+					                  </ul>
+					                </div>
+					              </div>
+					            </template>
+
+					            <!-- OVH -->
+					            <template x-if="providerTab === 'ovh'">
+					              <div class="space-y-3">
+					                <p class="text-xs md:text-sm font-semibold">OVH (Toronto)</p>
+					                <div class="space-y-1.5">
+					                  <p><span class="font-semibold">Advertised price:</span>
+					                    storage same base rate as AWS above (<span class="font-mono">$0.0000132 USD / GiB / hour</span>),
+					                    egress <span class="font-mono">$0.015 USD / GiB</span>.
+					                  </p>
+					                  <p class="font-semibold">For your scenario</p>
+					                  <ul class="list-disc pl-4 space-y-0.5">
+					                    <li>Monthly storage = <span class="font-mono" x-text="formatUSD(ovhStorageUSD())"></span>.</li>
+					                    <li>Monthly egress = <span class="font-mono" x-text="formatUSD(ovhEgressUSD())"></span>.</li>
+					                    <li>Total USD per month = <span class="font-mono" x-text="formatUSD(ovhCostUSD())"></span>.</li>
+					                    <li>Total CAD over <span class="font-mono" x-text="retentionMonths"></span> months = <span class="font-mono" x-text="formatCAD(ovhTotalCAD())"></span>.</li>
+					                  </ul>
+					                  <p class="font-semibold">Steps</p>
+					                  <ul class="list-disc pl-4 space-y-0.5">
+					                    <li>Add storage and egress in USD.</li>
+					                    <li>Convert to CAD and scale by months.</li>
+					                  </ul>
+					                </div>
+					              </div>
+					            </template>
+
+					            <!-- Leaseweb -->
+					            <template x-if="providerTab === 'leaseweb'">
+					              <div class="space-y-3">
+					                <p class="text-xs md:text-sm font-semibold">Leaseweb (Canadian data centre)</p>
+					                <div class="space-y-1.5">
+					                  <p><span class="font-semibold">Advertised price:</span> tiered CAD rates for storage and for transfer out.
+					                    <strong>Minimum 500 GB = $9.85 CAD/month</strong>.
+					                    API requests: PUT <span class="font-mono">CA$0.00563 / 1000</span>, GET <span class="font-mono">CA$0.00046 / 1000</span>.
+					                  </p>
+					                  <p class="font-semibold">For your scenario</p>
+					                  <ul class="list-disc pl-4 space-y-0.5">
+					                    <li>Monthly storage (CAD, tiered, min enforced) = <span class="font-mono" x-text="formatCAD(leasewebStorageCAD())"></span>.</li>
+					                    <li>Monthly transfer out (CAD, tiered) = <span class="font-mono" x-text="formatCAD(leasewebEgressCAD())"></span>.</li>
+					                    <li>API requests: <span class="font-mono" x-text="(leasewebPutRequests() / 1000).toFixed(0) + 'K PUT'"></span> = <span class="font-mono" x-text="formatCAD((leasewebPutRequests() / 1000) * 0.00563)"></span>, <span class="font-mono" x-text="(leasewebGetRequests() / 1000).toFixed(0) + 'K GET'"></span> = <span class="font-mono" x-text="formatCAD((leasewebGetRequests() / 1000) * 0.00046)"></span>.</li>
+					                    <li>Total API requests cost = <span class="font-mono" x-text="formatCAD(leasewebAPIRequestsCAD())"></span>.</li>
+					                    <li>Total CAD per month = <span class="font-mono" x-text="formatCAD(leasewebCostCAD())"></span>.</li>
+					                    <li>Total CAD over <span class="font-mono" x-text="retentionMonths"></span> months = <span class="font-mono" x-text="formatCAD(leasewebTotalCAD())"></span>.</li>
+					                  </ul>
+					                  <p class="font-semibold">Steps</p>
+					                  <ul class="list-disc pl-4 space-y-0.5">
+					                    <li>Enforce 500 GB minimum charge.</li>
+					                    <li>Apply CAD tiers to storage and egress.</li>
+					                    <li>Add API request costs (PUT and GET separately).</li>
+					                    <li>Sum monthly; multiply by months.</li>
+					                  </ul>
+					                </div>
+					              </div>
+					            </template>
+
+					            <!-- IDrive e2 -->
+					            <template x-if="providerTab === 'idrive'">
+					              <div class="space-y-3">
+					                <p class="text-xs md:text-sm font-semibold">IDrive e2</p>
+					                <div class="space-y-1.5">
+					                  <p><span class="font-semibold">Advertised price:</span>
+					                    storage <span class="font-mono">$5 USD / TB / month</span> with <strong>1 TB minimum</strong>;
+					                    3X free egress, then <span class="font-mono">$0.01 USD / GB</span>.
+					                  </p>
+					                  <p class="font-semibold">For your scenario</p>
+					                  <ul class="list-disc pl-4 space-y-0.5">
+					                    <li>Monthly storage (USD, 1 TB min) = <span class="font-mono" x-text="formatUSD(idriveE2StorageUSD())"></span>.</li>
+					                    <li>Monthly egress (USD, 3X free) = <span class="font-mono" x-text="formatUSD(idriveE2EgressUSD())"></span>.</li>
+					                    <li>Total USD per month = <span class="font-mono" x-text="formatUSD(idriveE2CostUSD())"></span>.</li>
+					                    <li>Total CAD over <span class="font-mono" x-text="retentionMonths"></span> months = <span class="font-mono" x-text="formatCAD(idriveE2TotalCAD())"></span>.</li>
+					                  </ul>
+					                  <p class="font-semibold">Steps</p>
+					                  <ul class="list-disc pl-4 space-y-0.5">
+					                    <li>Enforce 1 TB minimum storage charge.</li>
+					                    <li>Calculate egress charges for excess over 3X storage.</li>
+					                    <li>Convert USD totals to CAD and multiply by months.</li>
+					                  </ul>
+					                </div>
+					              </div>
+					            </template>
+
+					            <!-- Backblaze B2 -->
+					            <template x-if="providerTab === 'backblaze'">
+					              <div class="space-y-3">
+					                <p class="text-xs md:text-sm font-semibold">Backblaze B2</p>
+					                <div class="space-y-1.5">
+					                  <p><span class="font-semibold">Advertised price:</span>
+					                    storage <span class="font-mono">$6 USD / TB / month</span>;
+					                    3X free egress, then <span class="font-mono">$0.01 USD / GB</span>.
+					                  </p>
+					                  <p class="font-semibold">For your scenario</p>
+					                  <ul class="list-disc pl-4 space-y-0.5">
+					                    <li>Monthly storage (USD) = <span class="font-mono" x-text="formatUSD(backblazeB2StorageUSD())"></span>.</li>
+					                    <li>Monthly egress (USD, 3X free) = <span class="font-mono" x-text="formatUSD(backblazeB2EgressUSD())"></span>.</li>
+					                    <li>Total USD per month = <span class="font-mono" x-text="formatUSD(backblazeB2CostUSD())"></span>.</li>
+					                    <li>Total CAD over <span class="font-mono" x-text="retentionMonths"></span> months = <span class="font-mono" x-text="formatCAD(backblazeB2TotalCAD())"></span>.</li>
+					                  </ul>
+					                  <p class="font-semibold">Steps</p>
+					                  <ul class="list-disc pl-4 space-y-0.5">
+					                    <li>Calculate storage charge.</li>
+					                    <li>Calculate egress charges for excess over 3X storage.</li>
+					                    <li>Convert USD totals to CAD and multiply by months.</li>
+					                  </ul>
+					                </div>
+					              </div>
+					            </template>
+					          </div>
+
+					          <!-- FX note inside sheet -->
+					          <div class="pt-3 mt-3 border-t border-muted text-slate-400 text-xs md:text-sm">
+					            <p class="font-semibold mb-1">Exchange rate</p>
+					            <p>
+					              We convert competitors' published U.S. dollar prices to CAD using a daily foreign-exchange feed.
+					              <span class="font-mono" x-text="usdToCad.toFixed(4)"></span>:
+					              <code class="px-1 py-0.5 rounded bg-surface-2/80">CAD = USD × rate</code>.
+					            </p>
+					          </div>
+					        </div>
+					      </div>
+					    </div>
+					  </div>
+					</section>
+
+					<!-- RESOURCES & CONTACT -->
+					<div data-include="/templates/footer.html"></div>
+
+					<div class="container p-4">
+						<div class="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+							<img src="/assets/images/e3logo_icon.svg" alt="eazyBackup logo" class="h-5 w-5" loading="lazy" />
+							<span x-data>© <span x-text="new Date().getFullYear()"></span> eazyBackup Systems Ltd.</span>
+						</div>
+					</div>
+
+				</main>
+			</div>
+		</div>
+
+	</body>
+</html>
+
