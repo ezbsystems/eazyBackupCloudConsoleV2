@@ -168,6 +168,93 @@ Access via: `index.php?m=cloudstorage&page=cloudbackup&view=<view>`
 - `cloudbackup_live` - Live progress view for a running job
 - `cloudbackup_settings` - Client notification settings
 
+### Job Cards – Button Actions
+
+The default Jobs view (`cloudbackup_jobs`) shows a row of actions on each job card. These actions operate on the job itself; they do not directly manipulate in‑flight runs unless noted.
+
+- Run now
+  - Starts a new run immediately, only if the job is `active`.
+  - Client: `runJob(jobId)` → `startRun(jobId)` → `api/cloudbackup_start_run.php`.
+  - Server: `CloudBackupController::startRun()` inserts a `queued` run only when `job.status === 'active'`. If paused, the start request is rejected.
+
+```2196:2201:accounts/modules/addons/cloudstorage/templates/cloudbackup_jobs.tpl
+function runJob(jobId) {
+    try {
+        return startRun(jobId);
+    } catch (e) {
+        return Promise.reject(e);
+    }
+}
+```
+
+```344:355:accounts/modules/addons/cloudstorage/lib/Client/CloudBackupController.php
+public static function startRun($jobId, $clientId, $triggerType = 'manual')
+{
+    // Verify job ownership and status
+    $job = self::getJob($jobId, $clientId);
+    if (!$job) {
+        return ['status' => 'fail', 'message' => 'Job not found or access denied'];
+    }
+    if ($job['status'] !== 'active') {
+        return ['status' => 'fail', 'message' => 'Job is not active'];
+    }
+    // … enqueue run as queued …
+}
+```
+
+- Edit
+  - Opens the slide‑over editor for the job where you can adjust source, destination, mode, schedule, retention, etc. Saves via `api/cloudbackup_update_job.php`.
+
+```1747:1754:accounts/modules/addons/cloudstorage/templates/cloudbackup_jobs.tpl
+function editJob(jobId) {
+    ensureEditPanel();
+    openEditSlideover(jobId);
+}
+```
+
+- Pause / Resume
+  - Toggles the job’s `status` between `active` and `paused`. A paused job is excluded from “Run now” and from the scheduler. It does not stop an already running job.
+  - Client: `toggleJobStatus(jobId, currentStatus)` → `api/cloudbackup_update_job.php` with `status=paused|active`.
+  - Server: `cloudbackup_update_job.php` persists the `status`; `startRun` enforces that only `active` jobs may run.
+
+```1707:1715:accounts/modules/addons/cloudstorage/templates/cloudbackup_jobs.tpl
+function toggleJobStatus(jobId, currentStatus) {
+    const newStatus = currentStatus === 'active' ? 'paused' : 'active';
+    fetch('modules/addons/cloudstorage/api/cloudbackup_update_job.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams([['job_id', jobId], ['status', newStatus]])
+    })
+```
+
+```147:150:accounts/modules/addons/cloudstorage/api/cloudbackup_update_job.php
+if (isset($_POST['status'])) {
+    $updateData['status'] = $_POST['status'];
+}
+```
+
+- Trash (Delete)
+  - Soft‑deletes the job (marks it as `deleted`) via `api/cloudbackup_delete_job.php`. Historical runs remain for audit/history; the job no longer appears in the default list.
+
+- View logs
+  - Quick link to the Run History / logs for the job (`cloudbackup_runs` view). From there you can open a specific run’s details or navigate to the Live view for an active run.
+
+> Stopping a running job: Cancelling an in‑flight run is performed from the Live view (`cloudbackup_live`) via the “Cancel Run” button, which calls `api/cloudbackup_cancel_run.php` and sets `cancel_requested=1` for the active run.
+
+```371:401:accounts/modules/addons/cloudstorage/lib/Client/CloudBackupController.php
+public static function cancelRun($runId, $clientId)
+{
+    // … verify ownership …
+    if (!in_array($run['status'], ['queued', 'starting', 'running'])) {
+        return ['status' => 'fail', 'message' => 'Run cannot be cancelled in current status'];
+    }
+    Capsule::table('s3_cloudbackup_runs')
+        ->where('id', $runId)
+        ->update(['cancel_requested' => 1]);
+    return ['status' => 'success'];
+}
+```
+
 ## API Endpoints
 
 All endpoints require WHMCS client authentication and return JSON responses.
@@ -243,6 +330,20 @@ Encrypted JSON stored in `source_config_enc`:
 }
 ```
 
+### Google Drive (OAuth)
+Jobs store only minimal Google Drive configuration in `source_config_enc`:
+```json
+{
+  "root_folder_id": "optional-folder-id"
+}
+```
+The reusable OAuth connection (per client) is stored in `s3_cloudbackup_sources` with an encrypted `refresh_token_enc`. The worker assembles the full rclone Drive configuration at runtime using:
+- App credentials (client ID/secret) from environment on the worker
+- The decrypted refresh token from the saved source connection
+- Optional `root_folder_id` from the job
+
+Scopes: `https://www.googleapis.com/auth/drive.readonly`
+
 ## Encryption
 
 ### Source Credential Encryption
@@ -306,6 +407,14 @@ Worker builds rclone config files per job:
 - Source remote (S3/SFTP based on `source_type` and decrypted `source_config_enc`)
 - Destination remote (e3 endpoint with bucket/prefix)
 - Crypt wrapper (if `encryption_enabled` is true)
+
+For Google Drive sources, the worker now always writes a complete Drive remote with:
+- `scope = drive.readonly`
+- `client_id`/`client_secret` from worker environment
+- `token` JSON containing a valid `refresh_token` (and placeholder `access_token`/`expiry`), allowing rclone to auto‑refresh without manual reconnects.
+Optional fields from the job (when provided) are also included:
+- `root_folder_id` to speed startup
+- `team_drive` for Shared Drives
 
 ## Security Considerations
 

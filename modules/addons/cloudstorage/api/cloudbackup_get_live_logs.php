@@ -11,7 +11,7 @@ use WHMCS\ClientArea;
 use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
-use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupLogFormatter;
+use WHMCS\Module\Addon\CloudStorage\Client\SanitizedLogFormatter;
 
 $ca = new ClientArea();
 if (!$ca->isLoggedIn()) {
@@ -60,12 +60,21 @@ if ($hash && $clientHash && hash_equals($hash, $clientHash)) {
     exit();
 }
 
-$formatted = $logExcerpt ? CloudBackupLogFormatter::formatRcloneLogs($logExcerpt) : '';
+$sanitized = $logExcerpt ? SanitizedLogFormatter::sanitizeAndStructure($logExcerpt, $run['status'] ?? null) : ['entries'=>[],'formatted_log'=>'','hash'=>null,'sanitized'=>true];
 
 $response = new JsonResponse([
     'status' => 'success',
     'hash' => $hash,
-    'formatted_log' => $formatted,
+    'formatted_log' => $sanitized['formatted_log'],
+    'entries' => $sanitized['entries'],
+    'sanitized' => true,
+    'run' => [
+        'status' => $run['status'] ?? null,
+        'error_summary' => $run['error_summary'] ?? '',
+        'worker_host' => $run['worker_host'] ?? '',
+        'started_at' => $run['started_at'] ?? null,
+        'finished_at' => $run['finished_at'] ?? null,
+    ],
 ], 200);
 $response->send();
 exit();

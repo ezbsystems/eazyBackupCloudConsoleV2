@@ -138,7 +138,69 @@ add_hook('ClientAreaPage', 1, function ($vars) {
 
 
 
+/**
+ * Client-area TOS gating (entire portal) when active version requires acceptance.
+ */
+add_hook('ClientAreaPage', 2, function ($vars) {
+    try {
+        // Only after login
+        $clientId = (int)($_SESSION['uid'] ?? 0);
+        if ($clientId <= 0) {
+            return;
+        }
 
+        // Whitelist acceptance routes and login-related pages to avoid loops
+        $reqUri = (string)($_SERVER['REQUEST_URI'] ?? '');
+        $qs = (string)($_SERVER['QUERY_STRING'] ?? '');
+        $isModuleTos = (isset($_GET['m']) && $_GET['m'] === 'eazybackup' && isset($_GET['a']) && in_array($_GET['a'], ['tos-block','tos-accept','tos-view'], true));
+        $isLoginOrLogout = (strpos($reqUri, 'logout.php') !== false) || (strpos($reqUri, 'pwreset') !== false);
+        if ($isModuleTos || $isLoginOrLogout) {
+            return;
+        }
+
+        // Read active TOS that requires acceptance
+        $active = Capsule::table('eb_tos_versions')
+            ->where('is_active', 1)
+            ->orderBy('published_at', 'desc')
+            ->first();
+        if (!$active || (int)$active->require_acceptance !== 1) {
+            return; // nothing enforced
+        }
+        $version = (string)$active->version;
+
+        // Determine identity for per-user acceptance (contact if present)
+        $contactId = (int)($_SESSION['cid'] ?? 0);
+
+        // Check per-user acceptance
+        $q = Capsule::table('eb_tos_user_acceptances')
+            ->where('client_id', $clientId)
+            ->where('tos_version', $version);
+        if ($contactId > 0) {
+            $q->where('contact_id', $contactId);
+        } else {
+            $q->whereNull('user_id')->whereNull('contact_id');
+        }
+        $userAccepted = (bool)$q->exists();
+
+        if ($userAccepted) {
+            return;
+        }
+
+        // Redirect to TOS block page with return_to
+        $returnTo = $reqUri !== '' ? $reqUri : ('clientarea.php' . ($qs !== '' ? ('?' . $qs) : ''));
+        $target = 'index.php?m=eazybackup&a=tos-block&return_to=' . rawurlencode($returnTo);
+        header('Location: ' . $target);
+        exit;
+    } catch (\Throwable $e) {
+        // On error, fail open to avoid lockouts
+        return;
+    }
+});
+
+// Password onboarding gate was originally implemented as a ClientAreaPage hook.
+// We now rely on the tos-accept handler to redirect flagged clients directly
+// to the password-onboarding route after TOS acceptance, to avoid redirect
+// loops and over-gating the entire client area.
 
 // Admin dashboard widget: Comet WebSocket Workers status (read-only)
 add_hook('AdminHomeWidgets', 1, function () {

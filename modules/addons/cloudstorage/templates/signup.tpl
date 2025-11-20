@@ -1,357 +1,338 @@
-<style>
-select{   
-    background: 
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='%23D1D5DB' viewBox='0 0 20 20'%3E%3Cpath d='M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z'/%3E%3C/svg%3E") no-repeat right 0.75rem center / 1.25em 1.25em,
-    #f3f4f6 !important;
-    background-position: right 0.75rem center;
-    background-size: 1.25em 1.25em;    
-    padding-right: 2.5rem;
-    -moz-appearance: none; 
-    -webkit-appearance: none; 
-    appearance: none;
-}
-</style>
+<!-- e3 Cloud Storage signup form (WHMCS addon) -->
+<div
+  x-data="{
+    submitting: false,
+    emailSent: {if isset($emailSent) && $emailSent}true{else}false{/if},
+    useCase: '{if isset($smarty.post.useCase)}{$smarty.post.useCase|escape:'javascript'}{else}msp{/if}',
+    storage: {if isset($smarty.post.storageTiB)}{$smarty.post.storageTiB|escape}{else}5{/if},
+    submitForm(event) {
+      if (this.submitting || this.emailSent) return;
+      this.submitting = true;
+      event.target.submit();
+    }
+  }"
+  class="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center px-4 py-10"
+>
+  <div class="w-full max-w-xl">
+    <!-- Card -->
+    <div class="relative rounded-2xl border border-slate-800 bg-slate-900/80 shadow-2xl shadow-black/60 backdrop-blur-sm">
+      <!-- Subtle top glow -->
+      <div class="pointer-events-none absolute inset-x-0 -top-px h-px bg-gradient-to-r from-emerald-400/0 via-emerald-400/70 to-sky-400/0"></div>
 
-<div id="cloudstorage-signup" class="min-h-screen flex items-center justify-center bg-white p-6">
-  <div class="shadow-lg rounded-lg overflow-hidden max-w-6xl w-full flex flex-col md:flex-row">
-    <!-- Left Column -->
-    <div class="w-full min-[850px]:w-2/5 min-[1400px]:w-1/2 p-8 bg-gray-100 text-gray-600">
-      <h1 class="text-4xl font-bold mb-6">Start a 30-day free trial</h1>
-      <p class="text-xl mb-6">eazyBackup e3 – Always Hot, Canadian-Certified S3 Cloud Storage</p>
-      
-      <!-- Features Section -->
-      <div class="space-y-6">        
-        <div>
-          <h2 class="flex items-center text-md font-semibold mb-2">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
-              stroke="currentColor" class="h-6 w-6 text-sky-600 mr-2">
-              <path stroke-linecap="round" stroke-linejoin="round"
-                d="m4.5 12.75 6 6 9-13.5" />
-            </svg>
-            Canadian Owned & Controlled Goods Certified
-          </h2>
-        </div>        
-        <div>
-          <h2 class="flex items-center text-md font-semibold mb-2">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
-              stroke="currentColor" class="h-6 w-6 text-sky-600 mr-2">
-              <path stroke-linecap="round" stroke-linejoin="round"
-                d="m4.5 12.75 6 6 9-13.5" />
-            </svg>
-            Pay-as-you-go billing with a minimum of 1TiB for $9 CAD/month
-          </h2>
-        </div>        
-        <div>
-          <h2 class="flex items-center text-md font-semibold mb-2">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
-              stroke="currentColor" class="h-6 w-6 text-sky-600 mr-2">
-              <path stroke-linecap="round" stroke-linejoin="round"
-                d="m4.5 12.75 6 6 9-13.5" />
-            </svg>
-            No Ingress/Egress/API Fees
-          </h2>
-        </div>        
-        <div>
-          <h2 class="flex items-center text-md font-semibold mb-2">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
-              stroke="currentColor" class="h-6 w-6 text-sky-600 mr-2">
-              <path stroke-linecap="round" stroke-linejoin="round"
-                d="m4.5 12.75 6 6 9-13.5" />
-            </svg>
-            Easily transfer large datasets with assisted data migration
-          </h2>
+      <div class="px-5 py-6 sm:px-7 sm:py-7">
+        <!-- Eyebrow -->
+        <div class="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-400">
+              eazyBackup e3
+            </p>
+            <h1 class="mt-1 text-xl sm:text-2xl font-semibold tracking-tight text-slate-50">
+              Start your e3 Cloud Storage trial
+            </h1>
+            <p
+              x-show="!emailSent"
+              class="mt-2 text-xs sm:text-sm text-slate-400 max-w-md"
+            >
+              Tell us a bit about your organisation and storage needs. We will provision your e3
+              environment and send login details by email.
+            </p>
+          </div>
+        </div>
+
+        <!-- Form / verification state -->
+        <template x-if="!emailSent">
+          <form
+            @submit.prevent="submitForm($event)"
+            class="mt-6 space-y-5 text-sm"
+            action="index.php?m=cloudstorage&amp;page=handlesignup"
+            method="post"
+          >
+            <!-- Honeypot (spam protection) -->
+            <div class="hidden">
+              <label for="hp_field">Leave this field empty</label>
+              <input
+                type="text"
+                id="hp_field"
+                name="hp_field"
+                autocomplete="off"
+                tabindex="-1"
+              />
+            </div>
+
+            <!-- Global message -->
+            {if isset($message) && $message}
+              <div class="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+                {$message}
+              </div>
+            {/if}
+            {if isset($debugInfo) && $debugInfo}
+              <pre class="mt-2 max-h-40 overflow-y-auto rounded-md bg-slate-900/70 px-3 py-2 text-[10px] text-slate-300 border border-slate-700/60">{$debugInfo|escape}</pre>
+            {/if}
+
+          <!-- Company + contact -->
+          <div class="grid gap-4 sm:grid-cols-2">
+            <div class="space-y-1.5">
+              <label for="company" class="block text-xs font-medium text-slate-200">
+                Company / organisation
+              </label>
+              <input
+                id="company"
+                name="company"
+                type="text"
+                required
+                value="{$smarty.post.company|default:''|escape}"
+                class="block w-full rounded-lg border {if isset($errors.company)}border-rose-500{else}border-slate-700{/if} bg-slate-900/60 px-3 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                placeholder="Acme IT Services"
+              />
+              {if isset($errors.company)}
+                <p class="text-[11px] text-rose-400 mt-1">{$errors.company}</p>
+              {/if}
+            </div>
+
+            <div class="space-y-1.5">
+              <label for="fullName" class="block text-xs font-medium text-slate-200">
+                Full name
+              </label>
+              <input
+                id="fullName"
+                name="fullName"
+                type="text"
+                required
+                value="{$smarty.post.fullName|default:''|escape}"
+                class="block w-full rounded-lg border {if isset($errors.fullName)}border-rose-500{else}border-slate-700{/if} bg-slate-900/60 px-3 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                placeholder="Jane Doe"
+              />
+              {if isset($errors.fullName)}
+                <p class="text-[11px] text-rose-400 mt-1">{$errors.fullName}</p>
+              {/if}
+            </div>
+          </div>
+
+          <!-- Email + phone -->
+          <div class="grid gap-4 sm:grid-cols-2">
+            <div class="space-y-1.5">
+              <label for="email" class="block text-xs font-medium text-slate-200">
+                Business email
+              </label>
+              <input
+                id="email"
+                name="email"
+                type="email"
+                required
+                value="{$smarty.post.email|default:''|escape}"
+                class="block w-full rounded-lg border {if isset($errors.email)}border-rose-500{else}border-slate-700{/if} bg-slate-900/60 px-3 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                placeholder="you@example.com"
+              />
+              {if isset($errors.email)}
+                <p class="text-[11px] text-rose-400 mt-1">{$errors.email}</p>
+              {/if}
+            </div>
+
+            <div class="space-y-1.5">
+              <label for="phone" class="block text-xs font-medium text-slate-200">
+                Phone
+              </label>
+              <input
+                id="phone"
+                name="phone"
+                type="tel"
+                required
+                value="{$smarty.post.phone|default:''|escape}"
+                class="block w-full rounded-lg border {if isset($errors.phone)}border-rose-500{else}border-slate-700{/if} bg-slate-900/60 px-3 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                placeholder="+1 (555) 000-0000"
+              />
+              {if isset($errors.phone)}
+                <p class="text-[11px] text-rose-400 mt-1">{$errors.phone}</p>
+              {/if}
+            </div>
+          </div>
+
+          <!-- Use case chips -->
+          <div class="space-y-2">
+            <p class="text-xs font-medium text-slate-200">
+              What best describes how you plan to use e3?
+            </p>
+            <div class="flex flex-wrap gap-2 text-xs">
+              <button
+                type="button"
+                @click="useCase = 'msp'"
+                :class="useCase === 'msp'
+                  ? 'border-emerald-500/80 bg-emerald-500/10 text-emerald-300'
+                  : 'border-slate-700 bg-slate-900/60 text-slate-300 hover:border-slate-500'"
+                class="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 transition"
+              >
+                <span class="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
+                <span>Managed service provider</span>
+              </button>
+
+              <button
+                type="button"
+                @click="useCase = 'saas'"
+                :class="useCase === 'saas'
+                  ? 'border-emerald-500/80 bg-emerald-500/10 text-emerald-300'
+                  : 'border-slate-700 bg-slate-900/60 text-slate-300 hover:border-slate-500'"
+                class="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 transition"
+              >
+                <span class="h-1.5 w-1.5 rounded-full bg-sky-400"></span>
+                <span>Software / SaaS vendor</span>
+              </button>
+
+              <button
+                type="button"
+                @click="useCase = 'internal'"
+                :class="useCase === 'internal'
+                  ? 'border-emerald-500/80 bg-emerald-500/10 text-emerald-300'
+                  : 'border-slate-700 bg-slate-900/60 text-slate-300 hover:border-slate-500'"
+                class="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 transition"
+              >
+                <span class="h-1.5 w-1.5 rounded-full bg-violet-400"></span>
+                <span>In‑house IT / internal team</span>
+              </button>
+            </div>
+            <input type="hidden" name="useCase" :value="useCase" />
+          </div>
+
+          <!-- Storage estimate slider / input -->
+          <div class="space-y-2">
+            <div class="flex items-center justify-between text-xs text-slate-400">
+              <span>Estimated data to store in the next 6–12 months</span>
+              <span class="font-mono text-slate-200">
+                <span x-text="storage"></span>&nbsp;TiB
+              </span>
+            </div>
+            <div class="space-y-3">
+              <input
+                type="range"
+                min="1"
+                max="75"
+                step="1"
+                x-model.number="storage"
+                class="w-full accent-emerald-400"
+              />
+              <div class="flex items-center gap-2">
+                <input
+                  type="number"
+                  min="1"
+                  max="999"
+                  x-model.number="storage"
+                  name="storageTiB"
+                  class="w-20 rounded-lg border {if isset($errors.storageTiB)}border-rose-500{else}border-slate-700{/if} bg-slate-900/60 px-3 py-1.5 text-xs text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                />
+                <span class="text-xs text-slate-400">TiB</span>
+              </div>
+              {if isset($errors.storageTiB)}
+                <p class="text-[11px] text-rose-400 mt-1">{$errors.storageTiB}</p>
+              {/if}
+            </div>
+          </div>
+
+          <!-- How will you use e3 -->
+          <div class="space-y-1.5">
+            <label for="project" class="block text-xs font-medium text-slate-200">
+              How will you use e3?
+            </label>
+            <textarea
+              id="project"
+              name="project"
+              rows="3"
+              required
+              class="block w-full rounded-lg border {if isset($errors.project)}border-rose-500{else}border-slate-700{/if} bg-slate-900/60 px-3 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+              placeholder="For example: offsite backups for 20+ clients using Veeam and Comet; long‑term archive for media assets; application object storage…"
+            >{$smarty.post.project|default:''|escape}</textarea>
+            {if isset($errors.project)}
+              <p class="text-[11px] text-rose-400 mt-1">{$errors.project}</p>
+            {/if}
+          </div>
+
+          <!-- Checkbox -->
+          <div class="flex items-start gap-2 text-xs text-slate-300">
+            <input
+              id="contactSales"
+              name="contactSales"
+              type="checkbox"
+              value="1"
+              class="mt-0.5 h-4 w-4 rounded border-slate-600 bg-slate-900/80 text-emerald-500 focus:ring-emerald-500"
+              {if isset($smarty.post.contactSales) && $smarty.post.contactSales}checked{/if}
+            />
+            <label for="contactSales" class="cursor-pointer">
+              I’d like someone from sales to contact me about pricing and deployment options.
+            </label>
+          </div>
+
+          <!-- Turnstile captcha -->
+          <div class="pt-2 space-y-2">
+            <div class="flex justify-center">
+              <div class="cf-turnstile" data-sitekey="{$TURNSTILE_SITE_KEY}" data-theme="light"></div>
+            </div>
+            {if isset($errors.turnstile)}
+              <p class="text-[11px] text-center text-rose-400 mt-1">{$errors.turnstile}</p>
+            {/if}
+          </div>
+
+          <!-- Submit and secondary actions -->
+          <div class="pt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <button
+              type="submit"
+              class="inline-flex items-center justify-center gap-2 rounded-full px-4 py-1.5 text-sm font-semibold shadow-sm ring-1 ring-emerald-500/40 bg-gradient-to-r from-emerald-500 via-emerald-400 to-sky-400 text-slate-950 transition transform hover:-translate-y-px hover:shadow-lg active:translate-y-0 active:shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:ring-offset-2 focus:ring-offset-slate-900"
+              :disabled="submitting"
+            >
+              <span x-show="!submitting">Create my trial</span>
+              <span x-show="submitting" class="inline-flex items-center gap-2">
+                <span class="h-3 w-3 animate-spin rounded-full border border-slate-900 border-t-transparent"></span>
+                Processing…
+              </span>
+            </button>
+
+            <div class="flex flex-col items-start gap-1 text-[11px] text-slate-400 sm:items-end">
+              <a href="/" class="inline-flex items-center gap-1 text-slate-300 hover:text-emerald-300">
+                <span>Back to e3 site</span>
+                <span aria-hidden="true">↗</span>
+              </a>
+              <a href="/clientarea.php" class="inline-flex items-center gap-1 text-slate-400 hover:text-slate-200">
+                <span>Already a customer?</span>
+                <span class="underline underline-offset-2">Log in</span>
+              </a>
+            </div>
+          </div>
+        </form>
+        </template>
+
+        <!-- Email verification confirmation state -->
+        <template x-if="emailSent">
+          <div class="mt-6 space-y-4 text-sm">
+            <div class="rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-4 text-emerald-50">
+              <h2 class="text-sm font-semibold tracking-tight text-emerald-200">
+                Please check your email
+              </h2>
+              <p class="mt-1.5 text-xs text-emerald-100/90">
+                We’ve sent a verification link to <span class="font-mono">{$smarty.post.email|default:$email|escape}</span>.
+                Click the link in that email to verify your address and activate your e3 Cloud Storage trial.
+              </p>
+            </div>
+            <p class="text-[11px] text-slate-400">
+              If you don’t see the email in a few minutes, please check your spam or junk folder. You can safely close this page; the link will continue to work until it expires.
+            </p>
+          </div>
+        </template>
+      </div>
+
+      <!-- Trust bar -->
+      <div class="border-t border-slate-800/80 bg-slate-950/60 px-5 py-3 sm:px-7 flex flex-wrap items-center gap-3 text-[11px] text-slate-400">
+        <div class="flex items-center gap-2">
+          <span class="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
+          <span>Canadian data residency</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="h-1.5 w-1.5 rounded-full bg-sky-400"></span>
+          <span>Controlled Goods Program registered</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="h-1.5 w-1.5 rounded-full bg-violet-400"></span>
+          <span>Designed for MSPs, SaaS, and internal IT teams</span>
         </div>
       </div>
     </div>
-
-    <!-- Form Column -->
-    <div class="w-full min-[850px]:w-3/5 min-[1400px]:w-1/2 bg-gray-100 p-8">
-      {* Show a general message if desired *}
-      {if !empty($message)}
-        <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-          {$message}
-        </div>
-      {/if}
-
-      <h1 class="text-gray-600 text-2xl font-semibold mb-4">Create Your e3 Storage Account</h1>
-      <form method="post" action="index.php?m=cloudstorage&page=handlesignup" class="space-y-6">
-        <!-- Row 1: First Name and Last Name -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <!-- First Name -->
-          <div class="flex flex-col">            
-          <input type="text"
-          id="first_name" name="first_name" placeholder="First Name *" pattern="[A-Za-z]+" title="Enter your first name." required aria-required="true"
-              class="bg-gray-100 text-gray-600 placeholder-gray-400 focus:ring-sky-500 focus:border-sky-500 block w-full sm:w-auto px-4 py-2 mr-3 border-b border-gray-600 focus:outline-none focus:ring-0 focus:border-sky-600"
-              value="{$POST.first_name|default:''}" />
-            {if !empty($errors.first_name)}
-              <span class="text-red-500 text-sm mt-1">{$errors.first_name}</span>
-            {/if}
-          </div>
-          <!-- Last Name -->
-          <div class="flex flex-col">            
-            <input type="text" id="last_name" name="last_name" placeholder="Last Name *" pattern="[A-Za-z]+" title="Enter your last name." required aria-required="true"
-              class="bg-gray-100 text-gray-600 placeholder-gray-400 focus:ring-sky-500 focus:border-sky-500 block w-full sm:w-auto px-4 py-2 mr-3 border-b border-gray-600 focus:outline-none focus:ring-0 focus:border-sky-600"
-              value="{$POST.last_name|default:''}" />
-            {if !empty($errors.last_name)}
-              <span class="text-red-500 text-sm mt-1">{$errors.last_name}</span>
-            {/if}
-          </div>
-        </div>
-
-        <!-- Row 2: Username and Phone Number -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <!-- Username -->
-            <div class="flex flex-col">            
-              <input
-                type="text"
-                id="username"
-                name="username"
-                placeholder="Username *"
-                required
-                aria-required="true"
-                pattern="[A-Za-z0-9]+"
-                title="Username may only contain letters and numbers."
-                class="bg-gray-100 text-gray-600 placeholder-gray-400 focus:ring-sky-500 focus:border-sky-500 block w-full sm:w-auto px-4 py-2 mr-3 border-b border-gray-600 focus:outline-none focus:ring-0 focus:border-sky-600"
-                value="{$POST.username|default:''}"
-              />
-              {if !empty($errors.username)}
-                <span class="text-red-500 text-sm mt-1">{$errors.username}</span>
-              {/if}
-        </div>
-          <!-- Phone Number -->
-          <div class="flex flex-col ">            
-            <input type="text" id="phone" name="phone" placeholder="Phone *" required aria-required="true"
-              class="bg-gray-100 text-gray-600 placeholder-gray-400 focus:ring-sky-500 focus:border-sky-500 block w-full px-4 py-2 mr-3 border-b border-gray-600 focus:outline-none focus:ring-0 focus:border-sky-600"
-              value="{$POST.phone|default:''}" />
-            {if !empty($errors.phone)}
-              <span class="text-red-500 text-sm mt-1">{$errors.phone}</span>
-            {/if}
-          </div>
-        </div>
-
-        <div class="hidden">
-          <label for="hp_field">Leave this field empty</label>
-          <input type="text" id="hp_field" name="hp_field" tabindex="-1" autocomplete="off">
-        </div>
-
-        <!-- Row 3: Email and Country -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <!-- Email -->
-          <div class="flex flex-col">           
-            <input type="text" id="email" name="email" placeholder="Email"
-              class="bg-gray-100 text-gray-600 placeholder-gray-400 focus:ring-sky-500 focus:border-sky-500 block w-full sm:w-auto px-4 py-2 mr-3 border-b border-gray-600 focus:outline-none focus:ring-0 focus:border-sky-600"
-              value="{$POST.email|default:''}" />
-            {if !empty($errors.email)}
-              <span class="text-red-500 text-sm mt-1">{$errors.email}</span>
-            {/if}
-          </div>
-          <!-- Country -->
-          <div class="flex flex-col">            
-            <select id="country" name="country" placeholder="Country"
-            class="bg-gray-100 text-gray-600 placeholder-gray-400 focus:ring-sky-500 focus:border-sky-500 block w-full sm:w-auto px-4 py-2 mr-3 border-b border-gray-600 focus:outline-none focus:ring-0 focus:border-sky-600">
-            <option value="">-- Select Country --</option>
-            <!-- North America & Others -->            
-            <option value="CA" {if $POST.country == 'CA'}selected{/if}>Canada</option>
-            <option value="GB" {if $POST.country == 'GB'}selected{/if}>United Kingdom</option>
-            <option value="AU" {if $POST.country == 'AU'}selected{/if}>Australia</option>
-            <option value="AU" {if $POST.country == 'NZ'}selected{/if}>New Zealand</option>
-            
-            <!-- South America -->
-            <option value="BR" {if $POST.country == 'BR'}selected{/if}>Brazil</option>
-            <option value="AR" {if $POST.country == 'AR'}selected{/if}>Argentina</option>
-            <option value="CL" {if $POST.country == 'CL'}selected{/if}>Chile</option>
-            <option value="CO" {if $POST.country == 'CO'}selected{/if}>Colombia</option>
-            <option value="PE" {if $POST.country == 'PE'}selected{/if}>Peru</option>
-            <option value="EC" {if $POST.country == 'EC'}selected{/if}>Ecuador</option>
-            <option value="UY" {if $POST.country == 'UY'}selected{/if}>Uruguay</option>
-            <option value="VE" {if $POST.country == 'VE'}selected{/if}>Venezuela</option>
-            <option value="PY" {if $POST.country == 'PY'}selected{/if}>Paraguay</option>
-            
-            <!-- Europe -->
-            <option value="DE" {if $POST.country == 'DE'}selected{/if}>Germany</option>
-            <option value="FR" {if $POST.country == 'FR'}selected{/if}>France</option>
-            <option value="IT" {if $POST.country == 'IT'}selected{/if}>Italy</option>
-            <option value="ES" {if $POST.country == 'ES'}selected{/if}>Spain</option>
-            <option value="NL" {if $POST.country == 'NL'}selected{/if}>Netherlands</option>
-            <option value="BE" {if $POST.country == 'BE'}selected{/if}>Belgium</option>
-            <option value="CH" {if $POST.country == 'CH'}selected{/if}>Switzerland</option>
-            <option value="SE" {if $POST.country == 'SE'}selected{/if}>Sweden</option>
-            <option value="NO" {if $POST.country == 'NO'}selected{/if}>Norway</option>
-            <option value="DK" {if $POST.country == 'DK'}selected{/if}>Denmark</option>
-            <option value="AT" {if $POST.country == 'AT'}selected{/if}>Austria</option>
-            <option value="PT" {if $POST.country == 'PT'}selected{/if}>Portugal</option>
-            <option value="US" {if $POST.country == 'US'}selected{/if}>United States</option>  
-          </select>
-            {if !empty($errors.country)}
-              <span class="text-red-500 text-sm mt-1">{$errors.country}</span>
-            {/if}
-          </div>
-        </div>
-
-        <!-- Row 4: Password and Confirm Password -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">          
-          <div class="relative flex flex-col">
-            <input
-              type="password"
-              id="password"
-              name="password"
-              placeholder="Password *"
-              required
-              class="bg-gray-100 text-gray-600 placeholder-gray-400 focus:ring-sky-500 focus:border-sky-500 block w-full px-4 py-2 border-b border-gray-600 focus:outline-none focus:ring-0 focus:border-sky-600 pr-10"
-              value="{$POST.password|default:''}"
-            />
-            <button
-              type="button"
-              tabindex="-1"
-              class="absolute inset-y-0 right-0 flex items-center px-3"
-              aria-label="Toggle password visibility"
-              onclick="togglePasswordVisibility('password', this)"
-            >              
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none"
-                  viewBox="0 0 24 24" stroke-width="1.5"
-                  stroke="currentColor" class="h-5 w-5 text-gray-500">
-                <path stroke-linecap="round" stroke-linejoin="round"
-                  d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51
-                    7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431
-                    0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
-                <path stroke-linecap="round" stroke-linejoin="round"
-                  d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-              </svg>
-            </button>
-            {if !empty($errors.password)}
-              <span class="text-red-500 text-sm mt-1">{$errors.password}</span>
-            {/if}
-          </div>
-
-          <!-- Confirm Password -->
-          <div class="relative flex flex-col">
-            <input
-              type="password"
-              id="password_verify"
-              name="password_verify"
-              placeholder="Confirm Password *"
-              required
-              class="bg-gray-100 text-gray-600 placeholder-gray-400 focus:ring-sky-500 focus:border-sky-500 block w-full px-4 py-2 border-b border-gray-600 focus:outline-none focus:ring-0 focus:border-sky-600 pr-10"
-              value="{$POST.password_verify|default:''}"
-            />
-            <button
-              type="button"
-              tabindex="-1"
-              class="absolute inset-y-0 right-0 flex items-center px-3"
-              aria-label="Toggle password visibility"
-              onclick="togglePasswordVisibility('password_verify', this)"
-            >              
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none"
-                  viewBox="0 0 24 24" stroke-width="1.5"
-                  stroke="currentColor" class="h-5 w-5 text-gray-500">
-                <path stroke-linecap="round" stroke-linejoin="round"
-                  d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51
-                    7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431
-                    0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
-                <path stroke-linecap="round" stroke-linejoin="round"
-                  d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-              </svg>
-            </button>
-            {if !empty($errors.password_verify)}
-              <span class="text-red-500 text-sm mt-1">{$errors.password_verify}</span>
-            {/if}
-          </div>
-        </div>
-
-
-        <!-- Terms and Submit -->
-        <div class="flex items-center">
-          <input type="checkbox" id="agree" name="agree" required
-            class="h-5 w-5 accent-sky-600 text-sky-600 focus:ring-sky-700 border-gray-300 rounded">
-          <label for="agree" class="ml-2 text-sm text-gray-500">
-            By signing up, you agree to the
-            <a href="https://eazybackup.com/terms/" target="_blank" class="text-sky-500 hover:underline">Terms of Service</a>
-            and the <a href="https://eazybackup.com/privacy/" class="text-sky-500 hover:underline">Privacy Policy</a>.
-          </label>
-        </div>
-
-        <div class="flex justify-center">
-                    <div class="cf-turnstile" data-sitekey="{$TURNSTILE_SITE_KEY}" data-theme="light"></div>
-                    </div>
-                    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
-
-        <!-- Submit Button -->
-        <button type="submit"
-          class="w-full bg-sky-600 text-white py-2 px-4 rounded hover:bg-sky-700 transition duration-200">
-          Sign Up
-        </button>
-
-        <p class="text-center text-sm text-gray-500 mt-4">
-            Already have an account? <a href="https://accounts.eazybackup.ca/index.php/login" class="text-gray-500 underline hover:underline"> Sign in here</a>
-           
-          </p>
-
-          {literal}
-            <script>
-              document.addEventListener('DOMContentLoaded', function() {
-                const form      = document.querySelector('form');
-                const hpField   = document.getElementById('hp_field');
-                const firstName = document.getElementById('first_name');
-                const lastName  = document.getElementById('last_name');
-                const nameRe    = /^[A-Za-z]+$/;
-              
-                form.addEventListener('submit', function(e) {
-                  // 1) Honeypot must be empty
-                  if (hpField.value.trim() !== '') {
-                    // likely a bot
-                    e.preventDefault();
-                    return false;
-                  }
-              
-                  // 2) First/Last name only letters
-                  let clientErrors = [];
-                  if (! nameRe.test(firstName.value.trim()) ) {
-                    clientErrors.push('First Name may only contain letters.');
-                  }
-                  if (! nameRe.test(lastName.value.trim()) ) {
-                    clientErrors.push('Last Name may only contain letters.');
-                  }
-              
-                  if (clientErrors.length) {
-                    e.preventDefault();
-                    // display errors at top of form (or next to fields)
-                    let msg = clientErrors.join('\n');
-                    alert(msg);
-                    return false;
-                  }
-              
-                  // else let it submit
-                });
-              });
-              </script>
-            {/literal}
-
-            {literal}
-              <script>
-              function togglePasswordVisibility(inputId, btn) {
-                const input = document.getElementById(inputId);
-                if (!input) return;
-                // flip the type
-                const isHidden = input.type === 'password';
-                input.type = isHidden ? 'text' : 'password';
-              
-                // Optionally: change the icon’s style or swap it out
-                const svg = btn.querySelector('svg');
-                if (svg) {
-                  svg.classList.toggle('text-gray-500');
-                  svg.classList.toggle('text-sky-600');
-                  // You could swap paths or rotate the icon if you like
-                }
-              }
-              </script>
-            {/literal}
-                          
-      </form>
-    </div>
   </div>
 </div>
-
-
-  
-
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 

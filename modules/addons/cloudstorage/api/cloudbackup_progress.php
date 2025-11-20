@@ -11,7 +11,7 @@ use WHMCS\ClientArea;
 use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
-use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupLogFormatter;
+use WHMCS\Module\Addon\CloudStorage\Client\SanitizedLogFormatter;
 
 $ca = new ClientArea();
 if (!$ca->isLoggedIn()) {
@@ -96,13 +96,16 @@ if (!empty($run['log_excerpt'])) {
 
 // Build formatted log excerpt (server-side formatting) and a simple hash for caching
 $formattedLog = null;
+$structuredEntries = [];
 $logHash = null;
 if (!empty($run['log_excerpt'])) {
     $logHash = md5($run['log_excerpt']);
     // Light caching: avoid formatting if client already has same hash (client passes ?log_hash=...)
     $clientHash = isset($_GET['log_hash']) ? (string)$_GET['log_hash'] : null;
     if ($clientHash !== $logHash) {
-        $formattedLog = CloudBackupLogFormatter::formatRcloneLogs($run['log_excerpt']);
+		$san = SanitizedLogFormatter::sanitizeAndStructure($run['log_excerpt'], $run['status'] ?? null);
+		$formattedLog = $san['formatted_log'];
+		$structuredEntries = $san['entries'];
     }
 }
 
@@ -110,6 +113,8 @@ $jsonData = [
     'status' => 'success',
     'run' => [
         'status' => $run['status'],
+        'error_summary' => $run['error_summary'] ?? '',
+        'worker_host' => $run['worker_host'] ?? '',
         'progress_pct' => $run['progress_pct'],
         'bytes_total' => $run['bytes_total'],
         'bytes_transferred' => $run['bytes_transferred'],
@@ -123,6 +128,7 @@ $jsonData = [
         'log_excerpt' => $run['log_excerpt'] ?? '',
         'log_lines' => $logLines, // Raw lines for fallback
         'formatted_log_excerpt' => $formattedLog, // Formatted full excerpt (null if unchanged by hash)
+		'entries' => $structuredEntries, // Structured sanitized entries
         'log_excerpt_hash' => $logHash,
     ]
 ];

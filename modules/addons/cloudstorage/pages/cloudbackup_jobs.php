@@ -55,10 +55,77 @@ foreach ($jobs as &$job) {
     }
 }
 
+// Compute summary metrics for the jobs page
+// - total jobs, active, paused
+// - failed in last 24h (using last_run if available)
+// - last run status/time across all jobs
+// - unique sources protected (by source_display_name + source_type)
+$now = new DateTimeImmutable('now');
+$since = $now->sub(new DateInterval('P1D'));
+$totalJobs = is_array($jobs) ? count($jobs) : 0;
+$active = 0;
+$paused = 0;
+$failed24h = 0;
+$lastRunAt = null;
+$lastRunStatus = null;
+$sourceKeys = [];
+
+foreach ($jobs as $j) {
+	$status = $j['status'] ?? ($j->status ?? '');
+	if ($status === 'active') {
+		$active++;
+	} elseif ($status === 'paused') {
+		$paused++;
+	}
+
+	// Track unique sources
+	$sdn = $j['source_display_name'] ?? ($j->source_display_name ?? '');
+	$stype = $j['source_type'] ?? ($j->source_type ?? '');
+	if ($sdn !== '' || $stype !== '') {
+		$sourceKeys[$sdn . '|' . $stype] = true;
+	}
+
+	// Consider last run
+	$lr = $j['last_run'] ?? ($j->last_run ?? null);
+	if ($lr) {
+		$lrStatus = is_array($lr) ? ($lr['status'] ?? null) : ($lr->status ?? null);
+		$lrStartedAtRaw = is_array($lr) ? ($lr['started_at'] ?? null) : ($lr->started_at ?? null);
+		if ($lrStartedAtRaw) {
+			try {
+				$lrStartedAt = new DateTimeImmutable((string)$lrStartedAtRaw);
+			} catch (\Exception $e) {
+				$lrStartedAt = null;
+			}
+			if ($lrStartedAt) {
+				if ($lrStatus === 'failed' && $lrStartedAt >= $since) {
+					$failed24h++;
+				}
+				if ($lastRunAt === null || $lrStartedAt > $lastRunAt) {
+					$lastRunAt = $lrStartedAt;
+					$lastRunStatus = (string)$lrStatus;
+				}
+			}
+		}
+	}
+}
+
+$metrics = [
+	'total_jobs' => $totalJobs,
+	'active' => $active,
+	'paused' => $paused,
+	'failed_24h' => $failed24h,
+	'last_run_status' => $lastRunStatus,
+	'last_run_started_at' => $lastRunAt ? $lastRunAt->format('Y-m-d H:i:s') : null,
+	'unique_sources' => count($sourceKeys),
+];
+
 return [
     'jobs' => $jobs,
     'buckets' => $buckets,
     's3_user_id' => $user->id,
     'client_id' => $loggedInUserId,
+	'metrics' => $metrics,
+	// expose tenant usernames for inline bucket creation combobox
+	'usernames' => $tenants,
 ];
 

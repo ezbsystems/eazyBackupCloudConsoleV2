@@ -13,7 +13,7 @@ function cloudstorage_config()
         'description' => 'This module show the usage of your buckets.',
         'author' => 'eazybackup',
         'language' => 'english',
-        'version' => '1.2.0',
+        'version' => '1.4.0',
         'fields' => [
             's3_region' => [
                 'FriendlyName' => 'S3 Region',
@@ -69,6 +69,12 @@ function cloudstorage_config()
                 'Size' => '100',
                 'Description' => 'Secret key for server-side Turnstile verification.'
             ],
+            'trial_verification_email_template' => [
+                'FriendlyName' => 'Trial Verification Email Template',
+                'Type' => 'dropdown',
+                'Options' => cloudstorage_get_email_templates(),
+                'Description' => 'Select the WHMCS email template from the General category to use for e3 trial email verification.',
+            ],
             'default_logging_prefix' => [
                 'FriendlyName' => 'Default Logging Prefix',
                 'Type' => 'text',
@@ -114,6 +120,26 @@ function cloudstorage_config()
                 'Type' => 'dropdown',
                 'Options' => cloudstorage_get_email_templates(),
                 'Description' => 'Select the WHMCS email template from General category to use for backup job notifications.'
+            ],
+            // Google OAuth configuration for Cloud Backup (Drive)
+            'cloudbackup_google_client_id' => [
+                'FriendlyName' => 'Google OAuth Client ID',
+                'Type' => 'text',
+                'Size' => '100',
+                'Description' => 'Google Cloud OAuth 2.0 client ID used for Drive connections.'
+            ],
+            'cloudbackup_google_client_secret' => [
+                'FriendlyName' => 'Google OAuth Client Secret',
+                'Type' => 'password',
+                'Size' => '100',
+                'Description' => 'Google Cloud OAuth 2.0 client secret used for Drive connections.'
+            ],
+            'cloudbackup_google_scopes' => [
+                'FriendlyName' => 'Google OAuth Scopes',
+                'Type' => 'text',
+                'Size' => '200',
+                'Default' => 'https://www.googleapis.com/auth/drive.readonly',
+                'Description' => 'Space-separated scopes. Default: https://www.googleapis.com/auth/drive.readonly'
             ],
         ]
     ];
@@ -447,6 +473,54 @@ function cloudstorage_activate() {
             logModuleCall('cloudstorage', 'activate', [], 'Created s3_cloudbackup_settings table', [], []);
         }
 
+        // Cloud Backup reusable sources table
+        if (!Capsule::schema()->hasTable('s3_cloudbackup_sources')) {
+            Capsule::schema()->create('s3_cloudbackup_sources', function ($table) {
+                $table->increments('id');
+                $table->unsignedInteger('client_id');
+                $table->enum('provider', ['google_drive','dropbox','sftp','s3_compatible','aws','smb','nas']);
+                $table->string('display_name', 191);
+                $table->string('account_email', 191)->nullable();
+                $table->text('scopes')->nullable();
+                $table->mediumText('refresh_token_enc');
+                $table->enum('status', ['active','revoked','error'])->default('active');
+                $table->text('meta')->nullable(); // store JSON as text for broader compatibility
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('updated_at')->useCurrent();
+                $table->index(['client_id', 'provider'], 'idx_client_provider');
+            });
+            logModuleCall('cloudstorage', 'activate', [], 'Created s3_cloudbackup_sources table', [], []);
+        }
+
+        // Add source_connection_id to jobs if missing
+        if (\WHMCS\Database\Capsule::schema()->hasTable('s3_cloudbackup_jobs')) {
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'source_connection_id')) {
+                \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_jobs', function ($table) {
+                    $table->unsignedInteger('source_connection_id')->nullable()->after('source_config_enc');
+                    $table->index('source_connection_id');
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Added source_connection_id to s3_cloudbackup_jobs', [], []);
+            }
+        }
+
+        // Trial signup email verification table
+        if (!Capsule::schema()->hasTable('cloudstorage_trial_verifications')) {
+            Capsule::schema()->create('cloudstorage_trial_verifications', function ($table) {
+                $table->increments('id');
+                $table->unsignedInteger('client_id');
+                $table->string('email', 191);
+                $table->string('token', 191)->unique();
+                $table->text('meta')->nullable();
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('expires_at')->nullable();
+                $table->timestamp('consumed_at')->nullable();
+
+                $table->index('client_id');
+                $table->index('email');
+            });
+            logModuleCall('cloudstorage', 'activate', [], 'Created cloudstorage_trial_verifications table', [], []);
+        }
+
         logModuleCall('cloudstorage', 'activate', [], 'Module activation completed successfully', [], []);
         
         return [
@@ -671,6 +745,7 @@ function cloudstorage_upgrade($vars) {
                 $table->enum('source_type', ['s3_compatible', 'aws', 'sftp', 'google_drive', 'dropbox', 'smb', 'nas'])->default('s3_compatible');
                 $table->string('source_display_name', 191);
                 $table->mediumText('source_config_enc');
+                $table->unsignedInteger('source_connection_id')->nullable();
                 $table->string('source_path', 1024);
                 $table->unsignedInteger('dest_bucket_id');
                 $table->string('dest_prefix', 1024);
@@ -695,11 +770,46 @@ function cloudstorage_upgrade($vars) {
 
                 $table->index('client_id');
                 $table->index('s3_user_id');
+                $table->index('source_connection_id');
                 $table->index('dest_bucket_id');
                 $table->index(['schedule_type', 'status']);
                 $table->foreign('s3_user_id')->references('id')->on('s3_users')->onDelete('cascade');
                 $table->foreign('dest_bucket_id')->references('id')->on('s3_buckets')->onDelete('cascade');
             });
+        }
+
+        // Ensure sources table exists for upgraded installs
+        if (!\WHMCS\Database\Capsule::schema()->hasTable('s3_cloudbackup_sources')) {
+            \WHMCS\Database\Capsule::schema()->create('s3_cloudbackup_sources', function ($table) {
+                $table->increments('id');
+                $table->unsignedInteger('client_id');
+                $table->enum('provider', ['google_drive','dropbox','sftp','s3_compatible','aws','smb','nas']);
+                $table->string('display_name', 191);
+                $table->string('account_email', 191)->nullable();
+                $table->text('scopes')->nullable();
+                $table->mediumText('refresh_token_enc');
+                $table->enum('status', ['active','revoked','error'])->default('active');
+                $table->text('meta')->nullable();
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('updated_at')->useCurrent();
+                $table->index(['client_id', 'provider'], 'idx_client_provider');
+            });
+            logModuleCall('cloudstorage', 'upgrade', [], 'Created s3_cloudbackup_sources table', [], []);
+        }
+
+        // Add source_connection_id column on upgrade if missing
+        if (\WHMCS\Database\Capsule::schema()->hasTable('s3_cloudbackup_jobs')) {
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'source_connection_id')) {
+                try {
+                    \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_jobs', function ($table) {
+                        $table->unsignedInteger('source_connection_id')->nullable()->after('source_config_enc');
+                        $table->index('source_connection_id');
+                    });
+                    logModuleCall('cloudstorage', 'upgrade', [], 'Added source_connection_id to s3_cloudbackup_jobs', [], []);
+                } catch (\Exception $e) {
+                    logModuleCall('cloudstorage', 'upgrade_add_source_connection_id', [], $e->getMessage(), [], []);
+                }
+            }
         }
 
         if (!\WHMCS\Database\Capsule::schema()->hasTable('s3_cloudbackup_runs')) {
@@ -780,6 +890,24 @@ function cloudstorage_upgrade($vars) {
             }
         }
 
+        // Ensure trial verification table exists for upgraded installs
+        if (!\WHMCS\Database\Capsule::schema()->hasTable('cloudstorage_trial_verifications')) {
+            \WHMCS\Database\Capsule::schema()->create('cloudstorage_trial_verifications', function ($table) {
+                $table->increments('id');
+                $table->unsignedInteger('client_id');
+                $table->string('email', 191);
+                $table->string('token', 191)->unique();
+                $table->text('meta')->nullable();
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('expires_at')->nullable();
+                $table->timestamp('consumed_at')->nullable();
+
+                $table->index('client_id');
+                $table->index('email');
+            });
+            logModuleCall('cloudstorage', 'upgrade', [], 'Created cloudstorage_trial_verifications table', [], []);
+        }
+
         return ['status' => 'success'];
     } catch (\Exception $e) {
         logModuleCall('cloudstorage', 'upgrade', $vars, $e->getMessage());
@@ -817,6 +945,15 @@ function cloudstorage_clientarea($vars) {
                 return require __DIR__ . '/pages/handlesignup.php';
             })();
             $viewVars = is_array($routeVars) ? $routeVars : [];
+            if (empty($viewVars['TURNSTILE_SITE_KEY'])) {
+                $viewVars['TURNSTILE_SITE_KEY'] = $turnstileSiteKey;
+            }
+            break;
+
+        case 'verifytrial':
+            $pagetitle = 'Verify e3 Trial';
+            $templatefile = 'templates/signup';
+            $viewVars = require __DIR__ . '/pages/verifytrial.php';
             if (empty($viewVars['TURNSTILE_SITE_KEY'])) {
                 $viewVars['TURNSTILE_SITE_KEY'] = $turnstileSiteKey;
             }
@@ -890,6 +1027,14 @@ function cloudstorage_clientarea($vars) {
 
         case 'deletebucket':
             require 'pages/deletebucket.php';
+            break;
+
+        case 'oauth_google_start':
+            require 'pages/oauth_google_start.php';
+            break;
+
+        case 'oauth_google_callback':
+            require 'pages/oauth_google_callback.php';
             break;
 
         case 'cloudbackup':

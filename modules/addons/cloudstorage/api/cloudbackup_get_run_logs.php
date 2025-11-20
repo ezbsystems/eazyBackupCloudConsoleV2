@@ -12,6 +12,7 @@ use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupLogFormatter;
+use WHMCS\Module\Addon\CloudStorage\Client\SanitizedLogFormatter;
 
 $ca = new ClientArea();
 if (!$ca->isLoggedIn()) {
@@ -61,13 +62,15 @@ if (!$run) {
     exit();
 }
 
-// Format logs using CloudBackupLogFormatter
-$formattedBackupLog = CloudBackupLogFormatter::formatRcloneLogs($run['log_excerpt'] ?? null);
+// Client area: sanitized logs
+$sanitized = SanitizedLogFormatter::sanitizeAndStructure($run['log_excerpt'] ?? null, $run['status'] ?? null);
+$formattedBackupLog = $sanitized['formatted_log'];
 $formattedValidationLog = null;
 
 // Format validation log if available
 if (!empty($run['validation_log_excerpt']) && $run['validation_mode'] === 'post_run') {
-    $formattedValidationLog = CloudBackupLogFormatter::formatValidationLogs($run['validation_log_excerpt']);
+	$valSan = SanitizedLogFormatter::sanitizeAndStructure($run['validation_log_excerpt'], $run['validation_status'] ?? null);
+	$formattedValidationLog = $valSan['formatted_log'];
 }
 
 $jsonData = [

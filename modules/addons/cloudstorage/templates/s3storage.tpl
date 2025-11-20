@@ -80,8 +80,8 @@
 			<h3 class="font-semibold text-xl text-gray-300 mb-2">Pricing</h3>
 			<ul class="list-disc list-inside text-gray-300">
 				<li>Minimum monthly charge: 1 TiB / $9 CAD</li>
-				<li>Additional storage: $0.00976 per GiB beyond the initial 1 TiB</li>
-				<li>No ingress/egress or API request fees</li>
+				<li>Additional storage is billed at $0.00878 per GiB ($9/TiB) beyond the initial 1 TiB. </li>
+				<li>Free egress up to 3x your monthly maxiumum storage.</li>
 			</ul>
 		</div>
 
@@ -173,8 +173,8 @@
 			</p>
 			<ul class="list-disc list-inside text-gray-300 mb-4">
 				<li>You will be charged a minimum of 1 TiB / $9 CAD at the end of your first month.</li>
-				<li>Additional storage used beyond the initial 1 TiB will be billed at $0.0976 per GiB.</li>
-				<li>There are no additional charges for data ingress/egress or API requests.</li>
+				<li>Additional storage used beyond the initial 1 TiB will be billed at $0.00878 per GiB.</li>
+				<li>Free egress up to 3x your monthly maxiumum storage, with any additional egress priced at $0.01/GB</li>
 			</ul>
 			<p class="text-gray-300">
 				If you have any questions about our service or pricing, please contact our support team for assistance.

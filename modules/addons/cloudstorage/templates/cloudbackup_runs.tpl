@@ -1,27 +1,64 @@
-<div class="min-h-screen bg-[#11182759] text-gray-300">
-    <div class="container mx-auto px-4 pb-8">
-        <!-- Navigation Tabs -->
-        <div class="mb-6 border-b border-slate-700">
-            <nav class="flex space-x-8" aria-label="Cloud Backup Navigation">
+<div class="min-h-screen bg-slate-950 text-gray-300">
+    <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
+    <div class="container mx-auto px-4 pb-10 pt-6 relative pointer-events-auto">
+        <!-- Navigation Tabs (pill style) -->
+        <div class="mb-6">
+            <nav class="inline-flex rounded-full bg-slate-900/80 p-1 text-xs font-medium text-slate-400" aria-label="Cloud Backup Navigation">
                 <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_jobs"
-                   class="py-4 px-1 border-b-2 font-medium text-sm {if $smarty.get.view == 'cloudbackup_jobs' or empty($smarty.get.view)}border-sky-500 text-sky-400{else}border-transparent text-slate-400 hover:text-slate-300 hover:border-slate-300{/if}">
+                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.view == 'cloudbackup_jobs' || empty($smarty.get.view)}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
                     Jobs
                 </a>
                 <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_runs"
-                   class="py-4 px-1 border-b-2 font-medium text-sm {if $smarty.get.view == 'cloudbackup_runs'}border-sky-500 text-sky-400{else}border-transparent text-slate-400 hover:text-slate-300 hover:border-slate-300{/if}">
+                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.view == 'cloudbackup_runs'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
                     Run History
                 </a>
                 <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_settings"
-                   class="py-4 px-1 border-b-2 font-medium text-sm {if $smarty.get.view == 'cloudbackup_settings'}border-sky-500 text-sky-400{else}border-transparent text-slate-400 hover:text-slate-300 hover:border-slate-300{/if}">
+                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.view == 'cloudbackup_settings'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
                     Settings
                 </a>
             </nav>
         </div>
+        <!-- Glass panel container -->
+        <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
 
         {if isset($job)}
         <div class="flex flex-col sm:flex-row h-16 justify-between items-start sm:items-center mb-6">
             <div class="flex items-center">
                 <h2 class="text-2xl font-semibold text-white">Run History: {$job.name}</h2>
+            </div>
+        </div>
+        <!-- Summary Metrics Band (per-job runs) -->
+        <div class="mb-6 grid gap-4 md:grid-cols-4">
+            <div class="rounded-2xl border border-slate-800/80 bg-slate-900/70 px-4 py-3">
+                <p class="text-xs font-medium text-slate-400 uppercase tracking-wide">Total Runs</p>
+                <p class="mt-1 text-2xl font-semibold text-white">{if isset($metrics.total_runs)}{$metrics.total_runs}{else}{if isset($runs)}{count($runs)}{else}0{/if}{/if}</p>
+            </div>
+            <div class="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 px-4 py-3">
+                <p class="text-xs font-medium text-emerald-300 uppercase tracking-wide">Success (24h)</p>
+                <p class="mt-1 text-2xl font-semibold text-emerald-100">{if isset($metrics.success_24h)}{$metrics.success_24h}{else}0{/if}</p>
+            </div>
+            <div class="rounded-2xl border border-rose-500/30 bg-rose-500/5 px-4 py-3">
+                <p class="text-xs font-medium text-rose-300 uppercase tracking-wide">Failed (24h)</p>
+                <p class="mt-1 text-2xl font-semibold text-rose-100">{if isset($metrics.failed_24h)}{$metrics.failed_24h}{else}0{/if}</p>
+            </div>
+            <div class="rounded-2xl border border-slate-800/80 bg-slate-900/70 px-4 py-3">
+                <p class="text-xs font-medium text-slate-400 uppercase tracking-wide">Last Run</p>
+                <p class="mt-1 text-sm text-slate-200">
+                    {if isset($metrics.last_run_started_at) && $metrics.last_run_started_at}
+                        {$metrics.last_run_started_at|date_format:"%d %b %Y %H:%M"}
+                        {if $metrics.last_run_status}
+                            <span class="ml-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.65rem] font-medium
+                                {if $metrics.last_run_status eq 'success'}bg-emerald-500/10 text-emerald-300
+                                {elseif $metrics.last_run_status eq 'failed'}bg-rose-500/15 text-rose-300
+                                {elseif $metrics.last_run_status eq 'cancelled'}bg-amber-500/15 text-amber-300
+                                {else}bg-slate-500/15 text-slate-300{/if}">
+                                {$metrics.last_run_status|ucfirst}
+                            </span>
+                        {/if}
+                    {else}
+                        <span class="text-slate-500">-</span>
+                    {/if}
+                </p>
             </div>
         </div>
 
@@ -33,7 +70,13 @@
                 </div>
                 <div>
                     <h6 class="text-sm font-medium text-slate-400">Destination</h6>
-                    <span class="text-md font-medium text-slate-300">Bucket #{$job.dest_bucket_id} / {$job.dest_prefix}</span>
+                    <span class="text-md font-medium text-slate-300">
+                        {if isset($job.dest_bucket_name) && $job.dest_bucket_name}
+                            {$job.dest_bucket_name}{if $job.dest_prefix} / {$job.dest_prefix}{/if}
+                        {else}
+                            Bucket #{$job.dest_bucket_id}{if $job.dest_prefix} / {$job.dest_prefix}{/if}
+                        {/if}
+                    </span>
                 </div>
                 <div>
                     <h6 class="text-sm font-medium text-slate-400">Schedule</h6>
@@ -71,11 +114,12 @@
                                 </td>
                                 <td class="px-6 py-4 whitespace-nowrap">
                                     <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium
-                                        {if $run.status eq 'success'}bg-green-700 text-green-200
-                                        {elseif $run.status eq 'failed'}bg-red-700 text-red-200
-                                        {elseif $run.status eq 'running'}bg-blue-700 text-blue-200
-                                        {elseif $run.status eq 'warning'}bg-yellow-700 text-yellow-200
-                                        {else}bg-gray-700 text-gray-200{/if}">
+                                        {if $run.status eq 'success'}bg-emerald-500/10 text-emerald-300
+                                        {elseif $run.status eq 'failed'}bg-rose-500/15 text-rose-300
+                                        {elseif $run.status eq 'running' || $run.status eq 'starting'}bg-sky-500/10 text-sky-300
+                                        {elseif $run.status eq 'warning'}bg-amber-500/15 text-amber-300
+                                        {elseif $run.status eq 'cancelled'}bg-amber-500/15 text-amber-300
+                                        {else}bg-slate-500/15 text-slate-300{/if}">
                                         {$run.status|ucfirst}
                                     </span>
                                 </td>
@@ -142,6 +186,68 @@
                 <h2 class="text-2xl font-semibold text-white">Run History</h2>
             </div>
         </div>
+        <!-- Summary Metrics Band (all jobs aggregate) -->
+        <div class="mb-6 grid gap-4 md:grid-cols-5">
+            <div class="rounded-2xl px-4 py-3 bg-slate-950/70 border border-slate-800/80">
+                <p class="text-[0.65rem] font-medium tracking-wide uppercase text-slate-400">Total Jobs</p>
+                <p class="mt-1 text-2xl font-semibold text-white">{if isset($metrics.total_jobs)}{$metrics.total_jobs}{else}{if isset($jobs)}{count($jobs)}{else}0{/if}{/if}</p>
+            </div>
+            <div class="rounded-2xl px-4 py-3 bg-slate-950/70 border
+                {if isset($metrics.active) && $metrics.active > 0}
+                    border-emerald-500/35
+                {else}
+                    border-slate-800/80
+                {/if}">
+                <p class="text-[0.65rem] font-medium tracking-wide uppercase
+                    {if isset($metrics.active) && $metrics.active > 0} text-emerald-200 {else} text-slate-400 {/if}">
+                    Active
+                </p>
+                <p class="mt-1 text-2xl font-semibold text-slate-50">{if isset($metrics.active)}{$metrics.active}{else}0{/if}</p>
+            </div>
+            <div class="rounded-2xl px-4 py-3 bg-slate-950/70 border
+                {if isset($metrics.paused) && $metrics.paused > 0}
+                    border-amber-500/35
+                {else}
+                    border-slate-800/80
+                {/if}">
+                <p class="text-[0.65rem] font-medium tracking-wide uppercase
+                    {if isset($metrics.paused) && $metrics.paused > 0} text-amber-200 {else} text-slate-400 {/if}">
+                    Paused
+                </p>
+                <p class="mt-1 text-2xl font-semibold text-slate-50">{if isset($metrics.paused)}{$metrics.paused}{else}0{/if}</p>
+            </div>
+            <div class="rounded-2xl px-4 py-3 bg-slate-950/70 border
+                {if isset($metrics.failed_24h) && $metrics.failed_24h > 0}
+                    border-rose-500/35 shadow-[0_0_24px_rgba(248,113,113,0.25)]
+                {else}
+                    border-slate-800/80
+                {/if}">
+                <p class="text-[0.65rem] font-medium tracking-wide uppercase
+                    {if isset($metrics.failed_24h) && $metrics.failed_24h > 0} text-rose-300 {else} text-slate-400 {/if}">
+                    Failed (24h)
+                </p>
+                <p class="mt-1 text-2xl font-semibold text-slate-50">{if isset($metrics.failed_24h)}{$metrics.failed_24h}{else}0{/if}</p>
+            </div>
+            <div class="rounded-2xl px-4 py-3 bg-slate-950/70 border border-slate-800/80">
+                <p class="text-[0.65rem] font-medium tracking-wide uppercase text-slate-400">Last Run</p>
+                <p class="mt-1 text-sm text-slate-200">
+                    {if isset($metrics.last_run_started_at) && $metrics.last_run_started_at}
+                        {$metrics.last_run_started_at|date_format:"%d %b %Y %H:%M"}
+                        {if $metrics.last_run_status}
+                            <span class="ml-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.65rem] font-medium
+                                {if $metrics.last_run_status eq 'success'}bg-emerald-500/10 text-emerald-300
+                                {elseif $metrics.last_run_status eq 'failed'}bg-rose-500/15 text-rose-300
+                                {elseif $metrics.last_run_status eq 'cancelled'}bg-amber-500/15 text-amber-300
+                                {else}bg-slate-500/15 text-slate-300{/if}">
+                                {$metrics.last_run_status|ucfirst}
+                            </span>
+                        {/if}
+                    {else}
+                        <span class="text-slate-500">Never</span>
+                    {/if}
+                </p>
+            </div>
+        </div>
 
         <div class="bg-slate-800 rounded-lg border border-slate-700 shadow-lg p-6">
             <p class="text-slate-300 mb-4">Select a backup job to view its run history:</p>
@@ -151,7 +257,15 @@
                         <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_runs&job_id={$j->id}" class="block bg-slate-700 hover:bg-slate-600 border border-slate-600 rounded-md p-4">
                             <div class="text-white font-semibold">{$j->name}</div>
                             <div class="text-sm text-slate-300 mt-1">{$j->source_display_name}</div>
-                            <div class="text-xs text-slate-400 mt-1">Dest Bucket #{$j->dest_bucket_id}{if $j->dest_prefix} / {$j->dest_prefix}{/if}</div>
+                            <div class="text-xs text-slate-400 mt-2">
+                                Dest Bucket 
+                                {if isset($j->dest_bucket_name) && $j->dest_bucket_name}
+                                    {$j->dest_bucket_name}
+                                {else}
+                                    #{$j->dest_bucket_id}
+                                {/if}
+                                {if $j->dest_prefix} / {$j->dest_prefix}{/if}
+                            </div>
                         </a>
                     {/foreach}
                 </div>

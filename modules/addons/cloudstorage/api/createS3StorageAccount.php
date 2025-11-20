@@ -128,7 +128,7 @@ try {
 
     $jsonData = [
         'status' => 'success',
-        'message' => 'S3 storage account has been created successfully.'
+        'message' => 'e3 storage account has been created successfully.'
     ];
 
     $response = new JsonResponse($jsonData, 200);

@@ -148,11 +148,17 @@ case 'handlesignup':
 ```
 
 ### Template usage
-In `templates/signup.tpl` the widget is embedded and the script is loaded from Cloudflare. The widget uses the site key variable provided by the route.
+In `templates/signup.tpl` the widget is embedded near the submit button and the script is loaded from Cloudflare. The widget uses the site key variable provided by the route.
 
-```273:277:accounts/modules/addons/cloudstorage/templates/signup.tpl
-<div class="flex justify-center">
-  <div class="cf-turnstile" data-sitekey="{$TURNSTILE_SITE_KEY}" data-theme="light"></div>
+```240:248:accounts/modules/addons/cloudstorage/templates/signup.tpl
+<!-- Turnstile captcha -->
+<div class="pt-2 space-y-2">
+  <div class="flex justify-center">
+    <div class="cf-turnstile" data-sitekey="{$TURNSTILE_SITE_KEY}" data-theme="light"></div>
+  </div>
+  {if isset($errors.turnstile)}
+    <p class="text-[11px] text-center text-rose-400 mt-1">{$errors.turnstile}</p>
+  {/if}
 </div>
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 ```
@@ -178,6 +184,106 @@ if (!validateTurnstile($cfToken, $turnstileSecretKey ?? '')) {
     $errors['turnstile'] = 'Captcha validation failed. Please try again.';
 }
 ```
+
+## Recent updates: Trial signup fields and email verification
+
+The public-facing `signup.tpl` used for free e3 Cloud Storage trials has been redesigned and wired to the backend to capture additional context and require email verification before provisioning.
+
+### Frontend fields
+
+The signup form now includes:
+
+- Company / organisation (required)
+- Full name (required, split server-side into first and last name)
+- Business email (required)
+- Phone (required)
+- Use case chips (Managed service provider, Software / SaaS vendor, In-house IT / internal team)
+- Estimated data to store (slider + TiB number input)
+- \"How will you use e3?\" free-text project description (required)
+- Sales consent checkbox: \"I’d like someone from sales to contact me about pricing and deployment options.\"
+
+Additional implementation details:
+
+- A hidden `hp_field` honeypot is used to block basic bots (checked in `handlesignup.php`).
+- Turnstile captcha is rendered with `{$TURNSTILE_SITE_KEY}` and validated server-side.
+- Validation errors are surfaced inline per field and the form preserves previously submitted values via the `POST` view variable.
+
+### Backend mapping and admin notes
+
+`pages/handlesignup.php` now:
+
+- Accepts the new fields: `company`, `fullName`, `email`, `phone`, `useCase`, `storageTiB`, `project`, and `contactSales`.
+- Splits `fullName` into `firstname` and `lastname` for WHMCS `AddClient`.
+- Applies server-side validation to require Company, Full name, Email, Phone, Project, and a numeric Estimated storage.
+- Normalizes the selected use case (`msp`, `saas`, or `internal`).
+- Auto-generates a strong random password and a default country (from WHMCS `DefaultCountry`, falling back to `CA`).
+- Auto-generates a storage username (used for Ceph and the hosting record) and ensures uniqueness by checking Admin Ops.
+
+The following details are persisted into the WHMCS client admin notes when the client is created:
+
+- Company
+- Full name
+- Phone
+- Use case
+- Estimated storage (TiB)
+- \"How they will use e3\" project description
+- Sales contact consent (Yes/No)
+
+### Email verification flow
+
+Before an order is provisioned, the trial now requires the user to verify their email address.
+
+1. On successful validation, `handlesignup.php`:
+   - Creates the WHMCS client via `AddClient` (with the notes containing the trial fields).
+   - Generates a secure random verification token.
+   - Inserts a row into `cloudstorage_trial_verifications` with:
+     - `client_id`, `email`, `token`, `meta` (JSON with username and form context), `created_at`, `expires_at`.
+   - Builds a verification URL:
+     - `index.php?m=cloudstorage&page=verifytrial&token=<token>`
+   - Sends a verification email using the configured General template (see below), passing a custom merge field `{$trial_verification_link}`.
+   - Returns `emailSent => true` to the template so the form is replaced with a \"Please check your email\" message.
+
+2. When the user clicks the verification link, `pages/verifytrial.php`:
+   - Validates the token (exists, not expired, not consumed).
+   - Creates and accepts the e3 Cloud Storage order for the associated client (`AddOrder` + `AcceptOrder`).
+   - Updates the hosting record username to the stored/generated storage username.
+   - Creates the Ceph user via `AdminOps::createUser` and stores encrypted access keys in `s3_user_access_keys`.
+   - Marks the verification record as consumed.
+   - Uses `CreateSsoToken` to auto-log the user in and redirect them to the e3 dashboard.
+
+3. On invalid/expired tokens, the user is redirected back to the signup page with an appropriate message.
+
+### Configuration (Addon Settings) for verification email
+
+A new addon setting has been added in `cloudstorage_config()`:
+
+- `trial_verification_email_template` — dropdown populated from WHMCS email templates in the **General** category (via `cloudstorage_get_email_templates()`).
+
+`handlesignup.php` uses this configured template when calling the `SendEmail` localAPI:
+
+- The selected template is resolved by ID to its name.
+- The email is sent to the newly created client with `customvars` containing:
+  - `trial_verification_link` — the full verification URL.
+
+In the selected email template, you can include the merge field:
+
+- `{$trial_verification_link}` — renders the clickable verification link for the user.
+
+### Database
+
+The trial verification table is created on activation/upgrade:
+
+- Table: `cloudstorage_trial_verifications`
+- Columns:
+  - `id` (PK)
+  - `client_id`
+  - `email`
+  - `token` (unique)
+  - `meta` (JSON for username and trial context)
+  - `created_at`
+  - `expires_at`
+  - `consumed_at`
+- Indexed by `client_id` and `email`.
 
 ### Troubleshooting
 - Widget not visible: ensure `Turnstile Site Key` is set in the addon settings and the domain is allowed in Cloudflare Turnstile configuration.
@@ -212,3 +318,18 @@ Module settings are managed via WHMCS addon settings:
 - Non-locked bucket not empty: “Empty bucket” path queues job, shows toast, and adds an “Emptying…” badge.
 - Non-locked bucket empty: Delete path allows direct deletion with destructive phrase.
 - Live stats appear shortly after page load; DB snapshot shows immediately as a fallback.
+
+### Trial signup & verification testing
+
+- Submitting the trial form without Company, Name, Email, or Phone is rejected client-side and server-side with inline error messages.
+- Required fields (Company, Full name, Email, Phone, Project) and storage estimate (TiB) are all enforced server-side.
+- Turnstile must be completed; invalid/missing tokens surface a readable error.
+- On successful submission:
+  - A WHMCS client is created with admin notes containing the trial context fields.
+  - No order or Ceph user is created yet.
+  - The user sees a \"Please check your email\" state on the form.
+- The verification email uses the configured General template and includes a working `{$trial_verification_link}`.
+- Clicking the verification link:
+  - Provisions the e3 product order, accepts it, and creates the Ceph user.
+  - Auto-logs the user into their account and redirects them to the e3 dashboard.
+  - Marks the verification record as consumed so the link cannot be reused.

@@ -48,6 +48,19 @@
                 </a>
             </li>
             
+            <!-- Terms Tab -->
+            <li>
+                <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=terms" 
+                   class="flex items-center py-2 px-2 [@media(max-width:1160px)]:px-2 [@media(min-width:1161px)]:px-3
+                          text-gray-300 block text-sm text-gray-300 hover:border-b-2 hover:border-gray-600
+                          {if $smarty.get.m == 'eazybackup' && $smarty.get.a == 'terms'}text-sky-600 border-b-2 border-sky-600 aria-current='page'{/if}">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-5 mr-2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M3 5.25h12M3 9.75h12m-6 4.5h6M3.75 3h10.5A2.25 2.25 0 0 1 16.5 5.25v13.5A2.25 2.25 0 0 1 14.25 21H7.06a2.25 2.25 0 0 1-1.59-.66L3.66 18.54A2.25 2.25 0 0 1 3 16.95V5.25A2.25 2.25 0 0 1 5.25 3Z" />
+                    </svg>
+                    <span class="block font-medium text-gray-300 text-gray-300">Terms</span>
+                </a>
+            </li>
+            
             <!-- Payment Methods Tab -->
             <li>
                 <a href="{$WEB_ROOT}/index.php/account/paymentmethods" 
@@ -136,6 +149,25 @@
                     <span class="block font-medium text-gray-300 text-gray-300">Users</span>
                 </a>
             </li>
+
+            <!-- Terms Tab (Mobile) -->
+            <li>
+                <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=terms" 
+                   class="flex items-center space-x-3 text-gray-300 hover:text-sky-600">
+                    <svg xmlns="http://www.w3.org/2000/svg" 
+                        fill="none" 
+                        viewBox="0 0 24 24" 
+                        stroke-width="1.5" 
+                        stroke="currentColor" 
+                        class="w-6 h-6 text-gray-300 hover:text-sky-600">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3 5.25h12M3 9.75h12m-6 4.5h6M3.75 3h10.5A2.25 2.25 0 0 1 16.5 5.25v13.5A2.25 2.25 0 0 1 14.25 21H7.06a2.25 2.25 0 0 1-1.59-.66L3.66 18.54A2.25 2.25 0 0 1 3 16.95V5.25A2.25 2.25 0 0 1 5.25 3Z" />
+                    </svg>
+                    <div>
+                        <span class="block font-medium text-gray-300">Terms</span>
+                        <p class="block text-sm text-gray-300">View your agreement details.</p>
+                    </div>
+                </a>
+            </li> 
         </ul>
     </div>
 </div>

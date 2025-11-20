@@ -317,6 +317,9 @@ class CloudBackupLogFormatter
      */
     private static function formatLogMessage($msg, $level, $entry)
     {
+        // Replace vendor name
+        $msg = preg_replace('/rclone/i', 'eazyBackup', $msg);
+
         // Convert common rclone messages to user-friendly format
         $replacements = [
             // Starting messages

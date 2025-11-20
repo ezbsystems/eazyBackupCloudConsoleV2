@@ -89,11 +89,50 @@ class WhmcsOps
 
     public function cloneProduct(int $templatePid, int $groupId, string $name): int
     {
+        // Clone core product row
         $tpl = Capsule::table('tblproducts')->where('id', $templatePid)->first();
-        if (!$tpl) { return 0; }
-        $row = (array)$tpl; unset($row['id']);
-        $row['gid'] = $groupId; $row['name'] = $name;
-        return (int)Capsule::table('tblproducts')->insertGetId($row);
+        if (!$tpl) {
+            return 0;
+        }
+
+        $row = (array) $tpl;
+        unset($row['id']);
+        $row['gid']  = $groupId;
+        $row['name'] = $name;
+
+        $newPid = (int) Capsule::table('tblproducts')->insertGetId($row);
+        if ($newPid <= 0) {
+            return 0;
+        }
+
+        // Clone product pricing rows (monthly/annual/etc.) so tenant plans inherit
+        // the same enabled cycles and amounts as the template product.
+        try {
+            $prices = Capsule::table('tblpricing')
+                ->where('type', 'product')
+                ->where('relid', $templatePid)
+                ->get();
+
+            foreach ($prices as $p) {
+                $pr = (array) $p;
+                unset($pr['id']);
+                $pr['relid'] = $newPid;
+                Capsule::table('tblpricing')->insert($pr);
+            }
+        } catch (\Throwable $e) {
+            try {
+                logModuleCall(
+                    'eazybackup',
+                    'clone_product_pricing_exception',
+                    ['templatePid' => $templatePid, 'newPid' => $newPid],
+                    $e->getMessage()
+                );
+            } catch (\Throwable $__) {
+                // ignore logging failures
+            }
+        }
+
+        return $newPid;
     }
 }
 

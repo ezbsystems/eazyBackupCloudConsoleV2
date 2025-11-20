@@ -95,11 +95,11 @@ class BucketController {
             return ['status' => 'fail', 'message' => "Bucket name unavailable: Bucket names must be unique globally. Please choose a unique name for your bucket to proceed."];
         }
 
-        // Check if S3 client is initialized
-        if (is_null($this->s3Client)) {
-            logModuleCall($this->module, __FUNCTION__ . '_NO_S3CLIENT', ['user_id' => $user->id], 'S3 Client is not initialized');
-            return ['status' => 'fail', 'message' => 'Storage connection not established. Please try again later.'];
-        }
+		// Require an initialized S3 client (matches production behavior)
+		if (is_null($this->s3Client)) {
+			logModuleCall($this->module, __FUNCTION__ . '_NO_S3CLIENT', ['user_id' => $user->id], 'S3 Client is not initialized');
+			return ['status' => 'fail', 'message' => 'Storage connection not established. Please try again later.'];
+		}
 
         try {
             $userId = $user->id;
@@ -125,41 +125,44 @@ class BucketController {
                     ];
                 }
 
-                try {
-                    $result = $this->s3Client->createBucket($bucketOptions);
-                    logModuleCall($this->module, __FUNCTION__ . '_BUCKET_CREATED', [
-                        'bucket_name' => $bucketName,
-                        'object_lock_enabled' => $enableObjectLocking
-                    ], 'Bucket created successfully on storage');
-                } catch (S3Exception $e) {
-                    logModuleCall($this->module, __FUNCTION__ . '_CREATE_FAILED', [
-                        'bucket_name' => $bucketName,
-                        'aws_error_code' => $e->getAwsErrorCode(),
-                        'aws_error_message' => $e->getAwsErrorMessage()
-                    ], 'Bucket creation failed: ' . $e->getMessage());
+				// Create bucket via tenant S3 credentials (production behavior)
+				try {
+					$result = $this->s3Client->createBucket($bucketOptions);
+					logModuleCall($this->module, __FUNCTION__ . '_BUCKET_CREATED', [
+						'bucket_name' => $bucketName,
+						'object_lock_enabled' => $enableObjectLocking
+					], 'Bucket created successfully on storage');
+				} catch (S3Exception $e) {
+					logModuleCall($this->module, __FUNCTION__ . '_CREATE_FAILED', [
+						'bucket_name' => $bucketName,
+						'aws_error_code' => $e->getAwsErrorCode(),
+						'aws_error_message' => $e->getAwsErrorMessage()
+					], 'Bucket creation failed: ' . $e->getMessage());
 
-                    return ['status' => 'fail', 'params' => $bucketOptions, 'message' => 'Bucket creation failed. Please try again later.'];
-                }
+					return ['status' => 'fail', 'params' => $bucketOptions, 'message' => 'Bucket creation failed. Please try again later.'];
+				}
 
                 // Wait until headBucket succeeds before making any follow-up calls (versioning/object lock)
-                $maxHeadTries = 10;
-                $delaySeconds = 0.1; // start with 100ms
-                for ($i = 0; $i < $maxHeadTries; $i++) {
-                    try {
-                        $this->s3Client->headBucket(['Bucket' => $bucketName]);
-                        break; // ready
-                    } catch (S3Exception $e) {
-                        // Exponential backoff up to ~2s
-                        usleep((int)($delaySeconds * 1_000_000));
-                        $delaySeconds = min($delaySeconds * 2, 2.0);
-                        if ($i === $maxHeadTries - 1) {
-                            logModuleCall($this->module, __FUNCTION__ . '_HEAD_TIMEOUT', [
-                                'bucket_name' => $bucketName,
-                                'tries' => $maxHeadTries
-                            ], 'headBucket did not succeed in time after creation');
-                        }
-                    }
-                }
+				if (!is_null($this->s3Client)) {
+					$maxHeadTries = 10;
+					$delaySeconds = 0.1; // start with 100ms
+					for ($i = 0; $i < $maxHeadTries; $i++) {
+						try {
+							$this->s3Client->headBucket(['Bucket' => $bucketName]);
+							break; // ready
+						} catch (S3Exception $e) {
+							// Exponential backoff up to ~2s
+							usleep((int)($delaySeconds * 1_000_000));
+							$delaySeconds = min($delaySeconds * 2, 2.0);
+							if ($i === $maxHeadTries - 1) {
+								logModuleCall($this->module, __FUNCTION__ . '_HEAD_TIMEOUT', [
+									'bucket_name' => $bucketName,
+									'tries' => $maxHeadTries
+								], 'headBucket did not succeed in time after creation');
+							}
+						}
+					}
+				}
 
                 // If object locking is enabled, enforce versioning being enabled server-side as a safety net
                 if ($enableObjectLocking && !$enableVersioning) {
@@ -182,8 +185,36 @@ class BucketController {
                             'bucket_name' => $bucketName,
                             'aws_error_code' => $e->getAwsErrorCode()
                         ], 'Versioning enable failed: ' . $e->getMessage());
-
-                        return ['status' => 'fail', 'message' => 'Failed to enable versioning.'];
+						// Fallback: attempt enabling versioning with admin S3 credentials
+						try {
+							$adminS3 = new S3Client([
+								'version' => 'latest',
+								'region' => $this->region,
+								'endpoint' => $this->endpoint,
+								'credentials' => [
+									'key' => $this->adminAccessKey,
+									'secret' => $this->adminSecretKey,
+								],
+								'use_path_style_endpoint' => true,
+								'signature_version' => 'v4'
+							]);
+							$adminS3->putBucketVersioning([
+								'Bucket' => $bucketName,
+								'VersioningConfiguration' => [
+									'Status' => 'Enabled'
+								],
+							]);
+							logModuleCall($this->module, __FUNCTION__ . '_VERSIONING_ENABLED_ADMIN', [
+								'bucket_name' => $bucketName
+							], 'Versioning enabled via admin S3 fallback');
+						} catch (S3Exception $e2) {
+							logModuleCall($this->module, __FUNCTION__ . '_VERSIONING_FAILED_ADMIN', [
+								'bucket_name' => $bucketName,
+								'aws_error_code' => $e2->getAwsErrorCode()
+							], 'Admin S3 versioning enable failed: ' . $e2->getMessage());
+							// Do not fail the entire operation if versioning cannot be enabled; continue without versioning
+							$enableVersioning = false;
+						}
                     }
                 }
 
@@ -219,14 +250,13 @@ class BucketController {
                     }
                 }
                 
-                $params = [
-                    'bucket' => $bucketName,
-                    'stats' => true
-                ];
-                
-                if (!empty($user->tenant_id)) {
-                    $params['bucket'] = $user->tenant_id . '/' . $bucketName;
-                }
+				$params = [
+					'bucket' => $bucketName,
+					'stats' => true
+				];
+				if (!empty($user->tenant_id)) {
+					$params['bucket'] = $user->tenant_id . '/' . $bucketName;
+				}
 
                 // Simple retry mechanism for bucket info verification (mainly for rare consistency delays)
                 $maxRetries = 10;
@@ -305,6 +335,39 @@ class BucketController {
             ], 'General S3 exception during bucket creation: ' . $e->getMessage());
 
             return ['status' => 'fail', 'message' => 'Bucket creation failed. Please try again later.'];
+        }
+    }
+
+    /**
+     * Set lifecycle to expire noncurrent versions after N days.
+     *
+     * @param string $bucketName
+     * @param int $days
+     * @return array
+     */
+    public function setVersioningRetentionDays($bucketName, $days)
+    {
+        if (is_null($this->s3Client)) {
+            return ['status' => 'fail', 'message' => 'Storage connection not established.'];
+        }
+        $days = max(1, (int)$days);
+        try {
+            $this->s3Client->putBucketLifecycleConfiguration([
+                'Bucket' => $bucketName,
+                'LifecycleConfiguration' => [
+                    'Rules' => [[
+                        'ID' => 'expire-noncurrent-versions',
+                        'Status' => 'Enabled',
+                        'NoncurrentVersionExpiration' => [
+                            'NoncurrentDays' => $days
+                        ],
+                    ]]
+                ]
+            ]);
+            return ['status' => 'success', 'message' => 'Lifecycle rule applied.'];
+        } catch (S3Exception $e) {
+            logModuleCall($this->module, __FUNCTION__, [$bucketName, $days], $e->getMessage());
+            return ['status' => 'fail', 'message' => 'Failed to apply lifecycle rule.'];
         }
     }
 

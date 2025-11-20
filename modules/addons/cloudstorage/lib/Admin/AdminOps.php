@@ -195,6 +195,9 @@ class AdminOps {
             if (isset($params['bucket'])) {
                 $query['bucket'] = $params['bucket'];
             }
+			if (isset($params['tenant'])) {
+				$query['tenant'] = $params['tenant'];
+			}
 
             $stringToSign = "GET\n\n\n{$date}\n/admin/bucket";
             $signature = base64_encode(hash_hmac('sha1', $stringToSign, $adminSecretKey, true));
@@ -221,6 +224,128 @@ class AdminOps {
             return $response;
         }
     }
+
+	/**
+	 * Create Bucket (Ceph AdminOps)
+	 *
+	 * @param string $endpoint
+	 * @param string $adminAccessKey
+	 * @param string $adminSecretKey
+	 * @param array  $params ['bucket' => 'name' or 'tenant/name', 'uid' => 'owner', 'tenant' => 'optional']
+	 *
+	 * @return array
+	 */
+	public static function createBucket($endpoint, $adminAccessKey, $adminSecretKey, $params)
+	{
+		try {
+			$client = new Client();
+			$date = gmdate('D, d M Y H:i:s T');
+			$url = "{$endpoint}/admin/bucket";
+
+			$query = [];
+			if (isset($params['uid'])) {
+				$query['uid'] = $params['uid'];
+			}
+			// Pass tenant as its own param; bucket should be the bare bucket name
+			if (isset($params['bucket'])) {
+				$query['bucket'] = $params['bucket'];
+			}
+			if (isset($params['tenant'])) {
+				$query['tenant'] = $params['tenant'];
+			}
+			// Optional placement target if provided by caller
+			if (isset($params['placement'])) {
+				$query['placement'] = $params['placement'];
+			}
+			// Prefer JSON response when supported
+			$query['format'] = 'json';
+
+			$stringToSign = "PUT\n\n\n{$date}\n/admin/bucket";
+			$signature = base64_encode(hash_hmac('sha1', $stringToSign, $adminSecretKey, true));
+			$authHeader = "AWS {$adminAccessKey}:{$signature}";
+
+			$response = $client->put($url, [
+				'headers' => [
+					'Authorization' => $authHeader,
+					'Date' => $date,
+					'Accept' => 'application/json'
+				],
+				'query' => $query,
+			]);
+
+			$body = (string)$response->getBody();
+			$data = strlen($body) ? json_decode($body, true) : null;
+
+			return [
+				'status' => 'success',
+				'data' => $data
+			];
+		} catch (RequestException $e) {
+			$response = ['status' => 'fail', 'message' => 'Create bucket failed. Please try again or contact support.'];
+			logModuleCall(self::$module, __FUNCTION__, $params, $e->getMessage());
+
+			return $response;
+		}
+	}
+
+	/**
+	 * Link Bucket to Owner (assign bucket ownership)
+	 *
+	 * @param string $endpoint
+	 * @param string $adminAccessKey
+	 * @param string $adminSecretKey
+	 * @param array  $params ['bucket' => 'name', 'uid' => 'owner', 'tenant' => 'optional']
+	 *
+	 * @return array
+	 */
+	public static function linkBucket($endpoint, $adminAccessKey, $adminSecretKey, $params)
+	{
+		try {
+			$client = new Client();
+			$date = gmdate('D, d M Y H:i:s T');
+			$url = "{$endpoint}/admin/bucket";
+
+			$query = [
+				'op' => 'link',
+				'format' => 'json'
+			];
+			if (isset($params['uid'])) {
+				$query['uid'] = $params['uid'];
+			}
+			if (isset($params['bucket'])) {
+				$query['bucket'] = $params['bucket'];
+			}
+			if (isset($params['tenant'])) {
+				$query['tenant'] = $params['tenant'];
+			}
+
+			$stringToSign = "POST\n\n\n{$date}\n/admin/bucket";
+			$signature = base64_encode(hash_hmac('sha1', $stringToSign, $adminSecretKey, true));
+			$authHeader = "AWS {$adminAccessKey}:{$signature}";
+
+			$response = $client->post($url, [
+				'headers' => [
+					'Authorization' => $authHeader,
+					'Date' => $date,
+					'Accept' => 'application/json'
+				],
+				'query' => $query,
+			]);
+
+			$body = (string)$response->getBody();
+			$data = strlen($body) ? json_decode($body, true) : null;
+
+			return [
+				'status' => 'success',
+				'data' => $data
+			];
+		} catch (RequestException $e) {
+			$response = ['status' => 'fail', 'message' => 'Link bucket failed. Please try again or contact support.'];
+			logModuleCall(self::$module, __FUNCTION__, $params, $e->getMessage());
+
+			return $response;
+		}
+	}
 
     /**
      * Get User Info

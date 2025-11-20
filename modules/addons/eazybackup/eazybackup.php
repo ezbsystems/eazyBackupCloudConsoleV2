@@ -598,6 +598,94 @@ function eazybackup_migrate_schema(): void {
         });
     }
 
+    // --- eb_tos_versions / eb_tos_client_acceptances / eb_tos_user_acceptances ---
+    if (!$schema->hasTable('eb_tos_versions')) {
+        $schema->create('eb_tos_versions', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->string('version', 32); // e.g., 2025-03-01
+            $t->string('title', 191)->default('Terms of Service');
+            $t->text('summary')->nullable();
+            $t->longText('content_html')->nullable();
+            $t->tinyInteger('is_active')->default(0);
+            $t->tinyInteger('require_acceptance')->default(0);
+            $t->timestamp('created_at')->nullable()->useCurrent();
+            $t->timestamp('published_at')->nullable();
+            $t->integer('created_by')->nullable();
+            $t->unique('version', 'uq_tos_version');
+            $t->index(['is_active'], 'idx_tos_active');
+            $t->index(['require_acceptance'], 'idx_tos_require');
+        });
+    } else {
+        eb_add_column_if_missing('eb_tos_versions','summary',             fn(Blueprint $t)=>$t->text('summary')->nullable());
+        eb_add_column_if_missing('eb_tos_versions','content_html',        fn(Blueprint $t)=>$t->longText('content_html')->nullable());
+        eb_add_column_if_missing('eb_tos_versions','is_active',           fn(Blueprint $t)=>$t->tinyInteger('is_active')->default(0));
+        eb_add_column_if_missing('eb_tos_versions','require_acceptance',  fn(Blueprint $t)=>$t->tinyInteger('require_acceptance')->default(0));
+        eb_add_column_if_missing('eb_tos_versions','published_at',        fn(Blueprint $t)=>$t->timestamp('published_at')->nullable());
+        eb_add_column_if_missing('eb_tos_versions','created_by',          fn(Blueprint $t)=>$t->integer('created_by')->nullable());
+        eb_add_index_if_missing('eb_tos_versions', "CREATE UNIQUE INDEX IF NOT EXISTS uq_tos_version ON eb_tos_versions (version)");
+        eb_add_index_if_missing('eb_tos_versions', "CREATE INDEX IF NOT EXISTS idx_tos_active ON eb_tos_versions (is_active)");
+        eb_add_index_if_missing('eb_tos_versions', "CREATE INDEX IF NOT EXISTS idx_tos_require ON eb_tos_versions (require_acceptance)");
+    }
+
+    if (!$schema->hasTable('eb_tos_client_acceptances')) {
+        $schema->create('eb_tos_client_acceptances', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->integer('client_id')->unsigned();
+            $t->string('tos_version', 32);
+            $t->timestamp('accepted_at')->nullable()->useCurrent();
+            $t->string('ip_address', 45)->nullable();
+            $t->text('user_agent')->nullable();
+            $t->unique(['client_id','tos_version'], 'uq_client_tos_version');
+            $t->index(['client_id'], 'idx_tos_client');
+        });
+    } else {
+        eb_add_column_if_missing('eb_tos_client_acceptances','ip_address', fn(Blueprint $t)=>$t->string('ip_address',45)->nullable());
+        eb_add_column_if_missing('eb_tos_client_acceptances','user_agent', fn(Blueprint $t)=>$t->text('user_agent')->nullable());
+        eb_add_index_if_missing('eb_tos_client_acceptances', "CREATE UNIQUE INDEX IF NOT EXISTS uq_client_tos_version ON eb_tos_client_acceptances (client_id, tos_version)");
+        eb_add_index_if_missing('eb_tos_client_acceptances', "CREATE INDEX IF NOT EXISTS idx_tos_client ON eb_tos_client_acceptances (client_id)");
+    }
+
+    if (!$schema->hasTable('eb_tos_user_acceptances')) {
+        $schema->create('eb_tos_user_acceptances', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->integer('client_id')->unsigned();
+            $t->integer('user_id')->nullable();    // WHMCS 8 Users model
+            $t->integer('contact_id')->nullable(); // Legacy sub-account contact id
+            $t->string('tos_version', 32);
+            $t->timestamp('accepted_at')->nullable()->useCurrent();
+            $t->string('ip_address', 45)->nullable();
+            $t->text('user_agent')->nullable();
+            $t->unique(['client_id','user_id','contact_id','tos_version'], 'uq_user_tos_version');
+            $t->index(['client_id'], 'idx_tos_user_client');
+            $t->index(['user_id'], 'idx_tos_user_user');
+            $t->index(['contact_id'], 'idx_tos_user_contact');
+        });
+    } else {
+        eb_add_column_if_missing('eb_tos_user_acceptances','user_id',     fn(Blueprint $t)=>$t->integer('user_id')->nullable());
+        eb_add_column_if_missing('eb_tos_user_acceptances','contact_id',  fn(Blueprint $t)=>$t->integer('contact_id')->nullable());
+        eb_add_column_if_missing('eb_tos_user_acceptances','ip_address',  fn(Blueprint $t)=>$t->string('ip_address',45)->nullable());
+        eb_add_column_if_missing('eb_tos_user_acceptances','user_agent',  fn(Blueprint $t)=>$t->text('user_agent')->nullable());
+        eb_add_index_if_missing('eb_tos_user_acceptances', "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_tos_version ON eb_tos_user_acceptances (client_id, user_id, contact_id, tos_version)");
+        eb_add_index_if_missing('eb_tos_user_acceptances', "CREATE INDEX IF NOT EXISTS idx_tos_user_client ON eb_tos_user_acceptances (client_id)");
+        eb_add_index_if_missing('eb_tos_user_acceptances', "CREATE INDEX IF NOT EXISTS idx_tos_user_user ON eb_tos_user_acceptances (user_id)");
+        eb_add_index_if_missing('eb_tos_user_acceptances', "CREATE INDEX IF NOT EXISTS idx_tos_user_contact ON eb_tos_user_acceptances (contact_id)");
+    }
+
+    // --- eb_password_onboarding (per-client first-login password flow) ---
+    if (!$schema->hasTable('eb_password_onboarding')) {
+        $schema->create('eb_password_onboarding', function (Blueprint $t) {
+            $t->integer('client_id')->unsigned();
+            $t->tinyInteger('must_set')->default(1);
+            $t->timestamp('created_at')->nullable()->useCurrent();
+            $t->timestamp('completed_at')->nullable();
+            $t->primary('client_id');
+        });
+    } else {
+        eb_add_column_if_missing('eb_password_onboarding','must_set',     fn(Blueprint $t)=>$t->tinyInteger('must_set')->default(1));
+        eb_add_column_if_missing('eb_password_onboarding','created_at',   fn(Blueprint $t)=>$t->timestamp('created_at')->nullable()->useCurrent());
+        eb_add_column_if_missing('eb_password_onboarding','completed_at', fn(Blueprint $t)=>$t->timestamp('completed_at')->nullable());
+    }
+
     // --- eb_billing_grace ---
     if (!$schema->hasTable('eb_billing_grace')) {
         $schema->create('eb_billing_grace', function (Blueprint $t) {
@@ -1448,7 +1536,7 @@ function eazybackup_config()
         'description' => 'WHMCS addon module for eazyBackup',
         'author'      => 'eazyBackup Systems Ltd.',
         'language'    => 'english',
-        'version'     => '1.3', // white-label automation
+        'version'     => '1.5', // Password on signup
         'fields'      => [
             'trialsignupgid' => [
                 'FriendlyName' => 'Trial Signup Product Group',
@@ -2385,6 +2473,142 @@ function eazybackup_clientarea(array $vars)
         require_once __DIR__ . "/pages/console/pulse.php";
         eb_pulse_snooze();
         exit;
+    } else if ($_REQUEST["a"] == "tos-block") {
+        // Blocking page with TOS modal
+        if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) {
+            return ['pagetitle' => 'Terms of Service', 'templatefile' => 'templates/error', 'requirelogin' => true, 'vars' => ['error' => 'Not authenticated']];
+        }
+        $active = Capsule::table('eb_tos_versions')->where('is_active', 1)->orderBy('published_at', 'desc')->first();
+        if (!$active) {
+            // Nothing to show; fall back to dashboard
+            header('Location: index.php?m=eazybackup&a=dashboard'); exit;
+        }
+        $returnTo = isset($_GET['return_to']) ? (string)$_GET['return_to'] : 'clientarea.php';
+        // Limit return_to to same origin paths only
+        if (strpos($returnTo, 'http://') === 0 || strpos($returnTo, 'https://') === 0) { $returnTo = 'clientarea.php'; }
+        return [
+            'pagetitle' => 'Terms of Service',
+            'templatefile' => 'templates/tos-block',
+            'requirelogin' => true,
+            'vars' => array_merge($vars, [
+                'tos' => $active,
+                'return_to' => $returnTo,
+            ]),
+        ];
+    } else if ($_REQUEST["a"] == "tos-accept") {
+        // Record acceptance and redirect back
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') { header('Location: clientarea.php'); exit; }
+        if (!function_exists('check_token') || !check_token('WHMCS.clientarea.default')) { header('Location: clientarea.php'); exit; }
+        $clientId = (int)($_SESSION['uid'] ?? 0);
+        if ($clientId <= 0) { header('Location: clientarea.php'); exit; }
+        $contactId = (int)($_SESSION['cid'] ?? 0);
+        $version = (string)($_POST['tos_version'] ?? '');
+        if ($version === '') {
+            $active = Capsule::table('eb_tos_versions')->where('is_active', 1)->orderBy('published_at', 'desc')->first();
+            $version = $active ? (string)$active->version : '';
+        }
+        if ($version !== '') {
+            $ip = (string)($_SERVER['REMOTE_ADDR'] ?? '');
+            $ua = (string)($_SERVER['HTTP_USER_AGENT'] ?? '');
+            // Client-level acceptance (once per version)
+            try {
+                Capsule::table('eb_tos_client_acceptances')->updateOrInsert(
+                    ['client_id' => $clientId, 'tos_version' => $version],
+                    ['accepted_at' => date('Y-m-d H:i:s'), 'ip_address' => $ip, 'user_agent' => $ua]
+                );
+            } catch (\Throwable $_) {}
+            // Per-user acceptance (owner: null ids; sub-user: contact_id)
+            try {
+                $conds = ['client_id' => $clientId, 'tos_version' => $version];
+                if ($contactId > 0) {
+                    $conds['contact_id'] = $contactId;
+                } else {
+                    $conds['user_id'] = null;
+                    $conds['contact_id'] = null;
+                }
+                Capsule::table('eb_tos_user_acceptances')->updateOrInsert(
+                    $conds,
+                    ['accepted_at' => date('Y-m-d H:i:s'), 'ip_address' => $ip, 'user_agent' => $ua]
+                );
+            } catch (\Throwable $_) {}
+        }
+        $returnTo = isset($_POST['return_to']) ? (string)$_POST['return_to'] : 'clientarea.php';
+        if (strpos($returnTo, 'http://') === 0 || strpos($returnTo, 'https://') === 0) { $returnTo = 'clientarea.php'; }
+
+        // If this client is flagged for first-login password onboarding, send them
+        // directly to the bespoke password panel instead of the original page.
+        $target = $returnTo;
+        try {
+            if (function_exists('eazybackup_must_set_password') && eazybackup_must_set_password($clientId)) {
+                $target = 'index.php?m=eazybackup&a=password-onboarding&return_to=' . rawurlencode($returnTo);
+            }
+        } catch (\Throwable $_) {
+            // Fail open – on error, just go to the original destination.
+        }
+
+        header('Location: ' . $target); exit;
+    } else if ($_REQUEST["a"] == "terms") {
+        // Client Terms page: show current user's accepted version/time and link to view
+        if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) {
+            return ['pagetitle' => 'Terms', 'templatefile' => 'templates/error', 'requirelogin' => true, 'vars' => ['error' => 'Not authenticated']];
+        }
+        $clientId = (int)$_SESSION['uid'];
+        $contactId = (int)($_SESSION['cid'] ?? 0);
+        // Preferred: most recent per-user acceptance
+        $uaRow = null;
+        try {
+            $q = Capsule::table('eb_tos_user_acceptances')->where('client_id', $clientId);
+            if ($contactId > 0) { $q->where('contact_id', $contactId); } else { $q->whereNull('user_id')->whereNull('contact_id'); }
+            $uaRow = $q->orderBy('accepted_at', 'desc')->first();
+        } catch (\Throwable $_) { $uaRow = null; }
+        // Fallback to client-level
+        $caRow = null;
+        try {
+            $caRow = Capsule::table('eb_tos_client_acceptances')->where('client_id', $clientId)->orderBy('accepted_at','desc')->first();
+        } catch (\Throwable $_) { $caRow = null; }
+        $acceptedVersion = $uaRow->tos_version ?? ($caRow->tos_version ?? null);
+        $acceptedAt = $uaRow->accepted_at ?? ($caRow->accepted_at ?? null);
+        $acceptedIp = $uaRow->ip_address ?? ($caRow->ip_address ?? null);
+        $acceptedUa = $uaRow->user_agent ?? ($caRow->user_agent ?? null);
+        // Resolve user name/email
+        $name = trim(($vars['clientsdetails']['firstname'] ?? '') . ' ' . ($vars['clientsdetails']['lastname'] ?? ''));
+        $email = (string)($vars['clientsdetails']['email'] ?? '');
+        return [
+            'pagetitle' => 'Terms',
+            'breadcrumb' => ['index.php?m=eazybackup' => 'eazyBackup'],
+            'templatefile' => 'templates/terms',
+            'requirelogin' => true,
+            'vars' => array_merge($vars, [
+                'accepted_version' => $acceptedVersion,
+                'accepted_at' => $acceptedAt,
+                'accepted_ip' => $acceptedIp,
+                'accepted_ua' => $acceptedUa,
+                'user_name' => $name,
+                'user_email' => $email,
+            ]),
+        ];
+    } else if ($_REQUEST["a"] == "tos-view") {
+        // Render a specific TOS version (read-only)
+        $ver = isset($_GET['version']) ? (string)$_GET['version'] : '';
+        if ($ver === '') {
+            $row = Capsule::table('eb_tos_versions')->where('is_active', 1)->orderBy('published_at', 'desc')->first();
+        } else {
+            $row = Capsule::table('eb_tos_versions')->where('version', $ver)->first();
+        }
+        if (!$row) {
+            return [
+                'pagetitle' => 'Terms of Service',
+                'templatefile' => 'templates/error',
+                'requirelogin' => true,
+                'vars' => ['error' => 'Terms not found'],
+            ];
+        }
+        return [
+            'pagetitle' => 'Terms of Service',
+            'templatefile' => 'templates/tos-view',
+            'requirelogin' => true,
+            'vars' => array_merge($vars, ['tos' => $row]),
+        ];
     } else if ($_REQUEST["a"] == "admin-workers") {
         // Admin JSON endpoint: systemd workers status (read-only)
         require_once __DIR__ . "/pages/admin/workers.php";
@@ -2948,6 +3172,37 @@ function eazybackup_clientarea(array $vars)
                 "welcomeMessage" => "Welcome aboard, ",
             ]),
         ];
+
+    } else if ($_REQUEST["a"] == "password-onboarding") {
+        // Bespoke first-login password setup flow (after TOS acceptance)
+        try {
+            if (!isset($_SESSION['uid']) || (int) $_SESSION['uid'] <= 0) {
+                return [
+                    "pagetitle"    => "Set Your Password",
+                    "templatefile" => "templates/error",
+                    "requirelogin" => true,
+                    "vars"         => ["error" => "Not authenticated"],
+                ];
+            }
+
+            $viewVars = require __DIR__ . "/pages/password_onboarding.php";
+
+            return [
+                "pagetitle"    => "Set Your Password",
+                "breadcrumb"   => ["index.php?m=eazybackup" => "eazyBackup"],
+                "templatefile" => "templates/password-onboarding",
+                "requirelogin" => true,
+                "forcessl"     => true,
+                "vars"         => array_merge($vars, $viewVars),
+            ];
+        } catch (\Throwable $e) {
+            return [
+                "pagetitle"    => "Set Your Password",
+                "templatefile" => "templates/error",
+                "requirelogin" => true,
+                "vars"         => ["error" => "Server error: " . $e->getMessage()],
+            ];
+        }
 
     } else if ($_REQUEST["a"] == "whitelabel-signup") {
         return whitelabel_signup($vars);
@@ -3763,6 +4018,7 @@ function eazybackup_output($vars)
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=items">Protected Items</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=billing">Billing</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=nfr">NFR</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=terms">Terms</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=whitelabel">White-Label</a></li>'
                       . '</ul>';
 
@@ -3861,6 +4117,27 @@ function eazybackup_output($vars)
                 echo $html;
                 return;
             }
+            case 'terms': {
+                // Try multiple controller locations to be resilient across environments
+                $candidates = [
+                    __DIR__ . '/pages/admin/terms/index.php',
+                    __DIR__ . '/pages/admin/terms.php',
+                    __DIR__ . '/pages/admin/powerpanel/terms.php',
+                ];
+                $loaded = false;
+                foreach ($candidates as $controller) {
+                    if (is_file($controller)) {
+                        $html = require $controller;
+                        echo $html;
+                        $loaded = true;
+                        break;
+                    }
+                }
+                if (!$loaded) {
+                    echo '<div class="alert alert-danger">Terms controller not found.</div>';
+                }
+                return;
+            }
             case 'partnerhub': {
                 $controller = __DIR__ . '/pages/admin/partnerhub/settings.php';
                 if (!is_file($controller)) { echo '<div class="alert alert-danger">Controller not found.</div>'; return; }
@@ -3874,6 +4151,7 @@ function eazybackup_output($vars)
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=items">Protected Items</a></li>'
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=billing">Billing</a></li>'
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=nfr">NFR</a></li>'
+                   . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=terms">Terms</a></li>'
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=whitelabel">White-Label</a></li>'
                    . '<li class="nav-item"><a class="nav-link active" href="#">Partner Hub</a></li>'
                    . '</ul>';
@@ -3928,6 +4206,7 @@ function eazybackup_output($vars)
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=items">Protected Items</a></li>'
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=billing">Billing</a></li>'
                    . '<li class="nav-item"><a class="nav-link active" href="#">NFR</a></li>'
+                   . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=terms">Terms</a></li>'
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=whitelabel">White-Label</a></li>'
                    . '</ul>';
 
@@ -4062,6 +4341,7 @@ function eazybackup_output($vars)
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=items">Protected Items</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=billing">Billing</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=nfr">NFR</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=terms">Terms</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=whitelabel">White-Label</a></li>'
                       . '</ul>';
 
@@ -4227,6 +4507,7 @@ function eazybackup_output($vars)
                       . '<li class="nav-item"><a class="nav-link active" href="#">Protected Items</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=billing">Billing</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=nfr">NFR</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=terms">Terms</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=whitelabel">White-Label</a></li>'
                       . '</ul>';
 
@@ -4334,6 +4615,7 @@ function eazybackup_output($vars)
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=items">Protected Items</a></li>'
                       . '<li class="nav-item"><a class="nav-link active" href="#">Billing</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=nfr">NFR</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=terms">Terms</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=whitelabel">White-Label</a></li>'
                       . '</ul>';
 
@@ -4592,6 +4874,7 @@ function eazybackup_sidebar($vars)
         . '<a href="' . $base . '&action=powerpanel&view=devices" class="list-group-item"><i class="fa fa-hdd"></i> Power Panel: Devices</a>'
         . '<a href="' . $base . '&action=powerpanel&view=items" class="list-group-item"><i class="fa fa-shield-alt"></i> Power Panel: Protected Items</a>'
         . '<a href="' . $base . '&action=powerpanel&view=billing" class="list-group-item"><i class="fa fa-balance-scale"></i> Power Panel: Billing</a>'
+        . '<a href="' . $base . '&action=powerpanel&view=terms" class="list-group-item"><i class="fa fa-file-text-o"></i> Power Panel: Terms</a>'
         . '</div>';
     return $sidebar;
 }
@@ -5443,12 +5726,17 @@ function eazybackup_createorder($vars)
                     logActivity('eazybackup: consolidated billing persist failed: ' . $e->getMessage());
                 }
 
-                // --- Begin Order Creation ---
+                // Honour the requested billing term when placing the order so WHMCS
+                // can always pick a valid cycle (important for tenant / white‑label products).
+                $reqBillingTerm  = (($_POST['billingterm'] ?? 'monthly') === 'annual') ? 'annual' : 'monthly';
+                $reqBillingCycle = $reqBillingTerm === 'annual' ? 'Annually' : 'Monthly';
+
                 $orderData = [
-                    "clientid" => $clientid,
-                    "pid" => [$selectedPid],
-                    "promocode" => "trial",   
-                    "paymentmethod" => "stripe",  
+                    "clientid"      => $clientid,
+                    "pid"           => [$selectedPid],
+                    "promocode"     => "trial",
+                    "paymentmethod" => "stripe",
+                    "billingcycle"  => $reqBillingCycle,
                     "noinvoice"     => $isWhiteLabel ? true : false,
                 ];
                 logActivity("eazybackup: AddOrder => " . json_encode($orderData));
@@ -5482,6 +5770,14 @@ function eazybackup_createorder($vars)
                     ->where('orderid', $order["orderid"])
                     ->first();
                 logActivity("eazybackup: Created Service => " . json_encode($service));
+
+                // If WHMCS accepted the order but did not attach any services, treat this as
+                // a hard failure instead of continuing with null service IDs (which causes
+                // confusing follow‑on errors and empty orders).
+                if (!$service) {
+                    logActivity("eazybackup: ERROR – no service row found for order {$order['orderid']} after AcceptOrder; aborting createorder flow.");
+                    throw new \Exception("Service record not found after order acceptance (orderid={$order['orderid']}).");
+                }
 
                 if ($isWhiteLabel) {
                     // handled below by universal billing settings

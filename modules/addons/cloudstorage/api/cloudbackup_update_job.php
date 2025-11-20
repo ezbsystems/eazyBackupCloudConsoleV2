@@ -213,6 +213,23 @@ if ($postedSourceType === 'aws') {
         'user' => $user,
         'pass' => (isset($pass) && $pass !== '') ? $pass : ($reconstructed['pass'] ?? ($existingDec['pass'] ?? '')),
     ];
+} elseif ($postedSourceType === 'google_drive') {
+    // Switch to minimal config: only root_folder_id lives on the job
+    $root = $_POST['gdrive_root_folder_id'] ?? $_POST['root_folder_id'] ?? ($reconstructed['root_folder_id'] ?? ($existingDec['root_folder_id'] ?? null));
+    $reconstructed = [
+        'root_folder_id' => $root,
+    ];
+    // Allow changing linked connection
+    if (isset($_POST['source_connection_id'])) {
+        $updateData['source_connection_id'] = (int) $_POST['source_connection_id'];
+    }
+} elseif ($postedSourceType === 'dropbox') {
+    $tok = $_POST['dropbox_token'] ?? null;
+    $root = $_POST['dropbox_root'] ?? ($reconstructed['root'] ?? ($existingDec['root'] ?? null));
+    $reconstructed = [
+        'token' => (isset($tok) && $tok !== '') ? $tok : ($reconstructed['token'] ?? ($existingDec['token'] ?? '')),
+        'root'  => $root,
+    ];
 }
 
 if (is_array($reconstructed)) {

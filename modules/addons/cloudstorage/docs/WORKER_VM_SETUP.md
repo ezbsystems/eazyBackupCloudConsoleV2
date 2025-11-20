@@ -182,6 +182,7 @@ GRANT SELECT, INSERT, UPDATE ON eazyback_whmcs.s3_cloudbackup_runs TO 'e3backup_
 GRANT SELECT ON eazyback_whmcs.s3_buckets TO 'e3backup_worker'@'e3-cloudbackup-worker-01';
 GRANT SELECT ON eazyback_whmcs.s3_users TO 'e3backup_worker'@'e3-cloudbackup-worker-01';
 GRANT SELECT ON eazyback_whmcs.s3_user_access_keys TO 'e3backup_worker'@'e3-cloudbackup-worker-01';
+GRANT SELECT ON eazyback_whmcs.s3_cloudbackup_sources TO 'e3backup_worker'@'e3-cloudbackup-worker-01';
 GRANT SELECT ON eazyback_whmcs.tbladdonmodules TO 'e3backup_worker'@'e3-cloudbackup-worker-01';
 
 FLUSH PRIVILEGES;
@@ -202,6 +203,7 @@ GRANT SELECT, INSERT, UPDATE ON eazyback_whmcs.s3_cloudbackup_runs TO 'e3backup_
 GRANT SELECT ON eazyback_whmcs.s3_buckets TO 'e3backup_worker'@'10.0.0.50';
 GRANT SELECT ON eazyback_whmcs.s3_users TO 'e3backup_worker'@'10.0.0.50';
 GRANT SELECT ON eazyback_whmcs.s3_user_access_keys TO 'e3backup_worker'@'10.0.0.50';
+GRANT SELECT ON eazyback_whmcs.s3_cloudbackup_sources TO 'e3backup_worker'@'10.0.0.50';
 GRANT SELECT ON eazyback_whmcs.tbladdonmodules TO 'e3backup_worker'@'10.0.0.50';
 
 FLUSH PRIVILEGES;
@@ -223,6 +225,8 @@ GRANT SELECT, INSERT, UPDATE ON eazyback_whmcs.s3_cloudbackup_jobs TO 'e3backup_
 GRANT SELECT, INSERT, UPDATE ON eazyback_whmcs.s3_cloudbackup_runs TO 'e3backup_worker'@'192.168.92.115';
 GRANT SELECT ON eazyback_whmcs.s3_buckets TO 'e3backup_worker'@'192.168.92.115';
 GRANT SELECT ON eazyback_whmcs.s3_users TO 'e3backup_worker'@'192.168.92.115';
+GRANT SELECT ON eazyback_whmcs.s3_user_access_keys TO 'e3backup_worker'@'192.168.92.115';
+GRANT SELECT ON eazyback_whmcs.s3_cloudbackup_sources TO 'e3backup_worker'@'192.168.92.115';
 GRANT SELECT ON eazyback_whmcs.tbladdonmodules TO 'e3backup_worker'@'192.168.92.115';
 
 FLUSH PRIVILEGES;
@@ -568,13 +572,26 @@ sudo netfilter-persistent save
 
 ### 10.1 Store Encryption Key Securely
 
-The worker needs access to the encryption key to decrypt `source_config_enc` from jobs. Choose one method:
+The worker needs access to several secrets at runtime. These are loaded from a secure environment file and not stored in the YAML config. The variables are:
+
+- `CLOUD_BACKUP_ENCRYPTION_KEY` — Required. Used to decrypt `s3_cloudbackup_jobs.source_config_enc` (cloud‑to‑cloud source configs, e.g., Google Drive).
+- `CLOUD_STORAGE_ENCRYPTION_KEY` — Required. Used to decrypt destination access keys (S3 user credentials) pulled by the worker.
+- `GOOGLE_CLIENT_ID` — Required for Google Drive backups. Used to refresh access tokens from a saved refresh_token.
+- `GOOGLE_CLIENT_SECRET` — Required for Google Drive backups. Used with the client ID to refresh access tokens.
+- `ENCRYPTION_KEY` — Optional fallback. If set, the worker will also attempt this value when decrypting (not recommended if the two keys above are already set).
+
+Choose one method to provide these to the service:
 
 **Option A: Environment Variable (Recommended)**
 ```bash
 # Create environment file
 sudo cat > /opt/e3-cloudbackup-worker/config/.env << 'EOF'
-CLOUD_BACKUP_ENCRYPTION_KEY=your_encryption_key_here
+CLOUD_BACKUP_ENCRYPTION_KEY=your_cloudbackup_encryption_key_here
+CLOUD_STORAGE_ENCRYPTION_KEY=your_storage_encryption_key_here
+GOOGLE_CLIENT_ID=your_gcp_oauth_client_id_here
+GOOGLE_CLIENT_SECRET=your_gcp_oauth_client_secret_here
+# Optional fallback – only if you intentionally want a single shared key
+# ENCRYPTION_KEY=optional_generic_encryption_key
 EOF
 
 sudo chmod 600 /opt/e3-cloudbackup-worker/config/.env
@@ -586,7 +603,22 @@ sudo systemctl edit e3-cloudbackup-worker
 # Add this in the editor:
 [Service]
 EnvironmentFile=/opt/e3-cloudbackup-worker/config/.env
+
+# Reload and restart
+sudo systemctl daemon-reload
+sudo systemctl restart e3-cloudbackup-worker
+
+# (Optional) Verify variables were loaded
+systemctl show e3-cloudbackup-worker -p Environment | sed 's/ENCRYPTION_KEY=[^ ]*/ENCRYPTION_KEY=[redacted]/g'
 ```
+
+Notes:
+- Do not wrap values in quotes in the `.env` file. Avoid trailing spaces.
+- Keep the file owned by the service user and permission 600 to protect secrets.
+- The values for `CLOUD_BACKUP_ENCRYPTION_KEY` and `CLOUD_STORAGE_ENCRYPTION_KEY` must match the values set in the WHMCS addon settings:
+  - Cloud Backup Encryption Key → `CLOUD_BACKUP_ENCRYPTION_KEY`
+  - Encryption Key (general) → `CLOUD_STORAGE_ENCRYPTION_KEY`
+- `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` must match the same Google Cloud OAuth client you configured on the consent screen and used in the addon.
 
 **Option B: Read from Database**
 **Note**: While the worker can query `tbladdonmodules` for the encryption key, it's recommended to use the environment variable method for better security and to avoid database queries on every decryption operation.

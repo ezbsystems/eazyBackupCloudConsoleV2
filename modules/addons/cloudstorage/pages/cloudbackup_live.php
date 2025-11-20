@@ -35,8 +35,23 @@ if (!$run) {
 // Get job details
 $job = CloudBackupController::getJob($run['job_id'], $loggedInUserId);
 
+// Build compact metrics for the live page from the run
+$status = $run['status'] ?? null;
+$bytesTransferred = $run['bytes_transferred'] ?? null;
+$bytesTotal = $run['bytes_total'] ?? null;
+$speed = $run['speed_bytes_per_sec'] ?? null;
+$etaSeconds = $run['eta_seconds'] ?? null;
+$metrics = [
+	'status' => $status,
+	'bytes_transferred' => $bytesTransferred,
+	'bytes_total' => $bytesTotal,
+	'speed_bytes_per_sec' => $speed,
+	'eta_seconds' => $etaSeconds,
+];
+
 return [
     'run' => $run,
     'job' => $job,
+	'metrics' => $metrics,
 ];
 

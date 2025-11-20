@@ -81,8 +81,27 @@ if (empty($encryptionKey)) {
     exit();
 }
 
+// Map per-source path inputs to a common source_path (path is optional across sources)
+$sourceTypeForPath = $_POST['source_type'] ?? '';
+if (!isset($_POST['source_path']) || $_POST['source_path'] === '') {
+    $mapped = '';
+    if ($sourceTypeForPath === 'aws') {
+        $mapped = $_POST['aws_path'] ?? '';
+    } elseif ($sourceTypeForPath === 's3_compatible') {
+        $mapped = $_POST['s3_path'] ?? '';
+    } elseif ($sourceTypeForPath === 'sftp') {
+        $mapped = $_POST['sftp_path'] ?? '';
+    } elseif ($sourceTypeForPath === 'google_drive') {
+        $mapped = $_POST['gdrive_path'] ?? '';
+    } elseif ($sourceTypeForPath === 'dropbox') {
+        $mapped = $_POST['dropbox_path'] ?? '';
+    }
+    $_POST['source_path'] = $mapped;
+}
+
 // Validate POST data (defer source_config validation to reconstruction step below)
-$requiredFields = ['name', 'source_type', 'source_display_name', 'source_path', 'dest_bucket_id', 'dest_prefix'];
+// Note: source_path is optional (root if empty)
+$requiredFields = ['name', 'source_type', 'source_display_name', 'dest_bucket_id', 'dest_prefix'];
 foreach ($requiredFields as $field) {
     if (!isset($_POST[$field]) || empty($_POST[$field])) {
         $jsonData = [
@@ -159,6 +178,41 @@ if (!$sourceConfig) {
                 'pass' => $pass,
             ];
         }
+    } elseif ($sourceType === 'google_drive') {
+        // Require a saved Google Drive connection
+        $sourceConnectionId = isset($_POST['source_connection_id']) ? (int) $_POST['source_connection_id'] : 0;
+        if ($sourceConnectionId <= 0) {
+            $jsonData = [
+                'status' => 'fail',
+                'message' => 'Missing Google Drive connection. Please connect Google Drive first.'
+            ];
+            $response = new JsonResponse($jsonData, 200);
+            $response->send();
+            exit();
+        }
+        // Verify ownership and active status
+        $conn = Capsule::table('s3_cloudbackup_sources')
+            ->where('id', $sourceConnectionId)
+            ->where('client_id', $loggedInUserId)
+            ->where('provider', 'google_drive')
+            ->where('status', 'active')
+            ->first();
+        if (!$conn) {
+            $jsonData = [
+                'status' => 'fail',
+                'message' => 'Google Drive connection not found or inactive.'
+            ];
+            $response = new JsonResponse($jsonData, 200);
+            $response->send();
+            exit();
+        }
+        // Minimal config stored on job (root folder if provided)
+        $rootFolderId = $_POST['gdrive_root_folder_id'] ?? $_POST['root_folder_id'] ?? null;
+        $sourceConfig = [
+            'root_folder_id' => $rootFolderId,
+        ];
+        // Attach connection id for persistence
+        $_POST['__resolved_source_connection_id'] = $sourceConnectionId;
     }
 }
 
@@ -196,7 +250,7 @@ $jobData = [
     'source_type' => $_POST['source_type'],
     'source_display_name' => $_POST['source_display_name'],
     'source_config' => $sourceConfig,
-    'source_path' => $_POST['source_path'],
+    'source_path' => $_POST['source_path'] ?? '',
     'dest_bucket_id' => $_POST['dest_bucket_id'],
     'dest_prefix' => $_POST['dest_prefix'],
     'backup_mode' => $_POST['backup_mode'] ?? 'sync',
@@ -213,6 +267,9 @@ $jobData = [
     'notify_on_warning' => isset($_POST['notify_on_warning']) ? 1 : 0,
     'notify_on_failure' => isset($_POST['notify_on_failure']) ? 1 : 0,
 ];
+if (($_POST['source_type'] ?? '') === 'google_drive') {
+    $jobData['source_connection_id'] = (int) ($_POST['__resolved_source_connection_id'] ?? ($_POST['source_connection_id'] ?? 0));
+}
 
 $result = CloudBackupController::createJob($jobData, $encryptionKey);
 

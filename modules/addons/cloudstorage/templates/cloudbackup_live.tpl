@@ -1,22 +1,25 @@
-<div class="min-h-screen bg-[#11182759] text-gray-300">
-    <div class="container mx-auto px-4 pb-8">
-        <!-- Navigation Tabs -->
-        <div class="mb-6 border-b border-slate-700">
-            <nav class="flex space-x-8" aria-label="Cloud Backup Navigation">
+<div class="min-h-screen bg-slate-950 text-gray-300">
+    <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
+    <div class="container mx-auto px-4 pb-10 pt-6 relative pointer-events-auto">
+        <!-- Navigation Tabs (pill style) -->
+        <div class="mb-6">
+            <nav class="inline-flex rounded-full bg-slate-900/80 p-1 text-xs font-medium text-slate-400" aria-label="Cloud Backup Navigation">
                 <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_jobs"
-                   class="py-4 px-1 border-b-2 font-medium text-sm {if $smarty.get.view == 'cloudbackup_jobs' or empty($smarty.get.view)}border-sky-500 text-sky-400{else}border-transparent text-slate-400 hover:text-slate-300 hover:border-slate-300{/if}">
+                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.view == 'cloudbackup_jobs' || empty($smarty.get.view)}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
                     Jobs
                 </a>
                 <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_runs&job_id={$job.id}"
-                   class="py-4 px-1 border-b-2 font-medium text-sm {if $smarty.get.view == 'cloudbackup_runs' || $smarty.get.view == 'cloudbackup_live'}border-sky-500 text-sky-400{else}border-transparent text-slate-400 hover:text-slate-300 hover:border-slate-300{/if}">
+                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.view == 'cloudbackup_runs' || $smarty.get.view == 'cloudbackup_live'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
                     Run History
                 </a>
                 <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_settings"
-                   class="py-4 px-1 border-b-2 font-medium text-sm {if $smarty.get.view == 'cloudbackup_settings'}border-sky-500 text-sky-400{else}border-transparent text-slate-400 hover:text-slate-300 hover:border-slate-300{/if}">
+                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.view == 'cloudbackup_settings'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
                     Settings
                 </a>
             </nav>
         </div>
+        <!-- Glass panel container -->
+        <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
 
         <div class="flex flex-col sm:flex-row h-16 justify-between items-start sm:items-center mb-6">
             <div class="flex items-center">
@@ -35,6 +38,56 @@
             >
                 Cancel Run
             </button>
+        </div>
+
+        <!-- Compact Metrics Strip -->
+        <div class="mb-6 grid gap-4 md:grid-cols-4">
+            <div class="rounded-2xl border border-slate-800/80 bg-slate-900/70 px-4 py-3">
+                <p class="text-xs font-medium text-slate-400 uppercase tracking-wide">Status</p>
+                <p class="mt-1">
+                    <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium
+                        {if $metrics.status eq 'success'}bg-emerald-500/10 text-emerald-300
+                        {elseif $metrics.status eq 'failed'}bg-rose-500/15 text-rose-300
+                        {elseif $metrics.status eq 'running' || $metrics.status eq 'starting' || $metrics.status eq 'queued'}bg-sky-500/10 text-sky-300
+                        {elseif $metrics.status eq 'cancelled'}bg-amber-500/15 text-amber-300
+                        {else}bg-slate-500/15 text-slate-300{/if}">
+                        {$metrics.status|ucfirst}
+                    </span>
+                </p>
+            </div>
+            <div class="rounded-2xl border border-slate-800/80 bg-slate-900/70 px-4 py-3">
+                <p class="text-xs font-medium text-slate-400 uppercase tracking-wide">Bytes Transferred</p>
+                <p class="mt-1 text-2xl font-semibold text-white">
+                    {if $run.bytes_transferred}
+                        {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.bytes_transferred)}
+                    {else}
+                        0.00 Bytes
+                    {/if}
+                </p>
+            </div>
+            <div class="rounded-2xl border border-slate-800/80 bg-slate-900/70 px-4 py-3">
+                <p class="text-xs font-medium text-slate-400 uppercase tracking-wide">Speed</p>
+                <p class="mt-1 text-2xl font-semibold text-white">
+                    {if $run.speed_bytes_per_sec}
+                        {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.speed_bytes_per_sec)}/s
+                    {else}
+                        -
+                    {/if}
+                </p>
+            </div>
+            <div class="rounded-2xl border border-slate-800/80 bg-slate-900/70 px-4 py-3">
+                <p class="text-xs font-medium text-slate-400 uppercase tracking-wide">ETA</p>
+                <p class="mt-1 text-2xl font-semibold text-white">
+                    {if $run.eta_seconds}
+                        {assign var="hours" value=$run.eta_seconds/3600|floor}
+                        {assign var="minutes" value=($run.eta_seconds%3600)/60|floor}
+                        {assign var="seconds" value=$run.eta_seconds%60|string_format:"%.2f"}
+                        {if $hours > 0}{$hours}h {/if}{if $minutes > 0}{$minutes}m {/if}{$seconds}s
+                    {else}
+                        -
+                    {/if}
+                </p>
+            </div>
         </div>
 
         {assign var="isRunningStatus" value=($run.status eq 'running' || $run.status eq 'starting' || $run.status eq 'queued')}
@@ -232,6 +285,12 @@
 .progress-bar-glow {
     animation: pulse-glow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
+.log-line { word-break: break-word; }
+.log-badge { display:inline-flex; align-items:center; gap:.25rem; border-radius:.375rem; padding:.125rem .375rem; font-size:.675rem; font-weight:600; }
+.log-badge-error { background-color: rgba(244,63,94,0.15); color: #fecaca; }   /* rose */
+.log-badge-warn { background-color: rgba(245,158,11,0.15); color: #fde68a; }    /* amber */
+.log-badge-info { background-color: rgba(148,163,184,0.15); color: #cbd5e1; }   /* slate */
+.log-badge-ok { background-color: rgba(16,185,129,0.1); color: #a7f3d0; }       /* emerald */
 </style>
 
 <script>
@@ -398,8 +457,13 @@ function updateProgress() {
                     }
                 }
                 
-                // Update live logs
-                if (typeof run.formatted_log_excerpt !== 'undefined' && run.formatted_log_excerpt !== null) {
+                // Update live logs (prefer structured entries; fallback to server-formatted text; then raw lines)
+                if (Array.isArray(run.entries) && run.entries.length > 0) {
+                    setStructuredLogs(run.entries);
+                    if (run.log_excerpt_hash) {
+                        lastLogsHash = run.log_excerpt_hash;
+                    }
+                } else if (typeof run.formatted_log_excerpt !== 'undefined' && run.formatted_log_excerpt !== null) {
                     setFormattedLogs(run.formatted_log_excerpt);
                     if (run.log_excerpt_hash) {
                         lastLogsHash = run.log_excerpt_hash;
@@ -736,6 +800,41 @@ function setFormattedLogs(text) {
     liveLogsContainer.scrollTop = liveLogsContainer.scrollHeight;
 }
 
+function setStructuredLogs(entries) {
+    const liveLogsContainer = document.getElementById('liveLogs');
+    const liveLogsEmpty = document.getElementById('liveLogsEmpty');
+    if (!liveLogsContainer) return;
+    liveLogsContainer.removeAttribute('data-formatted');
+    if (liveLogsEmpty) liveLogsEmpty.style.display = 'none';
+
+    // Replace entire content
+    while (liveLogsContainer.firstChild) liveLogsContainer.removeChild(liveLogsContainer.firstChild);
+
+    entries.forEach(e => {
+        const line = document.createElement('div');
+        line.className = 'log-line mb-1';
+
+        const time = e.time ? '[' + e.time + '] ' : '';
+        const badge = document.createElement('span');
+        badge.className = 'log-badge ' + (
+            e.level === 'error' ? 'log-badge-error' :
+            e.level === 'warn' ? 'log-badge-warn' :
+            e.level === 'ok' ? 'log-badge-ok' : 'log-badge-info'
+        );
+        badge.textContent = (e.level || 'info').toUpperCase();
+
+        const text = document.createElement('span');
+        text.textContent = (time + (e.message || ''));
+        text.style.marginLeft = '.5rem';
+
+        line.appendChild(badge);
+        line.appendChild(text);
+        liveLogsContainer.appendChild(line);
+    });
+
+    liveLogsContainer.scrollTop = liveLogsContainer.scrollHeight;
+}
+
 function updateFormattedLogs() {
     let url = 'modules/addons/cloudstorage/api/cloudbackup_get_live_logs.php?run_id={$run.id}';
     if (lastLogsHash) {
@@ -745,7 +844,10 @@ function updateFormattedLogs() {
         .then(r => r.json())
         .then(d => {
             if (d.status === 'success' && !d.unchanged) {
-                if (typeof d.formatted_log !== 'undefined') {
+                if (Array.isArray(d.entries) && d.entries.length > 0) {
+                    setStructuredLogs(d.entries);
+                    lastLogsHash = d.hash || lastLogsHash;
+                } else if (typeof d.formatted_log !== 'undefined') {
                     setFormattedLogs(d.formatted_log || '');
                     lastLogsHash = d.hash || lastLogsHash;
                 }

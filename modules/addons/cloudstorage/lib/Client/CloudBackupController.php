@@ -108,6 +108,7 @@ class CloudBackupController {
                 'source_type' => $data['source_type'],
                 'source_display_name' => $data['source_display_name'],
                 'source_config_enc' => $encryptedConfig,
+                'source_connection_id' => $data['source_connection_id'] ?? null,
                 'source_path' => $data['source_path'],
                 'dest_bucket_id' => $data['dest_bucket_id'],
                 'dest_prefix' => $data['dest_prefix'],
@@ -135,8 +136,12 @@ class CloudBackupController {
 
             return ['status' => 'success', 'job_id' => $jobId];
         } catch (\Exception $e) {
-            logModuleCall(self::$module, 'createJob', $data, $e->getMessage());
-            return ['status' => 'fail', 'message' => 'Failed to create job: ' . $e->getMessage()];
+            $ctx = $data;
+            if (isset($ctx['source_config'])) {
+                $ctx['source_config'] = '[redacted]';
+            }
+            logModuleCall(self::$module, 'createJob', $ctx, $e->getMessage());
+            return ['status' => 'fail', 'message' => 'Failed to create job. Please try again later.'];
         }
     }
 
@@ -176,6 +181,9 @@ class CloudBackupController {
             }
             if (isset($data['source_path'])) {
                 $updateData['source_path'] = $data['source_path'];
+            }
+            if (array_key_exists('source_connection_id', $data)) {
+                $updateData['source_connection_id'] = $data['source_connection_id'];
             }
             if (isset($data['dest_bucket_id'])) {
                 $updateData['dest_bucket_id'] = $data['dest_bucket_id'];
@@ -230,8 +238,12 @@ class CloudBackupController {
 
             return ['status' => 'success'];
         } catch (\Exception $e) {
-            logModuleCall(self::$module, 'updateJob', ['job_id' => $jobId, 'client_id' => $clientId, 'data' => $data], $e->getMessage());
-            return ['status' => 'fail', 'message' => 'Failed to update job: ' . $e->getMessage()];
+            $ctx = ['job_id' => $jobId, 'client_id' => $clientId, 'data' => $data];
+            if (isset($ctx['data']['source_config'])) {
+                $ctx['data']['source_config'] = '[redacted]';
+            }
+            logModuleCall(self::$module, 'updateJob', $ctx, $e->getMessage());
+            return ['status' => 'fail', 'message' => 'Failed to update job. Please try again later.'];
         }
     }
 
@@ -262,7 +274,7 @@ class CloudBackupController {
             return ['status' => 'success'];
         } catch (\Exception $e) {
             logModuleCall(self::$module, 'deleteJob', ['job_id' => $jobId, 'client_id' => $clientId], $e->getMessage());
-            return ['status' => 'fail', 'message' => 'Failed to delete job: ' . $e->getMessage()];
+            return ['status' => 'fail', 'message' => 'Failed to delete job. Please try again later.'];
         }
     }
 
@@ -356,7 +368,7 @@ class CloudBackupController {
             return ['status' => 'success', 'run_id' => $runId];
         } catch (\Exception $e) {
             logModuleCall(self::$module, 'startRun', ['job_id' => $jobId, 'client_id' => $clientId], $e->getMessage());
-            return ['status' => 'fail', 'message' => 'Failed to start run: ' . $e->getMessage()];
+            return ['status' => 'fail', 'message' => 'Failed to start run. Please try again later.'];
         }
     }
 
@@ -390,7 +402,7 @@ class CloudBackupController {
             return ['status' => 'success'];
         } catch (\Exception $e) {
             logModuleCall(self::$module, 'cancelRun', ['run_id' => $runId, 'client_id' => $clientId], $e->getMessage());
-            return ['status' => 'fail', 'message' => 'Failed to cancel run: ' . $e->getMessage()];
+            return ['status' => 'fail', 'message' => 'Failed to cancel run. Please try again later.'];
         }
     }
 
@@ -496,7 +508,7 @@ class CloudBackupController {
             return $result;
         } catch (\Exception $e) {
             logModuleCall(self::$module, 'sendRunNotification', ['run_id' => $runId], $e->getMessage());
-            return ['status' => 'error', 'message' => $e->getMessage()];
+            return ['status' => 'error', 'message' => 'Notification failed. Please try again later.'];
         }
     }
 
@@ -678,7 +690,7 @@ class CloudBackupController {
 
         } catch (\Exception $e) {
             logModuleCall(self::$module, 'applyRetentionPolicy', ['job_id' => $jobId], $e->getMessage());
-            return ['status' => 'error', 'message' => $e->getMessage()];
+            return ['status' => 'error', 'message' => 'Retention operation failed. Please try again later.'];
         }
     }
 }
