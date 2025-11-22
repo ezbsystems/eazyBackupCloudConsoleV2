@@ -139,15 +139,6 @@ class CometTenant
     }
 
     /**
-     * Deterministic cloned policy ID for an org (must stay in sync with ensurePolicyForAdmin).
-     */
-    public static function policyIdForOrg(string $orgId): string
-    {
-        $h = sha1('wl-policy:' . $orgId);
-        return substr($h, 0, 8) . '-' . substr($h, 8, 4) . '-' . substr($h, 12, 4) . '-' . substr($h, 16, 4) . '-' . substr($h, 20, 12);
-    }
-
-    /**
      * Clone a template policy for an organization, and assign to the admin via AllowedUserPolicies.
      * Idempotent: if a policy with the deterministic ID exists, it will be updated.
      */
@@ -186,7 +177,8 @@ class CometTenant
             if (!($gp instanceof \Comet\GroupPolicy)) { return false; }
 
             // Create a deterministic new PolicyID based on orgId
-            $newId = self::policyIdForOrg($orgId);
+            $h = sha1('wl-policy:' . $orgId);
+            $newId = substr($h, 0, 8) . '-' . substr($h, 8, 4) . '-' . substr($h, 12, 4) . '-' . substr($h, 16, 4) . '-' . substr($h, 20, 12);
 
             // Prepare cloned policy for the new org
             $clone = \Comet\GroupPolicy::createFromArray($gp->toArray());
@@ -366,19 +358,10 @@ class CometTenant
                 try {
                     $ver = $this->loadOrgOrThrow($server, $orgId);
                     $storedArr = isset($ver->Branding) && is_object($ver->Branding) && method_exists($ver->Branding,'toArray') ? (array)$ver->Branding->toArray() : (array)($ver->Branding ?? []);
-                    // Verify a mix of text/color keys and critical asset keys.
-                    // NOTE: For asset keys like PathHeaderImage, compare against the
-                    // final resource:// hash we computed (from $brandingRes), not the
-                    // original upload path in $branding.
-                    $keys = ['ProductName','TopColor','AccentColor','TileBackgroundColor','PathHeaderImage'];
+                    $keys = ['ProductName','TopColor','AccentColor','TileBackgroundColor'];
                     $ok = true;
                     foreach ($keys as $k) {
-                        if ($k === 'PathHeaderImage') {
-                            // Expected value is the resource:// hash after upload
-                            $want = isset($brandingRes[$k]) ? (string)$brandingRes[$k] : '';
-                        } else {
-                            $want = isset($branding[$k]) ? (string)$branding[$k] : '';
-                        }
+                        $want = isset($branding[$k]) ? (string)$branding[$k] : '';
                         $got  = isset($storedArr[$k]) ? (string)$storedArr[$k] : '';
                         if (in_array($k, ['TopColor','AccentColor','TileBackgroundColor'], true)) { $want = strtoupper($want); $got = strtoupper($got); }
                         if ($want !== '' && $got !== '' && $want !== $got) {
@@ -460,16 +443,10 @@ class CometTenant
                         $stored = [];
                         if ($ver instanceof \Comet\Organization) { $stored = (array)$ver->Branding->toArray(); }
                         else if (is_array($ver) && isset($ver['Branding']) && is_array($ver['Branding'])) { $stored = $ver['Branding']; }
-                        // Verify key text/color fields plus the header image asset hash.
-                        $keys = ['ProductName','TopColor','AccentColor','TileBackgroundColor','PathHeaderImage'];
+                        $keys = ['ProductName','TopColor','AccentColor','TileBackgroundColor'];
                         $ok = true;
                         foreach ($keys as $k) {
-                            if ($k === 'PathHeaderImage') {
-                                // Expected value is the resource:// hash after upload
-                                $want = isset($brandingRes[$k]) ? (string)$brandingRes[$k] : '';
-                            } else {
-                                $want = isset($branding2[$k]) ? (string)$branding2[$k] : '';
-                            }
+                            $want = isset($branding2[$k]) ? (string)$branding2[$k] : '';
                             $got  = isset($stored[$k]) ? (string)$stored[$k] : '';
                             if (in_array($k, ['TopColor','AccentColor','TileBackgroundColor'], true)) { $want = strtoupper($want); $got = strtoupper($got); }
                             if ($want !== '' && $got !== '' && $want !== $got) {
@@ -622,19 +599,6 @@ class CometTenant
         }
     }
 
-    /**
-     * Compute the deterministic storage template ID for a given organization.
-     *
-     * This must stay in sync anywhere we persist the template ID (e.g. WHMCS
-     * product configoption2) so that AdminRequestStorageVault() can find the
-     * template within the tenant org.
-     */
-    public static function storageTemplateIdForOrg(string $orgId): string
-    {
-        $hid = sha1('wl-storage:' . $orgId);
-        return substr($hid, 0, 8) . '-' . substr($hid, 8, 4) . '-' . substr($hid, 12, 4) . '-' . substr($hid, 16, 4) . '-' . substr($hid, 20, 12);
-    }
-
     public function configureStorageTemplate(string $orgId, array $tpl): bool
     {
         try {
@@ -643,8 +607,9 @@ class CometTenant
             if (!$server) { return false; }
             $this->log('comet client=Comet\\Server url=' . $this->maskUrl($creds['url']));
 
-            // Build deterministic template ID for this org
-            $tplId = self::storageTemplateIdForOrg($orgId);
+            // Build deterministic template ID
+            $hid = sha1('wl-storage:' . $orgId);
+            $tplId = substr($hid, 0, 8) . '-' . substr($hid, 8, 4) . '-' . substr($hid, 12, 4) . '-' . substr($hid, 16, 4) . '-' . substr($hid, 20, 12);
 
             // Load current org (fallback to minimal org if list fails)
             $org = null; $fqdn = $this->lookupFqdnByOrgId($orgId);

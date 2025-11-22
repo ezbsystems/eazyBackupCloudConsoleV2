@@ -1,0 +1,3 @@
+[
+  "{\"time\":\"2025-11-20T16:43:39.829099014-05:00\",\"level\":\"critical\",\"msg\":\"Failed to create file system for \\\"source:\\\": couldn't find root directory ID: Get \\\"https://www.googleapis.com/drive/v3/files/root?alt=json\u0026fields=id\u0026prettyPrint=false\u0026supportsAllDrives=true\\\": token expired and there's no refresh token - manually refresh with \\\"rclone config reconnect source:\\\"\",\"source\":\"slog/logger.go:256\"}"
+]

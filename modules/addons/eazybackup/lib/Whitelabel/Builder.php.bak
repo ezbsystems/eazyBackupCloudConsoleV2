@@ -106,61 +106,23 @@ class Builder
         $ct->configureStorageTemplate($orgId, []);
         $this->setStep($tenantId, 'storage', 'success');
 
-        // 9) WHMCS wiring
-        $this->startStep($tenantId, 'whmcs');
-        $ops = new \EazyBackup\Whitelabel\WhmcsOps();
-        // Create WHMCS server + group using the tenant admin credentials so
-        // the Comet Server module can connect immediately.
-        $srv = $ops->addServerAndGroup(
-            $fqdn,
-            $fqdn,
-            (string)($this->cfg['server_module_name'] ?? 'comet'),
-            $adminUser,
-            $adminPass,
-            true
-        );
-        $tplPid = (int)($this->cfg['whitelabel_template_pid'] ?? 0);
-        // Resolve target PRODUCT GROUP id per client (one group per customer)
-        $targetGroupId = (int)$ops->ensureClientProductGroup((int)$t->client_id);
-        // Determine product display name from intake branding (fallback to FQDN Plan)
-        $brandForName = json_decode((string)($t->brand_json ?? '{}'), true) ?: [];
-        $productName = trim((string)($brandForName['ProductName'] ?? ''));
-        if ($productName === '') { $productName = trim((string)($brandForName['BrandName'] ?? '')); }
-        if ($productName === '') { $productName = $fqdn . ' Plan'; }
-        $newPid = ($tplPid > 0 && $targetGroupId > 0) ? $ops->cloneProduct($tplPid, $targetGroupId, $productName) : 0;
-
-        // Ensure the cloned product is wired to this tenant's server group,
-        // policy, and storage template rather than the global template values.
-        if ($newPid > 0 && $orgId !== '') {
-            try {
-                $storageTplId = \EazyBackup\Whitelabel\CometTenant::storageTemplateIdForOrg($orgId);
-                $policyId     = \EazyBackup\Whitelabel\CometTenant::policyIdForOrg($orgId);
-
-                $update = [];
-                if ($storageTplId !== '') {
-                    $update['configoption2'] = $storageTplId;
-                }
-                if ($policyId !== '') {
-                    $update['configoption1'] = $policyId;
-                }
-                if (!empty($srv['servergroup_id'])) {
-                    $update['servergroup'] = (int) $srv['servergroup_id'];
-                }
-
-                if (!empty($update)) {
-                    Capsule::table('tblproducts')
-                        ->where('id', $newPid)
-                        ->update($update);
-                }
-            } catch (\Throwable $__) {
-                // Best-effort; if this fails, account provisioning will throw a clear error later.
-            }
-        }
-
-        Capsule::table('eb_whitelabel_tenants')->where('id',$tenantId)->update([
-            'server_id' => (int)$srv['server_id'], 'servergroup_id' => (int)$srv['servergroup_id'], 'product_id' => (int)$newPid
-        ]);
-        $this->setStep($tenantId, 'whmcs', 'success');
+		// 9) WHMCS wiring
+		$this->startStep($tenantId, 'whmcs');
+		$ops = new \EazyBackup\Whitelabel\WhmcsOps();
+		$srv = $ops->addServerAndGroup($fqdn, $fqdn, (string)($this->cfg['server_module_name'] ?? 'comet'));
+		$tplPid = (int)($this->cfg['whitelabel_template_pid'] ?? 0);
+		// Resolve target PRODUCT GROUP id per client (one group per customer)
+		$targetGroupId = (int)$ops->ensureClientProductGroup((int)$t->client_id);
+		// Determine product display name from intake branding (fallback to FQDN Plan)
+		$brandForName = json_decode((string)($t->brand_json ?? '{}'), true) ?: [];
+		$productName = trim((string)($brandForName['ProductName'] ?? ''));
+		if ($productName === '') { $productName = trim((string)($brandForName['BrandName'] ?? '')); }
+		if ($productName === '') { $productName = $fqdn . ' Plan'; }
+		$newPid = ($tplPid > 0 && $targetGroupId > 0) ? $ops->cloneProduct($tplPid, $targetGroupId, $productName) : 0;
+		Capsule::table('eb_whitelabel_tenants')->where('id',$tenantId)->update([
+			'server_id' => (int)$srv['server_id'], 'servergroup_id' => (int)$srv['servergroup_id'], 'product_id' => (int)$newPid
+		]);
+		$this->setStep($tenantId, 'whmcs', 'success');
 
         // 10) verify
         $this->startStep($tenantId, 'verify');

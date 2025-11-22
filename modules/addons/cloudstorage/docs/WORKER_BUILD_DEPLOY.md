@@ -35,6 +35,19 @@ ls -lh bin/e3-cloudbackup-worker
 bin/e3-cloudbackup-worker -h
 ```
 
+Troubleshooting (go mod tidy):
+
+```bash
+# If you see:
+#   cannot find module providing package github.com/your-org/e3-cloudbackup-worker/internal/diag
+# Ensure the new internal package exists locally:
+test -f internal/diag/preflight.go || echo "missing internal/diag/preflight.go"
+
+# Pull the latest changes that add the package, then retry:
+git pull
+go mod tidy
+```
+
 ### 2) Copy Binary to Worker VM
 
 Copy as `e3-cloudbackup-worker.new` first, then swap to avoid partial/locked files.

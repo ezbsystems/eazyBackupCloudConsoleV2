@@ -57,7 +57,7 @@
             </div>
             <div class="rounded-2xl border border-slate-800/80 bg-slate-900/70 px-4 py-3">
                 <p class="text-xs font-medium text-slate-400 uppercase tracking-wide">Bytes Transferred</p>
-                <p class="mt-1 text-2xl font-semibold text-white">
+                <p class="mt-1 text-2xl font-semibold text-white" id="bytesTransferredTop">
                     {if $run.bytes_transferred}
                         {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.bytes_transferred)}
                     {else}
@@ -77,11 +77,11 @@
             </div>
             <div class="rounded-2xl border border-slate-800/80 bg-slate-900/70 px-4 py-3">
                 <p class="text-xs font-medium text-slate-400 uppercase tracking-wide">ETA</p>
-                <p class="mt-1 text-2xl font-semibold text-white">
+                <p class="mt-1 text-2xl font-semibold text-white" id="etaTop">
                     {if $run.eta_seconds}
                         {assign var="hours" value=$run.eta_seconds/3600|floor}
                         {assign var="minutes" value=($run.eta_seconds%3600)/60|floor}
-                        {assign var="seconds" value=$run.eta_seconds%60|string_format:"%.2f"}
+                        {assign var="seconds" value=$run.eta_seconds%60|string_format:"%.0f"}
                         {if $hours > 0}{$hours}h {/if}{if $minutes > 0}{$minutes}m {/if}{$seconds}s
                     {else}
                         -
@@ -157,7 +157,7 @@
                         {if $run.eta_seconds}
                             {assign var="hours" value=$run.eta_seconds/3600|floor}
                             {assign var="minutes" value=($run.eta_seconds%3600)/60|floor}
-                            {assign var="seconds" value=$run.eta_seconds%60|string_format:"%.2f"}
+                            {assign var="seconds" value=$run.eta_seconds%60|string_format:"%.0f"}
                             {if $hours > 0}{$hours}h {/if}{if $minutes > 0}{$minutes}m {/if}{$seconds}s
                         {else}
                             -
@@ -296,9 +296,11 @@
 <script>
 let progressInterval;
 let logsInterval;
+let eventsInterval;
 {assign var="isRunningStatus" value=($run.status eq 'running' || $run.status eq 'starting' || $run.status eq 'queued')}
 let isRunning = {if $isRunningStatus}true{else}false{/if};
 let lastLogsHash = null;
+let lastEventId = 0;
 
 // Smoothly tween the bar to a target percentage
 let currentPct = (() => {
@@ -457,28 +459,21 @@ function updateProgress() {
                     }
                 }
                 
-                // Update live logs (prefer structured entries; fallback to server-formatted text; then raw lines)
-                if (Array.isArray(run.entries) && run.entries.length > 0) {
-                    setStructuredLogs(run.entries);
-                    if (run.log_excerpt_hash) {
-                        lastLogsHash = run.log_excerpt_hash;
-                    }
-                } else if (typeof run.formatted_log_excerpt !== 'undefined' && run.formatted_log_excerpt !== null) {
-                    setFormattedLogs(run.formatted_log_excerpt);
-                    if (run.log_excerpt_hash) {
-                        lastLogsHash = run.log_excerpt_hash;
-                    }
-                } else {
-                    updateLiveLogs(run.log_lines || []);
-                }
+                // Logs are rendered exclusively from the sanitized event stream (see updateEventLogs).
                 
                 // Update bytes transferred with 2 decimal places
                 if (run.bytes_transferred !== undefined && run.bytes_transferred !== null) {
                     const bytesEl = document.getElementById('bytesTransferred');
+                    const bytesTopEl = document.getElementById('bytesTransferredTop');
                     if (bytesEl) {
                         bytesEl.textContent = formatBytes(run.bytes_transferred);
                         bytesEl.classList.add('opacity-0');
                         setTimeout(() => bytesEl.classList.remove('opacity-0'), 50);
+                    }
+                    if (bytesTopEl) {
+                        bytesTopEl.textContent = formatBytes(run.bytes_transferred);
+                        bytesTopEl.classList.add('opacity-0');
+                        setTimeout(() => bytesTopEl.classList.remove('opacity-0'), 50);
                     }
                 }
                 
@@ -492,20 +487,19 @@ function updateProgress() {
                     }
                 }
                 
-                // Update ETA with 2 decimal places for seconds
+                // Update ETA values (top card and panel) with integer seconds
                 if (run.eta_seconds !== undefined && run.eta_seconds !== null) {
                     const etaEl = document.getElementById('eta');
+                    const etaTopEl = document.getElementById('etaTop');
                     if (etaEl) {
-                        const hours = Math.floor(run.eta_seconds / 3600);
-                        const minutes = Math.floor((run.eta_seconds % 3600) / 60);
-                        const seconds = parseFloat((run.eta_seconds % 60).toFixed(2));
-                        let etaText = '';
-                        if (hours > 0) etaText += hours + 'h ';
-                        if (minutes > 0) etaText += minutes + 'm ';
-                        etaText += seconds + 's';
-                        etaEl.textContent = etaText;
+                        etaEl.textContent = formatEta(run.eta_seconds);
                         etaEl.classList.add('opacity-0');
                         setTimeout(() => etaEl.classList.remove('opacity-0'), 50);
+                    }
+                    if (etaTopEl) {
+                        etaTopEl.textContent = formatEta(run.eta_seconds);
+                        etaTopEl.classList.add('opacity-0');
+                        setTimeout(() => etaTopEl.classList.remove('opacity-0'), 50);
                     }
                 }
                 
@@ -652,9 +646,9 @@ function updateProgress() {
                         clearInterval(progressInterval);
                         progressInterval = null;
                     }
-                    if (logsInterval) {
-                        clearInterval(logsInterval);
-                        logsInterval = null;
+                    if (eventsInterval) {
+                        clearInterval(eventsInterval);
+                        eventsInterval = null;
                     }
                     isRunning = false;
                     if (container && window.Alpine) {
@@ -687,6 +681,19 @@ function formatBytes(bytes) {
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     const value = bytes / Math.pow(k, i);
     return value.toFixed(2) + ' ' + sizes[i];
+}
+
+function formatEta(secondsTotal) {
+    const s = Math.max(0, Math.floor(Number(secondsTotal) || 0));
+    if (s <= 0) return '-';
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    let out = '';
+    if (h > 0) out += h + 'h ';
+    if (m > 0) out += m + 'm ';
+    out += sec + 's';
+    return out.trim();
 }
 
 // Track processed log entries to prevent duplicates
@@ -856,6 +863,60 @@ function updateFormattedLogs() {
         .catch(() => {});
 }
 
+// Prefer sanitized event stream over logs when available
+let terminalEventSeen = false;
+function updateEventLogs() {
+    let url = 'modules/addons/cloudstorage/api/cloudbackup_get_run_events.php?run_id={$run.id}&limit=500';
+    if (lastEventId > 0) {
+        url += '&since_id=' + encodeURIComponent(String(lastEventId));
+    }
+    fetch(url)
+        .then(r => r.json())
+        .then(d => {
+            if (d.status !== 'success' || !Array.isArray(d.events)) return;
+            if (d.events.length === 0) return;
+            // Render events
+            const liveLogsContainer = document.getElementById('liveLogs');
+            const liveLogsEmpty = document.getElementById('liveLogsEmpty');
+            if (!liveLogsContainer) return;
+            if (liveLogsEmpty) liveLogsEmpty.style.display = 'none';
+            // If first events load, clear any prior content
+            if (lastEventId === 0) {
+                while (liveLogsContainer.firstChild) liveLogsContainer.removeChild(liveLogsContainer.firstChild);
+            }
+            d.events.forEach(ev => {
+                // Stop appending once a terminal event is seen (avoid repeated "Backup cancelled.")
+                if (terminalEventSeen) return;
+                const line = document.createElement('div');
+                line.className = 'log-line mb-1';
+                const badge = document.createElement('span');
+                badge.className = 'log-badge ' + (
+                    ev.level === 'error' ? 'log-badge-error' :
+                    ev.level === 'warn' ? 'log-badge-warn' :
+                    'log-badge-info'
+                );
+                badge.textContent = (ev.level || 'info').toUpperCase();
+                const text = document.createElement('span');
+                const ts = ev.ts ? '[' + ev.ts + '] ' : '';
+                text.textContent = ts + (ev.message || '');
+                text.style.marginLeft = '.5rem';
+                line.appendChild(badge);
+                line.appendChild(text);
+                liveLogsContainer.appendChild(line);
+                if (typeof ev.id === 'number' && ev.id > lastEventId) {
+                    lastEventId = ev.id;
+                }
+                // Mark terminal when we encounter cancelled/success/failed/warning
+                const evType = (ev.type || '').toLowerCase();
+                if (['cancelled','summary'].includes(evType) || /backup cancelled/i.test(ev.message || '')) {
+                    terminalEventSeen = true;
+                }
+            });
+            liveLogsContainer.scrollTop = liveLogsContainer.scrollHeight;
+        })
+        .catch(() => {});
+}
+
 function clearLogs() {
     const liveLogsContainer = document.getElementById('liveLogs');
     const liveLogsEmpty = document.getElementById('liveLogsEmpty');
@@ -904,12 +965,12 @@ function cancelRun(runId) {
 {if $run.status eq 'running' || $run.status eq 'starting' || $run.status eq 'queued'}
     // Initial update immediately to catch any status changes
     updateProgress();
-    // Also fetch formatted logs
-    updateFormattedLogs();
+    // Fetch sanitized events
+    updateEventLogs();
     // Then poll every 2 seconds
     progressInterval = setInterval(updateProgress, 2000);
-    // Poll logs less frequently (every 5 seconds)
-    logsInterval = setInterval(updateFormattedLogs, 5000);
+    // Poll events every 2 seconds
+    eventsInterval = setInterval(updateEventLogs, 2000);
 {else}
     // Even if status appears finished, do one check to ensure it's up to date
     // This handles cases where status changed between page load and script execution

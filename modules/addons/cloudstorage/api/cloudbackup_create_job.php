@@ -11,6 +11,7 @@ use WHMCS\ClientArea;
 use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
+use WHMCS\Module\Addon\CloudStorage\Client\AwsS3Validator;
 use WHMCS\Database\Capsule;
 
 $ca = new ClientArea();
@@ -226,16 +227,38 @@ if (!$sourceConfig) {
     exit();
 }
 
+// Validate AWS/S3-compatible source bucket and credentials at save time
+$st = $_POST['source_type'] ?? '';
+if (in_array($st, ['aws', 's3_compatible'], true)) {
+    $check = AwsS3Validator::validateBucketExists([
+        'endpoint'   => $sourceConfig['endpoint'] ?? null,
+        'region'     => $sourceConfig['region'] ?? 'us-east-1',
+        'bucket'     => $sourceConfig['bucket'] ?? '',
+        'access_key' => $sourceConfig['access_key'] ?? '',
+        'secret_key' => $sourceConfig['secret_key'] ?? '',
+    ]);
+    if (($check['status'] ?? 'fail') !== 'success') {
+        $msg = 'Source bucket validation failed';
+        if (!empty($check['message'])) {
+            $msg .= ': ' . $check['message'];
+        }
+        $response = new JsonResponse(['status' => 'fail', 'message' => $msg], 200);
+        $response->send();
+        exit();
+    }
+}
+
 // Verify destination bucket ownership
 $bucket = Capsule::table('s3_buckets')
     ->where('id', $_POST['dest_bucket_id'])
     ->where('user_id', $user->id)
+    ->where('is_active', 1)
     ->first();
 
 if (!$bucket) {
     $jsonData = [
         'status' => 'fail',
-        'message' => 'Destination bucket not found or access denied.'
+        'message' => 'Destination bucket not found, inactive, or access denied.'
     ];
     $response = new JsonResponse($jsonData, 200);
     $response->send();

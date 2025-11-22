@@ -189,12 +189,14 @@
 
         <!-- Filters -->
         <div class="mb-4 flex flex-col sm:flex-row gap-3 justify-between items-start sm:items-center">
-            <input type="text" placeholder="Search jobs" class="w-full sm:w-64 rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+            <input type="text" placeholder="Search jobs (name, status, source, destination)" class="w-full sm:w-80 rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
                    x-model="$store.jobFilters.q" @input="$dispatch('jobs-filter-apply')">
             <div class="inline-flex rounded-full bg-slate-900/80 p-1 text-xs font-medium text-slate-400">
                 <button class="px-3 py-1.5 rounded-full transition" :class="($store.jobFilters.status==='all') ? 'bg-slate-800 text-slate-50 shadow-sm' : 'hover:text-slate-200'" @click="$store.jobFilters.status='all'; $dispatch('jobs-filter-apply')">All</button>
-                <button class="px-3 py-1.5 rounded-full transition" :class="($store.jobFilters.status==='active') ? 'bg-slate-800 text-slate-50 shadow-sm' : 'hover:text-slate-200'" @click="$store.jobFilters.status='active'; $dispatch('jobs-filter-apply')">Active</button>
-                <button class="px-3 py-1.5 rounded-full transition" :class="($store.jobFilters.status==='paused') ? 'bg-slate-800 text-slate-50 shadow-sm' : 'hover:text-slate-200'" @click="$store.jobFilters.status='paused'; $dispatch('jobs-filter-apply')">Paused</button>
+                <button class="px-3 py-1.5 rounded-full transition" :class="($store.jobFilters.status==='success') ? 'bg-slate-800 text-slate-50 shadow-sm' : 'hover:text-slate-200'" @click="$store.jobFilters.status='success'; $dispatch('jobs-filter-apply')">Success</button>
+                <button class="px-3 py-1.5 rounded-full transition" :class="($store.jobFilters.status==='warning') ? 'bg-slate-800 text-slate-50 shadow-sm' : 'hover:text-slate-200'" @click="$store.jobFilters.status='warning'; $dispatch('jobs-filter-apply')">Warning</button>
+                <button class="px-3 py-1.5 rounded-full transition" :class="($store.jobFilters.status==='failed') ? 'bg-slate-800 text-slate-50 shadow-sm' : 'hover:text-slate-200'" @click="$store.jobFilters.status='failed'; $dispatch('jobs-filter-apply')">Failed</button>
+                <button class="px-3 py-1.5 rounded-full transition" :class="($store.jobFilters.status==='running') ? 'bg-slate-800 text-slate-50 shadow-sm' : 'hover:text-slate-200'" @click="$store.jobFilters.status='running'; $dispatch('jobs-filter-apply')">Running</button>
                 <button class="px-3 py-1.5 rounded-full transition" :class="($store.jobFilters.status==='failed_recent') ? 'bg-slate-800 text-slate-50 shadow-sm' : 'hover:text-slate-200'" @click="$store.jobFilters.status='failed_recent'; $dispatch('jobs-filter-apply')">Failed Recently</button>
             </div>
         </div>
@@ -208,6 +210,13 @@
                          data-job-card
                          data-name="{$job.name|escape:'html'}"
                          data-status="{$job.status|lower}"
+                         data-source="{$job.source_display_name|escape:'html'}"
+                         data-source-type="{$job.source_type|lower}"
+                         {if $job.dest_bucket_name}
+                             data-dest="{$job.dest_bucket_name|escape:'html'}{if $job.dest_prefix}/{$job.dest_prefix|escape:'html'}{/if}"
+                         {else}
+                             data-dest="Bucket #{$job.dest_bucket_id}{if $job.dest_prefix} / {$job.dest_prefix|escape:'html'}{/if}"
+                         {/if}
                          {if $job.last_run}
                              data-last-status="{$job.last_run.status|lower}"
                              data-last-started="{$job.last_run.started_at}"
@@ -735,7 +744,8 @@
                             choose(opt) {
                                 this.selected = opt;
                                 this.open = false;
-                                const input = document.querySelector('input[name=source_connection_id]');
+                                // Scope to the create form’s Google Drive section so we don't hit the edit field
+                                const input = document.querySelector('#gdriveFields input[name=source_connection_id]');
                                 if (input) input.value = opt.id;
                                 const disp = document.querySelector('input[name=source_display_name]');
                                 if (disp && !disp.value) disp.value = opt.display_name || (opt.account_email || 'Google Drive');
@@ -747,6 +757,7 @@
                             }
                         }" @click.away="open=false">
                             <input type="hidden" name="source_connection_id" value="">
+                            <input type="hidden" name="gdrive_team_drive" value="">
                             <div class="flex gap-2 mb-2">
                                 <button type="button" class="px-3 py-2 rounded-md border border-slate-600 text-slate-300 hover:text-white hover:border-slate-500" @click="load()" :disabled="loading">
                                     <span x-show="!loading">Load connections</span>
@@ -785,7 +796,13 @@
                     </div>
                     <div class="mb-4">
                         <label class="block text-sm font-medium text-slate-300 mb-2">Root Folder ID (optional)</label>
-                        <input type="text" name="gdrive_root_folder_id" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2" />
+                        <div class="flex gap-2">
+                            <input type="text" name="gdrive_root_folder_id" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2" />
+                            <button type="button" class="px-3 py-2 rounded-md border border-slate-600 text-slate-300 hover:text-white hover:border-slate-500"
+                                    onclick="openDrivePicker('create')">
+                                Browse Drive
+                            </button>
+                        </div>
                     </div>
                     <div class="mb-4">
                         <label class="block text-sm font-medium text-slate-300 mb-2">Path (optional)</label>
@@ -1134,9 +1151,65 @@
                 </div>
 
                 <div id="edit_aws_fields" class="mb-4 hidden">
-                    <div class="mb-3">
+                    <!-- Region combobox (mirrors Create UI) -->
+                    <div class="mb-3" x-data="{
+                        isOpen: false,
+                        search: '',
+                        selected: 'us-east-1',
+                        regions: [
+                            { code: 'us-east-1', name: 'US East (N. Virginia)' },
+                            { code: 'us-east-2', name: 'US East (Ohio)' },
+                            { code: 'us-west-1', name: 'US West (N. California)' },
+                            { code: 'us-west-2', name: 'US West (Oregon)' },
+                            { code: 'ca-central-1', name: 'Canada (Central)' },
+                            { code: 'eu-central-1', name: 'Europe (Frankfurt)' },
+                            { code: 'eu-west-1', name: 'Europe (Ireland)' },
+                            { code: 'eu-west-2', name: 'Europe (London)' },
+                            { code: 'eu-west-3', name: 'Europe (Paris)' },
+                            { code: 'eu-north-1', name: 'Europe (Stockholm)' },
+                            { code: 'eu-south-1', name: 'Europe (Milan)' },
+                            { code: 'ap-south-1', name: 'Asia Pacific (Mumbai)' },
+                            { code: 'ap-south-2', name: 'Asia Pacific (Hyderabad)' },
+                            { code: 'ap-southeast-1', name: 'Asia Pacific (Singapore)' },
+                            { code: 'ap-southeast-2', name: 'Asia Pacific (Sydney)' },
+                            { code: 'ap-southeast-3', name: 'Asia Pacific (Jakarta)' },
+                            { code: 'ap-southeast-4', name: 'Asia Pacific (Melbourne)' },
+                            { code: 'ap-northeast-1', name: 'Asia Pacific (Tokyo)' },
+                            { code: 'ap-northeast-2', name: 'Asia Pacific (Seoul)' },
+                            { code: 'ap-northeast-3', name: 'Asia Pacific (Osaka)' },
+                            { code: 'sa-east-1', name: 'South America (São Paulo)' },
+                            { code: 'me-south-1', name: 'Middle East (Bahrain)' },
+                            { code: 'me-central-1', name: 'Middle East (UAE)' },
+                            { code: 'af-south-1', name: 'Africa (Cape Town)' }
+                        ],
+                        get filtered() {
+                            if (!this.search) return this.regions;
+                            const q = this.search.toLowerCase();
+                            return this.regions.filter(r => r.code.toLowerCase().includes(q) || r.name.toLowerCase().includes(q));
+                        }
+                    }" @click.away="isOpen=false">
                         <label class="block text-sm font-medium text-slate-300 mb-2">Region</label>
-                        <input type="text" id="edit_aws_region" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2" placeholder="us-east-1" />
+                        <input type="hidden" id="edit_aws_region" :value="selected">
+                        <div class="relative">
+                            <button type="button" @click="isOpen=!isOpen" class="relative w-full px-3 py-2 text-left text-slate-300 bg-[#11182759] border border-gray-600 rounded-md shadow-sm cursor-default focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500">
+                                <span class="block truncate" x-text="selected"></span>
+                                <span class="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
+                                    <svg class="w-5 h-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 3a1 1 0 01.707.293l3 3a1 1 0 01-1.414 1.414L10 5.414 7.707 7.707a1 1 0 01-1.414-1.414l3-3A1 1 0 0110 3zm-3.707 9.293a1 1 0 011.414 0L10 14.586l2.293-2.293a1 1 0 011.414 1.414l-3 3a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+                                </span>
+                            </button>
+                            <div x-show="isOpen" class="absolute z-10 w-full mt-1 bg-[#1a2231] border border-gray-600 rounded-md shadow-lg" style="display:none;">
+                                <div class="p-2">
+                                    <input type="text" x-model="search" placeholder="Search regions..." class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-300 focus:outline-none focus:ring-sky-500 focus:border-sky-500">
+                                </div>
+                                <ul class="py-1 overflow-auto text-base max-h-60 ring-1 ring-black ring-opacity-5 focus:outline-none sm:text-sm scrollbar_thin">
+                                    <template x-for="r in filtered" :key="r.code">
+                                        <li @click="selected=r.code; isOpen=false" class="px-4 py-2 text-gray-300 cursor-pointer select-none hover:bg-gray-700">
+                                            <span x-text="r.code + ' — ' + r.name"></span>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </div>
+                        </div>
                     </div>
                     <div class="mb-3">
                         <label class="block text-sm font-medium text-slate-300 mb-2">Access Key ID</label>
@@ -1146,9 +1219,61 @@
                         <label class="block text-sm font-medium text-slate-300 mb-2">Secret Access Key</label>
                         <input type="password" id="edit_aws_secret_key" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2" placeholder="Leave blank to keep existing" />
                     </div>
-                    <div class="mb-3">
+                    <!-- Bucket selector with Load buckets (mirrors Create UI, adapted for edit_) -->
+                    <div class="mb-3" x-data="{
+                        isOpen:false, loading:false, search:'', buckets:[], selected:'',
+                        async load() {
+                            const ak = (document.getElementById('edit_aws_access_key')?.value || '').trim();
+                            const sk = (document.getElementById('edit_aws_secret_key')?.value || '').trim();
+                            const rg = (document.getElementById('edit_aws_region')?.value || '').trim();
+                            if (!ak || !sk || !rg) { if (window.toast) window.toast.error('Enter Access Key, Secret, and Region'); return; }
+                            this.loading = true;
+                            try {
+                                const resp = await fetch('modules/addons/cloudstorage/api/cloudbackup_list_aws_buckets.php', {
+                                    method:'POST',
+                                    headers: new Headers([['Content-Type','application/x-www-form-urlencoded']]),
+                                    body: new URLSearchParams([['access_key', ak], ['secret_key', sk], ['region', rg], ['filter_region', '1']])
+                                });
+                                const data = await resp.json();
+                                if (data.status === 'success') {
+                                    this.buckets = (data.buckets || []).map(b => b.name);
+                                    this.isOpen = true;
+                                    if (!this.buckets.length && window.toast) window.toast.info('No buckets found in this region');
+                                } else {
+                                    if (window.toast) window.toast.error(data.message || 'Failed to load buckets');
+                                }
+                            } catch (e) {
+                                if (window.toast) window.toast.error('Error loading buckets');
+                            } finally {
+                                this.loading = false;
+                            }
+                        },
+                        get filtered() {
+                            if (!this.search) return this.buckets;
+                            const q = this.search.toLowerCase();
+                            return this.buckets.filter(n => n.toLowerCase().includes(q));
+                        }
+                    }" @click.away="isOpen=false">
                         <label class="block text-sm font-medium text-slate-300 mb-2">Bucket Name</label>
-                        <input type="text" id="edit_aws_bucket" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2" />
+                        <div class="flex gap-2">
+                            <input type="text" id="edit_aws_bucket" x-model="selected" class="flex-1 bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600" placeholder="Select or type a bucket..." />
+                            <button type="button" class="px-3 py-2 rounded-md border border-slate-600 text-slate-300 hover:text-white hover:border-slate-500" @click="load()" :disabled="loading">
+                                <span x-show="!loading">Load buckets</span>
+                                <span x-show="loading">Loading…</span>
+                            </button>
+                        </div>
+                        <div x-show="isOpen" class="relative mt-2">
+                            <div class="absolute z-10 w-full bg-[#1a2231] border border-gray-600 rounded-md shadow-lg">
+                                <div class="p-2">
+                                    <input type="text" x-model="search" placeholder="Search buckets..." class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-300 focus:outline-none focus:ring-sky-500 focus:border-sky-500">
+                                </div>
+                                <ul class="py-1 overflow-auto text-base max-h-60 ring-1 ring-black ring-opacity-5 focus:outline-none sm:text-sm scrollbar_thin">
+                                    <template x-for="b in filtered" :key="b">
+                                        <li @click="selected=b; isOpen=false" class="px-4 py-2 text-gray-300 cursor-pointer select-none hover:bg-gray-700" x-text="b"></li>
+                                    </template>
+                                </ul>
+                            </div>
+                        </div>
                     </div>
                     <div class="mb-3">
                         <label class="block text-sm font-medium text-slate-300 mb-2">Path/Prefix (optional)</label>
@@ -1177,20 +1302,86 @@
 
                 <div id="edit_gdrive_fields" class="mb-4 hidden">
                     <div class="mb-3">
-                        <label class="block text-sm font-medium text-slate-300 mb-2">Client ID</label>
-                        <input type="text" id="edit_gdrive_client_id" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2" />
-                    </div>
-                    <div class="mb-3">
-                        <label class="block text-sm font-medium text-slate-300 mb-2">Client Secret</label>
-                        <input type="password" id="edit_gdrive_client_secret" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2" />
-                    </div>
-                    <div class="mb-3">
-                        <label class="block text-sm font-medium text-slate-300 mb-2">OAuth Token JSON</label>
-                        <textarea id="edit_gdrive_token" rows="3" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2" placeholder='Paste JSON from rclone auth'></textarea>
+                        <label class="block text-sm font-medium text-slate-300 mb-2">Google Drive Connection</label>
+                        <div x-data="{
+                            loading:false, open:false, search:'', selected:null, options:[],
+                            async load() {
+                                this.loading = true;
+                                try {
+                                    const resp = await fetch('modules/addons/cloudstorage/api/cloudbackup_list_sources.php?provider=google_drive');
+                                    const data = await resp.json();
+                                    if (data.status === 'success') {
+                                        this.options = (data.sources || []);
+                                        this.open = true;
+                                        if (!this.options.length && window.toast) window.toast.info('No Google Drive connections yet');
+                                    } else {
+                                        if (window.toast) window.toast.error(data.message || 'Failed to load connections');
+                                    }
+                                } catch (e) {
+                                    if (window.toast) window.toast.error('Error loading connections');
+                                } finally {
+                                    this.loading = false;
+                                }
+                            },
+                            choose(opt) {
+                                this.selected = opt;
+                                this.open = false;
+                                const input = document.getElementById('edit_source_connection_id');
+                                if (input) input.value = opt.id;
+                                const disp = document.getElementById('edit_source_display_name');
+                                if (disp && !disp.value) disp.value = opt.display_name || (opt.account_email || 'Google Drive');
+                            },
+                            get filtered() {
+                                if (!this.search) return this.options;
+                                const q = this.search.toLowerCase();
+                                return this.options.filter(o => (o.display_name || '').toLowerCase().includes(q) || (o.account_email || '').toLowerCase().includes(q));
+                            }
+                        }" @click.away="open=false">
+                            <input type="hidden" id="edit_source_connection_id" name="source_connection_id" value="">
+                            <input type="hidden" id="edit_gdrive_team_drive" name="gdrive_team_drive" value="">
+                            <div class="flex gap-2 mb-2">
+                                <button type="button" class="px-3 py-2 rounded-md border border-slate-600 text-slate-300 hover:text-white hover:border-slate-500" @click="load()" :disabled="loading">
+                                    <span x-show="!loading">Load connections</span>
+                                    <span x-show="loading">Loading…</span>
+                                </button>
+                                <a href="index.php?m=cloudstorage&page=oauth_google_start" class="px-3 py-2 rounded-md bg-sky-600 text-white hover:bg-sky-700">Connect Google Drive</a>
+                            </div>
+                            <div class="relative">
+                                <button type="button" @click="open=!open" class="relative w-full px-3 py-2 text-left text-slate-300 bg-[#11182759] border border-gray-600 rounded-md shadow-sm cursor-default focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500">
+                                    <span class="block truncate" x-text="selected ? ((selected.display_name || selected.account_email) || ('ID '+selected.id)) : 'Select a connection'"></span>
+                                    <span class="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
+                                        <svg class="w-5 h-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 3a1 1 0 01.707.293l3 3a1 1 0 01-1.414 1.414L10 5.414 7.707 7.707a1 1 0 01-1.414-1.414l3-3A1 1 0 0110 3zm-3.707 9.293a1 1 0 011.414 0L10 14.586l2.293-2.293a1 1 0 011.414 1.414l-3 3a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+                                    </span>
+                                </button>
+                                <div x-show="open" class="absolute z-10 w-full mt-1 bg-[#1a2231] border border-gray-600 rounded-md shadow-lg" style="display:none;">
+                                    <div class="p-2">
+                                        <input type="text" x-model="search" placeholder="Search connections..." class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-300 focus:outline-none focus:ring-sky-500 focus:border-sky-500">
+                                    </div>
+                                    <ul class="py-1 overflow-auto text-base max-h-60 ring-1 ring-black ring-opacity-5 focus:outline-none sm:text-sm scrollbar_thin">
+                                        <template x-for="opt in filtered" :key="opt.id">
+                                            <li @click="choose(opt)" class="px-4 py-2 text-gray-300 cursor-pointer select-none hover:bg-gray-700">
+                                                <span x-text="(opt.display_name || opt.account_email) || ('ID '+opt.id)"></span>
+                                                <span class="ml-2 text-[11px] text-slate-400" x-text="opt.account_email"></span>
+                                            </li>
+                                        </template>
+                                        <template x-if="filtered.length === 0">
+                                            <li class="px-4 py-2 text-gray-400">No connections.</li>
+                                        </template>
+                                    </ul>
+                                </div>
+                                <p class="mt-1 text-[11px] text-slate-400">Select a saved Google Drive connection or click Connect to add one.</p>
+                            </div>
+                        </div>
                     </div>
                     <div class="mb-3">
                         <label class="block text-sm font-medium text-slate-300 mb-2">Root Folder ID (optional)</label>
-                        <input type="text" id="edit_gdrive_root_folder_id" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2" />
+                        <div class="flex gap-2">
+                            <input type="text" id="edit_gdrive_root_folder_id" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2" />
+                            <button type="button" class="px-3 py-2 rounded-md border border-slate-600 text-slate-300 hover:text-white hover:border-slate-500"
+                                    onclick="openDrivePicker('edit')">
+                                Browse Drive
+                            </button>
+                        </div>
                     </div>
                     <div class="mb-3">
                         <label class="block text-sm font-medium text-slate-300 mb-2">Path (optional)</label>
@@ -1467,9 +1658,12 @@ function doCreateJobSubmit(formEl) {
         sourceDisplayName = formData.get('sftp_display_name');
         sourcePath = formData.get('sftp_path');
     } else if (sourceType === 'google_drive') {
-        sourceConfig = {
-            root_folder_id: formData.get('gdrive_root_folder_id')
-        };
+		sourceConfig = {
+			root_folder_id: formData.get('gdrive_root_folder_id')
+		};
+		// Include team_drive when present (Shared Drive root or folder)
+		const teamDrive = formData.get('gdrive_team_drive');
+		if (teamDrive) sourceConfig.team_drive = teamDrive;
         // Display name: default to 'Google Drive' when not provided
         sourceDisplayName = formData.get('gdrive_display_name') || 'Google Drive';
         sourcePath = formData.get('gdrive_path') || '';
@@ -1610,11 +1804,10 @@ document.getElementById('createJobForm').addEventListener('submit', function(e) 
         sourcePath = formData.get('sftp_path');
     } else if (sourceType === 'google_drive') {
         sourceConfig = {
-            client_id: formData.get('gdrive_client_id'),
-            client_secret: formData.get('gdrive_client_secret'),
-            token: formData.get('gdrive_token'),
             root_folder_id: formData.get('gdrive_root_folder_id')
         };
+		const teamDrive2 = formData.get('gdrive_team_drive');
+		if (teamDrive2) sourceConfig.team_drive = teamDrive2;
         sourceDisplayName = formData.get('gdrive_display_name');
         sourcePath = formData.get('gdrive_path') || '';
     } else if (sourceType === 'dropbox') {
@@ -1943,11 +2136,12 @@ function openEditSlideover(jobId) {
                 document.getElementById('edit_sftp_username').value = s.user || '';
                 document.getElementById('edit_sftp_path').value = j.source_path || '';
             } else if (j.source_type === 'google_drive') {
-                document.getElementById('edit_gdrive_client_id').value = s.client_id || '';
-                document.getElementById('edit_gdrive_client_secret').value = s.client_secret || '';
-                document.getElementById('edit_gdrive_token').value = s.token || '';
-                document.getElementById('edit_gdrive_root_folder_id').value = s.root_folder_id || '';
-                document.getElementById('edit_gdrive_path').value = j.source_path || '';
+                const root = document.getElementById('edit_gdrive_root_folder_id');
+                if (root) root.value = (s.root_folder_id || '');
+                const team = document.getElementById('edit_gdrive_team_drive');
+                if (team) team.value = (s.team_drive || '');
+                const gpath = document.getElementById('edit_gdrive_path');
+                if (gpath) gpath.value = j.source_path || '';
             } else if (j.source_type === 'dropbox') {
                 document.getElementById('edit_dropbox_token').value = s.token || '';
                 document.getElementById('edit_dropbox_root').value = s.root || '';
@@ -2127,6 +2321,8 @@ function saveEditedJob() {
         const sk2 = (document.getElementById('edit_aws_secret_key').value || '').trim();
         if (rg2) payload.set('aws_region', rg2);
         if (bucket2) payload.set('aws_bucket', bucket2);
+        if (ak2) payload.set('aws_access_key', ak2);
+        if (sk2) payload.set('aws_secret_key', sk2);
     } else if (stype === 'sftp') {
         const host = (document.getElementById('edit_sftp_host').value || '').trim();
         const port = parseInt(document.getElementById('edit_sftp_port').value) || 22;
@@ -2137,15 +2333,15 @@ function saveEditedJob() {
         if (user) payload.set('sftp_username', user);
         if (pass) payload.set('sftp_password', pass);
     } else if (stype === 'google_drive') {
-        const cid = (document.getElementById('edit_gdrive_client_id').value || '').trim();
-        const cs = (document.getElementById('edit_gdrive_client_secret').value || '').trim();
-        const tok = (document.getElementById('edit_gdrive_token').value || '').trim();
-        const rootId = (document.getElementById('edit_gdrive_root_folder_id').value || '').trim();
-        const path = (document.getElementById('edit_gdrive_path').value || '').trim();
-        if (cid) payload.set('gdrive_client_id', cid);
-        if (cs) payload.set('gdrive_client_secret', cs);
-        if (tok) payload.set('gdrive_token', tok);
+        const connId = (document.getElementById('edit_source_connection_id')?.value || '').trim();
+        const rootId = (document.getElementById('edit_gdrive_root_folder_id')?.value || '').trim();
+		const teamId = (document.getElementById('edit_gdrive_team_drive')?.value || '').trim();
+        const path = (document.getElementById('edit_gdrive_path')?.value || '').trim();
+        if (connId) payload.set('source_connection_id', connId);
         if (rootId) payload.set('gdrive_root_folder_id', rootId);
+		// Allow empty root (meaning entire drive); still send team drive if present
+		if (!rootId) payload.set('gdrive_root_folder_id', '');
+		if (teamId) payload.set('gdrive_team_drive', teamId);
         if (path) payload.set('source_path', path);
     } else if (stype === 'dropbox') {
         const token = (document.getElementById('edit_dropbox_token').value || '').trim();
@@ -2260,9 +2456,12 @@ function jobListFilter() {
 				const cards = this.$root.querySelectorAll('[data-job-card]');
 				cards.forEach((card) => {
 					const name = (card.getAttribute('data-name') || '').toLowerCase();
-					const s = (card.getAttribute('data-status') || '').toLowerCase();
+					const jobStatus = (card.getAttribute('data-status') || '').toLowerCase();
 					const lastStatus = (card.getAttribute('data-last-status') || '').toLowerCase();
 					const lastStarted = card.getAttribute('data-last-started');
+					const source = (card.getAttribute('data-source') || '').toLowerCase();
+					const sourceType = (card.getAttribute('data-source-type') || '').toLowerCase();
+					const dest = (card.getAttribute('data-dest') || '').toLowerCase();
 					let failedRecent = false;
 					if (lastStatus === 'failed' && lastStarted) {
 						const t = Date.parse(lastStarted);
@@ -2270,10 +2469,17 @@ function jobListFilter() {
 							failedRecent = (now - t) <= (24 * 3600 * 1000);
 						}
 					}
-					let ok = (!q || name.indexOf(q) !== -1);
+					// Text search across name, job status, last run status, source, source type, and destination
+					const hay = (name + ' ' + jobStatus + ' ' + lastStatus + ' ' + source + ' ' + sourceType + ' ' + dest).trim();
+					let ok = (!q || hay.indexOf(q) !== -1);
 					if (ok && status !== 'all') {
-						if (status === 'failed_recent') ok = failedRecent;
-						else ok = (s === status);
+						if (status === 'failed_recent') {
+							ok = failedRecent;
+						} else if (status === 'running') {
+							ok = (lastStatus === 'running' || lastStatus === 'starting' || lastStatus === 'queued');
+						} else {
+							ok = (lastStatus === status);
+						}
 					}
 					card.style.display = ok ? '' : 'none';
 				});
@@ -2410,4 +2616,387 @@ document.addEventListener('DOMContentLoaded', () => {
 {/literal}
 </script>
 
+
+<!-- Google Drive Folder Picker Modal -->
+<div id="gdrivePickerModal" x-data="gdrivePicker()" x-cloak x-show="open" class="fixed inset-0 z-[1000]" style="display:none;">
+	<!-- Backdrop -->
+	<div class="absolute inset-0 bg-black bg-opacity-60" @click="close()"></div>
+	<!-- Slide-over panel -->
+	<div class="fixed right-0 top-0 h-full w-full sm:w-[520px] bg-slate-900 border-l border-slate-700 shadow-xl flex flex-col">
+		<!-- Header -->
+		<div class="px-4 py-3 border-b border-slate-700 flex items-center justify-between">
+			<div class="flex items-center gap-2">
+				<h3 class="text-slate-100 font-medium">Browse Google Drive</h3>
+				<span class="text-[11px] text-slate-400" x-text="target==='edit' ? '(Edit job)' : '(New job)'"></span>
+			</div>
+			<button type="button" class="text-slate-300 hover:text-white" @click="close()">&times;</button>
+		</div>
+		<!-- Tabs -->
+		<div class="px-4 pt-3">
+			<nav class="flex items-center gap-2">
+				<button type="button" class="px-3 py-1.5 rounded-md text-sm"
+						:class="tab==='my' ? 'bg-slate-800 text-slate-100' : 'text-slate-300 hover:text-white'"
+						@click="switchTab('my')">
+					My Drive
+				</button>
+				<button type="button" class="px-3 py-1.5 rounded-md text-sm"
+						:class="tab==='shared' ? 'bg-slate-800 text-slate-100' : 'text-slate-300 hover:text-white'"
+						@click="switchTab('shared')">
+					Shared Drives
+				</button>
+			</nav>
+		</div>
+		<!-- Search -->
+		<div class="px-4 pt-3 flex items-center gap-2">
+			<input type="text" x-model="search" placeholder="Search current folder…"
+				   class="w-full bg-slate-800 text-slate-200 border border-slate-700 rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-sky-500" />
+			<button type="button" class="px-3 py-2 rounded-md border border-slate-600 text-slate-300 hover:text-white hover:border-slate-500"
+					@click="reload()">
+				Search
+			</button>
+		</div>
+		<!-- Body -->
+		<div class="px-2 py-2 overflow-y-auto grow scrollbar_thin">
+			<!-- Shared Drives list -->
+			<div x-show="tab==='shared' && !selectedDrive" class="px-2" style="display:none;">
+				<div class="text-xs text-slate-400 mb-2">Select a shared drive</div>
+				<template x-for="d in drives" :key="d.id">
+					<div class="flex items-center justify-between px-3 py-2 rounded hover:bg-slate-800 cursor-pointer"
+						 @click="chooseDrive(d)">
+						<div class="text-slate-200" x-text="d.name"></div>
+						<div class="text-[11px] text-slate-500" x-text="d.id"></div>
+					</div>
+				</template>
+				<div class="py-2" x-show="drivesNext">
+					<button type="button" class="text-sky-400 hover:text-sky-300 text-sm" @click="loadDrives(drivesNext)">Load more…</button>
+				</div>
+				<div class="py-4 text-[12px] text-slate-500" x-show="!loading && drives.length===0">No shared drives found.</div>
+			</div>
+
+            <!-- Folder tree (My Drive or selected Shared Drive) -->
+			<div x-show="(tab==='my') || (tab==='shared' && selectedDrive)" class="px-1" style="display:none;">
+				<div class="text-xs text-slate-400 mb-2" x-text="tab==='my' ? 'My Drive' : ('Drive: ' + (selectedDrive?.name || ''))"></div>
+                <!-- Root selection option -->
+                <div class="flex items-center justify-between px-2 py-1.5 rounded hover:bg-slate-800">
+                    <label class="inline-flex items-center gap-2 cursor-pointer">
+                        <input type="radio" name="gdpick"
+                               :checked="selected && selected.id==='root' && ((tab==='my' && !selected.driveId) || (tab==='shared' && selected.driveId=== (selectedDrive?.id || null)))"
+                               @change="selected = { id: 'root', name: (tab==='my' ? 'All of My Drive' : ('All of ' + (selectedDrive?.name || 'Drive'))), driveId: (tab==='shared' ? (selectedDrive?.id || null) : null) }" />
+                        <span class="text-slate-200" x-text="tab==='my' ? 'All of My Drive (root)' : ('All of ' + (selectedDrive?.name || 'Drive') + ' (root)')"></span>
+                    </label>
+                    <div class="text-[11px] text-slate-500" x-text="tab==='my' ? 'root' : (selectedDrive?.id || '')"></div>
+                </div>
+				<!-- Root node listing -->
+				<div>
+					<template x-for="(n, idx) in nodes" :key="n.id + ':' + idx">
+						<div class="flex items-center justify-between px-2 py-1.5 rounded hover:bg-slate-800">
+							<div class="flex items-center gap-2">
+								<button type="button" class="w-6 text-slate-300 hover:text-white"
+										@click="toggleExpand(n)">
+									<span x-show="n.expanded">▾</span>
+									<span x-show="!n.expanded">▸</span>
+								</button>
+								<label class="inline-flex items-center gap-2 cursor-pointer">
+									<input type="radio" name="gdpick" :value="n.id" :checked="selected && selected.id===n.id"
+										   @change="selected=n" />
+									<span class="text-slate-200" x-text="n.name"></span>
+								</label>
+							</div>
+							<div class="text-[11px] text-slate-500" x-text="n.id"></div>
+						</div>
+						<!-- children -->
+						<div class="ml-8" x-show="n.expanded" style="display:none;">
+							<template x-for="(c, cidx) in (n.children || [])" :key="c.id + ':' + cidx">
+								<div class="flex items-center justify-between px-2 py-1 rounded hover:bg-slate-800">
+									<div class="flex items-center gap-2">
+										<button type="button" class="w-6 text-slate-300 hover:text-white"
+												@click="toggleExpand(c)">
+											<span x-show="c.expanded">▾</span>
+											<span x-show="!c.expanded">▸</span>
+										</button>
+										<label class="inline-flex items-center gap-2 cursor-pointer">
+											<input type="radio" name="gdpick" :value="c.id" :checked="selected && selected.id===c.id"
+												   @change="selected=c" />
+											<span class="text-slate-200" x-text="c.name"></span>
+										</label>
+									</div>
+									<div class="text-[11px] text-slate-500" x-text="c.id"></div>
+								</div>
+								<!-- grandchildren -->
+								<div class="ml-8" x-show="c.expanded" style="display:none;">
+									<template x-for="(g, gidx) in (c.children || [])" :key="g.id + ':' + gidx">
+										<div class="flex items-center justify-between px-2 py-1 rounded hover:bg-slate-800">
+											<div class="flex items-center gap-2">
+												<label class="inline-flex items-center gap-2 cursor-pointer">
+													<input type="radio" name="gdpick" :value="g.id" :checked="selected && selected.id===g.id"
+														   @change="selected=g" />
+													<span class="text-slate-200" x-text="g.name"></span>
+												</label>
+											</div>
+											<div class="text-[11px] text-slate-500" x-text="g.id"></div>
+										</div>
+									</template>
+								</div>
+							</template>
+							<div class="py-1" x-show="n.nextPageToken">
+								<button type="button" class="text-sky-400 hover:text-sky-300 text-sm" @click="loadMore(n)">Load more…</button>
+							</div>
+						</div>
+					</template>
+					<div class="py-4 text-[12px] text-slate-500" x-show="!loading && nodes.length===0">No folders found.</div>
+				</div>
+			</div>
+		</div>
+		<!-- Footer -->
+		<div class="px-4 py-3 border-t border-slate-700 flex items-center justify-between">
+			<div class="text-[12px] text-slate-400">
+				<span x-show="selected">
+					Selected: <span class="text-slate-200" x-text="selected?.name || ''"></span>
+					<span class="text-slate-500 ml-2" x-text="selected?.id || ''"></span>
+				</span>
+			</div>
+			<div class="flex items-center gap-2">
+				<button type="button" class="px-3 py-2 rounded-md border border-slate-600 text-slate-300 hover:text-white hover:border-slate-500" @click="close()">Cancel</button>
+				<button type="button" class="px-3 py-2 rounded-md bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-50" :disabled="!selected" @click="apply()">Use this folder</button>
+			</div>
+		</div>
+	</div>
+</div>
+
+<script type="text/javascript">
+// Drive picker Alpine component + opener
+function gdrivePicker() {
+	return {
+		open: false,
+		target: 'create', // 'create' | 'edit'
+		connId: '',
+		tab: 'my', // 'my' | 'shared'
+		search: '',
+		nodes: [],
+		drives: [],
+		drivesNext: null,
+		selectedDrive: null,
+		selected: null,
+		loading: false,
+		switchTab(t) {
+			if (this.tab === t) return;
+			this.tab = t;
+			this.search = '';
+			this.selected = null;
+			if (t === 'my') {
+				this.loadRoot();
+			} else {
+				this.selectedDrive = null;
+				this.loadDrives();
+			}
+		},
+		openWith(target) {
+			this.target = target || 'create';
+			// resolve connection id
+			if (this.target === 'edit') {
+				const scoped = document.querySelector('#edit_gdrive_fields input[name="source_connection_id"]');
+				this.connId = (scoped ? scoped.value : (document.getElementById('edit_source_connection_id')?.value || '')).trim();
+			} else {
+				const scoped = document.querySelector('#gdriveFields input[name=\"source_connection_id\"]');
+				const fallback = document.querySelector('input[name=\"source_connection_id\"]');
+				this.connId = (scoped ? scoped.value : (fallback ? fallback.value : '')).trim();
+			}
+			// Allow opener to pass a connection id via data- attribute for reliability
+			try {
+				if (!this.connId) {
+					const modal = document.getElementById('gdrivePickerModal');
+					const ds = (modal && modal.getAttribute('data-conn-id')) ? modal.getAttribute('data-conn-id') : '';
+					if (ds) this.connId = ds;
+				}
+			} catch (e) {}
+			if (!this.connId) {
+				try { if (window.toast) window.toast.info('Select a Google Drive connection first'); } catch (e) {}
+				return;
+			}
+			this.open = true;
+			this.tab = 'my';
+			this.search = '';
+			this.selected = null;
+			this.nodes = [];
+			this.drives = [];
+			this.drivesNext = null;
+			this.selectedDrive = null;
+			this.loadRoot();
+		},
+		close() {
+			this.open = false;
+			// Ensure forced fallback visibility is undone as well
+			try {
+				const modal = document.getElementById('gdrivePickerModal');
+				if (modal) {
+					modal.style.setProperty('display', 'none', 'important');
+					const backdrop = modal.querySelector('.absolute.inset-0.bg-black.bg-opacity-60');
+					if (backdrop) backdrop.style.setProperty('display', 'none', 'important');
+				}
+			} catch (e) {}
+		},
+		reload() {
+			if (this.tab === 'shared' && this.selectedDrive) {
+				this.loadRoot(this.selectedDrive);
+			} else {
+				this.loadRoot();
+			}
+		},
+		apiUrl(mode, params) {
+			const usp = new URLSearchParams(params || {});
+			usp.set('mode', mode);
+			usp.set('source_connection_id', this.connId);
+			return 'modules/addons/cloudstorage/api/cloudbackup_gdrive_list.php?' + usp.toString();
+		},
+		async loadDrives(pageToken) {
+			this.loading = true;
+			try {
+				const url = this.apiUrl('drives', { pageToken: pageToken || '', pageSize: 100 });
+				const resp = await fetch(url);
+				const data = await resp.json();
+				if (data.status === 'success') {
+					if (pageToken) this.drives.push(...(data.items || []));
+					else this.drives = (data.items || []);
+					this.drivesNext = data.nextPageToken || null;
+				}
+			} catch (e) {} finally { this.loading = false; }
+		},
+		async loadRoot(drive) {
+			this.loading = true;
+			try {
+				const params = { parentId: 'root', pageSize: 100 };
+				if (drive && drive.id) params.driveId = drive.id;
+				if (this.search) params.q = this.search;
+				const url = this.apiUrl('children', params);
+				const resp = await fetch(url);
+				const data = await resp.json();
+				if (data.status === 'success') {
+					this.nodes = (data.items || []).map(i => ({ ...i, expanded: false, children: [], nextPageToken: null }));
+					// track next page token on a synthetic root holder
+					this._rootNext = data.nextPageToken || null;
+				} else {
+					this.nodes = [];
+				}
+			} catch (e) { this.nodes = []; } finally { this.loading = false; }
+		},
+		async toggleExpand(node) {
+			if (node.expanded && (node.children || []).length > 0) {
+				node.expanded = false;
+				return;
+			}
+			node.expanded = true;
+			if ((node.children || []).length > 0) return;
+			this.loading = true;
+			try {
+				const params = { parentId: node.id, pageSize: 100 };
+				if (node.driveId) params.driveId = node.driveId;
+				if (this.search) params.q = this.search;
+				const url = this.apiUrl('children', params);
+				const resp = await fetch(url);
+				const data = await resp.json();
+				if (data.status === 'success') {
+					node.children = (data.items || []).map(i => ({ ...i, expanded: false, children: [], nextPageToken: null }));
+					node.nextPageToken = data.nextPageToken || null;
+				} else {
+					node.children = [];
+				}
+			} catch (e) { node.children = []; } finally { this.loading = false; }
+		},
+		async loadMore(node) {
+			if (!node.nextPageToken) return;
+			this.loading = true;
+			try {
+				const params = { parentId: node.id, pageSize: 100, pageToken: node.nextPageToken };
+				if (node.driveId) params.driveId = node.driveId;
+				if (this.search) params.q = this.search;
+				const url = this.apiUrl('children', params);
+				const resp = await fetch(url);
+				const data = await resp.json();
+				if (data.status === 'success') {
+					const more = (data.items || []).map(i => ({ ...i, expanded: false, children: [], nextPageToken: null }));
+					if (!node.children) node.children = [];
+					node.children.push(...more);
+					node.nextPageToken = data.nextPageToken || null;
+				}
+			} catch (e) {} finally { this.loading = false; }
+		},
+		chooseDrive(d) {
+			this.selectedDrive = d;
+			this.loadRoot(d);
+		},
+		apply() {
+			if (!this.selected) return;
+			const id = this.selected.id || '';
+			if (this.target === 'edit') {
+				const rootEl = document.getElementById('edit_gdrive_root_folder_id');
+				if (rootEl) rootEl.value = (id === 'root' ? '' : id);
+				const teamEl = document.getElementById('edit_gdrive_team_drive');
+				if (teamEl) teamEl.value = (this.selected.driveId || '');
+				const pathEl = document.getElementById('edit_gdrive_path');
+				if (pathEl) pathEl.value = '';
+			} else {
+				const rootEl2 = document.querySelector('input[name=\"gdrive_root_folder_id\"]');
+				if (rootEl2) rootEl2.value = (id === 'root' ? '' : id);
+				const teamEl2 = document.querySelector('input[name=\"gdrive_team_drive\"]');
+				if (teamEl2) teamEl2.value = (this.selected.driveId || '');
+				const pathEl2 = document.querySelector('input[name=\"gdrive_path\"]');
+				if (pathEl2) pathEl2.value = '';
+			}
+			try { if (window.toast) window.toast.success('Root set to selected Drive folder'); } catch (e) {}
+			this.close();
+		}
+	};
+}
+// Global opener
+window.openDrivePicker = function(target) {
+	try {
+		const modal = document.getElementById('gdrivePickerModal');
+		if (!modal) return;
+		// Pre-check a selected Drive connection so users get feedback if missing
+		let hasConn = false;
+		let connVal = '';
+		if ((target || 'create') === 'edit') {
+			const scoped = document.querySelector('#edit_gdrive_fields input[name="source_connection_id"]');
+			const v = (scoped ? scoped.value : (document.getElementById('edit_source_connection_id')?.value || '')).trim();
+			connVal = v;
+			hasConn = !!connVal;
+		} else {
+			const scoped = document.querySelector('#gdriveFields input[name="source_connection_id"]');
+			const fallback = document.querySelector('input[name="source_connection_id"]');
+			const v2 = (scoped ? scoped.value : (fallback ? fallback.value : '')).trim();
+			connVal = v2;
+			hasConn = !!connVal;
+		}
+		if (!hasConn) {
+			if (window.toast && typeof window.toast.info === 'function') {
+				window.toast.info('Select a Google Drive connection first');
+			} else {
+				alert('Select a Google Drive connection first');
+			}
+			return;
+		}
+		// Stash conn id on modal so the component can pick it up reliably
+		try { modal.setAttribute('data-conn-id', connVal); } catch(e) {}
+		// Ensure Alpine has initialized this component; if not, attempt to initialize on demand
+		if (!modal.__x) {
+			if (window.Alpine && typeof Alpine.initTree === 'function') {
+				try { Alpine.initTree(modal); } catch(e) { console.warn('Drive picker initTree failed', e); }
+			}
+		}
+		// If Alpine is available and component initialized, use component API
+		if (modal.__x && modal.__x.$data && typeof modal.__x.$data.openWith === 'function') {
+			modal.__x.$data.openWith(target || 'create');
+			return;
+		}
+		// Fallback: forcibly show the modal so the user gets feedback even if Alpine didn’t bind
+		try {
+			modal.style.setProperty('display', 'block', 'important');
+			const backdrop = modal.querySelector('.absolute.inset-0.bg-black.bg-opacity-60');
+			if (backdrop) backdrop.style.setProperty('display', 'block', 'important');
+		} catch (e) {
+			console.warn('Drive picker fallback display failed', e);
+		}
+	} catch (e) {}
+};
+</script>
 

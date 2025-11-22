@@ -85,6 +85,22 @@ Tracks individual execution records.
 - `validation_status` - Enum: `not_run`, `running`, `success`, `failed`
 - `validation_log_excerpt` - Validation log excerpt
 
+#### `s3_cloudbackup_run_events`
+Stores sanitized, structured, customer‑facing events for each run. This table powers all client‑visible logs.
+
+**Key Fields**:
+- `id` - Primary key (BIGINT)
+- `run_id` - FK to `s3_cloudbackup_runs.id`
+- `ts` - Event timestamp (microsecond precision)
+- `type` - High‑level type (`start`, `progress`, `summary`, `error`, `warning`, `cancelled`, etc.)
+- `level` - Severity (`info`, `warn`, `error`)
+- `code` - Stable code category (`NO_CHANGES`, `ERROR_NETWORK`, `COMPLETED_SUCCESS`, …)
+- `message_id` - Message template key (looked up in PHP formatter)
+- `params_json` - JSON parameters for message interpolation (bytes, speed, pct, eta, etc.)
+- Foreign key: cascades on run delete
+
+A daily cron prunes events beyond the configured retention days (see “Cron Jobs”).
+
 #### `s3_cloudbackup_settings`
 Per-client notification defaults.
 
@@ -108,8 +124,9 @@ accounts/modules/addons/cloudstorage/
 ├── lib/
 │   └── Client/
 │       ├── CloudBackupController.php   # Job/run CRUD operations
+│       ├── CloudBackupEventFormatter.php # Event → user-facing message formatter (sanitized)
 │       ├── CloudBackupEmailService.php # Email notification service
-│       └── CloudBackupLogFormatter.php # Log formatting service
+│       └── CloudBackupLogFormatter.php # Legacy rclone log formatter (fallback/transition)
 ├── pages/
 │   ├── cloudbackup_jobs.php           # Job list page
 │   ├── cloudbackup_runs.php           # Run history page
@@ -131,7 +148,8 @@ accounts/modules/addons/cloudstorage/
 │   ├── cloudbackup_start_run.php      # Start run endpoint
 │   ├── cloudbackup_cancel_run.php     # Cancel run endpoint
 │   ├── cloudbackup_progress.php       # Progress polling endpoint
-│   └── cloudbackup_get_run_logs.php   # Get formatted run logs endpoint
+│   ├── cloudbackup_get_run_events.php # Get sanitized event stream for a run (primary)
+│   └── cloudbackup_get_run_logs.php   # Legacy: formatted rclone logs (fallback/admin)
 └── docs/
     ├── CLOUD_BACKUP.md                # This file
     └── CLOUD_BACKUP_TASKS.md          # Phase task list
@@ -142,6 +160,7 @@ accounts/modules/addons/cloudstorage/
 ```
 accounts/crons/
 ├── s3cloudbackup_notify.php          # Email notification cron
+├── s3cloudbackup_events_prune.php    # Prune s3_cloudbackup_run_events by retention
 └── s3cloudbackup_retention.php       # Retention policy cleanup cron
 ```
 
@@ -157,6 +176,11 @@ Located in `cloudstorage_config()`:
 - **`cloudbackup_global_max_bandwidth_kbps`** (text) - Global bandwidth limit in KB/s
 - **`cloudbackup_encryption_key`** (password) - Optional separate encryption key
 - **`cloudbackup_email_template`** (dropdown) - WHMCS email template for notifications
+- **`cloudbackup_event_retention_days`** (text) - Days to retain event logs (default: 60)
+- **`cloudbackup_event_max_per_run`** (text) - Max events recorded per run (default: 5000)
+- **`cloudbackup_event_progress_interval_seconds`** (text) - Throttle for progress events (default: 2s)
+- **`cloudbackup_google_client_id`** (text) - Google OAuth Client ID used for Drive listing API
+- **`cloudbackup_google_client_secret`** (password) - Google OAuth Client Secret used for Drive listing API
 
 ## Client Area Routes
 
@@ -300,10 +324,13 @@ All endpoints require WHMCS client authentication and return JSON responses.
 **Parameters**: `run_id`  
 **Returns**: JSON with current progress data
 
-### `api/cloudbackup_get_run_logs.php`
+### `api/cloudbackup_get_run_events.php`
 **Method**: GET  
-**Parameters**: `run_id`  
-**Returns**: JSON with formatted backup and validation logs (user-friendly format)
+**Parameters**: `run_id` (required), `since_id` (optional), `limit` (optional; default 250, max 1000)  
+**Returns**: JSON array of sanitized, user‑facing events for the run. Preferred for all client‑visible logs.
+
+### `api/cloudbackup_get_run_logs.php`
+Legacy endpoint for formatted rclone logs. Used only for older runs without events or for admin diagnostics; the client UI prefers the events endpoint.
 
 ## Source Configuration
 
@@ -344,6 +371,176 @@ The reusable OAuth connection (per client) is stored in `s3_cloudbackup_sources`
 
 Scopes: `https://www.googleapis.com/auth/drive.readonly`
 
+#### Google Drive Folder Picker (Client Area)
+
+- Create/Edit Job includes a “Browse Drive” button in the Google Drive source section.
+- Opens a slide‑over with:
+  - My Drive / Shared Drives toggle
+  - Lazy‑loaded folder tree with expansion (fetch children via pagination)
+  - Quick search (name contains) within the current folder/scope
+  - Single‑select (v1) folder selection
+- On confirm:
+  - Sets `root_folder_id` to the selected Drive folder ID (not the name)
+  - Clears Path so users may optionally set a sub‑path under that root
+
+Control‑plane API: `modules/addons/cloudstorage/api/cloudbackup_gdrive_list.php`
+- Validates WHMCS client ownership and active Google Drive connection (`s3_cloudbackup_sources`)
+- Exchanges the saved `refresh_token_enc` for an `access_token` using addon settings:
+  - `cloudbackup_google_client_id`, `cloudbackup_google_client_secret`
+- Calls Google Drive v3:
+  - List Shared Drives: `GET /drive/v3/drives` (fields: `drives(id,name)`, pagination)
+  - List child folders: `GET /drive/v3/files` with
+    - `q = "mimeType='application/vnd.google-apps.folder' and 'PARENT_ID' in parents and trashed=false"`
+    - `corpora=user` (My Drive) or `corpora=drive&driveId=...` (Shared Drives)
+    - `supportsAllDrives=true&includeItemsFromAllDrives=true`
+    - Pagination via `pageToken`; search via `name contains`
+- Returns only sanitized fields (`id`, `name`, `parents`, `driveId`); never returns tokens
+- Includes basic session rate‑limiting and error logging via `logModuleCall`
+
+Why IDs not names:
+- IDs are immutable and unambiguous, avoiding rename/duplication issues and improving reliability.
+
+## Google Drive Backup – Flow, OAuth, and Debugging
+
+### End-to-End Flow (Control → Worker → rclone)
+
+- Control plane inserts a `queued` run in `s3_cloudbackup_runs`.
+- Worker picks the run, loads the job and the client’s reusable Drive OAuth connection from `s3_cloudbackup_sources`.
+- Worker decrypts the saved `refresh_token_enc` and assembles a Drive `source` remote:
+  - `scope = drive.readonly`
+  - `client_id` / `client_secret` from environment or addon settings
+  - `token` JSON that includes a non‑empty `refresh_token` and a current `access_token`/`expiry`
+- Worker writes both config files the runtime may use:
+  - `rclone.conf` (canonical)
+  - `eazyBackup.conf` (some wrappers use this filename)
+- Worker enforces the full token JSON in both files and verifies presence.
+- As a backstop, the worker injects remote‑specific env overrides at process start:
+  - `RCLONE_CONFIG_SOURCE_CLIENT_ID`, `RCLONE_CONFIG_SOURCE_CLIENT_SECRET`
+  - `RCLONE_CONFIG_SOURCE_TOKEN` (JSON with `access_token`, `refresh_token`, `token_type`, `expiry`)
+- rclone/eazyBackup runs with `--config <runDir>/eazyBackup.conf` (or `rclone.conf`), performs Drive API token refresh automatically, and starts sync.
+
+### OAuth Authentication Model
+
+- A Drive connection per client is created from the portal and saved in `s3_cloudbackup_sources`:
+  - Fields: `provider='google_drive'`, `status='active'`, and `refresh_token_enc` (AES‑256‑CBC).
+- Worker decryption cascade for any encrypted blob:
+  1. `CLOUD_BACKUP_ENCRYPTION_KEY`
+  2. `CLOUD_STORAGE_ENCRYPTION_KEY` (or `ENCRYPTION_KEY`)
+  3. Addon settings fallback: `cloudbackup_encryption_key` then `encryption_key`
+- At runtime, the worker builds a minimal Drive remote; it does a pre‑refresh against `https://oauth2.googleapis.com/token` using `<client_id, client_secret, refresh_token>` to obtain a short‑lived `access_token` and a concrete `expiry`. This eliminates “no refresh token” and invalid_grant/invalid_client issues early and records diagnostics.
+
+### Backup Encryption Model (data at rest)
+
+- If a job enables `encryption_enabled=1`, the worker wraps the destination remote with rclone’s `crypt` backend. Keys for data encryption are managed on the worker; these are distinct from the AES keys used to encrypt credentials in the DB.
+- Credentials and OAuth tokens are always encrypted at rest in MySQL and only decrypted transiently in the worker process memory.
+
+### Implementation Overview (code)
+
+- Worker Drive setup and guards: `e3-cloudbackup-worker/internal/jobs/runner.go`
+  - Loads job, decrypts JSON credentials and `refresh_token_enc`
+  - Pre‑refreshes Google token; populates `access_token`/`expiry` in token JSON
+  - Writes/enforces token into both `rclone.conf` and `eazyBackup.conf`
+  - Injects `RCLONE_CONFIG_SOURCE_*` env overrides as a safety net
+  - Writes per‑run `diagnostics.json` with key sources and Drive token flags
+- rclone config builder: `e3-cloudbackup-worker/internal/rclone/rclone.go`
+  - Merges any existing token JSON from job source with the runtime refresh token
+  - Ensures required fields exist (`refresh_token`, `token_type`, `access_token`, `expiry`)
+- Preflight checks (non‑fatal warnings): `e3-cloudbackup-worker/internal/diag/preflight.go`
+  - Warns on missing env keys or addon fallbacks
+
+### Error Codes (worker → `s3_cloudbackup_runs.error_summary`)
+
+- `ERR_GDRIVE_NO_CLIENT_CREDENTIALS`: Missing Google `client_id`/`client_secret` (env or addon).
+- `ERR_GDRIVE_NO_REFRESH_TOKEN`: Could not decrypt or find a refresh token; re‑authorize Drive.
+- `ERR_GDRIVE_SOURCE_LOOKUP`: Source connection lookup failed for the client.
+- `ERR_GDRIVE_ENFORCE_TOKEN`: Worker couldn’t enforce the token JSON into config files.
+- `ERR_GDRIVE_REFRESH_PRECHECK`: Pre‑refresh to Google OAuth endpoint failed (invalid client/grant).
+- `ERR_DECRYPT_SOURCE_CONFIG`, `ERR_DECRYPT_DEST_ACCESS_KEY`, `ERR_DECRYPT_DEST_SECRET_KEY`: Decryption issues (verify keys/fallbacks).
+- `ERR_WRITE_RCLONE_CONFIG`, `ERR_RCLONE_START`: I/O or process startup failures.
+
+### Diagnostics Artifacts (per run)
+
+Each run directory: `/var/lib/e3-cloudbackup/runs/<RUN_ID>` contains:
+
+- `rclone.conf` and/or `eazyBackup.conf` (both include `[source]` with token JSON)
+- `diagnostics.json` with fields like:
+  - `gdrive.refresh_token_present: true`
+  - `gdrive.pre_refresh_ok: true`, `gdrive.pre_refresh_expiry: "<RFC3339>"`
+  - `gdrive.token_enforced_in_conf: true`
+  - `gdrive.token_enforced_in_alt_conf: "/.../eazyBackup.conf"`
+  - `gdrive.env_token_injected: true` (when env overrides are set)
+  - `encryptionKeys.*: "<keySourceLabel>"` indicating which key source was used
+
+### Operational Checks and Quick Commands
+
+- Show latest run id and inspect configuration:
+
+```bash
+RID=$(ls -1 /var/lib/e3-cloudbackup/runs | sort -n | tail -1)
+awk '/^\[source\]/{f=1;print;next} /^\[/{if(f){exit}} f{print}' \
+  /var/lib/e3-cloudbackup/runs/$RID/eazyBackup.conf
+grep -n '^token' /var/lib/e3-cloudbackup/runs/$RID/eazyBackup.conf
+cat /var/lib/e3-cloudbackup/runs/$RID/diagnostics.json
+```
+
+- Validate the Google refresh flow end‑to‑end (paste values from the run config):
+
+```bash
+curl -s -X POST \
+  -d "client_id=<CLIENT_ID>&client_secret=<CLIENT_SECRET>&refresh_token=<REFRESH>&grant_type=refresh_token" \
+  https://oauth2.googleapis.com/token
+```
+
+- View service and preflight warnings:
+
+```bash
+journalctl -u e3-cloudbackup-worker -n 200 | grep PRECHECK || true
+journalctl -u e3-cloudbackup-worker -f
+```
+
+- Verify the worker binary and helper flag are available:
+
+```bash
+/opt/e3-cloudbackup-worker/bin/e3-cloudbackup-worker -h | grep print-drive-source-run
+```
+
+- Print computed Drive `[source]` for a run (ensure service env is loaded first):
+
+```bash
+ENVFILE=$(systemctl show -p EnvironmentFile e3-cloudbackup-worker | cut -d= -f2)
+set -a; [ -f "$ENVFILE" ] && . "$ENVFILE"; set +a
+sudo -u e3backup /opt/e3-cloudbackup-worker/bin/e3-cloudbackup-worker \
+  -config /opt/e3-cloudbackup-worker/config/config.yaml \
+  -print-drive-source-run $RID
+```
+
+- Check DB has a non‑empty saved refresh token:
+
+```sql
+SELECT id, provider, status, LENGTH(refresh_token_enc) AS len
+FROM s3_cloudbackup_sources
+WHERE client_id=<CLIENT_ID> AND provider='google_drive'
+ORDER BY updated_at DESC LIMIT 1;
+```
+
+### Common Pitfalls and Resolutions
+
+- **Missing env keys on the worker**:
+  - Set `CLOUD_BACKUP_ENCRYPTION_KEY` for decrypting Google refresh tokens.
+  - Set `CLOUD_STORAGE_ENCRYPTION_KEY` (or addon `encryption_key`) for dest keys.
+  - Set `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` (or configure addon fallbacks).
+  - Restart service after edits; confirm with preflight warnings in logs.
+- **Wrapper overwrites config**:
+  - Worker now writes and enforces both `rclone.conf` and `eazyBackup.conf`.
+  - Worker also injects `RCLONE_CONFIG_SOURCE_*` env overrides at process start.
+- **invalid_client / invalid_grant during OAuth**:
+  - Ensure the refresh token belongs to the same OAuth app (client_id/secret) configured.
+  - Re‑authorize Drive connection in the portal if the refresh token is revoked/expired.
+- **“token expired and there’s no refresh token”**:
+  - Inspect `[source]` token JSON in the actual config file used by the run
+  - Verify `diagnostics.json` shows `refresh_token_present: true` and enforcement flags
+  - Use the curl test above with the same values to confirm Google accepts the refresh
+
 ## Encryption
 
 ### Source Credential Encryption
@@ -369,12 +566,21 @@ When `encryption_enabled` is set to `1` for a job, the worker VM wraps the desti
 ### Merge Variables Available
 - `{$job_name}`, `{$job_id}`, `{$run_id}`, `{$run_status}`
 - `{$source_display_name}`, `{$source_type}`
-- `{$dest_bucket_id}`, `{$dest_prefix}`
+- `{$dest_bucket_id}`, `{$dest_bucket_name}`, `{$dest_prefix}`
 - `{$started_at}`, `{$finished_at}`, `{$duration}`
 - `{$bytes_transferred}`, `{$bytes_transferred_formatted}`
 - `{$bytes_total}`, `{$bytes_total_formatted}`
+- `{$files_transferred}`, `{$files_total}`
 - `{$progress_pct}`, `{$error_summary}`
 - `{$client_id}`, `{$client_name}`, `{$client_email}`
+- `{$job_log_report}` — Newline‑delimited, sanitized job event report (INFO/WARN/ERROR), e.g.:
+- `{$job_log_report_html}` — Same report preformatted with `<br>` tags for HTML templates.
+
+  ```
+  INFO[2025-11-21 13:57:03] Starting backup.
+  INFO[2025-11-21 13:57:03] Backup completed — no files to transfer.
+  INFO[2025-11-21 13:57:04] Backup completed successfully.
+  ```
 
 ### Cron Jobs
 
@@ -473,225 +679,45 @@ Archive mode creates compressed archive files instead of syncing individual file
 
 ## Log Formatting and Display
 
-### Overview
+### Event‑Driven, Sanitized Logging (Client‑Visible)
 
-The Cloud Backup system automatically converts raw rclone JSON logs into user-friendly, readable format for end users. This transformation is handled by the `CloudBackupLogFormatter` class located at `lib/Client/CloudBackupLogFormatter.php`. The formatter processes technical rclone output and presents it in a clear, organized format that non-technical users can easily understand.
+To avoid exposing sensitive implementation details or raw rclone output, the client area renders only sanitized, structured events:
 
-### Implementation
+- Worker
+  - `e3-cloudbackup-worker/internal/logs/tail.go` tails `rclone.json` (and `eazyBackup.json` if present), parsing JSON stats and plain text “Transferred … MiB/s, ETA …s” lines.
+  - `e3-cloudbackup-worker/internal/jobs/runner.go` updates progress in `s3_cloudbackup_runs` every few seconds and delegates user‑facing log emission to an event emitter.
+  - `e3-cloudbackup-worker/internal/jobs/events.go` maps rclone messages to stable codes and message IDs, redacts sensitive details, throttles progress events, and inserts rows into `s3_cloudbackup_run_events`.
+  - `e3-cloudbackup-worker/internal/db/db.go` provides `InsertRunEvent` and addon settings access (retention, max per run, progress interval).
 
-**Class**: `WHMCS\Module\Addon\CloudStorage\Client\CloudBackupLogFormatter`
+- Database
+  - `s3_cloudbackup_run_events` holds the sanitized stream: `id`, `ts`, `type`, `level`, `code`, `message_id`, `params_json`.
 
-**Key Methods**:
-- `formatRcloneLogs($rawLogJson)` - Formats backup operation logs
-- `formatValidationLogs($rawLogJson)` - Formats validation check logs
-- `formatLogMessage($msg, $level, $entry)` - Converts individual log messages
-- `formatValidationMessage($msg, $level, $entry)` - Converts validation messages
-- `formatStatsSummary($stats, $nothingToTransfer)` - Formats statistics summary
-- `formatTimestamp($timestamp)` - Converts ISO 8601 timestamps to readable format
-- `formatDuration($seconds)` - Converts seconds to human-readable duration
+- API
+  - `accounts/modules/addons/cloudstorage/api/cloudbackup_get_run_events.php` authenticates the client, validates run ownership, loads events (optionally incremental via `since_id`), and returns them.
 
-### Log Parsing and Handling
+- Formatter (PHP)
+  - `accounts/modules/addons/cloudstorage/lib/Client/CloudBackupEventFormatter.php` renders end‑user messages from `message_id` and `params`, using `HelperController::formatSizeUnitsPlain()` for sizes/speeds (no HTML).
 
-The formatter handles multiple log storage formats:
+- UI
+  - Live: `accounts/modules/addons/cloudstorage/templates/cloudbackup_live.tpl` polls `cloudbackup_progress.php` for metrics and `cloudbackup_get_run_events.php` for lines. Only sanitized events are displayed.
+  - Run Details modal: `accounts/modules/addons/cloudstorage/templates/cloudbackup_runs.tpl` fetches `cloudbackup_get_run_events.php` and renders the same sanitized event list.
+  - Transition helper: `api/cloudbackup_get_live_logs.php` prefers events where available and otherwise returns legacy formatted text for older runs (admin/diagnostics).
 
-1. **JSON Array Format**: Logs stored as a JSON array of log entries
-2. **Double-Encoded JSON**: Handles cases where log entries are stored as an array of JSON strings (double-encoded)
-3. **Line-by-Line JSON**: Parses logs stored as newline-separated JSON objects
-4. **Plain Text Fallback**: Treats non-JSON lines as plain text messages
+#### Safe identifiers and redaction
+- Allowed: source/destination bucket names and truncated prefixes.
+- Redacted: internal endpoints, credentials, full system paths, and explicit rclone flags.
 
-**Error Handling**:
-- Gracefully handles empty or null log data
-- Returns user-friendly error messages for unparseable logs
-- Continues processing even if individual entries fail to parse
-
-### Backup Log Formatting Features
-
-#### Message Translation
-
-The formatter converts technical rclone messages to user-friendly language:
-
-- **Starting Operations**: "Starting sync" → "🔄 Starting backup process"
-- **Progress Updates**: "Transferred: 10 / 100" → "📤 Transferred: 10 of 100 files"
-- **Completion**: "Completed sync" → "✅ Backup completed successfully"
-- **No Changes**: "nothing to transfer" → "✅ No files to transfer - source and destination are synchronized"
-- **Errors**: Technical error messages → Clear explanations with context
-
-#### Error Message Enhancement
-
-Common error types are automatically enhanced with helpful context:
-
-- **Permission Errors**: Explains that source credentials need read access
-- **File Not Found**: Clarifies that the file doesn't exist at source location
-- **Connection Errors**: Provides network troubleshooting guidance
-- **Authentication Errors**: Suggests verifying access keys and permissions
-
-#### Section Organization
-
-Logs are automatically organized into logical sections:
-
-- **🚀 Starting Backup**: Initial backup process start
-- **📤 Transferring Files**: Active file transfer operations
-- **✅ Completing Backup**: Backup completion and summary
-- **📊 Backup Summary**: Final statistics (data transferred, files processed, speed, duration)
-- **❌ Errors Encountered**: Any errors that occurred during backup
-- **⚠️ Warnings**: Non-critical warnings
-
-#### Statistics Summary
-
-The formatter extracts and formats statistics from rclone log entries:
-
-- **Data Transferred**: Shows bytes transferred vs total, formatted in human-readable units (MiB, GiB, etc.)
-- **Progress Percentage**: Calculates and displays completion percentage
-- **Files Processed**: Shows number of files transferred vs total files
-- **Average Speed**: Displays transfer speed in human-readable format
-- **Duration**: Converts elapsed time to readable format (hours, minutes, seconds)
-
-#### Special Handling: No Files to Transfer
-
-When a backup completes with no files to transfer (source and destination are synchronized), the formatter:
-
-- Detects this condition from log messages and statistics
-- Displays a special "✅ Backup Completed - No Changes Needed" section
-- Explains that synchronization is already complete
-- Suppresses confusing "0 files transferred" messages
-
-### Validation Log Formatting
-
-Validation logs use a similar formatting approach but focus on data integrity verification:
-
-**Features**:
-- Clear indication of validation start
-- File-by-file verification status
-- Mismatch detection with clear explanations
-- Final validation result summary (success or issues found)
-
-**Message Translation**:
-- "Starting check" → "🔍 Starting validation check"
-- "mismatch" → "❌ Data mismatch detected"
-- "identical" → "✅ Files are identical"
-- "OK" → "✅ Verified"
-
-**Output Structure**:
+#### Examples
 ```
-═══════════════════════════════════════════════════════════
-VALIDATION CHECK DETAILS
-═══════════════════════════════════════════════════════════
-
-[2024-01-15 10:35:00] 🔍 Starting validation check
-[2024-01-15 10:35:15] ✅ Files are identical
-
-✅ Validation completed successfully - all files verified.
+[11:09:52] Starting backup.
+[11:10:05] Transferred 250.00 MiB/1.99 GiB (12.56%), 40.00 MiB/s, ETA 43s.
+[11:10:40] Backup completed — no files to transfer.
+[11:10:53] Backup completed successfully.
 ```
 
-### API Integration
+### Legacy Formatter (Admin/Fallback)
 
-**Endpoint**: `api/cloudbackup_get_run_logs.php`
-
-**Method**: GET
-
-**Parameters**:
-- `run_id` (required) - The backup run ID
-
-**Authentication**: Requires WHMCS client authentication and verifies run ownership
-
-**Response Format**:
-```json
-{
-  "status": "success",
-  "backup_log": "Formatted backup log text...",
-  "validation_log": "Formatted validation log text...",
-  "has_validation": true
-}
-```
-
-**Usage Flow**:
-1. Client requests logs for a specific run via API endpoint
-2. System verifies authentication and run ownership
-3. Formatter processes raw log data from database (`log_excerpt` and `validation_log_excerpt` fields)
-4. Returns formatted logs as plain text strings in JSON response
-5. Frontend displays formatted logs in UI
-
-### Example Formatted Output
-
-**Backup Log Example**:
-```
-═══════════════════════════════════════════════════════════
-BACKUP RUN DETAILS
-Started: 2024-01-15 10:30:00
-═══════════════════════════════════════════════════════════
-
-📋 Backup Process
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🚀 Starting Backup
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-[2024-01-15 10:30:00] 🔄 Starting backup process
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📤 Transferring Files
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-[2024-01-15 10:30:05] 📤 Transferred: 10 of 100 files
-[2024-01-15 10:30:10] 📤 Transferred: 25 of 100 files
-[2024-01-15 10:30:15] 📤 Transferred: 50 of 100 files
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 Backup Summary
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Data Transferred: 10.00 MiB of 100.00 MiB
-Progress: 10%
-Files Processed: 10 of 100
-Average Speed: 2.50 MiB/s
-Duration: 5 minutes 0 seconds
-```
-
-**No Files to Transfer Example**:
-```
-═══════════════════════════════════════════════════════════
-BACKUP RUN DETAILS
-Started: 2024-01-15 10:30:00
-═══════════════════════════════════════════════════════════
-
-📋 Backup Process
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-✅ Backup Completed - No Changes Needed
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-The backup process completed successfully, but there were no files to transfer.
-This means your source and destination are already synchronized - all files are up to date.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 Backup Summary
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Status: ✅ No files to transfer
-Reason: Source and destination are already synchronized
-
-ℹ️  No files were transferred because source and destination are already synchronized.
-```
-
-### Technical Details
-
-**Dependencies**:
-- Uses `HelperController::formatSizeUnits()` for byte formatting
-- Relies on PHP `DateTime` class for timestamp parsing
-- Handles ISO 8601 timestamp format from rclone logs
-
-**Performance Considerations**:
-- Processes logs synchronously during API request
-- Handles large log files efficiently by processing entries sequentially
-- Caches formatted output is not implemented (formats on each request)
-
-**Edge Cases Handled**:
-- Empty or null log data
-- Malformed JSON entries
-- Missing timestamp or level information
-- Statistics with zero values
-- Logs with no transfer activity
-- Validation logs without validation data
+`CloudBackupLogFormatter.php` and `api/cloudbackup_get_run_logs.php` remain available for older runs that predate events and for admin diagnostics. Client pages do not render raw rclone lines.
 
 ## Admin Area
 

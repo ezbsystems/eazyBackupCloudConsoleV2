@@ -12,6 +12,8 @@ use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
 use WHMCS\Module\Addon\CloudStorage\Client\SanitizedLogFormatter;
+use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupEmailService;
+use WHMCS\Database\Capsule;
 
 $ca = new ClientArea();
 if (!$ca->isLoggedIn()) {
@@ -103,10 +105,17 @@ if (!empty($run['log_excerpt'])) {
     // Light caching: avoid formatting if client already has same hash (client passes ?log_hash=...)
     $clientHash = isset($_GET['log_hash']) ? (string)$_GET['log_hash'] : null;
     if ($clientHash !== $logHash) {
-		$san = SanitizedLogFormatter::sanitizeAndStructure($run['log_excerpt'], $run['status'] ?? null);
-		$formattedLog = $san['formatted_log'];
-		$structuredEntries = $san['entries'];
+        $san = SanitizedLogFormatter::sanitizeAndStructure($run['log_excerpt'], $run['status'] ?? null);
+        $formattedLog = $san['formatted_log'];
+        $structuredEntries = $san['entries'];
     }
+}
+
+// If run has reached a terminal state, do not emit entries repeatedly to the client (avoid duplicate lines)
+$runStatus = (string)($run['status'] ?? '');
+$isTerminalState = in_array($runStatus, ['success','warning','failed','cancelled'], true);
+if ($isTerminalState) {
+    $structuredEntries = [];
 }
 
 $jsonData = [
@@ -132,6 +141,95 @@ $jsonData = [
         'log_excerpt_hash' => $logHash,
     ]
 ];
+
+// Opportunistic immediate email notification on terminal states (no cron required)
+try {
+    $isTerminal = in_array((string)($run['status'] ?? ''), ['success','warning','failed','cancelled'], true);
+    $hasFinishedAt = !empty($run['finished_at']);
+    if ($isTerminal && $hasFinishedAt) {
+        // Check if already notified
+        $alreadyNotified = Capsule::table('s3_cloudbackup_runs')
+            ->where('id', (int)$runId)
+            ->value('notified_at');
+        if (!$alreadyNotified) {
+            // Load email template setting
+            $templateSetting = Capsule::table('tbladdonmodules')
+                ->where('module', 'cloudstorage')
+                ->where('setting', 'cloudbackup_email_template')
+                ->value('value');
+            if (!empty($templateSetting)) {
+                // Load joined run + job for merge vars
+                $row = Capsule::table('s3_cloudbackup_runs')
+                    ->join('s3_cloudbackup_jobs', 's3_cloudbackup_runs.job_id', '=', 's3_cloudbackup_jobs.id')
+                    ->where('s3_cloudbackup_runs.id', (int)$runId)
+                    ->select(
+                        's3_cloudbackup_runs.id as run_id',
+                        's3_cloudbackup_runs.status',
+                        's3_cloudbackup_runs.started_at',
+                        's3_cloudbackup_runs.finished_at',
+                        's3_cloudbackup_runs.progress_pct',
+                        's3_cloudbackup_runs.bytes_total',
+                        's3_cloudbackup_runs.bytes_transferred',
+                        's3_cloudbackup_runs.objects_total',
+                        's3_cloudbackup_runs.objects_transferred',
+                        's3_cloudbackup_runs.error_summary',
+                        's3_cloudbackup_jobs.id as job_id',
+                        's3_cloudbackup_jobs.name',
+                        's3_cloudbackup_jobs.client_id',
+                        's3_cloudbackup_jobs.source_display_name',
+                        's3_cloudbackup_jobs.source_type',
+                        's3_cloudbackup_jobs.dest_bucket_id',
+                        's3_cloudbackup_jobs.dest_prefix',
+                        's3_cloudbackup_jobs.notify_on_success',
+                        's3_cloudbackup_jobs.notify_on_warning',
+                        's3_cloudbackup_jobs.notify_on_failure',
+                        's3_cloudbackup_jobs.notify_override_email'
+                    )
+                    ->first();
+                if ($row) {
+                    $client = DBController::getClient($row->client_id);
+                    if ($client) {
+                        $runArr = [
+                            'id' => $row->run_id,
+                            'status' => $row->status,
+                            'started_at' => $row->started_at,
+                            'finished_at' => $row->finished_at,
+                            'progress_pct' => $row->progress_pct,
+                            'bytes_total' => $row->bytes_total,
+                            'bytes_transferred' => $row->bytes_transferred,
+                            'objects_total' => $row->objects_total,
+                            'objects_transferred' => $row->objects_transferred,
+                            'error_summary' => $row->error_summary,
+                        ];
+                        $jobArr = [
+                            'id' => $row->job_id,
+                            'name' => $row->name,
+                            'client_id' => $row->client_id,
+                            'source_display_name' => $row->source_display_name,
+                            'source_type' => $row->source_type,
+                            'dest_bucket_id' => $row->dest_bucket_id,
+                            'dest_prefix' => $row->dest_prefix,
+                            'notify_on_success' => $row->notify_on_success,
+                            'notify_on_warning' => $row->notify_on_warning,
+                            'notify_on_failure' => $row->notify_on_failure,
+                            'notify_override_email' => $row->notify_override_email,
+                        ];
+                        $res = CloudBackupEmailService::sendRunNotification($runArr, $jobArr, $client, $templateSetting);
+                        // Mark notified for success or skipped (to avoid repeated attempts via polling)
+                        if (in_array(($res['status'] ?? ''), ['success','skipped'], true)) {
+                            Capsule::table('s3_cloudbackup_runs')
+                                ->where('id', (int)$runId)
+                                ->update(['notified_at' => date('Y-m-d H:i:s')]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+} catch (\Throwable $e) {
+    // Do not impact progress response
+    logModuleCall('cloudstorage', 'progress_notify_error', ['run_id' => $runId], $e->getMessage());
+}
 
 $response = new JsonResponse($jsonData, 200);
 $response->send();

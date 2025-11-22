@@ -332,6 +332,7 @@ function eazybackup_migrate_schema(): void {
         eb_add_column_if_missing('comet_items','total_directories',fn(Blueprint $t)=>$t->bigInteger('total_directories')->nullable());
         eb_add_index_if_missing('comet_items',"CREATE INDEX IF NOT EXISTS idx_client_user ON comet_items (client_id, username)");
     }
+
     // --- comet_vaults ---
     if (!$schema->hasTable('comet_vaults')) {
         $schema->create('comet_vaults', function (Blueprint $t) {
@@ -1662,7 +1663,55 @@ function eazybackup_config()
                 'Default' => '0',
                 'Description' => 'Default fee percent for MSP subscriptions when a price has no explicit default. Range 0–100 (max two decimals).',
             ],
-            // (Removed Partner Hub nav controls - visibility managed in template)
+            // Partner Hub navigation visibility (client-area sidebar) — all default to enabled
+            'partnerhub_nav_enabled' => [
+                'FriendlyName' => 'Partner Hub: Show group',
+                'Type' => 'yesno',
+                'Default' => 'on',
+                'Description' => 'Show Partner Hub group in the client sidebar',
+            ],
+            'partnerhub_show_overview' => [
+                'FriendlyName' => 'Partner Hub: Show Overview',
+                'Type' => 'yesno',
+                'Default' => 'on',
+                'Description' => 'Show the Overview link in Partner Hub',
+            ],
+            'partnerhub_show_clients' => [
+                'FriendlyName' => 'Partner Hub: Show Clients',
+                'Type' => 'yesno',
+                'Default' => 'on',
+                'Description' => 'Show the Clients link in Partner Hub',
+            ],
+            'partnerhub_show_catalog' => [
+                'FriendlyName' => 'Partner Hub: Show Catalog',
+                'Type' => 'yesno',
+                'Default' => 'on',
+                'Description' => 'Show the Catalog section in Partner Hub',
+            ],
+            'partnerhub_show_billing' => [
+                'FriendlyName' => 'Partner Hub: Show Billing',
+                'Type' => 'yesno',
+                'Default' => 'on',
+                'Description' => 'Show the Billing section in Partner Hub',
+            ],
+            'partnerhub_show_money' => [
+                'FriendlyName' => 'Partner Hub: Show Money',
+                'Type' => 'yesno',
+                'Default' => 'on',
+                'Description' => 'Show the Money section in Partner Hub',
+            ],
+            'partnerhub_show_stripe' => [
+                'FriendlyName' => 'Partner Hub: Show Stripe Account',
+                'Type' => 'yesno',
+                'Default' => 'on',
+                'Description' => 'Show the Stripe Account section in Partner Hub',
+            ],
+            'partnerhub_show_settings' => [
+                'FriendlyName' => 'Partner Hub: Show Settings',
+                'Type' => 'yesno',
+                'Default' => 'on',
+                'Description' => 'Show the Settings section in Partner Hub',
+            ],
             // Grace periods
             'grace_days_devices' => [
                 'FriendlyName' => 'Grace Period (days) — Devices',

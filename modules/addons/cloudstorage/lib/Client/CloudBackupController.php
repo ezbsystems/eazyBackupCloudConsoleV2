@@ -5,6 +5,7 @@ namespace WHMCS\Module\Addon\CloudStorage\Client;
 use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\HelperController;
+use WHMCS\Module\Addon\CloudStorage\Client\AwsS3Validator;
 
 class CloudBackupController {
 
@@ -356,6 +357,58 @@ class CloudBackupController {
 
             if ($job['status'] !== 'active') {
                 return ['status' => 'fail', 'message' => 'Job is not active'];
+            }
+
+            // Validate destination bucket still exists and is active for this client's storage user
+            $bucket = Capsule::table('s3_buckets')
+                ->where('id', $job['dest_bucket_id'])
+                ->where('is_active', 1)
+                ->first();
+            if (!$bucket) {
+                return ['status' => 'fail', 'message' => 'Destination bucket not found or inactive'];
+            }
+            // Optional: ensure ownership alignment (bucket belongs to one of client's storage users)
+            $clientUser = Capsule::table('s3_users')
+                ->where('id', $job['s3_user_id'] ?? 0)
+                ->first();
+            if (!$clientUser || (int)$bucket->user_id !== (int)$clientUser->id) {
+                return ['status' => 'fail', 'message' => 'Destination bucket ownership mismatch'];
+            }
+
+            // Re-validate AWS/S3-compatible source bucket and credentials at start time
+            if (in_array($job['source_type'], ['aws', 's3_compatible'])) {
+                // Fetch encryption key (query builder cannot be cloned; query separately)
+                $ekey = Capsule::table('tbladdonmodules')
+                    ->where('module', 'cloudstorage')
+                    ->where('setting', 'cloudbackup_encryption_key')
+                    ->value('value');
+                if (empty($ekey)) {
+                    $ekey = Capsule::table('tbladdonmodules')
+                        ->where('module', 'cloudstorage')
+                        ->where('setting', 'encryption_key')
+                        ->value('value');
+                }
+                if (empty($ekey)) {
+                    return ['status' => 'fail', 'message' => 'Encryption key not configured'];
+                }
+                $dec = self::decryptSourceConfig($job, $ekey);
+                if (!is_array($dec)) {
+                    return ['status' => 'fail', 'message' => 'Unable to decrypt source configuration'];
+                }
+                $check = AwsS3Validator::validateBucketExists([
+                    'endpoint'   => $dec['endpoint'] ?? null,
+                    'region'     => $dec['region'] ?? 'us-east-1',
+                    'bucket'     => $dec['bucket'] ?? '',
+                    'access_key' => $dec['access_key'] ?? '',
+                    'secret_key' => $dec['secret_key'] ?? '',
+                ]);
+                if (($check['status'] ?? 'fail') !== 'success') {
+                    $msg = 'Source bucket validation failed';
+                    if (!empty($check['message'])) {
+                        $msg .= ': ' . $check['message'];
+                    }
+                    return ['status' => 'fail', 'message' => $msg];
+                }
             }
 
             $runId = Capsule::table('s3_cloudbackup_runs')->insertGetId([

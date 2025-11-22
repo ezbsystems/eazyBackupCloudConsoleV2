@@ -13,7 +13,7 @@ function cloudstorage_config()
         'description' => 'This module show the usage of your buckets.',
         'author' => 'eazybackup',
         'language' => 'english',
-        'version' => '1.4.0',
+        'version' => '1.5.0',
         'fields' => [
             's3_region' => [
                 'FriendlyName' => 'S3 Region',
@@ -140,6 +140,28 @@ function cloudstorage_config()
                 'Size' => '200',
                 'Default' => 'https://www.googleapis.com/auth/drive.readonly',
                 'Description' => 'Space-separated scopes. Default: https://www.googleapis.com/auth/drive.readonly'
+            ],
+            // Cloud Backup Event Log Controls
+            'cloudbackup_event_retention_days' => [
+                'FriendlyName' => 'Backup Event Retention (days)',
+                'Type' => 'text',
+                'Size' => '10',
+                'Default' => '60',
+                'Description' => 'How many days to retain customer-visible backup events.'
+            ],
+            'cloudbackup_event_max_per_run' => [
+                'FriendlyName' => 'Max Events per Run',
+                'Type' => 'text',
+                'Size' => '10',
+                'Default' => '5000',
+                'Description' => 'Hard cap on number of events to store per run.'
+            ],
+            'cloudbackup_event_progress_interval_seconds' => [
+                'FriendlyName' => 'Progress Event Interval (s)',
+                'Type' => 'text',
+                'Size' => '10',
+                'Default' => '2',
+                'Description' => 'Minimum seconds between progress events from worker.'
             ],
         ]
     ];
@@ -471,6 +493,24 @@ function cloudstorage_activate() {
             $table->unique('client_id');
             });
             logModuleCall('cloudstorage', 'activate', [], 'Created s3_cloudbackup_settings table', [], []);
+        }
+
+        // Cloud Backup run events table (sanitized, vendor-agnostic events)
+        if (!Capsule::schema()->hasTable('s3_cloudbackup_run_events')) {
+            Capsule::schema()->create('s3_cloudbackup_run_events', function ($table) {
+                $table->bigIncrements('id');
+                $table->unsignedBigInteger('run_id');
+                $table->dateTime('ts'); // event timestamp (UTC)
+                $table->string('type', 32); // start|progress|warning|error|summary|cancelled|validation_*
+                $table->string('level', 16); // info|warn|error
+                $table->string('code', 64); // PROGRESS_UPDATE|ERROR_NETWORK|...
+                $table->string('message_id', 64); // i18n key
+                $table->mediumText('params_json'); // JSON string of params
+                $table->index(['run_id', 'ts']);
+                $table->index(['run_id', 'id']);
+                $table->foreign('run_id')->references('id')->on('s3_cloudbackup_runs')->onDelete('cascade');
+            });
+            logModuleCall('cloudstorage', 'activate', [], 'Created s3_cloudbackup_run_events table', [], []);
         }
 
         // Cloud Backup reusable sources table
@@ -906,6 +946,24 @@ function cloudstorage_upgrade($vars) {
                 $table->index('email');
             });
             logModuleCall('cloudstorage', 'upgrade', [], 'Created cloudstorage_trial_verifications table', [], []);
+        }
+
+        // Ensure run events table exists for upgraded installs
+        if (!\WHMCS\Database\Capsule::schema()->hasTable('s3_cloudbackup_run_events')) {
+            \WHMCS\Database\Capsule::schema()->create('s3_cloudbackup_run_events', function ($table) {
+                $table->bigIncrements('id');
+                $table->unsignedBigInteger('run_id');
+                $table->dateTime('ts');
+                $table->string('type', 32);
+                $table->string('level', 16);
+                $table->string('code', 64);
+                $table->string('message_id', 64);
+                $table->mediumText('params_json');
+                $table->index(['run_id', 'ts']);
+                $table->index(['run_id', 'id']);
+                $table->foreign('run_id')->references('id')->on('s3_cloudbackup_runs')->onDelete('cascade');
+            });
+            logModuleCall('cloudstorage', 'upgrade', [], 'Created s3_cloudbackup_run_events table', [], []);
         }
 
         return ['status' => 'success'];

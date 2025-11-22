@@ -184,6 +184,8 @@ GRANT SELECT ON eazyback_whmcs.s3_users TO 'e3backup_worker'@'e3-cloudbackup-wor
 GRANT SELECT ON eazyback_whmcs.s3_user_access_keys TO 'e3backup_worker'@'e3-cloudbackup-worker-01';
 GRANT SELECT ON eazyback_whmcs.s3_cloudbackup_sources TO 'e3backup_worker'@'e3-cloudbackup-worker-01';
 GRANT SELECT ON eazyback_whmcs.tbladdonmodules TO 'e3backup_worker'@'e3-cloudbackup-worker-01';
+GRANT SELECT ON eazyback_whmcs.tblconfiguration TO 'e3backup_worker'@'e3-cloudbackup-worker-01';
+GRANT SELECT, INSERT ON eazyback_whmcs.s3_cloudbackup_run_events TO 'e3backup_worker'@'e3-cloudbackup-worker-01';
 
 FLUSH PRIVILEGES;
 EXIT;
@@ -205,6 +207,8 @@ GRANT SELECT ON eazyback_whmcs.s3_users TO 'e3backup_worker'@'10.0.0.50';
 GRANT SELECT ON eazyback_whmcs.s3_user_access_keys TO 'e3backup_worker'@'10.0.0.50';
 GRANT SELECT ON eazyback_whmcs.s3_cloudbackup_sources TO 'e3backup_worker'@'10.0.0.50';
 GRANT SELECT ON eazyback_whmcs.tbladdonmodules TO 'e3backup_worker'@'10.0.0.50';
+GRANT SELECT ON eazyback_whmcs.tblconfiguration TO 'e3backup_worker'@'10.0.0.50';
+GRANT SELECT, INSERT ON eazyback_whmcs.s3_cloudbackup_run_events TO 'e3backup_worker'@'10.0.0.50';
 
 FLUSH PRIVILEGES;
 EXIT;
@@ -228,6 +232,8 @@ GRANT SELECT ON eazyback_whmcs.s3_users TO 'e3backup_worker'@'192.168.92.115';
 GRANT SELECT ON eazyback_whmcs.s3_user_access_keys TO 'e3backup_worker'@'192.168.92.115';
 GRANT SELECT ON eazyback_whmcs.s3_cloudbackup_sources TO 'e3backup_worker'@'192.168.92.115';
 GRANT SELECT ON eazyback_whmcs.tbladdonmodules TO 'e3backup_worker'@'192.168.92.115';
+GRANT SELECT ON eazyback_whmcs.tblconfiguration TO 'e3backup_worker'@'192.168.92.115';
+GRANT SELECT, INSERT ON eazyback_whmcs.s3_cloudbackup_run_events TO 'e3backup_worker'@'192.168.92.115';
 
 FLUSH PRIVILEGES;
 EXIT;

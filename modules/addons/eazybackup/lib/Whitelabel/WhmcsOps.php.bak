@@ -6,41 +6,15 @@ use WHMCS\Database\Capsule;
 
 class WhmcsOps
 {
-    /**
-     * Create a WHMCS server + server group for a tenant.
-     *
-     * If $adminUser / $adminPassPlain are provided, the server row will be
-     * created with those credentials and Secure=1 so that the Comet module
-     * can connect immediately without manual admin edits.
-     */
-    public function addServerAndGroup(
-        string $name,
-        string $hostname,
-        string $module = 'comet',
-        string $adminUser = '',
-        string $adminPassPlain = '',
-        bool $secure = true
-    ): array {
-        $row = [
-            'name'      => $name,
-            'hostname'  => $hostname,
+    public function addServerAndGroup(string $name, string $hostname, string $module = 'comet'): array
+    {
+        $sid = Capsule::table('tblservers')->insertGetId([
+            'name' => $name,
+            'hostname' => $hostname,
             'ipaddress' => '',
-            'type'      => $module,
-            'active'    => 1,
-        ];
-
-        if ($adminUser !== '') {
-            $row['username'] = $adminUser;
-        }
-        if ($adminPassPlain !== '') {
-            // Use WHMCS' encrypt() helper for the server password field
-            $row['password'] = encrypt($adminPassPlain);
-        }
-        if ($secure) {
-            $row['secure'] = 1;
-        }
-
-        $sid = Capsule::table('tblservers')->insertGetId($row);
+            'type' => $module,
+            'active' => 1,
+        ]);
         $gid = Capsule::table('tblservergroups')->insertGetId(['name' => $name . ' Group']);
         Capsule::table('tblservergroupsrel')->insert(['groupid' => $gid, 'serverid' => $sid]);
         return ['server_id' => (int)$sid, 'servergroup_id' => (int)$gid];

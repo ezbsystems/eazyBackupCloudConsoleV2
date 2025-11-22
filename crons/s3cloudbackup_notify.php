@@ -38,7 +38,8 @@ if (empty($emailTemplateId)) {
 // Check runs completed in the last hour that are in final states
 $completedRuns = Capsule::table('s3_cloudbackup_runs')
     ->join('s3_cloudbackup_jobs', 's3_cloudbackup_runs.job_id', '=', 's3_cloudbackup_jobs.id')
-    ->whereIn('s3_cloudbackup_runs.status', ['success', 'warning', 'failed'])
+    // Include 'cancelled' to notify on cancelled runs as well
+    ->whereIn('s3_cloudbackup_runs.status', ['success', 'warning', 'failed', 'cancelled'])
     ->whereNotNull('s3_cloudbackup_runs.finished_at')
     ->where('s3_cloudbackup_runs.finished_at', '>=', date('Y-m-d H:i:s', strtotime('-1 hour')))
     ->whereNull('s3_cloudbackup_runs.notified_at')
@@ -50,6 +51,8 @@ $completedRuns = Capsule::table('s3_cloudbackup_runs')
         's3_cloudbackup_runs.progress_pct',
         's3_cloudbackup_runs.bytes_total',
         's3_cloudbackup_runs.bytes_transferred',
+        's3_cloudbackup_runs.objects_total',
+        's3_cloudbackup_runs.objects_transferred',
         's3_cloudbackup_runs.error_summary',
         's3_cloudbackup_jobs.id as job_id',
         's3_cloudbackup_jobs.name',
@@ -65,6 +68,11 @@ $completedRuns = Capsule::table('s3_cloudbackup_runs')
     )
     ->get();
 
+// Log how many runs we found for notification
+logModuleCall('cloudstorage', 'notify_cron_found', [
+    'count' => $completedRuns->count(),
+], '');
+
 if ($completedRuns->isEmpty()) {
     exit("No completed runs to notify.\n");
 }
@@ -76,10 +84,21 @@ $errorCount = 0;
 
 foreach ($completedRuns as $runData) {
     try {
+        // Per-run log context
+        logModuleCall('cloudstorage', 'notify_cron_run', [
+            'run_id' => $runData->run_id,
+            'job_id' => $runData->job_id,
+            'status' => $runData->status,
+        ], '');
+
         // Get client data
         $client = DBController::getClient($runData->client_id);
         if (!$client) {
             echo "Skipping run {$runData->run_id}: Client not found\n";
+            logModuleCall('cloudstorage', 'notify_cron_skip', [
+                'run_id' => $runData->run_id,
+                'reason' => 'client_not_found',
+            ], '');
             continue;
         }
 
@@ -92,6 +111,8 @@ foreach ($completedRuns as $runData) {
             'progress_pct' => $runData->progress_pct,
             'bytes_total' => $runData->bytes_total,
             'bytes_transferred' => $runData->bytes_transferred,
+        'objects_total' => $runData->objects_total,
+        'objects_transferred' => $runData->objects_transferred,
             'error_summary' => $runData->error_summary,
         ];
         $job = [
@@ -119,8 +140,17 @@ foreach ($completedRuns as $runData) {
             
             $notifiedCount++;
             echo "Notified for run {$runData->run_id}: {$result['message']}\n";
+            logModuleCall('cloudstorage', 'notify_cron_success', [
+                'run_id' => $runData->run_id,
+                'message' => $result['message'] ?? '',
+            ], '');
         } else {
             echo "Skipped run {$runData->run_id}: {$result['message']}\n";
+            logModuleCall('cloudstorage', 'notify_cron_result', [
+                'run_id' => $runData->run_id,
+                'status' => $result['status'] ?? 'unknown',
+                'message' => $result['message'] ?? '',
+            ], '');
             if ($result['status'] === 'error') {
                 $errorCount++;
             }

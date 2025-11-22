@@ -139,7 +139,7 @@
                                     {/if}
                                 </td>
                                 <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-300">
-                                    {if $run.bytes_transferred}
+                                    {if $run.bytes_transferred|@strlen}
                                         {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.bytes_transferred)}
                                     {else}
                                         -
@@ -323,25 +323,24 @@ function showRunDetails(runId) {
         validationSection.classList.add('hidden');
     }
     
-    // Fetch formatted logs from API
-    fetch('modules/addons/cloudstorage/api/cloudbackup_get_run_logs.php?run_id=' + encodeURIComponent(runId))
+    // Fetch sanitized events instead of raw/formatted rclone logs
+    fetch('modules/addons/cloudstorage/api/cloudbackup_get_run_events.php?run_id=' + encodeURIComponent(runId) + '&limit=1000')
         .then(response => response.json())
         .then(data => {
             if (data.status === 'success') {
-                // Display formatted backup log
-                if (data.backup_log) {
-                    logExcerpt.textContent = data.backup_log;
+                const events = Array.isArray(data.events) ? data.events : [];
+                if (events.length === 0) {
+                    logExcerpt.textContent = 'No event log data available for this run.';
                 } else {
-                    logExcerpt.textContent = 'No backup log data available for this run.';
+                    // Render events as lines: [ts] MESSAGE
+                    const lines = events.map(ev => {
+                        const ts = ev.ts ? '[' + ev.ts + '] ' : '';
+                        return ts + (ev.message || '');
+                    });
+                    logExcerpt.textContent = lines.join('\n');
                 }
-                
-                // Display validation log if available
-                if (data.has_validation && data.validation_log && validationSection && validationLogExcerpt) {
-                    validationLogExcerpt.textContent = data.validation_log;
-                    validationSection.classList.remove('hidden');
-                } else if (validationSection) {
-                    validationSection.classList.add('hidden');
-                }
+                // Hide validation block in event mode (optional future enhancement: show validation events)
+                if (validationSection) validationSection.classList.add('hidden');
             } else {
                 logExcerpt.textContent = 'Error: ' + (data.message || 'Failed to load log details');
                 if (window.toast) {

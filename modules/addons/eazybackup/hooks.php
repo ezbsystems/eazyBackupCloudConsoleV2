@@ -133,7 +133,35 @@ add_hook('ClientAreaPage', 1, function ($vars) {
     } catch (\Throwable $_) { return []; }
 });
 
-// Partner Hub nav variables hook removed — visibility/links are defined directly in the template
+// Partner Hub navigation visibility flags for the client-area sidebar
+add_hook('ClientAreaPage', 1, function ($vars) {
+    try {
+        $get = function (string $setting, bool $default = true): bool {
+            try {
+                $val = Capsule::table('tbladdonmodules')
+                    ->where('module', 'eazybackup')
+                    ->where('setting', $setting)
+                    ->value('value');
+            } catch (\Throwable $e) { $val = null; }
+            // If row is missing entirely, fall back to default; otherwise evaluate strictly
+            if ($val === null) { return $default; }
+            $s = strtolower(trim((string)$val));
+            return in_array($s, ['1','on','yes','true'], true);
+        };
+        return [
+            'eb_partner_hub_enabled' => $get('partnerhub_nav_enabled', true),
+            'eb_ph_show_overview'    => $get('partnerhub_show_overview', true),
+            'eb_ph_show_clients'     => $get('partnerhub_show_clients', true),
+            'eb_ph_show_catalog'     => $get('partnerhub_show_catalog', true),
+            'eb_ph_show_billing'     => $get('partnerhub_show_billing', true),
+            'eb_ph_show_money'       => $get('partnerhub_show_money', true),
+            'eb_ph_show_stripe'      => $get('partnerhub_show_stripe', true),
+            'eb_ph_show_settings'    => $get('partnerhub_show_settings', true),
+        ];
+    } catch (\Throwable $e) {
+        return [];
+    }
+});
 
 
 

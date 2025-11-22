@@ -37,6 +37,30 @@ class HelperController {
     }
 
     /**
+     * Format size units to a plain text string (no HTML markup).
+     *
+     * @param int|float $bytes
+     * @return string
+     */
+    public static function formatSizeUnitsPlain($bytes)
+    {
+        if ($bytes >= 1099511627776) {
+            return number_format($bytes / 1099511627776, 2) . ' TiB';
+        } elseif ($bytes >= 1073741824) {
+            return number_format($bytes / 1073741824, 2) . ' GiB';
+        } elseif ($bytes >= 1048576) {
+            return number_format($bytes / 1048576, 2) . ' MiB';
+        } elseif ($bytes >= 1024) {
+            return number_format($bytes / 1024, 2) . ' KiB';
+        } elseif ($bytes > 1) {
+            return $bytes . ' Bytes';
+        } elseif ($bytes == 1) {
+            return $bytes . ' Byte';
+        }
+        return '0 Bytes';
+    }
+
+    /**
      * Prepare daily usage chart data
      *
      * @return array

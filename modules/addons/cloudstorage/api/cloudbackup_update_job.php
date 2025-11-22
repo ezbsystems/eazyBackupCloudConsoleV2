@@ -11,6 +11,7 @@ use WHMCS\ClientArea;
 use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
+use WHMCS\Module\Addon\CloudStorage\Client\AwsS3Validator;
 use WHMCS\Database\Capsule;
 
 $ca = new ClientArea();
@@ -216,9 +217,12 @@ if ($postedSourceType === 'aws') {
 } elseif ($postedSourceType === 'google_drive') {
     // Switch to minimal config: only root_folder_id lives on the job
     $root = $_POST['gdrive_root_folder_id'] ?? $_POST['root_folder_id'] ?? ($reconstructed['root_folder_id'] ?? ($existingDec['root_folder_id'] ?? null));
-    $reconstructed = [
-        'root_folder_id' => $root,
-    ];
+    $team = $_POST['gdrive_team_drive'] ?? ($reconstructed['team_drive'] ?? ($existingDec['team_drive'] ?? null));
+    $tmp = ['root_folder_id' => $root];
+    if (!empty($team)) {
+        $tmp['team_drive'] = $team;
+    }
+    $reconstructed = $tmp;
     // Allow changing linked connection
     if (isset($_POST['source_connection_id'])) {
         $updateData['source_connection_id'] = (int) $_POST['source_connection_id'];
@@ -236,6 +240,47 @@ if (is_array($reconstructed)) {
     $updateData['source_config'] = $reconstructed;
 }
 // --- end merge ---
+
+// Validate destination bucket if it's being changed
+if (isset($_POST['dest_bucket_id'])) {
+    $username = $product->username;
+    $user = DBController::getUser($username);
+    if (!$user) {
+        $response = new JsonResponse(['status' => 'fail', 'message' => 'Storage user not found'], 200);
+        $response->send();
+        exit();
+    }
+    $bucket = Capsule::table('s3_buckets')
+        ->where('id', $_POST['dest_bucket_id'])
+        ->where('user_id', $user->id)
+        ->where('is_active', 1)
+        ->first();
+    if (!$bucket) {
+        $response = new JsonResponse(['status' => 'fail', 'message' => 'Destination bucket not found, inactive, or access denied'], 200);
+        $response->send();
+        exit();
+    }
+}
+
+// Validate AWS/S3-compatible source on update if present
+if (in_array($postedSourceType, ['aws', 's3_compatible'], true) && is_array($reconstructed)) {
+    $check = AwsS3Validator::validateBucketExists([
+        'endpoint'   => $reconstructed['endpoint'] ?? null,
+        'region'     => $reconstructed['region'] ?? 'us-east-1',
+        'bucket'     => $reconstructed['bucket'] ?? '',
+        'access_key' => $reconstructed['access_key'] ?? '',
+        'secret_key' => $reconstructed['secret_key'] ?? '',
+    ]);
+    if (($check['status'] ?? 'fail') !== 'success') {
+        $msg = 'Source bucket validation failed';
+        if (!empty($check['message'])) {
+            $msg .= ': ' . $check['message'];
+        }
+        $response = new JsonResponse(['status' => 'fail', 'message' => $msg], 200);
+        $response->send();
+        exit();
+    }
+}
 
 $result = CloudBackupController::updateJob($jobId, $loggedInUserId, $updateData, $encryptionKey);
 
