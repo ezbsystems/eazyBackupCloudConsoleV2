@@ -1,0 +1,20 @@
+.cardish { border-radius: 1rem; border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.04); backdrop-filter: blur(12px); box-shadow: inset 0 1px 0 rgba(255,255,255,.03), 0 10px 30px -15px rgba(0,0,0,.6); }
+:root.light .cardish { border-color: rgba(0,0,0,.1); background: rgba(255,255,255,.4); }
+.icon-btn { position: relative; height: 2.25rem; width: 2.25rem; display: inline-flex; align-items: center; justify-content: center; border-radius: .75rem; border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.05); transition: background .2s ease, border-color .2s ease; }
+:root.light .icon-btn { border-color: rgba(0,0,0,.1); background: rgba(255,255,255,.6); }
+.icon-btn:hover { background: rgba(255,255,255,.1); }
+.badge { position:absolute; top:-.25rem; right:-.25rem; min-width:1rem; height:1rem; padding:0 .25rem; border-radius:9999px; background:#ef4444; color:#fff; font-size:10px; line-height:1rem; text-align:center; }
+.nav-item { position:relative; }
+.nav-item.nav-active { background: rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.1); }
+:root.light .nav-item.nav-active { background: rgba(0,0,0,.05); border-color: rgba(0,0,0,.1); }
+.nav-underline::after { content:""; position:absolute; left:12px; right:12px; bottom:6px; height:2px; background: linear-gradient(90deg, #38bdf8, #22d3ee, #34d399); transform: scaleX(0); transform-origin: left; transition: transform .18s ease; border-radius:9999px; }
+.nav-item:hover .nav-underline::after, .nav-item.nav-active .nav-underline::after { transform: scaleX(1); }
+/* Scroll fade masks for sidebar */
+.sidebar-scroll { position:relative; }
+.sidebar-scroll::before, .sidebar-scroll::after { content:""; position:sticky; display:block; height:16px; pointer-events:none; z-index:1; }
+.sidebar-scroll::before { top:0; background: linear-gradient(#111827, rgba(17,24,39,0)); }
+.sidebar-scroll::after { bottom:0; background: linear-gradient(rgba(17,24,39,0), #111827); }
+:root.light .sidebar-scroll::before { background: linear-gradient(#ffffff, rgba(255,255,255,0)); }
+:root.light .sidebar-scroll::after { background: linear-gradient(rgba(255,255,255,0), #ffffff); }
+[x-cloak] { display: none !important; }
+

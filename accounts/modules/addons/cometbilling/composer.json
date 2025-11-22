@@ -1,0 +1,17 @@
+{
+  "name": "eazybackup/cometbilling",
+  "description": "WHMCS addon to ingest Comet Account Portal billing data and reconcile usage.",
+  "type": "library",
+  "require": {
+    "php": ">=8.1",
+    "guzzlehttp/guzzle": "^7.8",
+    "ramsey/uuid": "^4.7"
+  },
+  "autoload": {
+    "psr-4": {
+      "CometBilling\\": "lib/"
+    }
+  }
+}
+
+

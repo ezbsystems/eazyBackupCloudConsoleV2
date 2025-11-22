@@ -1,0 +1,42 @@
+# e3 Cloud Backup Worker Configuration
+# Copy this file to config.yaml and update with your actual values
+
+# Database Configuration
+database:
+  host: "WHMCS_DB_HOST"  # IP or hostname of WHMCS database server
+  port: 3306
+  database: "whmcs_db"  # Your WHMCS database name
+  username: "e3backup_worker"  # Database user created for worker
+  password: "STRONG_PASSWORD_HERE"  # Database password
+  max_connections: 10
+  max_idle_connections: 5
+
+# Worker Configuration
+worker:
+  hostname: "e3-cloudbackup-worker-01"  # Must match worker_host in database
+  poll_interval_seconds: 10  # How often to check for new queued jobs
+  max_concurrent_jobs: 5  # Maximum number of jobs to run simultaneously
+  max_bandwidth_kbps: 0  # 0 = unlimited, or set limit in Kbps (e.g., 10000 for 10 Mbps)
+
+# Rclone Configuration
+rclone:
+  binary_path: "/usr/bin/rclone"  # Path to rclone binary
+  config_dir: "/opt/e3-cloudbackup-worker/config"  # Directory for rclone configs
+  log_dir: "/var/log/e3-cloudbackup"  # Directory for rclone JSON logs
+  run_dir: "/var/lib/e3-cloudbackup/runs"  # Working directory for each run
+  stats_interval: "5s"  # How often rclone reports stats
+  log_level: "INFO"  # DEBUG, INFO, WARN, ERROR
+
+# S3/e3 Destination Configuration
+destination:
+  endpoint: "https://rgw.example.com"  # Your Ceph RGW endpoint
+  region: "us-east-1"  # S3 region (can be any value for Ceph)
+
+# Logging Configuration
+logging:
+  level: "INFO"  # DEBUG, INFO, WARN, ERROR
+  file: "/var/log/e3-cloudbackup/worker.log"  # Worker service log file
+  max_size_mb: 100  # Maximum log file size before rotation
+  max_backups: 5  # Number of rotated log files to keep
+  max_age_days: 30  # Maximum age of log files before deletion
+

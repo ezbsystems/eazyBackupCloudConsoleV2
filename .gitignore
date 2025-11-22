@@ -1,0 +1,87 @@
+###############################################################################
+# Global default: ignore everything in this tree
+###############################################################################
+/*
+
+# Keep this file
+!.gitignore
+
+# Optional: keep environment + editor config
+!/.env
+!/.vscode/
+!/.vscode/**
+
+###############################################################################
+# Top-level app bits we own
+###############################################################################
+
+# Our worker service
+!/e3-cloudbackup-worker/
+!/e3-cloudbackup-worker/**
+
+# Our backup script
+!/backup_whmcs_db.sh
+
+!/client_installer/
+!/client_installer/**
+
+# Logs: usually ignore contents
+!/logs/
+logs/*
+!logs/.gitkeep
+
+###############################################################################
+# WHMCS – only track our custom code, ignore WHMCS core
+###############################################################################
+
+# Keep the accounts/ tree, but ONLY selectively
+!/accounts/
+
+# Ignore everything inside accounts by default...
+/accounts/*
+
+# ---------------------- includes/hooks (all ours) ----------------------
+!/accounts/includes/
+!/accounts/includes/hooks/
+!/accounts/includes/hooks/**
+
+# ---------------------- crons (only our custom ones) -------------------
+!/accounts/crons/
+/accounts/crons/*
+!/accounts/crons/eazybackupSyncComet.php
+# add more custom crons if needed:
+# !/accounts/crons/anotherCustomCron.php
+
+# ---------------------- addon modules we own ---------------------------
+!/accounts/modules/
+!/accounts/modules/addons/
+
+!/accounts/modules/addons/cloudstorage/
+!/accounts/modules/addons/cloudstorage/**
+
+!/accounts/modules/addons/cometbilling/
+!/accounts/modules/addons/cometbilling/**
+
+!/accounts/modules/addons/eazybackup/
+!/accounts/modules/addons/eazybackup/**
+
+!/accounts/modules/addons/hidepermissions/
+!/accounts/modules/addons/hidepermissions/**
+
+!/accounts/modules/addons/mspconnect/
+!/accounts/modules/addons/mspconnect/**
+
+# ---------------------- server modules we own --------------------------
+!/accounts/modules/servers/
+!/accounts/modules/servers/comet/
+!/accounts/modules/servers/comet/**
+
+# ---------------------- gateway modules we own -------------------------
+!/accounts/modules/gateways/
+!/accounts/modules/gateways/stripe/
+!/accounts/modules/gateways/stripe/**
+
+# ---------------------- our custom client area template ----------------
+!/accounts/templates/
+!/accounts/templates/eazyBackup/
+!/accounts/templates/eazyBackup/**

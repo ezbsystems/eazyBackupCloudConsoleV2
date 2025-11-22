@@ -1,0 +1,111 @@
+<style>
+    #header,
+    #main-menu,
+    #footer,
+    .header-lined {
+        display: none;
+    }
+
+    #download {
+        max-width: 800px;
+        margin: 80px auto;
+        font-size: 16px;
+        text-align: center;
+    }
+
+    #download h1, h2, h3 {
+        font-weight: 600;
+        max-width: 600px;
+        color: #f60;
+    }
+
+    #download .heading {
+        margin: 40px auto;
+    }
+    
+    #download .success {
+        height: 128px;
+        width: 128px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background-color: #4357ad;
+        margin: 0 auto;
+        border-radius: 128px;
+    }
+
+    #download .success > i.fa {
+        font-size: 64px;
+        color: #fff;
+    }
+
+    hr {
+        margin: 40px 0;
+    }
+
+    .download, .support {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        max-width: 450px;
+        margin: 0 auto;
+    }
+
+    .download h2 {
+        margin-bottom: 24px;
+    }
+</style>
+
+<div id="download">
+    <h1 class="heading text-center">Thanks for downloading eazyBackup</h1>
+    <div class="signup-content">
+        <div class="success">
+            <i class="fa fa-check"></i>
+        </div>
+
+        <div class="download">
+            <h2><small>Your download will start automatically.<br>If it doesn't, click below to install eazyBackup.</small></h2>
+
+            <div class="btn-group">
+                <a id="downloadbtn" type="button" class="btn btn-lg btn-primary" href="">Download</a>
+                <button type="button" class="btn btn-lg btn-primary dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                    <span class="caret"></span>
+                    <span class="sr-only">Toggle Dropdown</span>
+                </button>
+                <ul class="dropdown-menu">
+                    <li><a id="windowsdl" href="https://csw.eazybackup.ca/dl/1">Windows (.zip)</a></li>
+                    <li><a id="macdl" href="https://csw.eazybackup.ca/dl/8">macOS (.pkg)</a></li>
+                    <li><a id="linuxdl" href="https://csw.eazybackup.ca/dl/7">Linux (.tar.gz)</a></li>
+                </ul>
+            </div>
+        </div>
+
+        <hr>
+
+        <div class="support">
+            <img src="https://eazybackup.ca/wp-content/uploads/Online-Support.png" alt="Support">
+            <h2>Support that cares</h2>
+            <p>We're dedicated to maintaining a prompt and friendly service reputation for our amazing customers across Canada.</p>
+            <p>Talk with a live human or <a href="https://eazybackup.ca/contact/" target="_top">submit a ticket</a> for priority review.</p>
+        </div>
+
+    </div>
+</div>
+
+<script>
+    $(document).ready(function(){
+        $('#header, #main-menu, #footer, #frmGeneratePassword, #modalAjax, .header-lined').remove();
+
+        if (window.navigator.userAgent.indexOf("Mac") != -1) {
+            $("#downloadbtn").attr("href", $("#macdl").attr("href"));
+        } else if (window.navigator.userAgent.indexOf("Linux") != -1) {
+            $("#downloadbtn").attr("href", $("#linuxdl").attr("href"));
+        } else {
+            $("#downloadbtn").attr("href", $("#windowsdl").attr("href"));
+        }
+
+        window.setTimeout(function() {
+            location.href = $("#downloadbtn").attr("href");
+        }, 1000);
+    });
+</script>
