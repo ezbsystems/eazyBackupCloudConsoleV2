@@ -1,0 +1,1676 @@
+<?php
+
+use \Michelf\Markdown;
+use Illuminate\Database\Capsule\Manager as Capsule;
+
+class AccountSummary
+{
+    public function get_clients_registration_date()
+    {
+        $result = array();
+        $sql = Capsule::table("tblclients")->where('status', 'Active')->get();
+        foreach ($sql as $row) {
+            $result[] = (array) $row;
+        }
+
+        return $result;
+    }
+
+    public function get_clients_all_statements($userid, $startdate, $enddate, $displaytype = NULL)
+    {
+        $language = Lang::getName();
+        $langfilename = __DIR__ . '/lang/' . $language . '.php';
+
+        if (file_exists($langfilename)) {
+            require($langfilename);
+        } else {
+            require __DIR__ . "/../lang/english.php";
+        }
+        $LANG = $_ADDONLANG;
+
+        if ($displaytype == "on") {
+            $invoiceTpye = 'Unpaid';
+        } else {
+            $invoiceTpye = 'Paid';
+        }
+
+        $pdftpl = Capsule::table("mod_account_summary_configuration")->where('setting', 'pdf_template')->first();
+
+        if ($pdftpl->value == 'v203') {
+       
+            $results = array();
+            $openingBalance = 0;
+            $totalCredit = 0;
+            $totalDebit = 0;
+            $totalremovecridt = 0;
+            $outstanding = 0;
+
+
+            if ($displaytype == "on") {
+                // die('ok1');
+                $rows = Capsule::table('tblinvoices');
+                $rows->select("tblinvoices.id", "tblinvoices.userid", "tblinvoices.invoicenum", "tblinvoices.date", "tblinvoices.duedate", "tblinvoices.datepaid", "tblinvoices.last_capture_attempt", "tblinvoices.date_refunded", "tblinvoices.date_cancelled", "tblinvoices.subtotal", "tblinvoices.credit", "tblinvoices.tax", "tblinvoices.tax2", "tblinvoices.total", "tblinvoices.taxrate", "tblinvoices.taxrate2", "tblinvoices.status", "tblinvoices.paymentmethod", "tblinvoices.paymethodid", "tblinvoices.notes", "tblinvoices.created_at", "tblinvoices.updated_at");
+                $rows->join('tblinvoiceitems', 'tblinvoiceitems.invoiceid', 'tblinvoices.id');
+                $rows->where('tblinvoiceitems.type', "!=", "Invoice");
+                $rows->where('tblinvoices.userid', $userid);
+                $rows->where('tblinvoices.status', "Unpaid");
+                $rows->orderBy("tblinvoices.id", "desc");
+                $rows->whereBetween('tblinvoices.date', [date('Y-m-d', strtotime($startdate)) . ' 00:00:00', date('Y-m-d', strtotime($enddate)) . ' 23:59:59']);
+                $rows = $rows->distinct()->get();
+            } else {
+                // die('ok2');
+                $rows = Capsule::table('tblinvoices');
+                $rows->select("tblinvoices.id", "tblinvoices.userid", "tblinvoices.invoicenum", "tblinvoices.date", "tblinvoices.duedate", "tblinvoices.datepaid", "tblinvoices.last_capture_attempt", "tblinvoices.date_refunded", "tblinvoices.date_cancelled", "tblinvoices.subtotal", "tblinvoices.credit", "tblinvoices.tax", "tblinvoices.tax2", "tblinvoices.total", "tblinvoices.taxrate", "tblinvoices.taxrate2", "tblinvoices.status", "tblinvoices.paymentmethod", "tblinvoices.paymethodid", "tblinvoices.notes", "tblinvoices.created_at", "tblinvoices.updated_at");
+                $rows->join('tblinvoiceitems', 'tblinvoiceitems.invoiceid', 'tblinvoices.id');
+                // $rows->where('tblinvoiceitems.type', "!=", "Invoice");
+                $rows->where('tblinvoices.userid', $userid);
+                // $rows->where('tblinvoices.status', "Unpaid");
+                $rows->orderBy("tblinvoices.id", "desc");
+                $rows->whereBetween('tblinvoices.date', [date('Y-m-d', strtotime($startdate)) . ' 00:00:00', date('Y-m-d', strtotime($enddate)) . ' 23:59:59']);
+                $rows = $rows->distinct()->get();
+            }
+
+            //all record are in this rows
+  
+            $totalDebit = 0;
+            $dueCurrent = 0;
+            foreach ($rows as $row) {
+                $row = (array) $row;
+
+                /* showing paid invoices created rows id subtotal = 0*/
+                if ($row['status'] == "Paid" && $row['subtotal'] == "0.00" && $this->betweenDates($row['date'], $startdate, $enddate)) {
+
+                    $tDetail = 'invoicepaid';
+                    $row['activity'] = 'paymentAdded';
+                    $row['cAmount'] = $row['amountin'];
+                    $row['invoicepaidcreated'] = "invoicepaidcreated";
+                    $row['tDetail'] = $tDetail;
+                    $results[date('Y-m-d H:i:s', strtotime($row['date']))][] = $row;
+                }
+
+                if ($row['status'] == "Unpaid") {
+
+                    $row['tAction'] = 'invoiceAdded';
+                    $row['tAmount'] = $row['subtotal'] + $row['tax'] + $row['tax2'];
+
+                    $invoiceNo = $row['invoicenum'];
+                    if (empty($invoiceNo)) {
+                        $invoiceNo = $row['id'];
+                    }
+
+                    $tDetail = 'invoicecreated';
+
+                    $row['tDetail'] = $tDetail;
+                    $row['cAmount'] = '0.00';
+                    $row['dAmount'] = $row['tAmount'];
+                    $row['bAmount'] = $row['total'];
+                    $results[date('Y-m-d H:i:s', strtotime($row['date']))][] = $row;
+                } elseif ($row['status'] == "Paid" && $row['subtotal'] == "0.00") {
+                    unset($row['invoicepaidcreated']);
+                    $invoiceNo = $row['invoicenum'];
+                    if (empty($invoiceNo)) {
+                        $invoiceNo = $row['id'];
+                    }
+                    $row['activity'] = 'paymentAdded';
+                    $row['tAmount'] = $row['amountin'];
+                    $tDetail = 'invoicepaid';
+                    $row['tDetail'] = $tDetail;
+                    $results[date('Y-m-d H:i:s', strtotime($row['datepaid']))][] = $row;
+                } else {
+                    // die("dddd");
+                    continue;
+                }
+            }
+            if ($displaytype != "on") {
+
+                $accounts = $this->get_invoice_paid_details($userid, $startdate, $enddate);
+                foreach ($accounts as $row) {
+
+                    $row = (array) $row;
+                    /* showing paid invoices created rows */
+                    if ($row['amountin'] > 0 && $row['description'] == 'Invoice Payment' && $this->betweenDates($row['datepaid'], $startdate, $enddate)) {
+                        $tDetail = 'invoicepaid';
+                        $row['activity'] = 'paymentAdded';
+                        $row['cAmount'] = $row['amountin'];
+                        $row['invoicepaidcreated'] = "invoicepaidcreated";
+                        $row['tDetail'] = $tDetail;
+                        $results[date('Y-m-d H:i:s', strtotime($row['date']))][] = $row;
+                    }
+
+                    $row['tAction'] = 'paymentAdded';
+                    $row['tAmount'] = $row['amountin'];
+                    if ($row['amountout'] > '0') {
+                        $row['tAmount'] = $row['amountout'];
+
+                        $totalCredit += $row['amountout'];
+                        $tDetail = 'refunded';
+                        $row['tAction'] = 'Refunded';
+                        $row['cAmount'] = $row['tAmount'];
+                        $row['activity'] = 'Refunded';
+                        $row['dAmount'] = '0.00';
+                        $row['bAmount'] = '0.00';
+                    } elseif ($row['amountin'] > 0 && $row['description'] == 'Invoice Payment') {
+                        unset($row['invoicepaidcreated']);
+                        $totalDebit += $row['amountin'];
+                        $tDetail = 'invoicepaid';
+                        $row['activity'] = 'paymentAdded';
+                        $row['cAmount'] = $row['amountin'];
+                        $row['tDetail'] = $tDetail;
+                    } elseif ($row["status"] == "Unpaid") {
+                        $row['activity'] = 'invoiceAdded';
+                        $row['tAmount'] = $row['subtotal'] + $row['tax'] + $row['tax2'];
+                        $row['bAmount'] = $row['total'];
+                        $invoiceNo = $row['invoicenum'];
+
+                        if (empty($invoiceNo)) {
+                            $invoiceNo = $row['id'];
+                        }
+
+                        $tDetail = 'invoiceAdded';
+                        $row['tDetail'] = $tDetail;
+                    }
+                    $results[date('Y-m-d H:i:s', strtotime($row['datepaid']))][] = $row;
+                }
+
+                $credits = Capsule::select("select * from tblcredit where clientid='" . $userid . "' and date>='" . $startdate . "' and date<='" . $enddate . "' order by id desc ");
+
+                $getcredits = Capsule::select("SELECT SUM(amount) AS Totalcredits FROM tblcredit WHERE clientid='" . $userid . "' ");
+                $getcredits = (array) $getcredits[0];
+
+                $Total_add_credit = 0;
+                $Total_rmv_credit = 0;
+                foreach ($credits as $row) {
+
+                    $row = (array) $row;
+                    //  $row['tAction'] = 'creditAdded';
+                    if ($row['amount'] < '0') {
+                        $Total_rmv_credit += $row['amount'];
+                        $row['tAmount'] = substr($row['amount'], 1);
+                        //$tDetail = '<span style="font-size:13px; color#000000;">Credit Applied</span>';
+                        if ($row['description'] != '') {
+                            $tDetail = 'creditapplied';
+                        } else {
+                            $tDetail = 'creditRemoved';
+                        }
+
+                        $row['tAction'] = 'creditRemoved';
+                        $totalDebit += substr($row['amount'], 1);
+                        $row['cAmount'] = $row['tAmount'];
+                        $row['dAmount'] = '0.00';
+                        $row['bAmount'] = '0.00';
+                        $row['tDetail'] = $tDetail;
+
+                        $results[date('Y-m-d H:i:s', strtotime($row['date']))][] = $row;
+                    } elseif ($row['amount'] > '0') {
+                        $Total_add_credit += $row['amount'];
+                        $tDetail = 'creditadded';
+                        $row['tAction'] = 'creditadded';
+                        if (empty($row['description'])) {
+                        } else {
+                            $totalremovecridt += $row['amount'];
+                        }
+
+                        $totalDebit += substr($row['amount'], 1);
+                        $row['cAmount'] = $row['amount'];
+                        $row['dAmount'] = '0.00';
+                        $row['bAmount'] = '0.00';
+                        $row['tDetail'] = $tDetail;
+
+                        $results[date('Y-m-d H:i:s', strtotime($row['date']))][] = $row;
+                    }
+                }
+            }
+            ksort($results);
+
+            // echo "<pre>";
+            // print_r($results);
+            // die('ook');
+            // $due120day = 0;
+            // $due90day = 0;
+            // $due60day = 0;
+            // $due30day = 0;
+            // $rows = Capsule::select("select * from tblinvoices where userid='" . $userid . "' and status='Unpaid' and date>='" . $startdate . "' and date<='" . $enddate . "'");
+
+            // $dueCurrent = [];
+            // foreach ($rows as $row) {
+            //     $amount = ($row->subtotal + $row->tax + $row->tax2) - $row->credit;
+            //     $acRows = Capsule::select("select * from tblaccounts where userid='" . $userid . "' and invoiceid='" . $row->id . "'");
+            //     $paidAmount = '0';
+            //     foreach ($acRows as $acRow) {
+            //         $paidAmount += $acRow->amountin;
+            //     }
+            //     $amount = $amount - $paidAmount;
+
+            //     $dueCurrent[] = $amount;
+
+            //     if ($row->date <= date('Y-m-d', strtotime('-30 days'))) {
+            //         $due30day += $amount;
+            //     }
+            //     if ($row->date <= date('Y-m-d', strtotime('-60 days'))) {
+            //         $due60day += $amount;
+            //     }
+            //     if ($row->date <= date('Y-m-d', strtotime('-90 days'))) {
+            //         $due90day += $amount;
+            //     }
+            //     if ($row->date <= date('Y-m-d', strtotime('-120 days'))) {
+            //         $due120day += $amount;
+            //     }
+            // }
+
+            $due120day = [];
+            $due90day = [];
+            $due60day = [];
+            $due30day = [];
+            $rows = Capsule::table("tblinvoices")->where("userid", $userid)->where("status", "Unpaid")->where('date', "<", (date('Y-m-d', strtotime($startdate)) . ' 00:00:00'))->get();
+
+            $dateStart = date_create($startdate);
+            date_sub($dateStart, date_interval_create_from_date_string("30 days"));
+            $minus30 = date_format($dateStart, "Y-m-d");
+
+            $dateStart = date_create($startdate);
+            date_sub($dateStart, date_interval_create_from_date_string("60 days"));
+            $minus60 = date_format($dateStart, "Y-m-d");
+            $dateStart = date_create($startdate);
+
+            date_sub($dateStart, date_interval_create_from_date_string("90 days"));
+            $minus90 = date_format($dateStart, "Y-m-d");
+
+            $dateStart = date_create($startdate);
+            date_sub($dateStart, date_interval_create_from_date_string("120 days"));
+            $minus120 = date_format($dateStart, "Y-m-d");
+
+            $dueCurrent = [];
+            foreach ($rows as $row) {
+                $amount = ($row->subtotal + $row->tax + $row->tax2) - $row->credit;
+                $acRows = Capsule::select("select * from tblaccounts where userid='" . $userid . "' and invoiceid='" . $row->id . "'");
+                $paidAmount = '0';
+                foreach ($acRows as $acRow) {
+                    $paidAmount += $acRow->amountin;
+                }
+                $amount = $amount - $paidAmount;
+                $dueCurrent[] = $amount;
+
+                if ($minus90 >= $row->date) {
+                    $due120day[] = $amount;
+                } elseif (($minus90 <= $row->date) && ($minus60 >= $row->date)) {
+                    $due90day[] = $amount;
+                } elseif (($minus60 <= $row->date) && ($minus30 >= $row->date)) {
+                    $due60day[] = $amount;
+                } elseif ($minus30 <= $row->date) {
+                    $due30day[] = $amount;
+                }
+            }
+
+            $totalOpeningBalance = $this->get_total_opening_balance($userid, $startdate, $enddate);
+            /* getting total outstanding */
+            $totalOutstanding = $this->get_total_outstanding($userid, $startdate);
+
+            $totalClosingBalance = $this->get_total_closing_balance($results, $totalOpeningBalance);
+
+            // $totalClosingBalanceHead = $totalOpeningBalance + $this->totalClosingBalanceHead($userid, $enddate, $startdate);
+            $totalClosingBalanceHead = $this->totalClosingBalanceHead($userid, $enddate, $startdate);
+
+            if (!count($results)) {
+                $results[$startdate][] = [
+                    "tAction" => "invoiceAdded",
+                    "status" => "Unpaid",
+                    "tDetail" => "Opening Balance",
+                    "dAmount" => $totalOpeningBalance,
+                    "cAmount" => 0,
+                    "bAmount" => $totalOpeningBalance,
+                ];
+            }
+
+            $allResults = ['data' => $results, 'totalDebit' => $totalDebit, 'outstanding' => $outstanding, 'totalOutstanding' => $totalClosingBalance, "userid" => $userid, 'due120day' => array_sum($due120day), 'due90day' => array_sum($due90day), 'due60day' => array_sum($due60day), 'due30day' => array_sum($due30day), 'userid' => $userid, 'creditbalance' => $getcredits['Totalcredits']];
+            $allResults['dueCurrent'] = array_sum($dueCurrent);
+            $allResults["totalOpeningBalance"] = $totalOpeningBalance + $totalOutstanding;
+            $allResults["totalClosingBalance"] = ($totalClosingBalance > 0 ? $totalClosingBalance : 0);
+            $allResults["totalClosingBalanceHead"] = $totalClosingBalanceHead;
+
+            // echo "<pre>";
+            // print_r($allResults);
+            // die;
+            return $allResults;
+        } elseif ($pdftpl->value == 'v204') {
+
+            $results = array();
+            $totalCredit = 0;
+            $totalDebit = 0;
+            $outstanding = 0;
+            $cancelledInvoices = 0;
+            $cancelledInvoicesprice = 0;
+
+            $cancelledInvoice = Capsule::select("select  COUNT(id) AS totalinvoice,SUM(total) as Cancelled from tblinvoices where userid='" . $userid . "' and date>='" . $startdate . "' and date<='" . $enddate . "' and status = 'Cancelled' ");
+
+            $cancelledInvoices = $cancelledInvoice[0]->totalinvoice;
+            $cancelledInvoicesprice = $cancelledInvoice[0]->Cancelled;
+
+            if ($displaytype == "on") {
+                $rows = Capsule::table('tblinvoices');
+                $rows->select("tblinvoices.id", "tblinvoices.userid", "tblinvoices.invoicenum", "tblinvoices.date", "tblinvoices.duedate", "tblinvoices.datepaid", "tblinvoices.last_capture_attempt", "tblinvoices.date_refunded", "tblinvoices.date_cancelled", "tblinvoices.subtotal", "tblinvoices.credit", "tblinvoices.tax", "tblinvoices.tax2", "tblinvoices.total", "tblinvoices.taxrate", "tblinvoices.taxrate2", "tblinvoices.status", "tblinvoices.paymentmethod", "tblinvoices.paymethodid", "tblinvoices.notes", "tblinvoices.created_at", "tblinvoices.updated_at");
+                $rows->join('tblinvoiceitems', 'tblinvoiceitems.invoiceid', 'tblinvoices.id');
+                $rows->where('tblinvoiceitems.type', "!=", "Invoice");
+                $rows->where('tblinvoices.userid', $userid);
+                $rows->where('tblinvoices.status', "Unpaid");
+                $rows->orderBy("tblinvoices.id", "desc");
+                $rows->whereBetween('tblinvoices.date', [date('Y-m-d', strtotime($startdate)) . ' 00:00:00', date('Y-m-d', strtotime($enddate)) . ' 23:59:59']);
+                $rows = $rows->distinct()->get();
+            } else {
+                $rows = Capsule::table('tblinvoices');
+                $rows->select("tblinvoices.id", "tblinvoices.userid", "tblinvoices.invoicenum", "tblinvoices.date", "tblinvoices.duedate", "tblinvoices.datepaid", "tblinvoices.last_capture_attempt", "tblinvoices.date_refunded", "tblinvoices.date_cancelled", "tblinvoices.subtotal", "tblinvoices.credit", "tblinvoices.tax", "tblinvoices.tax2", "tblinvoices.total", "tblinvoices.taxrate", "tblinvoices.taxrate2", "tblinvoices.status", "tblinvoices.paymentmethod", "tblinvoices.paymethodid", "tblinvoices.notes", "tblinvoices.created_at", "tblinvoices.updated_at");
+                $rows->join('tblinvoiceitems', 'tblinvoiceitems.invoiceid', 'tblinvoices.id');
+                $rows->where('tblinvoiceitems.type', "!=", "Invoice");
+                $rows->where('tblinvoices.userid', $userid);
+                $rows->orderBy("tblinvoices.id", "desc");
+                // $rows->where('tblinvoices.status', "Unpaid");
+                $rows->whereBetween('tblinvoices.date', [date('Y-m-d', strtotime($startdate)) . ' 00:00:00', date('Y-m-d', strtotime($enddate)) . ' 23:59:59']);
+                $rows = $rows->distinct()->get();
+            }
+            $dueCurrent = [];
+
+            foreach ($rows as $row) {
+                $row = (array) $row;
+
+                /* showing paid invoices created rows id subtotal = 0*/
+                if ($row['status'] == "Paid" && $row['subtotal'] == "0.00" && $this->betweenDates($row['date'], $startdate, $enddate)) {
+                    $tDetail = 'invoicepaid';
+                    $row['activity'] = 'paymentAdded';
+                    $row['cAmount'] = $row['amountin'];
+                    $row['invoicepaidcreated'] = "invoicepaidcreated";
+                    $row['tDetail'] = $tDetail;
+                    $results[date('Y-m-d H:i:s', strtotime($row['date']))][] = $row;
+                }
+
+
+                if ($row['status'] == "Unpaid") {
+                    $row['activity'] = 'invoiceAdded';
+                    $row['tAction'] = 'invoiceAdded';
+                    $row['tAmount'] = $row['subtotal'] + $row['tax'] + $row['tax2'];
+                    $invoiceNo = $row['invoicenum'];
+                    if (empty($invoiceNo)) {
+                        $invoiceNo = $row['id'];
+                    }
+
+                    $tDetail = '<span style="font-size:13px; color#000000;">' . $LANG['invoicecreatedtemp3'] . '</span><br>' . $LANG['invoicenotemp3'] . '#' . $invoiceNo;
+                    $amount = ($row["subtotal"] + $row["tax"] + $row["tax2"]) - $row["credit"];
+
+                    $row['tDetail'] = $tDetail;
+                    $row['cAmount'] = '0.00';
+                    $row['dAmount'] = $row['tAmount'];
+                    $row['bAmount'] = $row['total'];
+                    $results[date('Y-m-d H:i:s', strtotime($row['date']))][] = $row;
+
+
+                    $acRows = Capsule::select("select * from tblaccounts where userid='" . $userid . "' and invoiceid='" . $row['id'] . "'");
+
+                    if (isset($acRows["0"])) {
+                        $paidAmount = '0';
+                        foreach ($acRows as $acRow) {
+                            $paidAmount += $acRow->amountin;
+                            $date = $acRow->date;
+                        }
+                        $amount = $amount - $paidAmount;
+                        unset($row['invoicepaidcreated']);
+                        $invoiceNo = $row['invoicenum'];
+                        if (empty($invoiceNo)) {
+                            $invoiceNo = $row['id'];
+                        }
+                        $row['status'] = "Paid";
+                        $row['activity'] = 'paymentAdded';
+                        $row['tAmount'] = $paidAmount;
+                        $row['amountin'] = $paidAmount;
+                        $row["invoiceid"] = $invoiceNo;
+                        $row["transid"] = "";
+                        $row["cAmount"] = $paidAmount;
+                        $tDetail = '<span style="font-size:13px; color#000000;">' . $LANG['invoicepaidtemp1'] . '</span><br>' . $LANG['invoicenotemp3'] . '#' . $invoiceNo . ' ' . $LANG['transactionidtemp3'] . ' #' . $row['transid'];
+                        $row['tDetail'] = $tDetail;
+                        $results[date('Y-m-d H:i:s', strtotime($date))][] = $row;
+                    }
+
+                    $dueCurrent[] = $amount;
+                } elseif ($row['status'] == "Paid" && $row['subtotal'] == "0.00") {
+                    unset($row['invoicepaidcreated']);
+                    $invoiceNo = $row['invoicenum'];
+                    if (empty($invoiceNo)) {
+                        $invoiceNo = $row['id'];
+                    }
+                    $row['activity'] = 'paymentAdded';
+                    $row['tAmount'] = $row['amountin'];
+                    // $totalDebit += $row['amountin'];
+                    //  $tDetail = $row['description'];
+                    $tDetail = '<span style="font-size:13px; color#000000;">' . $LANG['invoicepaidtemp1'] . '</span><br>' . $LANG['invoicenotemp3'] . '#' . $invoiceNo . ' ' . $LANG['transactionidtemp3'] . ' #' . $row['transid'];
+                    $row['tDetail'] = $tDetail;
+                    $results[date('Y-m-d H:i:s', strtotime($row['datepaid']))][] = $row;
+                } else {
+                    continue;
+                }
+            }
+
+            if ($displaytype != "on") {
+                /* getting invoice details  */
+
+                $accounts = $this->get_invoice_paid_details($userid, $startdate, $enddate);
+
+                $totalrefunded = 0;
+                foreach ($accounts as $row) {
+                    $row = (array) $row;
+                    /* showing paid invoices created rows */
+                    if ($row['amountin'] > 0 && $row['description'] == 'Invoice Payment' && $this->betweenDates($row['date'], $startdate, $enddate)) {
+                        $tDetail = 'invoicepaid';
+                        $row['activity'] = 'paymentAdded';
+                        $row['cAmount'] = $row['amountin'];
+                        $row['invoicepaidcreated'] = "invoicepaidcreated";
+                        $row['tDetail'] = $tDetail;
+                        $results[date('Y-m-d H:i:s', strtotime($row['date']))][] = $row;
+                    }
+
+                    if ($row['amountout'] > 0) {
+                        $totalrefunded += $row['amountout'];
+                        $row['tAmount'] = $row['amountout'];
+                        $tDetail = '<span style="font-size:13px; color#000000;">' . $LANG['refundpymttemp3'] . '</span><br>' . $row['description'];
+                        //  $tDetail = $row['description'];
+                        $row['activity'] = 'Refunded';
+                        $row['tDetail'] = $tDetail;
+                    } elseif ($row['amountin'] > 0 && $row['description'] == 'Invoice Payment') {
+                        unset($row['invoicepaidcreated']);
+                        $row['activity'] = 'paymentAdded';
+                        $row['tAmount'] = $row['amountin'];
+                        $totalDebit += $row['amountin'];
+                        //  $tDetail = $row['description'];
+                        $tDetail = '<span style="font-size:13px; color#000000;">' . $LANG['invoicepaidtemp1'] . '</span><br>' . $LANG['invoicenotemp3'] . '#' . $row['invoiceid'] . ' ' . $LANG['transactionidtemp3'] . ' #' . $row['transid'];
+                        $row['tDetail'] = $tDetail;
+                    } elseif ($row["status"] == "Unpaid") {
+                        $row['activity'] = 'invoiceAdded';
+                        $row['tAmount'] = $row['subtotal'] + $row['tax'] + $row['tax2'];
+                        $row['bAmount'] = $row['total'];
+                        $invoiceNo = $row['invoicenum'];
+
+                        if (empty($invoiceNo)) {
+                            $invoiceNo = $row['id'];
+                        }
+
+                        $tDetail = '<span style="font-size:13px; color#000000;">' . $LANG['invoicecreatedtemp3'] . '</span><br>' . $LANG['invoicenotemp3'] . '#' . $invoiceNo;
+                        $row['tDetail'] = $tDetail;
+                    }
+                    $results[date('Y-m-d H:i:s', strtotime($row["datepaid"]))][] = $row;
+                }
+
+                $credits = Capsule::select("select * from tblcredit where clientid='" . $userid . "' and date>='" . $startdate . "' and date<='" . $enddate . "' order by id desc ");
+
+                $addedcredits = 0;
+                foreach ($credits as $row) {
+                    $row = (array) $row;
+
+                    if ($row['amount'] > 0) {
+                        $addedcredits += $row['amount'];
+                        $row['activity'] = 'creditAdded';
+
+                        $row['tAmount'] = $row['amount'];
+                        $tDetail = '<span style="font-size:13px; color#000000;">' . $LANG['creditaddedtemp3'] . '</span>';
+                        $row['tDetail'] = $tDetail;
+                        $results[date('Y-m-d H:i:s', strtotime($row['date']))][] = $row;
+                    }
+
+                    if ($row['amount'] < 0) {
+                        $row['tAmount'] = substr($row['amount'], 1);
+
+                        $row['activity'] = 'creditApplied';
+                        $tDetail = '<span style="font-size:13px; color#000000;">' . $LANG['creditapplytemp3'] . '</span>';
+
+                        $totalDebit += substr($row['amount'], 1);
+                        $row['tDetail'] = $tDetail;
+                        $results[date('Y-m-d H:i:s', strtotime($row['date']))][] = $row;
+                    }
+
+                    if (preg_match("/Overpayment/i", $row['description'])) {
+
+                        $row['tAmount'] = $row['amount'];
+                        $invoiceid = preg_replace("/[^0-9]/", '', $row['description']);
+                        $tDetail = $LANG['onlyInvoice'] . ' #' . $invoiceid . ' ' . $LANG['overpaymenttemp1'];
+                        $row['tDetail'] = $tDetail;
+                        $results[date('Y-m-d H:i:s', strtotime($row['date']))][] = $row;
+                    }
+                    if ($row['description'] == '' && $row['amount'] < 0) {
+                        $row['activity'] = 'creditRemoved';
+                        $tDetail = '<span style="font-size:13px; color#000000;">' . $LANG['creditremovetemp3'] . '</span>';
+
+                        $row['tDetail'] = $tDetail;
+                        $results[date('Y-m-d H:i:s', strtotime($row['date']))][] = $row;
+                    }
+                }
+            }
+
+            $totalOpeningBalance = $this->get_total_opening_balance($userid, $startdate, $enddate);
+            /* getting total outstanding */
+            $outstanding = $this->get_total_outstanding($userid, $startdate);
+
+            // $totalClosingBalanceHead = $totalOpeningBalance + $this->totalClosingBalanceHead($userid, $enddate, $startdate);
+            $totalClosingBalanceHead = $this->totalClosingBalanceHead($userid, $enddate, $startdate);
+
+            if (!count($results)) {
+                $results[$startdate][] = [
+                    "activity" => "openingBalance",
+                    "status" => "Unpaid",
+                    "tAmount" => $totalOpeningBalance,
+                    "bAmount" => $totalOpeningBalance
+                ];
+            }
+
+            ksort($results);
+            $totalClosingBalance = $this->get_total_closing_balance($results, $totalOpeningBalance);
+
+            $clientcredits = Capsule::table("tblclients")->where('id', $userid)->first();
+            $clientRemainingcredits = $clientcredits->credit;
+
+            $allResults = [
+                'userid' => $userid,
+                'data' => $results,
+                'totalDebit' => $totalDebit,
+                'outstanding' => $outstanding,
+                'totalClosingBalance' => ($totalClosingBalance > 0 ? $totalClosingBalance : 0),
+                'addedcredits' => $addedcredits,
+                'availableCredits' => $clientRemainingcredits,
+                'totalrefunded' => $totalrefunded,
+                'cancelledInvoices' => $cancelledInvoices,
+                'cancelledInvoicesprice' => $cancelledInvoicesprice,
+                "totalOpeningBalance" => $totalOpeningBalance + $outstanding,
+                "totalClosingBalancehead" => $totalClosingBalanceHead,
+            ];
+            return $allResults;
+        } else {
+            // die("else");
+            $results = array();
+            $totalCredit = 0;
+            $totalDebit = 0;
+            $tblcurrencie = Capsule::table("tblclients")->join('tblcurrencies', 'tblclients.currency', '=', 'tblcurrencies.id')->select('tblcurrencies.*')->where('tblclients.id', $userid)->first();
+            if (count((array) $tblcurrencie) == 0) {
+                $tblcurrencie = Capsule::table("tblcurrencies")->where('default', '1')->first();
+            }
+            $tblcurrencie = (array) $tblcurrencie;
+            /* getting total outstanding */
+            $totalOutstanding = $this->get_total_outstanding($userid, $startdate);
+
+            if ($displaytype == "on") {
+                $rows = Capsule::table('tblinvoices');
+                $rows->select("tblinvoices.id", "tblinvoices.userid", "tblinvoices.invoicenum", "tblinvoices.date", "tblinvoices.duedate", "tblinvoices.datepaid", "tblinvoices.last_capture_attempt", "tblinvoices.date_refunded", "tblinvoices.date_cancelled", "tblinvoices.subtotal", "tblinvoices.credit", "tblinvoices.tax", "tblinvoices.tax2", "tblinvoices.total", "tblinvoices.taxrate", "tblinvoices.taxrate2", "tblinvoices.status", "tblinvoices.paymentmethod", "tblinvoices.paymethodid", "tblinvoices.notes", "tblinvoices.created_at", "tblinvoices.updated_at");
+                $rows->join('tblinvoiceitems', 'tblinvoiceitems.invoiceid', 'tblinvoices.id');
+                $rows->where('tblinvoiceitems.type', "!=", "Invoice");
+                $rows->where('tblinvoices.userid', $userid);
+                $rows->where('tblinvoices.status', "Unpaid");
+                $rows->orderBy("tblinvoices.id", "desc");
+                $rows->whereBetween('tblinvoices.date', [date('Y-m-d', strtotime($startdate)) . ' 00:00:00', date('Y-m-d', strtotime($enddate)) . ' 00:00:00']);
+                $rows = $rows->get();
+            } else {
+                $rows = Capsule::table('tblinvoices');
+                $rows->select("tblinvoices.id", "tblinvoices.userid", "tblinvoices.invoicenum", "tblinvoices.date", "tblinvoices.duedate", "tblinvoices.datepaid", "tblinvoices.last_capture_attempt", "tblinvoices.date_refunded", "tblinvoices.date_cancelled", "tblinvoices.subtotal", "tblinvoices.credit", "tblinvoices.tax", "tblinvoices.tax2", "tblinvoices.total", "tblinvoices.taxrate", "tblinvoices.taxrate2", "tblinvoices.status", "tblinvoices.paymentmethod", "tblinvoices.paymethodid", "tblinvoices.notes", "tblinvoices.created_at", "tblinvoices.updated_at");
+                $rows->join('tblinvoiceitems', 'tblinvoiceitems.invoiceid', 'tblinvoices.id');
+                $rows->where('tblinvoiceitems.type', "!=", "Invoice");
+                $rows->where('tblinvoices.userid', $userid);
+                $rows->orderBy("tblinvoices.id", "desc");
+                $rows->whereBetween('tblinvoices.date', [date('Y-m-d', strtotime($startdate)) . ' 00:00:00', date('Y-m-d', strtotime($enddate)) . ' 23:59:59']);
+                $rows = $rows->distinct()->get();
+            }
+
+            foreach ($rows as $row) {
+                $row = (array) $row;
+                /* showing paid invoices created rows id subtotal = 0*/
+                if ($row['status'] == "Paid" && $row['subtotal'] == "0.00" && $this->betweenDates($row['date'], $startdate, $enddate)) {
+                    $tDetail = $tDetail = '<span style="font-size:13px; color#000000;">' . $LANG['invoicecreatedtemp1'] . '</span><br>' . $LANG['invoicenotemp1'] . '#' . $row['id'];
+                    $row['activity'] = 'paymentAdded';
+                    $row['cAmount'] = $row['amountin'];
+                    $row['invoicepaidcreated'] = "invoicepaidcreated";
+                    $row['tDetail'] = $tDetail;
+                    $results[date('Y-m-d H:i:s', strtotime($row['date']))][] = $row;
+                }
+
+                if ($row['status'] == "Unpaid") {
+                    $row['activity'] = 'invoiceAdded';
+                    $row['tAction'] = 'invoiceAdded';
+                    $row['tAmount'] = $row['subtotal'] + $row['tax'] + $row['tax2'];
+                    $invoiceNo = $row['invoicenum'];
+
+                    if (empty($invoiceNo)) {
+                        $invoiceNo = $row['id'];
+                    }
+                    $tDetail = '<span style="font-size:13px; color#000000;">' . $LANG['invoicecreatedtemp1'] . '</span><br>' . $LANG['invoicenotemp1'] . '#' . $invoiceNo;
+                    $row['tDetail'] = $tDetail;
+
+                    $row['cAmount'] = '0.00';
+                    $row['dAmount'] = $row['tAmount'];
+                    $row['bAmount'] = $row['total'];
+
+                    $amount = ($row["subtotal"] + $row["tax"] + $row["tax2"]) - $row["credit"];
+                    $acRows = Capsule::select("select * from tblaccounts where userid='" . $userid . "' and invoiceid='" . $row['id'] . "'");
+                    $paidAmount = '0';
+                    foreach ($acRows as $acRow) {
+                        $paidAmount += $acRow->amountin;
+                    }
+                    $amount = $amount - $paidAmount;
+
+                    $dueCurrent[] = $amount;
+                    $results[date('Y-m-d H:i:s', strtotime($row['date']))][] = $row;
+                } elseif ($row['status'] == "Paid" && $row['subtotal'] == "0.00") {
+                    unset($row['invoicepaidcreated']);
+
+                    $invoiceNo = $row['invoicenum'];
+                    if (empty($invoiceNo)) {
+                        $invoiceNo = $row['id'];
+                    }
+                    $row['activity'] = 'paymentAdded';
+                    $row['tAction'] = 'paymentAdded';
+                    $row['tAmount'] = $row['amountin'];
+
+                    $tDetail = '<span style="font-size:13px; color#000000;">' . $LANG['invoicepaidtemp1'] . '</span><br>' . $LANG['invoicenotemp1'] . '#' . $invoiceNo . ' ' . $LANG['transactionidtemp3'] . ' #' . $row['transid'];
+                    $row['tDetail'] = $tDetail;
+                    $results[date('Y-m-d H:i:s', strtotime($row['datepaid']))][] = $row;
+                } else {
+                    continue;
+                }
+            }
+
+            if ($displaytype != "on") {
+
+                $accounts = $this->get_invoice_paid_details($userid, $startdate, $enddate);
+                $totalpaid = 0;
+                foreach ($accounts as $row) {
+                    $row = (array) $row;
+                    $row['tAction'] = 'paymentAdded';
+                    $row['tAmount'] = $row['amountin'];
+
+                    /* showing paid invoices created rows id subtotal = 0*/
+                    if ($row['amountin'] > 0 && $row['description'] == 'Invoice Payment' && $this->betweenDates($row['date'], $startdate, $enddate)) {
+                        $tDetail = $tDetail = '<span style="font-size:13px; color#000000;">' . $LANG['invoicecreatedtemp1'] . '</span><br>' . $LANG['invoicenotemp1'] . '#' . $row['id'];
+                        $row['activity'] = 'paymentAdded';
+                        $row['cAmount'] = $row['amountin'];
+                        $row['invoicepaidcreated'] = "invoicepaidcreated";
+                        $row['tDetail'] = $tDetail;
+                        $results[date('Y-m-d H:i:s', strtotime($row['date']))][] = $row;
+                    }
+
+                    if ($row['amountout'] > '0') {
+                        $row['tAmount'] = $row['amountout'];
+                        $totalpaid += $row['amountout'];
+                        $tDetail = '<span style="font-size:13px; color#000000;">' . $LANG['refundpymttemp1'] . '</span><br>' . $row['description'];
+                        $row['tAction'] = 'Refunded';
+                    } else {
+                        unset($row['invoicepaidcreated']);
+                        $totalpaid += $row['amountin'];
+                        $totalDebit += $row['amountin'];
+                        $tDetail = '<span style="font-size:13px; color#000000;">' . $LANG['invoicepaidtemp1'] . '</span><br>' . $LANG['invoicenotemp1'] . '#' . $row['invoiceid'] . ' ' . $LANG['transactionidtemp1'] . ' #' . $row['transid'];
+                    }
+
+                    $row['tDetail'] = $tDetail;
+                    $results[date('Y-m-d H:i:s', strtotime($row['datepaid']))][] = $row;
+                }
+
+                $credit = Capsule::select("select * from tblcredit where clientid='" . $userid . "' and date>='" . $startdate . "' and date<='" . $enddate . "' order by id desc ");
+
+                foreach ($credit as $row) {
+                    $row = (array) $row;
+
+                    if ($row['amount'] < '0') {
+                        $row['tAmount'] = substr($row['amount'], 1);
+                        if ($row['description'] != '') {
+                            $tDetail = '<span style="font-size:13px; color#000000;">' . $LANG['creditappliedtemp1'] . '</span>';
+                        } else {
+                            $tDetail = '<span style="font-size:13px; color#000000;">' . $LANG['statuscreditremoved'] . '</span>';
+                        }
+
+                        $row['tAction'] = 'creditRemoved';
+
+                        $totalDebit += substr($row['amount'], 1);
+                    } else {
+                        $row['tAction'] = 'creditAdded';
+                        $row['tAmount'] = $row['amount'];
+                        $totalCredit += $row['amount'];
+
+                        $tDetail = '<span style="font-size:13px; color#000000;">' . $LANG['creditaddedtemp1'] . '</span>';
+                    }
+
+                    if (preg_match("/Overpayment/i", $row['description'])) {
+                        $invoiceid = preg_replace("/[^0-9]/", '', $row['description']);
+                        if ($row['description'] != '') {
+                            $description = $LANG['onlyInvoice'] . ' #' . $invoiceid . ' ' . $LANG['overpaymenttemp1'];
+                        }
+                    } else {
+                        $invoiceid = preg_replace("/[^0-9]/", '', $row['description']);
+                        if ($row['description'] != '') {
+                            $description = $LANG['creditappliedinvoicetemp1'] . ' #' . $invoiceid;
+                        }
+                    }
+
+                    $row['tDetail'] = $tDetail . '<br>' . $description;
+                    $results[date('Y-m-d H:i:s', strtotime($row['date']))][] = $row;
+                }
+            }
+
+
+            ksort($results);
+            $totalOpeningBalance = $this->get_total_opening_balance($userid, $startdate, $enddate);
+
+            if (!count($results)) {
+                $results[$startdate][] = [
+                    "tAction" => "invoiceAdded",
+                    "status" => "Unpaid",
+                    "tDetail" => "Opening Balance as on $startdate",
+                    "tAmount" => $totalOpeningBalance + $totalOutstanding,
+                ];
+            }
+
+            $allResults = array('data' => $results, 'totalbalance' => $totalBalance, 'totalCredit' => $totalCredit, 'totalDebit' => $totalDebit, 'tblcurrencie' => $tblcurrencie, 'outstanding' => $totalOutstanding, 'userid' => $userid, "totalpaid" => $totalpaid);
+            $allResults["totalOpeningBalance"] = $totalOpeningBalance + $totalOutstanding;
+            return $allResults;
+        }
+    }
+    function betweenDates($cmpDate, $startDate, $endDate)
+    {
+        return(date($cmpDate) >= date($startDate)) && (date($cmpDate) <= date($endDate));
+    }
+
+    public function get_total_closing_balance($allStatements, $totalOpeningBalance)
+    {
+
+        try {
+            $totalClosingBalance = $totalOpeningBalance;
+
+            foreach ($allStatements as $dateTime => $statements) {
+                foreach ($statements as $statement) {
+                    if ($statement['status'] == 'Unpaid') {
+                        $totalClosingBalance = $statement['dAmount'] + $totalClosingBalance;
+                    } elseif ($statement['status'] == 'Paid' && !isset($statement["invoicepaidcreated"])) {
+                        $totalClosingBalance = abs($totalClosingBalance - (!isset($statement['amountin']) ? $statement["total"] : $statement['amountin']));
+                    }
+                    if (isset($statement["invoicepaidcreated"]) && $statement["invoicepaidcreated"] == "invoicepaidcreated") {
+                        $totalClosingBalance = abs((!isset($statement['amountin']) ? $statement["total"] : $statement['amountin']) + $totalClosingBalance);
+                    }
+                }
+            }
+
+            return $totalClosingBalance;
+
+        } catch (\Exception $e) {
+            logActivity("Account statement(get_total_closing_balance) Error: {$e->getMessage()}");
+        }
+
+    }
+
+    public function get_total_outstanding($userid, $startdate = null, $enddate = null)
+    {
+        try {
+            $rows = Capsule::table('tblinvoices');
+            $rows->select("tblinvoices.id", "tblinvoices.userid", "tblinvoices.invoicenum", "tblinvoices.date", "tblinvoices.duedate", "tblinvoices.datepaid", "tblinvoices.last_capture_attempt", "tblinvoices.date_refunded", "tblinvoices.date_cancelled", "tblinvoices.subtotal", "tblinvoices.credit", "tblinvoices.tax", "tblinvoices.tax2", "tblinvoices.total", "tblinvoices.taxrate", "tblinvoices.taxrate2", "tblinvoices.status", "tblinvoices.paymentmethod", "tblinvoices.paymethodid", "tblinvoices.notes", "tblinvoices.created_at", "tblinvoices.updated_at");
+            $rows->join('tblinvoiceitems', 'tblinvoiceitems.invoiceid', 'tblinvoices.id');
+            $rows->where('tblinvoiceitems.type', "!=", "Invoice");
+            $rows->where('tblinvoices.userid', $userid);
+            $rows->where('tblinvoices.status', "Unpaid");
+            $rows->where('tblinvoices.date', "<", (date('Y-m-d', strtotime($startdate)) . ' 00:00:00'));
+            $rows->orderBy("tblinvoices.id", "desc");
+            // if(!is_null($enddate)){
+            //     $rows->where('tblinvoices.date',"<" , (date('Y-m-d', strtotime($enddate)) . ' 00:00:00'));
+            // } else{
+            //     $rows->where('tblinvoices.date',"<" , (date('Y-m-d', strtotime($startdate)) . ' 00:00:00'));
+            // }
+            $rows = $rows->distinct()->get();
+
+            $outstanding = 0.00;
+            foreach ($rows as $row) {
+                $row = (array) $row;
+                $credit = 0;
+                $transactions = Capsule::table("tblaccounts")->where('invoiceid', $row['id'])->where('date', "<", (date('Y-m-d', strtotime($startdate)) . ' 00:00:00'))->get();
+                // $transactions = Capsule::table("tblaccounts")->where('invoiceid', $row['id'])->get();
+
+                foreach ($transactions as $transaction) {
+                    $credit += $transaction->amountin;
+                }
+
+                $credit += $row['credit'];
+
+                $outstanding += ($row['subtotal'] + $row['tax'] + $row['tax2']) - $credit;
+            }
+
+            return $outstanding;
+        } catch (\Exception $e) {
+            logActivity("Account statement(get_total_outstanding) Error: {$e->getMessage()}");
+        }
+    }
+
+
+    public function get_total_opening_balance($userid, $startdate, $enddate)
+    {
+        try {
+            $totalOpeningBalance = 0.00;
+            $openingBalanceData = Capsule::table("tblinvoices")
+                ->Join("tblaccounts", "tblinvoices.id", "tblaccounts.invoiceid")
+                ->select("tblinvoices.*", "tblaccounts.amountout as amountout", "tblaccounts.description as description", "tblaccounts.amountin as amountin", "tblaccounts.invoiceid as invoiceid", "tblaccounts.transid as transid", "tblinvoices.datepaid as datepaid")
+                ->where("tblinvoices.date", "<", $startdate)
+                ->whereBetween('tblinvoices.datepaid', [date('Y-m-d', strtotime($startdate)) . ' 00:00:00', date('Y-m-d', strtotime($enddate)) . ' 23:59:59'])->where("tblinvoices.userid", $userid)->get();
+            foreach ($openingBalanceData as $row) {
+                $row = (array) $row;
+                $credit = $row['credit'];
+                $totalOpeningBalance += ($row['subtotal'] + $row['tax'] + $row['tax2']) - $credit;
+            }
+
+            return $totalOpeningBalance;
+        } catch (\Exception $e) {
+            logActivity("Account statement(get_total_due_before) Error: {$e->getMessage()}");
+        }
+    }
+    // public function get_total_opening_balance($userid, $startdate, $enddate)
+    // {
+    //     try {
+    //         $totalOpeningBalance = 0.00;
+    //         $openingBalanceData = Capsule::table("tblinvoices")
+    //             ->Join("tblaccounts", "tblinvoices.id", "tblaccounts.invoiceid")
+    //             ->select("tblinvoices.*", "tblaccounts.amountout as amountout", "tblaccounts.description as description", "tblaccounts.amountin as amountin", "tblaccounts.invoiceid as invoiceid", "tblaccounts.transid as transid", "tblinvoices.datepaid as datepaid")
+    //             ->where("tblinvoices.date", "<", $startdate)
+    //             ->whereBetween('tblinvoices.datepaid', [date('Y-m-d', strtotime($startdate)) . ' 00:00:00', date('Y-m-d', strtotime($enddate)) . ' 23:59:59'])->where("tblinvoices.userid", $userid)->get();
+    //         foreach ($openingBalanceData as $row) {
+    //             $row = (array) $row;
+    //             $credit = $row['credit'];
+    //             $totalOpeningBalance += ($row['subtotal'] + $row['tax'] + $row['tax2']) - $credit;
+    //         }
+
+    //         return $totalOpeningBalance;
+    //     } catch (\Exception $e) {
+    //         logActivity("Account statement(get_total_due_before) Error: {$e->getMessage()}");
+    //     }
+    // }
+    public function get_total_due_before($userid, $startdate)
+    {
+        try {
+            $totalOpeningBalance = 0.00;
+            $openingBalanceData = Capsule::table('tblinvoices')
+                ->select("tblinvoices.id", "tblinvoices.userid", "tblinvoices.invoicenum", "tblinvoices.date", "tblinvoices.duedate", "tblinvoices.datepaid", "tblinvoices.last_capture_attempt", "tblinvoices.date_refunded", "tblinvoices.date_cancelled", "tblinvoices.subtotal", "tblinvoices.credit", "tblinvoices.tax", "tblinvoices.tax2", "tblinvoices.total", "tblinvoices.taxrate", "tblinvoices.taxrate2", "tblinvoices.status", "tblinvoices.paymentmethod", "tblinvoices.paymethodid", "tblinvoices.notes", "tblinvoices.created_at", "tblinvoices.updated_at")
+                ->join('tblinvoiceitems', 'tblinvoiceitems.invoiceid', 'tblinvoices.id')
+                ->where('tblinvoiceitems.type', "!=", "Invoice")
+                ->where('tblinvoices.userid', $userid)
+                ->where('tblinvoices.status', "Unpaid")
+                ->orderBy("tblinvoices.id", "desc")
+                ->where('tblinvoices.date', ">", $startdate)
+                ->distinct()->get();
+            foreach ($openingBalanceData as $row) {
+                $row = (array) $row;
+                $credit = 0;
+                $transactions = Capsule::table("tblaccounts")->where('invoiceid', $row['id'])->get();
+
+                foreach ($transactions as $transaction) {
+                    $credit += $transaction->amountin;
+                }
+
+                $credit += $row['credit'];
+
+                $totalOpeningBalance += ($row['subtotal'] + $row['tax'] + $row['tax2']) - $credit;
+            }
+
+            return $totalOpeningBalance;
+        } catch (\Exception $e) {
+            logActivity("Account statement(get_total_due_before) Error: {$e->getMessage()}");
+        }
+    }
+
+
+    public function get_invoice_paid_details($userid, $startdate, $enddate)
+    {
+        try {
+            $accounts = Capsule::table("tblinvoices")
+                ->Join("tblaccounts", "tblinvoices.id", "tblaccounts.invoiceid")
+                ->select("tblinvoices.*", "tblaccounts.amountout as amountout", "tblaccounts.description as description", "tblaccounts.amountin as amountin", "tblaccounts.invoiceid as invoiceid", "tblaccounts.transid as transid", "tblinvoices.datepaid as datepaid")
+                ->whereBetween('tblinvoices.datepaid', [date('Y-m-d', strtotime($startdate)) . ' 00:00:00', date('Y-m-d', strtotime($enddate)) . ' 23:59:59'])->where("tblinvoices.userid", $userid)->get();
+
+            return $accounts;
+        } catch (\Exception $e) {
+            logActivity("Account statement(get_invoice_paid_details) Error: {$e->getMessage()}");
+        }
+    }
+
+
+    public function get_clients_and_recent_emails()
+    {
+
+        $result = array();
+        $sql = Capsule::table("tblclients")->select('id', 'email')->get();
+        $enddate = date("Y-m-d", strtotime("-1 months"));
+        $clientData = array();
+        $recentClientData = array();
+
+        foreach ($sql as $row) {
+
+            $settingVal = 'acSentDateUser' . $row->id . 'cron';
+            $settingVal2 = 'acSentDateUser' . $row->id . 'admin';
+            $chkSentMail = Capsule::table("mod_account_summary_configuration")->where('value', '>=', $enddate)->where('value', '<=', date("Y-m-d"))->where('setting', $settingVal)->orWhere('setting', $settingVal2)->orderBy('updated_at', 'desc')->get();
+
+            if (count((array) $chkSentMail) > 0) {
+                $recentClientData[] = array('id' => $row->id, 'email' => $row->email, 'sentDate' => $chkSentMail[0]->updated_at);
+            } else {
+                $clientData[] = array('id' => $row->id, 'email' => $row->email);
+            }
+        }
+
+        $result = array('clientData' => $clientData, 'recentClientData' => $recentClientData);
+        return $result;
+    }
+
+    public function get_All_clients_and_recent_emails()
+    {
+
+        $result = array();
+
+        $sql = Capsule::table("tblclients")->select('id', 'firstname', 'lastname', 'email', 'companyname')->get();
+        $clientData = array();
+
+        foreach ($sql as $row) {
+            $clientData[] = array('id' => $row->id, 'email' => $row->email, 'firstname' => $row->firstname, 'lastname' => $row->lastname, 'companyname' => $row->companyname);
+        }
+
+        $result = array('clientData' => $clientData);
+        return $result;
+    }
+
+    public function get_due_invoces($userid, $startdate, $enddate)
+    {
+        $result = array();
+        $invoicetype = $this->pdfInvoiceType();
+        $startdate = $this->dateFormatChange($startdate);
+        $enddate = $this->dateFormatChange($enddate);
+
+        if ($invoicetype == "unpaid") {
+            $sql = "SELECT * FROM `tblinvoices` WHERE `tblinvoices`.`status` = 'Unpaid' AND `tblinvoices`.`userid` = '" . $userid . "' AND `tblinvoices`.`date` >= '" . $enddate . "' AND `tblinvoices`.`date` <= '" . $startdate . "' ORDER BY  `tblinvoices`.`id` ASC ";
+            $query = Capsule::select($sql);
+        } elseif ($invoicetype == "paid") {
+
+            $query = array();
+            $sql = "SELECT * FROM `tblinvoices` WHERE `tblinvoices`.`status` = 'Paid' AND `tblinvoices`.`userid` = '" . $userid . "' AND `tblinvoices`.`date` >= '" . $enddate . "' AND `tblinvoices`.`date` <= '" . $startdate . "' ORDER BY  `tblinvoices`.`id` ASC ";
+            $query1 = Capsule::select($sql);
+
+            foreach ($query1 as $queryData1) {
+                $query[] = $queryData1;
+            }
+
+            $sql = "SELECT * FROM `tblinvoices` WHERE `tblinvoices`.`status` = 'Unpaid' AND `tblinvoices`.`userid` = '" . $userid . "' AND `tblinvoices`.`date` >= '" . $enddate . "' AND `tblinvoices`.`date` <= '" . $startdate . "' and `tblinvoices`.`id` IN (select invoiceid FROM tblaccounts) ORDER BY  `tblinvoices`.`id` ASC ";
+            $query2 = Capsule::select($sql);
+
+            foreach ($query2 as $queryData2) {
+                $query[] = $queryData2;
+            }
+        } else {
+
+            $sql = "SELECT * FROM `tblinvoices` WHERE (`tblinvoices`.`status` = 'Unpaid' OR `tblinvoices`.`status` = 'Paid') AND `tblinvoices`.`userid` = '" . $userid . "' AND `tblinvoices`.`date` >= '" . $enddate . "' AND `tblinvoices`.`date` <= '" . $startdate . "' ORDER BY  `tblinvoices`.`id` ASC ";
+            $query = Capsule::select($sql);
+        }
+
+        if (count($query) > 0) {
+
+            foreach ($query as $row) {
+                $qry = Capsule::table("tblinvoiceitems")->where("invoiceid", $row->id)->get();
+                $count = 0;
+                foreach ($qry as $row1) {
+                    $row1 = (array) $row1;
+                    $result[$row->id]['items'][$count] = $row1;
+                    $count++;
+                }
+                $result[$row->id]['number'] = !empty($row['invoicenum']) ? $row['invoicenum'] : $row['id'];
+                $result[$row->id]['create'] = $row->date;
+                $result[$row->id]['duedate'] = $row->duedate;
+                $result[$row->id]['subtotal'] = $row->subtotal;
+                $result[$row->id]['credit'] = $row->credit;
+                $result[$row->id]['total'] = $row->total;
+            }
+        }
+
+        return $result;
+    }
+
+    public function get_time_dif($datetime)
+    {
+        $start = date_create($datetime);
+        $end = date_create(); // Current time and date
+        $diff = date_diff($start, $end);
+        $result = '0';
+
+        if ($diff->y == '0' && $diff->m == '0' && $diff->d == '0' && $diff->h == '0' && $diff->i == '0') {
+            $result = $diff->s . ' Seconds';
+        } elseif ($diff->y == '0' && $diff->m == '0' && $diff->d == '0' && $diff->h == '0') {
+            $result = $diff->i . ' Minutes';
+        } elseif ($diff->y == '0' && $diff->m == '0' && $diff->d == '0' && $diff->h != '0') {
+            $result = $diff->h . ' Hours';
+        } else {
+            $result = $diff->d . ' Days';
+        }
+
+        return $result;
+    }
+
+    public function get_all_invoces($userid, $startdate, $enddate, $invoicetype)
+    {
+        $startdate = $this->dateFormatChange($startdate);
+        $enddate = $this->dateFormatChange($enddate);
+        $result = array();
+
+        if ($invoicetype == "paid") {
+
+            $query = array();
+            $sql = "SELECT * FROM `tblinvoices` WHERE `tblinvoices`.`status` = 'Paid' AND `tblinvoices`.`userid` = '" . $userid . "' AND `tblinvoices`.`date` >= '" . $enddate . "' AND `tblinvoices`.`date` <= '" . $startdate . "' ORDER BY  `tblinvoices`.`id` ASC ";
+            $query1 = Capsule::select($sql);
+
+            foreach ($query1 as $queryData1) {
+                $query[] = $queryData1;
+            }
+
+            $sql = "SELECT * FROM `tblinvoices` WHERE `tblinvoices`.`status` = 'Unpaid' AND `tblinvoices`.`userid` = '" . $userid . "' AND `tblinvoices`.`date` >= '" . $enddate . "' AND `tblinvoices`.`date` <= '" . $startdate . "' and `tblinvoices`.`id` IN (select invoiceid FROM tblaccounts) ORDER BY  `tblinvoices`.`id` ASC ";
+
+            $query2 = Capsule::select($sql);
+            foreach ($query2 as $queryData2) {
+                $query[] = $queryData2;
+            }
+        } elseif ($invoicetype == "unpaid") {
+            $sql = "SELECT * FROM `tblinvoices` WHERE `tblinvoices`.`status` = 'Unpaid' AND `tblinvoices`.`userid` = '" . $userid . "' AND `tblinvoices`.`date` >= '" . $enddate . "' AND `tblinvoices`.`date` <= '" . $startdate . "' ORDER BY  `tblinvoices`.`id` ASC ";
+            $query = Capsule::select($sql);
+        } elseif ($invoicetype == "all") {
+            $sql = "SELECT * FROM `tblinvoices` WHERE `tblinvoices`.`status` != 'Cancelled' AND `tblinvoices`.`userid` = '" . $userid . "' AND `tblinvoices`.`date` >= '" . $enddate . "' AND `tblinvoices`.`date` <= '" . $startdate . "' ORDER BY  `tblinvoices`.`id` ASC ";
+            $query = Capsule::select($sql);
+        }
+
+        if (count($query) > 0) {
+            foreach ($query as $row) {
+                $qry = Capsule::table("tblinvoiceitems")->where("invoiceid", $row->id)->get();
+                $count = 0;
+                foreach ($qry as $row1) {
+                    $row1 = (array) $row1;
+                    $result[$row->id]['items'][$count] = $row1;
+                    $count++;
+                }
+
+                $result[$row->id]['create'] = $row->date;
+                $result[$row->id]['duedate'] = $row->duedate;
+                $result[$row->id]['subtotal'] = $row->subtotal;
+                $result[$row->id]['credit'] = $row->credit;
+                $result[$row->id]['total'] = $row->total;
+            }
+        }
+
+        return $result;
+    }
+
+    public function invoice_transaction_details($invoiceid, $userid)
+    {
+        $result = array();
+        $sql = "SELECT `gateway`, `date`, `amountin`, `amountout`, `transid` FROM  `tblaccounts` WHERE `userid` = '" . $userid . "' AND `invoiceid` = '" . $invoiceid . "' ORDER BY  `tblaccounts`.`id` ASC ";
+        $query = Capsule::select($sql);
+
+        foreach ($query as $row) {
+            $row = (array) $row;
+            $result[] = $row;
+        }
+
+        $invoiceDatas = Capsule::table("tblinvoices")->select('subtotal', 'datepaid', 'credit', 'total')->where('credit', '!=', '0.00')->where('id', $invoiceid)->get();
+
+        foreach ($invoiceDatas as $invoiceData) {
+            $row = array();
+            $row['date'] = $invoiceData->datepaid;
+            $row['amountin'] = $invoiceData->credit;
+            $row['amountout'] = 0;
+            $row['transid'] = 'credit';
+            $row['gateway'] = '';
+            $result[] = $row;
+        }
+        return $result;
+    }
+
+    public function get_companyAddress()
+    {
+        $addressArr = array();
+        $row = Capsule::table("tblconfiguration")->where("setting", "InvoicePayTo")->get();
+
+        if (count($row) > 0) {
+            $addressArr = explode("\n", $row[0]->value);
+        } else {
+            $addressArr[0] = "Address goes here";
+        }
+
+        return $addressArr;
+    }
+
+    public function get_clientdetails($userid)
+    {
+        $row = Capsule::table("tblclients")->select('id', 'firstname', 'lastname', 'companyname', 'address1', 'address2', 'city', 'state', 'postcode', 'country', 'credit', 'email', 'phonenumber')->where("id", $userid)->get();
+        $row = (array) $row[0];
+        return $row;
+    }
+
+    public function add_attachments($userid, $pdfname)
+    {
+        $sql = Capsule::table("mod_account_summary_pdf")->where("userid", $userid)->count();
+        if ($sql > 0) {
+            Capsule::table("mod_account_summary_pdf")->where("userid", $userid)->update(array('title' => $pdfname));
+        } else {
+            Capsule::table("mod_account_summary_pdf")->insert(array('title' => $pdfname, 'userid' => $userid));
+        }
+    }
+
+    public function remove_attachments($userid)
+    {
+        #from attachment
+        $sql = Capsule::table("mod_account_summary_pdf")->select('title')->where("userid", $userid)->get();
+        $pdfname = $sql[0]->title;
+
+        global $attachments_dir;
+
+        $attachmentPath = [];
+
+        if (Capsule::Schema()->hasTable('tblfileassetsettings')) {
+            $configtableAttachmentPath = Capsule::table("tblfileassetsettings")->join('tblstorageconfigurations', 'tblfileassetsettings.storageconfiguration_id', '=', 'tblstorageconfigurations.id')->select('tblstorageconfigurations.settings')->where('tblfileassetsettings.asset_type', 'email_attachments')->first();
+            $attachmentPath = json_decode($configtableAttachmentPath->settings);
+        }
+
+        if (!empty($attachmentPath->local_path)) {
+            $path_log = $attachmentPath->local_path . '/' . $pdfname;
+        } else {
+            if (isset($attachments_dir)) {
+                $attachments_dir = $attachments_dir . '/';
+            } else {
+                $basepath = realpath(__DIR__ . '/../../..');
+                $attachments_dir = $basepath . "/attachments/";
+            }
+            $path_log = $attachments_dir . $pdfname;
+        }
+
+
+
+        if (is_file($path_log)) {
+            unlink($path_log); // delete file
+        }
+    }
+
+    public function downloadstatement($userid)
+    {
+        $sql = Capsule::table("mod_account_summary_pdf")->select('title')->where("userid", $userid)->get();
+        $pdfname = $sql[0]->title;
+
+        //$upOne = realpath(__DIR__ . '/..');
+        global $attachments_dir;
+
+        $attachmentPath = [];
+
+        if (Capsule::Schema()->hasTable('tblfileassetsettings')) {
+            $configtableAttachmentPath = Capsule::table("tblfileassetsettings")->join('tblstorageconfigurations', 'tblfileassetsettings.storageconfiguration_id', '=', 'tblstorageconfigurations.id')->select('tblstorageconfigurations.settings')->where('tblfileassetsettings.asset_type', 'email_attachments')->first();
+            $attachmentPath = json_decode($configtableAttachmentPath->settings);
+        }
+
+        if (!empty($attachmentPath->local_path)) {
+            $upOne = $attachmentPath->local_path . '/';
+        } else {
+            if (isset($attachments_dir)) {
+                $upOne = $attachments_dir . '/';
+            } else {
+                $basepath = realpath(__DIR__ . '/../../../..');
+                $upOne = $basepath . "/attachments/";
+            }
+        }
+
+
+        $file = $upOne . $pdfname;
+
+        if (file_exists($file)) {
+            header('Content-Description: File Transfer');
+            header('Content-Type: application/octet-stream');
+            header('Content-Disposition: attachment; filename=' . basename($file));
+            header('Expires: 0');
+            header('Cache-Control: must-revalidate');
+            header('Pragma: public');
+            header('Content-Length: ' . filesize($file));
+            ob_clean();
+            flush();
+            readfile($file);
+            exit();
+        }
+    }
+
+    public function companydetails()
+    {
+        $result = array();
+        $sql = "SELECT * FROM `tblconfiguration` WHERE `setting` IN ('CompanyName','Email')";
+        $query = Capsule::select($sql);
+        //while ($row = mysql_fetch_assoc($query)) {
+        foreach ($query as $row) {
+            if ($row['setting'] == "CompanyName") {
+                $result['name'] = $row->value;
+            } else {
+                $result['email'] = $row->value;
+            }
+        }
+
+        return $result;
+    }
+
+    public function clientemailID($userid)
+    {
+        $query = Capsule::table("tblclients")->select('email')->where("id", $userid)->get();
+        $emailid = $query[0]->email;
+        return $emailid;
+    }
+
+    public function get_attachment($userid)
+    {
+        $query = Capsule::table("mod_account_summary_pdf")->select('title')->where("userid", $userid)->get();
+        $pdfname = $query[0]->title;
+
+        return $pdfname;
+    }
+
+    public function invoice_amount($invoiceid)
+    {
+
+        $query = Capsule::table("tblinvoices")->select('total', 'credit', 'subtotal', 'tax', 'tax2')->where("id", $invoiceid)->get();
+        if ($query[0]->credit == '	0.00') {
+            $total = $query[0]->total;
+        } else {
+            $total = $query[0]->subtotal + $query[0]->tax + $query[0]->tax2;
+        }
+
+        return $total;
+    }
+
+    public function insert_configuration()
+    {
+
+        $sql = Capsule::table("mod_account_summary_configuration")->count();
+
+        if ($sql == 0) {
+            $fields = array(
+                "PDFPaperSize" => "A4",
+                "TCPDFFont" => "helvetica",
+                "TCPDFCoustomFont" => '',
+                "EnablePDFInvoices" => 'on',
+                "footerEmail" => '',
+                "PDFInvoiceType" => 'unpaid'
+            );
+
+            foreach ($fields as $setting => $value) {
+                Capsule::table("mod_account_summary_configuration")->insert(array('setting' => $setting, 'value' => $value, 'created_at' => date('Y-m-d H:i:s')));
+            }
+        }
+    }
+
+    public function accountStatement_config()
+    {
+        $result = array();
+        $query = Capsule::table("mod_account_summary_configuration")->get();
+        foreach ($query as $row) {
+            //while ($row = mysql_fetch_assoc($query)) {
+            $result[$row->setting] = $row->value;
+        }
+        return $result;
+    }
+
+    public function updateDatabase()
+    {
+        try {
+            if (!Capsule::Schema()->hasTable('mod_ac_custom_template')) {
+                Capsule::schema()->create(
+                    'mod_ac_custom_template',
+                    function ($table) {
+                        $table->increments('id');
+                        $table->string('templatename');
+                        $table->text('settings');
+                    }
+                );
+            }
+        } catch (\Exception $e) {
+            logActivity("Unable to create mod_ac_custom_template: {$e->getMessage()}");
+        }
+    }
+
+    public function insertThemeColor($templateName, $data)
+    {
+        try {
+            if (Capsule::table("mod_ac_custom_template")->where('templatename', $templateName)->count() == 0) {
+                Capsule::table("mod_ac_custom_template")->insert(["templatename" => $templateName, "settings" => json_encode($data)]);
+            } else {
+                Capsule::table("mod_ac_custom_template")->where('templatename', $templateName)->update(["settings" => json_encode($data)]);
+            }
+            $result = "success";
+        } catch (\Exception $e) {
+            logActivity("Unable to insert data in table mod_ac_custom_template: {$e->getMessage()}");
+            $result = $e->getMessage();
+        }
+        return $result;
+    }
+
+    public function getThemeColor($templateName = NULL)
+    {
+        if ($templateName) {
+            $result = Capsule::table("mod_ac_custom_template")->where('templatename', $templateName)->first();
+        } else {
+            $result = Capsule::table("mod_ac_custom_template")->get();
+            $result = json_decode(json_encode($result), true);
+        }
+        return $result;
+    }
+
+    public function update_configuration($POST)
+    {
+        $status = '';
+        if ($POST['enablepdfinvoices'] == 'on') {
+            $fieldtype = $POST['pdfinvoicetype'];
+        } else {
+            $fieldtype = '';
+        }
+
+
+        $dirpath = str_replace('class', '', __DIR__);
+        $oldFontData = Capsule::table("mod_account_summary_configuration")->select('value')->where('setting', 'TCPDFCoustomFont')->get();
+        $oldFile = '';
+
+        if ($oldFontData[0]->value != '') {
+            $oldFile = $oldFontData[0]->value;
+        }
+
+        if ($POST['tcpdffont'] != 'custom') {
+            unlink($dirpath . '/font/' . $oldFile);
+        }
+
+        if ($POST['tcpdffont'] == 'custom' && !empty($_FILES["tcpdffontcustom"]["name"])) {
+
+            $pdfcustomfont = $_FILES["tcpdffontcustom"]["name"];
+            $allowed = array('Ttf', 'TTF', 'ttf');
+            $filename = $pdfcustomfont;
+            $ext = pathinfo($filename, PATHINFO_EXTENSION);
+
+            if (!in_array($ext, $allowed) && mime_content_type($_FILES["tcpdffontcustom"]["tmp_name"]) != 'application/x-font-ttf') {
+                return 'You have uploaded wrong file, Please upload only font file (font.ttf).';
+            }
+
+            unlink($dirpath . '/font/' . $oldFile);
+            move_uploaded_file($_FILES["tcpdffontcustom"]["tmp_name"], $dirpath . '/font/' . $pdfcustomfont);
+        } else {
+            $pdfcustomfont = '';
+        }
+
+        if ($POST['sendAutomaticStatement'] == '') {
+            $POST['sendAutomaticStatement'] = '0';
+        }
+
+        if ($POST['acSendInvoicePeriod'] == '') {
+            $POST['acSendInvoicePeriod'] = '0';
+        }
+
+        $checkdbFooteremail = Capsule::table("mod_account_summary_configuration")->select('value')->where('setting', 'footerEmail')->first();
+
+        if (count((array) $checkdbFooteremail) > 0) {
+            $dbFooteremail = Capsule::table("mod_account_summary_configuration")->select('value')->where('setting', 'footerEmail')->first();
+        }
+
+        $fields = array(
+            "PDFPaperSize" => $POST['pdfpapersize'],
+            "TCPDFFont" => $POST['tcpdffont'],
+            "TCPDFCoustomFont" => $pdfcustomfont,
+            "EnablePDFInvoices" => $POST['enablepdfinvoices'],
+            "footerEmail" => (empty($POST['footerEmail'])) ? $dbFooteremail->value : $POST['footerEmail'],
+            "PDFInvoiceType" => $fieldtype,
+            "sendAutomaticStatement" => $POST['sendAutomaticStatement'],
+            "stopPaidEmails" => $POST['stoppaidemails'],
+            "displayUnpaidInvoices" => $POST['displayunpaidinvoices'],
+            "displayBankDetails" => $POST['displaybankdetails'],
+            "logoUrl" => $POST['logourl'],
+            "acSendInvoicePeriod" => $POST['acSendInvoicePeriod'],
+            "pdf_template" => $POST['pdf_template'],
+            "monthlyDd" => $POST['monthlyDd'],
+            "quarterlyDd1" => $POST['quarterlyDd1'],
+            "quarterlyDd2" => $POST['quarterlyDd2'],
+            "quarterlyDd3" => $POST['quarterlyDd3'],
+            "quarterlyDd4" => $POST['quarterlyDd4'],
+            "semiannuallyDd1" => $POST['semiannuallyDd1'],
+            "semiannuallyDd2" => $POST['semiannuallyDd2'],
+            "annuallyDd" => $POST['annuallyDd'],
+            "logocenteralign" => $POST['calign'],
+            "logoleftalign" => $POST['lalign'],
+            "logorightalign" => $POST['ralign'],
+            "enableCustomColor" => $POST['custom_template_status'],
+        );
+
+        foreach ($fields as $setting => $value) {
+
+            $cnt = Capsule::table("mod_account_summary_configuration")->where('setting', $setting)->get();
+            if (count($cnt) == 0) {
+                try {
+                    Capsule::table("mod_account_summary_configuration")->insert(array('setting' => $setting, 'value' => $value, 'updated_at' => date('Y-m-d H:i:s')));
+                    $status = "success";
+                } catch (Exception $e) {
+                    $status = 'Caught exception: ' . $e->getMessage();
+                }
+            } else {
+                try {
+                    Capsule::table("mod_account_summary_configuration")->where('setting', $setting)->update(array('value' => $value, 'updated_at' => date('Y-m-d H:i:s')));
+                    $status = "success";
+                } catch (Exception $e) {
+                    $status = 'Caught exception: ' . $e->getMessage();
+                }
+            }
+        }
+
+        return $status;
+    }
+
+    public function getPdfFont()
+    {
+        $query = Capsule::table("mod_account_summary_configuration")->select('value')->where('setting', 'TCPDFFont')->get();
+        $result = $query[0]->value;
+
+        return $result;
+    }
+
+    public function pdfFont()
+    {
+        $query = Capsule::table("mod_account_summary_configuration")->select('value')->where('setting', 'TCPDFFont')->get();
+        $result = $query[0]->value;
+
+        if ($result == "custom") {
+            $pdffont = $this->pdfcustomfont();
+        } else {
+            $pdffont = $result;
+        }
+
+        return $pdffont;
+    }
+
+    public function pdfcustomfont()
+    {
+        $query = Capsule::table("mod_account_summary_configuration")->select('value')->where('setting', 'TCPDFCoustomFont')->get();
+        $result = $query[0]->value;
+        return $result;
+    }
+
+    public function pdfPaperSize()
+    {
+        $query = Capsule::table("mod_account_summary_configuration")->select('value')->where('setting', 'PDFPaperSize')->get();
+        $result = $query[0]->value;
+        return $result;
+    }
+
+    public function pdfInvoiceType()
+    {
+        $query = Capsule::table("mod_account_summary_configuration")->select('value')->where('setting', 'PDFInvoiceType')->get();
+        $result = $query[0]->value;
+        return $result;
+    }
+
+    public function invoicetransctions($invoiceid)
+    {
+        $result = array();
+        $sql = "SELECT `date`, `amountin`, `amountout`, `transid`,`refundid` FROM `tblaccounts` WHERE `invoiceid` = '" . $invoiceid . "' ORDER BY  `tblaccounts`.`id` ASC ";
+        $query = Capsule::select($sql);
+        foreach ($query as $row) {
+            $row = (array) $row;
+
+            if ($row['amountin'] == '0.00' && $row['amountout'] != '0.00') {
+                $row['amountin'] = $row['amountin'] - $row['amountout'];
+            }
+            //while($row = mysql_fetch_assoc($query)){
+            $result[] = $row;
+        }
+
+        $invoiceDatas = Capsule::table("tblinvoices")->select('datepaid', 'credit', 'date')->where('credit', '!=', '0.00')->where('id', $invoiceid)->get();
+
+        foreach ($invoiceDatas as $invoiceData) {
+            $row = array();
+            if ($invoiceData->datepaid == '' || $invoiceData->datepaid == '0000-00-00 00:00:00') {
+                $row['date'] = $invoiceData->date;
+            } else {
+                $row['date'] = $invoiceData->datepaid;
+            }
+
+            $row['amountin'] = $invoiceData->credit;
+            $row['amountout'] = '0';
+            $row['transid'] = 'credit';
+            $row['refundid'] = '0';
+
+            $result[] = $row;
+        }
+        return $result;
+    }
+
+    public function addEmailTemplates($POST)
+    {
+        $template = 'Account Statement';
+        $message = $POST['message'];
+
+        $sql = Capsule::table("tblemailtemplates")->where('name', $template)->where('type', 'general')->count();
+
+        if ($sql > 0) {
+            Capsule::table("tblemailtemplates")->where('name', $template)->where('type', 'general')->update(array('subject' => $POST['subject'], 'message' => $message, 'fromname' => $POST['fromname'], 'fromemail' => $POST['fromemail'], 'copyto' => $POST['copyto'], 'updated_at' => date('Y-m-d H:i:s')));
+        } else {
+            Capsule::table("tblemailtemplates")->insert(array('type' => 'general', 'name' => $template, 'subject' => $POST['subject'], 'message' => $message, 'fromname' => $POST['fromname'], 'fromemail' => $POST['fromemail'], 'copyto' => $POST['copyto'], 'created_at' => date('Y-m-d H:i:s')));
+        }
+    }
+
+    public function getEmailTemplates()
+    {
+        $template = 'Account Statement';
+        $sql = Capsule::table("tblemailtemplates")->where('name', $template)->where('type', 'general')->get();
+        $result = (array) $sql[0];
+        return $result;
+    }
+
+    public function checkSendStatement()
+    {
+        $sql = Capsule::table("mod_account_summary_configuration")->select('value')->where('setting', 'EnablePDFInvoices')->get();
+        $result = $sql[0]->value;
+
+        return $result;
+    }
+
+    public function updateAttachments($attachments)
+    {
+        $template = 'Account Statement';
+        Capsule::table("tblemailtemplates")->where('name', $template)->where('type', 'general')->update(array('attachments' => $attachments));
+    }
+
+    public function getAdmin()
+    {
+        $sql = Capsule::table("tbladmins")->select('id')->take(1)->get();
+        $result = $sql[0]->id;
+
+        return $result;
+    }
+
+    public function remove_attachments_downloads($pdfname)
+    {
+        $template = 'Account Statement';
+        Capsule::table("tblemailtemplates")->where('name', $template)->where('type', 'general')->update(array('attachments' => ''));
+
+        global $downloads_dir;
+        $basepath = realpath(__DIR__ . '/../../../..');
+
+        $attachmentPath = [];
+        if (Capsule::Schema()->hasTable('tblfileassetsettings')) {
+            $configtableDownloadPath = Capsule::table("tblfileassetsettings")->join('tblstorageconfigurations', 'tblfileassetsettings.storageconfiguration_id', '=', 'tblstorageconfigurations.id')->select('tblstorageconfigurations.settings')->where('tblfileassetsettings.asset_type', 'downloads')->first();
+            $downloadPath = json_decode($configtableDownloadPath->settings);
+        }
+
+        if (!empty($downloadPath->local_path)) {
+            $dirPt = $downloadPath->local_path . '/';
+        } else {
+            if (isset($downloads_dir)) {
+                $dirPt = $downloads_dir . '/';
+            } else {
+                $dirPt = $basepath . "/downloads/";
+            }
+        }
+
+        $file = $dirPt . $pdfname;
+
+        if (is_file($file)) {
+            unlink($file); // delete file
+        }
+    }
+
+    public function dateFormatChange($date)
+    {
+        $date = str_replace('-', '/', $date);
+        $dd = explode('/', $date);
+        $day = $dd[1];
+        $month = $dd[2];
+        $year = $dd[0];
+        $date = $year . '-' . $month . '-' . $day;
+
+        return $date;
+    }
+    public function totalClosingBalanceHead($userid, $enddate, $statdate)
+    {
+        try {
+            $partialbalnce = 0.00;
+            $totalClosingBalanceHead = 0.00;
+            $totalClosingBalanceunpaid = 0.00;
+
+            $totalClosingBalanceHeadData = Capsule::table('tblinvoices')->where('userid', $userid)
+                ->orderBy("id", "desc")
+                ->where('date', '<', $enddate)
+                ->where('datepaid', '>', $enddate)->get();
+
+            $totalClosingBalanceHeadunpaidData = Capsule::table('tblinvoices')->where('userid', $userid)
+                ->orderBy("id", "desc")->where('date', '<', $statdate)->where('status', 'Unpaid')->get();
+
+
+            foreach ($totalClosingBalanceHeadData as $row) {
+                $row = (array) $row;
+                $totalClosingBalanceHead += ($row['total']);
+            }
+            foreach ($totalClosingBalanceHeadunpaidData as $row) {
+                $row = (array) $row;
+                $totalClosingBalanceunpaid += ($row['total']);
+            }
+            $partialbalnce = self::get_total_partial($userid, $statdate);
+            // $partialbalnce = self::get_total_outstanding($userid, $statdate);
+
+
+            return $totalClosingBalanceHead + $totalClosingBalanceunpaid + $partialbalnce;
+        } catch (\Exception $e) {
+            logActivity("Account statement(get_total_due_before) Error: {$e->getMessage()}");
+        }
+    }
+    public function get_total_partial($userid, $statdate = null)
+    {
+        try {
+            $totalpartialData = Capsule::table('tblinvoices')->where('userid', $userid)->where('date', '<', $statdate)->orderBy("id", "desc")->get();
+
+            $partialbalnce = 0.00;
+            foreach ($totalpartialData as $row) {
+                $row = (array) $row;
+                $credit = 0;
+                $transactions = Capsule::table("tblaccounts")->where('invoiceid', $row['id'])->where('date', "<", (date('Y-m-d', strtotime($statdate)) . ' 00:00:00'))->get();
+
+                foreach ($transactions as $transaction) {
+                    $credit += $transaction->amountin;
+                }
+
+                $credit += $row['credit'];
+
+                $partialbalnce += ($row['subtotal'] + $row['tax'] + $row['tax2']) - $credit;
+            }
+
+            return $outstanding;
+        } catch (\Exception $e) {
+            logActivity("Account statement(get_total_outstanding) Error: {$e->getMessage()}");
+        }
+    }
+}

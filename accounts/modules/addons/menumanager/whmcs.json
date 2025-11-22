@@ -1,0 +1,28 @@
+{
+  "schema": "1.0",
+  "type": "whmcs-addons",
+  "name": "menumanager",
+  "license": "proprietary",
+  "category": "utilities",
+  "description": {
+    "name": "Advanced Menu Manager",
+    "tagline": "The best menu manager for WHMCS",
+    "short": "Add, sort and manage as many menu links in your WHMCS based website as you need",
+    "long": "We give you the power to control each menu link in your WHMCS client area easily from your administration panel, no programming knowledge needed!"
+  },
+  "logo": {
+    "filename": "logo.png"
+  },
+  "support": {
+    "homepage": "https:\/\/www.modulescastle.com\/",
+    "learn_more": "https:\/\/codecanyon.net\/item\/whmcs-advanced-menu-manager\/12866806",
+    "support_url": "https:\/\/codecanyon.net\/item\/whmcs-advanced-menu-manager\/12866806\/support",
+    "docs_url": "https:\/\/www.modulescastle.com\/products\/whmcs-advanced-menu-manager\/documentation"
+  },
+  "authors": [
+    {
+      "name": "ModulesCastle",
+      "homepage": "https:\/\/www.modulescastle.com\/"
+    }
+  ]
+}

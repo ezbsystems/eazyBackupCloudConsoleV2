@@ -1,0 +1,36 @@
+[Unit]
+Description=e3 Cloud Backup Worker Service
+Documentation=https://github.com/your-org/e3-cloudbackup-worker
+After=network.target mysql.service
+Wants=network.target
+
+[Service]
+Type=simple
+User=e3backup
+Group=e3backup
+WorkingDirectory=/opt/e3-cloudbackup-worker
+ExecStart=/usr/local/bin/e3-cloudbackup-worker -config /opt/e3-cloudbackup-worker/config/config.yaml
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=e3-cloudbackup-worker
+
+# Environment variables
+Environment="CLOUD_BACKUP_ENCRYPTION_KEY="
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log/e3-cloudbackup /var/lib/e3-cloudbackup
+
+# Resource limits
+LimitNOFILE=65536
+MemoryLimit=2G
+CPUQuota=200%
+
+[Install]
+WantedBy=multi-user.target
+
