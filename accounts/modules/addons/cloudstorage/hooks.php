@@ -10,7 +10,7 @@ add_hook('ClientAreaHeadOutput', 1, function($vars) {
         <link href="{$webRoot}/modules/addons/cloudstorage/assets/css/datatables.css" rel="stylesheet" type="text/css" />
         <link href="{$webRoot}/modules/addons/cloudstorage/assets/css/responsive.css" rel="stylesheet" type="text/css" />
         <link href="{$webRoot}/modules/addons/cloudstorage/assets/css/scrollbar.css" rel="stylesheet" type="text/css" />
-        <script src="{$webRoot}/modules/addons/cloudstorage/assets/js/tailwind.min.js"></script>
+        
         <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
         <script src="{$webRoot}/modules/addons/cloudstorage/assets/js/moment.min.js"></script>
         <script src="{$webRoot}/modules/addons/cloudstorage/assets/js/popper.min.js"></script>

@@ -3,7 +3,7 @@
 {* <link href="{assetPath file='theme.min.css'}?v={$versionHash}" rel="stylesheet"> *}
 {* <link href="{$WEB_ROOT}/assets/css/fontawesome-all.min.css" rel="stylesheet"> *}
 
-<script src="https://cdn.tailwindcss.com"></script>
+<link href="{$WEB_ROOT}/templates/{$template}/css/tailwind.css?v={$versionHash}" rel="stylesheet">
 
 <script src="modules/addons/eazybackup/assets/js/eazybackup-ui-helpers.js" defer></script>
 

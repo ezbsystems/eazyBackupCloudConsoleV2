@@ -22,16 +22,19 @@
 # Our backup script
 !/backup_whmcs_db.sh
 
-!/client_installer/
-!/client_installer/**
+# DO NOT track installers in this repo
+# (client_installer directory stays on disk but is ignored)
+/client_installer/
+!/client_installer  # allow the dir name to exist but not be tracked
+/client_installer/**
 
-# Logs: usually ignore contents
-!/logs/
-logs/*
-!logs/.gitkeep
+# DO NOT track logs in this repo
+/logs/
+!/logs
+/logs/**
 
 ###############################################################################
-# WHMCS â€“ only track our custom code, ignore WHMCS core
+# WHMCS – only track our custom code, ignore WHMCS core
 ###############################################################################
 
 # Keep the accounts/ tree, but ONLY selectively
@@ -83,5 +86,9 @@ logs/*
 
 # ---------------------- our custom client area template ----------------
 !/accounts/templates/
+/accounts/templates/*
 !/accounts/templates/eazyBackup/
 !/accounts/templates/eazyBackup/**
+
+# Extra safety: never track these log fragments anywhere
+*.log.filepart

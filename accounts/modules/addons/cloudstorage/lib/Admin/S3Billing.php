@@ -198,7 +198,9 @@ class S3Billing {
             // Record the computed amount snapshot for this run
             DBController::savePrices([
                 'user_id' => $userId,
-                'amount' => $amount
+                'amount' => $amount,
+                // Persist instantaneous usage bytes if the column exists (DBController will strip if absent)
+                'usage_bytes' => (int)$totalBucketSize
             ]);
 
             // Use a rolling display period decoupled from nextduedate, so overdue cycles do not freeze updates

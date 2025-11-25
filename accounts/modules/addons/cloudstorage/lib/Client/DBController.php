@@ -7,6 +7,7 @@ use WHMCS\Database\Capsule;
 class DBController {
 
     private static $module = 'cloudstorage';
+    private static $schemaCache = [];
 
     /**
      * Get User.
@@ -179,7 +180,12 @@ class DBController {
      */
     public static function savePrices($values)
     {
-        Capsule::table('s3_prices')->insert($values);
+        // Remove unknown columns defensively (e.g., optional usage_bytes)
+        $cleanValues = $values;
+        if (array_key_exists('usage_bytes', $cleanValues) && !self::hasColumn('s3_prices', 'usage_bytes')) {
+            unset($cleanValues['usage_bytes']);
+        }
+        Capsule::table('s3_prices')->insert($cleanValues);
     }
 
     /**
@@ -223,6 +229,34 @@ class DBController {
                 $table,
                 $data
             ], $ex->getMessage());
+        }
+    }
+
+    /**
+     * Check INFORMATION_SCHEMA for a column (with simple static cache).
+     *
+     * @param string $table
+     * @param string $column
+     * @return bool
+     */
+    private static function hasColumn(string $table, string $column): bool
+    {
+        $key = strtolower($table) . '.' . strtolower($column);
+        if (array_key_exists($key, self::$schemaCache)) {
+            return self::$schemaCache[$key];
+        }
+        try {
+            $databaseName = Capsule::connection()->getDatabaseName();
+            $exists = Capsule::table('information_schema.COLUMNS')
+                ->where('TABLE_SCHEMA', $databaseName)
+                ->where('TABLE_NAME', $table)
+                ->where('COLUMN_NAME', $column)
+                ->exists();
+            self::$schemaCache[$key] = $exists;
+            return $exists;
+        } catch (\Exception $e) {
+            self::$schemaCache[$key] = false;
+            return false;
         }
     }
 

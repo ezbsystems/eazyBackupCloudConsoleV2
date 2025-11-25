@@ -63,6 +63,145 @@ class BucketController {
         }
     }
 
+    /**
+     * Find peak billable usage using instantaneous billing snapshots (s3_prices).
+     * Prefers usage_bytes when that column exists; otherwise converts amount → bytes.
+     *
+     * @param int   $ownerUserId   s3_users.id of the owner (aggregated across tenants at billing time)
+     * @param array $period        ['start' => Y-m-d, 'end' => Y-m-d]
+     * @return object              { exact_timestamp, total_size(bytes) }
+     */
+    public function findPeakBillableUsageFromPrices(int $ownerUserId, array $period)
+    {
+        $hasUsageBytes = $this->tableHasColumn('s3_prices', 'usage_bytes');
+
+        $query = Capsule::table('s3_prices')
+            ->where('user_id', $ownerUserId)
+            ->whereDate('created_at', '>=', $period['start'])
+            ->whereDate('created_at', '<=', $period['end']);
+
+        if ($hasUsageBytes) {
+            $query = $query->orderBy('usage_bytes', 'DESC')->orderBy('amount', 'DESC');
+        } else {
+            $query = $query->orderBy('amount', 'DESC');
+        }
+
+        $row = $query->first();
+        if (!$row) {
+            return (object)[
+                'exact_timestamp' => null,
+                'total_size' => 0
+            ];
+        }
+
+        $bytes = $hasUsageBytes && isset($row->usage_bytes) && $row->usage_bytes !== null
+            ? (int)$row->usage_bytes
+            : $this->amountToBytes((float)$row->amount);
+
+        return (object)[
+            'exact_timestamp' => $row->created_at,
+            'total_size' => $bytes
+        ];
+    }
+
+    /**
+     * Build a day-by-day billable usage series from s3_prices for charts.
+     * Uses MAX(usage_bytes) per day when present; otherwise MAX(amount) → bytes.
+     *
+     * @param int    $ownerUserId
+     * @param string $start  Y-m-d
+     * @param string $end    Y-m-d
+     * @return array         [ ['period' => 'Y-m-d', 'total_usage' => bytes], ... ]
+     */
+    public function getDailyBillableUsageFromPrices(int $ownerUserId, string $start, string $end): array
+    {
+        $hasUsageBytes = $this->tableHasColumn('s3_prices', 'usage_bytes');
+
+        if ($hasUsageBytes) {
+            $rows = Capsule::table('s3_prices')
+                ->selectRaw('DATE(created_at) AS day, MAX(usage_bytes) AS max_usage_bytes, MAX(amount) AS max_amount')
+                ->where('user_id', $ownerUserId)
+                ->whereDate('created_at', '>=', $start)
+                ->whereDate('created_at', '<=', $end)
+                ->groupBy('day')
+                ->orderBy('day', 'ASC')
+                ->get();
+        } else {
+            $rows = Capsule::table('s3_prices')
+                ->selectRaw('DATE(created_at) AS day, MAX(amount) AS max_amount')
+                ->where('user_id', $ownerUserId)
+                ->whereDate('created_at', '>=', $start)
+                ->whereDate('created_at', '<=', $end)
+                ->groupBy('day')
+                ->orderBy('day', 'ASC')
+                ->get();
+        }
+
+        $series = [];
+        foreach ($rows as $r) {
+            $bytes = 0;
+            if ($hasUsageBytes && isset($r->max_usage_bytes) && $r->max_usage_bytes !== null) {
+                $bytes = (int)$r->max_usage_bytes;
+            } else {
+                $amount = isset($r->max_amount) ? (float)$r->max_amount : 0.0;
+                $bytes = $this->amountToBytes($amount);
+            }
+            $series[] = [
+                'period' => $r->day,
+                'total_usage' => $bytes
+            ];
+        }
+
+        return $series;
+    }
+
+    /**
+     * Convert billing amount → instantaneous usage in bytes.
+     * Pricing: $9 covers first 1 TiB; then $0.009765 per additional GiB.
+     *
+     * @param float $amount
+     * @return int  bytes
+     */
+    private function amountToBytes(float $amount): int
+    {
+        if ($amount <= 9.0) {
+            $usageGiB = 1024.0;
+        } else {
+            $usageGiB = 1024.0 + (($amount - 9.0) / 0.009765);
+        }
+        return (int)round($usageGiB * 1024 * 1024 * 1024);
+    }
+
+    /**
+     * Lightweight INFORMATION_SCHEMA check with per-process static cache.
+     *
+     * @param string $table
+     * @param string $column
+     * @return bool
+     */
+    private function tableHasColumn(string $table, string $column): bool
+    {
+        static $cache = [];
+        $key = strtolower($table) . '.' . strtolower($column);
+        if (array_key_exists($key, $cache)) {
+            return $cache[$key];
+        }
+        try {
+            $databaseName = Capsule::connection()->getDatabaseName();
+            $exists = Capsule::table('information_schema.COLUMNS')
+                ->where('TABLE_SCHEMA', $databaseName)
+                ->where('TABLE_NAME', $table)
+                ->where('COLUMN_NAME', $column)
+                ->exists();
+            $cache[$key] = $exists;
+            return $exists;
+        } catch (\Exception $e) {
+            // Fail safe if INFORMATION_SCHEMA is not accessible
+            $cache[$key] = false;
+            return false;
+        }
+    }
+
 
     /**
      * Create Bucket.
@@ -368,6 +507,115 @@ class BucketController {
         } catch (S3Exception $e) {
             logModuleCall($this->module, __FUNCTION__, [$bucketName, $days], $e->getMessage());
             return ['status' => 'fail', 'message' => 'Failed to apply lifecycle rule.'];
+        }
+    }
+
+    /**
+     * Upsert a lifecycle rule scoped to a prefix to expire current and noncurrent versions after N days.
+     * Safe to call multiple times; replaces prior rule with same ID.
+     *
+     * @param string $bucketName
+     * @param string $ruleId
+     * @param string $prefix
+     * @param int $days
+     * @return array
+     */
+    public function upsertLifecycleRuleForPrefix($bucketName, $ruleId, $prefix, $days)
+    {
+        if (is_null($this->s3Client)) {
+            return ['status' => 'fail', 'message' => 'Storage connection not established.'];
+        }
+        $days = max(1, (int)$days);
+        $prefix = trim((string)$prefix);
+        if ($prefix !== '' && substr($prefix, -1) !== '/') {
+            $prefix .= '/';
+        }
+        try {
+            // Ensure versioning enabled to honor noncurrent expirations; ignore errors
+            try {
+                $this->s3Client->putBucketVersioning([
+                    'Bucket' => $bucketName,
+                    'VersioningConfiguration' => [ 'Status' => 'Enabled' ],
+                ]);
+            } catch (S3Exception $ignored) {}
+
+            // Load existing lifecycle rules (if any)
+            $rules = [];
+            try {
+                $existing = $this->s3Client->getBucketLifecycleConfiguration(['Bucket' => $bucketName]);
+                $rules = $existing['Rules'] ?? [];
+            } catch (S3Exception $e) {
+                // treat as none configured
+                $rules = [];
+            }
+
+            // Remove any rule with same ID
+            $rules = array_values(array_filter($rules, function($r) use ($ruleId) {
+                return ($r['ID'] ?? '') !== $ruleId;
+            }));
+
+            // Build new rule (use Prefix filter when provided; otherwise skip Filter to avoid whole-bucket)
+            $newRule = [
+                'ID' => $ruleId,
+                'Status' => 'Enabled',
+                // Preserve the live/current object indefinitely. Only expire historical versions.
+                'NoncurrentVersionExpiration' => [ 'NoncurrentDays' => $days ],
+                'AbortIncompleteMultipartUpload' => [ 'DaysAfterInitiation' => 7 ],
+            ];
+            // Clean up delete markers when no versions remain (helps avoid tombstones accumulation)
+            $newRule['Expiration'] = [ 'ExpiredObjectDeleteMarker' => true ];
+            if ($prefix !== '') {
+                $newRule['Filter'] = [ 'Prefix' => $prefix ];
+            }
+
+            $rules[] = $newRule;
+
+            $this->s3Client->putBucketLifecycleConfiguration([
+                'Bucket' => $bucketName,
+                'LifecycleConfiguration' => [ 'Rules' => $rules ],
+            ]);
+            return ['status' => 'success', 'message' => 'Lifecycle rule updated'];
+        } catch (S3Exception $e) {
+            logModuleCall($this->module, __FUNCTION__, compact('bucketName','ruleId','prefix','days'), $e->getMessage());
+            return ['status' => 'fail', 'message' => 'Failed to update lifecycle rule'];
+        }
+    }
+
+    /**
+     * Remove a lifecycle rule by ID if present.
+     *
+     * @param string $bucketName
+     * @param string $ruleId
+     * @return array
+     */
+    public function removeLifecycleRuleById($bucketName, $ruleId)
+    {
+        if (is_null($this->s3Client)) {
+            return ['status' => 'fail', 'message' => 'Storage connection not established.'];
+        }
+        try {
+            $existing = $this->s3Client->getBucketLifecycleConfiguration(['Bucket' => $bucketName]);
+            $rules = $existing['Rules'] ?? [];
+            $newRules = array_values(array_filter($rules, function($r) use ($ruleId) {
+                return ($r['ID'] ?? '') !== $ruleId;
+            }));
+            // If nothing changed, succeed
+            if (count($newRules) === count($rules)) {
+                return ['status' => 'success', 'message' => 'No lifecycle change'];
+            }
+            if (empty($newRules)) {
+                // Remove entire lifecycle config
+                $this->s3Client->deleteBucketLifecycle(['Bucket' => $bucketName]);
+                return ['status' => 'success', 'message' => 'Lifecycle configuration removed'];
+            }
+            $this->s3Client->putBucketLifecycleConfiguration([
+                'Bucket' => $bucketName,
+                'LifecycleConfiguration' => [ 'Rules' => $newRules ],
+            ]);
+            return ['status' => 'success', 'message' => 'Lifecycle rule removed'];
+        } catch (S3Exception $e) {
+            logModuleCall($this->module, __FUNCTION__, compact('bucketName','ruleId'), $e->getMessage());
+            return ['status' => 'fail', 'message' => 'Failed to remove lifecycle rule'];
         }
     }
 
@@ -1498,18 +1746,110 @@ class BucketController {
 
             if ($result['@metadata']['statusCode'] == 200) {
                 $status = 'success';
-                $versionStatus = isset($result['Status']) ? 'enabled' : 'off';
+                $raw = isset($result['Status']) ? (string)$result['Status'] : '';
+                $upper = strtoupper($raw);
+                if ($upper === 'ENABLED') {
+                    $versionStatus = 'enabled';
+                } elseif ($upper === 'SUSPENDED') {
+                    $versionStatus = 'suspended';
+                } else {
+                    $versionStatus = 'off';
+                }
             } else {
                 $status = 'fail';
                 $versionStatus = 'off';
             }
 
+            logModuleCall($this->module, __FUNCTION__, ['bucket' => $bucketName], ['status' => $status, 'version' => $versionStatus]);
             return ['status' => $status, 'version_status' => $versionStatus];
         } catch (S3Exception $e) {
             logModuleCall($this->module, __FUNCTION__, $bucketName, $e->getMessage());
 
             return ['status' => 'fail', 'message' => 'Unable to get the bucket version. Please try again or contact support.'];
         }
+    }
+
+    /**
+     * Ensure bucket versioning is enabled. Attempts as bucket owner first, then admin fallback.
+     *
+     * @param string $bucketName
+     * @return array ['status' => 'success'|'fail', 'message' => string]
+     */
+    public function ensureBucketVersioningEnabled($bucketName)
+    {
+        if (is_null($this->s3Client)) {
+            return ['status' => 'fail', 'message' => 'Storage connection not established.'];
+        }
+        logModuleCall($this->module, __FUNCTION__ . '_START', ['bucket' => $bucketName], 'Attempting to ensure versioning enabled');
+        // Check current status
+        try {
+            $cur = $this->getBucketVersioning($bucketName);
+            if (($cur['status'] ?? 'fail') === 'success' && ($cur['version_status'] ?? 'off') === 'enabled') {
+                logModuleCall($this->module, __FUNCTION__ . '_ALREADY_ENABLED', ['bucket' => $bucketName], 'Versioning already enabled');
+                return ['status' => 'success', 'message' => 'Versioning already enabled'];
+            }
+        } catch (\Throwable $ignored) {}
+
+        // Try enabling via tenant credentials
+        try {
+            $this->s3Client->putBucketVersioning([
+                'Bucket' => $bucketName,
+                'VersioningConfiguration' => [ 'Status' => 'Enabled' ],
+            ]);
+            logModuleCall($this->module, __FUNCTION__ . '_TENANT_ATTEMPT', ['bucket' => $bucketName], 'putBucketVersioning via tenant attempted');
+        } catch (S3Exception $e) {
+            logModuleCall($this->module, __FUNCTION__ . '_TENANT_FAIL', ['bucket' => $bucketName, 'aws_error_code' => $e->getAwsErrorCode()], 'Tenant enable failed: ' . $e->getMessage());
+            // ignore and try admin fallback
+        }
+        try {
+            $check = $this->getBucketVersioning($bucketName);
+            if (($check['status'] ?? 'fail') === 'success' && ($check['version_status'] ?? 'off') === 'enabled') {
+                try {
+                    Capsule::table('s3_buckets')->where('name', $bucketName)->update(['versioning' => 'enabled']);
+                } catch (\Throwable $ignored) {}
+                logModuleCall($this->module, __FUNCTION__ . '_TENANT_SUCCESS', ['bucket' => $bucketName], 'Versioning enabled via tenant');
+                return ['status' => 'success', 'message' => 'Versioning enabled'];
+            }
+        } catch (\Throwable $ignored) {}
+
+        // Admin fallback
+        try {
+            $adminS3 = new S3Client([
+                'version' => 'latest',
+                'region' => $this->region,
+                'endpoint' => $this->endpoint,
+                'credentials' => [
+                    'key' => $this->adminAccessKey,
+                    'secret' => $this->adminSecretKey,
+                ],
+                'use_path_style_endpoint' => true,
+                'signature_version' => 'v4'
+            ]);
+            $adminS3->putBucketVersioning([
+                'Bucket' => $bucketName,
+                'VersioningConfiguration' => [ 'Status' => 'Enabled' ],
+            ]);
+            logModuleCall($this->module, __FUNCTION__ . '_ADMIN_ATTEMPT', ['bucket' => $bucketName], 'putBucketVersioning via admin attempted');
+        } catch (S3Exception $e2) {
+            logModuleCall($this->module, __FUNCTION__ . '_ADMIN_FAIL', [
+                'bucket_name' => $bucketName,
+                'aws_error_code' => $e2->getAwsErrorCode()
+            ], 'Admin versioning enable failed: ' . $e2->getMessage());
+        }
+
+        try {
+            $final = $this->getBucketVersioning($bucketName);
+            if (($final['status'] ?? 'fail') === 'success' && ($final['version_status'] ?? 'off') === 'enabled') {
+                try {
+                    Capsule::table('s3_buckets')->where('name', $bucketName)->update(['versioning' => 'enabled']);
+                } catch (\Throwable $ignored) {}
+                logModuleCall($this->module, __FUNCTION__ . '_ENABLED', ['bucket' => $bucketName], 'Versioning enabled (final)');
+                return ['status' => 'success', 'message' => 'Versioning enabled'];
+            }
+        } catch (\Throwable $ignored) {}
+
+        logModuleCall($this->module, __FUNCTION__ . '_GIVE_UP', ['bucket' => $bucketName], 'Unable to enable bucket versioning');
+        return ['status' => 'fail', 'message' => 'Unable to enable bucket versioning'];
     }
 
      /**

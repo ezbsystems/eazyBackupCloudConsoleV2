@@ -346,6 +346,26 @@ function cloudstorage_activate() {
             });
         }
 
+        // Background prefix delete queue
+        if (!Capsule::schema()->hasTable('s3_delete_prefixes')) {
+            Capsule::schema()->create('s3_delete_prefixes', function ($table) {
+                $table->bigIncrements('id');
+                $table->unsignedInteger('user_id');
+                $table->string('bucket_name', 255);
+                $table->string('prefix', 1024);
+                $table->enum('status', ['queued','running','success','failed'])->default('queued');
+                $table->tinyInteger('attempt_count')->default(0);
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('started_at')->nullable();
+                $table->timestamp('completed_at')->nullable();
+                $table->text('error')->nullable();
+                $table->text('metrics')->nullable();
+                $table->index(['bucket_name', 'status']);
+                $table->index(['user_id', 'status']);
+                $table->foreign('user_id')->references('id')->on('s3_users')->onDelete('cascade');
+            });
+        }
+
         if (!Capsule::schema()->hasTable('s3_subusers')) {
             Capsule::schema()->create('s3_subusers', function ($table) {
             $table->increments('id');
@@ -964,6 +984,25 @@ function cloudstorage_upgrade($vars) {
                 $table->foreign('run_id')->references('id')->on('s3_cloudbackup_runs')->onDelete('cascade');
             });
             logModuleCall('cloudstorage', 'upgrade', [], 'Created s3_cloudbackup_run_events table', [], []);
+        }
+
+        // Ensure prefix delete queue exists on upgrades
+        if (!\WHMCS\Database\Capsule::schema()->hasTable('s3_delete_prefixes')) {
+            \WHMCS\Database\Capsule::schema()->create('s3_delete_prefixes', function ($table) {
+                $table->bigIncrements('id');
+                $table->unsignedInteger('user_id');
+                $table->string('bucket_name', 255);
+                $table->string('prefix', 1024);
+                $table->enum('status', ['queued','running','success','failed'])->default('queued');
+                $table->tinyInteger('attempt_count')->default(0);
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('started_at')->nullable();
+                $table->timestamp('completed_at')->nullable();
+                $table->text('error')->nullable();
+                $table->text('metrics')->nullable();
+                $table->index(['bucket_name', 'status']);
+                $table->index(['user_id', 'status']);
+            });
         }
 
         return ['status' => 'success'];

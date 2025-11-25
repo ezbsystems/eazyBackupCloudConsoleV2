@@ -50,8 +50,34 @@
             ->toArray();
     }
 
+    // Expose region and optional lifecycle storage classes to template
+    $s3Region = 'us-east-1';
+    $lifecycleClasses = [];
+    try {
+        $moduleRows = DBController::getResult('tbladdonmodules', [['module', '=', 'cloudstorage']]);
+        if (count($moduleRows) > 0) {
+            $regionRow = $moduleRows->where('setting', 's3_region')->pluck('value')->first();
+            if (!empty($regionRow)) {
+                $s3Region = $regionRow;
+            }
+            $classesCsv = $moduleRows->where('setting', 'lifecycle_storage_classes')->pluck('value')->first();
+            if (!empty($classesCsv)) {
+                $parts = array_map('trim', explode(',', $classesCsv));
+                foreach ($parts as $p) {
+                    if ($p !== '') {
+                        $lifecycleClasses[] = $p;
+                    }
+                }
+            }
+        }
+    } catch (\Throwable $e) {
+        // Best-effort only; keep values defaulted for UI
+    }
+
     return [
         'buckets' => $buckets,
         'usernames' => $tenants,
-        'stats' => $stats
+        'stats' => $stats,
+        'S3_REGION' => $s3Region,
+        'LIFECYCLE_CLASSES' => $lifecycleClasses
     ];
