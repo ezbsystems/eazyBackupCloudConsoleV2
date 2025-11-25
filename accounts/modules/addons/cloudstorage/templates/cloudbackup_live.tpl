@@ -21,14 +21,19 @@
         <!-- Glass panel container -->
         <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
 
-        <div class="flex flex-col sm:flex-row h-16 justify-between items-start sm:items-center mb-6">
+        <div class="flex flex-col sm:flex-row h-16 justify-between items-start sm:items-center mb-3">
             <div class="flex items-center">
                 <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_runs&job_id={$job.id}" class="mr-4 text-sky-400 hover:text-sky-500">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
                     </svg>
                 </a>
-                <h2 class="text-2xl font-semibold text-white">Live Progress: {$job.name}</h2>
+                <h2 class="text-2xl font-semibold text-white flex items-center gap-2">
+                    <span>Live Progress: {$job.name}</span>
+                    <span class="inline-flex items-center rounded-full bg-amber-500/15 px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide text-amber-200 border border-amber-400/40">
+                        Beta
+                    </span>
+                </h2>
             </div>
             <button
                 id="cancelButton"
@@ -38,6 +43,18 @@
             >
                 Cancel Run
             </button>
+        </div>
+        <div class="mb-6 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs text-amber-100 flex items-start gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mt-[2px]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 9v3.75M12 15.75h.007M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div>
+                <p class="font-semibold text-amber-100 text-[0.75rem] uppercase tracking-wide">Cloud Backup (Beta)</p>
+                <p class="mt-1 text-[0.75rem] leading-relaxed text-amber-100/90">
+                    Cloud Backup is currently in beta. Functionality may change and occasional issues are expected.
+                    Please keep a primary backup strategy in place and contact support if you notice any problems.
+                </p>
+            </div>
         </div>
 
         <!-- Compact Metrics Strip -->

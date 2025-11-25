@@ -4,9 +4,52 @@
     .expanded-row { background-color: #0f172a; }
 </style>
 
-<div class="min-h-screen bg-[#11182759] text-gray-300" x-data="usersManager()">
-	<div class="container mx-auto px-4 sm:px-4 py-4 sm:py-4 pb-8">
+<div class="min-h-screen bg-slate-950 text-gray-300" x-data="usersManager()">
+	<div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
+	<div class="container mx-auto px-4 pb-10 pt-6 relative pointer-events-auto">
 
+		<!-- Cloud Storage Navigation (moved above content) -->
+
+
+		
+		<!-- Cloud Storage Navigation -->
+		<div class="mb-6">
+			<nav class="inline-flex rounded-full bg-slate-900/80 p-1 text-xs font-medium text-slate-400" aria-label="Cloud Storage Navigation">
+				<a href="index.php?m=cloudstorage&page=dashboard"
+				   class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'dashboard'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
+					Dashboard
+				</a>
+				<a href="index.php?m=cloudstorage&page=buckets"
+				   class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'buckets'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
+					Buckets
+				</a>
+				{assign var=__browse_user value=$smarty.get.username|default:''}
+				{assign var=__browse_bucket value=$smarty.get.bucket|default:''}
+				<a href="index.php?m=cloudstorage&page={if $__browse_user && $__browse_bucket}browse&bucket={$__browse_bucket|escape:'url'}&username={$__browse_user|escape:'url'}{else}buckets{/if}"
+				   class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'browse'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
+					Browse
+				</a>
+				<a href="index.php?m=cloudstorage&page=access_keys"
+				   class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'access_keys'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
+					Access Keys
+				</a>
+				<a href="index.php?m=cloudstorage&page=users"
+				   class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'users'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
+					Users
+				</a>
+				<a href="index.php?m=cloudstorage&page=billing"
+				   class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'billing'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
+					Billing
+				</a>
+				<a href="index.php?m=cloudstorage&page=history"
+				   class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'history'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
+					Historical Stats
+				</a>
+			</nav>
+		</div>
+		
+		<!-- Glass Container -->
+		<div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
 		<!-- Header Section -->
 		<div class="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-4">
 			<div class="flex items-center">
@@ -16,8 +59,9 @@
 				<h1 class="text-2xl font-semibold text-white">Manage Users</h1>
 				<span class="ml-3 px-2 py-1 bg-slate-700 text-slate-300 text-sm rounded" x-text="filteredUsers.length + ' users'"></span>
 			</div>
-			
-			<!-- Actions Bar -->
+		
+
+		<!-- Actions Bar -->
 			<div class="flex flex-col sm:flex-row gap-3 w-full lg:w-auto min-w-0">
 				<!-- Search -->
 				<div class="relative">
@@ -68,7 +112,7 @@
 				</div>
 				
 				<!-- Create User Button -->
-				<button @click="showCreateForm = !showCreateForm"
+				<button onclick="openCreateUserSlideover()"
 					class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md focus:outline-none whitespace-nowrap">
 					<svg class="w-4 h-4 mr-2 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
@@ -78,26 +122,63 @@
 			</div>
 		</div>
 
-		<!-- Create User Form -->
-		<div x-show="showCreateForm" x-cloak x-transition 
-			class="bg-slate-800 rounded-lg border border-slate-700 shadow-lg p-6 mb-6">
-			<h2 class="text-xl font-semibold text-white mb-4">Create New User</h2>
-			<p class="text-gray-300 mb-6">Each User you create has its own set of storage buckets and access keys, ensuring complete separation and security from other Users.</p>
-			<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-				<input type="text" x-model="newUser.name" placeholder="Account Name" 
-					class="px-3 py-2 border border-gray-600 bg-[#11182759] text-gray-300 rounded focus:outline-none">
-				<input type="text" x-model="newUser.username" placeholder="Username" 
-					class="px-3 py-2 border border-gray-600 bg-[#11182759] text-gray-300 rounded focus:outline-none">
-			</div>
-			<div class="flex gap-3">
-				<button @click="createUser" 
-					class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md">
-					Create User
-				</button>
-				<button @click="showCreateForm = false; resetNewUser()" 
-					class="bg-slate-600 hover:bg-slate-700 text-white px-4 py-2 rounded-md">
-					Cancel
-				</button>
+		<!-- Create User Slide-Over -->
+		<div id="createUserSlideover" x-data="{ isOpen: false }" x-init="
+			window.addEventListener('open-create-user-slideover', () => { isOpen = true });
+			window.addEventListener('close-create-user-slideover', () => { isOpen = false });
+		" x-show="isOpen" class="fixed inset-0 z-50" style="display: none;">
+			<!-- Backdrop -->
+			<div class="absolute inset-0 bg-black/75"
+				 x-show="isOpen"
+				 x-transition.opacity
+				 onclick="closeCreateUserSlideover()"></div>
+			<!-- Panel -->
+			<div class="absolute right-0 top-0 h-full w-full max-w-xl bg-slate-950 border-l border-slate-800/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] overflow-y-auto"
+				 x-show="isOpen"
+				 x-transition:enter="transform transition ease-in-out duration-300"
+				 x-transition:enter-start="translate-x-full"
+				 x-transition:enter-end="translate-x-0"
+				 x-transition:leave="transform transition ease-in-out duration-300"
+				 x-transition:leave-start="translate-x-0"
+				 x-transition:leave-end="translate-x-full">
+				<div class="flex items-center justify-between p-4 border-b border-slate-700">
+					<h3 class="text-lg font-semibold text-white">Create User</h3>
+					<button class="text-slate-300 hover:text-white" onclick="closeCreateUserSlideover()">
+						<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+						</svg>
+					</button>
+				</div>
+				<div class="p-4">
+					<style>
+					#createUserSlideover ::placeholder { color: #94a3b8; opacity: 1; }
+					#createUserSlideover .border-slate-700 { border-color: rgba(51,65,85,1); }
+					#createUserSlideover input[type="text"] {
+						background-color: rgb(15 23 42) !important;
+						border-color: rgba(51,65,85,1) !important;
+						color: #e2e8f0 !important;
+					}
+					#createUserSlideover input:focus {
+						outline: none !important;
+						border-color: rgb(14 165 233 / 1) !important;
+						box-shadow: 0 0 0 1px rgb(14 165 233 / 1) !important;
+					}
+					</style>
+
+					<div id="createUserMessage" class="bg-red-600 text-white px-4 py-2 rounded-md mb-4 hidden"></div>
+
+					<div class="mb-4">
+						<label class="block text-sm font-medium text-slate-300 mb-2">Username</label>
+						<input type="text" x-model="newUser.username" placeholder="e.g., acme-corp"
+							   class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600" required>
+						
+					</div>
+
+					<div class="flex justify-end space-x-2 mt-6">
+						<button type="button" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-md" onclick="closeCreateUserSlideover()">Cancel</button>
+						<button type="button" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md" @click="createUser(); closeCreateUserSlideover()">Confirm</button>
+					</div>
+				</div>
 			</div>
 		</div>
 
@@ -541,6 +622,8 @@
 			</div>
 		</div>
 
+		</div>
+
 		<!-- Loading Overlay -->
 		<div x-show="loading" x-cloak
 			class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50">
@@ -662,6 +745,14 @@
 		</div>
 	</div>
 </div>
+<script>
+function openCreateUserSlideover(){
+	try { window.dispatchEvent(new CustomEvent('open-create-user-slideover')); } catch(_) {}
+}
+function closeCreateUserSlideover(){
+	try { window.dispatchEvent(new CustomEvent('close-create-user-slideover')); } catch(_) {}
+}
+</script>
 
 <script>
 // Initialize users data from server
@@ -855,17 +946,21 @@ function usersManager() {
         // User Management
         createUser: function() {
             var self = this;
-            if (!this.newUser.name.trim() || !this.newUser.username.trim()) {
-                this.showAlert('Please enter both name and username', 'error');
+            var uname = (this.newUser.username || '').trim();
+            if (!uname) {
+                this.showAlert('Please enter a username', 'error');
                 return;
             }
+            // Use username as account name
+            this.newUser.name = uname;
+            this.newUser.username = uname;
 
             this.loading = true;
             this.loadingText = 'Creating user...';
             
             this.apiCall('modules/addons/cloudstorage/api/managedusers.php', {
-                username: this.newUser.username,
-                name: this.newUser.name,
+                username: uname,
+                name: uname,
                 action: 'addtenant'
             }).then(function(response) {
                 if (response.status === 'success') {
@@ -884,6 +979,7 @@ function usersManager() {
                     self.showCreateForm = false;
                     self.resetNewUser();
                     self.showAlert(response.message);
+                    try { window.dispatchEvent(new CustomEvent('close-create-user-slideover')); } catch (_){}
                 } else {
                     self.showAlert(response.message, 'error');
                 }

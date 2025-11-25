@@ -746,5 +746,154 @@ class CloudBackupController {
             return ['status' => 'error', 'message' => 'Retention operation failed. Please try again later.'];
         }
     }
+
+    /**
+     * Ensure bucket lifecycle matches a job's retention mode when feasible.
+     * For keep_days: upsert a per-prefix lifecycle rule to expire current and noncurrent versions after N days.
+     * For none: remove the job-scoped lifecycle rule if previously added.
+     *
+     * This complements, but does not replace, cron-based pruning.
+     *
+     * @param int $jobId
+     * @return array
+     */
+    public static function manageLifecycleForJob($jobId)
+    {
+        try {
+            // Load module config (admin/API creds)
+            $module = DBController::getResult('tbladdonmodules', [
+                ['module', '=', 'cloudstorage']
+            ]);
+            if (count($module) == 0) {
+                return ['status' => 'fail', 'message' => 'Cloud Storage module not configured'];
+            }
+            $s3Endpoint = $module->where('setting', 's3_endpoint')->pluck('value')->first();
+            $cephAdminUser = $module->where('setting', 'ceph_admin_user')->pluck('value')->first();
+            $cephAdminAccessKey = $module->where('setting', 'ceph_access_key')->pluck('value')->first();
+            $cephAdminSecretKey = $module->where('setting', 'ceph_secret_key')->pluck('value')->first();
+            $s3Region = $module->where('setting', 's3_region')->pluck('value')->first() ?? 'us-east-1';
+            $encryptionKey = $module->where('setting', 'encryption_key')->pluck('value')->first();
+
+            if (empty($s3Endpoint) || empty($cephAdminAccessKey) || empty($cephAdminSecretKey)) {
+                return ['status' => 'fail', 'message' => 'Storage connection not configured'];
+            }
+
+            // Load job
+            $job = Capsule::table('s3_cloudbackup_jobs')->where('id', $jobId)->first();
+            if (!$job) {
+                return ['status' => 'fail', 'message' => 'Job not found'];
+            }
+
+            $retentionMode = $job->retention_mode ?? 'none';
+            $retentionValue = (int)($job->retention_value ?? 0);
+
+            // Need a destination bucket and (ideally) a prefix to scope lifecycle
+            $bucketRow = Capsule::table('s3_buckets')->where('id', $job->dest_bucket_id)->first();
+            if (!$bucketRow) {
+                return ['status' => 'fail', 'message' => 'Destination bucket not found'];
+            }
+            $bucketName = $bucketRow->name;
+            $prefix = trim((string)($job->dest_prefix ?? ''));
+
+            // Connect S3 client as bucket owner
+            $bc = new \WHMCS\Module\Addon\CloudStorage\Client\BucketController(
+                $s3Endpoint,
+                $cephAdminUser,
+                $cephAdminAccessKey,
+                $cephAdminSecretKey,
+                $s3Region
+            );
+            $conn = $bc->connectS3Client($bucketRow->user_id, $encryptionKey);
+            if (!is_array($conn) || ($conn['status'] ?? 'fail') !== 'success') {
+                return ['status' => 'fail', 'message' => 'Failed to connect S3 client for lifecycle change'];
+            }
+
+            // Unique rule id per job
+            $ruleId = 'job-' . $jobId . '-keep-days';
+
+            if ($retentionMode === 'keep_days' && $retentionValue > 0) {
+                // Avoid whole-bucket rules when no prefix configured
+                if ($prefix === '') {
+                    return ['status' => 'skipped', 'message' => 'No dest_prefix; skipping lifecycle to avoid whole-bucket expiration'];
+                }
+                // Ensure versioning is enabled before applying lifecycle
+                $ensure = $bc->ensureBucketVersioningEnabled($bucketName);
+                if (($ensure['status'] ?? 'fail') !== 'success') {
+                    return ['status' => 'fail', 'message' => 'Failed to enable bucket versioning required for retention'];
+                }
+                $res = $bc->upsertLifecycleRuleForPrefix($bucketName, $ruleId, $prefix, $retentionValue);
+                return $res;
+            }
+
+            if ($retentionMode === 'none') {
+                // Remove lifecycle rule if present
+                $res = $bc->removeLifecycleRuleById($bucketName, $ruleId);
+                return $res;
+            }
+
+            // Other modes (e.g., keep_last_n) not handled by lifecycle
+            return ['status' => 'skipped', 'message' => 'Lifecycle not used for this retention mode'];
+        } catch (\Exception $e) {
+            logModuleCall(self::$module, 'manageLifecycleForJob', ['job_id' => $jobId], $e->getMessage());
+            return ['status' => 'error', 'message' => 'Lifecycle operation failed'];
+        }
+    }
+
+    /**
+     * Ensure bucket versioning is enabled for a bucket by its ID.
+     * Attempts with bucket owner's credentials, then admin fallback inside BucketController.
+     *
+     * @param int $bucketId
+     * @return array
+     */
+    public static function ensureVersioningForBucketId(int $bucketId): array
+    {
+        try {
+            $bucket = Capsule::table('s3_buckets')->where('id', $bucketId)->first();
+            if (!$bucket) {
+                return ['status' => 'fail', 'message' => 'Bucket not found'];
+            }
+            logModuleCall(self::$module, __FUNCTION__ . '_START', ['bucket_id' => $bucketId, 'bucket' => $bucket->name ?? null], 'Ensuring versioning enabled');
+
+            // Load module config
+            $module = DBController::getResult('tbladdonmodules', [
+                ['module', '=', 'cloudstorage']
+            ]);
+            if (count($module) == 0) {
+                return ['status' => 'fail', 'message' => 'Cloud Storage module not configured'];
+            }
+
+            $s3Endpoint = $module->where('setting', 's3_endpoint')->pluck('value')->first();
+            $cephAdminUser = $module->where('setting', 'ceph_admin_user')->pluck('value')->first();
+            $cephAdminAccessKey = $module->where('setting', 'ceph_access_key')->pluck('value')->first();
+            $cephAdminSecretKey = $module->where('setting', 'ceph_secret_key')->pluck('value')->first();
+            $s3Region = $module->where('setting', 's3_region')->pluck('value')->first() ?? 'us-east-1';
+            $encryptionKey = $module->where('setting', 'encryption_key')->pluck('value')->first();
+
+            if (empty($s3Endpoint) || empty($cephAdminAccessKey) || empty($cephAdminSecretKey)) {
+                return ['status' => 'fail', 'message' => 'Storage connection not configured'];
+            }
+
+            $bc = new \WHMCS\Module\Addon\CloudStorage\Client\BucketController(
+                $s3Endpoint,
+                $cephAdminUser,
+                $cephAdminAccessKey,
+                $cephAdminSecretKey,
+                $s3Region
+            );
+            $conn = $bc->connectS3Client((int)$bucket->user_id, $encryptionKey);
+            if (!is_array($conn) || ($conn['status'] ?? 'fail') !== 'success') {
+                logModuleCall(self::$module, __FUNCTION__ . '_CONNECT_FAIL', ['bucket_id' => $bucketId, 'bucket' => $bucket->name ?? null], 'Could not connect S3 client for bucket owner');
+                return ['status' => 'fail', 'message' => 'Could not connect S3 client for bucket owner'];
+            }
+
+            $res = $bc->ensureBucketVersioningEnabled($bucket->name);
+            logModuleCall(self::$module, __FUNCTION__ . '_RESULT', ['bucket_id' => $bucketId, 'bucket' => $bucket->name ?? null], $res);
+            return $res;
+        } catch (\Exception $e) {
+            logModuleCall(self::$module, 'ensureVersioningForBucketId', ['bucket_id' => $bucketId], $e->getMessage());
+            return ['status' => 'error', 'message' => 'Error enforcing bucket versioning'];
+        }
+    }
 }
 

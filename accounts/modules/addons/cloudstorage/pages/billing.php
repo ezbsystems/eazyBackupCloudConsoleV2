@@ -41,8 +41,9 @@
     // Query through today to keep usage totals and charts live
     $totalUsage = $bucketObject->getTotalUsageForBillingPeriod($userIds, $billingPeriod['start'], $billingPeriod['end_for_queries']);
     $peakBillingPeriod = ['start' => $billingPeriod['start'], 'end' => $billingPeriod['end_for_queries']];
-    $peakUsage = $bucketObject->findPeakBucketUsage($userIds, $peakBillingPeriod);
-    $bucketStats = $bucketObject->getUserBucketSummary($userIds, $billingPeriod['start'], $billingPeriod['end_for_queries']);
+    // Use billed instantaneous snapshots for Billable Usage and chart series
+    $peakUsage = $bucketObject->findPeakBillableUsageFromPrices((int)$user->id, $peakBillingPeriod);
+    $bucketStats = $bucketObject->getDailyBillableUsageFromPrices((int)$user->id, $billingPeriod['start'], $billingPeriod['end_for_queries']);
     // Fill-forward daily storage for the date range so the line continues into the current month
     $dailyUsageChart = \WHMCS\Module\Addon\CloudStorage\Client\HelperController::prepareDailyUsageChart($billingPeriod['start'], $bucketStats);
 

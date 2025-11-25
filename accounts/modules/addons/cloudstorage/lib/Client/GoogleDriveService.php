@@ -159,6 +159,73 @@ class GoogleDriveService
         ];
     }
 
+    /**
+     * List children (folders and files) under a parent for My Drive or a Shared Drive.
+     *
+     * @param string $accessToken
+     * @param string $parentId
+     * @param array $opts ['driveId' => string|null, 'q' => string|null, 'pageToken' => string|null, 'pageSize' => int]
+     * @return array [status, items, nextPageToken, message]
+     */
+    public static function listChildren($accessToken, $parentId, array $opts = [])
+    {
+        $driveId = $opts['driveId'] ?? null;
+        $pageToken = $opts['pageToken'] ?? null;
+        $pageSize = isset($opts['pageSize']) ? (int)$opts['pageSize'] : 100;
+        $pageSize = max(1, min(200, $pageSize));
+        $search = isset($opts['q']) ? trim((string)$opts['q']) : '';
+
+        $q = sprintf("'%s' in parents and trashed=false", self::escapeQueryLiteral($parentId));
+        if ($search !== '') {
+            $q .= " and name contains '" . self::escapeQueryLiteral($search) . "'";
+        }
+
+        $params = [
+            'q' => $q,
+            'fields' => 'nextPageToken,files(id,name,parents,driveId,mimeType)',
+            'pageSize' => $pageSize,
+            'supportsAllDrives' => 'true',
+            'includeItemsFromAllDrives' => 'true',
+            'orderBy' => 'name',
+        ];
+        if ($pageToken) {
+            $params['pageToken'] = $pageToken;
+        }
+        if ($driveId) {
+            $params['corpora'] = 'drive';
+            $params['driveId'] = $driveId;
+        } else {
+            $params['corpora'] = 'user';
+        }
+
+        $url = 'https://www.googleapis.com/drive/v3/files?' . http_build_query($params);
+        $resp = self::httpRequest('GET', $url, [
+            'Authorization: Bearer ' . $accessToken,
+        ], null, 20);
+        if ($resp['status'] !== 'success') {
+            return $resp;
+        }
+        $data = json_decode($resp['body'], true);
+        if (!is_array($data)) {
+            return ['status' => 'fail', 'message' => 'Invalid response'];
+        }
+        $items = [];
+        foreach ($data['files'] ?? [] as $f) {
+            $items[] = [
+                'id' => $f['id'] ?? '',
+                'name' => $f['name'] ?? '',
+                'parents' => $f['parents'] ?? [],
+                'driveId' => $f['driveId'] ?? null,
+                'mimeType' => $f['mimeType'] ?? '',
+            ];
+        }
+        return [
+            'status' => 'success',
+            'items' => $items,
+            'nextPageToken' => $data['nextPageToken'] ?? null,
+        ];
+    }
+
     private static function httpRequest($method, $url, array $headers = [], $body = null, $timeout = 15)
     {
         $ch = curl_init();

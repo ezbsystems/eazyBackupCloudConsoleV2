@@ -39,7 +39,10 @@
     }
 
     $username = $product->username;
-    $browseUser = $_POST['username'];
+    // Allow missing or empty username to mean "current product user" (align with objectversions.php)
+    $browseUser = (isset($_POST['username']) && $_POST['username'] !== '')
+        ? $_POST['username']
+        : $product->username;
     $user = DBController::getUser($username);
     if (is_null($user)) {
         $jsonData = [
@@ -54,7 +57,7 @@
 
     $userId = $user->id;
 
-    if ($username != $browseUser) {
+    if ($username !== $browseUser) {
         $tenant = DBController::getRow('s3_users', [
             ['username', '=', $browseUser],
             ['parent_id', '=', $userId],
@@ -63,7 +66,7 @@
         if (is_null($tenant)) {
             $jsonData = [
                 'status' => 'fail',
-                'message' => 'Invalid request.'
+                'message' => 'Invalid browse user.'
             ];
 
             $response = new JsonResponse($jsonData, 200);

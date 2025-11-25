@@ -4,9 +4,7 @@
     <meta charset="{$charset}" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{$companyname} - {$pagetitle}</title>
-
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>{$companyname} - {$pagetitle}</title>    
 
     <link href="{assetPath file='all.min.css'}?v={$versionHash}" rel="stylesheet">
     <link href="{assetPath file='theme.min.css'}?v={$versionHash}" rel="stylesheet">

@@ -141,16 +141,22 @@ try {
     $parentId = $_GET['parentId'] ?? 'root';
     $driveId = $_GET['driveId'] ?? null;
     $search = isset($_GET['q']) ? trim((string)$_GET['q']) : '';
+    $includeFiles = isset($_GET['includeFiles']) ? (string)$_GET['includeFiles'] : '0';
+    $includeFiles = ($includeFiles !== '0' && $includeFiles !== '');
     $opts = [
         'driveId' => $driveId ?: null,
         'q' => $search !== '' ? $search : null,
         'pageToken' => $pageToken ?: null,
         'pageSize' => $pageSize,
     ];
-    $out = GoogleDriveService::listChildFolders($accessToken, $parentId, $opts);
+    if ($includeFiles) {
+        $out = GoogleDriveService::listChildren($accessToken, $parentId, $opts);
+    } else {
+        $out = GoogleDriveService::listChildFolders($accessToken, $parentId, $opts);
+    }
     if (($out['status'] ?? 'fail') !== 'success') {
-        logModuleCall('cloudstorage', 'gdrive_list_children', ['client_id' => $loggedInUserId, 'parentId' => $parentId, 'driveId' => $driveId], $out['message'] ?? 'list failed', [], []);
-        (new JsonResponse(['status' => 'fail', 'message' => 'Failed to list folders'], 200))->send();
+        logModuleCall('cloudstorage', 'gdrive_list_children', ['client_id' => $loggedInUserId, 'parentId' => $parentId, 'driveId' => $driveId, 'includeFiles' => $includeFiles ? 1 : 0], $out['message'] ?? 'list failed', [], []);
+        (new JsonResponse(['status' => 'fail', 'message' => 'Failed to list items'], 200))->send();
         exit;
     }
 

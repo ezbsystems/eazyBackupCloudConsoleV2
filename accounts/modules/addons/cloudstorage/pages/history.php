@@ -167,16 +167,14 @@ debugLog('Raw Historical Data from getHistoricalUsage', [
 
 // Populate variables for the template from $historicalData
 
-// Peak Usage
-$peakUsageDate = 'N/A';
-$peakUsageSizeFormatted = '0 Bytes';
-if (isset($historicalData['peak_usage']) && $historicalData['peak_usage']) {
-    $peakUsageDate = $historicalData['peak_usage']->date ?? 'N/A';
-    $peakUsageSizeFormatted = HelperController::formatSizeUnits($historicalData['peak_usage']->size ?? 0);
-}
+// Peak Usage (billed instantaneous) from s3_prices
+$peakFromPrices = $bucketController->findPeakBillableUsageFromPrices((int)$user->id, [
+    'start' => $startDate,
+    'end' => $endDate
+]);
 $peakUsageForTemplate = [
-    'date' => $peakUsageDate,
-    'size' => $peakUsageSizeFormatted
+    'date' => ($peakFromPrices && $peakFromPrices->exact_timestamp) ? date('Y-m-d', strtotime($peakFromPrices->exact_timestamp)) : 'N/A',
+    'size' => HelperController::formatSizeUnits($peakFromPrices->total_size ?? 0)
 ];
 
 // Ingress, Egress, Operations from summary
@@ -190,8 +188,8 @@ if (isset($historicalData['summary'])) {
     $totalOpsFormatted = number_format($historicalData['summary']->total_operations ?? 0);
 }
 
-// Get bucket stats for the period (for charts/other displays, not summary cards)
-$bucketStats = $bucketObject->getUserBucketSummary($userIds, $startDate, $endDate); // Used for daily usage chart if #sizeChart is present
+// Get bucket stats for the period (legacy, kept for compatibility if referenced elsewhere)
+$bucketStats = $bucketObject->getUserBucketSummary($userIds, $startDate, $endDate); // Daily usage chart uses dailyUsageData below
 
 // Get all usernames for the dropdown
 $usernames = array_keys($tenants);
@@ -217,16 +215,13 @@ $transferReceivedData = [];
 $transferOpsData = []; 
 $transferDates = [];
 
-// Aggregation for Daily Usage (Storage) with last-value carry-forward to avoid drops on missing days
+// Aggregation for Daily Usage (Storage) from billed instantaneous snapshots (s3_prices)
 $aggregatedDailyUsage = [];
-if (isset($historicalData['daily_usage']) && is_array($historicalData['daily_usage'])) {
-    foreach ($historicalData['daily_usage'] as $usage) {
-        if (is_object($usage) && isset($usage->date)) { 
-            $date = $usage->date;
-            if (!isset($aggregatedDailyUsage[$date])) {
-                $aggregatedDailyUsage[$date] = 0;
-            }
-            $aggregatedDailyUsage[$date] += (float)($usage->total_storage ?? 0);
+$pricesDaily = $bucketController->getDailyBillableUsageFromPrices((int)$user->id, $startDate, $endDate);
+if (is_array($pricesDaily)) {
+    foreach ($pricesDaily as $row) {
+        if (is_array($row) && isset($row['period'])) {
+            $aggregatedDailyUsage[$row['period']] = (float)($row['total_usage'] ?? 0);
         }
     }
 }

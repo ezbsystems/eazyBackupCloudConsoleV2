@@ -25,6 +25,41 @@
                 <h2 class="text-2xl font-bold text-white">Usage History</h2>
             </div>
         </div>
+        <!-- Cloud Storage Navigation -->
+        <div class="mb-6">
+            <nav class="inline-flex rounded-full bg-slate-900/80 p-1 text-xs font-medium text-slate-400" aria-label="Cloud Storage Navigation">
+                <a href="index.php?m=cloudstorage&page=dashboard"
+                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'dashboard'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
+                    Dashboard
+                </a>
+                <a href="index.php?m=cloudstorage&page=buckets"
+                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'buckets'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
+                    Buckets
+                </a>
+                {assign var=__browse_user value=$smarty.get.username|default:''}
+                {assign var=__browse_bucket value=$smarty.get.bucket|default:''}
+                <a href="index.php?m=cloudstorage&page={if $__browse_user && $__browse_bucket}browse&bucket={$__browse_bucket|escape:'url'}&username={$__browse_user|escape:'url'}{else}buckets{/if}"
+                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'browse'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
+                    Browse
+                </a>
+                <a href="index.php?m=cloudstorage&page=access_keys"
+                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'access_keys'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
+                    Access Keys
+                </a>
+                <a href="index.php?m=cloudstorage&page=users"
+                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'users'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
+                    Users
+                </a>
+                <a href="index.php?m=cloudstorage&page=billing"
+                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'billing'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
+                    Billing
+                </a>
+                <a href="index.php?m=cloudstorage&page=history"
+                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'history'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
+                    Historical Stats
+                </a>
+            </nav>
+        </div>
 
         <!-- Date Range Selection Card -->
         <div class="bg-slate-800 rounded-lg border border-slate-700 p-6 mb-8">

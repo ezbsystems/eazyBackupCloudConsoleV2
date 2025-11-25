@@ -1,4 +1,5 @@
-<div class="min-h-screen bg-[#11182759] text-gray-300">
+<div class="min-h-screen bg-slate-950 text-gray-300">
+    <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
     <div class="container mx-auto px-4 pb-8">
         <div class="flex flex-col sm:flex-row h-16 justify-between items-start sm:items-center">
             <!-- Navigation Horizontal -->
@@ -14,21 +15,45 @@
                 <input
                     type="text"
                     id="searchBuckets"
-                    class="bg-slate-800 text-gray-300 placeholder-slate-400 focus:ring-sky-500 focus:border-sky-500 block w-full sm:w-auto px-4 py-2 mr-3 border-b border-slate-700 focus:outline-none focus:ring-0 focus:border-sky-600"
-                    placeholder="Search by bucket or owner…"
-                />
-                <!-- Refresh Button -->
-                <button
-                    type="button"
-                    onclick="showLoaderAndRefreshBuckets()"
-                    class="mr-2 bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
-                    title="Refresh"
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
-                    </svg>
-                </button>
+                    class="w-full sm:w-80 rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                    placeholder="Search buckets"
+                />                
             </div>
+        </div>
+        <!-- Cloud Storage Navigation -->
+        <div class="mb-6">
+            <nav class="inline-flex rounded-full bg-slate-900/80 p-1 text-xs font-medium text-slate-400" aria-label="Cloud Storage Navigation">
+                <a href="index.php?m=cloudstorage&page=dashboard"
+                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'dashboard'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
+                    Dashboard
+                </a>
+                <a href="index.php?m=cloudstorage&page=buckets"
+                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'buckets'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
+                    Buckets
+                </a>
+                {assign var=__browse_user value=$smarty.get.username|default:''}
+                {assign var=__browse_bucket value=$smarty.get.bucket|default:''}
+                <a href="index.php?m=cloudstorage&page={if $__browse_user && $__browse_bucket}browse&bucket={$__browse_bucket|escape:'url'}&username={$__browse_user|escape:'url'}{else}buckets{/if}"
+                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'browse'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
+                    Browse
+                </a>
+                <a href="index.php?m=cloudstorage&page=access_keys"
+                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'access_keys'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
+                    Access Keys
+                </a>
+                <a href="index.php?m=cloudstorage&page=users"
+                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'users'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
+                    Users
+                </a>
+                <a href="index.php?m=cloudstorage&page=billing"
+                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'billing'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
+                    Billing
+                </a>
+                <a href="index.php?m=cloudstorage&page=history"
+                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'history'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
+                    Historical Stats
+                </a>
+            </nav>
         </div>
 
         <!-- Loading Overlay -->
@@ -42,8 +67,48 @@
             </div>
         </div>
 
+        <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
+        <style>
+        .btn-run-now {
+            display: inline-flex; align-items: center; gap: 0.5rem;
+            border-radius: 9999px; padding: 0.375rem 1rem;
+            font-size: 0.875rem; font-weight: 600;
+            color: rgb(15 23 42); /* slate-950 */
+            background-image: linear-gradient(to right, rgb(16 185 129), rgb(52 211 153), rgb(56 189 248));
+            box-shadow: 0 1px 2px rgba(0,0,0,0.25);
+            border: 1px solid rgba(16,185,129,0.4);
+            transition: transform .15s ease, box-shadow .2s ease;
+            cursor: pointer;
+        }
+        .btn-run-now:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(16,185,129,0.25); }
+        .btn-run-now:active { transform: translateY(0); box-shadow: 0 1px 2px rgba(0,0,0,0.25); }
+        .icon-btn {
+            display:inline-flex; align-items:center; justify-content:center;
+            width:2rem; height:2rem; border-radius:9999px;
+            border:1px solid rgba(51,65,85,0.8); /* slate-700/80 */
+            background-color: rgba(15,23,42,0.6); /* slate-900/60 */
+            color:#cbd5e1; font-size:.75rem; transition: all .15s ease;
+            cursor: pointer;
+        }
+        .icon-btn:hover { border-color:#94a3b8; color:white; background-color:#1f2937; }
+        .icon-btn[disabled] { opacity:.6; cursor:not-allowed; }
+        </style>
         <!-- Global Message Container (Always Present) -->
         <div id="globalMessage" class="text-white px-4 py-2 rounded-md mb-6 hidden" role="alert"></div>
+        <!-- Alpine Toasts -->
+        <div x-data="toastCenter()" x-init="init()" class="pointer-events-none fixed top-4 inset-x-0 z-[70] flex justify-center">
+            <template x-for="t in toasts" :key="t.id">
+                <div
+                    x-show="t.show"
+                    x-transition.opacity.duration.200ms
+                    class="pointer-events-auto mb-2 rounded-md px-4 py-2 text-sm shadow-lg"
+                    :class="t.type === 'success' ? 'bg-emerald-600 text-white' : (t.type === 'error' ? 'bg-rose-600 text-white' : 'bg-slate-700 text-slate-100')"
+                    @click="remove(t.id)"
+                >
+                    <span x-text="t.message"></span>
+                </div>
+            </template>
+        </div>
         
         <!-- Legacy Server-Side Message (for backward compatibility) -->
         {if isset($message)}
@@ -97,37 +162,94 @@
         <!-- Buckets Container -->
         <div class="buckets-container grid grid-cols-1 gap-6">
             {foreach from=$buckets item=bucket}
-                <div class="bucket-row bg-slate-800 rounded-lg border border-slate-700 shadow-lg p-4" id="bucketRow{$bucket->id}">
-                    <div class="flex justify-between items-center mb-4">
-                        <div class="flex items-center">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-7 h-7 text-slate-400">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="m20.25 7.5-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" />
-                            </svg>
-                            <div class="flex flex-col ml-2">
-                            <!-- Bucket name -->
-                            <h4 class="bucket-title text-xl font-semibold text-white">{$bucket->name}</h4>
-                            <!-- Owner badge -->
-                            <span class="bucket-owner mt-2 inline-flex items-center bg-slate-700 text-slate-300 text-xs font-medium px-2 py-0.5 rounded-full">
-                              Owner: {$usernames[$bucket->user_id]}
-                            </span>
-                          </div>
+                <div class="bucket-row group relative overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-900/70 p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-400/60 hover:shadow-lg hover:shadow-emerald-500/15" id="bucketRow{$bucket->id}" data-bucket-name="{$bucket->name}" data-versioning="{$bucket->versioning}">
+                    <div class="flex items-center justify-between gap-4 mb-3">
+                        <div class="flex items-center gap-3">
+                            <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-800/90 group-hover:bg-slate-700">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-sky-300" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="m20.25 7.5-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" />
+                                </svg>
+                            </div>
+                            <div>
+                                <div class="flex items-center gap-2">
+                                    <h3 class="bucket-title text-sm font-semibold text-white">{$bucket->name}</h3>
+                                    <span class="bucket-owner inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium bg-slate-500/15 text-slate-300">
+                                        Owner: {$usernames[$bucket->user_id]}
+                                    </span>
+                                </div>
+                            </div>
                         </div>
-                        <div class="flex items-center space-x-2">
+                        <div class="flex items-center gap-2">
                             <!-- Browse Button -->
-                            <a href="index.php?m=cloudstorage&page=browse&bucket={$bucket->name}&username={$usernames[$bucket->user_id]}" class="text-sky-400 hover:text-sky-500">
-                                <button
-                                    class="bg-sky-700 hover:bg-sky-600 text-gray-200 px-3 py-1 rounded-md flex items-center"
-                                    type="button"
-                                >
-                                    <span class="mr-2">Browse</span>
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-5">
+                            <a href="index.php?m=cloudstorage&page=browse&bucket={$bucket->name}&username={$usernames[$bucket->user_id]}" class="btn-run-now cursor-pointer" title="Browse">
+                                <div class="flex items-center gap-2">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
-                                    </svg>
-                                </button>
+                                    </svg>                               
+                                </div>
                             </a>
+                            {* <button
+                              class="icon-btn cursor-pointer manage-logging"
+                              type="button"
+                              data-bucket-name="{$bucket->name}"
+                              data-bucket-id="{$bucket->id}"
+                              title="Manage server access logging"
+                              onclick="openModal('manageLoggingModal')"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="3"></circle>
+                                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c0 .66.26 1.3.73 1.77.47.47 1.11.73 1.77.73H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                              </svg>
+                            </button> *}
+                            <button
+                              class="icon-btn cursor-pointer delete-bucket"
+                              type="button"
+                              data-bucket-name="{$bucket->name}"
+                              data-bucket-id="{$bucket->id}"
+                              data-object-lock="{$bucket->object_lock_enabled}"
+                              title="{if $bucket->object_lock_enabled}Delete Object-Locked Bucket (requires empty bucket){else}Delete Bucket{/if}"
+                              onclick="openModal('deleteBucketModal')"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7
+                                         m5-4h4a2 2 0 012 2v2H8V5a2 2 0 012-2z" />
+                              </svg>
+                            </button>
                         </div>
                     </div>
-                    <div class="grid grid-cols-1 sm:grid-cols-6 gap-2 hover:bg-slate-700 rounded-md p-2">
+                    <!-- Per-card tabs (Overview default, Properties, Management) -->
+                    <div class="mt-2 border-b border-slate-800/60">
+                      <nav class="flex gap-1" role="tablist" aria-label="Bucket sections">
+                        <button
+                          type="button"
+                          class="bucket-tab px-3 py-1.5 text-xs rounded-md bg-slate-800/80 text-slate-200"
+                          data-bucket-id="{$bucket->id}"
+                          data-tab="overview"
+                          aria-selected="true"
+                          onmouseup="this.blur()"
+                        >Overview</button>
+                        <button
+                          type="button"
+                          class="bucket-tab px-3 py-1.5 text-xs rounded-md hover:bg-slate-800/50 text-slate-300"
+                          data-bucket-id="{$bucket->id}"
+                          data-tab="properties"
+                          aria-selected="false"
+                          onmouseup="this.blur()"
+                        >Properties</button>
+                        <button
+                          type="button"
+                          class="bucket-tab px-3 py-1.5 text-xs rounded-md hover:bg-slate-800/50 text-slate-300"
+                          data-bucket-id="{$bucket->id}"
+                          data-tab="management"
+                          aria-selected="false"
+                          onmouseup="this.blur()"
+                        >Management</button>
+                      </nav>
+                    </div>
+
+                    <!-- Overview (default) -->
+                    <div id="bucketTab-overview-{$bucket->id}" class="mt-2 grid grid-cols-1 sm:grid-cols-6 gap-4 text-xs text-slate-400" role="tabpanel" aria-labelledby="overview">
                     <!-- Usage -->
                     <div>
                       <h6 class="text-sm font-medium text-slate-400">Usage</h6>
@@ -156,14 +278,11 @@
                     <div>
                       <h6 class="text-sm font-medium text-slate-400">Versioning</h6>
                       <span
-                        class="text-md font-medium
-                                {if $bucket->versioning ne 'off'}
-                                text-cyan-300
-                                {else}
-                                text-slate-600
-                                {/if}"
-                        title="Bucket Versioning">
-                        {if $bucket->versioning ne 'off'}Enabled{else}Disabled{/if}
+                        class="text-md font-medium"
+                        title="Bucket Versioning"
+                        data-bucket-name="{$bucket->name}"
+                        id="versioningStatus-{$bucket->id}">
+                        Loading…
                         </span>
                     </div>
 
@@ -201,44 +320,76 @@
                       >Checking…</span>
                     </div>
 
-                    <!-- Actions column -->
-                    <div>
+                    <!-- Actions column (moved to header action buttons) -->
+                    <div></div>
+                  </div>
 
-                      <div class="mt-1">
+                  <!-- Properties tab -->
+                  <div id="bucketTab-properties-{$bucket->id}" class="hidden mt-3 text-sm text-slate-300" role="tabpanel" aria-labelledby="properties">
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div>
+                        <div class="text-slate-400 text-xs">Region</div>
+                        <div class="text-slate-200">{$S3_REGION|default:'ca-central-1'}</div>
+                      </div>
+                      <div>
+                        <div class="text-slate-400 text-xs">Creation date</div>
+                        <div class="text-slate-200">{$bucket->created_at|date_format:"%d %b %Y"}</div>
+                      </div>
+                      <div>
+                        <div class="text-slate-400 text-xs">Versioning</div>
+                        <div class="text-slate-200">{if $bucket->versioning ne 'off'}Enabled{else}Disabled{/if}</div>
+                      </div>
+                      <div>
+                        <div class="text-slate-400 text-xs">Object Lock</div>
+                        <div class="text-slate-200">{if $bucket->object_lock_enabled}Enabled{else}Disabled{/if}</div>
+                      </div>
+                      <div>
+                        <div class="text-slate-400 text-xs">Owner</div>
+                        <div class="text-slate-200">{$usernames[$bucket->user_id]}</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Management tab -->
+                  <div id="bucketTab-management-{$bucket->id}" class="hidden mt-3 text-sm" role="tabpanel" aria-labelledby="management">
+                    <!-- Logging management -->
+                    <div class="mb-4">
+                      <div class="flex items-center justify-between">
+                        <div class="text-slate-300 font-medium">Server access logging</div>
                         <button
-                          class="float-right bg-gray-800 text-gray-300 p-2 rounded-md ml-2 manage-logging"
                           type="button"
-                          data-bucket-name="{$bucket->name}"
-                          data-bucket-id="{$bucket->id}"
+                          class="icon-btn manage-logging"
                           title="Manage server access logging"
+                          data-bucket-name="{$bucket->name}"
                           onclick="openModal('manageLoggingModal')"
                         >
-                          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-slate-400 hover:text-sky-400 inline-block" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <circle cx="12" cy="12" r="3"></circle>
                             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c0 .66.26 1.3.73 1.77.47.47 1.11.73 1.77.73H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
                           </svg>
                         </button>
-                        <button
-                          class="float-right bg-gray-800 text-gray-300 p-2 rounded-md delete-bucket"
-                          type="button"
-                          data-bucket-name="{$bucket->name}"
-                          data-bucket-id="{$bucket->id}"
-                          data-object-lock="{$bucket->object_lock_enabled}"
-                          title="{if $bucket->object_lock_enabled}Delete Object-Locked Bucket (requires empty bucket){else}Delete Bucket{/if}"
-                          onclick="openModal('deleteBucketModal')"
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-slate-400 hover:text-orange-600 inline-block" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7
-                                     m5-4h4a2 2 0 012 2v2H8V5a2 2 0 012-2z" />
-                          </svg>
-                        </button>
+                      </div>
+                      <div class="text-slate-400 text-xs mt-1">Current status: <span class="bucket-logging-status" data-bucket-name="{$bucket->name}">Checking…</span></div>
+                    </div>
+
+                    <!-- Lifecycle rules management -->
+                    <div class="border border-slate-700 rounded-md p-3">
+                      <div class="flex items-center justify-between mb-2">
+                        <div class="text-slate-300 font-medium">Lifecycle rules</div>
+                        <div class="space-x-2">
+                          <button type="button" class="bg-gray-700 hover:bg-gray-600 text-gray-200 px-3 py-1 rounded-md text-xs" data-action="lifecycle-refresh" data-bucket="{$bucket->name}">Refresh</button>
+                          <button type="button" class="bg-sky-600 hover:bg-sky-700 text-white px-3 py-1 rounded-md text-xs" data-action="lifecycle-create" data-bucket="{$bucket->name}">Create rule</button>
+                        </div>
+                      </div>
+                      <div id="lifecycleList-{$bucket->id}" class="text-slate-300 text-xs">
+                        <div class="text-slate-400">Loading…</div>
                       </div>
                     </div>
                   </div>
                 </div>
               {/foreach}
             </div>
+        </div>
 
         <!-- Create Bucket Modal -->
         <div class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 hidden" id="createBucketModal">
@@ -424,7 +575,7 @@
         </div>
 
         <!-- Manage Logging Modal -->
-        <div class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 hidden" id="manageLoggingModal">
+        <div class="fixed inset-0 bg-black/75 flex items-center justify-center z-50 hidden" id="manageLoggingModal">
             <div class="bg-gray-800 rounded-lg shadow-lg w-full max-w-lg p-6">
                 <div class="flex justify-between items-center mb-4">
                     <div class="flex items-center">
@@ -471,12 +622,110 @@
             </div>
         </div>
 
+        <!-- Lifecycle Slide-Over -->
+        <div class="fixed inset-0 bg-black/60 z-[60] hidden" id="lifecycleSlideOverBackdrop">
+            <div class="absolute inset-0" onclick="closeLifecycleSlideOver()"></div>
+            <div class="absolute right-0 top-0 h-full w-full sm:w-[520px] bg-gray-800 shadow-xl overflow-y-auto">
+                <div class="p-5 border-b border-slate-700 flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-slate-300" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7h18M3 12h18M3 17h18"/></svg>
+                        <div class="text-white font-semibold text-lg" id="lifecycleSlideOverTitle">Lifecycle rule</div>
+                    </div>
+                    <button type="button" class="text-slate-300 hover:text-white" onclick="closeLifecycleSlideOver()">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
+                </div>
+                <div class="p-5">
+                    <div id="lifecycleFormMessage" class="hidden mb-3 text-sm px-3 py-2 rounded-md"></div>
+                    <form id="lifecycleForm">
+                        <input type="hidden" id="lcBucketName" value="">
+                        <input type="hidden" id="lcBucketId" value="">
+                        <div class="mb-4">
+                            <label class="block text-sm text-slate-300 mb-1">Rule name</label>
+                            <input type="text" id="lcRuleId" maxlength="255" class="w-full bg-gray-700 text-gray-200 border border-gray-600 rounded-md px-3 py-2" placeholder="e.g., archive-logs-90d">
+                        </div>
+                        <div class="mb-4">
+                            <div class="text-sm text-slate-300 mb-1">Scope</div>
+                            <label class="inline-flex items-center mr-4 text-sm"><input type="radio" name="lcScope" value="all" class="mr-2" checked>All objects</label>
+                            <label class="inline-flex items-center text-sm"><input type="radio" name="lcScope" value="filtered" class="mr-2">Limit with filters</label>
+                        </div>
+                        <div id="lcFilters" class="mb-4 hidden">
+                            <div class="mb-3">
+                                <label class="block text-sm text-slate-300 mb-1">Prefix</label>
+                                <input type="text" id="lcPrefix" class="w-full bg-gray-700 text-gray-200 border border-gray-600 rounded-md px-3 py-2" placeholder="logs/">
+                            </div>
+                            <div class="mb-3">
+                                <div class="flex items-center justify-between">
+                                    <label class="block text-sm text-slate-300">Object tags</label>
+                                    <button type="button" class="text-xs bg-gray-700 hover:bg-gray-600 text-gray-200 px-2 py-1 rounded" id="lcAddTagBtn">Add tag</button>
+                                </div>
+                                <div id="lcTags" class="space-y-2 mt-2"></div>
+                            </div>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-sm text-slate-300 mb-1">Minimum object size (bytes)</label>
+                                    <input type="number" id="lcMinSize" min="0" class="w-full bg-gray-700 text-gray-200 border border-gray-600 rounded-md px-3 py-2">
+                                </div>
+                                <div>
+                                    <label class="block text-sm text-slate-300 mb-1">Maximum object size (bytes)</label>
+                                    <input type="number" id="lcMaxSize" min="1" class="w-full bg-gray-700 text-gray-200 border border-gray-600 rounded-md px-3 py-2">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="border-t border-slate-700 my-4"></div>
+                        <div class="mb-3 text-sm text-slate-300 font-medium">Actions</div>
+                        <div id="lcTransitionCurrentWrapper" class="mb-3 {if !$LIFECYCLE_CLASSES || count($LIFECYCLE_CLASSES) == 0}hidden{/if}">
+                            <label class="inline-flex items-center text-sm"><input type="checkbox" id="lcTransitionCurrent" class="mr-2">Transition current versions</label>
+                            <div class="grid grid-cols-2 gap-3 mt-2">
+                                <div><input type="number" id="lcTransitionCurrentDays" min="0" class="w-full bg-gray-700 text-gray-200 border border-gray-600 rounded-md px-3 py-2" placeholder="Days"></div>
+                                <div>
+                                    <select id="lcTransitionCurrentClass" class="w-full bg-gray-700 text-gray-200 border border-gray-600 rounded-md px-3 py-2">
+                                        {foreach from=$LIFECYCLE_CLASSES item=cls}<option value="{$cls}">{$cls}</option>{/foreach}
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="lcTransitionNoncurrentWrapper" class="mb-3 {if !$LIFECYCLE_CLASSES || count($LIFECYCLE_CLASSES) == 0}hidden{/if}">
+                            <label class="inline-flex items-center text-sm"><input type="checkbox" id="lcTransitionNoncurrent" class="mr-2">Transition noncurrent versions</label>
+                            <div class="grid grid-cols-2 gap-3 mt-2">
+                                <div><input type="number" id="lcTransitionNoncurrentDays" min="0" class="w-full bg-gray-700 text-gray-200 border border-gray-600 rounded-md px-3 py-2" placeholder="Noncurrent days"></div>
+                                <div>
+                                    <select id="lcTransitionNoncurrentClass" class="w-full bg-gray-700 text-gray-200 border border-gray-600 rounded-md px-3 py-2">
+                                        {foreach from=$LIFECYCLE_CLASSES item=cls}<option value="{$cls}">{$cls}</option>{/foreach}
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="inline-flex items-center text-sm"><input type="checkbox" id="lcExpireCurrent" class="mr-2">Expire current versions</label>
+                            <div class="mt-2"><input type="number" id="lcExpireCurrentDays" min="0" class="w-full bg-gray-700 text-gray-200 border border-gray-600 rounded-md px-3 py-2" placeholder="Days"></div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="inline-flex items-center text-sm"><input type="checkbox" id="lcDeleteExpiredMarkers" class="mr-2">Delete expired object delete markers</label>
+                        </div>
+                        <div class="mb-3">
+                            <label class="inline-flex items-center text-sm"><input type="checkbox" id="lcExpireNoncurrent" class="mr-2">Permanently delete noncurrent versions</label>
+                            <div class="mt-2"><input type="number" id="lcExpireNoncurrentDays" min="0" class="w-full bg-gray-700 text-gray-200 border border-gray-600 rounded-md px-3 py-2" placeholder="Noncurrent days"></div>
+                        </div>
+                        <div class="mb-5">
+                            <label class="inline-flex items-center text-sm"><input type="checkbox" id="lcAbortMPU" class="mr-2">Abort incomplete multipart uploads</label>
+                            <div class="mt-2"><input type="number" id="lcAbortMPUDays" min="1" class="w-full bg-gray-700 text-gray-200 border border-gray-600 rounded-md px-3 py-2" placeholder="Days after initiation"></div>
+                        </div>
+                        <div class="flex justify-end gap-2">
+                            <button type="button" class="bg-gray-700 hover:bg-gray-600 text-gray-200 px-4 py-2 rounded-md" onclick="closeLifecycleSlideOver()">Cancel</button>
+                            <button type="submit" class="bg-sky-600 hover:bg-sky-700 text-white px-4 py-2 rounded-md" id="lcSaveBtn">Save</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
         <!-- Delete Bucket Modal -->
-        <div class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 hidden" id="deleteBucketModal">
+        <div class="fixed inset-0 bg-black/75 flex items-center justify-center z-50 hidden" id="deleteBucketModal">
             <div class="bg-gray-800 rounded-lg shadow-lg w-full max-w-xl p-6 max-h-[85vh] overflow-y-auto">
                 <div class="flex justify-between items-center mb-4">
                     <div class="flex items-center space-x-2">
-                        <h2 class="text-xl font-semibold text-red-400" id="deleteModalTitle">Warning: Permanent Bucket Deletion</h2>
+                        <h2 class="text-xl font-semibold text-gray-300" id="deleteModalTitle">Warning: Permanent Bucket Deletion</h2>
                         <span id="objectLockModeChip" class="hidden inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-slate-300"></span>
                     </div>
                     <button type="button" onclick="closeModal('deleteBucketModal')" class="text-slate-300 hover:text-white focus:outline-none">
@@ -870,10 +1119,437 @@
         // Kick off live stats on page load
         jQuery(document).ready(function(){
             refreshLiveBucketStats();
+            refreshLiveBucketSettings();
         });
+
+        // Live bucket settings: versioning
+        function refreshLiveBucketSettings() {
+            var names = [];
+            jQuery('.bucket-usage').each(function(){
+                var n = jQuery(this).attr('data-bucket-name');
+                if (n) names.push(n);
+            });
+            if (names.length === 0) return;
+            jQuery.ajax({
+                url: 'modules/addons/cloudstorage/api/livebucketsettings.php',
+                method: 'POST',
+                data: { bucket_names: names },
+                dataType: 'json',
+                timeout: 8000,
+                success: function(resp){
+                    if (!resp || resp.status !== 'success' || !resp.data) return;
+                    var data = resp.data;
+                    // Update versioning labels
+                    jQuery('[id^="versioningStatus-"]').each(function(){
+                        var el = jQuery(this);
+                        var card = el.closest('.bucket-row');
+                        var name = card.attr('data-bucket-name');
+                        var v = data[name] ? (data[name].versioning || 'Off') : null;
+                        if (!v) { el.text('—').removeClass('text-cyan-300 text-slate-600'); return; }
+                        if (String(v).toLowerCase() === 'enabled') {
+                            el.text('Enabled').removeClass('text-slate-600').addClass('text-cyan-300');
+                            card.attr('data-versioning', 'enabled');
+                        } else {
+                            el.text('Disabled').removeClass('text-cyan-300').addClass('text-slate-600');
+                            card.attr('data-versioning', 'off');
+                        }
+                    });
+                },
+                error: function(){ /* ignore */ }
+            });
+        }
 
         jQuery('#createBucketModal').on('hide.bs.modal', function () {
             hideMessage('bucketCreationMessage');
+        });
+
+        // Per-card tab navigation
+        jQuery(document).on('click', '.bucket-tab', function() {
+            var $btn = jQuery(this);
+            var bucketId = $btn.attr('data-bucket-id');
+            var tab = $btn.attr('data-tab');
+            if (!bucketId || !tab) return;
+
+            // Update tab button styles and aria-selected
+            $btn.closest('nav').find('.bucket-tab').each(function(){
+                var $t = jQuery(this);
+                var selected = $t.is($btn);
+                $t.attr('aria-selected', selected ? 'true' : 'false');
+                if (selected) {
+                    $t.removeClass('hover:bg-slate-800/50 text-slate-300').addClass('bg-slate-800/80 text-slate-200');
+                } else {
+                    $t.removeClass('bg-slate-800/80 text-slate-200').addClass('hover:bg-slate-800/50 text-slate-300');
+                }
+            });
+
+            // Toggle tab panels
+            ['overview','properties','management'].forEach(function(name){
+                var id = '#bucketTab-' + name + '-' + bucketId;
+                if (name === tab) {
+                    jQuery(id).removeClass('hidden');
+                } else {
+                    jQuery(id).addClass('hidden');
+                }
+            });
+
+            // Lazy-load lifecycle list when switching to Management
+            if (tab === 'management') {
+                try {
+                    var bucketName = jQuery('#bucketRow' + bucketId).attr('data-bucket-name');
+                    if (bucketName) {
+                        loadLifecycleRules(bucketName, bucketId);
+                    }
+                } catch (e) {}
+            }
+        });
+
+        // Fetch and render lifecycle rules
+        function loadLifecycleRules(bucketName, bucketId) {
+            var target = jQuery('#lifecycleList-' + bucketId);
+            if (target.length === 0) return;
+            target.html('<div class="text-slate-400">Loading…</div>');
+            jQuery.post('modules/addons/cloudstorage/api/getbucketlifecycle.php', { bucket_name: bucketName }, function(resp){
+                if (!resp || resp.status !== 'success') {
+                    target.html('<div class="text-rose-300">Unable to load lifecycle rules.</div>');
+                    return;
+                }
+                var rules = (resp.data && resp.data.rules) ? resp.data.rules : [];
+                // cache rules for edit/delete
+                window.lifecycleRulesCache = window.lifecycleRulesCache || {};
+                window.lifecycleRulesCache[bucketId] = rules;
+                if (!rules.length) {
+                    target.html('<div class="text-slate-400">No lifecycle rules found.</div>');
+                    return;
+                }
+                var html = '<div class="overflow-x-auto"><table class="min-w-full text-left text-xs"><thead><tr class="text-slate-400"><th class="px-2 py-1">ID</th><th class="px-2 py-1">Status</th><th class="px-2 py-1">Scope</th><th class="px-2 py-1">Actions</th><th class="px-2 py-1">Manage</th></tr></thead><tbody>';
+                rules.forEach(function(r){
+                    var id = r.ID || '(no id)';
+                    var st = r.Status || 'Enabled';
+                    var scope = summarizeScope(r.Filter || {});
+                    var summarize = summarizeActions(r);
+                    html += '<tr class="border-t border-slate-800">'
+                        + '<td class="px-2 py-1 text-slate-200">' + escapeHtml(id) + '</td>'
+                        + '<td class="px-2 py-1">' + (st === 'Enabled' ? '<span class="text-emerald-300">Enabled</span>' : '<span class="text-slate-400">Disabled</span>') + '</td>'
+                        + '<td class="px-2 py-1 text-slate-300">' + scope + '</td>'
+                        + '<td class="px-2 py-1 text-slate-300">' + summarize + '</td>'
+                        + '<td class="px-2 py-1">'
+                            + '<button type="button" class="icon-btn mr-1" title="Edit rule" data-action="lifecycle-edit" data-bucket-id="' + bucketId + '" data-bucket-name="' + escapeHtml(bucketName) + '" data-rule-id="' + escapeHtml(id) + '">'
+                                + '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">'
+                                + '<path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232a2.5 2.5 0 013.536 3.536L8.5 19.036 5 19l.036-3.5L15.232 5.232z"/>'
+                                + '</svg>'
+                            + '</button>'
+                            + '<button type="button" class="icon-btn" title="Delete rule" data-action="lifecycle-delete" data-bucket-id="' + bucketId + '" data-bucket-name="' + escapeHtml(bucketName) + '" data-rule-id="' + escapeHtml(id) + '">'
+                                + '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">'
+                                + '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7 m5-4h4a2 2 0 012 2v2H8V5a2 2 0 012-2z" />'
+                                + '</svg>'
+                            + '</button>'
+                        + '</td>'
+                        + '</tr>';
+                });
+                html += '</tbody></table></div>';
+                target.html(html);
+            }, 'json').fail(function(){
+                target.html('<div class="text-rose-300">Unable to load lifecycle rules.</div>');
+            });
+        }
+
+        function summarizeScope(filter) {
+            if (!filter || Object.keys(filter).length === 0) return 'All objects';
+            var f = filter.And || filter;
+            var parts = [];
+            if (f.Prefix) parts.push('Prefix="' + escapeHtml(f.Prefix) + '"');
+            if (Array.isArray(f.Tags) && f.Tags.length) parts.push(f.Tags.length + ' tag(s)');
+            if (typeof f.ObjectSizeGreaterThan !== 'undefined') parts.push('min size ' + f.ObjectSizeGreaterThan + ' B');
+            if (typeof f.ObjectSizeLessThan !== 'undefined') parts.push('max size ' + f.ObjectSizeLessThan + ' B');
+            return parts.join(', ') || 'Custom filter';
+        }
+
+        function summarizeActions(rule) {
+            var parts = [];
+            if (rule.Transition) parts.push('Transition ' + (rule.Transition.Days || 0) + 'd → ' + (rule.Transition.StorageClass || ''));
+            if (rule.NoncurrentVersionTransition) parts.push('NC Transition ' + (rule.NoncurrentVersionTransition.NoncurrentDays || 0) + 'd → ' + (rule.NoncurrentVersionTransition.StorageClass || ''));
+            if (rule.Expiration && typeof rule.Expiration.Days !== 'undefined') parts.push('Expire ' + rule.Expiration.Days + 'd');
+            if (rule.NoncurrentVersionExpiration && typeof rule.NoncurrentVersionExpiration.NoncurrentDays !== 'undefined') parts.push('NC Expire ' + rule.NoncurrentVersionExpiration.NoncurrentDays + 'd');
+            if (rule.Expiration && rule.Expiration.ExpiredObjectDeleteMarker) parts.push('Delete expired delete markers');
+            if (rule.AbortIncompleteMultipartUpload && typeof rule.AbortIncompleteMultipartUpload.DaysAfterInitiation !== 'undefined') parts.push('Abort MPU ' + rule.AbortIncompleteMultipartUpload.DaysAfterInitiation + 'd');
+            if (!parts.length) return '—';
+            return parts.join(' · ');
+        }
+
+        function escapeHtml(s){
+            return String(s).replace(/[&<>"']/g, function(m){
+                var map = {
+                    '&': '&amp;',
+                    '<': '&lt;',
+                    '>': '&gt;',
+                    '"': '&quot;',
+                    "'": '&#39;'
+                };
+                return map[m];
+            });
+        }
+
+        // Refresh click
+        jQuery(document).on('click', '[data-action="lifecycle-refresh"]', function(){
+            var bucket = jQuery(this).attr('data-bucket');
+            var bucketId = jQuery(this).closest('.bucket-row').attr('id').replace('bucketRow','');
+            if (bucket && bucketId) loadLifecycleRules(bucket, bucketId);
+        });
+
+        // Edit lifecycle rule
+        jQuery(document).on('click', '[data-action="lifecycle-edit"]', function(){
+            var bucketId = jQuery(this).attr('data-bucket-id');
+            var bucketName = jQuery(this).attr('data-bucket-name');
+            var ruleId = jQuery(this).attr('data-rule-id');
+            var rules = (window.lifecycleRulesCache && window.lifecycleRulesCache[bucketId]) ? window.lifecycleRulesCache[bucketId] : [];
+            var rule = null;
+            for (var i=0;i<rules.length;i++){ if ((rules[i].ID||'') === ruleId){ rule = rules[i]; break; } }
+            openLifecycleSlideOver(bucketName, bucketId, rule);
+        });
+
+        // Delete lifecycle rule
+        jQuery(document).on('click', '[data-action="lifecycle-delete"]', function(){
+            var bucketId = jQuery(this).attr('data-bucket-id');
+            var bucketName = jQuery(this).attr('data-bucket-name');
+            var ruleId = jQuery(this).attr('data-rule-id');
+            if (!window.confirm('Remove lifecycle rule "' + ruleId + '" from ' + bucketName + '?')) { return; }
+            deleteLifecycleRule(bucketName, bucketId, ruleId);
+        });
+
+        function deleteLifecycleRule(bucketName, bucketId, ruleId) {
+            var rules = (window.lifecycleRulesCache && window.lifecycleRulesCache[bucketId]) ? window.lifecycleRulesCache[bucketId].slice() : [];
+            var newRules = [];
+            for (var i=0;i<rules.length;i++){ if ((rules[i].ID||'') !== ruleId){ newRules.push(rules[i]); } }
+
+            if (newRules.length === 0) {
+                // Clear lifecycle
+                jQuery.post('modules/addons/cloudstorage/api/deletebucketlifecycle.php', { bucket_name: bucketName }, function(resp){
+                    if (!resp || resp.status !== 'success') {
+                            pushToast((resp && resp.message) ? resp.message : 'Unable to remove lifecycle rule. Please try again later.', 'error');
+                        return;
+                    }
+                        pushToast(resp.message || 'Lifecycle rule removed.', 'success');
+                    loadLifecycleRules(bucketName, bucketId);
+                }, 'json').fail(function(){
+                        pushToast('Unable to remove lifecycle rule. Please try again later.', 'error');
+                });
+                return;
+            }
+
+            jQuery.ajax({
+                url: 'modules/addons/cloudstorage/api/putbucketlifecycle.php',
+                method: 'POST',
+                data: JSON.stringify({ bucket_name: bucketName, rules: newRules }),
+                contentType: 'application/json',
+                dataType: 'json',
+                success: function(resp){
+                    if (!resp || resp.status !== 'success') {
+                            pushToast((resp && resp.message) ? resp.message : 'Unable to remove lifecycle rule. Please try again later.', 'error');
+                        return;
+                    }
+                        pushToast(resp.message || 'Lifecycle rule removed.', 'success');
+                    loadLifecycleRules(bucketName, bucketId);
+                },
+                error: function(){
+                        pushToast('Unable to remove lifecycle rule. Please try again later.', 'error');
+                }
+            });
+        }
+
+        // Open lifecycle slide-over
+        jQuery(document).on('click', '[data-action="lifecycle-create"]', function(){
+            var bucket = jQuery(this).attr('data-bucket');
+            var bucketId = jQuery(this).closest('.bucket-row').attr('id').replace('bucketRow','');
+            openLifecycleSlideOver(bucket, bucketId, null);
+        });
+
+        function openLifecycleSlideOver(bucketName, bucketId, rule) {
+            jQuery('#lcBucketName').val(bucketName||'');
+            jQuery('#lcBucketId').val(bucketId||'');
+            jQuery('#lifecycleForm')[0].reset();
+            jQuery('#lcTags').empty();
+            jQuery('input[name="lcScope"][value="all"]').prop('checked', true);
+            jQuery('#lcFilters').addClass('hidden');
+            jQuery('#lifecycleFormMessage').addClass('hidden').removeClass('bg-red-600 bg-green-600').text('');
+
+            // Guard: disable Noncurrent* controls if versioning is off on this bucket
+            var versioning = (jQuery('#bucketRow' + bucketId).attr('data-versioning') || '').toLowerCase();
+            var versioningOn = versioning && versioning !== 'off';
+            var $ncWraps = jQuery('#lcTransitionNoncurrentWrapper, #lcExpireNoncurrent').closest('.mb-3');
+            if (!versioningOn) {
+                jQuery('#lcTransitionNoncurrent').prop('checked', false);
+                jQuery('#lcExpireNoncurrent').prop('checked', false);
+                jQuery('#lcTransitionNoncurrentDays, #lcTransitionNoncurrentClass, #lcExpireNoncurrentDays').prop('disabled', true);
+                jQuery('#lcTransitionNoncurrentWrapper').addClass('opacity-50 pointer-events-none');
+                jQuery('#lcExpireNoncurrent').closest('.mb-3').addClass('opacity-50 pointer-events-none');
+            } else {
+                jQuery('#lcTransitionNoncurrentDays, #lcTransitionNoncurrentClass, #lcExpireNoncurrentDays').prop('disabled', false);
+                jQuery('#lcTransitionNoncurrentWrapper').removeClass('opacity-50 pointer-events-none');
+                jQuery('#lcExpireNoncurrent').closest('.mb-3').removeClass('opacity-50 pointer-events-none');
+            }
+            if (rule && rule.ID) {
+                jQuery('#lifecycleSlideOverTitle').text('Edit lifecycle rule');
+                jQuery('#lcRuleId').val(rule.ID||'');
+                // prefill scope (rough)
+                if (rule.Filter && Object.keys(rule.Filter).length) {
+                    jQuery('input[name="lcScope"][value="filtered"]').prop('checked', true);
+                    jQuery('#lcFilters').removeClass('hidden');
+                    var f = rule.Filter.And || rule.Filter;
+                    jQuery('#lcPrefix').val(f.Prefix||'');
+                    // tags
+                    if (Array.isArray(f.Tags)) {
+                        f.Tags.forEach(function(t){ addTagRow(t.Key||'', t.Value||''); });
+                    }
+                    if (typeof f.ObjectSizeGreaterThan !== 'undefined') jQuery('#lcMinSize').val(f.ObjectSizeGreaterThan);
+                    if (typeof f.ObjectSizeLessThan !== 'undefined') jQuery('#lcMaxSize').val(f.ObjectSizeLessThan);
+                }
+                // actions
+                if (rule.Transition) { jQuery('#lcTransitionCurrent').prop('checked', true); jQuery('#lcTransitionCurrentDays').val(rule.Transition.Days||''); jQuery('#lcTransitionCurrentClass').val(rule.Transition.StorageClass||''); }
+                if (rule.NoncurrentVersionTransition) { jQuery('#lcTransitionNoncurrent').prop('checked', true); jQuery('#lcTransitionNoncurrentDays').val(rule.NoncurrentVersionTransition.NoncurrentDays||''); jQuery('#lcTransitionNoncurrentClass').val(rule.NoncurrentVersionTransition.StorageClass||''); }
+                if (rule.Expiration && typeof rule.Expiration.Days !== 'undefined') { jQuery('#lcExpireCurrent').prop('checked', true); jQuery('#lcExpireCurrentDays').val(rule.Expiration.Days||''); }
+                if (rule.Expiration && rule.Expiration.ExpiredObjectDeleteMarker) { jQuery('#lcDeleteExpiredMarkers').prop('checked', true); }
+                if (rule.NoncurrentVersionExpiration && typeof rule.NoncurrentVersionExpiration.NoncurrentDays !== 'undefined') { jQuery('#lcExpireNoncurrent').prop('checked', true); jQuery('#lcExpireNoncurrentDays').val(rule.NoncurrentVersionExpiration.NoncurrentDays||''); }
+                if (rule.AbortIncompleteMultipartUpload && typeof rule.AbortIncompleteMultipartUpload.DaysAfterInitiation !== 'undefined') { jQuery('#lcAbortMPU').prop('checked', true); jQuery('#lcAbortMPUDays').val(rule.AbortIncompleteMultipartUpload.DaysAfterInitiation||''); }
+            } else {
+                jQuery('#lifecycleSlideOverTitle').text('Create lifecycle rule');
+            }
+
+            // Enforce versioning constraint AFTER prefilling
+            (function(){
+                var v = (jQuery('#bucketRow' + bucketId).attr('data-versioning') || '').toLowerCase();
+                var on = (['enabled','on','true','1'].indexOf(v) !== -1);
+                if (!on) {
+                    jQuery('#lcTransitionNoncurrent').prop('checked', false);
+                    jQuery('#lcExpireNoncurrent').prop('checked', false);
+                    jQuery('#lcTransitionNoncurrentDays, #lcTransitionNoncurrentClass, #lcExpireNoncurrentDays').prop('disabled', true);
+                    jQuery('#lcTransitionNoncurrentWrapper').addClass('opacity-50 pointer-events-none');
+                    jQuery('#lcExpireNoncurrent').closest('.mb-3').addClass('opacity-50 pointer-events-none');
+                } else {
+                    jQuery('#lcTransitionNoncurrentDays, #lcTransitionNoncurrentClass, #lcExpireNoncurrentDays').prop('disabled', false);
+                    jQuery('#lcTransitionNoncurrentWrapper').removeClass('opacity-50 pointer-events-none');
+                    jQuery('#lcExpireNoncurrent').closest('.mb-3').removeClass('opacity-50 pointer-events-none');
+                }
+            })();
+            jQuery('#lifecycleSlideOverBackdrop').removeClass('hidden');
+        }
+
+        function closeLifecycleSlideOver() {
+            jQuery('#lifecycleSlideOverBackdrop').addClass('hidden');
+        }
+
+        // Filters toggle
+        jQuery(document).on('change', 'input[name="lcScope"]', function(){
+            if (jQuery(this).val() === 'filtered') {
+                jQuery('#lcFilters').removeClass('hidden');
+            } else {
+                jQuery('#lcFilters').addClass('hidden');
+            }
+        });
+
+        // Add tag row
+        jQuery('#lcAddTagBtn').on('click', function(){
+            addTagRow('','');
+        });
+        function addTagRow(key, val) {
+            var row = jQuery('<div class="flex gap-2"><input type="text" class="flex-1 bg-gray-700 text-gray-200 border border-gray-600 rounded-md px-2 py-1" placeholder="Key"><input type="text" class="flex-1 bg-gray-700 text-gray-200 border border-gray-600 rounded-md px-2 py-1" placeholder="Value (optional)"><button type="button" class="text-xs bg-gray-700 hover:bg-gray-600 text-gray-200 px-2 rounded remove">Remove</button></div>');
+            row.find('input').eq(0).val(key||''); row.find('input').eq(1).val(val||'');
+            row.find('button.remove').on('click', function(){ row.remove(); });
+            jQuery('#lcTags').append(row);
+        }
+
+        // Save lifecycle rule (create/update by ID)
+        jQuery('#lifecycleForm').on('submit', function(e){
+            e.preventDefault();
+            var bucket = jQuery('#lcBucketName').val();
+            var bucketId = jQuery('#lcBucketId').val();
+            var ruleId = (jQuery('#lcRuleId').val()||'').trim();
+            if (!ruleId) { showModalMessage('Please check your rule name and fields.', 'lifecycleFormMessage', 'error'); return; }
+
+            var scope = jQuery('input[name="lcScope"]:checked').val();
+            var filter = {};
+            if (scope === 'filtered') {
+                var and = {};
+                var pfx = (jQuery('#lcPrefix').val()||'').trim();
+                if (pfx) and.Prefix = pfx;
+                var tags = [];
+                jQuery('#lcTags > div').each(function(){
+                    var k = jQuery(this).find('input').eq(0).val().trim();
+                    var v = jQuery(this).find('input').eq(1).val().trim();
+                    if (k) tags.push({ Key: k, Value: v });
+                });
+                if (tags.length) and.Tags = tags;
+                var min = jQuery('#lcMinSize').val(); var max = jQuery('#lcMaxSize').val();
+                if (min !== '' && !isNaN(min)) and.ObjectSizeGreaterThan = parseInt(min,10);
+                if (max !== '' && !isNaN(max)) and.ObjectSizeLessThan = parseInt(max,10);
+                filter = Object.keys(and).length ? { And: and } : {};
+            }
+
+            var rule = { ID: ruleId, Status: 'Enabled' };
+            if (Object.keys(filter).length) {
+                // Normalize: if only Prefix present, send Filter.Prefix instead of And
+                var andObj = filter.And || {};
+                var andKeys = Object.keys(andObj);
+                var onlyPrefix = (andKeys.length === 1 && typeof andObj.Prefix !== 'undefined');
+                if (onlyPrefix) {
+                    rule.Filter = { Prefix: andObj.Prefix };
+                } else {
+                    rule.Filter = filter;
+                }
+            }
+
+            if (jQuery('#lcTransitionCurrent').is(':checked')) {
+                rule.Transition = {
+                    Days: parseInt(jQuery('#lcTransitionCurrentDays').val()||'0', 10),
+                    StorageClass: jQuery('#lcTransitionCurrentClass').val()||''
+                };
+            }
+            if (jQuery('#lcTransitionNoncurrent').is(':checked')) {
+                rule.NoncurrentVersionTransition = {
+                    NoncurrentDays: parseInt(jQuery('#lcTransitionNoncurrentDays').val()||'0', 10),
+                    StorageClass: jQuery('#lcTransitionNoncurrentClass').val()||''
+                };
+            }
+            if (jQuery('#lcExpireCurrent').is(':checked')) {
+                rule.Expiration = { Days: parseInt(jQuery('#lcExpireCurrentDays').val()||'0', 10) };
+            } else if (jQuery('#lcDeleteExpiredMarkers').is(':checked')) {
+                rule.Expiration = { ExpiredObjectDeleteMarker: true };
+            }
+            if (jQuery('#lcExpireNoncurrent').is(':checked')) {
+                rule.NoncurrentVersionExpiration = { NoncurrentDays: parseInt(jQuery('#lcExpireNoncurrentDays').val()||'0', 10) };
+            }
+            if (jQuery('#lcAbortMPU').is(':checked')) {
+                rule.AbortIncompleteMultipartUpload = { DaysAfterInitiation: parseInt(jQuery('#lcAbortMPUDays').val()||'0', 10) };
+            }
+
+            // Final guard on submit: if versioning is off, strip Noncurrent* actions
+            (function(){
+                var v = (jQuery('#bucketRow' + bucketId).attr('data-versioning') || '').toLowerCase();
+                var on = (['enabled','on','true','1'].indexOf(v) !== -1);
+                if (!on) {
+                    if (rule.NoncurrentVersionTransition) { delete rule.NoncurrentVersionTransition; }
+                    if (rule.NoncurrentVersionExpiration) { delete rule.NoncurrentVersionExpiration; }
+                }
+            })();
+
+            jQuery.ajax({
+                url: 'modules/addons/cloudstorage/api/putbucketlifecycle.php',
+                method: 'POST',
+                data: JSON.stringify({ bucket_name: bucket, rule: rule }),
+                contentType: 'application/json',
+                dataType: 'json',
+                success: function(resp){
+                    if (!resp || resp.status !== 'success') {
+                        pushToast((resp && resp.message) ? resp.message : 'Unable to save lifecycle rule. Please try again later.', 'error');
+                        return;
+                    }
+                    closeLifecycleSlideOver();
+                    pushToast(resp.message || 'Saved.', 'success');
+                    loadLifecycleRules(bucket, bucketId);
+                },
+                error: function(){
+                    pushToast('Unable to save lifecycle rule. Please try again later.', 'error');
+                }
+            });
         });
 
         // enable object locking mode
@@ -1273,6 +1949,49 @@
 
         function showModalMessage(message, modalContainer, type = 'error') {
             showMessage(message, modalContainer, type);
+        }
+
+        // Alpine toast helper
+        function toastCenter() {
+            return {
+                toasts: [],
+                init() {
+                    var self = this;
+                    window.addEventListener('toast', function(e){
+                        var d = e.detail || {};
+                        self.add(d.message || '', d.type || 'info', d.duration || 5000);
+                    });
+                },
+                add(message, type, duration) {
+                    // De-dupe identical adjacent toasts
+                    if (this.toasts.length) {
+                        var last = this.toasts[this.toasts.length - 1];
+                        if (last && last.message === message && last.type === type && last.show) {
+                            return;
+                        }
+                    }
+                    var id = Date.now() + Math.random();
+                    this.toasts.push({ id: id, message: message, type: type, show: true });
+                    var self = this;
+                    setTimeout(function(){ self.remove(id); }, duration || 5000);
+                },
+                remove(id) {
+                    this.toasts = this.toasts.filter(function(t){ return t.id !== id; });
+                }
+            };
+        }
+        function pushToast(message, type) {
+            try {
+                // Global de-dupe to avoid duplicate toasts from multiple listeners/components
+                var k = (type || 'info') + '|' + String(message || '');
+                var now = Date.now();
+                if (window.__lastToastKey === k && (now - (window.__lastToastAt || 0) < 1000)) {
+                    return;
+                }
+                window.__lastToastKey = k;
+                window.__lastToastAt = now;
+                window.dispatchEvent(new CustomEvent('toast', { detail: { message: message, type: type } }));
+            } catch(e) {}
         }
 
         function showMessage(message, containerId, type = 'info') {

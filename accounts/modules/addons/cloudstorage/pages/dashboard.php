@@ -67,8 +67,13 @@
     $bucketInfo = $bucketObject->getTotalBucketSizeForUser($buckets);
     $transferdata = $bucketObject->getUserTransferSummary($userIds);
     // Query through today to keep charts live regardless of invoice state
-    $bucketStats = $bucketObject->getUserBucketSummary($userIds, $displayPeriod['start'], $displayPeriod['end_for_queries']);
-    $formattedTotalBucketSize = $bucketObject->getPeakUsage($userIds);
+    // Use billed instantaneous snapshots for storage line + peak
+    $bucketStats = $bucketObject->getDailyBillableUsageFromPrices((int)$user->id, $displayPeriod['start'], $displayPeriod['end_for_queries']);
+    $peakForDisplay = $bucketObject->findPeakBillableUsageFromPrices((int)$user->id, [
+        'start' => $displayPeriod['start'],
+        'end' => $displayPeriod['end_for_queries']
+    ]);
+    $formattedTotalBucketSize = HelperController::formatSizeUnits($peakForDisplay->total_size ?? 0);
     $dataIngress = HelperController::formatSizeUnits($totalUsage['total_bytes_received']);
     $dataEgress = HelperController::formatSizeUnits($totalUsage['total_bytes_sent']);
     $totalOps = htmlspecialchars($totalUsage['total_ops']);

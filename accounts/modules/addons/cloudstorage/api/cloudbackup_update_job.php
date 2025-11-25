@@ -284,6 +284,51 @@ if (in_array($postedSourceType, ['aws', 's3_compatible'], true) && is_array($rec
 
 $result = CloudBackupController::updateJob($jobId, $loggedInUserId, $updateData, $encryptionKey);
 
+// Align bucket lifecycle with retention and enforce versioning when keep_days
+if (is_array($result) && ($result['status'] ?? 'fail') === 'success') {
+    // Determine the effective retention mode/value after update
+    $newRetentionMode = $updateData['retention_mode'] ?? ($existingJob['retention_mode'] ?? 'none');
+    $newRetentionValue = $updateData['retention_value'] ?? ($existingJob['retention_value'] ?? null);
+
+    // Enforce bucket versioning on effective destination bucket
+    $effectiveBucketId = isset($updateData['dest_bucket_id'])
+        ? (int)$updateData['dest_bucket_id']
+        : (int)($existingJob['dest_bucket_id'] ?? 0);
+    if ($effectiveBucketId > 0) {
+        $ver = \WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController::ensureVersioningForBucketId($effectiveBucketId);
+        logModuleCall('cloudstorage', 'update_job_enforce_versioning', ['dest_bucket_id' => $effectiveBucketId], $ver);
+        if (!is_array($ver) || ($ver['status'] ?? 'fail') !== 'success') {
+            $response = new JsonResponse(['status' => 'fail', 'message' => 'Unable to enable bucket versioning.'], 200);
+            $response->send();
+            exit();
+        }
+    }
+
+    // Enforce destination prefix required: use posted or existing
+    $effectivePrefix = isset($updateData['dest_prefix'])
+        ? trim((string)$updateData['dest_prefix'])
+        : trim((string)($existingJob['dest_prefix'] ?? ''));
+    if ($effectivePrefix === '') {
+        $response = new JsonResponse(['status' => 'fail', 'message' => 'Destination Prefix is required.'], 200);
+        $response->send();
+        exit();
+    }
+
+    try {
+        $lcRes = \WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController::manageLifecycleForJob((int)$jobId);
+        if ($newRetentionMode === 'keep_days' && (int)$newRetentionValue > 0) {
+            if (!is_array($lcRes) || ($lcRes['status'] ?? 'fail') !== 'success') {
+                $msg = $lcRes['message'] ?? 'Failed to apply lifecycle policy';
+                $result = ['status' => 'fail', 'message' => 'Unable to enforce Keep N days retention: ' . $msg];
+            }
+        }
+    } catch (\Throwable $e) {
+        if ($newRetentionMode === 'keep_days' && (int)$newRetentionValue > 0) {
+            $result = ['status' => 'fail', 'message' => 'Unable to enforce Keep N days retention.'];
+        }
+    }
+}
+
 $response = new JsonResponse($result, 200);
 $response->send();
 exit();

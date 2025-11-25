@@ -294,7 +294,41 @@ if (($_POST['source_type'] ?? '') === 'google_drive') {
     $jobData['source_connection_id'] = (int) ($_POST['__resolved_source_connection_id'] ?? ($_POST['source_connection_id'] ?? 0));
 }
 
+// Validate destination prefix required
+$destPrefix = isset($_POST['dest_prefix']) ? trim((string)$_POST['dest_prefix']) : '';
+if ($destPrefix === '') {
+    $response = new JsonResponse(['status' => 'fail', 'message' => 'Destination Prefix is required.'], 200);
+    $response->send();
+    exit();
+}
+
+// Enforce versioning on the selected destination bucket
+$ver = CloudBackupController::ensureVersioningForBucketId((int)$_POST['dest_bucket_id']);
+logModuleCall('cloudstorage', 'create_job_enforce_versioning', ['dest_bucket_id' => (int)$_POST['dest_bucket_id']], $ver);
+if (!is_array($ver) || ($ver['status'] ?? 'fail') !== 'success') {
+    $response = new JsonResponse(['status' => 'fail', 'message' => 'Unable to enable bucket versioning.'], 200);
+    $response->send();
+    exit();
+}
+
 $result = CloudBackupController::createJob($jobData, $encryptionKey);
+
+// Align bucket lifecycle with retention and enforce versioning when keep_days
+if (is_array($result) && ($result['status'] ?? 'fail') === 'success' && isset($result['job_id'])) {
+    try {
+        $lcRes = \WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController::manageLifecycleForJob((int)$result['job_id']);
+        if (($jobData['retention_mode'] ?? 'none') === 'keep_days' && (int)($jobData['retention_value'] ?? 0) > 0) {
+            if (!is_array($lcRes) || ($lcRes['status'] ?? 'fail') !== 'success') {
+                $msg = $lcRes['message'] ?? 'Failed to apply lifecycle policy';
+                $result = ['status' => 'fail', 'message' => 'Unable to enforce Keep N days retention: ' . $msg];
+            }
+        }
+    } catch (\Throwable $e) {
+        if (($jobData['retention_mode'] ?? 'none') === 'keep_days' && (int)($jobData['retention_value'] ?? 0) > 0) {
+            $result = ['status' => 'fail', 'message' => 'Unable to enforce Keep N days retention.'];
+        }
+    }
+}
 
 $response = new JsonResponse($result, 200);
 $response->send();

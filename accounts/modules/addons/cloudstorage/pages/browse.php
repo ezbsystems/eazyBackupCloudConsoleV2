@@ -95,5 +95,6 @@
     }
 
     return [
-        'error_message' => $errorMessage
+        'error_message' => $errorMessage,
+        'S3_ENDPOINT' => $s3Endpoint ?? ''
     ];
