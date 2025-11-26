@@ -51,7 +51,7 @@
     }
 
     // Expose region and optional lifecycle storage classes to template
-    $s3Region = 'us-east-1';
+    $s3Region = 'ca-central-1';
     $lifecycleClasses = [];
     try {
         $moduleRows = DBController::getResult('tbladdonmodules', [['module', '=', 'cloudstorage']]);

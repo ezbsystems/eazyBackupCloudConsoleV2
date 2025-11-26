@@ -33,7 +33,7 @@
     $cephAdminAccessKey = $module->where('setting', 'ceph_access_key')->pluck('value')->first();
     $cephAdminSecretKey = $module->where('setting', 'ceph_secret_key')->pluck('value')->first();
     $encryptionKey = $module->where('setting', 'encryption_key')->pluck('value')->first();
-    $s3Region = $module->where('setting', 's3_region')->pluck('value')->first() ?: 'us-east-1';
+    $s3Region = $module->where('setting', 's3_region')->pluck('value')->first() ?: 'ca-central-1';
 
     $message = '';
     $error = 0;

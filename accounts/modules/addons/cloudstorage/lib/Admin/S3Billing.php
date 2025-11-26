@@ -346,7 +346,7 @@ class S3Billing {
             $moduleSettings['cephAdminUser'],
             $moduleSettings['cephAdminAccessKey'],
             $moduleSettings['cephAdminSecretKey'],
-            $moduleSettings['s3_region'] ?? 'us-east-1'
+            $moduleSettings['s3_region'] ?? 'ca-central-1'
         );
         $s3Connection = $bucketObject->connectS3Client($userId, $moduleSettings['encryptionKey']);
         if ($s3Connection['status'] == 'fail') {
@@ -439,7 +439,7 @@ class S3Billing {
                             $moduleSettings['cephAdminUser'],
                             $moduleSettings['cephAdminAccessKey'],
                             $moduleSettings['cephAdminSecretKey'],
-                            $moduleSettings['s3_region'] ?? 'us-east-1'
+                            $moduleSettings['s3_region'] ?? 'ca-central-1'
                         );
                         $s3Connection = $bucketObject->connectS3Client($userId, $moduleSettings['encryptionKey']);
                         if ($s3Connection['status'] == 'fail') {

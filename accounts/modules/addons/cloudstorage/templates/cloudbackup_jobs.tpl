@@ -650,7 +650,7 @@
                     </div>
                     <div class="mb-4">
                         <label class="block text-sm font-medium text-slate-300 mb-2">Region</label>
-                        <input type="text" name="s3_region" value="us-east-1" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600" placeholder="us-east-1" required>
+                        <input type="text" name="s3_region" value="ca-central-1" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600" placeholder="ca-central-1" required>
                     </div>
                     <div class="mb-4">
                         <label class="block text-sm font-medium text-slate-300 mb-2">Access Key ID</label>
@@ -679,7 +679,7 @@
                     <div class="mb-4" x-data="{
                         isOpen: false,
                         search: '',
-                        selected: 'us-east-1',
+                        selected: 'ca-central-1',
                         regions: [
                             { code: 'us-east-1', name: 'US East (N. Virginia)' },
                             { code: 'us-east-2', name: 'US East (Ohio)' },
@@ -2398,7 +2398,7 @@ function doCreateJobSubmit(formEl) {
             access_key: formData.get('s3_access_key'),
             secret_key: formData.get('s3_secret_key'),
             bucket: formData.get('s3_bucket'),
-            region: formData.get('s3_region') || 'us-east-1'
+            region: formData.get('s3_region') || 'ca-central-1'
         };
         sourceDisplayName = formData.get('source_display_name');
         const s3Bucket = formData.get('s3_bucket') || '';
@@ -2549,7 +2549,7 @@ document.getElementById('createJobForm').addEventListener('submit', function(e) 
             access_key: formData.get('s3_access_key'),
             secret_key: formData.get('s3_secret_key'),
             bucket: formData.get('s3_bucket'),
-            region: formData.get('s3_region') || 'us-east-1'
+            region: formData.get('s3_region') || 'ca-central-1'
         };
         sourceDisplayName = formData.get('source_display_name');
         const s3Bucket = formData.get('s3_bucket') || '';
@@ -2896,7 +2896,7 @@ function openEditSlideover(jobId) {
 
             if (sourceTypeValue === 's3_compatible') {
                 document.getElementById('edit_s3_endpoint').value = s.endpoint || '';
-                document.getElementById('edit_s3_region').value = s.region || 'us-east-1';
+                document.getElementById('edit_s3_region').value = s.region || 'ca-central-1';
                 try { document.getElementById('edit_s3_region').dispatchEvent(new Event('change')); } catch (e) {}
                 document.getElementById('edit_s3_bucket').value = s.bucket || '';
                 const parts = (j.source_path || '').split('/');
@@ -3135,7 +3135,7 @@ function saveEditedJob() {
         const prefix = (document.getElementById('edit_s3_path').value || '').trim();
         payload.set('source_path', prefix ? (bucket + '/' + prefix) : bucket);
         const ep = (document.getElementById('edit_s3_endpoint').value || '').trim();
-        const rg = (document.getElementById('edit_s3_region').value || 'us-east-1').trim();
+        const rg = (document.getElementById('edit_s3_region').value || 'ca-central-1').trim();
         const ak = (document.getElementById('edit_s3_access_key').value || '').trim();
         const sk = (document.getElementById('edit_s3_secret_key').value || '').trim();
         if (ep) payload.set('s3_endpoint', ep);

@@ -397,7 +397,7 @@ class CloudBackupController {
                 }
                 $check = AwsS3Validator::validateBucketExists([
                     'endpoint'   => $dec['endpoint'] ?? null,
-                    'region'     => $dec['region'] ?? 'us-east-1',
+                    'region'     => $dec['region'] ?? 'ca-central-1',
                     'bucket'     => $dec['bucket'] ?? '',
                     'access_key' => $dec['access_key'] ?? '',
                     'secret_key' => $dec['secret_key'] ?? '',
@@ -771,7 +771,7 @@ class CloudBackupController {
             $cephAdminUser = $module->where('setting', 'ceph_admin_user')->pluck('value')->first();
             $cephAdminAccessKey = $module->where('setting', 'ceph_access_key')->pluck('value')->first();
             $cephAdminSecretKey = $module->where('setting', 'ceph_secret_key')->pluck('value')->first();
-            $s3Region = $module->where('setting', 's3_region')->pluck('value')->first() ?? 'us-east-1';
+            $s3Region = $module->where('setting', 's3_region')->pluck('value')->first() ?? 'ca-central-1';
             $encryptionKey = $module->where('setting', 'encryption_key')->pluck('value')->first();
 
             if (empty($s3Endpoint) || empty($cephAdminAccessKey) || empty($cephAdminSecretKey)) {
@@ -867,7 +867,7 @@ class CloudBackupController {
             $cephAdminUser = $module->where('setting', 'ceph_admin_user')->pluck('value')->first();
             $cephAdminAccessKey = $module->where('setting', 'ceph_access_key')->pluck('value')->first();
             $cephAdminSecretKey = $module->where('setting', 'ceph_secret_key')->pluck('value')->first();
-            $s3Region = $module->where('setting', 's3_region')->pluck('value')->first() ?? 'us-east-1';
+            $s3Region = $module->where('setting', 's3_region')->pluck('value')->first() ?? 'ca-central-1';
             $encryptionKey = $module->where('setting', 'encryption_key')->pluck('value')->first();
 
             if (empty($s3Endpoint) || empty($cephAdminAccessKey) || empty($cephAdminSecretKey)) {

@@ -64,7 +64,7 @@ if (count($moduleRows) == 0) {
 	exit;
 }
 $endpoint = $moduleRows->where('setting', 's3_endpoint')->pluck('value')->first();
-$s3Region = $moduleRows->where('setting', 's3_region')->pluck('value')->first() ?: 'us-east-1';
+$s3Region = $moduleRows->where('setting', 's3_region')->pluck('value')->first() ?: 'ca-central-1';
 $encryptionKey = $moduleRows->where('setting', 'encryption_key')->pluck('value')->first();
 // Optional allowed storage classes (CSV)
 $allowedClassesCsv = (string)($moduleRows->where('setting', 'lifecycle_storage_classes')->pluck('value')->first() ?? '');

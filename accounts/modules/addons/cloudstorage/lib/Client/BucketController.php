@@ -29,7 +29,7 @@ class BucketController {
     private $endpoint;
 
     /** Ceph Server Region */
-    private $region = 'us-east-1';
+    private $region = 'ca-central-1';
 
     /** Aws\S3\S3Client instance */
     private $s3Client = null;
@@ -257,8 +257,16 @@ class BucketController {
                     $bucketOptions['ObjectLockEnabledForBucket'] = true;
                 }
 
-                // Provide LocationConstraint when region is not us-east-1 to satisfy SDK expectations
-                if (!empty($this->region) && strtolower($this->region) !== 'us-east-1') {
+                // Provide LocationConstraint only for AWS endpoints and non-us-east-1 regions.
+                // Many S3-compatible servers (e.g., Ceph RGW/MinIO) reject LocationConstraint.
+                $endpointHost = '';
+                try {
+                    $endpointHost = parse_url((string)$this->endpoint, PHP_URL_HOST) ?: '';
+                } catch (\Throwable $e) {
+                    $endpointHost = '';
+                }
+                $isAwsEndpoint = is_string($endpointHost) && stripos($endpointHost, 'amazonaws.com') !== false;
+                if ($isAwsEndpoint && !empty($this->region) && strtolower($this->region) !== 'us-east-1') {
                     $bucketOptions['CreateBucketConfiguration'] = [
                         'LocationConstraint' => $this->region,
                     ];

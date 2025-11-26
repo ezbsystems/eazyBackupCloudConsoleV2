@@ -106,7 +106,7 @@ if (count($module) == 0) {
 	exit();
 }
 $endpoint = $module->where('setting', 's3_endpoint')->pluck('value')->first();
-$region = $module->where('setting', 's3_region')->pluck('value')->first() ?: 'us-east-1';
+$region = $module->where('setting', 's3_region')->pluck('value')->first() ?: 'ca-central-1';
 $adminUser = $module->where('setting', 'ceph_admin_user')->pluck('value')->first();
 $adminAccessKey = $module->where('setting', 'ceph_access_key')->pluck('value')->first();
 $adminSecretKey = $module->where('setting', 'ceph_secret_key')->pluck('value')->first();
