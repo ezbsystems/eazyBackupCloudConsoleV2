@@ -1,8 +1,9 @@
 <style>
     [x-cloak] { display: none !important; }
 </style>
-<div class="min-h-screen bg-[#11182759] text-slate-200">
-    <div class="container mx-auto px-4 pb-8">
+<div class="min-h-screen bg-slate-950 text-gray-300">
+    <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
+    <div class="container mx-auto px-4 pb-10 pt-6 relative pointer-events-relative w-full px-3 py-2 text-left text-slate-300 bg-slate-900 border border-gray-600 rounded-md shadow-sm cursor-default focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500">
 
         <!-- Loading Overlay -->
         <div id="loading-overlay" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 hidden">
@@ -15,15 +16,7 @@
             </div>
         </div>
 
-        <div class="flex flex-col sm:flex-row h-16 justify-between items-start sm:items-center">
-            <!-- Navigation Horizontal -->
-            <div class="flex items-center">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15a4.5 4.5 0 0 0 4.5 4.5H18a3.75 3.75 0 0 0 1.332-7.257 3 3 0 0 0-3.758-3.848 5.25 5.25 0 0 0-10.233 2.33A4.502 4.502 0 0 0 2.25 15Z" />
-                </svg>
-                <h2 class="text-2xl font-semibold text-white">Dashboard</h2>
-            </div>
-        </div>
+        
         <!-- Cloud Storage Navigation -->
         <div class="mb-6">
             <nav class="inline-flex rounded-full bg-slate-900/80 p-1 text-xs font-medium text-slate-400" aria-label="Cloud Storage Navigation">
@@ -53,9 +46,19 @@
                 </a>
             </nav>
         </div>
+        <!-- Glass panel container -->
+        <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
+            <div class="flex flex-col sm:flex-row h-16 justify-between items-start sm:items-center mb-3">
+                <div class="flex items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15a4.5 4.5 0 0 0 4.5 4.5H18a3.75 3.75 0 0 0 1.332-7.257 3 3 0 0 0-3.758-3.848 5.25 5.25 0 0 0-10.233 2.33A4.502 4.502 0 0 0 2.25 15Z" />
+                    </svg>
+                    <h2 class="text-2xl font-semibold text-white">Dashboard</h2>
+                </div>
+            </div>
         <!-- Usage Summary Card -->
         <div class="mb-8">
-            <div class="bg-slate-800 rounded-lg border border-slate-700 shadow-lg">
+            <div class="bg-slate-900/70 rounded-lg border border-slate-800/80 shadow-lg">
                 <!-- Card Header -->
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 border-b border-gray-700">
                     <h4 class="text-xl font-semibold text-white">Usage Summary</h4>
@@ -180,7 +183,7 @@
 
         <!-- Buckets by Size -->
         <div class="mb-8">
-            <div class="bg-slate-800 rounded-lg border border-slate-700 shadow-lg">
+            <div class="bg-slate-900/70 rounded-lg border border-slate-800/80 shadow-lg">
                 <div class="p-6 flex items-center justify-between">
                     <div class="flex items-start">
                         <div class="flex-shrink-0 border-2 border-emerald-600 p-3 rounded-md">
@@ -225,7 +228,7 @@
 
         <!-- Usage Chart Card -->
         <div class="mb-8">
-            <div class="bg-slate-800 rounded-lg border border-slate-700 shadow-lg">
+            <div class="bg-slate-900/70 rounded-lg border border-slate-800/80 shadow-lg">
                 <!-- Card Body -->
                 <div class="p-6">
                     <div class="flex items-start mb-4">
@@ -250,7 +253,7 @@
         <!-- Data Ingress and Egress Cards -->
         <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
             <!-- Data Ingress Card -->
-            <div class="bg-slate-800 rounded-lg border border-slate-700 shadow-lg">
+            <div class="bg-slate-900/70 rounded-lg border border-slate-800/80 shadow-lg">
                 <!-- Card Body -->
                 <div class="p-6">
                     <div class="flex items-start mb-4">
@@ -279,7 +282,7 @@
             </div>
 
             <!-- Data Egress Card -->
-            <div class="bg-slate-800 rounded-lg border border-slate-700 shadow-lg">
+            <div class="rounded-lg border border-slate-800/80 bg-slate-900/70 shadow-lg">
                 <!-- Card Body -->
                 <div class="p-6">
                     <div class="flex items-start mb-4">
@@ -305,6 +308,7 @@
                     <div id="BytesSentChart"></div>
                 </div>
             </div>
+        </div>
         </div>
     </div>
 </div>

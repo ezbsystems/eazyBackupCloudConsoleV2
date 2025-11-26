@@ -1,28 +1,6 @@
-<div class="min-h-screen bg-[#11182759] text-gray-300">
-    <div class="container mx-auto px-4 pb-8">
-        <!-- Heading Row -->
-        <div class="flex flex-col sm:flex-row h-16 justify-between items-start sm:items-center">
-            <!-- Navigation Horizontal -->
-            <div class="flex items-center">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 0 0 2.25-2.25V6.75A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25v10.5A2.25 2.25 0 0 0 4.5 19.5Z" />
-                </svg>
-                <h2 class="text-2xl font-semibold text-white">Storage Billing</h2>
-            </div>
-            <!-- Navigation Buttons -->
-            <div class="flex items-center mt-4 sm:mt-0">
-                <!-- Refresh Button -->
-                <button
-                    type="button"
-                    onclick="showLoaderAndRefresh()"
-                    class="mr-2 bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
-                    </svg>
-                </button>
-            </div>
-        </div>
+<div class="min-h-screen bg-slate-950 text-gray-300">
+    <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
+    <div class="container mx-auto px-4 pb-10 pt-6 relative pointer-events-relative w-full px-3 py-2 text-left text-slate-300 bg-slate-900 border border-gray-600 rounded-md shadow-sm cursor-default focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500">
         <!-- Cloud Storage Navigation -->
         <div class="mb-6">
             <nav class="inline-flex rounded-full bg-slate-900/80 p-1 text-xs font-medium text-slate-400" aria-label="Cloud Storage Navigation">
@@ -52,6 +30,28 @@
                 </a>
             </nav>
         </div>
+        <!-- Glass panel container -->
+        <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
+            <!-- Heading Row -->
+            <div class="flex flex-col sm:flex-row h-16 justify-between items-start sm:items-center">
+                <div class="flex items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 0 0 2.25-2.25V6.75A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25v10.5A2.25 2.25 0 0 0 4.5 19.5Z" />
+                    </svg>
+                    <h2 class="text-2xl font-semibold text-white">Storage Billing</h2>
+                </div>
+                <div class="flex items-center mt-4 sm:mt-0">
+                    <button
+                        type="button"
+                        onclick="showLoaderAndRefresh()"
+                        class="mr-2 bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
 
         <!-- Loading Overlay -->
         <div id="loading-overlay" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 hidden">
@@ -60,7 +60,7 @@
         </div>
 
         <!-- Billing Summary Card -->
-        <div class="bg-slate-800 rounded-lg border border-slate-700 shadow-lg mb-8">
+        <div class="bg-slate-900/70 rounded-lg border border-slate-800/80 shadow-lg mb-8">
             <!-- Card Header -->
             <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 border-b border-gray-700">
                 <h4 class="text-xl font-semibold text-white">Billing Summary</h4>
@@ -100,7 +100,7 @@
         <!-- Data Usage Cards -->
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-8">
             <!-- Data Ingress Card -->
-            <div class="bg-slate-800 rounded-lg border border-slate-700 shadow-lg">
+            <div class="bg-slate-900/70 rounded-lg border border-slate-800/80 shadow-lg">
                 <div class="p-4 border-b border-gray-700">
                     <h5 class="text-lg font-semibold text-white">Data Ingress</h5>
                 </div>
@@ -111,7 +111,7 @@
                 </div>
             </div>
             <!-- Data Egress Card -->
-            <div class="bg-slate-800 rounded-lg border border-slate-700 shadow-lg">
+            <div class="bg-slate-900/70 rounded-lg border border-slate-800/80 shadow-lg">
                 <div class="p-4 border-b border-gray-700">
                     <h5 class="text-lg font-semibold text-white">Data Egress</h5>
                 </div>
@@ -122,7 +122,7 @@
                 </div>
             </div>
             <!-- Projected Usage Card -->
-            <div class="bg-slate-800 rounded-lg border border-slate-700 shadow-lg">
+            <div class="bg-slate-900/70 rounded-lg border border-slate-800/80 shadow-lg">
                 <div class="p-4 border-b border-gray-700">
                     <h5 class="text-lg font-semibold text-white">Projected Usage</h5>
                 </div>
@@ -133,7 +133,7 @@
         </div>
 
         <!-- Data Storage Chart Card -->
-        <div class="bg-slate-800 rounded-lg border border-slate-700 shadow-lg mb-8">
+        <div class="bg-slate-900/70 rounded-lg border border-slate-800/80 shadow-lg mb-8">
             <div class="p-6">
                 <div class="flex items-start mb-4">
                     <div class="flex-shrink-0 bg-sky-600 p-3 rounded-md my-2">
@@ -151,6 +151,7 @@
                 <!-- Chart Container -->
                 <div id="sizeStatsChart" class="mt-4"></div>
             </div>
+        </div>
         </div>
     </div>
 </div>

@@ -1,6 +1,6 @@
 {* Partner Hub — nested sidebar navigation *}
 {if !isset($eb_partner_hub_enabled) || $eb_partner_hub_enabled}
-<div x-data="{ldelim} open: true, sect: {ldelim} catalog:false,billing:false,money:false,stripe:false,settings:false {rdelim} {rdelim}" class="relative">
+<div x-data="{ldelim} open: false, sect: {ldelim} catalog:false,billing:false,money:false,stripe:false,settings:false {rdelim} {rdelim}" class="relative">
   <button @click="open = !open" class="flex items-center w-full px-2 py-2 text-left text-gray-400 rounded-md hover:bg-[#1B2C50]">
   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-3">
     <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 7.125C2.25 6.504 2.754 6 3.375 6h6c.621 0 1.125.504 1.125 1.125v3.75c0 .621-.504 1.125-1.125 1.125h-6a1.125 1.125 0 0 1-1.125-1.125v-3.75ZM14.25 8.625c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v8.25c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 0 1-1.125-1.125v-8.25ZM3.75 16.125c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v2.25c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 0 1-1.125-1.125v-2.25Z" />
@@ -9,7 +9,7 @@
     Partner Hub
     <svg class="w-4 h-4 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
   </button>
-  <div x-show="open" @click.away="open=false" class="mt-1 space-y-1 pl-8">
+  <div x-show="open" x-cloak @click.away="open=false" class="mt-1 space-y-1 pl-8">
     {if !isset($eb_ph_show_overview) || $eb_ph_show_overview}
     <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=ph-clients" class="block px-2 py-1 text-gray-400 rounded-md hover:bg-[#1B2C50]">Overview</a>
     {/if}
