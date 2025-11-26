@@ -386,8 +386,8 @@
         </div>
 
         <!-- Create Bucket Modal -->
-        <div class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 hidden" id="createBucketModal">
-            <div class="bg-gray-800 rounded-lg shadow-lg w-full max-w-lg p-6">
+        <div class="fixed inset-0 bg-black/75 flex items-center justify-center z-50 hidden" id="createBucketModal">
+            <div class="bg-slate-900/80 rounded-lg shadow-lg w-full max-w-lg p-6 rounded-lg shadow-lg w-full max-w-lg p-6">
                 <div class="flex justify-between items-center mb-4">
                     <div class="flex items-center">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-2">
@@ -409,7 +409,7 @@
                             <label for="bucketName" class="block text-sm font-medium text-slate-300">Bucket Name</label>
                             <input
                                 type="text"
-                                class="mt-1 block w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md shadow-sm focus:ring-sky-500 focus:border-sky-500 focus:outline-none px-4 py-2"
+                                class="mt-1 block w-full bg-slate-900 text-gray-300 border border-gray-600 rounded-md shadow-sm focus:ring-sky-500 focus:border-sky-500 focus:outline-none px-4 py-2"
                                 id="bucketName"
                                 name="bucket_name"
                                 required
@@ -454,7 +454,7 @@
                                     <div class="p-2">
                                         <input type="text" x-model="searchTerm" placeholder="Search users..." class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-300 focus:outline-none focus:ring-sky-500 focus:border-sky-500">
                                     </div>
-                                    <ul class="py-1 overflow-auto text-base max-h-60 ring-1 ring-black ring-opacity-5 focus:outline-none sm:text-sm scrollbar_thin" role="listbox">
+                                    <ul class="py-1 overflow-auto text-base max-h-60 focus:outline-none sm:text-sm scrollbar_thin" role="listbox">
                                         <template x-if="filteredUsernames.length === 0">
                                             <li class="px-4 py-2 text-gray-400">No users found.</li>
                                         </template>

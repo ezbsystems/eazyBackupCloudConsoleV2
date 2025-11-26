@@ -195,7 +195,7 @@ if ($postedSourceType === 'aws') {
     $ak = $_POST['s3_access_key'] ?? null;
     $sk = $_POST['s3_secret_key'] ?? null;
     $bucket = $_POST['s3_bucket'] ?? ($reconstructed['bucket'] ?? ($existingDec['bucket'] ?? null));
-    $region = $_POST['s3_region'] ?? ($reconstructed['region'] ?? ($existingDec['region'] ?? 'us-east-1'));
+    $region = $_POST['s3_region'] ?? ($reconstructed['region'] ?? ($existingDec['region'] ?? 'ca-central-1'));
     $reconstructed = [
         'endpoint'   => $endpoint,
         'access_key' => (isset($ak) && $ak !== '') ? $ak : ($reconstructed['access_key'] ?? ($existingDec['access_key'] ?? '')),

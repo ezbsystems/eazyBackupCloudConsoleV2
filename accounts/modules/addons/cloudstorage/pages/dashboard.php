@@ -60,7 +60,7 @@
     $displayPeriod = $billingObject->calculateDisplayPeriod($loggedInUserId, $packageId);
     $overdueNotice = $billingObject->getOverdueNotice($loggedInUserId, $packageId);
 
-    $bucketObject = new BucketController($s3Endpoint, $cephAdminUser, $cephAdminAccessKey, $cephAdminSecretKey, $vars['s3_region'] ?? 'us-east-1');
+    $bucketObject = new BucketController($s3Endpoint, $cephAdminUser, $cephAdminAccessKey, $cephAdminSecretKey, $vars['s3_region'] ?? 'ca-central-1');
     // Get today's usage totals by default (since charts default to "Today")
     $today = date('Y-m-d');
     $totalUsage = $bucketObject->getTotalUsageForBillingPeriod($userIds, $today, $today);

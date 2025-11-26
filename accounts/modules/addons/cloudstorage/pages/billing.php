@@ -33,7 +33,7 @@
     // Use display period so header shows the rolling service window, independent of nextduedate
     $billingPeriod = $billingObject->calculateDisplayPeriod($loggedInUserId, $packageId);
     $userAmount = $billingObject->getBalanceAmount($loggedInUserId, $packageId);
-    $bucketObject = new BucketController($s3Endpoint, $cephAdminUser, $cephAdminAccessKey, $cephAdminSecretKey, $vars['s3_region'] ?? 'us-east-1');
+    $bucketObject = new BucketController($s3Endpoint, $cephAdminUser, $cephAdminAccessKey, $cephAdminSecretKey, $vars['s3_region'] ?? 'ca-central-1');
 
     $userBuckets = DBController::getUserBuckets($userIds);
     $buckets = $userBuckets->isNotEmpty() ? $userBuckets->pluck('name', 'id')->toArray() : [];

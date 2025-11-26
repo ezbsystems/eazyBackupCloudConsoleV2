@@ -156,7 +156,7 @@ if (!$sourceConfig) {
         $ak = $_POST['s3_access_key'] ?? null;
         $sk = $_POST['s3_secret_key'] ?? null;
         $bucket = $_POST['s3_bucket'] ?? null;
-        $region = $_POST['s3_region'] ?? 'us-east-1';
+        $region = $_POST['s3_region'] ?? 'ca-central-1';
         if ($endpoint && $ak && $sk && $bucket) {
             $sourceConfig = [
                 'endpoint'   => $endpoint,
@@ -232,7 +232,7 @@ $st = $_POST['source_type'] ?? '';
 if (in_array($st, ['aws', 's3_compatible'], true)) {
     $check = AwsS3Validator::validateBucketExists([
         'endpoint'   => $sourceConfig['endpoint'] ?? null,
-        'region'     => $sourceConfig['region'] ?? 'us-east-1',
+        'region'     => $sourceConfig['region'] ?? 'ca-central-1',
         'bucket'     => $sourceConfig['bucket'] ?? '',
         'access_key' => $sourceConfig['access_key'] ?? '',
         'secret_key' => $sourceConfig['secret_key'] ?? '',

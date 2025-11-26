@@ -40,7 +40,7 @@ function debugLog($context, $data, $message = '')
     file_put_contents($logFile, $logMessage, FILE_APPEND);
 }
 
-$bucketController = new BucketController(null, null, null, null, $vars['s3_region'] ?? 'us-east-1');
+$bucketController = new BucketController(null, null, null, null, $vars['s3_region'] ?? 'ca-central-1');
 
 $packageId = ProductConfig::$E3_PRODUCT_ID;
 $ca = new ClientArea();
@@ -153,7 +153,7 @@ if (!empty($selectedUsername)) {
     }
 }
 
-$bucketObject = new BucketController($s3Endpoint, $cephAdminUser, $cephAdminAccessKey, $cephAdminSecretKey, $vars['s3_region'] ?? 'us-east-1');
+$bucketObject = new BucketController($s3Endpoint, $cephAdminUser, $cephAdminAccessKey, $cephAdminSecretKey, $vars['s3_region'] ?? 'ca-central-1');
 
 // Get historical usage data using the determined $startDate and $endDate
 $historicalData = $bucketController->getHistoricalUsage($userIds, $startDate, $endDate);
