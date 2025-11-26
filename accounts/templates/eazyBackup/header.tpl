@@ -11,6 +11,8 @@
     {include file="modules/addons/eazybackup/templates/partials/_ui-tokens.tpl"}
 
     <style>
+/* Ensure Alpine cloaked elements are hidden before initialization */
+[x-cloak] { display: none !important; }
 /* Hide tooltips by default */
 .tooltip-content {
     display: none;
