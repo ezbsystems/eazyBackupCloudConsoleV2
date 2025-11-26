@@ -34,7 +34,7 @@
 /logs/**
 
 ###############################################################################
-# WHMCS – only track our custom code, ignore WHMCS core
+# WHMCS ï¿½ only track our custom code, ignore WHMCS core
 ###############################################################################
 
 # Keep the accounts/ tree, but ONLY selectively
@@ -50,8 +50,7 @@
 
 # ---------------------- crons (only our custom ones) -------------------
 !/accounts/crons/
-/accounts/crons/*
-!/accounts/crons/eazybackupSyncComet.php
+!/accounts/crons/**
 # add more custom crons if needed:
 # !/accounts/crons/anotherCustomCron.php
 
