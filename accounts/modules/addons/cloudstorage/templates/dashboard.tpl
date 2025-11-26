@@ -34,13 +34,7 @@
                 <a href="index.php?m=cloudstorage&page=buckets"
                    class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'buckets'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
                     Buckets
-                </a>
-                {assign var=__browse_user value=$smarty.get.username|default:''}
-                {assign var=__browse_bucket value=$smarty.get.bucket|default:''}
-                <a href="index.php?m=cloudstorage&page={if $__browse_user && $__browse_bucket}browse&bucket={$__browse_bucket|escape:'url'}&username={$__browse_user|escape:'url'}{else}buckets{/if}"
-                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'browse'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-                    Browse
-                </a>
+                </a>                
                 <a href="index.php?m=cloudstorage&page=access_keys"
                    class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'access_keys'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
                     Access Keys

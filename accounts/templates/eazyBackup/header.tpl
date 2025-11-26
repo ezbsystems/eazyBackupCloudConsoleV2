@@ -177,17 +177,17 @@
                         </a>
 
                         <!-- Affiliates -->
-                        <a href="{$WEB_ROOT}/affiliates.php"
+                        {* <a href="{$WEB_ROOT}/affiliates.php"
                         class="flex items-center px-2 py-2 text-gray-400 rounded-md hover:bg-[#1B2C50]
                                 {if $smarty.server.REQUEST_URI == '/affiliates.php'}bg-[#1B2C50] font-semibold{/if}"
-                        >
+                        > *}
                             {* <i class="fas fa-file-invoice mr-3 text-lg"></i> *}
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-3">
+                            {* <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-3">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M15.042 21.672 13.684 16.6m0 0-2.51 2.225.569-9.47 5.227 7.917-3.286-.672Zm-7.518-.267A8.25 8.25 0 1 1 20.25 10.5M8.288 14.212A5.25 5.25 0 1 1 17.25 10.5" />
-                            </svg>                         
-
+                            </svg>                          *}
+{* 
                             Affiliates
-                        </a>                        
+                        </a>                         *}
 
 
                         <!-- Control Panel (Dropdown) -->
