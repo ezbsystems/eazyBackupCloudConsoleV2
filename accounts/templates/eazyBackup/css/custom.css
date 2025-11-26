@@ -9,11 +9,16 @@
 	z-index: 9;
 	left: 56%;
 	right: 0px;
-	display: flex;
+	display: none; /* Hidden by default */
 	justify-content: center;
 	align-items: center;
 	flex-direction: column;
 	transform: translate(-50%, -50%);
+}
+
+/* Show loader when it doesn't have the hidden class */
+.loader:not(.hidden) {
+	display: flex;
 }
 
 #loader img {

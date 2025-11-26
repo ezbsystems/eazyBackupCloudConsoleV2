@@ -5,10 +5,31 @@
     emailSent: {if isset($emailSent) && $emailSent}true{else}false{/if},
     useCase: '{if isset($smarty.post.useCase)}{$smarty.post.useCase|escape:'javascript'}{else}msp{/if}',
     storage: {if isset($smarty.post.storageTiB)}{$smarty.post.storageTiB|escape}{else}5{/if},
+    turnstileReady: false,
+    turnstileToken: null,
     submitForm(event) {
       if (this.submitting || this.emailSent) return;
+      
+      // Check if Turnstile is ready and has a token
+      const turnstileResponse = document.querySelector('input[name=cf-turnstile-response]');
+      if (!turnstileResponse || !turnstileResponse.value) {
+        event.preventDefault();
+        alert('Please complete the security verification.');
+        return false;
+      }
+      
       this.submitting = true;
       event.target.submit();
+    },
+    init() {
+      // Wait for Turnstile script to load and widget to render
+      if (typeof turnstile !== 'undefined') {
+        this.turnstileReady = true;
+      } else {
+        window.addEventListener('turnstile-ready', () => {
+          this.turnstileReady = true;
+        });
+      }
     }
   }"
   class="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center px-4 py-10"
@@ -262,7 +283,15 @@
           <!-- Turnstile captcha -->
           <div class="pt-2 space-y-2">
             <div class="flex justify-center">
-              <div class="cf-turnstile" data-sitekey="{$TURNSTILE_SITE_KEY}" data-theme="light"></div>
+              <div 
+                id="turnstile-widget"
+                class="cf-turnstile" 
+                data-sitekey="{$TURNSTILE_SITE_KEY}" 
+                data-theme="light"
+                data-callback="onTurnstileSuccess"
+                data-error-callback="onTurnstileError"
+                data-expired-callback="onTurnstileExpired"
+              ></div>
             </div>
             {if isset($errors.turnstile)}
               <p class="text-[11px] text-center text-rose-400 mt-1">{$errors.turnstile}</p>
@@ -334,5 +363,39 @@
     </div>
   </div>
 </div>
-<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+<script>
+  // Turnstile callbacks
+  window.onTurnstileSuccess = function(token) {
+    console.log('Turnstile success, token received');
+    window.dispatchEvent(new Event('turnstile-ready'));
+  };
+  
+  window.onTurnstileError = function() {
+    console.error('Turnstile error occurred');
+    alert('Security verification failed. Please refresh the page and try again.');
+  };
+  
+  window.onTurnstileExpired = function() {
+    console.warn('Turnstile token expired');
+    // Token expired, user will need to complete it again
+  };
+  
+  // Load Turnstile script
+  (function() {
+    var script = document.createElement('script');
+    script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
+    script.async = true;
+    script.defer = true;
+    script.onload = function() {
+      console.log('Turnstile script loaded');
+      // Dispatch ready event after a short delay to ensure widget is initialized
+      setTimeout(function() {
+        if (typeof turnstile !== 'undefined') {
+          window.dispatchEvent(new Event('turnstile-ready'));
+        }
+      }, 500);
+    };
+    document.head.appendChild(script);
+  })();
+</script>
 
