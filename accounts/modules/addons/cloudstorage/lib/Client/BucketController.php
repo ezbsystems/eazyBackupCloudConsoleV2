@@ -282,6 +282,7 @@ class BucketController {
 				} catch (S3Exception $e) {
 					logModuleCall($this->module, __FUNCTION__ . '_CREATE_FAILED', [
 						'bucket_name' => $bucketName,
+						'params' => $bucketOptions,
 						'aws_error_code' => $e->getAwsErrorCode(),
 						'aws_error_message' => $e->getAwsErrorMessage()
 					], 'Bucket creation failed: ' . $e->getMessage());
@@ -1184,9 +1185,20 @@ class BucketController {
 
             $this->accessKey = HelperController::decryptKey($userAccessKey->access_key, $encryptionKey);
             $this->secretKey = HelperController::decryptKey($userAccessKey->secret_key, $encryptionKey);
+            // For non-AWS S3-compatible endpoints (e.g., Ceph/MinIO), force us-east-1 for SigV4 and bucket creation compatibility.
+            $effectiveRegion = $this->region;
+            try {
+                $host = parse_url((string)$this->endpoint, PHP_URL_HOST) ?: '';
+                $isAws = is_string($host) && stripos($host, 'amazonaws.com') !== false;
+                if (!$isAws) {
+                    $effectiveRegion = 'us-east-1';
+                }
+            } catch (\Throwable $e) {
+                // Default to current region if parsing fails
+            }
             $s3ClientConfig = [
                 'version' => 'latest',
-                'region' => $this->region,
+                'region' => $effectiveRegion,
                 'endpoint' => $this->endpoint,
                 'credentials' => [
                     'key' => $this->accessKey,
