@@ -3,18 +3,9 @@
 </style>
 <div class="min-h-screen bg-slate-950 text-gray-300">
     <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
-    <div class="container mx-auto px-4 pb-10 pt-6 relative pointer-events-relative w-full px-3 py-2 text-left text-slate-300 bg-slate-900 border border-gray-600 rounded-md shadow-sm cursor-default focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500">
+    <div class="container mx-auto px-4 py-8">
 
-        <!-- Loading Overlay -->
-        <div id="loading-overlay" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 hidden">
-            <div class="flex items-center">
-                <div class="text-gray-300 text-lg">Loading...</div>
-                <svg class="animate-spin h-8 w-8 text-gray-300 ml-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
-                </svg>
-            </div>
-        </div>
+        <!-- ebLoader is used instead of legacy overlay -->
 
         
         <!-- Cloud Storage Navigation -->
@@ -48,14 +39,14 @@
         </div>
         <!-- Glass panel container -->
         <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
-            <div class="flex flex-col sm:flex-row h-16 justify-between items-start sm:items-center mb-3">
+            {* <div class="flex flex-col sm:flex-row h-16 justify-between items-start sm:items-center mb-3">
                 <div class="flex items-center">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15a4.5 4.5 0 0 0 4.5 4.5H18a3.75 3.75 0 0 0 1.332-7.257 3 3 0 0 0-3.758-3.848 5.25 5.25 0 0 0-10.233 2.33A4.502 4.502 0 0 0 2.25 15Z" />
                     </svg>
                     <h2 class="text-2xl font-semibold text-white">Dashboard</h2>
                 </div>
-            </div>
+            </div> *}
         <!-- Usage Summary Card -->
         <div class="mb-8">
             <div class="bg-slate-900/70 rounded-lg border border-slate-800/80 shadow-lg">
@@ -138,7 +129,7 @@
                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-6">
                         <!-- Current Usage Column -->
                         <div class="flex items-start">
-                            <div class="flex-shrink-0 border-2 border-sky-600 p-3 rounded-md">
+                            <div class="flex items-center p-4 justify-center rounded-xl bg-slate-800/90 group-hover:bg-slate-700">
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="text-sky-600 size-8">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 14.25v2.25m3-4.5v4.5m3-6.75v6.75m3-9v9M6 20.25h12A2.25 2.25 0 0 0 20.25 18V6A2.25 2.25 0 0 0 18 3.75H6A2.25 2.25 0 0 0 3.75 6v12A2.25 2.25 0 0 0 6 20.25Z" />
                                 </svg>
@@ -151,20 +142,21 @@
                         </div>
                         <!-- Total Buckets Column -->
                         <div class="flex items-start">
-                            <div class="flex-shrink-0 border-2 border-emerald-600 p-3 rounded-md">
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="text-emerald-600 size-8">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="m20.25 7.5-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" />
-                                </svg>
+                            <div class="flex items-center p-4 justify-center rounded-xl bg-slate-800/90 group-hover:bg-slate-700">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="text-emerald-600 size-8">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="m20.25 7.5-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" />
+                          </svg>
+                          
 
                             </div>
                             <div class="ml-4">
                                 <span class="text-2xl font-semibold">{$totalBucketCount}</span>
-                                <h5 class="text-md font-medium text-slate-400">Buckets</h5>
+                                <h5 class="text-md font-medium text-slate-100">Buckets</h5>
                             </div>
                         </div>
                         <!-- Total Objects Column -->
                         <div class="flex items-start">
-                            <div class="flex-shrink-0 border-2 border-yellow-600 p-3 rounded-md">
+                            <div class="flex items-center p-4 justify-center rounded-xl bg-slate-800/90 group-hover:bg-slate-700">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="currentColor" class="text-yellow-600 bi bi-boxes" viewBox="0 0 16 16">
                                     <path d="M7.752.066a.5.5 0 0 1 .496 0l3.75 2.143a.5.5 0 0 1 .252.434v3.995l3.498 2A.5.5 0 0 1 16 9.07v4.286a.5.5 0 0 1-.252.434l-3.75 2.143a.5.5 0 0 1-.496 0l-3.502-2-3.502 2.001a.5.5 0 0 1-.496 0l-3.75-2.143A.5.5 0 0 1 0 13.357V9.071a.5.5 0 0 1 .252-.434L3.75 6.638V2.643a.5.5 0 0 1 .252-.434zM4.25 7.504 1.508 9.071l2.742 1.567 2.742-1.567zM7.5 9.933l-2.75 1.571v3.134l2.75-1.571zm1 3.134 2.75 1.571v-3.134L8.5 9.933zm.508-3.996 2.742 1.567 2.742-1.567-2.742-1.567zm2.242-2.433V3.504L8.5 5.076V8.21zM7.5 8.21V5.076L4.75 3.504v3.134zM5.258 2.643 8 4.21l2.742-1.567L8 1.076zM15 9.933l-2.75 1.571v3.134L15 13.067zM3.75 14.638v-3.134L1 9.933v3.134z"/>
                                 </svg>
@@ -186,7 +178,7 @@
             <div class="bg-slate-900/70 rounded-lg border border-slate-800/80 shadow-lg">
                 <div class="p-6 flex items-center justify-between">
                     <div class="flex items-start">
-                        <div class="flex-shrink-0 border-2 border-emerald-600 p-3 rounded-md">
+                        <div class="flex items-center p-4 justify-center rounded-xl bg-slate-800/90 group-hover:bg-slate-700">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="text-emerald-600 size-8">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6a7.5 7.5 0 1 0 7.5 7.5h-7.5V6Z" />
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 10.5H21A7.5 7.5 0 0 0 13.5 3v7.5Z" />
@@ -232,10 +224,12 @@
                 <!-- Card Body -->
                 <div class="p-6">
                     <div class="flex items-start mb-4">
-                        <div class="flex-shrink-0 border-2 border-sky-600 p-3 rounded-md">
+                        <div class="flex items-center p-4 justify-center rounded-xl bg-slate-800/90 group-hover:bg-slate-700">
+ 
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="text-sky-600 size-8">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5m-9-6h.008v.008H12v-.008ZM12 15h.008v.008H12V15Zm0 2.25h.008v.008H12v-.008ZM9.75 15h.008v.008H9.75V15Zm0 2.25h.008v.008H9.75v-.008ZM7.5 15h.008v.008H7.5V15Zm0 2.25h.008v.008H7.5v-.008Zm6.75-4.5h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V15Zm0 2.25h.008v.008h-.008v-.008Zm2.25-4.5h.008v.008H16.5v-.008Zm0 2.25h.008v.008H16.5V15Z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18 9 11.25l4.306 4.306a11.95 11.95 0 0 1 5.814-5.518l2.74-1.22m0 0-5.94-2.281m5.94 2.28-2.28 5.941" />
                             </svg>
+
 
 
                         </div>
@@ -257,8 +251,8 @@
                 <!-- Card Body -->
                 <div class="p-6">
                     <div class="flex items-start mb-4">
-                        <div class="flex-shrink-0 border-2 border-cyan-600 p-3 rounded-md">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="text-cyan-600 size-8">
+                        <div class="flex items-center p-4 justify-center rounded-xl bg-slate-800/90 group-hover:bg-slate-700">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="text-sky-600 size-8">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 9.75v6.75m0 0-3-3m3 3 3-3m-8.25 6a4.5 4.5 0 0 1-1.41-8.775 5.25 5.25 0 0 1 10.233-2.33 3 3 0 0 1 3.758 3.848A3.752 3.752 0 0 1 18 19.5H6.75Z" />
                             </svg>
 
@@ -286,7 +280,7 @@
                 <!-- Card Body -->
                 <div class="p-6">
                     <div class="flex items-start mb-4">
-                        <div class="flex-shrink-0 border-2 border-amber-600 p-3 rounded-md">
+                        <div class="flex items-center p-4 justify-center rounded-xl bg-slate-800/90 group-hover:bg-slate-700">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="text-amber-600 size-8">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0 3 3m-3-3-3 3M6.75 19.5a4.5 4.5 0 0 1-1.41-8.775 5.25 5.25 0 0 1 10.233-2.33 3 3 0 0 1 3.758 3.848A3.752 3.752 0 0 1 18 19.5H6.75Z" />
                             </svg>
@@ -313,6 +307,8 @@
     </div>
 </div>
 
+<!-- ebLoader -->
+<script src="{$WEB_ROOT}/modules/addons/eazybackup/templates/assets/js/ui.js"></script>
 <!-- ApexCharts and Custom JS -->
 <script src="{$WEB_ROOT}/modules/addons/cloudstorage/assets/js/apexchart.min.js"></script>
 <script src="{$WEB_ROOT}/modules/addons/cloudstorage/assets/js/custom.js"></script>
@@ -659,7 +655,7 @@
 
     // Function to handle dropdown changes (for Alpine.js component)
     function handleChange(username) {
-        showLoader();
+        try { if (window.ebShowLoader) window.ebShowLoader(document.body, 'Loading…'); } catch(_) {}
         const url = new URL(window.location.href);
         if (username) {
             url.searchParams.set('username', username);
@@ -676,7 +672,7 @@
 
         // Keep the original change handler for backward compatibility
         jQuery('#username').change(function() {
-            showLoader();
+            try { if (window.ebShowLoader) window.ebShowLoader(document.body, 'Loading…'); } catch(_) {}
             const username = jQuery(this).val();
             const url = new URL(window.location.href);
             if (username) {

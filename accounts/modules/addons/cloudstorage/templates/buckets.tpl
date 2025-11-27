@@ -1,95 +1,56 @@
 <div class="min-h-screen bg-slate-950 text-gray-300">
     <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
     <div class="container mx-auto px-4 pb-8">
-        <div class="flex flex-col sm:flex-row h-16 justify-between items-start sm:items-center">
-            <!-- Navigation Horizontal -->
-            <div class="flex items-center">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="m20.25 7.5-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" />
-                </svg>
-                <h2 class="text-2xl font-semibold text-white ml-2">Buckets</h2>
+        <!-- Top bar: title, nav, search -->
+        <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6">
+            <div class="container mx-auto px-4 py-8">
+                <!-- Section title -->
+                
+                <!-- Cloud Storage Navigation -->
+                <nav class="inline-flex rounded-full bg-slate-900/80 p-1 text-xs font-medium text-slate-400" aria-label="Cloud Storage Navigation">
+                    <a href="index.php?m=cloudstorage&page=dashboard"
+                       class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'dashboard'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
+                        Dashboard
+                    </a>
+                    <a href="index.php?m=cloudstorage&page=buckets"
+                       class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'buckets'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
+                        Buckets
+                    </a>                
+                    <a href="index.php?m=cloudstorage&page=access_keys"
+                       class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'access_keys'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
+                        Access Keys
+                    </a>
+                    <a href="index.php?m=cloudstorage&page=users"
+                       class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'users'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
+                        Users
+                    </a>
+                    <a href="index.php?m=cloudstorage&page=billing"
+                       class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'billing'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
+                        Billing
+                    </a>
+                    <a href="index.php?m=cloudstorage&page=history"
+                       class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'history'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
+                        Historical Stats
+                    </a>
+                </nav>
             </div>
-            <!-- Navigation Buttons -->
-            <div class="flex items-center mt-4 sm:mt-0">
-                <!-- Search Input -->
+            <!-- Search Input -->
+            <div class="w-full sm:w-80 mt-4 sm:mt-0">
                 <input
                     type="text"
                     id="searchBuckets"
-                    class="w-full sm:w-80 rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                    class="w-full rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
                     placeholder="Search buckets"
-                />                
+                />
             </div>
         </div>
-        <!-- Cloud Storage Navigation -->
-        <div class="mb-6">
-            <nav class="inline-flex rounded-full bg-slate-900/80 p-1 text-xs font-medium text-slate-400" aria-label="Cloud Storage Navigation">
-                <a href="index.php?m=cloudstorage&page=dashboard"
-                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'dashboard'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-                    Dashboard
-                </a>
-                <a href="index.php?m=cloudstorage&page=buckets"
-                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'buckets'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-                    Buckets
-                </a>                
-                <a href="index.php?m=cloudstorage&page=access_keys"
-                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'access_keys'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-                    Access Keys
-                </a>
-                <a href="index.php?m=cloudstorage&page=users"
-                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'users'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-                    Users
-                </a>
-                <a href="index.php?m=cloudstorage&page=billing"
-                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'billing'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-                    Billing
-                </a>
-                <a href="index.php?m=cloudstorage&page=history"
-                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'history'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-                    Historical Stats
-                </a>
-            </nav>
-        </div>
-
-        <!-- Loading Overlay -->
-        <div id="loading-overlay" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50">
-            <div class="flex items-center">
-                <div class="text-gray-300 text-lg">Loading...</div>
-                <svg class="animate-spin h-8 w-8 text-gray-300 ml-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
-                </svg>
-            </div>
-        </div>
-
         <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
-        <style>
-        .btn-run-now {
-            display: inline-flex; align-items: center; gap: 0.5rem;
-            border-radius: 9999px; padding: 0.375rem 1rem;
-            font-size: 0.875rem; font-weight: 600;
-            color: rgb(15 23 42); /* slate-950 */
-            background-image: linear-gradient(to right, rgb(16 185 129), rgb(52 211 153), rgb(56 189 248));
-            box-shadow: 0 1px 2px rgba(0,0,0,0.25);
-            border: 1px solid rgba(16,185,129,0.4);
-            transition: transform .15s ease, box-shadow .2s ease;
-            cursor: pointer;
-        }
-        .btn-run-now:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(16,185,129,0.25); }
-        .btn-run-now:active { transform: translateY(0); box-shadow: 0 1px 2px rgba(0,0,0,0.25); }
-        .icon-btn {
-            display:inline-flex; align-items:center; justify-content:center;
-            width:2rem; height:2rem; border-radius:9999px;
-            border:1px solid rgba(51,65,85,0.8); /* slate-700/80 */
-            background-color: rgba(15,23,42,0.6); /* slate-900/60 */
-            color:#cbd5e1; font-size:.75rem; transition: all .15s ease;
-            cursor: pointer;
-        }
-        .icon-btn:hover { border-color:#94a3b8; color:white; background-color:#1f2937; }
-        .icon-btn[disabled] { opacity:.6; cursor:not-allowed; }
-        </style>
+        
         <!-- Global Message Container (Always Present) -->
         <div id="globalMessage" class="text-white px-4 py-2 rounded-md mb-6 hidden" role="alert"></div>
         <!-- Alpine Toasts -->
+        <!-- ebLoader -->
+        <script src="{$WEB_ROOT}/modules/addons/eazybackup/templates/assets/js/ui.js"></script>
         <div x-data="toastCenter()" x-init="init()" class="pointer-events-none fixed top-4 inset-x-0 z-[70] flex justify-center">
             <template x-for="t in toasts" :key="t.id">
                 <div
@@ -131,11 +92,11 @@
                     type="button"
                     id="openCreateBucketModalBtn"
                     onclick="openModal('createBucketModal')"
-                    class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md flex items-center focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500"
+                    class="btn-accent"
 
                 >
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 6v12m6-6H6" />
                     </svg>
                     <span>Create Bucket</span>
                 </button>
@@ -175,7 +136,7 @@
                         </div>
                         <div class="flex items-center gap-2">
                             <!-- Browse Button -->
-                            <a href="index.php?m=cloudstorage&page=browse&bucket={$bucket->name}&username={$usernames[$bucket->user_id]}" class="btn-run-now cursor-pointer" title="Browse">
+                            <a href="index.php?m=cloudstorage&page=browse&bucket={$bucket->name}&username={$usernames[$bucket->user_id]}" class="btn-accent cursor-pointer" title="Browse">
                                 <div class="flex items-center gap-2">
                                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
@@ -353,9 +314,10 @@
                         <button
                           type="button"
                           class="icon-btn manage-logging"
-                          title="Manage server access logging"
+                          title="Server access logging is temporarily unavailable"
                           data-bucket-name="{$bucket->name}"
-                          onclick="openModal('manageLoggingModal')"
+                          disabled
+                          style="opacity:.6;"
                         >
                           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <circle cx="12" cy="12" r="3"></circle>
@@ -935,35 +897,19 @@
 {literal}
     <script>
         function showLoaderAndRefreshBuckets() {
-            // Get the loading overlay element
-            const loadingOverlay = document.getElementById('loading-overlay');
-
-            // Show the loader (remove the "hidden" class)
-            if (loadingOverlay) {
-                loadingOverlay.classList.remove('hidden');
-            }
-
+            // Show loader via ebLoader
+            try { if (window.ebShowLoader) window.ebShowLoader(document.body, 'Refreshing buckets…'); } catch(_) {}
             // Use jQuery's load() to refresh the buckets container.
             // This URL should return only the updated buckets HTML.
             // The selector " .buckets-container > *" means "load the contents of the .buckets-container element"
             jQuery('.buckets-container').load('index.php?m=cloudstorage&page=buckets&ajax=1 .buckets-container > *', function(response, status, xhr) {
-                // Hide the loader after the request completes
-                if (loadingOverlay) {
-                    loadingOverlay.classList.add('hidden');
-                }
+                // Hide loader after the request completes
+                try { if (window.ebHideLoader) window.ebHideLoader(document.body); } catch(_) {}
                 if (status === "error") {
                     alert("Error refreshing buckets: " + xhr.status + " " + xhr.statusText);
                 }
             });
         }
-
-        // Hide the loading overlay when the page has fully loaded
-        window.addEventListener('load', function() {
-            const loadingOverlay = document.getElementById('loading-overlay');
-            if (loadingOverlay) {
-                loadingOverlay.classList.add('hidden');
-            }
-        });
 
         // Set the default sort order to ascending (A–Z)
         var sortAscending = true;

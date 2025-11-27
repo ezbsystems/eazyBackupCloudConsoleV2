@@ -265,20 +265,7 @@
             {/if}
           </div>
 
-          <!-- Checkbox -->
-          <div class="flex items-start gap-2 text-xs text-slate-300">
-            <input
-              id="contactSales"
-              name="contactSales"
-              type="checkbox"
-              value="1"
-              class="mt-0.5 h-4 w-4 rounded border-slate-600 bg-slate-900/80 text-emerald-500 focus:ring-emerald-500"
-              {if isset($smarty.post.contactSales) && $smarty.post.contactSales}checked{/if}
-            />
-            <label for="contactSales" class="cursor-pointer">
-              I’d like someone from sales to contact me about pricing and deployment options.
-            </label>
-          </div>
+          
 
           <!-- Turnstile captcha -->
           <div class="pt-2 space-y-2">

@@ -551,7 +551,7 @@
         #createJobSlideover textarea:focus {
             outline: none !important;
             border-color: rgb(14 165 233 / 1) !important;     /* border-sky-500 */
-            box-shadow: 0 0 0 1px rgb(14 165 233 / 1) !important; /* ring-1 ring-sky-500 */
+            
         }
         /* Common dropdown panels */
         #createJobSlideover .dropdown-surface {
@@ -1499,8 +1499,7 @@
             #editJobSlideover select:focus,
             #editJobSlideover textarea:focus {
                 outline: none !important;
-                border-color: rgb(14 165 233 / 1) !important;     /* border-sky-500 */
-                box-shadow: 0 0 0 1px rgb(14 165 233 / 1) !important; /* ring-1 ring-sky-500 */
+                border-color: rgb(14 165 233 / 1) !important;     /* border-sky-500 */                
             }
             /* Common dropdown panels */
             #editJobSlideover .dropdown-surface {

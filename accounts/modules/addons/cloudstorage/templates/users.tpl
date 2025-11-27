@@ -3,6 +3,8 @@
     .table-row-hover:hover { background-color: #1e293b; }
     .expanded-row { background-color: #0f172a; }
 </style>
+<!-- ebLoader -->
+<script src="{$WEB_ROOT}/modules/addons/eazybackup/templates/assets/js/ui.js"></script>
 
 <div class="min-h-screen bg-slate-950 text-gray-300" x-data="usersManager()">
 	<div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
@@ -618,17 +620,18 @@
 
 		</div>
 
-		<!-- Loading Overlay -->
-		<div x-show="loading" x-cloak
-			class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50">
-			<div class="flex items-center flex-col">
-				<svg class="animate-spin h-8 w-8 text-gray-300" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-					<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-					<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
-				</svg>
-				<div class="text-gray-300 text-lg mt-2" x-text="loadingText">Loading...</div>
-			</div>
-		</div>
+		<!-- ebLoader integration (show/hide based on Alpine loading state) -->
+		<div x-effect="
+			(function(){
+				try {
+					if (loading) {
+						if (window.ebShowLoader) window.ebShowLoader(document.body, (loadingText || 'Loading…'));
+					} else {
+						if (window.ebHideLoader) window.ebHideLoader(document.body);
+					}
+				} catch(_) {}
+			})()
+		"></div>
 
 		<!-- Create Subuser Modal -->
 		<div x-show="modals.createSubuser" x-cloak

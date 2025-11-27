@@ -26,27 +26,6 @@
 		animation-delay: 0.4s;
 	}
 
-	.loader {
-		display: none;
-		position: fixed;
-		top: 48%;
-		width: 100%;
-		height: 100%;
-		z-index: 9;
-		left: 35%;
-		right: 0;
-		justify-content: center;
-		align-items: center;
-		flex-direction: column;
-		transform: translate(-50%, -50%);
-		border: 3px solid #4F657F;
-		border-radius: 50%;
-		border-top: 3px solid #C28247;
-		width: 25px;
-		height: 25px;
-		animation: spin 2s linear infinite;
-	}
-
 	@keyframes spin {
 		0% {
 			transform: rotate(0deg);
@@ -61,16 +40,7 @@
 <!-- Sign-Up Form Container -->
 <div class="flex justify-center items-center min-h-screen bg-gray-700">
 	<div class="bg-gray-800 rounded-lg shadow p-8 max-w-xl w-full">
-		{* Loading Overlay *}
-		<div id="loading-overlay" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 hidden">
-            <div class="flex items-center">
-                <div class="text-gray-300 text-lg">Loading...</div>
-                <svg class="animate-spin h-8 w-8 text-gray-300 ml-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
-                </svg>
-            </div>
-        </div>
+		{* ebLoader is used instead of legacy loading overlay *}
 
 		<div class="flex flex-col mb-6">
 			<img src="{$WEB_ROOT}/resources/images/eazybackup_e3_light.svg" class="text-white w-64 mb-6" alt="eazyBackup e3">
@@ -147,6 +117,8 @@
 </div>
 
 <!-- Billing Terms Modal -->
+<!-- ebLoader -->
+<script src="{$WEB_ROOT}/modules/addons/eazybackup/templates/assets/js/ui.js"></script>
 <div
 	id="billingModal"
 	class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden lg:ml-64"
@@ -233,14 +205,14 @@
 		});
 		jQuery('#s3StorageForm').submit(function(e) {
 			e.preventDefault();
-			showLoader();
+			try { if (window.ebShowLoader) window.ebShowLoader(document.body, 'Creating account…'); } catch(_) {}
 			var username = jQuery('#username').val();
 			jQuery.ajax({
 				type: 'POST',
 				url: 'modules/addons/cloudstorage/api/createS3StorageAccount.php',
 				data: { username: username },
 				success: function(response) {
-					hideLoader();
+					try { if (window.ebHideLoader) window.ebHideLoader(document.body); } catch(_) {}
 					if (response.status === 'fail') {
 						jQuery('#responseMessage').addClass('bg-red-700').find('p').text(response.message);
 						return;
@@ -250,7 +222,7 @@
 					}
 				},
 				error: function(xhr, status, error) {
-					hideLoader();
+					try { if (window.ebHideLoader) window.ebHideLoader(document.body); } catch(_) {}
 					jQuery('#responseMessage').html('Error: ' + xhr.responseText);
 				}
 			});

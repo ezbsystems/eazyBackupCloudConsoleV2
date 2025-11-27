@@ -1,19 +1,25 @@
 {include file="modules/addons/eazybackup/templates/partials/_ui-tokens.tpl"}
 
-<div class="min-h-screen bg-[rgb(var(--bg-page))] text-[rgb(var(--text-primary))]">
-  <div class="mx-auto max-w-none px-6 py-8">
-    <section class="rounded-2xl bg-[rgb(var(--bg-card))] shadow-xl shadow-black/20 ring-1 ring-white/10 overflow-hidden">
+<div class="min-h-screen bg-slate-950 text-gray-300">
+  <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
+  <div class="container mx-auto px-4 pb-10 pt-6 relative pointer-events-relative w-full px-3 py-2 text-left text-slate-300 bg-slate-900 border border-gray-600 rounded-md shadow-sm cursor-default focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500">
+    <section class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
       <div class="px-6 py-5 flex items-center justify-between">
-        <h2 class="text-lg font-medium">Your White‑Label Tenants</h2>
+        <div class="flex items-center">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9.53 16.122a3 3 0 0 0-5.78 1.128 2.25 2.25 0 0 1-2.4 2.245 4.5 4.5 0 0 0 8.4-2.245c0-.399-.078-.78-.22-1.128Zm0 0a15.998 15.998 0 0 0 3.388-1.62m-5.043-.025a15.994 15.994 0 0 1 1.622-3.395m3.42 3.42a15.995 15.995 0 0 0 4.764-4.648l3.876-5.814a1.151 1.151 0 0 0-1.597-1.597L14.146 6.32a15.996 15.996 0 0 0-4.649 4.763m3.42 3.42a6.776 6.776 0 0 0-3.42-3.42" />
+          </svg>
+          <h2 class="text-2xl font-semibold text-white">Your White‑Label Tenants</h2>
+        </div>
         <div class="w-full md:w-72">
           <input id="tenant-search" type="text" placeholder="Search tenants…" aria-label="Search tenants" class="mt-0 w-full rounded-xl bg-[rgb(var(--bg-input))] text-white/90 placeholder-white/30 ring-1 ring-white/10 focus:ring-2 focus:ring-[rgb(var(--accent))] focus:outline-none px-3.5 py-2.5" />
         </div>
       </div>
       <div class="border-t border-white/10"></div>
       <div class="px-6 py-6">
-        <div class="rounded-2xl bg-[rgb(var(--bg-card))] ring-1 ring-white/10 overflow-hidden">
+        <div class="rounded-2xl bg-slate-900/70 border border-slate-800/80 overflow-hidden">
           <table class="min-w-full text-sm">
-            <thead class="bg-gray-900/60 text-white/70">
+            <thead class="bg-slate-900/60 text-slate-300">
               <tr>
                 <th class="px-4 py-3 text-left cursor-pointer select-none" data-sort-key="fqdn" aria-sort="none">FQDN <span class="sort-indicator ml-1 opacity-60"></span></th>
                 <th class="px-4 py-3 text-left cursor-pointer select-none" data-sort-key="product" aria-sort="none">Product <span class="sort-indicator ml-1 opacity-60"></span></th>
@@ -22,9 +28,9 @@
                 <th class="px-4 py-3 text-left">Actions</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-white/10">
+            <tbody class="divide-y divide-slate-800/80">
               {foreach from=$tenants item=t}
-                <tr class="hover:bg-white/5">
+                <tr class="hover:bg-slate-800/50">
                   <td class="px-4 py-4 whitespace-nowrap text-sm">{$t.fqdn}</td>
                   <td class="px-4 py-4 whitespace-nowrap text-sm">{$t.product_name|default:'Unknown'}</td>
                   <td class="px-4 py-4 whitespace-nowrap text-sm">{$t.custom_domain|default:'-'}</td>
@@ -129,10 +135,22 @@
     </div>
     <div class="flex-1 overflow-y-auto px-4 py-4 space-y-4">
       <div class="grid grid-cols-1 gap-3">
-        <a id="btn-tenant-branding" href="#" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded text-sm">Manage Branding</a>
-        <a id="btn-tenant-signup-settings" href="#" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded text-sm">Registration Page</a>        
-        <a id="btn-tenant-create-order" href="{$modulelink}&a=createorder" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-sm">Create Backup Account</a>
-        <a id="btn-tenant-email-templates" href="#" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-sm">Email Templates</a>
+        <a id="btn-tenant-create-order" href="{$modulelink}&a=createorder"
+           class="btn btn-primary w-full">
+          Create Backup Account
+        </a>
+        <a id="btn-tenant-branding" href="#"
+           class="btn btn-surface w-full">
+          Manage Branding
+        </a>        
+        <a id="btn-tenant-signup-settings" href="#"
+           class="btn btn-surface w-full">
+          Registration Page
+        </a>        
+        <a id="btn-tenant-email-templates" href="#"
+           class="btn btn-surface w-full">
+          Email Templates
+        </a>
       </div>
       <div class="text-xs text-slate-400">Choose which area to manage for this tenant.</div>
     </div>

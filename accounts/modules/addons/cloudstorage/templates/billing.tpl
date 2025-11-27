@@ -50,14 +50,10 @@
                             <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
                         </svg>
                     </button>
-                </div>
+            </div>
             </div>
 
-        <!-- Loading Overlay -->
-        <div id="loading-overlay" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 hidden">
-            <div class="text-gray-300 text-lg">Loading...</div>
-            <div class="loader ml-4"></div>
-        </div>
+        <!-- ebLoader used instead of legacy loading overlay -->
 
         <!-- Billing Summary Card -->
         <div class="bg-slate-900/70 rounded-lg border border-slate-800/80 shadow-lg mb-8">
@@ -156,6 +152,8 @@
     </div>
 </div>
 
+<!-- ebLoader -->
+<script src="{$WEB_ROOT}/modules/addons/eazybackup/templates/assets/js/ui.js"></script>
 <!-- ApexCharts and Custom JS -->
 <script src="{$WEB_ROOT}/modules/addons/cloudstorage/assets/js/apexchart.min.js"></script>
 <script src="{$WEB_ROOT}/modules/addons/cloudstorage/assets/js/custom.js"></script>
@@ -168,11 +166,10 @@
     }
 
     function showLoaderAndRefresh() {
-        const overlay = document.getElementById('loading-overlay');
-        overlay.classList.remove('hidden');
+        try { if (window.ebShowLoader) window.ebShowLoader(document.body, 'Refreshing…'); } catch(_) {}
         // Simulate a refresh action
         setTimeout(() => {
-            overlay.classList.add('hidden');
+            try { if (window.ebHideLoader) window.ebHideLoader(document.body); } catch(_) {}
             location.reload();
         }, 2000); // 2 seconds delay for demonstration
     }
