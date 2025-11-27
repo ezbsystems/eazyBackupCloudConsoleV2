@@ -92,7 +92,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $useCase    = trim($_POST['useCase'] ?? '');
     $storageTiB = trim($_POST['storageTiB'] ?? '');
     $project    = trim($_POST['project'] ?? '');
-    $contactSales = !empty($_POST['contactSales']) ? 1 : 0;
 
     // Normalize storage estimate: default to 5 TiB if empty or invalid
     if ($storageTiB === '' || !is_numeric($storageTiB) || (int) $storageTiB < 1) {
@@ -108,7 +107,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'useCase'      => $useCase ?: 'msp',
         'storageTiB'   => $storageTiB,
         'project'      => $project,
-        'contactSales' => $contactSales,
     ];
     // 0) Honeypot check
     if (!empty($_POST['hp_field'])) {
@@ -253,7 +251,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $adminUser = 'API';
 
     // Build admin notes from trial fields
-    $salesConsentText = $contactSales ? 'Yes' : 'No';
     $notesLines = [
         'e3 Trial Signup Details:',
         'Company: ' . $company,
@@ -262,7 +259,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'Use Case: ' . $useCase,
         'Estimated Storage (TiB): ' . $storageTiB,
         'How they will use e3: ' . $project,
-        'Sales contact consent: ' . $salesConsentText,
     ];
     $clientNotes = implode("\n", $notesLines);
 
@@ -355,7 +351,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'useCase'       => $useCase,
             'storageTiB'    => $storageTiB,
             'project'       => $project,
-            'contactSales'  => $contactSales,
         ]);
 
         $expiresAt = (new \DateTime('+48 hours'))->format('Y-m-d H:i:s');

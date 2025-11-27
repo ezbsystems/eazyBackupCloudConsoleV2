@@ -175,6 +175,9 @@ systemctl restart eazybackup-comet-ws@cometbackup eazybackup-comet-ws@obc
 systemctl start eazybackup-comet-ws@cometbackup.service
 systemctl start eazybackup-comet-ws@obc
 
+systemctl stop eazybackup-comet-ws@cometbackup.service
+systemctl stop eazybackup-comet-ws@obc
+
 systemctl status eazybackup-comet-ws@cometbackup -n 50
 systemctl status eazybackup-comet-ws@obc -n 50
 

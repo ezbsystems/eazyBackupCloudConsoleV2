@@ -6,16 +6,7 @@
 <div class="min-h-screen bg-slate-950 text-gray-300">
     <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
     <div class="container mx-auto px-4 pb-10 pt-6 relative pointer-events-relative w-full px-3 py-2 text-left text-slate-300 bg-slate-900 border border-gray-600 rounded-md shadow-sm cursor-default focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500">
-        <!-- Loading Overlay -->
-        <div id="loading-overlay" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 hidden">
-            <div class="flex items-center">
-                <div class="text-gray-300 text-lg">Loading...</div>
-                <svg class="animate-spin h-8 w-8 text-gray-300 ml-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
-                </svg>
-            </div>
-        </div>
+        <!-- ebLoader is used instead of legacy overlay -->
 
         
         <!-- Cloud Storage Navigation -->
@@ -240,6 +231,8 @@
     </div>
 </div>
 
+<!-- ebLoader -->
+<script src="{$WEB_ROOT}/modules/addons/eazybackup/templates/assets/js/ui.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
 <script type="text/javascript">
     // Data passed from PHP
@@ -260,8 +253,7 @@
     const displayedEndDate = '{$endDate|escape:"javascript"}';   
 
     function showLoader() {
-        const overlay = document.getElementById('loading-overlay');
-        if (overlay) overlay.classList.remove('hidden');
+        try { if (window.ebShowLoader) window.ebShowLoader(document.body, 'Loading…'); } catch(_) {}
     }
 
     // Function to handle username dropdown changes (for Alpine.js component)

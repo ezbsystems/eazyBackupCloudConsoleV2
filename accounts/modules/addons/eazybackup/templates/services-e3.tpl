@@ -31,88 +31,38 @@ jQuery(document).ready(function() {
 </script>
 
 <!-- Container for top heading + nav -->
-<div class="min-h-screen bg-gray-700 text-gray-300">
-    <div class="container mx-auto px-4 pb-8">
-        <div class="flex flex-col sm:flex-row h-16 justify-between items-start sm:items-center px-2">
-            <!-- Navigation Horizontal -->
-            <div class="flex items-center">        
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-2">
+<div class="min-h-screen bg-slate-950 text-gray-300">
+    <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
+    <div class="container mx-auto px-4 pb-10 pt-6 relative pointer-events-relative w-full px-3 py-2 text-slate-300 bg-slate-900 border border-gray-600 rounded-md shadow-sm cursor-default focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500">
+        <div class="mb-6">
+            <nav class="inline-flex rounded-full bg-slate-900/80 p-1 text-xs font-medium text-slate-400" aria-label="Services Navigation">
+                <a href="{$WEB_ROOT}/clientarea.php?action=services"
+                class="px-4 py-1.5 rounded-full transition {if ($smarty.get.action eq 'services' || !$smarty.get.m) && $smarty.get.tab ne 'billing'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
+                    Backup Services
+                </a>
+                <a href="{$WEB_ROOT}/clientarea.php?action=services&tab=billing"
+                class="px-4 py-1.5 rounded-full transition {if $smarty.get.tab eq 'billing'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
+                    Billing Report
+                </a>                
+                <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=services-e3"
+                class="px-4 py-1.5 rounded-full transition {if $smarty.get.m eq 'eazybackup' && $smarty.get.a eq 'services-e3'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
+                    e3 Object Storage
+                </a>
+            </nav>
+        </div>
+        <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
+            <div class="flex items-center gap-2 mb-4">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" />
-                </svg>                   
+                </svg>
                 <h2 class="text-2xl font-semibold text-white">My Services</h2>
             </div>
-        </div>
-        <div class="main-section-header-tabs rounded-t-md border-b border-gray-600 bg-gray-800 pt-4 px-2">
-    <ul class="flex space-x-4 border-b border-gray-700">
-        <!-- Backup Services Tab -->
-        <li class="-mb-px mr-1">
-            <a 
-                href="{$WEB_ROOT}/clientarea.php?action=services" 
-                class="inline-flex items-center px-2 py-2 font-medium text-gray-300
-                    {if $smarty.get.action eq 'services' || !$smarty.get.m}
-                        border-b-2 border-sky-600 text-sm
-                    {else}
-                        border-transparent text-sm hover:border-gray-300
-                    {/if}"
-                data-tab="tab1"
-            >
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
-                            stroke="currentColor"
-                    class="size-5 mr-1 {if $smarty.get.action eq 'services' || !$smarty.get.m}text-sky-600{else}text-gray-500{/if}">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15a4.5 4.5 0 0 0 4.5 4.5H18a3.75 3.75 0 0 0 1.332-7.257 3 3 0 0 0-3.758-3.848 5.25 5.25 0 0 0-10.233 2.33A4.502 4.502 0 0 0 2.25 15Z" />
-                </svg>
-                Backup Services
-            </a>
-        </li>
-        <!-- Servers Tab -->
-        <li class="mr-1">
-            <a 
-                href="{$WEB_ROOT}/index.php?m=eazybackup&a=services" 
-                class="inline-flex items-center px-2 py-2 font-medium text-gray-300
-                    {if $smarty.get.m eq 'eazybackup' && $smarty.get.a eq 'services'}
-                        border-b-2 border-sky-600 text-sm
-                    {else}
-                        border-transparent text-sm hover:border-gray-300
-                    {/if}"
-                data-tab="tab2"
-            >
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
-                    stroke="currentColor"
-                    class="size-5 mr-1 {if $smarty.get.m eq 'eazybackup' && $smarty.get.a eq 'services'}text-sky-600{else}text-gray-500{/if}">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 0 1-3-3m3 3a3 3 0 1 0 0 6h13.5a3 3 0 1 0 0-6m-16.5-3a3 3 0 0 1 3-3h13.5a3 3 0 0 1 3 3m-19.5 0a4.5 4.5 0 0 1 .9-2.7L5.737 5.1a3.375 3.375 0 0 1 2.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 0 1 .9 2.7m0 0a3 3 0 0 1-3 3m0 3h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Z" />
-                </svg>
-                Servers
-            </a>
-        </li>
-        <!-- e3 Cloud Storage Tab -->
-        <li class="mr-1">
-            <a 
-                href="{$WEB_ROOT}/index.php?m=eazybackup&a=services-e3" 
-                class="inline-flex items-center px-2 py-2 font-medium text-gray-300
-                    {if $smarty.get.m eq 'eazybackup' && $smarty.get.a eq 'services-e3'}
-                        border-b-2 border-sky-600 text-sm
-                    {else}
-                        border-transparent text-sm hover:border-gray-300
-                    {/if}"
-                data-tab="tab3"
-            >
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
-                    stroke="currentColor"
-                    class="size-5 mr-1 {if $smarty.get.m eq 'eazybackup' && $smarty.get.a eq 'services-e3'}text-sky-600{else}text-gray-500{/if}">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 0 1-3-3m3 3a3 3 0 1 0 0 6h13.5a3 3 0 1 0 0-6m-16.5-3a3 3 0 0 1 3-3h13.5a3 3 0 0 1 3 3m-19.5 0a4.5 4.5 0 0 1 .9-2.7L5.737 5.1a3.375 3.375 0 0 1 2.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 0 1 .9 2.7m0 0a3 3 0 0 1-3 3m0 3h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Zm-3 6h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Z" />
-                </svg>
-                e3 Cloud Storage
-            </a>
-        </li>
-
-    </ul>
-</div>
 
 
-<div class="bg-gray-800 shadow rounded-b-md p-4 mb-4">
+<div class="p-4 rounded-md border border-slate-800/80 bg-slate-900/70">
         <div class="overflow-visible mb-4">
             <table id="tableServicesList" class="min-w-full">
-                <thead class="border-b border-gray-600">
+                <thead class="border-b border-slate-800/80">
                     <tr>
                         <th class="px-4 py-4 text-left text-sm font-semibold text-gray-300">
                             {lang key='Service'}
@@ -134,7 +84,7 @@ jQuery(document).ready(function() {
                         </th>                
                     </tr>
                 </thead>
-                <tbody class="bg-gray-800 divide-y divide-gray-700">
+                <tbody class="divide-y divide-slate-800/80">
                     {if $services|@count > 0}
                         {foreach from=$services item=service}
                             <tr class="hover:bg-[#1118272e]">
@@ -161,7 +111,7 @@ jQuery(document).ready(function() {
                                         </button>
                             
                                         <!-- Dropdown menu using Alpine.js -->
-                                        <div class="origin-top-right absolute right-0 mt-2 w-56 rounded-md shadow-lg bg-gray-800 ring-1 ring-black ring-opacity-5 z-10"
+                                        <div class="origin-top-right absolute right-0 mt-2 w-56 rounded-md shadow-lg bg-slate-900/80 ring-1 ring-slate-800/80 z-10"
                                             x-show="open"
                                             x-transition
                                             @click.away="open = false"
@@ -171,7 +121,7 @@ jQuery(document).ready(function() {
                                             
                                             <!-- Cancel Service -->
                                             <a href="/clientarea.php?action=cancel&id={$service->id|escape:'html'}" 
-                                            class="block flex rounded-md items-center px-4 py-2 text-sm text-gray-300 bg-gray-700 hover:bg-slate-600" 
+                                            class="block flex rounded-md items-center px-4 py-2 text-sm text-gray-300 bg-slate-800 hover:bg-slate-700" 
                                             role="menuitem">
                                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 mr-1">
                                                     <path stroke-linecap="round" stroke-linejoin="round" 

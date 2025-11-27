@@ -416,11 +416,10 @@
 
         // Show Loader and Refresh Function
         function showLoaderAndRefresh() {
-            const overlay = document.getElementById('loading-overlay');
-            overlay.classList.remove('hidden');
+            try { if (window.ebShowLoader) window.ebShowLoader(document.body, 'Refreshing…'); } catch(_) {}
             // Simulate a refresh action
             setTimeout(() => {
-                overlay.classList.add('hidden');
+                try { if (window.ebHideLoader) window.ebHideLoader(document.body); } catch(_) {}
                 location.reload();
             }, 2000); // 2 seconds delay for demonstration
         }

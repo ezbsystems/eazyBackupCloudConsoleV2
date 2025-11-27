@@ -251,10 +251,13 @@ class S3Billing {
                         continue;
                     }
 
-                    // check bucket record exist
-                    if (!isset($bucketUsageRecords[$bucketName])) {
-                        $bucketUsageRecords[$bucketName] = [
+                    // Use composite key (owner|bucket) to avoid cross-user collisions on same bucket name
+                    $compositeKey = $owner . '|' . $bucketName;
+
+                    if (!isset($bucketUsageRecords[$compositeKey])) {
+                        $bucketUsageRecords[$compositeKey] = [
                             'owner' => $owner,
+                            'bucket' => $bucketName,
                             'bytes_sent' => 0,
                             'bytes_received' => 0,
                             'ops' => 0,
@@ -263,19 +266,33 @@ class S3Billing {
                     }
 
                     foreach ($bucketData['categories'] as $category) {
-                        $bucketUsageRecords[$bucketName]['bytes_sent'] += $category['bytes_sent'];
-                        $bucketUsageRecords[$bucketName]['bytes_received'] += $category['bytes_received'];
-                        $bucketUsageRecords[$bucketName]['ops'] += $category['ops'];
-                        $bucketUsageRecords[$bucketName]['successful_ops'] += $category['successful_ops'];
+                        $bucketUsageRecords[$compositeKey]['bytes_sent'] += $category['bytes_sent'];
+                        $bucketUsageRecords[$compositeKey]['bytes_received'] += $category['bytes_received'];
+                        $bucketUsageRecords[$compositeKey]['ops'] += $category['ops'];
+                        $bucketUsageRecords[$compositeKey]['successful_ops'] += $category['successful_ops'];
                     }
 
                 }
             }
 
             if (count($bucketUsageRecords)) {
-                foreach ($bucketUsageRecords as $bucketName => $bucketUsageRecord) {
-                    $bucket = Capsule::table('s3_buckets')->select('id', 'user_id')->where('name', $bucketName)->first();
+                foreach ($bucketUsageRecords as $compositeKey => $bucketUsageRecord) {
+                    $bucketName = $bucketUsageRecord['bucket'];
+                    $owner = $bucketUsageRecord['owner'];
+
+                    // Resolve owner user by matching RGW uid to (tenant_id'$'username) or username (no tenant)
+                    $ownerUser = Capsule::table('s3_users')
+                        ->select('id', 'username', 'tenant_id')
+                        ->whereRaw("(CASE WHEN (tenant_id IS NULL OR tenant_id = '') THEN username ELSE CONCAT(tenant_id, '$', username) END) = ?", [$owner])
+                        ->first();
+
+                    $bucketQuery = Capsule::table('s3_buckets')->select('id', 'user_id')->where('name', $bucketName);
+                    if (!is_null($ownerUser)) {
+                        $bucketQuery->where('user_id', $ownerUser->id);
+                    }
+                    $bucket = $bucketQuery->first();
                     if (is_null($bucket)) {
+                        // No exact match for this owner+bucket; skip to avoid misattribution
                         continue;
                     }
                     $userId = $bucket->user_id;

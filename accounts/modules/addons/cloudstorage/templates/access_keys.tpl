@@ -33,16 +33,10 @@
 
         <!-- Glass Container -->
         <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
-            <!-- Header -->
-            <div class="flex items-center mb-6">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M7.864 4.243A7.5 7.5 0 0 1 19.5 10.5c0 2.92-.556 5.709-1.568 8.268M5.742 6.364A7.465 7.465 0 0 0 4.5 10.5a7.464 7.464 0 0 1-1.15 3.993m1.989 3.559A11.209 11.209 0 0 0 8.25 10.5a3.75 3.75 0 1 1 7.5 0c0 .527-.021 1.049-.064 1.565M12 10.5a14.94 14.94 0 0 1-3.6 9.75m6.633-4.596a18.666 18.666 0 0 1-2.485 5.33" />
-                </svg>
-                <h2 class="text-2xl font-semibold text-white">Access Keys</h2>
-            </div>
+                
 
             <!-- Service URL -->
-            <div class="mb-8 bg-slate-800 rounded-md shadow-lg border border-slate-700 p-4 flex items-center justify-between">
+            <div class="mb-8 border border-slate-800/80 bg-slate-900/70 rounded-md shadow-lg p-4 flex items-center justify-between">
                 <div class="flex items-center">
                     <span class="text-lg font-semibold text-white mr-2">Service URL:</span>
                     <input type="text" id="serviceURL" value="s3.ca-central-1.eazybackup.com" class="w-full px-3 py-2 border border-gray-600 bg-[#11182759] text-gray-300 rounded focus:outline-none focus:ring-0 focus:border-sky-600 min-w-[300px]" readonly>
@@ -60,10 +54,10 @@
             </div>
 
             <!-- Access Keys Table -->
-            <div class="bg-slate-800 rounded-lg border border-slate-700 shadow-lg p-6">
+            <div class="border border-slate-800/80 bg-slate-900/70 rounded-lg shadow-lg p-6">
                 <div class="overflow-x-auto">
                     <table class="min-w-full divide-y divide-gray-700">
-                        <thead class="bg-slate-800">
+                        <thead class="">
                             <tr>
                                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">Owner</th>
                                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">Account Id</th>
@@ -73,7 +67,7 @@
                                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">Actions</th>
                             </tr>
                         </thead>
-                        <tbody class="bg-slate-800 divide-y divide-gray-700">
+                        <tbody class="divide-y divide-gray-800">
                             {if $accessKey !== null}
                                 <tr>
                                     <td class="px-6 py-4 whitespace-nowrap">
@@ -83,7 +77,7 @@
                                         <span class="text-sm text-white">{$user->tenant_id}</span>
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap relative">
-                                        <input type="password" value="{$accessKey->access_key}" class="w-full px-3 py-2 border border-gray-600 bg-[#11182759] text-gray-300 rounded focus:outline-none focus:ring-0 focus:border-sky-600" id="accessKey" readonly>
+                                        <input type="password" value="{$accessKey->access_key}" class="w-full rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500" id="accessKey" readonly>
                                         <button
                                             class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-300 hidden"
                                             id="copyIconAccessKey"
@@ -96,7 +90,7 @@
                                         </button>
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap relative">
-                                        <input type="password" value="{$accessKey->secret_key}" class="w-full px-3 py-2 border border-gray-600 bg-[#11182759] text-gray-300 rounded focus:outline-none focus:ring-0 focus:border-sky-600" id="secretKey" readonly>
+                                        <input type="password" value="{$accessKey->secret_key}" class="w-full rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500" id="secretKey" readonly>
                                         <button
                                             class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-300 hidden"
                                             id="copyIconSecretKey"
@@ -115,7 +109,7 @@
                                         <div class="flex space-x-2">
                                             <button
                                                 type="button"
-                                                class="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500"
+                                                class="btn-accent"
                                             id="decryptKeys"
                                             onclick="openDecryptSlideover()"
                                                 title="Decrypt Keys"
@@ -268,7 +262,7 @@
                         <button type="button" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-md" onclick="closeDecryptSlideover()">Cancel</button>
                         <button
                             type="button"
-                            class="bg-sky-600 hover:bg-sky-700 text-white px-4 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500"
+                            class="btn-primary"
                             id="submitPassword"
                         >
                             Submit

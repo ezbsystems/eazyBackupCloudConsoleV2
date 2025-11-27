@@ -106,111 +106,46 @@
 
 
 <!-- Container for top heading + nav -->
-<div class="min-h-screen bg-[#11182759] text-slate-200 max-w-full">
-    <div class="container mx-auto px-4 pb-8">
-        <div class="flex flex-col sm:flex-row h-16 justify-between items-start sm:items-center px-2">
-            <!-- Navigation Horizontal -->
-            <div class="flex items-center">        
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" />
-                </svg>                            
-                <h2 class="text-2xl font-semibold text-white">My Services</h2>
-            </div>
-            <div class="shrink-0">
-                <a href="modules/servers/comet/ajax/export_usage.php" class="inline-flex items-center px-3 py-2 text-sm bg-sky-600 hover:bg-sky-700 text-white rounded border border-sky-700">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
-                        <path fill-rule="evenodd" d="M3 3a1 1 0 011-1h8a1 1 0 011 1v3h-2V4H5v12h6v-2h2v3a1 1 0 01-1 1H4a1 1 0 01-1-1V3zm11.293 6.293a1 1 0 011.414 0L19 12.586l-1.414 1.414L16 12.414V17h-2v-4.586l-1.586 1.586L11 12.586l3.293-3.293z" clip-rule="evenodd" />
-                    </svg>
-                    Export Usage (CSV)
+<div class="min-h-screen bg-slate-950 text-gray-300">
+    <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
+    <div class="container mx-auto px-4 pb-10 pt-6 relative pointer-events-relative w-full px-3 py-2 text-left text-slate-300 bg-slate-900 border border-gray-600 rounded-md shadow-sm cursor-default focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500">
+        <div class="mb-6">
+            <nav class="inline-flex rounded-full bg-slate-900/80 p-1 text-xs font-medium text-slate-400" aria-label="Services Navigation">
+                <a href="{$WEB_ROOT}/clientarea.php?action=services"
+                   class="px-4 py-1.5 rounded-full transition {if ($smarty.get.action eq 'services' || !$smarty.get.m) && $smarty.get.tab ne 'billing'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
+                    Backup Services
                 </a>
+                <a href="{$WEB_ROOT}/clientarea.php?action=services&tab=billing"
+                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.tab eq 'billing'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
+                    Billing Report
+                </a>                
+                <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=services-e3"
+                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.m eq 'eazybackup' && $smarty.get.a eq 'services-e3'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
+                    e3 Object Storage
+                </a>
+            </nav>
+        </div>
+        <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
+            <div class="flex flex-col sm:flex-row h-16 justify-between items-start sm:items-center mb-3">
+                <div class="flex items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" />
+                    </svg>
+                    <h2 class="text-2xl font-semibold text-white">My Services</h2>
+                </div>
+                <div class="shrink-0">
+                    <a href="modules/servers/comet/ajax/export_usage.php" class="inline-flex items-center px-3 py-2 text-sm bg-sky-600 hover:bg-sky-700 text-white rounded border border-sky-700">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M3 3a1 1 0 011-1h8a1 1 0 011 1v3h-2V4H5v12h6v-2h2v3a1 1 0 01-1 1H4a1 1 0 01-1-1V3zm11.293 6.293a1 1 0 011.414 0L19 12.586l-1.414 1.414L16 12.414V17h-2v-4.586l-1.586 1.586L11 12.586l3.293-3.293z" clip-rule="evenodd" />
+                        </svg>
+                        Export Usage (CSV)
+                    </a>
+                </div>
             </div>
-        </div>
-        <div class="main-section-header-tabs rounded-t-md pt-4 px-2 md:px-4">
-            <ul class="flex space-x-4">
-                <!-- Backup Services Tab -->
-                <li class="-mb-px mr-1">
-                    <a 
-                        href="{$WEB_ROOT}/clientarea.php?action=services" 
-                        class="inline-flex items-center px-2 py-2 font-medium text-slate-200
-                            {if ($smarty.get.action eq 'services' || !$smarty.get.m) && $smarty.get.tab ne 'billing'}
-                                border-b-2 border-sky-600 text-sm
-                            {else}
-                                border-transparent text-sm hover:border-slate-400
-                            {/if}"
-                        data-tab="tab1"
-                    >               
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
-                            stroke="currentColor"
-                            class="size-5 mr-1 {if $smarty.get.action eq 'services' || !$smarty.get.m}text-sky-600{else}text-slate-200{/if}">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15a4.5 4.5 0 0 0 4.5 4.5H18a3.75 3.75 0 0 0 1.332-7.257 3 3 0 0 0-3.758-3.848 5.25 5.25 0 0 0-10.233 2.33A4.502 4.502 0 0 0 2.25 15Z" />
-                        </svg>
-                        Backup Services
-                    </a>
-                </li>
-                <!-- Billing Report Tab -->
-                <li class="mr-1">
-                    <a 
-                        href="{$WEB_ROOT}/clientarea.php?action=services&tab=billing" 
-                        class="inline-flex items-center px-2 py-2 font-medium text-slate-200
-                            {if $smarty.get.tab eq 'billing'}
-                                border-b-2 border-sky-600 text-sm
-                            {else}
-                                border-transparent text-sm hover:border-slate-400
-                            {/if}"
-                        data-tab="tab-billing"
-                    >               
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-5 mr-2 {if $smarty.get.tab eq 'billing'}text-sky-600{else}text-slate-400{/if}">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m3.75 9v7.5m2.25-6.466a9.016 9.016 0 0 0-3.461-.203c-.536.072-.974.478-1.021 1.017a4.559 4.559 0 0 0-.018.402c0 .464.336.844.775.994l2.95 1.012c.44.15.775.53.775.994 0 .136-.006.27-.018.402-.047.539-.485.945-1.021 1.017a9.077 9.077 0 0 1-3.461-.203M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
-                        </svg>                  
-                        Billing Report
-                    </a>
-                </li>
-                <!-- Servers Tab -->
-                <li class="mr-1">
-                    <a 
-                        href="{$WEB_ROOT}/index.php?m=eazybackup&a=services" 
-                        class="inline-flex items-center px-2 py-2 font-medium text-slate-200
-                            {if $smarty.get.m eq 'eazybackup'}
-                                border-b-2 border-sky-600 text-sm
-                            {else}
-                                border-transparent text-sm hover:border-slate-400
-                            {/if}"
-                        data-tab="tab2"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
-                            stroke="currentColor"
-                            class="size-5 mr-1 {if $smarty.get.m eq 'eazybackup'}text-sky-600{else}text-slate-400{/if}">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 0 1-3-3m3 3a3 3 0 1 0 0 6h13.5a3 3 0 1 0 0-6m-16.5-3a3 3 0 0 1 3-3h13.5a3 3 0 0 1 3 3m-19.5 0a4.5 4.5 0 0 1 .9-2.7L5.737 5.1a3.375 3.375 0 0 1 2.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 0 1 .9 2.7m0 0a3 3 0 0 1-3 3m0 3h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Zm-3 6h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Z" />
-                        </svg>
-                        Servers
-                    </a>
-                </li>
-                <!--e3 Cloud Storage -->
-                <li class="mr-1">
-                    <a 
-                        href="{$WEB_ROOT}/index.php?m=eazybackup&a=services-e3" 
-                        class="inline-flex items-center px-2 py-2 font-medium text-slate-200
-                            {if $smarty.get.m eq 'eazybackup'}
-                                border-b-2 border-sky-600 text-sm
-                            {else}
-                                border-transparent text-sm hover:border-slate-400
-                            {/if}"
-                        data-tab="tab2"
-                    >        
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
-                    stroke="currentColor"
-                    class="size-5 mr-1 {if $smarty.get.m eq 'eazybackup' && $smarty.get.a eq 'services-e3'}text-sky-600{else}text-slate-400{/if}">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 0 1-3-3m3 3a3 3 0 1 0 0 6h13.5a3 3 0 1 0 0-6m-16.5-3a3 3 0 0 1 3-3h13.5a3 3 0 0 1 3 3m-19.5 0a4.5 4.5 0 0 1 .9-2.7L5.737 5.1a3.375 3.375 0 0 1 2.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 0 1 .9 2.7m0 0a3 3 0 0 1-3 3m0 3h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Zm-3 6h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Z" />
-                </svg>
-                        e3 Cloud Storage
-                    </a>
-                </li>                
-            </ul>
-        </div>
 
 
 
-        <div id="services-wrapper" class="bg-slate-800 p-4 rounded-lg border border-slate-700 shadow-lg.">
+        <div id="services-wrapper" class="p-4 rounded-lg border border-slate-800/80 bg-slate-900/70 shadow-lg.">
             <div class="table-container clearfix">                
                 <div class="header-lined mb-4"></div>
                 <div id="successMessage" 
@@ -238,7 +173,7 @@
                         </div>
                         <table id="tableServicesList" class="min-w-full">
                         
-                            <thead class="border-b border-slate-700">
+                            <thead class="border-b border-slate-800/80">
                                 <tr>
                                     <th class="cursor-pointer px-4 py-4 text-left text-sm font-semibold text-slate-200 sorting_asc">Username</th>
                                     <th class="cursor-pointer px-4 py-4 text-left text-sm font-semibold text-slate-200">Plan</th>
@@ -282,7 +217,7 @@
                                     {/if}
                                 {/foreach}
 
-                                <tbody class="bg-slate-800">
+                                <tbody class="">
                                     {foreach key=num item=service from=$filteredServices}
                                         <tr 
                                             class="hover:bg-slate-600/20 cursor-pointer" 
@@ -355,7 +290,7 @@
         {* Billing Report Content *}
         <div class="min-h-screen text-slate-200 max-w-full">
             
-                <div id="billing-report-wrapper" class="bg-slate-800 p-4 rounded-lg border border-slate-700 shadow-lg." style="display:none;">
+                <div id="billing-report-wrapper" class="p-4 rounded-lg border border-slate-800/80 bg-slate-900/70 shadow-lg." style="display:none;">
                     <div class="flex items-center justify-between mb-3">
                         <h3 class="text-xl text-white">Billing Report</h3>
                         <div>
@@ -425,6 +360,31 @@
        min-width: 0;
      }
    }
+
+  /* Responsive condense mode for small screens */
+  #billing-report-scroll.is-mobile { overflow-x: auto; }
+  #billing-report-scroll.is-mobile #tableBillingReport { width: 100% !important; }
+  #billing-report-scroll.is-mobile #tableBillingReport thead th,
+  #billing-report-scroll.is-mobile #tableBillingReport tbody td {
+    width: auto !important;
+  }
+  #billing-report-scroll.is-mobile #tableBillingReport tbody td { white-space: normal; }
+  /* Hide low-priority columns on small screens, keep only a few key columns visible */
+  #billing-report-scroll.is-mobile #tableBillingReport th,
+  #billing-report-scroll.is-mobile #tableBillingReport td { display: none; }
+  /* Keep: 1=Username, 5=Storage Total, 34=Recurring Amount, 35=Plan, 36=Next Due Date */
+  #billing-report-scroll.is-mobile #tableBillingReport th:nth-child(1),
+  #billing-report-scroll.is-mobile #tableBillingReport td:nth-child(1),
+  #billing-report-scroll.is-mobile #tableBillingReport th:nth-child(5),
+  #billing-report-scroll.is-mobile #tableBillingReport td:nth-child(5),
+  #billing-report-scroll.is-mobile #tableBillingReport th:nth-child(34),
+  #billing-report-scroll.is-mobile #tableBillingReport td:nth-child(34),
+  #billing-report-scroll.is-mobile #tableBillingReport th:nth-child(35),
+  #billing-report-scroll.is-mobile #tableBillingReport td:nth-child(35),
+  #billing-report-scroll.is-mobile #tableBillingReport th:nth-child(36),
+  #billing-report-scroll.is-mobile #tableBillingReport td:nth-child(36) {
+    display: table-cell;
+  }
  </style>
  {/literal}
 <!-- Alpine controller (placed before markup so x-data can resolve) -->
@@ -556,7 +516,7 @@
    <div id="billing-report-scroll" class="w-full max-w-full overflow-x-auto">
     <!-- Keep table markup as-is; DataTables will enhance and provide sorting -->
                         <table id="tableBillingReport" class="min-w-full">
-                            <thead class="border-b border-slate-700">
+                            <thead class="border-b border-slate-800/80">
                                 <tr>
                                     <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">Username</span></th>
                                     <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">Storage Usage</span></th>
@@ -604,7 +564,7 @@
                                     <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">Next Due Date</span></th>
                                 </tr>
                             </thead>
-                            <tbody class="bg-slate-800"></tbody>
+                            <tbody class=""></tbody>
                         </table>
   </div>
 </div>
@@ -671,6 +631,7 @@ document.addEventListener('DOMContentLoaded', function(){
 </script>
 {/literal}
 
+        </div>
 
 <!-- RENAME DEVICE MODAL -->
 <div id="rename_device" 
