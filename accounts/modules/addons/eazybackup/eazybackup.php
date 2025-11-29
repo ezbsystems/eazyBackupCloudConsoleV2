@@ -5394,9 +5394,18 @@ function eazybackup_signup($vars)
                 'expires_at' => $expiresAt,
             ]);
 
-            // 4) Build verification URL
-            $baseUrl = rtrim((string)($vars['systemurl'] ?? ''), '/');
-            $verificationUrl = $baseUrl . '/index.php?m=eazybackup&a=verifytrial&token=' . urlencode($token);
+            // 4) Build verification URL (robust SystemURL resolution)
+            $systemUrl = (string)($vars['systemurl'] ?? '');
+            if ($systemUrl === '') {
+                try { $systemUrl = (string)(\WHMCS\Config\Setting::getValue('SystemURL') ?? ''); } catch (\Throwable $__) { $systemUrl = ''; }
+            }
+            if ($systemUrl === '' && !empty($_SERVER['HTTP_HOST'])) {
+                $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+                $systemUrl = $scheme . '://' . $_SERVER['HTTP_HOST'];
+            }
+            if ($systemUrl === '') { $systemUrl = '/'; }
+            if (substr($systemUrl, -1) !== '/') { $systemUrl .= '/'; }
+            $verificationUrl = $systemUrl . 'index.php?m=eazybackup&a=verifytrial&token=' . urlencode($token);
 
             // 5) Resolve selected template name (General) by ID
             $tplId = (string)($vars['trial_verification_email_template'] ?? '');
@@ -5421,9 +5430,10 @@ function eazybackup_signup($vars)
             $send = localAPI('SendEmail', [
                 'messagename' => $tplName,
                 'id'          => (int)$client["clientid"],
-                'customvars'  => [
+                // WHMCS expects base64(serialize(array)) for customvars
+                'customvars'  => base64_encode(serialize([
                     'trial_verification_link' => $verificationUrl,
-                ],
+                ])),
             ]);
             if (($send['result'] ?? '') !== 'success') {
                 customFileLog('SendEmail failed', $send);

@@ -1,4 +1,4 @@
-<div id="loading-overlay" style="display: none;" class="fixed inset-0 bg-gray-900 bg-opacity-85 flex items-center justify-center z-50">
+<div id="loading-overlay" style="display: none;" class="fixed inset-0 bg-black/75 flex items-center justify-center z-50">
     <div class="flex flex-col items-center">
         <svg class="animate-spin h-8 w-8 text-gray-300 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -82,11 +82,11 @@
             {if !empty($emailSent)}
                 <!-- Email verification confirmation state -->
                 <div class="mt-6 space-y-4 text-sm">
-                    <div class="rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-4 text-emerald-50">
-                        <h2 class="text-sm font-semibold tracking-tight text-emerald-200">
+                    <div class="rounded-xl border border-emerald-500/50 px-4 py-4 text-emerald-50">
+                        <h2 class="text-md font-semibold tracking-tight text-gray-700">
                             Please check your email
                         </h2>
-                        <p class="mt-1.5 text-xs text-emerald-100/90">
+                        <p class="mt-1.5 text-sm text-gray-600">
                             We’ve sent a verification link to <span class="font-mono">{$email|escape}</span>.
                             Click the link in that email to verify your address and activate your eazyBackup trial.
                         </p>
