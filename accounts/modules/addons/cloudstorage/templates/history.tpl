@@ -5,10 +5,7 @@
 </style>
 <div class="min-h-screen bg-slate-950 text-gray-300">
     <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
-    <div class="container mx-auto px-4 pb-10 pt-6 relative pointer-events-relative w-full px-3 py-2 text-left text-slate-300 bg-slate-900 border border-gray-600 rounded-md shadow-sm cursor-default focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500">
-        <!-- ebLoader is used instead of legacy overlay -->
-
-        
+    <div class="container mx-auto px-4 py-8">        
         <!-- Cloud Storage Navigation -->
         <div class="mb-6">
             <nav class="inline-flex rounded-full bg-slate-900/80 p-1 text-xs font-medium text-slate-400" aria-label="Cloud Storage Navigation">

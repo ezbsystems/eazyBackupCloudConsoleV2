@@ -440,6 +440,127 @@
 {* Shared Job Report Modal include *}
 {include file="modules/addons/eazybackup/templates/console/partials/job-report-modal.tpl"}
 
+{* Password Set Modal (opens when mustSetPassword is true) *}
+<div id="eb-set-password-modal" class="fixed inset-0 z-[9999] hidden items-center justify-center">
+  <div class="absolute inset-0 bg-black/60" onclick="ebPwClose()"></div>
+  <div class="relative z-[10000] w-full max-w-md mx-4 rounded-2xl border border-slate-800 bg-slate-900/90 text-slate-100 shadow-2xl shadow-black/60 backdrop-blur-sm">
+    <div class="pointer-events-none absolute inset-x-0 -top-px h-px bg-gradient-to-r from-emerald-400/0 via-emerald-400/70 to-sky-400/0"></div>
+    <div class="px-6 py-6 sm:px-7 sm:py-7">
+      <div class="flex items-start justify-between">
+        <h2 class="text-lg font-semibold tracking-tight text-slate-50">Set your e3 account password</h2>
+        <button type="button" class="text-slate-400 hover:text-slate-200" onclick="ebPwClose()" aria-label="Close">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+      <p class="mt-2 text-xs text-slate-400">You’re logged in with a one-time session. Before you continue, please choose a password for ongoing access to your e3 account.</p>
+
+      <div id="eb-pw-general-error" class="mt-4 hidden rounded-md border border-rose-500/60 bg-rose-500/10 px-3 py-2 text-xs text-rose-100"></div>
+
+      <form id="eb-set-password-form" class="mt-5 space-y-4 text-sm" onsubmit="return ebPwSubmit(event);">
+        <input type="text" name="username" autocomplete="username"
+               value="{$clientsdetails.email|default:''|escape:'html'}"
+               tabindex="-1" aria-hidden="true"
+               style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0;" />
+        <div class="space-y-1.5">
+          <label for="eb-new-password" class="block text-xs font-medium text-slate-200">New password</label>
+          <input id="eb-new-password" name="new_password" type="password" autocomplete="new-password"
+                 class="block w-full rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                 placeholder="Choose a strong password" required />
+          <p id="eb-err-new-password" class="hidden text-[11px] text-rose-400 mt-1"></p>
+          <p class="text-[11px] text-slate-500 mt-1">At least 10 characters. Use a mix of letters, numbers, and symbols.</p>
+        </div>
+
+        <div class="space-y-1.5">
+          <label for="eb-new-password-confirm" class="block text-xs font-medium text-slate-200">Confirm password</label>
+          <input id="eb-new-password-confirm" name="new_password_confirm" type="password" autocomplete="new-password"
+                 class="block w-full rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                 placeholder="Re-enter your password" required />
+          <p id="eb-err-new-password-confirm" class="hidden text-[11px] text-rose-400 mt-1"></p>
+        </div>
+
+        <div class="pt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <button id="eb-pw-submit" type="submit"
+                  class="inline-flex items-center justify-center gap-2 rounded-full px-4 py-1.5 text-sm font-semibold shadow-sm ring-1 ring-emerald-500/40 bg-gradient-to-r from-emerald-500 via-emerald-400 to-sky-400 text-slate-950 transition transform hover:-translate-y-px hover:shadow-lg active:translate-y-0 active:shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:ring-offset-2 focus:ring-offset-slate-900">
+            Save password and continue
+          </button>
+          <div class="text-[11px] text-slate-500 sm:text-right">
+            <p>Trouble setting a password?</p>
+            <p><a href="submitticket.php" class="underline underline-offset-2 hover:text-emerald-300">Contact support</a> for help.</p>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+  <style>
+    #eb-set-password-modal.hidden { display: none; }
+    #eb-set-password-modal:not(.hidden) { display: flex; }
+  </style>
+  <script>
+    window.ebPwOpen = function(){ try { document.getElementById('eb-set-password-modal').classList.remove('hidden'); } catch(_){} };
+    window.ebPwClose = function(){ try { document.getElementById('eb-set-password-modal').classList.add('hidden'); } catch(_){} };
+    window.ebPwSetError = function(id, message){
+      var el = document.getElementById(id);
+      if (!el) return;
+      if (message) { el.textContent = message; el.classList.remove('hidden'); }
+      else { el.textContent = ''; el.classList.add('hidden'); }
+    };
+    window.ebPwDisableSubmit = function(disabled){
+      try {
+        var b = document.getElementById('eb-pw-submit');
+        if (!b) return;
+        b.disabled = !!disabled;
+        if (disabled) { b.classList.add('opacity-50','cursor-not-allowed'); }
+        else { b.classList.remove('opacity-50','cursor-not-allowed'); }
+      } catch(_){}
+    };
+    window.ebPwSubmit = function(ev){
+      ev.preventDefault();
+      ebPwSetError('eb-pw-general-error', '');
+      ebPwSetError('eb-err-new-password', '');
+      ebPwSetError('eb-err-new-password-confirm', '');
+      ebPwDisableSubmit(true);
+      var p1 = (document.getElementById('eb-new-password')||{}).value || '';
+      var p2 = (document.getElementById('eb-new-password-confirm')||{}).value || '';
+      var body = new URLSearchParams();
+      body.set('new_password', p1);
+      body.set('new_password_confirm', p2);
+      fetch('modules/addons/eazybackup/api/password_onboarding.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString(),
+        credentials: 'same-origin'
+      }).then(function(r){ return r.json().catch(function(){ return { status: 'error', message: 'Bad response' }; }); })
+        .then(function(resp){
+          if (resp && resp.status === 'success') {
+            ebPwClose();
+            try { location.reload(); } catch(_) {}
+            return;
+          }
+          // Show errors
+          var errs = (resp && resp.errors) ? resp.errors : {};
+          if (errs.general) { ebPwSetError('eb-pw-general-error', errs.general); }
+          if (errs.new_password) { ebPwSetError('eb-err-new-password', errs.new_password); }
+          if (errs.new_password_confirm) { ebPwSetError('eb-err-new-password-confirm', errs.new_password_confirm); }
+          if (!errs.general && !errs.new_password && !errs.new_password_confirm) {
+            ebPwSetError('eb-pw-general-error', (resp && resp.message) ? String(resp.message) : 'Failed to update password.');
+          }
+        }).catch(function(){
+          ebPwSetError('eb-pw-general-error', 'Request failed. Please try again.');
+        }).finally(function(){ ebPwDisableSubmit(false); });
+      return false;
+    };
+    // Auto-open on load if must set password
+    (function(){
+      try {
+        var must = {if $mustSetPassword}true{else}false{/if};
+        if (must) { ebPwOpen(); }
+      } catch(_){}
+    })();
+  </script>
+</div>
+
 {literal}
 <script>
     function dropdown() {

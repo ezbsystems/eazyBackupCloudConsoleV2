@@ -53,28 +53,39 @@ function eb_render_upcoming_charges_panel($vars) {
         $json = json_encode($items);
         $cooldownBase = 'addonmodules.php?module=eazybackup&action=billing-cooldown&serviceid=' . $serviceId;
 
-        $html = '<script type="text/javascript">\n'
-              . '(function($){\n'
-              . '  var data = ' . $json . ';\n'
-              . '  function buildPanelHtml(){\n'
-              . '    var tbl = \'<table class="table table-striped table-condensed"><thead><tr><th>Category</th><th>Subject</th><th>First Seen</th><th>Grace Expires</th><th>Days</th></tr></thead><tbody>\';\n'
-              . '    if(!data || data.length===0){ tbl += \'<tr><td colspan="5" class="text-muted">No upcoming charges</td></tr>\'; }\n'
-              . '    else { for(var i=0;i<data.length;i++){ var r=data[i]; tbl += \'<tr><td>\' + r.category + \'</td><td>\' + r.subject + \'</td><td>\' + (r.first_seen||\'-\') + \'</td><td>\' + (r.expires||\'-\') + \'</td><td>\' + (r.days||0) + \'</td></tr>\'; } }\n'
-              . '    tbl += \'</tbody></table>\';\n'
-              . '    return \'<div class="panel panel-default" id="eb-upcoming-charges"><div class="panel-heading"><strong>Upcoming Charges</strong> <button id="eb-cooldown" class="btn btn-xs btn-default pull-right">Cooldown (+3 days)</button></div><div class="panel-body">\' + tbl + \'</div></div>\';\n'
-              . '  }\n'
-              . '  function inject(){\n'
-              . '    if($("#eb-upcoming-charges").length) return;\n'
-              . '    var svc = $("#servicecontent");\n'
-              . '    if(!svc.length){ setTimeout(inject, 250); return; }\n'
-              . '    var anchor = svc.find(".context-btn-container");\n'
-              . '    var html = buildPanelHtml();\n'
-              . '    if(anchor.length){ anchor.after(html); } else { svc.prepend(html); }\n'
-              . '  }\n'
-              . '  $(function(){ inject(); });\n'
-              . '  $(document).on("click", "#eb-cooldown", function(ev){ ev.preventDefault(); var tok = ($("input[name=token]").val()||""); var url = "' . $cooldownBase . '" + (tok? ("&token="+encodeURIComponent(tok)) : ""); $.post(url, {}, function(resp){ try{ var r=JSON.parse(resp); alert(r.message||"Cooldown applied"); }catch(_){ alert("Cooldown applied"); } location.reload(); }); });\n'
-              . '})(jQuery);\n'
-              . '</script>';
+        $html = <<<HTML
+<script type="text/javascript">
+(function($){
+  var data = $json;
+  function buildPanelHtml(){
+    var tbl = '<table class="table table-striped table-condensed"><thead><tr><th>Category</th><th>Subject</th><th>First Seen</th><th>Grace Expires</th><th>Days</th></tr></thead><tbody>';
+    if(!data || data.length===0){ tbl += '<tr><td colspan="5" class="text-muted">No upcoming charges</td></tr>'; }
+    else { for(var i=0;i<data.length;i++){ var r=data[i]; tbl += '<tr><td>' + r.category + '</td><td>' + r.subject + '</td><td>' + (r.first_seen||'-') + '</td><td>' + (r.expires||'-') + '</td><td>' + (r.days||0) + '</td></tr>'; } }
+    tbl += '</tbody></table>';
+    return '<div class="panel panel-default" id="eb-upcoming-charges"><div class="panel-heading"><strong>Upcoming Charges</strong> <button id="eb-cooldown" class="btn btn-xs btn-default pull-right">Cooldown (+3 days)</button></div><div class="panel-body">' + tbl + '</div></div>';
+  }
+  function inject(){
+    if($("#eb-upcoming-charges").length) return;
+    var svc = $("#servicecontent");
+    if(!svc.length){ setTimeout(inject, 250); return; }
+    var anchor = svc.find(".context-btn-container");
+    var html = buildPanelHtml();
+    if(anchor.length){ anchor.after(html); } else { svc.prepend(html); }
+  }
+  $(function(){ inject(); });
+  $(document).on("click", "#eb-cooldown", function(ev){
+    ev.preventDefault();
+    var tok = ($("input[name=token]").val()||"");
+    var url = "$cooldownBase" + (tok? ("&token="+encodeURIComponent(tok)) : "");
+    $.post(url, {}, function(resp){
+      try{ var r=JSON.parse(resp); alert(r.message||"Cooldown applied"); }
+      catch(_){ alert("Cooldown applied"); }
+      location.reload();
+    });
+  });
+})(jQuery);
+</script>
+HTML;
 
         return $html;
     } catch (\Throwable $e) { return ''; }

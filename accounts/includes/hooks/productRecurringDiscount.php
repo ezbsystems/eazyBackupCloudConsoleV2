@@ -56,13 +56,13 @@ add_hook('AdminAreaHeadOutput', 112222, function ($vars) {
 
             $return .= '<script type="text/javascript">
                 jQuery(document).ready(function() {
-                    $("#servicecontent table.form tr").filter(":nth-child(4)").after("<tr><td class=\"fieldlabel\" width=\"20%\"></td><td class=\"fieldarea\" width=\"30%\"></td><td class=\"fieldlabel\" width=\"20%\">Recurring Discount (%)</td><td class=\"fieldarea\" width=\"30%\"><div style=\"width: 100%\"><div class=\"service-field-inline\"><input type=\"number\" name=\"discount_per\" size=\"20\" class=\"form-control input-100\" id=\"discount_per\" value=\"' . $old_dis . '\"></div><div class=\"service-field-inline\"><button type=\"button\" class=\"button btn btn-sm btn-info\" id=\"apply_discount_btn\">Update</button></div><div class=\"service-field-inline\"><button type=\"button\" class=\"button btn btn-sm btn-danger\" id=\"remove_discount_btn\">Remove</button></div></div></td></tr>");
+                    $('#servicecontent table.form tr').filter(':nth-child(4)').after('<tr><td class="fieldlabel" width="20%"></td><td class="fieldarea" width="30%"></td><td class="fieldlabel" width="20%">Recurring Discount (%)</td><td class="fieldarea" width="30%"><div style="width: 100%"><div class="service-field-inline"><input type="number" name="discount_per" size="20" class="form-control input-100" id="discount_per" value="' . $old_dis . '"></div><div class="service-field-inline"><button type="button" class="button btn btn-sm btn-info" id="apply_discount_btn">Update</button></div><div class="service-field-inline"><button type="button" class="button btn btn-sm btn-danger" id="remove_discount_btn">Remove</button></div></div></td></tr>');
                 });
             </script>';
         } else {
             $return .= '<script type="text/javascript">
             jQuery(document).ready(function() {
-                $("#servicecontent table.form tr").filter(":nth-child(4)").after("<tr><td class=\"fieldlabel\" width=\"20%\"></td><td class=\"fieldarea\" width=\"30%\"></td><td class=\"fieldlabel\" width=\"20%\">Recurring Discount (%)</td><td class=\"fieldarea\" width=\"30%\"><div style=\"width: 100%\"><div class=\"service-field-inline\"><input type=\"number\" name=\"discount_per\" size=\"20\" class=\"form-control input-100\" id=\"discount_per\" value=\"' . $old_dis . '\"></div><div class=\"service-field-inline\"><button type=\"button\" class=\"button btn btn-sm btn-info\" id=\"apply_discount_btn\">Apply</button></div></div></td></tr>");
+                $('#servicecontent table.form tr').filter(':nth-child(4)').after('<tr><td class="fieldlabel" width="20%"></td><td class="fieldarea" width="30%"></td><td class="fieldlabel" width="20%">Recurring Discount (%)</td><td class="fieldarea" width="30%"><div style="width: 100%"><div class="service-field-inline"><input type="number" name="discount_per" size="20" class="form-control input-100" id="discount_per" value="' . $old_dis . '"></div><div class="service-field-inline"><button type="button" class="button btn btn-sm btn-info" id="apply_discount_btn">Apply</button></div></div></td></tr>');
             });
         </script>';
         }
@@ -76,11 +76,11 @@ add_hook('AdminAreaHeadOutput', 112222, function ($vars) {
             $.ajax({
                 type: "POST",
                 url: "/includes/hooks/ajax.php",
+                dataType: "json",
                 data: {"ajax_action": "apply_discount","discount_per": discount_per,"service_id":' . $service_id . '},
-                success: function (result) {
-                    let response = JSON.parse(result);
-                    console.log(response);
-                    if(response.status){
+                success: function (response) {
+                    try { if (typeof response === "string") { response = JSON.parse(response); } } catch (e) { response = { status:false, message: "Invalid JSON" }; }
+                    if(response && response.status){
                         if(search.has("success")){
                             window.location = window.location.href;
                         }else{
@@ -89,7 +89,7 @@ add_hook('AdminAreaHeadOutput', 112222, function ($vars) {
                     }else{
                         $("#apply_discount_btn").attr("disabled", false);
                         $("#apply_discount_btn").html("Apply");
-                        $("#frm1").before(`<div class=\"infobox custom_error_div\"><strong><span class=\"title\">Changes Fail</span></strong><br>`+response.message+`</div>`);
+                        $("#frm1").before(`<div class="infobox custom_error_div"><strong><span class="title">Changes Fail</span></strong><br>` + (response && response.message ? response.message : 'Unknown error') + `</div>`);
                         setTimeout(function() {
                             $(".custom_error_div").hide();
                         }, 3500);
@@ -114,11 +114,11 @@ add_hook('AdminAreaHeadOutput', 112222, function ($vars) {
                     $.ajax({
                         type: "POST",
                         url: "/includes/hooks/ajax.php",
+                        dataType: "json",
                         data: { "ajax_action": "remove_discount", "nextduedate": nextduedate, "service_id": ' . $service_id . ' },
-                        success: function (result) {
-                            let response = JSON.parse(result);
-                            console.log(response);
-                            if (response.status) {
+                        success: function (response) {
+                            try { if (typeof response === "string") { response = JSON.parse(response); } } catch (e) { response = { status:false, message: "Invalid JSON" }; }
+                            if (response && response.status) {
                                 if (search.has("success")) {
                                     window.location = window.location.href;
                                 } else {
@@ -127,7 +127,7 @@ add_hook('AdminAreaHeadOutput', 112222, function ($vars) {
                             } else {
                                 $("#remove_discount_btn").attr("disabled", false);
                                 $("#remove_discount_btn").html("Remove");
-                                $("#frm1").before(`<div class=\"infobox custom_error_div\"><strong><span class=\"title\">Changes Fail</span></strong><br>` + response.message + `</div>`);
+                                $("#frm1").before(`<div class="infobox custom_error_div"><strong><span class="title">Changes Fail</span></strong><br>` + (response && response.message ? response.message : 'Unknown error') + `</div>`);
                                 setTimeout(function() {
                                     $(".custom_error_div").hide();
                                 }, 3500);
