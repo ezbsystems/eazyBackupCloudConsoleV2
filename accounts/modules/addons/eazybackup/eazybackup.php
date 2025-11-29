@@ -208,6 +208,62 @@ function eazybackup_activate()
         Capsule::statement("CREATE TABLE IF NOT EXISTS mod_eazy_consolidated_billing (\n  clientid INT UNSIGNED NOT NULL PRIMARY KEY,\n  enabled TINYINT(1) NOT NULL DEFAULT 0,\n  dom TINYINT UNSIGNED NOT NULL DEFAULT 1,\n  timezone VARCHAR(64) NOT NULL DEFAULT 'America/Toronto',\n  effective_from DATE NULL,\n  created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,\n  updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,\n  KEY idx_enabled (enabled)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
         } catch (\Throwable $e) { /* ignore */ }
 
+        // Ensure per-config option discount table exists and is up to date
+        try {
+            if (!Capsule::schema()->hasTable('mod_rd_discountConfigOptions')) {
+                Capsule::schema()->create('mod_rd_discountConfigOptions', function ($table) {
+                    $table->increments('id');
+                    $table->integer('serviceid');
+                    $table->integer('configoptionid');
+                    $table->double('discount_price', 8, 2)->default(0);
+                    $table->double('price', 8, 2)->default(0);
+                    $table->timestamp('created_at')->default(Capsule::raw("CURRENT_TIMESTAMP"));
+                    $table->timestamp('updated_at')->default(Capsule::raw("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"));
+                    $table->unique(['serviceid', 'configoptionid'], 'uniq_service_config');
+                });
+            } else {
+                // Migrate legacy column name if present
+                if (Capsule::schema()->hasColumn('mod_rd_discountConfigOptions', 'discount_per')) {
+                    try {
+                        Capsule::statement("ALTER TABLE mod_rd_discountConfigOptions CHANGE COLUMN discount_per discount_price DOUBLE(8,2)");
+                    } catch (\Throwable $e) { /* ignore */ }
+                }
+                // Add missing columns
+                Capsule::schema()->table('mod_rd_discountConfigOptions', function ($table) {
+                    if (!Capsule::schema()->hasColumn('mod_rd_discountConfigOptions', 'discount_price')) {
+                        $table->double('discount_price', 8, 2)->default(0);
+                    }
+                    if (!Capsule::schema()->hasColumn('mod_rd_discountConfigOptions', 'price')) {
+                        $table->double('price', 8, 2)->default(0);
+                    }
+                    if (!Capsule::schema()->hasColumn('mod_rd_discountConfigOptions', 'created_at')) {
+                        $table->timestamp('created_at')->default(Capsule::raw("CURRENT_TIMESTAMP"));
+                    }
+                    if (!Capsule::schema()->hasColumn('mod_rd_discountConfigOptions', 'updated_at')) {
+                        $table->timestamp('updated_at')->default(Capsule::raw("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"));
+                    }
+                });
+                // Add unique index if missing
+                $hasIndex = Capsule::selectOne("
+                    SELECT 1 FROM information_schema.STATISTICS
+                    WHERE table_schema = DATABASE()
+                      AND table_name = 'mod_rd_discountConfigOptions'
+                      AND index_name = 'uniq_service_config'
+                    LIMIT 1
+                ");
+                if (!$hasIndex) {
+                    try {
+                        Capsule::schema()->table('mod_rd_discountConfigOptions', function ($table) {
+                            $table->unique(['serviceid', 'configoptionid'], 'uniq_service_config');
+                        });
+                    } catch (\Throwable $e) { /* ignore */ }
+                }
+            }
+        } catch (\Throwable $e) {
+            // Non-fatal: log and continue
+            try { logActivity('eazybackup_activate: mod_rd_discountConfigOptions ensure failed: ' . $e->getMessage()); } catch (\Throwable $__) {}
+        }
+
         // Keep your original create logic for brand-new installs…
         eazybackup_migrate_schema(); // …and make sure existing installs get patched too.
         // Attempt to restore saved addon settings (if any) so config survives deactivate/activate cycles
@@ -537,6 +593,27 @@ function eazybackup_migrate_schema(): void {
         eb_add_column_if_missing('mod_eazy_consolidated_billing','created_at',    fn(Blueprint $t)=>$t->timestamp('created_at')->nullable()->useCurrent());
         eb_add_column_if_missing('mod_eazy_consolidated_billing','updated_at',    fn(Blueprint $t)=>$t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate());
         eb_add_index_if_missing('mod_eazy_consolidated_billing', "CREATE INDEX IF NOT EXISTS idx_enabled ON mod_eazy_consolidated_billing (enabled)");
+    }
+
+    // --- eazybackup_trial_verifications (trial email verification tokens) ---
+    if (!$schema->hasTable('eazybackup_trial_verifications')) {
+        $schema->create('eazybackup_trial_verifications', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->unsignedInteger('client_id')->index();
+            $t->string('email', 255)->index();
+            $t->string('token', 191)->unique('uq_trial_token');
+            $t->json('meta')->nullable(); // username, productId, phone, etc.
+            $t->timestamp('created_at')->nullable()->useCurrent();
+            $t->timestamp('expires_at')->nullable()->index();
+            $t->timestamp('consumed_at')->nullable()->index();
+        });
+    } else {
+        // Ensure important indexes exist on upgrade
+        eb_add_index_if_missing('eazybackup_trial_verifications', "CREATE UNIQUE INDEX IF NOT EXISTS uq_trial_token ON eazybackup_trial_verifications (token)");
+        eb_add_index_if_missing('eazybackup_trial_verifications', "CREATE INDEX IF NOT EXISTS idx_trial_client ON eazybackup_trial_verifications (client_id)");
+        eb_add_index_if_missing('eazybackup_trial_verifications', "CREATE INDEX IF NOT EXISTS idx_trial_email ON eazybackup_trial_verifications (email)");
+        eb_add_index_if_missing('eazybackup_trial_verifications', "CREATE INDEX IF NOT EXISTS idx_trial_expires ON eazybackup_trial_verifications (expires_at)");
+        eb_add_index_if_missing('eazybackup_trial_verifications', "CREATE INDEX IF NOT EXISTS idx_trial_consumed ON eazybackup_trial_verifications (consumed_at)");
     }
 
     // --- eb_client_notify_prefs (per-client notification preferences) ---
@@ -1555,7 +1632,13 @@ function eazybackup_config()
                 'Type'         => 'dropdown',
                 'Options'      => eazybackup_EmailTemplatesLoader(),
                 'Description'  => 'Choose an email template for the reseller signup email',
-            ],       
+            ],
+            'trial_verification_email_template' => [
+                'FriendlyName' => 'Trial Verification Email Template',
+                'Type'         => 'dropdown',
+                'Options'      => eazybackup_EmailTemplatesLoader(),
+                'Description'  => 'General email template used for eazyBackup trial verification (merge field: {$trial_verification_link})',
+            ],
             'turnstilesitekey' => [
                 'FriendlyName' => 'Turnstile Site Key',
                 'Type'         => 'text',
@@ -2586,14 +2669,8 @@ function eazybackup_clientarea(array $vars)
 
         // If this client is flagged for first-login password onboarding, send them
         // directly to the bespoke password panel instead of the original page.
+        // Updated: Keep user on intended destination; the dashboard will open a modal if needed.
         $target = $returnTo;
-        try {
-            if (function_exists('eazybackup_must_set_password') && eazybackup_must_set_password($clientId)) {
-                $target = 'index.php?m=eazybackup&a=password-onboarding&return_to=' . rawurlencode($returnTo);
-            }
-        } catch (\Throwable $_) {
-            // Fail open – on error, just go to the original destination.
-        }
 
         header('Location: ' . $target); exit;
     } else if ($_REQUEST["a"] == "terms") {
@@ -2669,7 +2746,7 @@ function eazybackup_clientarea(array $vars)
         exit;
     } else if ($_REQUEST["a"] == "dashboard") {
         // Load the dashboard backend logic.
-        $clientId = $_SESSION['uid'];
+        $clientId = isset($_SESSION['uid']) ? (int) $_SESSION['uid'] : 0;
         // Determine initial dashboard tab from query param with whitelist
         $tabParam = isset($_GET['tab']) ? strtolower(trim($_GET['tab'])) : '';
         $allowedTabs = ['dashboard', 'users'];
@@ -3017,6 +3094,8 @@ function eazybackup_clientarea(array $vars)
                 'devices' => $devices,
                 'accounts' => $accounts,
                 'upcomingCharges' => $upcomingCharges,
+                // Flag to trigger password modal on dashboard load
+                'mustSetPassword' => (function_exists('eazybackup_must_set_password') ? eazybackup_must_set_password((int)$clientId) : false),
                 // Client notification prefs for template conditionals
                 'notifyPrefs' => (function() use ($clientId){
                     try { $r = Capsule::table('eb_client_notify_prefs')->where('client_id', $clientId)->first(); if ($r) { return [
@@ -3033,7 +3112,7 @@ function eazybackup_clientarea(array $vars)
         exit;
     } else if ($_REQUEST["a"] == "vaults") {
         // Load the dashboard backend logic.
-        $clientId = $_SESSION['uid'];
+        $clientId = isset($_SESSION['uid']) ? (int) $_SESSION['uid'] : 0;
         $excludeProductgroupIds = [2, 11];
         $productIds = Capsule::table('tblproducts')
             ->select('id')
@@ -3547,6 +3626,153 @@ function eazybackup_clientarea(array $vars)
         return eazybackup_signup($vars);
     } else if ($_REQUEST["a"] == "obc-signup") {
         return obc_signup($vars);
+    } else if ($_REQUEST["a"] == "verifytrial") {
+        // Trial email verification → provision order and SSO to password change
+        try {
+            $token = (string)($_GET['token'] ?? $_POST['token'] ?? '');
+            if ($token === '') {
+                return [
+                    "pagetitle"    => "Sign Up",
+                    "breadcrumb"   => ["index.php?m=eazybackup" => "eazyBackup"],
+                    "templatefile" => "templates/trialsignup",
+                    "requirelogin" => false,
+                    "forcessl"     => true,
+                    "vars"         => [
+                        "modulelink"         => $vars["modulelink"],
+                        "errors"             => ["error" => "Invalid verification link."],
+                        "POST"               => [],
+                        "TURNSTILE_SITE_KEY" => (string)($vars['turnstilesitekey'] ?? ''),
+                    ],
+                ];
+            }
+            $row = Capsule::table('eazybackup_trial_verifications')
+                ->where('token', $token)
+                ->whereNull('consumed_at')
+                ->where(function ($q) {
+                    $q->whereNull('expires_at')->orWhere('expires_at', '>=', date('Y-m-d H:i:s'));
+                })
+                ->first();
+            if (!$row) {
+                return [
+                    "pagetitle"    => "Sign Up",
+                    "breadcrumb"   => ["index.php?m=eazybackup" => "eazyBackup"],
+                    "templatefile" => "templates/trialsignup",
+                    "requirelogin" => false,
+                    "forcessl"     => true,
+                    "vars"         => [
+                        "modulelink"         => $vars["modulelink"],
+                        "errors"             => ["error" => "This verification link is invalid or has expired. Please submit the form again."],
+                        "POST"               => [],
+                        "TURNSTILE_SITE_KEY" => (string)($vars['turnstilesitekey'] ?? ''),
+                    ],
+                ];
+            }
+            $clientId = (int)$row->client_id;
+            $email    = (string)($row->email ?? '');
+            $meta     = json_decode((string)($row->meta ?? '{}'), true) ?: [];
+            $username = (string)($meta['username'] ?? '');
+            $productId= (string)($meta['productId'] ?? '');
+            if ($username === '' || $productId === '') {
+                throw new \Exception('Verification data incomplete.');
+            }
+
+            $adminUser = 'API';
+
+            // Create order with trial promo (no invoice, no email yet)
+            $orderData = [
+                "clientid"      => $clientId,
+                "pid"           => [$productId],
+                "promocode"     => "trial",
+                "paymentmethod" => "stripe",
+                "noinvoice"     => true,
+                "noemail"       => true,
+            ];
+            $order = localAPI("AddOrder", $orderData, $adminUser);
+            if (($order["result"] ?? '') !== "success") {
+                customFileLog("AddOrder (verifytrial) failed", $order);
+                throw new \Exception("AddOrder: " . ($order['message'] ?? 'unknown'));
+            }
+
+            // Accept the order and set service credentials
+            $servicePassword = bin2hex(random_bytes(12));
+            $accept = localAPI("AcceptOrder", [
+                "orderid"         => $order["orderid"],
+                "autosetup"       => true,
+                "sendemail"       => true,
+                "serviceusername" => $username,
+                "servicepassword" => $servicePassword,
+            ], $adminUser);
+            if (($accept["result"] ?? '') !== "success") {
+                customFileLog("AcceptOrder (verifytrial) failed", $accept);
+                throw new \Exception("AcceptOrder: " . ($accept['message'] ?? 'unknown'));
+            }
+
+            // Locate the created service
+            $service = Capsule::table('tblhosting')->where('orderid', $order["orderid"])->first();
+            if ($service) {
+                // Set 14 day trial window
+                $newDate = date('Y-m-d', strtotime('+14 days'));
+                $upd = localAPI('UpdateClientProduct', [
+                    'serviceid'       => $service->id,
+                    'nextduedate'     => $newDate,
+                    'nextinvoicedate' => $newDate,
+                ], $adminUser);
+                if (($upd['result'] ?? '') !== 'success') {
+                    customFileLog("UpdateClientProduct (verifytrial) failed", $upd);
+                }
+            }
+
+            // Optional: product-specific provisioning (e.g., OBC/MS365)
+            if ($productId === "52") {
+                try {
+                    $provisionResponse = EazybackupObcMs365::provisionLXDContainer(
+                        $username,
+                        $servicePassword,
+                        $productId
+                    );
+                    if (isset($provisionResponse['error'])) {
+                        customFileLog("Container provisioning failed (verifytrial)", $provisionResponse);
+                        // not fatal for verification completion; continue
+                    }
+                } catch (\Throwable $e) {
+                    customFileLog("Container provisioning exception (verifytrial)", $e->getMessage());
+                }
+            }
+
+            // Mark token consumed
+            Capsule::table('eazybackup_trial_verifications')->where('token', $token)->update([
+                'consumed_at' => date('Y-m-d H:i:s'),
+            ]);
+
+            // SSO to password change
+            $ssoResult = localAPI('CreateSsoToken', [
+                'client_id'         => $clientId,
+                'destination'       => 'sso:custom_redirect',
+                'sso_redirect_path' => 'index.php?m=eazybackup&a=dashboard',
+            ], $adminUser);
+            if (($ssoResult['result'] ?? '') === 'success') {
+                header("Location: {$ssoResult['redirect_url']}");
+                exit;
+            }
+
+            // Fallback: go to client area login
+            header("Location: clientarea.php");
+            exit;
+        } catch (\Throwable $e) {
+            return [
+                "pagetitle"    => "Sign Up",
+                "breadcrumb"   => ["index.php?m=eazybackup" => "eazyBackup"],
+                "templatefile" => "templates/trialsignup",
+                "requirelogin" => false,
+                "forcessl"     => true,
+                "vars"         => [
+                    "modulelink"         => $vars["modulelink"],
+                    "errors"             => ["error" => "We couldn't complete verification. Please try again."],
+                    "POST"               => [],
+                    "TURNSTILE_SITE_KEY" => (string)($vars['turnstilesitekey'] ?? ''),
+                ],
+            ];
+        }
     } else if ($_REQUEST["a"] == "download") {
         return [
             "pagetitle" => "Download eazyBackup",
@@ -5117,14 +5343,14 @@ function eazybackup_signup($vars)
         }
 
         try {
-            // 2) Create the client (use a cleaned copy if you sanitize phone; don't mutate $_POST)
-            $cardnotes = "\nNumber of accounts: " . ($_POST["card"] ?? '');
+            // 2) Create the client with a strong random password (user sets their password after verification)
+            $randomClientPassword = bin2hex(random_bytes(12));
             $clientData = [
                 "firstname"      => "eazyBackup User",
-                "email"          => $_POST["email"],
-                "phonenumber"    => $_POST["phonenumber"],  // raw value is fine for WHMCS; sanitize if you prefer
-                "password2"      => $_POST["password"],
-                "notes"          => $cardnotes,
+                "email"          => (string)$_POST["email"],
+                "phonenumber"    => (string)$_POST["phonenumber"],
+                "password2"      => $randomClientPassword,
+                "notes"          => "Trial signup (pending verification)",
                 "skipvalidation" => true,
             ];
             $client = localAPI("AddClient", $clientData);
@@ -5132,90 +5358,94 @@ function eazybackup_signup($vars)
                 customFileLog("AddClient failed", $client);
                 throw new \Exception("AddClient: " . ($client['message'] ?? 'unknown'));
             }
-
-            // 3) Place the order with your "trial" promo code
-            $orderData = [
-                "clientid"      => $client["clientid"],
-                "pid"           => [$_POST["product"]],
-                "promocode"     => "trial",
-                "paymentmethod" => "stripe",
-                "noinvoice"     => true,
-                "noemail"       => true,
-            ];
-            $order = localAPI("AddOrder", $orderData);
-            if (($order["result"] ?? '') !== "success") {
-                customFileLog("AddOrder failed", $order);
-                throw new \Exception("AddOrder: " . ($order['message'] ?? 'unknown'));
-            }
-
-            // 4) Accept the order (autosetup + email)
-            $adminUser = 'API'; // must be a valid admin username
-            $accept = localAPI("AcceptOrder", [
-                "orderid"         => $order["orderid"],
-                "autosetup"       => true,
-                "sendemail"       => true,
-                "serviceusername" => $_POST["username"],
-                "servicepassword" => $_POST["password"],
-            ], $adminUser);
-            if (($accept["result"] ?? '') !== "success") {
-                customFileLog("AcceptOrder failed", $accept);
-                throw new \Exception("AcceptOrder: " . ($accept['message'] ?? 'unknown'));
-            }
-
-            // 5) Fetch the newly created service record
-            $service = Capsule::table('tblhosting')->where('orderid', $order["orderid"])->first();
-            if (!$service) {
-                throw new \Exception("Service record not found after order acceptance.");
-            }
-
-            // 6) Override WHMCS dates to exactly 14 days from now
-            $newDate = date('Y-m-d', strtotime('+14 days'));
-            $update  = localAPI('UpdateClientProduct', [
-                'serviceid'       => $service->id,
-                'nextduedate'     => $newDate,
-                'nextinvoicedate' => $newDate,
-            ], $adminUser);
-            if (($update['result'] ?? '') !== 'success') {
-                customFileLog("UpdateClientProduct failed", $update);
-                throw new \Exception("Could not set trial due date: " . ($update['message'] ?? 'unknown'));
-            }
-
-            // 7) Product-specific provisioning & SSO destination
-            $product = $_POST["product"];
-            if ($product == "52") {
-                $provisionResponse = EazybackupObcMs365::provisionLXDContainer(
-                    $_POST["username"],
-                    $_POST["password"],
-                    $product
-                );
-                if (isset($provisionResponse['error'])) {
-                    customFileLog("Container provisioning failed", $provisionResponse);
-                    throw new \Exception("Container provisioning failed: " . $provisionResponse['error']);
+            // 2a) Flag client for first-login password onboarding (modal flow)
+            try {
+                if (function_exists('eazybackup_mark_must_set_password')) {
+                    eazybackup_mark_must_set_password((int)$client["clientid"]);
+                } else {
+                    // Fallback direct insert/update if helper is unavailable
+                    try {
+                        $row = Capsule::table('eb_password_onboarding')->where('client_id', (int)$client["clientid"])->first();
+                        $data = ['must_set' => 1, 'created_at' => date('Y-m-d H:i:s'), 'completed_at' => null];
+                        if ($row) {
+                            Capsule::table('eb_password_onboarding')->where('client_id', (int)$client["clientid"])->update($data);
+                        } else {
+                            $data['client_id'] = (int)$client["clientid"];
+                            Capsule::table('eb_password_onboarding')->insert($data);
+                        }
+                    } catch (\Throwable $_) { /* non-fatal */ }
                 }
-                $redirectPath = 'index.php?m=eazybackup&a=ms365&serviceid=' . $service->id;
-            } else {
-                $redirectPath = 'index.php?m=eazybackup&a=download&product=eazybackup';
+            } catch (\Throwable $_) { /* non-fatal */ }
+
+            // 3) Generate token and store verification record (48h expiry)
+            $token = rtrim(strtr(base64_encode(random_bytes(24)), '+/', '-_'), '=');
+            $expiresAt = date('Y-m-d H:i:s', time() + 48 * 3600);
+            $meta = [
+                'username'  => (string)($_POST['username'] ?? ''),
+                'productId' => (string)($_POST['product'] ?? ''),
+                'phone'     => (string)($_POST['phonenumber'] ?? ''),
+            ];
+            Capsule::table('eazybackup_trial_verifications')->insert([
+                'client_id'  => (int)$client["clientid"],
+                'email'      => (string)$_POST["email"],
+                'token'      => $token,
+                'meta'       => json_encode($meta, JSON_UNESCAPED_SLASHES),
+                'created_at' => date('Y-m-d H:i:s'),
+                'expires_at' => $expiresAt,
+            ]);
+
+            // 4) Build verification URL
+            $baseUrl = rtrim((string)($vars['systemurl'] ?? ''), '/');
+            $verificationUrl = $baseUrl . '/index.php?m=eazybackup&a=verifytrial&token=' . urlencode($token);
+
+            // 5) Resolve selected template name (General) by ID
+            $tplId = (string)($vars['trial_verification_email_template'] ?? '');
+            if ($tplId === '') {
+                throw new \Exception('Trial verification email template is not configured.');
+            }
+            $templates = localAPI("GetEmailTemplates", ["type" => "general"]);
+            $tplName = '';
+            if (isset($templates["emailtemplates"]["emailtemplate"]) && is_array($templates["emailtemplates"]["emailtemplate"])) {
+                foreach ($templates["emailtemplates"]["emailtemplate"] as $tpl) {
+                    if ((string)($tpl["id"] ?? '') === $tplId) {
+                        $tplName = (string)($tpl["name"] ?? '');
+                        break;
+                    }
+                }
+            }
+            if ($tplName === '') {
+                throw new \Exception('Selected trial verification email template not found.');
             }
 
-            // 8) Create SSO token and redirect
-            $ssoResult = localAPI('CreateSsoToken', [
-                'client_id'         => $client["clientid"],
-                'destination'       => 'sso:custom_redirect',
-                'sso_redirect_path' => $redirectPath,
-            ], $adminUser);
-            customFileLog("SSO Token Debug", $ssoResult);
-
-            if (($ssoResult['result'] ?? '') === 'success') {
-                unset($_SESSION['old']);
-                $_SESSION['message'] = "Account created, Welcome aboard!";
-                header("Location: {$ssoResult['redirect_url']}");
-                exit;
-            } else {
-                unset($_SESSION['old']);
-                $_SESSION['message'] = "Account created but login failed: " . ($ssoResult['message'] ?? 'unknown');
-                header("Location: " . $vars["modulelink"] . "&a=download&product=eazybackup");
-                exit;
+            // 6) Send verification email with merge field
+            $send = localAPI('SendEmail', [
+                'messagename' => $tplName,
+                'id'          => (int)$client["clientid"],
+                'customvars'  => [
+                    'trial_verification_link' => $verificationUrl,
+                ],
+            ]);
+            if (($send['result'] ?? '') !== 'success') {
+                customFileLog('SendEmail failed', $send);
+                throw new \Exception('Failed to send verification email: ' . ($send['message'] ?? 'unknown'));
             }
+
+            // 7) Re-render form with confirmation message (emailSent)
+            return [
+                "pagetitle"    => "Sign Up",
+                "breadcrumb"   => ["index.php?m=eazybackup" => "eazyBackup"],
+                "templatefile" => "templates/trialsignup",
+                "requirelogin" => false,
+                "forcessl"     => true,
+                "vars"         => [
+                    "modulelink"         => $vars["modulelink"],
+                    "errors"             => [],
+                    "POST"               => [], // don't echo sensitive inputs back
+                    "TURNSTILE_SITE_KEY" => $siteKey,
+                    "emailSent"          => true,
+                    "email"              => (string)$_POST["email"],
+                ],
+            ];
 
         } catch (\Exception $e) {
             // Log and re-render the form with errors using the preserved POST
@@ -6491,16 +6721,18 @@ function eazybackup_validate(array $vars, array $settings = [])
         }
     }
 
-    // ---- Password strength --------------------------------------------------
-    if (!isValidPassword($vars['password'] ?? '')) {
-        $errors['password'] = 'Password must be at least 8 characters long, with at least one uppercase letter, one lowercase letter, one number, and one special character.';
-    }
-
-    // ---- Password confirmation ---------------------------------------------
-    if (empty($vars['confirmpassword'])) {
-        $errors['confirmpassword'] = 'You must confirm your password.';
-    } elseif (($vars['confirmpassword'] ?? '') !== ($vars['password'] ?? '')) {
-        $errors['confirmpassword'] = 'Passwords do not match.';
+    // ---- Password strength (only validate if provided) ----------------------
+    $hasPassword = isset($vars['password']) && $vars['password'] !== '';
+    $hasConfirm  = isset($vars['confirmpassword']) && $vars['confirmpassword'] !== '';
+    if ($hasPassword || $hasConfirm) {
+        if (!$hasPassword || !isValidPassword($vars['password'])) {
+            $errors['password'] = 'Password must be at least 8 characters long, with at least one uppercase letter, one lowercase letter, one number, and one special character.';
+        }
+        if (!$hasConfirm) {
+            $errors['confirmpassword'] = 'You must confirm your password.';
+        } elseif (($vars['confirmpassword'] ?? '') !== ($vars['password'] ?? '')) {
+            $errors['confirmpassword'] = 'Passwords do not match.';
+        }
     }
 
     // ---- Email --------------------------------------------------------------

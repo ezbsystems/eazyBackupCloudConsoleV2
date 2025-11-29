@@ -929,3 +929,148 @@ Troubleshooting
 - Ensure SSE isn’t buffered by reverse proxies (we send `X-Accel-Buffering: no`; disable compression for the route).
 - Verify the dashboard is visible so Alpine refreshes in view.
 - Network tab should show periodic `data:` SSE events every second.
+
+## Trial Signup & Email Verification (eazyBackup)
+
+Overview
+- The public trial signup (`a=signup`, template `templates/trialsignup.tpl`) now uses an email verification step before provisioning.
+- On submit, a WHMCS Client is created and a verification email is sent. No order or service is created yet.
+- Clicking the verification link provisions the trial order, accepts it, and SSO‑redirects the user to set their Client Area password.
+
+Admin Setting
+- Addon setting: `trial_verification_email_template` (General templates)
+  - Path: Addon configuration in WHMCS admin
+  - Loader: `eazybackup_EmailTemplatesLoader()` (General)
+  - The chosen template should include the merge field `{$trial_verification_link}`.
+
+Merge Field
+- `{$trial_verification_link}` — verification URL for the user to click.
+
+Database
+- Table: `eazybackup_trial_verifications`
+  - Columns: `id`, `client_id`, `email`, `token` (unique), `meta` (JSON), `created_at`, `expires_at`, `consumed_at`
+  - `meta` includes: `username`, `productId`, and `phone`
+  - Token expiry: 48 hours
+
+Routes & Files
+- Signup handler: `eazybackup_signup($vars)` in `eazybackup.php`
+  - Validates Turnstile, username, email, and password strength
+  - Creates WHMCS client with a randomly generated password
+  - Stores verification token into `eazybackup_trial_verifications`
+  - Sends verification email via `SendEmail` using the selected General template with `customvars = ['trial_verification_link' => <url>]`
+  - Re-renders `templates/trialsignup.tpl` with `emailSent => true` and the submitted email for confirmation
+- Verification route: `a=verifytrial` in `eazybackup_clientarea()` (`eazybackup.php`)
+  - Validates token (exists, not expired, not consumed)
+  - Creates the order (`AddOrder` with promo `trial`, `noinvoice`)
+  - Accepts the order (`AcceptOrder`) with `serviceusername = meta.username` and a generated strong password
+  - Sets a 14‑day trial window on the service (`UpdateClientProduct`)
+  - Optional OBC/MS365 step: `EazybackupObcMs365::provisionLXDContainer(...)` when `productId == '52'`
+  - Marks token as consumed
+  - Creates SSO token and redirects to `clientarea.php?action=changepw`
+
+Template Behavior
+- `templates/trialsignup.tpl`:
+  - Shows the full form by default
+  - When `{$emailSent}` is true, hides the form and shows a confirmation panel:
+    - “Please check your email” with the submitted address
+    - Guidance to look in spam/junk; link remains valid until expiry
+
+Testing Checklist
+- Missing or invalid Turnstile: inline error
+- Invalid username/email/password: inline errors; form re-renders preserving inputs
+- Valid submit:
+  - Client is created
+  - Verification email is sent using the configured template
+  - The form is replaced by the “Please check your email” state
+- Verification link:
+  - Valid token → order created/accepted, service username set, SSO to password change page
+  - Invalid/expired token → render signup page with an appropriate error
+
+## Configurable Options Discount Management (Admin – Clients Services)
+
+This feature lets admins set per‑config‑option Discount Price values for a service and reliably recalculate the service’s Recurring Amount using those discounts. It avoids WHMCS’s native “Recalculate on Save” behavior and uses our own calculation/commit flow.
+
+### Files involved
+- Hooks (admin UI and AJAX):
+  - `accounts/includes/hooks/recurringDiscount_ConfigOptions.php`
+    - Injects Discount Price fields beside each configurable option on the admin `clientsservices` page.
+    - Adds an actions row under the Recurring Amount row with two buttons:
+      - “Recalculate (discounts)” — preview using current form selections + discounts
+      - “Save with discounts” — save discounts, recalc, and commit the Recurring Amount
+    - Disables the native “Recalculate on Save” switch to prevent WHMCS from overriding our computed amount.
+  - `accounts/includes/hooks/configOptionsDiscount_ajax.php`
+    - JSON endpoint for discount operations and calculations (see Endpoints below).
+  - `accounts/includes/hooks/productRecurringDiscount.php` (existing)
+    - Separate, older “global percent” discount UI; unrelated to per‑config‑option Discount Price.
+
+### Database
+- `mod_rd_discountConfigOptions`
+  - Stores Discount Price per service/config option.
+  - Columns: `id`, `serviceid`, `configoptionid`, `discount_price`, `price`, `created_at`, `updated_at`
+  - Unique index: `(serviceid, configoptionid)` ensures idempotent saves.
+  - Created/ensured by addon activation (`eazybackup_activate()` in `eazybackup.php`).
+
+### Admin UI (buttons and fields)
+- Per‑option “Discount Price” field:
+  - One input per configurable option.
+  - Discount values are read directly from these inputs when you click “Recalculate (discounts)” or “Save with discounts”.
+  - “Remove” deletes the saved discount for that option (and clears the badge).
+- Actions row (inserted under the Recurring Amount row):
+  - `Recalculate (discounts)`:
+    - Collects all visible Discount Price inputs and saves them to `mod_rd_discountConfigOptions` for this service.
+    - Computes the Recurring Amount using **current page selections and quantities** (live form state) together with the saved discounts; updates the Amount field (preview only).
+  - `Save with discounts`:
+    - Same as `Recalculate (discounts)` (saves all discounts and recalculates using the live form), and then:
+    - Commits the calculated amount directly to `tblhosting.amount`, then reloads the page with `success=true`. This bypasses WHMCS’ native recalc/save pipeline.
+
+### Endpoints (JSON)
+All endpoints live at `accounts/includes/hooks/configOptionsDiscount_ajax.php` and return `{ status, data, message }`.
+
+- `apply_config_discount` (POST)
+  - Body: `service_id`, `configoptionid`, `discount_price`
+  - Upserts a single discount for the service/option.
+  - Primarily used for legacy/one‑off flows; the modern UI prefers `save_discounts` driven by the actions row buttons.
+- `remove_config_discount` (POST)
+  - Body: `service_id`, `configoptionid`
+  - Removes the saved discount for the service/option.
+- `save_discounts` (POST)
+  - Body: `service_id`, `discounts[]` where each item: `{ configoptionid, discount_price }`
+  - Batch upsert of many per‑option discounts; called by both “Recalculate (discounts)” and “Save with discounts” with the current Discount Price inputs.
+- `recalc_service_amount` (POST) and alias `calculate_amount`
+  - Body: `service_id`
+  - Optional: `options` (JSON array) describing live page selections. Each item may include:
+    - `{ configid, subId }` for select/radio options
+    - `{ configid, qty }` for quantity options
+  - Response: `{ data: { amount, meta } }`
+    - `meta.lines` provides a per‑option breakdown: `{ configId, type, qty|subId, discountApplied, listUnit|listSelected, contribution }`
+- `commit_amount` (POST; admin‑only)
+  - Body: `service_id`, `amount`
+  - Directly updates `tblhosting.amount` for the service and returns `{ status:true }` on success.
+
+### Calculation rules
+- Base product recurring price is ignored (`baseRecurring = 0`); only configurable options contribute to the total.
+- Quantity options (optiontype = 3):
+  - Per‑unit price = saved `discount_price` for that `configid` (if present) or the WHMCS list unit price.
+  - WHMCS list unit price is resolved via `tblhostingconfigoptions.optionid` → `tblpricing.relid` (type = `configoptions`, matching the service’s currency and billing cycle). This mirrors how WHMCS’s own Configurable Options UI prices quantity options.
+  - Contribution = `unit × qty`.
+- Select/radio options:
+  - When live `options` payload is present (from the page), contribution is:
+    - Saved `discount_price` (absolute) when present for that `configid`, otherwise the selected sub‑option’s list price.
+  - When no `options` payload is present (DB snapshot), we include select options only when a `discount_price` exists for that `configid` (prevents counting default non‑billable selects).
+- The server returns a breakdown (`meta.lines`) so admins can see exactly which options contributed and by how much.
+
+### Typical workflows
+- Set or adjust discounts and quantities in one pass:
+  1) Enter Discount Price values beside each desired config option and adjust the service’s option quantities/selections on the page as needed.
+  2) Click **“Recalculate (discounts)”** to save all Discount Price values, then preview the new Recurring Amount using the current form state.
+  3) If the preview looks correct, click **“Save with discounts”** to save all discounts again, recompute, and commit the final amount to `tblhosting.amount`.
+- One‑off update for a single option:
+  1) Change the Discount Price and/or quantity for that option.
+  2) Click **“Recalculate (discounts)”** to confirm the new total, then **“Save with discounts”** when satisfied.
+
+### Notes & troubleshooting
+- Native “Recalculate on Save” is disabled in the UI by the hook to avoid WHMCS overwriting the amount. Use our buttons instead.
+- If totals look off, open DevTools → Network → the recalc POST and inspect `data.meta.lines` to identify which `configId` contributed.
+  - For select/radio, ensure the intended “0/None” sub‑option is actually selected on the page; otherwise it will price the selected sub‑option.
+  - For quantity, verify the quantity input reflects the intended value and that a per‑unit discount is saved if needed.
+- The feature is admin‑only; `commit_amount` requires an admin session.

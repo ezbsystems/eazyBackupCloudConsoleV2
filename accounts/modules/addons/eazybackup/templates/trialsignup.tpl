@@ -79,6 +79,23 @@
             
             <h1 class="text-gray-700 text-2xl font-semibold mb-4">Start your 14-day free trial</h1>
             
+            {if !empty($emailSent)}
+                <!-- Email verification confirmation state -->
+                <div class="mt-6 space-y-4 text-sm">
+                    <div class="rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-4 text-emerald-50">
+                        <h2 class="text-sm font-semibold tracking-tight text-emerald-200">
+                            Please check your email
+                        </h2>
+                        <p class="mt-1.5 text-xs text-emerald-100/90">
+                            We’ve sent a verification link to <span class="font-mono">{$email|escape}</span>.
+                            Click the link in that email to verify your address and activate your eazyBackup trial.
+                        </p>
+                    </div>
+                    <p class="text-[11px] text-slate-400">
+                        If you don’t see the email in a few minutes, please check your spam or junk folder. You can safely close this page; the link will continue to work until it expires.
+                    </p>
+                </div>
+            {else}
             <form id="signup" method="post" action="{$modulelink}&a=signup" class="space-y-6">
                 
                 <!-- Username and Email -->
@@ -122,27 +139,7 @@
                     {/if}
                 </div>
                 
-                <!-- Password (Two Columns) -->
-                <div class="flex flex-row space-x-4">
-                    <!-- Password -->
-                    <div class="flex flex-col w-1/2">
-                        <label for="password" class="mb-2 font-medium text-gray-700">Password</label>
-                        <input type="password" id="password" name="password" 
-                            class="block w-full rounded-md bg-slate-200 px-3 py-1.5 text-base text-gray-900 outline outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-100 focus:outline focus:outline-2 focus:-outline-offset-2 focus:outline-sky-600 sm:text-sm/6 {if !empty($errors["password"])}border-red-500{/if}">
-                        {if !empty($errors["password"])}
-                            <span class="text-red-500 text-sm mt-1">{$errors["password"]}</span>
-                        {/if}
-                    </div>
-                    <!-- Confirm Password -->
-                    <div class="flex flex-col w-1/2">
-                        <label for="confirmpassword" class="mb-2 font-medium text-gray-700">Confirm password</label>
-                        <input type="password" id="confirmpassword" name="confirmpassword" 
-                            class="block w-full rounded-md bg-slate-200 px-3 py-1.5 text-base text-gray-900 outline outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-100 focus:outline focus:outline-2 focus:-outline-offset-2 focus:outline-sky-600 sm:text-sm/6 {if !empty($errors["confirmpassword"])}border-red-500{/if}">
-                        {if !empty($errors["confirmpassword"])}
-                            <span class="text-red-500 text-sm mt-1">{$errors["confirmpassword"]}</span>
-                        {/if}
-                    </div>
-                </div>
+                
 
                 <!-- Product Selection -->
                 <div class="flex flex-col">
@@ -177,11 +174,12 @@
                 <div id="cf-turnstile-container" class="cf-turnstile-slot"></div>
                     </div>
 
-                <!-- Load the Turnstile library and invoke a named onload -->
-                <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=cfTurnstileReady" async defer></script>
+                <!-- Load the Turnstile library explicitly (prevents auto-render race) and enable debug -->
+                <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=cfTurnstileReady&render=explicit&debug=1" async defer></script>
                 <script>
                 // Render function you can call on initial load AND on any post-back
                 function renderTurnstile() {
+                    if (window._cfRendered) { return; }
                     var slot = document.getElementById('cf-turnstile-container');
                     if (!slot) return;
 
@@ -195,17 +193,25 @@
                     callback: function (token) {
                         var el = document.getElementById('cf-turnstile-response');
                         if (el) el.value = token;
+                        try { console.info('[Turnstile] token issued:', token ? (token.substring(0,8)+'…') : '(empty)'); } catch (e) {}
                     },
                     'expired-callback': function () {
                         var el = document.getElementById('cf-turnstile-response');
                         if (el) el.value = '';
                     },
-                    'error-callback': function () {
+                    'error-callback': function (err) {
                         var el = document.getElementById('cf-turnstile-response');
                         if (el) el.value = '';
-                        console.warn('Turnstile reported an error.');
+                        try { console.error('[Turnstile] error', err); } catch (e) {}
+                        // Retry once after a short delay to overcome transient flow hiccups
+                        window._cfRenderAttempts = (window._cfRenderAttempts || 0) + 1;
+                        if (window._cfRenderAttempts <= 1) {
+                            try { if (window._cfWidgetId) turnstile.reset(window._cfWidgetId); } catch (e) {}
+                            setTimeout(function(){ try { renderTurnstile(); } catch (e) {} }, 700);
+                        }
                     }
                     });
+                    window._cfRendered = true;
                 }
 
                 // Called by the script tag via ?onload=
@@ -213,11 +219,7 @@
                     renderTurnstile();
                 }
 
-                // If this is a post-back and the script is already cached/loaded,
-                // there may be no onload fire. In that case, render explicitly.
-                if (window.turnstile && typeof window.turnstile.render === 'function') {
-                    renderTurnstile();
-                }
+                // Avoid double-render: rely on onload path; if needed elsewhere, call renderTurnstile() manually.
 
                 // Gentle guard so the user cannot submit without a fresh token
                 (function () {
@@ -244,6 +246,7 @@
                     Sign Up
                 </button>                
             </form>
+            {/if}
         </div>
     </div>
 </div>
