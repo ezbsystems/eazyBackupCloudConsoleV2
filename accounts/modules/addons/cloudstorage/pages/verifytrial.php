@@ -59,122 +59,9 @@ try {
         $username = 'e3user' . bin2hex(random_bytes(2));
     }
 
-    // Load module configuration needed for Ceph and encryption
-    $module = DBController::getResult('tbladdonmodules', [
-        ['module', '=', 'cloudstorage']
-    ]);
-
-    if (count($module) == 0) {
-        $_SESSION['message'] = 'Cloudstorage module configuration error. Please contact support.';
-        header('Location: index.php?m=cloudstorage&page=signup');
-        exit;
-    }
-
-    $s3Endpoint         = $module->where('setting', 's3_endpoint')->pluck('value')->first();
-    $cephAdminAccessKey = $module->where('setting', 'ceph_access_key')->pluck('value')->first();
-    $cephAdminSecretKey = $module->where('setting', 'ceph_secret_key')->pluck('value')->first();
-    $encryptionKey      = $module->where('setting', 'encryption_key')->pluck('value')->first();
-
     $adminUser = 'API';
-    $packageId = ProductConfig::$E3_PRODUCT_ID;
 
-    // ----------------------------------------------------------------------------------------
-    // 1) Create an order for the e3 Cloud Storage product using AddOrder
-    // ----------------------------------------------------------------------------------------
-    $addOrderData = [
-        'clientid'      => $clientId,
-        'paymentmethod' => 'stripe', // Must be a valid payment method in WHMCS
-        'pid'           => [$packageId],
-        'billingcycle'  => ['monthly'],
-        'noinvoice'     => false,
-        'noemail'       => false,
-        'promocode'     => '100E3SIGNUP'
-    ];
-
-    $orderResult = localAPI('AddOrder', $addOrderData, $adminUser);
-    $debugInfo['addOrderResponse'] = $orderResult;
-
-    if ($orderResult['result'] !== 'success') {
-        $_SESSION['message'] = "Error adding product: " . $orderResult['message'];
-        header('Location: index.php?m=cloudstorage&page=signup');
-        exit;
-    }
-
-    $orderId = $orderResult['orderid'];
-    $acceptResult = localAPI('AcceptOrder', [
-        'orderid'   => $orderId,
-        'sendemail' => true,
-    ], $adminUser);
-
-    if ($acceptResult['result'] !== 'success') {
-        $_SESSION['message'] = "Failed to accept order: " . $acceptResult['message'];
-        header('Location: index.php?m=cloudstorage&page=signup');
-        exit;
-    }
-
-    $hostingRow = Capsule::table('tblhosting')
-        ->where('userid', $clientId)
-        ->where('packageid', $packageId)
-        ->orderBy('id', 'desc')
-        ->first();
-
-    if (!$hostingRow) {
-        $_SESSION['message'] = "Cannot find hosting record for the newly accepted order.";
-        header('Location: index.php?m=cloudstorage&page=signup');
-        exit;
-    }
-
-    Capsule::table('tblhosting')
-        ->where('id', $hostingRow->id)
-        ->update(['username' => $username]);
-
-    // ----------------------------------------------------------------------------------------
-    // 2) Create Ceph user and store access keys
-    // ----------------------------------------------------------------------------------------
-    try {
-        $name = $meta['fullName'] ?? ('Client ' . $clientId);
-        $tenantId = HelperController::getUniqueTenantId();
-
-        $params = [
-            'uid'    => $username,
-            'name'   => $name,
-            'tenant' => $tenantId,
-        ];
-
-        $userCreation = AdminOps::createUser($s3Endpoint, $cephAdminAccessKey, $cephAdminSecretKey, $params);
-
-        if ($userCreation['status'] != 'success') {
-            throw new \Exception('Ceph user creation failed: ' . $userCreation['message']);
-        }
-
-        if (!isset($userCreation['data']['keys'][0]['access_key'], $userCreation['data']['keys'][0]['secret_key'])) {
-            throw new \Exception('Invalid Ceph output from AdminOps createUser.');
-        }
-
-        $s3UserId = DBController::saveUser([
-            'name'      => $name,
-            'username'  => $username,
-            'tenant_id' => $tenantId,
-        ]);
-
-        if (!$s3UserId) {
-            throw new \Exception('Failed to save user in the database.');
-        }
-
-        $accessKey = HelperController::encryptKey($userCreation['data']['keys'][0]['access_key'], $encryptionKey);
-        $secretKey = HelperController::encryptKey($userCreation['data']['keys'][0]['secret_key'], $encryptionKey);
-
-        DBController::insertRecord('s3_user_access_keys', [
-            'user_id'    => $s3UserId,
-            'access_key' => $accessKey,
-            'secret_key' => $secretKey,
-        ]);
-    } catch (\Exception $e) {
-        $_SESSION['message'] = "User provisioning error: " . $e->getMessage();
-        $debugInfo['cephError'] = $e->getMessage();
-        header('Location: index.php?m=cloudstorage&page=signup');
-        exit;
-    }
+    // Do not provision here. Only consume the token and send the user to the Welcome page.
 
     // Mark verification as consumed
     Capsule::table('cloudstorage_trial_verifications')
@@ -182,23 +69,23 @@ try {
         ->update(['consumed_at' => date('Y-m-d H:i:s')]);
 
     // ----------------------------------------------------------------------------------------
-    // 3) Single Sign-On (SSO) to log the user in and redirect them to the dashboard
+    // 3) Single Sign-On (SSO) to log the user in and redirect them to the Welcome page
     // ----------------------------------------------------------------------------------------
     $ssoResult = localAPI('CreateSsoToken', [
         'client_id'         => $clientId,
         'destination'       => 'sso:custom_redirect',
-        'sso_redirect_path' => 'index.php?m=cloudstorage&page=dashboard',
+        'sso_redirect_path' => 'index.php?m=cloudstorage&page=welcome',
     ], $adminUser);
 
     $debugInfo['ssoResult'] = $ssoResult;
 
     if ($ssoResult['result'] === 'success') {
-        $_SESSION['message'] = "Account verified and provisioned! Welcome aboard, Captain.";
+        $_SESSION['message'] = "Email verified! Welcome.";
         header("Location: {$ssoResult['redirect_url']}");
         exit;
     } else {
         $_SESSION['message'] = "Account verified but auto-login failed: " . $ssoResult['message'];
-        header("Location: index.php?m=cloudstorage&page=dashboard");
+        header("Location: index.php?m=cloudstorage&page=welcome");
         exit;
     }
 } catch (\Exception $e) {

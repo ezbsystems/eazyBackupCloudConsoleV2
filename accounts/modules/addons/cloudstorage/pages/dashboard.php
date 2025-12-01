@@ -1,6 +1,7 @@
 <?php
 
     use WHMCS\ClientArea;
+    use WHMCS\Database\Capsule;
     use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
     use WHMCS\Module\Addon\CloudStorage\Client\BucketController;
     use WHMCS\Module\Addon\CloudStorage\Client\BillingController;
@@ -15,9 +16,30 @@
     }
 
     $packageId = ProductConfig::$E3_PRODUCT_ID;
-    $loggedInUserId = $ca->getUserID();
-    $product = DBController::getProduct($loggedInUserId, $packageId);
+    // Resolve client ID from current user (WHMCS v8)
+    $userId = (int) $ca->getUserID();
+    $clientId = 0;
+    try {
+        $link = Capsule::table('tblusers_clients')->where('userid', $userId)->orderBy('owner', 'desc')->first();
+        if ($link && isset($link->clientid)) {
+            $clientId = (int) $link->clientid;
+        }
+    } catch (\Throwable $e) {}
+    if ($clientId <= 0 && isset($_SESSION['uid'])) {
+        $clientId = (int) $_SESSION['uid'];
+    }
+    $product = DBController::getProduct($clientId, $packageId);
+    try {
+        $prodArr = $product ? ['username' => $product->username ?? null] : null;
+        logModuleCall('cloudstorage', 'dashboard_entry', [
+            'userId' => $userId,
+            'clientId' => $clientId,
+            'packageId' => $packageId,
+            'product' => $prodArr
+        ], '');
+    } catch (\Throwable $e) {}
     if (is_null($product) || is_null($product->username)) {
+        try { logModuleCall('cloudstorage', 'dashboard_redirect_s3storage', ['clientId' => $clientId], ''); } catch (\Throwable $e) {}
         $_SESSION['message'] = 'You are not subscribe the product.';
         header('Location: index.php?m=cloudstorage&page=s3storage&status=fail');
         exit;
@@ -57,8 +79,8 @@
     $totalBucketCount = $userBuckets->count();
     $buckets = $userBuckets->isNotEmpty() ? $userBuckets->pluck('name', 'id')->toArray() : [];
     $billingObject = new BillingController();
-    $displayPeriod = $billingObject->calculateDisplayPeriod($loggedInUserId, $packageId);
-    $overdueNotice = $billingObject->getOverdueNotice($loggedInUserId, $packageId);
+    $displayPeriod = $billingObject->calculateDisplayPeriod($clientId, $packageId);
+    $overdueNotice = $billingObject->getOverdueNotice($clientId, $packageId);
 
     $bucketObject = new BucketController($s3Endpoint, $cephAdminUser, $cephAdminAccessKey, $cephAdminSecretKey, $vars['s3_region'] ?? 'ca-central-1');
     // Get today's usage totals by default (since charts default to "Today")

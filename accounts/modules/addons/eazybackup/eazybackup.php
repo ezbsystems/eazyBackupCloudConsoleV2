@@ -3785,6 +3785,17 @@ function eazybackup_clientarea(array $vars)
             ],
         ];
 
+    } else if ($_REQUEST["a"] == "eazybackup-download") {
+        return [
+            "pagetitle" => "Download eazyBackup",
+            "breadcrumb" => ["index.php?m=eazybackup" => "eazyBackup"],
+            "templatefile" => "templates/eazybackup-download",
+            "requirelogin" => false,
+            "forcessl" => true,
+            "vars" => [
+                "modulelink" => $vars["modulelink"],
+            ],
+        ];
     } else if ($_REQUEST["a"] == "download-obc") {
         return [
             "pagetitle" => "Download OBC",

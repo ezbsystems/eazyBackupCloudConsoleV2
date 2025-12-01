@@ -10,7 +10,7 @@
 
       <div class="px-6 py-6 sm:px-7 sm:py-7">
         <h1 class="text-xl font-semibold tracking-tight text-slate-50">
-          Set your e3 account password
+          Set your account password
         </h1>
         <p class="mt-2 text-xs text-slate-400">
           You’re logged in with a one-time session. Before you continue, please choose a password

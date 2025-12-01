@@ -75,6 +75,18 @@ function cloudstorage_config()
                 'Options' => cloudstorage_get_email_templates(),
                 'Description' => 'Select the WHMCS email template from the General category to use for e3 trial email verification.',
             ],
+            'pid_cloud_backup' => [
+                'FriendlyName' => 'Cloud Backup Product (PID)',
+                'Type' => 'text',
+                'Size' => '10',
+                'Description' => 'WHMCS Product ID for eazyBackup Cloud Backup (used after Welcome selection).',
+            ],
+            'pid_cloud_storage' => [
+                'FriendlyName' => 'Cloud Storage Product (PID)',
+                'Type' => 'text',
+                'Size' => '10',
+                'Description' => 'WHMCS Product ID for e3 Cloud Storage (used after Welcome selection).',
+            ],
             'default_logging_prefix' => [
                 'FriendlyName' => 'Default Logging Prefix',
                 'Type' => 'text',
@@ -581,6 +593,19 @@ function cloudstorage_activate() {
             logModuleCall('cloudstorage', 'activate', [], 'Created cloudstorage_trial_verifications table', [], []);
         }
 
+        // Trial selection table
+        if (!Capsule::schema()->hasTable('cloudstorage_trial_selection')) {
+            Capsule::schema()->create('cloudstorage_trial_selection', function ($table) {
+                $table->unsignedInteger('client_id')->primary();
+                $table->string('product_choice', 32);
+                $table->text('meta')->nullable();
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('updated_at')->useCurrent();
+                $table->index('product_choice');
+            });
+            logModuleCall('cloudstorage', 'activate', [], 'Created cloudstorage_trial_selection table', [], []);
+        }
+
         logModuleCall('cloudstorage', 'activate', [], 'Module activation completed successfully', [], []);
         
         return [
@@ -765,6 +790,18 @@ function cloudstorage_upgrade($vars) {
                     $table->timestamp('logging_last_synced_at')->nullable();
                 });
             }
+        }
+
+        // Ensure trial selection table exists
+        if (!\WHMCS\Database\Capsule::schema()->hasTable('cloudstorage_trial_selection')) {
+            \WHMCS\Database\Capsule::schema()->create('cloudstorage_trial_selection', function ($table) {
+                $table->unsignedInteger('client_id')->primary();
+                $table->string('product_choice', 32);
+                $table->text('meta')->nullable();
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('updated_at')->useCurrent();
+                $table->index('product_choice');
+            });
         }
 
         // Add notified_at column to s3_cloudbackup_runs if missing
@@ -1054,6 +1091,13 @@ function cloudstorage_clientarea($vars) {
             if (empty($viewVars['TURNSTILE_SITE_KEY'])) {
                 $viewVars['TURNSTILE_SITE_KEY'] = $turnstileSiteKey;
             }
+            break;
+
+        case 'welcome':
+            $pagetitle = 'Welcome to e3';
+            $templatefile = 'templates/welcome';
+            // Initially no special vars; template will fetch any needed session/user context
+            $viewVars = [];
             break;
 
         case 'test':

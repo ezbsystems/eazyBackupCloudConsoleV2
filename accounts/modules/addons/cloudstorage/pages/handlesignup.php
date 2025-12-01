@@ -122,10 +122,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errors['turnstile'] = 'Captcha validation failed. Please try again.';
     }
 
-    // 2) Basic required field validation
-    if ($company === '') {
-        $errors['company'] = 'Company is required.';
-    }
+    // 2) Basic required field validation (Company optional)
     if ($fullName === '') {
         $errors['fullName'] = 'Full name is required.';
     }
@@ -135,9 +132,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($phone === '') {
         $errors['phone'] = 'Phone is required.';
     }
-    if ($project === '') {
-        $errors['project'] = 'Please tell us how you plan to use e3.';
-    }
+    // Project optional
 
     // 3) Email format and phone sanity checks
     if ($email && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
