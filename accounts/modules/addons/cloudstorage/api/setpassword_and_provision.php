@@ -184,24 +184,34 @@ try {
     }
 
     // 3) Provision based on selection (username is provided for backup/ms365)
-
     $redirectUrl = '';
-    switch ($choice) {
-        case 'backup':
-            $redirectUrl = Provisioner::provisionCloudBackup($clientId, $username, $newPassword);
-            break;
-        case 'ms365':
-            $redirectUrl = Provisioner::provisionMs365($clientId, $username, $newPassword);
-            break;
-        case 'storage':
-            $redirectUrl = Provisioner::provisionCloudStorage($clientId);
-            break;
-        case 'cloud2cloud':
-            $redirectUrl = Provisioner::provisionCloudToCloud($clientId);
-            break;
-        default:
-            echo json_encode(['status' => 'error', 'errors' => ['general' => 'Unknown product selection.']]);
+    try {
+        switch ($choice) {
+            case 'backup':
+                $redirectUrl = Provisioner::provisionCloudBackup($clientId, $username, $newPassword);
+                break;
+            case 'ms365':
+                $redirectUrl = Provisioner::provisionMs365($clientId, $username, $newPassword);
+                break;
+            case 'storage':
+                $redirectUrl = Provisioner::provisionCloudStorage($clientId);
+                break;
+            case 'cloud2cloud':
+                $redirectUrl = Provisioner::provisionCloudToCloud($clientId);
+                break;
+            default:
+                echo json_encode(['status' => 'error', 'errors' => ['general' => 'Unknown product selection.']]);
+                exit;
+        }
+    } catch (\Throwable $e) {
+        // Map common backend messages to user-friendly, field-specific errors
+        $msg = strtolower((string) $e->getMessage());
+        if (strpos($msg, 'username') !== false && (strpos($msg, 'already') !== false || strpos($msg, "can\'t be used") !== false || strpos($msg, 'taken') !== false || strpos($msg, 'can’t be used') !== false)) {
+            echo json_encode(['status' => 'error', 'errors' => ['username' => 'That username is already taken. Please choose another.']]);
             exit;
+        }
+        echo json_encode(['status' => 'error', 'errors' => ['general' => 'Provisioning failed. Please try again.']]);
+        exit;
     }
 
     // Clear any onboarding flag so the dashboard doesn't prompt to set password again

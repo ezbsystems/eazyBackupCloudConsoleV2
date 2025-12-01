@@ -9,6 +9,51 @@ use WHMCS\Module\Addon\CloudStorage\Client\HelperController;
 
 class Provisioner
 {
+    private static function ensureCometLib(): void
+    {
+        // Load Comet server module helpers to build a Server client from a product PID
+        if (!function_exists('comet_ProductParams')) {
+            $path = dirname(__DIR__, 3) . '/../servers/comet/functions.php';
+            if (is_file($path)) {
+                require_once $path;
+            }
+        }
+        // Ensure SDK autoloaded (functions.php already requires vendor/autoload.php)
+    }
+
+    private static function cometUsernameExists(string $username, int $pid): bool
+    {
+        try {
+            self::ensureCometLib();
+            if (!function_exists('comet_ProductParams') || !function_exists('comet_Server')) {
+                // If Comet helpers are not available, skip preflight
+                try { logModuleCall('cloudstorage', 'comet_preflight_helpers_missing', ['pid' => $pid], []); } catch (\Throwable $_) {}
+                return false;
+            }
+            // Build server connection params from product PID
+            $serverParams = \comet_ProductParams($pid);
+            // Instantiate Comet Server client
+            $server = \comet_Server($serverParams);
+            // Query profile; success means user exists (username taken)
+            $server->AdminGetUserProfile($username);
+            return true;
+        } catch (\Exception $e) {
+            $code = (int) $e->getCode();
+            $msg  = strtolower($e->getMessage() ?? '');
+            // 404 = not found => username is available
+            if ($code === 404 || strpos($msg, '404') !== false) {
+                return false;
+            }
+            // Any other error: log and treat as unknown (do not block order)
+            try { logModuleCall('cloudstorage', 'comet_preflight_exception', ['pid' => $pid, 'username' => $username], ['code' => $code, 'message' => $e->getMessage()]); } catch (\Throwable $_) {}
+            return false;
+        } catch (\Throwable $t) {
+            // Non-\Exception throwables - skip preflight
+            try { logModuleCall('cloudstorage', 'comet_preflight_throwable', ['pid' => $pid, 'username' => $username], $t->getMessage()); } catch (\Throwable $_) {}
+            return false;
+        }
+    }
+
     public static function getSetting(string $key, $default = null)
     {
         try {
@@ -28,6 +73,10 @@ class Provisioner
         if ($pid <= 0) {
             // Fall back to configured MS365 pid if left blank? Keep separate – require config.
             throw new \Exception('Cloud Backup Product PID is not configured.');
+        }
+        // Preflight: ensure username is available before placing an order
+        if (self::cometUsernameExists($username, $pid)) {
+            throw new \Exception('The username ' . $username . ' is already taken');
         }
         $adminUser = 'API';
         // Create order
@@ -62,6 +111,11 @@ class Provisioner
     {
         $pid = 52; // Provided by requirements
         $adminUser = 'API';
+        try { logModuleCall('cloudstorage', 'ms365_entry', ['clientId' => $clientId, 'username' => $username], []); } catch (\Throwable $_) {}
+        // Preflight: ensure username is available before placing an order
+        if (self::cometUsernameExists($username, $pid)) {
+            throw new \Exception('The username ' . $username . ' is already taken');
+        }
         $order = localAPI('AddOrder', [
             'clientid'      => $clientId,
             'pid'           => [$pid],
@@ -71,6 +125,7 @@ class Provisioner
             'noinvoice'     => true,
             'noemail'       => true,
         ], $adminUser);
+        try { logModuleCall('cloudstorage', 'ms365_addorder_res', ['clientId' => $clientId], $order); } catch (\Throwable $_) {}
         if (($order['result'] ?? '') !== 'success') {
             throw new \Exception('AddOrder failed: ' . ($order['message'] ?? 'unknown'));
         }
@@ -81,6 +136,7 @@ class Provisioner
             'serviceusername' => $username,
             'servicepassword' => $password,
         ], $adminUser);
+        try { logModuleCall('cloudstorage', 'ms365_accept_res', ['orderid' => $order['orderid'] ?? null], $accept); } catch (\Throwable $_) {}
         if (($accept['result'] ?? '') !== 'success') {
             throw new \Exception('AcceptOrder failed: ' . ($accept['message'] ?? 'unknown'));
         }
@@ -89,10 +145,12 @@ class Provisioner
             // Try autoload; otherwise require the class file manually
             if (!class_exists('\\WHMCS\\Module\\Addon\\Eazybackup\\EazybackupObcMs365')) {
                 $ms365Lib = dirname(__DIR__, 3) . '/eazybackup/lib/EazybackupObcMs365.php';
+                try { logModuleCall('cloudstorage', 'ms365_lxd_require_path', ['path' => $ms365Lib], []); } catch (\Throwable $_) {}
                 if (is_file($ms365Lib)) {
                     require_once $ms365Lib;
                 }
             }
+            try { logModuleCall('cloudstorage', 'ms365_lxd_class_exists', [], ['exists' => class_exists('\\WHMCS\\Module\\Addon\\Eazybackup\\EazybackupObcMs365') ? 'yes' : 'no']); } catch (\Throwable $_) {}
             if (class_exists('\\WHMCS\\Module\\Addon\\Eazybackup\\EazybackupObcMs365')) {
                 $resp = \WHMCS\Module\Addon\Eazybackup\EazybackupObcMs365::provisionLXDContainer($username, $password, (string)$pid);
                 try { logModuleCall('cloudstorage', 'ms365_lxd_provision', ['clientId' => $clientId, 'username' => $username], $resp); } catch (\Throwable $_) {}

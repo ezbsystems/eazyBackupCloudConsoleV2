@@ -234,6 +234,8 @@
                                     ebDisableSubmit(false);
                                     return false;
                                 }
+                                // Show loader while submitting/provisioning
+                                try { if (window.ebShowLoader) window.ebShowLoader(document.body, 'Creating your account…'); } catch(_){}
                                 const resp = await fetch('modules/addons/cloudstorage/api/setpassword_and_provision.php', {
                                     method:'POST',
                                     headers:{'Content-Type':'application/x-www-form-urlencoded'},
@@ -249,12 +251,13 @@
                                 if(errs.general) ebSetError('eb-pw-general-error', errs.general);
                                 if(errs.new_password) ebSetError('eb-err-newpw', errs.new_password);
                                 if(errs.new_password_confirm) ebSetError('eb-err-newpw2', errs.new_password_confirm);
-                                if(!errs.general && !errs.new_password && !errs.new_password_confirm){
+                                if(!errs.general && !errs.username && !errs.new_password && !errs.new_password_confirm){
                                     ebSetError('eb-pw-general-error', (data && data.message) ? String(data.message) : 'Failed to update password.');
                                 }
                             }catch(e){
                                 ebSetError('eb-pw-general-error', 'Request failed. Please try again.');
                             }finally{
+                                try { if (window.ebHideLoader) window.ebHideLoader(document.body); } catch(_){}
                                 ebDisableSubmit(false);
                             }
                             return false;
