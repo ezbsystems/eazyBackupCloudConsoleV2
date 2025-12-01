@@ -4,6 +4,90 @@ namespace WHMCS\Module\Addon\Eazybackup;
 
 class EazybackupObcMs365 {
 
+    private static function lxdBaseUrl()
+    {
+        return 'https://ms365-containers.com:8443';
+    }
+
+    private static function lxdCurl($method, $path, $jsonBody = null, $rawBody = null, array $extraHeaders = [])
+    {
+        $url = rtrim(self::lxdBaseUrl(), '/') . $path;
+        $ch = curl_init($url);
+        $headers = ['Content-Type: application/json'];
+        if (!empty($extraHeaders)) {
+            $headers = array_merge($headers, $extraHeaders);
+        }
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, strtoupper($method));
+        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+        curl_setopt($ch, CURLOPT_SSLCERT, '/var/www/ssl/client.crt');
+        curl_setopt($ch, CURLOPT_SSLKEY, '/var/www/ssl/client.key');
+        curl_setopt($ch, CURLOPT_CAINFO, '/var/www/ssl/lxd-server.crt');
+        if ($jsonBody !== null) {
+            curl_setopt($ch, CURLOPT_POSTFIELDS, is_string($jsonBody) ? $jsonBody : json_encode($jsonBody));
+        } elseif ($rawBody !== null) {
+            // For file uploads to /files endpoint we need to send raw bytes and override content-type
+            curl_setopt($ch, CURLOPT_HTTPHEADER, array_diff($headers, ['Content-Type: application/json']));
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $rawBody);
+        }
+        $response = curl_exec($ch);
+        $err = curl_error($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        if ($response === false) {
+            return ['curl_error' => $err, 'http_code' => $code];
+        }
+        $decoded = json_decode($response, true);
+        return $decoded !== null ? $decoded : ['raw' => $response, 'http_code' => $code];
+    }
+
+    private static function lxdUploadFile($containerName, $remotePath, $content)
+    {
+        $path = '/1.0/instances/' . rawurlencode($containerName) . '/files?path=' . $remotePath;
+        // Set mode and ownership headers where available
+        $headers = [
+            'X-LXD-uid: 0',
+            'X-LXD-gid: 0',
+            'X-LXD-mode: 0644',
+        ];
+        return self::lxdCurl('POST', $path, null, $content, $headers);
+    }
+
+    private static function lxdExecCommand($containerName, $command, $logContext = 'exec')
+    {
+        $payload = [
+            'command' => ['bash', '-lc', $command],
+            'environment' => new \stdClass(),
+            'wait-for-websocket' => false,
+            'interactive' => false,
+            'record-output' => true,
+        ];
+        $start = self::lxdCurl('POST', '/1.0/instances/' . rawurlencode($containerName) . '/exec', $payload);
+        try {
+            logModuleCall('eazybackup', $logContext . '.start', [$containerName, $command], $start);
+        } catch (\Throwable $e) {}
+        if (!is_array($start) || !isset($start['operation'])) {
+            return ['error' => 'Failed to start exec'];
+        }
+        $op = $start['operation'];
+        // Poll status until not Running
+        do {
+            sleep(1);
+            $status = self::lxdCurl('GET', parse_url($op, PHP_URL_PATH));
+            try {
+                logModuleCall('eazybackup', $logContext . '.status', [$containerName], $status);
+            } catch (\Throwable $e) {}
+            $running = is_array($status) && isset($status['metadata']['status']) && $status['metadata']['status'] === 'Running';
+        } while ($running);
+        // Try fetch logs if available
+        $stdout = self::lxdCurl('GET', parse_url($op, PHP_URL_PATH) . '/logs/stdout');
+        $stderr = self::lxdCurl('GET', parse_url($op, PHP_URL_PATH) . '/logs/stderr');
+        try {
+            logModuleCall('eazybackup', $logContext . '.logs', [$containerName], ['stdout' => $stdout, 'stderr' => $stderr]);
+        } catch (\Throwable $e) {}
+        return ['status' => 'ok', 'stdout' => $stdout, 'stderr' => $stderr];
+    }
+
     public static function provisionLXDContainer($username, $password, $productId)
     {
         try {
@@ -274,7 +358,6 @@ class EazybackupObcMs365 {
     public static function installSoftwareInContainer($containerName, $username, $password, $productId)
     {
         try {
-            // Log the start of the installation process
             $message = "Starting software installation in container: $containerName";
             logModuleCall(
                 "eazybackup",
@@ -282,7 +365,6 @@ class EazybackupObcMs365 {
                 [$containerName, $username, $password, $productId],
                 $message
             );
-            // Determine the server URL and installer path based on the product ID
             if ($productId == "57") { // OBC MS365
                 $serverUrl = "https://csw.obcbackup.com/";
                 $installerPath = "/var/www/eazybackup.ca/client_installer/OBC-25.3.6.deb";
@@ -291,7 +373,6 @@ class EazybackupObcMs365 {
                 $installerPath = "/var/www/eazybackup.ca/client_installer/eazyBackup-25.3.6.deb";
             }
 
-            // Pre-seed debconf answers for backup-tool
             $debconfSelections = "backup-tool backup-tool/username string $username\nbackup-tool backup-tool/password password $password\nbackup-tool backup-tool/serverurl string $serverUrl\n";
             $debconfFile = "/tmp/debconf-backup-tool-$containerName";
             file_put_contents($debconfFile, $debconfSelections);
@@ -303,7 +384,6 @@ class EazybackupObcMs365 {
                 $message
             );
 
-            // Check if the installer exists on the remote web server
             if (!file_exists($installerPath)) {
                 $message = "Installer file not found: $installerPath";
                 logModuleCall(
@@ -315,98 +395,30 @@ class EazybackupObcMs365 {
                 return ['error' => "Installer file not found: $installerPath"];
             }
 
-            // Define the LXD host and SSH configurations
-            $remoteLxdHost = 'ms365-containers.com';
-            $knownHostsFile = "/var/www/.ssh/known_hosts";
-            $sshKeyPath = "/var/www/.ssh/id_rsa";
+            // Upload debconf selections into the container
+            $up1 = self::lxdUploadFile($containerName, '/tmp/debconf-backup-tool', file_get_contents($debconfFile));
+            try { logModuleCall('eazybackup', 'installSoftwareInContainer.upload_debconf', [$containerName], $up1); } catch (\Throwable $e) {}
+            if (!is_array($up1)) { return ['error' => 'Failed to upload debconf']; }
 
-            // Function to execute a command and log the output
-            $executeCommand = function($command) use ($containerName, $username, $password, $productId) {
-                $message = "Executing command: $command";
-                logModuleCall(
-                    "eazybackup",
-                    'installSoftwareInContainer',
-                    [$containerName, $username, $password, $productId],
-                    $message
-                );
-                $output = \shell_exec("$command 2>&1");
-                $message = "Command output: " . $output;
-                logModuleCall(
-                    "eazybackup",
-                    'installSoftwareInContainer',
-                    [$containerName, $username, $password, $productId],
-                    $message
-                );
-                return $output;
-            };
+            // Upload installer .deb into the container
+            $up2 = self::lxdUploadFile($containerName, '/tmp/software.deb', file_get_contents($installerPath));
+            try { logModuleCall('eazybackup', 'installSoftwareInContainer.upload_deb', [$containerName], $up2); } catch (\Throwable $e) {}
+            if (!is_array($up2)) { return ['error' => 'Failed to upload installer']; }
 
-            // Add the LXD server's host key to the known_hosts file
-            $knownHostsFile = "/var/www/.ssh/known_hosts";
-            $sshKeyScanCmd = "ssh-keyscan -H $remoteLxdHost >> $knownHostsFile";
-            $message = "Adding LXD server's host key to known_hosts";
-            logModuleCall(
-                "eazybackup",
-                'installSoftwareInContainer',
-                [$containerName, $username, $password, $productId],
-                $message
-            );
-            $executeCommand($sshKeyScanCmd);
-            $message = "LXD server's host key added to known_hosts";
-            logModuleCall(
-                "eazybackup",
-                'installSoftwareInContainer',
-                [$containerName, $username, $password, $productId],
-                $message
-            );
+            // Apply debconf selections
+            self::lxdExecCommand($containerName, 'debconf-set-selections /tmp/debconf-backup-tool', 'installSoftwareInContainer.exec.debconf');
+            // Update and install
+            self::lxdExecCommand($containerName, 'DEBIAN_FRONTEND=noninteractive apt-get update -y', 'installSoftwareInContainer.exec.update');
+            self::lxdExecCommand($containerName, 'dpkg -i /tmp/software.deb || DEBIAN_FRONTEND=noninteractive apt-get -f install -y', 'installSoftwareInContainer.exec.install');
+            // Start service
+            self::lxdExecCommand($containerName, 'systemctl daemon-reload || true; systemctl enable backup-tool || true; systemctl start backup-tool || true', 'installSoftwareInContainer.exec.service');
+            // Verify CLI presence
+            $chk = self::lxdExecCommand($containerName, '(command -v /opt/eazyBackup/backup-tool || command -v /opt/OBC/backup-tool || command -v backup-tool) >/dev/null 2>&1 && echo installed || echo missing', 'installSoftwareInContainer.exec.verify');
 
-            // Path to the SSH key
-            $sshKeyPath = "/var/www/.ssh/id_rsa";
+            // Attempt device login/registration using non-interactive piping inside container
+            $cmdBase = ($productId == "57") ? "/opt/OBC/backup-tool" : "/opt/eazyBackup/backup-tool";
+            self::lxdExecCommand($containerName, 'printf "\n' . addslashes($password) . '\n\n" | ' . $cmdBase . ' login prompt', 'installSoftwareInContainer.exec.login');
 
-            // Copy the debconf selections and the software package to the LXD host
-            $commands = [
-                "scp -i $sshKeyPath -o UserKnownHostsFile=$knownHostsFile $debconfFile root@$remoteLxdHost:/tmp/debconf-backup-tool-$containerName",
-                "scp -i $sshKeyPath -o UserKnownHostsFile=$knownHostsFile $installerPath root@$remoteLxdHost:/tmp/software.deb", // Dynamic installer name
-                // Copy the files from the LXD host to the container
-                "ssh -i $sshKeyPath -o UserKnownHostsFile=$knownHostsFile root@$remoteLxdHost 'lxc file push /tmp/debconf-backup-tool-$containerName $containerName/tmp/debconf-backup-tool'",
-                "ssh -i $sshKeyPath -o UserKnownHostsFile=$knownHostsFile root@$remoteLxdHost 'lxc file push /tmp/software.deb $containerName/tmp/software.deb'", // Dynamic installer name
-                // Set debconf selections
-                "ssh -i $sshKeyPath -o UserKnownHostsFile=$knownHostsFile root@$remoteLxdHost 'lxc exec $containerName -- debconf-set-selections /tmp/debconf-backup-tool'",
-                // Update package lists
-                "ssh -i $sshKeyPath -o UserKnownHostsFile=$knownHostsFile root@$remoteLxdHost \"lxc exec $containerName -- bash -lc 'DEBIAN_FRONTEND=noninteractive apt-get update -y'\"",
-                // Install the software from the local .deb and fix any missing deps
-                "ssh -i $sshKeyPath -o UserKnownHostsFile=$knownHostsFile root@$remoteLxdHost \"lxc exec $containerName -- bash -lc 'dpkg -i /tmp/software.deb || DEBIAN_FRONTEND=noninteractive apt-get -f install -y'\"",
-                // Try to enable/start a service if present (best effort)
-                "ssh -i $sshKeyPath -o UserKnownHostsFile=$knownHostsFile root@$remoteLxdHost \"lxc exec $containerName -- bash -lc 'systemctl daemon-reload || true; systemctl enable backup-tool || true; systemctl start backup-tool || true'\"",
-                // Verify the CLI exists
-                "ssh -i $sshKeyPath -o UserKnownHostsFile=$knownHostsFile root@$remoteLxdHost \"lxc exec $containerName -- bash -lc '(command -v /opt/eazyBackup/backup-tool || command -v /opt/OBC/backup-tool || command -v backup-tool) >/dev/null 2>&1 && echo installed || echo missing'\""
-            ];
-
-            foreach ($commands as $command) {
-                $output = $executeCommand($command);
-                if (strpos($output, 'error') !== false) {
-                    $message = "Error during command execution: " . $output;
-                    logModuleCall(
-                        "eazybackup",
-                        'installSoftwareInContainer',
-                        [$containerName, $username, $password, $productId],
-                        $message
-                    );
-                    return ['error' => 'Error during software installation'];
-                }
-            }
-
-            // Attempt device login/registration
-            $loginRes = self::loginPromptInContainer($containerName, $username, $password, $productId);
-            if (isset($loginRes['error'])) {
-                logModuleCall(
-                    "eazybackup",
-                    'installSoftwareInContainer',
-                    [$containerName, $username, $password, $productId],
-                    "Login/registration failed: " . $loginRes['error']
-                );
-            }
-
-            // Clean up the temporary debconf file
             unlink($debconfFile);
 
             return ['status' => 'success', 'message' => 'Software installed successfully'];
@@ -426,50 +438,16 @@ class EazybackupObcMs365 {
     public static function loginPromptInContainer($containerName, $username, $password, $productId)
     {
         try {
-            // Determine the correct backup-tool command based on the product ID.
             if ($productId == "57") { // OBC MS365
                 $commandBase = "/opt/OBC/backup-tool login prompt";
             } else {
                 $commandBase = "/opt/eazyBackup/backup-tool login prompt";
             }
 
-            /*
-             * Build the command that pipes the responses:
-             *   - The first "\n" sends an empty response (Enter) for the username.
-             *   - Then "$password\n" sends the password.
-             *   - Finally, another "\n" sends an empty response for the server URL.
-             *
-             * This is done with printf to produce exactly these three lines.
-             */
-            $loginPromptCommand = "printf \"\\n%s\\n\\n\" \"$password\" | lxc exec $containerName -- $commandBase";
-
-            // Define the LXD host and SSH configurations.
-            $remoteLxdHost  = 'ms365-containers.com';
-            $knownHostsFile = "/var/www/.ssh/known_hosts";
-            $sshKeyPath     = "/var/www/.ssh/id_rsa";
-
-            // Function to execute a command and log the output.
-            $executeCommand = function($command) use ($containerName, $username, $password, $productId) {
-                $message = "Executing command: $command";
-                logModuleCall("eazybackup", 'loginPromptInContainer', [$containerName, $username, $password, $productId], $message);
-                $output = \shell_exec("$command 2>&1");
-                logModuleCall("eazybackup", 'loginPromptInContainer', [$containerName, $username, $password, $productId], "Command output: " . $output);
-                return $output;
-            };
-
-            // Ensure the LXD server's host key is added to known_hosts.
-            $sshKeyScanCmd = "ssh-keyscan -H $remoteLxdHost >> $knownHostsFile 2>/dev/null";
-            $executeCommand($sshKeyScanCmd);
-
-            // Execute the command on the remote host via SSH.
-            $command = "ssh -i $sshKeyPath -o UserKnownHostsFile=$knownHostsFile root@$remoteLxdHost '$loginPromptCommand'";
-            $output = $executeCommand($command);
-            if (strpos(strtolower($output), 'error') !== false) {
-                logModuleCall("eazybackup", 'loginPromptInContainer', [$containerName, $username, $password, $productId], "Error during command execution: " . $output);
-                return ['error' => 'Error during software installation'];
-            }
-
-            return ['status' => 'success', 'message' => 'Software installed successfully'];
+            // Execute inside container (no SSH, no shell_exec): pipe password to "login prompt"
+            $cmd = 'printf "\n' . addslashes($password) . '\n\n" | ' . $commandBase;
+            $res = self::lxdExecCommand($containerName, $cmd, 'loginPromptInContainer.exec');
+            return ['status' => 'success', 'message' => 'Software installed successfully', 'output' => $res];
         } catch (\Exception $e) {
             $message = "Exception during software installation: " . $e->getMessage() . " - Trace: " . $e->getTraceAsString();
             logModuleCall("eazybackup", 'loginPromptInContainer', [$containerName, $username, $password, $productId], $message);
