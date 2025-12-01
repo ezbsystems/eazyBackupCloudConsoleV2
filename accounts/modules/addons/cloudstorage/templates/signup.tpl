@@ -262,8 +262,9 @@
           <div class="pt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <button
           type="submit"
-          class="inline-flex items-center justify-center gap-2 rounded-full px-4 py-1.5 text-sm font-semibold                 
-                 bg-[#FE5000]
+          class="inline-flex items-center justify-center gap-2 rounded-full px-4 py-1.5 text-sm font-semibold
+                 shadow-sm ring-1 ring-[#FE5000]/40
+                 bg-gradient-to-r from-[#FE5000] via-[#FF7A33] to-[#FF924D]
                  text-slate-950
                  transition transform hover:-translate-y-px hover:shadow-lg
                  active:translate-y-0 active:shadow-sm
@@ -293,12 +294,12 @@
               <h2 class="text-sm font-semibold tracking-tight text-white">
                 Please check your email
               </h2>
-              <p class="mt-1.5 text-xs text-white">
+              <p class="mt-1.5 text-sm text-white">
                 We’ve sent a verification link to <span class="font-mono">{$smarty.post.email|default:$email|escape}</span>.
                 Click the link in that email to verify your address and continue.
               </p>
             </div>
-            <p class="text-[11px] text-slate-400">
+            <p class="text-xs text-slate-400">
               If you don’t see the email in a few minutes, please check your spam or junk folder. You can safely close this page; the link will continue to work until it expires.
             </p>
           </div>
@@ -309,21 +310,21 @@
       <div class="border-t border-slate-800/80 bg-slate-950/60 px-5 py-3 sm:px-7">
         <div class="flex flex-wrap items-center gap-x-6 gap-y-2 text-[11px] text-slate-400">
           
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-2 text-slate-200">
             <span class="inline-flex h-4 w-4 items-center justify-center rounded-full border border-[#FE5000]/60 bg-slate-900/80">
               <span class="h-1.5 w-1.5 rounded-full bg-[#FE5000]"></span>
             </span>
             <span>Canadian data residency</span>
           </div>
 
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-2 text-slate-200">
             <span class="inline-flex h-4 w-4 items-center justify-center rounded-full border border-[#FE5000]/60 bg-slate-900/80">
               <span class="h-1.5 w-1.5 rounded-full bg-[#FE5000]"></span>
             </span>
             <span>Controlled Goods Program registered</span>
           </div>
 
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-2 text-slate-200">
             <span class="inline-flex h-4 w-4 items-center justify-center rounded-full border border-[#FE5000]/60 bg-slate-900/80">
               <span class="h-1.5 w-1.5 rounded-full bg-[#FE5000]"></span>
             </span>

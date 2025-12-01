@@ -247,11 +247,10 @@
 
                     <!-- Cloud Storage (Dropdown) -->
                     <div x-data="{
-                        // Include the 'dashboard' URL so that if it's active, our dropdown stays open.
+                        // Keep closed by default; open only for specific Cloud Storage pages (not 'welcome')
                         open: [
-                            'index.php?m=cloudstorage', 
                             'index.php?m=cloudstorage&page=dashboard',
-                            'index.php?m=cloudstorage&page=buckets', 
+                            'index.php?m=cloudstorage&page=buckets',
                             'index.php?m=cloudstorage&page=access_keys',
                             'index.php?m=cloudstorage&page=users',
                             'index.php?m=cloudstorage&page=cloudbackup',
@@ -262,7 +261,15 @@
                         <button
                             @click="open = !open"
                             class="flex items-center w-full px-2 py-2 text-left text-gray-400 rounded-md hover:bg-[#1B2C50]
-                                {if $smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage'} bg-[#1B2C50] font-semibold {/if}"
+                                {if 
+                                    ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=dashboard')
+                                    || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=buckets')
+                                    || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=access_keys')
+                                    || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=users')
+                                    || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=cloudbackup')
+                                    || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=billing')
+                                    || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=history')
+                                } bg-[#1B2C50] font-semibold {/if}"
                         >
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-3">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15a4.5 4.5 0 0 0 4.5 4.5H18a3.75 3.75 0 0 0 1.332-7.257 3 3 0 0 0-3.758-3.848 5.25 5.25 0 0 0-10.233 2.33A4.502 4.502 0 0 0 2.25 15Z" />

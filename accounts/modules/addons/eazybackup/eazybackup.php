@@ -5356,8 +5356,30 @@ function eazybackup_signup($vars)
         try {
             // 2) Create the client with a strong random password (user sets their password after verification)
             $randomClientPassword = bin2hex(random_bytes(12));
+            // Prefer posted full name if available; otherwise fall back to firstname/lastname; final fallback to placeholder
+            $firstName = '';
+            $lastName  = '';
+            $fullNameIn = trim((string)($_POST['fullName'] ?? ''));
+            if ($fullNameIn !== '') {
+                $parts = preg_split('/\s+/', $fullNameIn, 2);
+                $firstName = $parts[0];
+                $lastName  = $parts[1] ?? $parts[0];
+            } else {
+                $firstName = trim((string)($_POST['firstname'] ?? ''));
+                $lastName  = trim((string)($_POST['lastname'] ?? ''));
+                if ($firstName === '' && $lastName !== '') {
+                    $firstName = $lastName;
+                } elseif ($firstName !== '' && $lastName === '') {
+                    $lastName = $firstName;
+                }
+            }
+            if ($firstName === '') {
+                $firstName = 'eazyBackup User';
+                $lastName  = '';
+            }
             $clientData = [
-                "firstname"      => "eazyBackup User",
+                "firstname"      => $firstName,
+                "lastname"       => $lastName,
                 "email"          => (string)$_POST["email"],
                 "phonenumber"    => (string)$_POST["phonenumber"],
                 "password2"      => $randomClientPassword,
