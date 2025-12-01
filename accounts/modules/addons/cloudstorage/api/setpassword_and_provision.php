@@ -204,6 +204,22 @@ try {
             exit;
     }
 
+    // Clear any onboarding flag so the dashboard doesn't prompt to set password again
+    try {
+        if (function_exists('eazybackup_clear_must_set_password')) {
+            eazybackup_clear_must_set_password($clientId);
+        } else {
+            Capsule::table('eb_password_onboarding')
+                ->where('client_id', $clientId)
+                ->update([
+                    'must_set'     => 0,
+                    'completed_at' => date('Y-m-d H:i:s'),
+                ]);
+        }
+    } catch (\Throwable $e) {
+        // Non-fatal
+    }
+
     // If updating the password invalidated the current session, ensure continuity via SSO
     try {
         // Build WHMCS-expected SSO params using custom redirect path
