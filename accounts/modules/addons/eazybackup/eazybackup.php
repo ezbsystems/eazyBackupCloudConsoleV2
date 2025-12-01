@@ -6769,12 +6769,12 @@ function eazybackup_validate(array $vars, array $settings = [])
     $hasConfirm  = isset($vars['confirmpassword']) && $vars['confirmpassword'] !== '';
     if ($hasPassword || $hasConfirm) {
         if (!$hasPassword || !isValidPassword($vars['password'])) {
-            $errors['password'] = 'Password must be at least 8 characters long, with at least one uppercase letter, one lowercase letter, one number, and one special character.';
-        }
+        $errors['password'] = 'Password must be at least 8 characters long, with at least one uppercase letter, one lowercase letter, one number, and one special character.';
+    }
         if (!$hasConfirm) {
-            $errors['confirmpassword'] = 'You must confirm your password.';
-        } elseif (($vars['confirmpassword'] ?? '') !== ($vars['password'] ?? '')) {
-            $errors['confirmpassword'] = 'Passwords do not match.';
+        $errors['confirmpassword'] = 'You must confirm your password.';
+    } elseif (($vars['confirmpassword'] ?? '') !== ($vars['password'] ?? '')) {
+        $errors['confirmpassword'] = 'Passwords do not match.';
         }
     }
 

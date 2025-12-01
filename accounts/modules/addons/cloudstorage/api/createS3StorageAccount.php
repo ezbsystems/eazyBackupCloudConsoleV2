@@ -133,18 +133,18 @@ try {
         $hostingId = (int) $existing->id;
     } else {
         try { logModuleCall('cloudstorage', 'hosting_insert', ['userId' => $userId, 'packageId' => $packageId], []); } catch (\Throwable $e) {}
-        $hostingId = DBController::insertGetId('tblhosting', [
-            'userid' => $userId,
-            'packageid' => $packageId,
-            'server' => $serverId,
-            'username' => $username,
-            'regdate' => date('Y-m-d'),
-            'nextduedate' => date('Y-m-d', strtotime('+1 month')),
-            'billingcycle' => $billingCycle,
-            'domainstatus' => 'Active',
-            'created_at' => date('Y-m-d H:i:s'),
-            'updated_at' => date('Y-m-d H:i:s'),
-        ]);
+    $hostingId = DBController::insertGetId('tblhosting', [
+        'userid' => $userId,
+        'packageid' => $packageId,
+        'server' => $serverId,
+        'username' => $username,
+        'regdate' => date('Y-m-d'),
+        'nextduedate' => date('Y-m-d', strtotime('+1 month')),
+        'billingcycle' => $billingCycle,
+        'domainstatus' => 'Active',
+        'created_at' => date('Y-m-d H:i:s'),
+        'updated_at' => date('Y-m-d H:i:s'),
+    ]);
     }
 
     $s3UserId = DBController::saveUser([

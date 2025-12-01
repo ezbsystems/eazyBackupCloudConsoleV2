@@ -257,7 +257,7 @@ class EazybackupObcMs365 {
 
             return ['status' => 'success', 'message' => 'Container provisioning completed successfully'];
 
-        } catch (Exception $e) {
+        } catch (\Exception $e) {
             $message = "Exception during provisioning: " . $e->getMessage() . " - Trace: " . $e->getTraceAsString();
             logModuleCall(
                 "eazybackup",
@@ -329,7 +329,7 @@ class EazybackupObcMs365 {
                     [$containerName, $username, $password, $productId],
                     $message
                 );
-                $output = shell_exec("$command 2>&1");
+                $output = \shell_exec("$command 2>&1");
                 $message = "Command output: " . $output;
                 logModuleCall(
                     "eazybackup",
@@ -371,12 +371,14 @@ class EazybackupObcMs365 {
                 "ssh -i $sshKeyPath -o UserKnownHostsFile=$knownHostsFile root@$remoteLxdHost 'lxc file push /tmp/software.deb $containerName/tmp/software.deb'", // Dynamic installer name
                 // Set debconf selections
                 "ssh -i $sshKeyPath -o UserKnownHostsFile=$knownHostsFile root@$remoteLxdHost 'lxc exec $containerName -- debconf-set-selections /tmp/debconf-backup-tool'",
-                // Install the software
-                "ssh -i $sshKeyPath -o UserKnownHostsFile=$knownHostsFile root@$remoteLxdHost 'lxc exec $containerName -- env DEBIAN_FRONTEND=noninteractive apt-get install -y -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confold\" /tmp/software.deb'",
-                // Start the backup-tool service
-                "ssh -i $sshKeyPath -o UserKnownHostsFile=$knownHostsFile root@$remoteLxdHost 'lxc exec $containerName -- systemctl start backup-tool'",
-                // Verify the backup-tool service status
-                "ssh -i $sshKeyPath -o UserKnownHostsFile=$knownHostsFile root@$remoteLxdHost 'lxc exec $containerName -- systemctl status backup-tool'"
+                // Update package lists
+                "ssh -i $sshKeyPath -o UserKnownHostsFile=$knownHostsFile root@$remoteLxdHost \"lxc exec $containerName -- bash -lc 'DEBIAN_FRONTEND=noninteractive apt-get update -y'\"",
+                // Install the software from the local .deb and fix any missing deps
+                "ssh -i $sshKeyPath -o UserKnownHostsFile=$knownHostsFile root@$remoteLxdHost \"lxc exec $containerName -- bash -lc 'dpkg -i /tmp/software.deb || DEBIAN_FRONTEND=noninteractive apt-get -f install -y'\"",
+                // Try to enable/start a service if present (best effort)
+                "ssh -i $sshKeyPath -o UserKnownHostsFile=$knownHostsFile root@$remoteLxdHost \"lxc exec $containerName -- bash -lc 'systemctl daemon-reload || true; systemctl enable backup-tool || true; systemctl start backup-tool || true'\"",
+                // Verify the CLI exists
+                "ssh -i $sshKeyPath -o UserKnownHostsFile=$knownHostsFile root@$remoteLxdHost \"lxc exec $containerName -- bash -lc '(command -v /opt/eazyBackup/backup-tool || command -v /opt/OBC/backup-tool || command -v backup-tool) >/dev/null 2>&1 && echo installed || echo missing'\""
             ];
 
             foreach ($commands as $command) {
@@ -393,12 +395,23 @@ class EazybackupObcMs365 {
                 }
             }
 
+            // Attempt device login/registration
+            $loginRes = self::loginPromptInContainer($containerName, $username, $password, $productId);
+            if (isset($loginRes['error'])) {
+                logModuleCall(
+                    "eazybackup",
+                    'installSoftwareInContainer',
+                    [$containerName, $username, $password, $productId],
+                    "Login/registration failed: " . $loginRes['error']
+                );
+            }
+
             // Clean up the temporary debconf file
             unlink($debconfFile);
 
             return ['status' => 'success', 'message' => 'Software installed successfully'];
 
-        } catch (Exception $e) {
+        } catch (\Exception $e) {
             $message = "Exception during software installation: " . $e->getMessage() . " - Trace: " . $e->getTraceAsString();
             logModuleCall(
                 "eazybackup",
@@ -439,7 +452,7 @@ class EazybackupObcMs365 {
             $executeCommand = function($command) use ($containerName, $username, $password, $productId) {
                 $message = "Executing command: $command";
                 logModuleCall("eazybackup", 'loginPromptInContainer', [$containerName, $username, $password, $productId], $message);
-                $output = shell_exec("$command 2>&1");
+                $output = \shell_exec("$command 2>&1");
                 logModuleCall("eazybackup", 'loginPromptInContainer', [$containerName, $username, $password, $productId], "Command output: " . $output);
                 return $output;
             };
@@ -457,7 +470,7 @@ class EazybackupObcMs365 {
             }
 
             return ['status' => 'success', 'message' => 'Software installed successfully'];
-        } catch (Exception $e) {
+        } catch (\Exception $e) {
             $message = "Exception during software installation: " . $e->getMessage() . " - Trace: " . $e->getTraceAsString();
             logModuleCall("eazybackup", 'loginPromptInContainer', [$containerName, $username, $password, $productId], $message);
             return ['error' => $e->getMessage()];
