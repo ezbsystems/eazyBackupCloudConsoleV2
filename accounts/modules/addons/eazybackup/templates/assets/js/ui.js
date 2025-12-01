@@ -5,7 +5,7 @@
   }
   function makeOverlay(message){
     const wrap = document.createElement('div');
-    wrap.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/60';
+    wrap.className = 'fixed inset-0 z-[12000] flex items-center justify-center bg-black/60';
     wrap.setAttribute('data-eb-loader', '1');
     var inner = '';
     inner += '<div class="flex flex-col items-center gap-3 px-6 py-4 rounded-lg border border-slate-700 bg-slate-900/90 shadow-xl">';
