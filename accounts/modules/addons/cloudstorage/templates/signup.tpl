@@ -264,7 +264,7 @@
           type="submit"
           class="inline-flex items-center justify-center gap-2 rounded-full px-4 py-1.5 text-sm font-semibold
                  shadow-sm ring-1 ring-[#FE5000]/40
-                 bg-gradient-to-r from-[#FE5000] via-[#FF7A33] to-[#FF924D]
+                 bg-gradient[#FE5000]
                  text-slate-950
                  transition transform hover:-translate-y-px hover:shadow-lg
                  active:translate-y-0 active:shadow-sm
