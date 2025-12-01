@@ -43,12 +43,17 @@ class EazybackupObcMs365 {
 
     private static function lxdUploadFile($containerName, $remotePath, $content)
     {
+        if ($content === false || $content === null) {
+            return ['error' => 'No file content'];
+        }
         $path = '/1.0/instances/' . rawurlencode($containerName) . '/files?path=' . $remotePath;
-        // Set mode and ownership headers where available
+        // Set mode and ownership headers where available; ensure octet-stream for uploads
         $headers = [
+            'Content-Type: application/octet-stream',
             'X-LXD-uid: 0',
             'X-LXD-gid: 0',
             'X-LXD-mode: 0644',
+            'X-LXD-type: file',
         ];
         return self::lxdCurl('POST', $path, null, $content, $headers);
     }
@@ -79,13 +84,22 @@ class EazybackupObcMs365 {
             } catch (\Throwable $e) {}
             $running = is_array($status) && isset($status['metadata']['status']) && $status['metadata']['status'] === 'Running';
         } while ($running);
-        // Try fetch logs if available
-        $stdout = self::lxdCurl('GET', parse_url($op, PHP_URL_PATH) . '/logs/stdout');
-        $stderr = self::lxdCurl('GET', parse_url($op, PHP_URL_PATH) . '/logs/stderr');
+        // Try fetch logs if available using the returned output paths (download raw content)
+        $stdout = null;
+        $stderr = null;
+        if (is_array($status) && isset($status['metadata']['output']) && is_array($status['metadata']['output'])) {
+            $out = $status['metadata']['output'];
+            if (isset($out[1]) && is_string($out[1])) {
+                $stdout = self::lxdCurl('GET', $out[1] . '?download=1');
+            }
+            if (isset($out[2]) && is_string($out[2])) {
+                $stderr = self::lxdCurl('GET', $out[2] . '?download=1');
+            }
+        }
         try {
             logModuleCall('eazybackup', $logContext . '.logs', [$containerName], ['stdout' => $stdout, 'stderr' => $stderr]);
         } catch (\Throwable $e) {}
-        return ['status' => 'ok', 'stdout' => $stdout, 'stderr' => $stderr];
+        return ['status' => 'ok', 'stdout' => $stdout, 'stderr' => $stderr, 'raw_status' => $status];
     }
 
     public static function provisionLXDContainer($username, $password, $productId)
@@ -396,28 +410,43 @@ class EazybackupObcMs365 {
             }
 
             // Upload debconf selections into the container
-            $up1 = self::lxdUploadFile($containerName, '/tmp/debconf-backup-tool', file_get_contents($debconfFile));
+            $up1Content = @file_get_contents($debconfFile);
+            $up1 = self::lxdUploadFile($containerName, '/tmp/debconf-backup-tool', $up1Content);
             try { logModuleCall('eazybackup', 'installSoftwareInContainer.upload_debconf', [$containerName], $up1); } catch (\Throwable $e) {}
             if (!is_array($up1)) { return ['error' => 'Failed to upload debconf']; }
 
             // Upload installer .deb into the container
-            $up2 = self::lxdUploadFile($containerName, '/tmp/software.deb', file_get_contents($installerPath));
-            try { logModuleCall('eazybackup', 'installSoftwareInContainer.upload_deb', [$containerName], $up2); } catch (\Throwable $e) {}
+            $debBytes = @file_get_contents($installerPath);
+            $up2 = self::lxdUploadFile($containerName, '/tmp/software.deb', $debBytes);
+            try { logModuleCall('eazybackup', 'installSoftwareInContainer.upload_deb', [$containerName, 'size' => is_string($debBytes) ? strlen($debBytes) : 0], $up2); } catch (\Throwable $e) {}
             if (!is_array($up2)) { return ['error' => 'Failed to upload installer']; }
 
-            // Apply debconf selections
-            self::lxdExecCommand($containerName, 'debconf-set-selections /tmp/debconf-backup-tool', 'installSoftwareInContainer.exec.debconf');
-            // Update and install
+            // Ensure debconf-utils available, then apply selections
             self::lxdExecCommand($containerName, 'DEBIAN_FRONTEND=noninteractive apt-get update -y', 'installSoftwareInContainer.exec.update');
-            self::lxdExecCommand($containerName, 'dpkg -i /tmp/software.deb || DEBIAN_FRONTEND=noninteractive apt-get -f install -y', 'installSoftwareInContainer.exec.install');
+            self::lxdExecCommand($containerName, 'DEBIAN_FRONTEND=noninteractive apt-get install -y debconf-utils || true', 'installSoftwareInContainer.exec.debconfutils');
+            self::lxdExecCommand($containerName, 'debconf-set-selections /tmp/debconf-backup-tool || true', 'installSoftwareInContainer.exec.debconf');
+            // Verify files inside container prior to install
+            self::lxdExecCommand($containerName, 'stat -c "%n %s" /tmp/debconf-backup-tool /tmp/software.deb || true', 'installSoftwareInContainer.exec.preinstall_stat');
+            // Install using dpkg then fix deps, then dpkg again to ensure package is configured
+            self::lxdExecCommand($containerName, 'dpkg -i /tmp/software.deb || true', 'installSoftwareInContainer.exec.dpkg1');
+            self::lxdExecCommand($containerName, 'DEBIAN_FRONTEND=noninteractive apt-get -f install -y || true', 'installSoftwareInContainer.exec.fixdeps');
+            self::lxdExecCommand($containerName, 'dpkg -i /tmp/software.deb || true', 'installSoftwareInContainer.exec.dpkg2');
             // Start service
             self::lxdExecCommand($containerName, 'systemctl daemon-reload || true; systemctl enable backup-tool || true; systemctl start backup-tool || true', 'installSoftwareInContainer.exec.service');
             // Verify CLI presence
-            $chk = self::lxdExecCommand($containerName, '(command -v /opt/eazyBackup/backup-tool || command -v /opt/OBC/backup-tool || command -v backup-tool) >/dev/null 2>&1 && echo installed || echo missing', 'installSoftwareInContainer.exec.verify');
+            $chk = self::lxdExecCommand($containerName, '(command -v backup-tool || command -v /opt/eazyBackup/backup-tool || command -v /opt/OBC/backup-tool) >/dev/null 2>&1 && echo installed || echo missing', 'installSoftwareInContainer.exec.verify');
+            // Additional search to log exact path if present
+            self::lxdExecCommand($containerName, 'for p in /opt /usr/local/bin /usr/bin; do find "$p" -maxdepth 5 -type f -name backup-tool 2>/dev/null; done', 'installSoftwareInContainer.exec.findbt');
 
             // Attempt device login/registration using non-interactive piping inside container
-            $cmdBase = ($productId == "57") ? "/opt/OBC/backup-tool" : "/opt/eazyBackup/backup-tool";
-            self::lxdExecCommand($containerName, 'printf "\n' . addslashes($password) . '\n\n" | ' . $cmdBase . ' login prompt', 'installSoftwareInContainer.exec.login');
+            // Extra diagnostics about the .deb inside the container
+            self::lxdExecCommand($containerName, 'ls -l /tmp/software.deb || true', 'installSoftwareInContainer.exec.deb_ls');
+            self::lxdExecCommand($containerName, 'sha256sum /tmp/software.deb || true', 'installSoftwareInContainer.exec.deb_sha256');
+            self::lxdExecCommand($containerName, 'dpkg -I /tmp/software.deb 2>/dev/null | head -n 80 || true', 'installSoftwareInContainer.exec.deb_info');
+
+            $cmdLogin = 'BT=$(command -v backup-tool || command -v /opt/eazyBackup/backup-tool || command -v /opt/OBC/backup-tool || true); ' .
+                        'echo "BT=$BT"; if [ -x "$BT" ]; then printf "\n' . addslashes($password) . '\n\n" | "$BT" login prompt; else echo BT_NOT_FOUND; fi';
+            self::lxdExecCommand($containerName, $cmdLogin, 'installSoftwareInContainer.exec.login');
 
             unlink($debconfFile);
 
