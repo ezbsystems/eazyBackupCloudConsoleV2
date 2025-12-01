@@ -262,9 +262,8 @@
           <div class="pt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <button
           type="submit"
-          class="inline-flex items-center justify-center gap-2 rounded-full px-4 py-1.5 text-sm font-semibold
-                 shadow-sm ring-1 ring-[#FE5000]/40
-                 bg-gradient[#FE5000]
+          class="inline-flex items-center justify-center gap-2 rounded-full px-4 py-1.5 text-sm font-semibold                 
+                 bg-[#FE5000]
                  text-slate-950
                  transition transform hover:-translate-y-px hover:shadow-lg
                  active:translate-y-0 active:shadow-sm
