@@ -70,6 +70,7 @@
 							id="username"
 							name="username"
 							placeholder="Username"
+							value="{$default_username|escape}"
 							required
 							class="block w-full pl-10 pr-3 py-2 border border-gray-600 text-gray-300 bg-gray-700 rounded focus:outline-none focus:ring-0 focus:border-blue-600"
 						>

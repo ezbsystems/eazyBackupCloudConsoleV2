@@ -25,7 +25,19 @@ if (!$ca->isLoggedIn()) {
     exit();
 }
 
-$userId = $ca->getUserID();
+$userIdV8 = (int) $ca->getUserID();
+// Resolve client ID from user link (owner preferred)
+$clientId = 0;
+try {
+    $link = \WHMCS\Database\Capsule::table('tblusers_clients')->where('userid', $userIdV8)->orderBy('owner', 'desc')->first();
+    if ($link && isset($link->clientid)) {
+        $clientId = (int) $link->clientid;
+    }
+} catch (\Throwable $e) {}
+if ($clientId <= 0 && isset($_SESSION['uid'])) {
+    $clientId = (int) $_SESSION['uid'];
+}
+$userId = $clientId;
 $packageId = ProductConfig::$E3_PRODUCT_ID;
 $serverId = 5;
 $accessKeyFieldId = 54;
@@ -66,6 +78,7 @@ $cephAdminAccessKey = $module->where('setting', 'ceph_access_key')->pluck('value
 $cephAdminSecretKey = $module->where('setting', 'ceph_secret_key')->pluck('value')->first();
 $encryptionKey = $module->where('setting', 'encryption_key')->pluck('value')->first();
 $result = AdminOps::getUserInfo($s3Endpoint, $cephAdminAccessKey, $cephAdminSecretKey, $username);
+try { logModuleCall('cloudstorage', 'adminops_get_user_info', ['username' => $username], $result); } catch (\Throwable $e) {}
 
 if ($result['status'] == 'success') {
     $jsonData = [
@@ -87,8 +100,10 @@ try {
     ];
 
     $user = AdminOps::createUser($s3Endpoint, $cephAdminAccessKey, $cephAdminSecretKey, $params);
+    try { logModuleCall('cloudstorage', 'adminops_create_user', ['params' => $params], $user); } catch (\Throwable $e) {}
 
     if ($user['status'] != 'success') {
+        try { logModuleCall('cloudstorage', 'adminops_create_user_fail', ['params' => $params], $user); } catch (\Throwable $e) {}
         $jsonData = [
             'message' => $user['message'],
             'status' => 'fail',
@@ -99,18 +114,38 @@ try {
         exit();
     }
 
-    $hostingId = DBController::insertGetId('tblhosting', [
-        'userid' => $userId,
-        'packageid' => $packageId,
-        'server' => $serverId,
-        'username' => $username,
-        'regdate' => date('Y-m-d'),
-        'nextduedate' => date('Y-m-d', strtotime('+1 month')),
-        'billingcycle' => $billingCycle,
-        'domainstatus' => 'Active',
-        'created_at' => date('Y-m-d H:i:s'),
-        'updated_at' => date('Y-m-d H:i:s'),
-    ]);
+    // If a hosting record already exists for this client+package (from order flow), update it; else create it
+    $existing = DBController::getRow('tblhosting', [
+        ['userid', '=', $userId],
+        ['packageid', '=', $packageId],
+    ], ['id','server','username','domainstatus'], 'id', 'DESC');
+    if ($existing && isset($existing->id)) {
+        try { logModuleCall('cloudstorage', 'hosting_update', ['id' => (int)$existing->id, 'userId' => $userId, 'packageId' => $packageId], ['server' => $existing->server, 'username' => $existing->username, 'domainstatus' => $existing->domainstatus]); } catch (\Throwable $e) {}
+        $update = [
+            'username' => $username,
+            'domainstatus' => 'Active',
+            'updated_at' => date('Y-m-d H:i:s'),
+        ];
+        if (empty($existing->server)) {
+            $update['server'] = $serverId;
+        }
+        DBController::updateRecord('tblhosting', $update, [ ['id', '=', (int)$existing->id] ]);
+        $hostingId = (int) $existing->id;
+    } else {
+        try { logModuleCall('cloudstorage', 'hosting_insert', ['userId' => $userId, 'packageId' => $packageId], []); } catch (\Throwable $e) {}
+        $hostingId = DBController::insertGetId('tblhosting', [
+            'userid' => $userId,
+            'packageid' => $packageId,
+            'server' => $serverId,
+            'username' => $username,
+            'regdate' => date('Y-m-d'),
+            'nextduedate' => date('Y-m-d', strtotime('+1 month')),
+            'billingcycle' => $billingCycle,
+            'domainstatus' => 'Active',
+            'created_at' => date('Y-m-d H:i:s'),
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+    }
 
     $s3UserId = DBController::saveUser([
         'username' => $username,
@@ -125,6 +160,7 @@ try {
         'access_key' => $accessKey,
         'secret_key' => $secretKey
     ]);
+    try { logModuleCall('cloudstorage', 'adminops_create_keys_store', ['s3_user_id' => $s3UserId], ['access_key_len' => strlen($accessKey), 'secret_key_len' => strlen($secretKey)]); } catch (\Throwable $e) {}
 
     $jsonData = [
         'status' => 'success',

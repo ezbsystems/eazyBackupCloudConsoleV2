@@ -38,24 +38,23 @@
     <!-- Card -->
     <div class="relative rounded-2xl border border-slate-800 bg-slate-900/80 shadow-2xl shadow-black/60 backdrop-blur-sm">
       <!-- Subtle top glow -->
-      <div class="pointer-events-none absolute inset-x-0 -top-px h-px bg-gradient-to-r from-emerald-400/0 via-emerald-400/70 to-sky-400/0"></div>
+      <div class="pointer-events-none absolute inset-x-0 -top-px h-px bg-gradient-to-r from-[#FE5000]/0 via-[#FE5000]/70 to-[#FE5000]/0"></div>
 
       <div class="px-5 py-6 sm:px-7 sm:py-7">
         <!-- Eyebrow -->
         <div class="mb-4 flex items-center justify-between gap-3">
           <div>
-            <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-400">
-              eazyBackup e3
+            <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#FE5000]">
+              eazyBackup
             </p>
             <h1 class="mt-1 text-xl sm:text-2xl font-semibold tracking-tight text-slate-50">
-              Start your e3 Cloud Storage trial
+              Start your eazyBackup trial
             </h1>
             <p
               x-show="!emailSent"
-              class="mt-2 text-xs sm:text-sm text-slate-400 max-w-md"
+              class="mt-2 text-xs sm:text-sm text-white max-w-md"
             >
-              Tell us a bit about your organisation and storage needs. We will provision your e3
-              environment and send login details by email.
+              Tell us a bit about your organisation. We’ll email you a verification link to continue setup.
             </p>
           </div>
         </div>
@@ -86,9 +85,9 @@
                 {$message}
               </div>
             {/if}
-            {if isset($debugInfo) && $debugInfo}
+            {* {if isset($debugInfo) && $debugInfo}
               <pre class="mt-2 max-h-40 overflow-y-auto rounded-md bg-slate-900/70 px-3 py-2 text-[10px] text-slate-300 border border-slate-700/60">{$debugInfo|escape}</pre>
-            {/if}
+            {/if} *}
 
           <!-- Company + contact -->
           <div class="grid gap-4 sm:grid-cols-2">
@@ -100,10 +99,9 @@
                 id="company"
                 name="company"
                 type="text"
-                required
                 value="{$smarty.post.company|default:''|escape}"
                 class="block w-full rounded-lg border {if isset($errors.company)}border-rose-500{else}border-slate-700{/if} bg-slate-900/60 px-3 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                placeholder="Acme IT Services"
+                placeholder="Acme Corp"
               />
               {if isset($errors.company)}
                 <p class="text-[11px] text-rose-400 mt-1">{$errors.company}</p>
@@ -112,7 +110,7 @@
 
             <div class="space-y-1.5">
               <label for="fullName" class="block text-xs font-medium text-slate-200">
-                Full name
+                *Full name
               </label>
               <input
                 id="fullName"
@@ -133,7 +131,7 @@
           <div class="grid gap-4 sm:grid-cols-2">
             <div class="space-y-1.5">
               <label for="email" class="block text-xs font-medium text-slate-200">
-                Business email
+                *Business email
               </label>
               <input
                 id="email"
@@ -151,7 +149,7 @@
 
             <div class="space-y-1.5">
               <label for="phone" class="block text-xs font-medium text-slate-200">
-                Phone
+                *Phone
               </label>
               <input
                 id="phone"
@@ -169,22 +167,27 @@
           </div>
 
           <!-- Use case chips -->
-          <div class="space-y-2">
+          {* <div class="space-y-2">
             <p class="text-xs font-medium text-slate-200">
               What best describes how you plan to use e3?
             </p>
             <div class="flex flex-wrap gap-2 text-xs">
               <button
-                type="button"
-                @click="useCase = 'msp'"
+              type="button"
+              @click="useCase = 'msp'"
+              :class="useCase === 'msp'
+                ? 'border-emerald-500/80 bg-emerald-500/10 text-emerald-300'
+                : 'border-slate-700 bg-slate-900/60 text-slate-300 hover:border-slate-500'"
+              class="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 transition"
+            >
+              <span
                 :class="useCase === 'msp'
-                  ? 'border-emerald-500/80 bg-emerald-500/10 text-emerald-300'
-                  : 'border-slate-700 bg-slate-900/60 text-slate-300 hover:border-slate-500'"
-                class="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 transition"
-              >
-                <span class="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
-                <span>Managed service provider</span>
-              </button>
+                  ? 'h-1.5 w-1.5 rounded-full bg-emerald-400'
+                  : 'h-1.5 w-1.5 rounded-full bg-slate-500'"
+              ></span>
+              <span>Managed service provider</span>
+            </button>
+          
 
               <button
                 type="button"
@@ -211,46 +214,15 @@
               </button>
             </div>
             <input type="hidden" name="useCase" :value="useCase" />
-          </div>
+          </div> *}
 
-          <!-- Storage estimate slider / input -->
-          <div class="space-y-2">
-            <div class="flex items-center justify-between text-xs text-slate-400">
-              <span>Estimated data to store in the next 6–12 months</span>
-              <span class="font-mono text-slate-200">
-                <span x-text="storage"></span>&nbsp;TiB
-              </span>
-            </div>
-            <div class="space-y-3">
-              <input
-                type="range"
-                min="1"
-                max="75"
-                step="1"
-                x-model.number="storage"
-                class="w-full accent-emerald-400"
-              />
-              <div class="flex items-center gap-2">
-                <input
-                  type="number"
-                  min="1"
-                  max="999"
-                  x-model.number="storage"
-                  name="storageTiB"
-                  class="w-20 rounded-lg border {if isset($errors.storageTiB)}border-rose-500{else}border-slate-700{/if} bg-slate-900/60 px-3 py-1.5 text-xs text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                />
-                <span class="text-xs text-slate-400">TiB</span>
-              </div>
-              {if isset($errors.storageTiB)}
-                <p class="text-[11px] text-rose-400 mt-1">{$errors.storageTiB}</p>
-              {/if}
-            </div>
-          </div>
+          <!-- Storage estimate removed for generic signup -->
 
+          {* 
           <!-- How will you use e3 -->
           <div class="space-y-1.5">
             <label for="project" class="block text-xs font-medium text-slate-200">
-              How will you use e3?
+              How will you use eazyBackup?
             </label>
             <textarea
               id="project"
@@ -264,6 +236,7 @@
               <p class="text-[11px] text-rose-400 mt-1">{$errors.project}</p>
             {/if}
           </div>
+          *}
 
           
 
@@ -287,21 +260,22 @@
 
           <!-- Submit and secondary actions -->
           <div class="pt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <button
-              type="submit"
-              class="inline-flex items-center justify-center gap-2 rounded-full px-4 py-1.5 text-sm font-semibold shadow-sm ring-1 ring-emerald-500/40 bg-gradient-to-r from-emerald-500 via-emerald-400 to-sky-400 text-slate-950 transition transform hover:-translate-y-px hover:shadow-lg active:translate-y-0 active:shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:ring-offset-2 focus:ring-offset-slate-900"
-              :disabled="submitting"
-            >
-              <span x-show="!submitting">Create my trial</span>
-              <span x-show="submitting" class="inline-flex items-center gap-2">
-                <span class="h-3 w-3 animate-spin rounded-full border border-slate-900 border-t-transparent"></span>
-                Processing…
-              </span>
-            </button>
+          <button
+          type="submit"
+          class="inline-flex items-center justify-center gap-2 rounded-full px-4 py-1.5 text-sm font-semibold
+                 shadow-sm ring-1 ring-[#FE5000]/40
+                 bg-gradient-to-r from-[#FE5000] via-[#FF7A33] to-[#FF924D]
+                 text-slate-950
+                 transition transform hover:-translate-y-px hover:shadow-lg
+                 active:translate-y-0 active:shadow-sm
+                 focus:outline-none focus:ring-2 focus:ring-[#FE5000] focus:ring-offset-2 focus:ring-offset-slate-900"
+        >
+          Create my trial
+        </button>
 
             <div class="flex flex-col items-start gap-1 text-[11px] text-slate-400 sm:items-end">
               <a href="/" class="inline-flex items-center gap-1 text-slate-300 hover:text-emerald-300">
-                <span>Back to e3 site</span>
+                <span>Back to eazyBackup site</span>
                 <span aria-hidden="true">↗</span>
               </a>
               <a href="/clientarea.php" class="inline-flex items-center gap-1 text-slate-400 hover:text-slate-200">
@@ -316,13 +290,13 @@
         <!-- Email verification confirmation state -->
         <template x-if="emailSent">
           <div class="mt-6 space-y-4 text-sm">
-            <div class="rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-4 text-emerald-50">
-              <h2 class="text-sm font-semibold tracking-tight text-emerald-200">
+            <div class="rounded-xl border border-emerald-500/40 px-4 py-4 text-emerald-50">
+              <h2 class="text-sm font-semibold tracking-tight text-white">
                 Please check your email
               </h2>
-              <p class="mt-1.5 text-xs text-emerald-100/90">
+              <p class="mt-1.5 text-xs text-white">
                 We’ve sent a verification link to <span class="font-mono">{$smarty.post.email|default:$email|escape}</span>.
-                Click the link in that email to verify your address and activate your e3 Cloud Storage trial.
+                Click the link in that email to verify your address and continue.
               </p>
             </div>
             <p class="text-[11px] text-slate-400">
@@ -333,20 +307,43 @@
       </div>
 
       <!-- Trust bar -->
-      <div class="border-t border-slate-800/80 bg-slate-950/60 px-5 py-3 sm:px-7 flex flex-wrap items-center gap-3 text-[11px] text-slate-400">
-        <div class="flex items-center gap-2">
-          <span class="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
-          <span>Canadian data residency</span>
-        </div>
-        <div class="flex items-center gap-2">
-          <span class="h-1.5 w-1.5 rounded-full bg-sky-400"></span>
-          <span>Controlled Goods Program registered</span>
-        </div>
-        <div class="flex items-center gap-2">
-          <span class="h-1.5 w-1.5 rounded-full bg-violet-400"></span>
-          <span>Designed for MSPs, SaaS, and internal IT teams</span>
+      <div class="border-t border-slate-800/80 bg-slate-950/60 px-5 py-3 sm:px-7">
+        <div class="flex flex-wrap items-center gap-x-6 gap-y-2 text-[11px] text-slate-400">
+          
+          <div class="flex items-center gap-2">
+            <span class="inline-flex h-4 w-4 items-center justify-center rounded-full border border-[#FE5000]/60 bg-slate-900/80">
+              <span class="h-1.5 w-1.5 rounded-full bg-[#FE5000]"></span>
+            </span>
+            <span>Canadian data residency</span>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <span class="inline-flex h-4 w-4 items-center justify-center rounded-full border border-[#FE5000]/60 bg-slate-900/80">
+              <span class="h-1.5 w-1.5 rounded-full bg-[#FE5000]"></span>
+            </span>
+            <span>Controlled Goods Program registered</span>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <span class="inline-flex h-4 w-4 items-center justify-center rounded-full border border-[#FE5000]/60 bg-slate-900/80">
+              <span class="h-1.5 w-1.5 rounded-full bg-[#FE5000]"></span>
+            </span>
+            <span>Designed for MSPs, SaaS, and internal IT teams</span>
+          </div>
+
+          <!-- Optional 4th point -->
+          <!--
+          <div class="flex items-center gap-2">
+            <span class="inline-flex h-4 w-4 items-center justify-center rounded-full border border-[#FE5000]/60 bg-slate-900/80">
+              <span class="h-1.5 w-1.5 rounded-full bg-[#FE5000]"></span>
+            </span>
+            <span>Encrypted backups by default (AES-256-CTR)</span>
+          </div>
+          -->
+
         </div>
       </div>
+
     </div>
   </div>
 </div>
