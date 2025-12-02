@@ -1074,3 +1074,45 @@ All endpoints live at `accounts/includes/hooks/configOptionsDiscount_ajax.php` a
   - For select/radio, ensure the intended “0/None” sub‑option is actually selected on the page; otherwise it will price the selected sub‑option.
   - For quantity, verify the quantity input reflects the intended value and that a per‑unit discount is saved if needed.
 - The feature is admin‑only; `commit_amount` requires an admin session.
+
+## Product Packages:
+OBC plan package ID = 60
+eazyBackup package ID = 58
+Microsoft 365 Backup id=52
+Microsoft 365 Backup (OBC) id=57
+Virtual Server Backup id=53
+Virtual Server Backup (OBC) id=54
+OBC (NFR) pid=93
+Microsoft 365 Backup (NFR) pid=95
+Virtual Server Backup (NFR) pid=94
+e3 Object Storage pid=48
+cloud to cloud backup pid=101
+
+## NEW Configurable Options:
+Cloud Storage cid=67
+Device endpoint cid=88
+Disk Image cid=91
+Microsoft 365 Accounts cid=60
+Hyper-V Guest VM cid=97
+Proxmox Guest VM cid=102
+VMware Guest VM cid=99
+Server endpoint cid=89
+
+# How WHMCS Configurable Options are linked to Products in the database:
+
+## table tblclients:
+tblclients.id = the customers ID
+
+## Products are kept in table tblhosting:
+- Customers userid is mapped to tblhosting.userid
+- tblhosting.id maps to tblhostingconfigoptions.relid
+
+## Table tblhostingconfigoptions:
+tblhostingconfigoptions.relid is equal to the tblhosting.id
+tblhostingconfigoptions.cid is the configurable option id.
+tblhostingconfigoptions.qty is the users purchased amount of the configurable option.
+tblhostingconfigoptions.optionid links to the tblpricing.relid
+
+## Table tblpricing:
+tblpricing stores pricing information for the products and configurable options.
+tblpricing.relid links to the tblhostingconfigoptions.optionid

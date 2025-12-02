@@ -3,9 +3,7 @@
     <div class="container mx-auto px-4 pb-8">
         <!-- Top bar: title, nav, search -->
         <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6">
-            <div class="container mx-auto px-4 py-8">
-                <!-- Section title -->
-                
+            <div class="container mx-auto px-4 py-8">                
                 <!-- Cloud Storage Navigation -->
                 <nav class="inline-flex rounded-full bg-slate-900/80 p-1 text-xs font-medium text-slate-400" aria-label="Cloud Storage Navigation">
                     <a href="index.php?m=cloudstorage&page=dashboard"

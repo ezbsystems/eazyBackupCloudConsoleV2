@@ -423,7 +423,7 @@ class EazybackupObcMs365 {
 
             // Ensure debconf-utils available, then apply selections
             self::lxdExecCommand($containerName, 'DEBIAN_FRONTEND=noninteractive apt-get update -y', 'installSoftwareInContainer.exec.update');
-            self::lxdExecCommand($containerName, 'DEBIAN_FRONTEND=noninteractive apt-get install -y debconf-utils || true', 'installSoftwareInContainer.exec.debconfutils');
+            self::lxdExecCommand($containerName, 'DEBIAN_FRONTEND=noninteractive apt-get install -y debconf-utils ca-certificates || true', 'installSoftwareInContainer.exec.debconfutils');
             self::lxdExecCommand($containerName, 'debconf-set-selections /tmp/debconf-backup-tool || true', 'installSoftwareInContainer.exec.debconf');
             // Verify files inside container prior to install
             self::lxdExecCommand($containerName, 'stat -c "%n %s" /tmp/debconf-backup-tool /tmp/software.deb || true', 'installSoftwareInContainer.exec.preinstall_stat');
@@ -444,9 +444,26 @@ class EazybackupObcMs365 {
             self::lxdExecCommand($containerName, 'sha256sum /tmp/software.deb || true', 'installSoftwareInContainer.exec.deb_sha256');
             self::lxdExecCommand($containerName, 'dpkg -I /tmp/software.deb 2>/dev/null | head -n 80 || true', 'installSoftwareInContainer.exec.deb_info');
 
-            $cmdLogin = 'BT=$(command -v backup-tool || command -v /opt/eazyBackup/backup-tool || command -v /opt/OBC/backup-tool || true); ' .
-                        'echo "BT=$BT"; if [ -x "$BT" ]; then printf "\n' . addslashes($password) . '\n\n" | "$BT" login prompt; else echo BT_NOT_FOUND; fi';
+            // Ensure config directory exists and perform non-interactive login with explicit server/username/password.
+            self::lxdExecCommand($containerName, 'mkdir -p /root/.config/backup-tool || true', 'installSoftwareInContainer.exec.ensure_cfgdir');
+            $cmdLogin = 'BT=$(command -v /opt/eazyBackup/backup-tool || command -v /opt/OBC/backup-tool || command -v backup-tool || true); '
+                      . 'echo "BT=$BT"; '
+                      . 'if [ -x "$BT" ]; then '
+                      . '  export HOME=/root; '
+                      . '  "$BT" logout >/dev/null 2>&1 || true; '
+                      . '  ( '
+                      . '    "$BT" login ' . escapeshellarg($serverUrl) . ' ' . escapeshellarg($username) . ' ' . escapeshellarg($password) . ' > /tmp/eb-login.out 2>&1 || '
+                      . '    "$BT" login add ' . escapeshellarg($serverUrl) . ' ' . escapeshellarg($username) . ' ' . escapeshellarg($password) . ' >> /tmp/eb-login.out 2>&1 || '
+                      . '    "$BT" cmd -Action=login -Server=' . escapeshellarg($serverUrl) . ' -Username=' . escapeshellarg($username) . ' -Password=' . escapeshellarg($password) . ' >> /tmp/eb-login.out 2>&1 '
+                      . '  ); '
+                      . '  RC=$?; echo "RC=$RC" >> /tmp/eb-login.out; '
+                      . '  "$BT" whoami >> /tmp/eb-login.out 2>&1 || true; '
+                      . '  echo "--- eb-login.out ---"; cat /tmp/eb-login.out || true; '
+                      . '  exit $RC; '
+                      . 'else echo BT_NOT_FOUND; fi';
             self::lxdExecCommand($containerName, $cmdLogin, 'installSoftwareInContainer.exec.login');
+            // Restart service so delegate-server loads fresh credentials
+            self::lxdExecCommand($containerName, 'systemctl restart backup-tool || true', 'installSoftwareInContainer.exec.service_restart');
 
             unlink($debconfFile);
 
@@ -467,16 +484,33 @@ class EazybackupObcMs365 {
     public static function loginPromptInContainer($containerName, $username, $password, $productId)
     {
         try {
+            // Resolve server URL
             if ($productId == "57") { // OBC MS365
-                $commandBase = "/opt/OBC/backup-tool login prompt";
-            } else {
-                $commandBase = "/opt/eazyBackup/backup-tool login prompt";
+                $serverUrl = "https://csw.obcbackup.com/";
+            } else { // eazyBackup MS365
+                $serverUrl = "https://csw.eazybackup.ca/";
             }
 
-            // Execute inside container (no SSH, no shell_exec): pipe password to "login prompt"
-            $cmd = 'printf "\n' . addslashes($password) . '\n\n" | ' . $commandBase;
+            // Non-interactive login inside container and restart service (with fallbacks + log capture)
+            $cmd = 'BT=$(command -v /opt/eazyBackup/backup-tool || command -v /opt/OBC/backup-tool || command -v backup-tool || true); '
+                 . 'echo "BT=$BT"; '
+                 . 'if [ -x "$BT" ]; then '
+                 . '  export HOME=/root; mkdir -p /root/.config/backup-tool || true; '
+                 . '  "$BT" logout >/dev/null 2>&1 || true; '
+                 . '  ( '
+                 . '    "$BT" login ' . escapeshellarg($serverUrl) . ' ' . escapeshellarg($username) . ' ' . escapeshellarg($password) . ' > /tmp/eb-login.out 2>&1 || '
+                 . '    "$BT" login add ' . escapeshellarg($serverUrl) . ' ' . escapeshellarg($username) . ' ' . escapeshellarg($password) . ' >> /tmp/eb-login.out 2>&1 || '
+                 . '    "$BT" cmd -Action=login -Server=' . escapeshellarg($serverUrl) . ' -Username=' . escapeshellarg($username) . ' -Password=' . escapeshellarg($password) . ' >> /tmp/eb-login.out 2>&1 '
+                 . '  ); '
+                 . '  RC=$?; echo "RC=$RC" >> /tmp/eb-login.out; '
+                 . '  "$BT" whoami >> /tmp/eb-login.out 2>&1 || true; '
+                 . '  echo "--- eb-login.out ---"; cat /tmp/eb-login.out || true; '
+                 . '  exit $RC; '
+                 . 'else echo BT_NOT_FOUND; fi';
             $res = self::lxdExecCommand($containerName, $cmd, 'loginPromptInContainer.exec');
-            return ['status' => 'success', 'message' => 'Software installed successfully', 'output' => $res];
+            self::lxdExecCommand($containerName, 'systemctl restart backup-tool || true', 'loginPromptInContainer.exec.service_restart');
+
+            return ['status' => 'success', 'message' => 'Login completed', 'output' => $res];
         } catch (\Exception $e) {
             $message = "Exception during software installation: " . $e->getMessage() . " - Trace: " . $e->getTraceAsString();
             logModuleCall("eazybackup", 'loginPromptInContainer', [$containerName, $username, $password, $productId], $message);
