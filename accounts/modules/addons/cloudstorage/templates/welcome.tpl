@@ -1,11 +1,8 @@
-<div class="min-h-screen bg-slate-950 text-gray-300">
+<div class="min-h-screen bg-slate-950 text-gray-300">    
     <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
-    <div class="container mx-auto px-4 pb-8 min-h-screen flex items-center"> 
-
-            
+    <div class="container mx-auto px-4 pb-8 min-h-screen flex items-center">                
                 
-                
-                <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] max-w-4xl mx-auto px-6 py-6">
+                <div class="relative z-[10000] rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] max-w-4xl mx-auto px-6 py-6">
         
                     <!-- Global Message Container (Always Present) -->
                     <div id="globalMessage" class="text-white px-4 py-2 rounded-md mb-6 hidden" role="alert"></div>

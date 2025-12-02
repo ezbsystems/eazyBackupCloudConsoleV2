@@ -5,7 +5,7 @@
 
 <div class="min-h-screen bg-slate-950 text-gray-300">
   <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
-  <div class="container mx-auto px-4 pb-10 pt-6 relative pointer-events-relative w-full px-3 py-2 text-slate-300 bg-slate-900 border border-gray-600 rounded-md shadow-sm cursor-default focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500">
+  <div class="container mx-auto px-4 pb-10 pt-6 relative pointer-events-relative w-full px-3 py-2 text-slate-300 focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500">
 
     {if $showCreateOrderAnnouncement}
       <div
@@ -207,6 +207,23 @@
                       99: { monthly: '{$pricing.99.monthly|escape:'html'}', annually: '{$pricing.99.annually|escape:'html'}' },
                       102:{ monthly: '{$pricing.102.monthly|escape:'html'}',annually: '{$pricing.102.annually|escape:'html'}' }
                     },
+                    // helpers to classify the selected product by PID
+                    isMs365() {
+                      const pid = parseInt(this.selectedProduct || 0, 10);
+                      return [52,57].includes(pid);
+                    },
+                    isUsage() {
+                      const pid = parseInt(this.selectedProduct || 0, 10);
+                      // usage-based backup products (eazyBackup / OBC) and whitelabel/other usage SKUs
+                      if ([58,60].includes(pid)) return true;
+                      // treat anything that is not explicitly MS365 or VM-only as usage
+                      if (!this.isMs365() && !this.isVm()) return !!pid;
+                      return false;
+                    },
+                    isVm() {
+                      const pid = parseInt(this.selectedProduct || 0, 10);
+                      return [53,54].includes(pid);
+                    },
                     init() {
                       this.updateProductType();
                       this.$watch('selectedProduct', () => this.updateProductType());
@@ -225,9 +242,28 @@
                     },
                     updateProductType() {
                       const pid = parseInt(this.selectedProduct || 0, 10);
-                      if ([52,57].includes(pid)) { this.productType = 'ms365'; this.forceMonthly(); return; }
-                      if ([58,60].includes(pid)) { this.productType = 'usage'; this.termDisabled = false; return; }
-                      if ([53,54].includes(pid)) { this.productType = 'vm'; this.termDisabled = false; return; }
+                      // reset term lock by default; MS365 will override via forceMonthly()
+                      this.termDisabled = false;
+                      if (!pid) {
+                        this.productType = '';
+                        return;
+                      }
+                      // Microsoft 365 backup products – always monthly
+                      if (this.isMs365()) {
+                        this.productType = 'ms365';
+                        this.forceMonthly();
+                        return;
+                      }
+                      // VM‑only backup products
+                      if (this.isVm()) {
+                        this.productType = 'vm';
+                        return;
+                      }
+                      // everything else is usage‑based
+                      if (this.isUsage()) {
+                        this.productType = 'usage';
+                        return;
+                      }
                       this.productType = '';
                     },
                     forceMonthly() { this.billingTerm = 'monthly'; this.termDisabled = true; this.termOpen = false; },
@@ -547,28 +583,28 @@
                                   </svg>
                                 {elseif $product.pid == 60}
                                   {* OBC brand icon pid=60 *}
-                                  <svg width="24" height="24" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg" class="mr-3">
-                                  <defs>
-                                    <clipPath id="clip_path_1">
-                                      <rect width="256" height="256" />
-                                    </clipPath>
-                                  </defs>
-                                  <g clip-path="url(#clip_path_1)">
-                                    <g>
-                                      <path d="M123.517 0.748482C135.162 3.23927 145.461 11.0081 151.254 21.5643C152.308 23.5214 154.297 28.2064 155.643 31.9425C156.989 35.6787 158.218 38.9404 158.335 39.1777C158.51 39.4149 161.261 38.2881 164.421 36.6869C173.491 32.0611 178.231 30.6378 185.779 30.282C191.104 30.0448 193.094 30.2227 197.19 31.2902C209.479 34.374 219.544 42.6766 224.927 54.0631C227.912 60.29 228.907 64.56 229.199 72.566C229.55 81.1059 228.497 86.3843 224.518 95.9909C224.518 95.9909 221.943 102.218 221.943 102.218C221.943 102.218 229.901 106.133 229.901 106.133C240.961 111.647 246.813 117.163 251.553 126.711C254.771 133.234 255.941 138.632 256 147.289C256 156.304 254.771 161.523 250.968 168.936C246.169 178.365 239.557 184.711 229.375 189.81C225.981 191.471 223.172 192.895 223.113 192.895C223.055 192.954 223.406 194.97 223.933 197.401C224.459 200.071 224.869 204.934 224.869 209.559C224.869 216.26 224.693 217.98 223.289 222.606C217.496 242.058 201.696 254.986 182.561 255.935C174.661 256.291 169.336 255.224 162.373 251.725C155.468 248.285 150.903 243.956 144.993 235.534C142.477 231.857 140.253 228.833 140.078 228.833C139.961 228.833 137.269 230.849 134.109 233.34C127.438 238.678 119.889 242.592 113.686 244.015C107.191 245.438 97.243 244.905 91.0402 242.77C81.0923 239.271 72.6658 231.561 67.8089 221.42C64.766 215.015 63.5957 210.211 62.6009 199.833C62.2498 196.394 61.9572 193.606 61.8401 193.487C61.7816 193.429 58.4462 194.022 54.4085 194.851C37.0289 198.35 23.4529 194.615 12.7443 183.406C2.67933 172.731 -1.53391 157.371 1.50898 142.367C3.38153 133.175 6.77553 126.889 14.5583 118.171C14.5583 118.171 19.7663 112.36 19.7663 112.36C19.7663 112.36 14.6168 106.844 14.6168 106.844C8.64807 100.439 5.72222 96.2287 3.38153 90.5947C-1.24132 79.3267 -1.12429 64.7972 3.73263 53.5886C7.7118 44.5744 15.7286 35.738 23.8625 31.4681C30.8261 27.7912 36.4437 26.3679 44.168 26.3679C51.8922 26.3679 55.4033 27.1982 64.4149 31.3495C67.9844 33.01 71.0273 34.2554 71.0859 34.1961C71.2029 34.0775 72.7243 31.053 74.4799 27.4354C79.5708 17.1165 85.6566 10.2372 93.9075 5.55207C97.5356 3.47645 103.27 1.34153 107.366 0.511202C111.17 -0.259733 119.362 -0.141143 123.517 0.748482C123.517 0.748482 123.517 0.748482 123.517 0.748482Z" fill="#0EA5E9" fill-rule="evenodd" />
+                                  <svg width="24" height="24" viewBox="0 0 93.176 32" fill="none" xmlns="http://www.w3.org/2000/svg" class="mr-3">
+                                    <defs>
+                                      <clipPath id="clip_path_1">
+                                        <rect width="93.176" height="32" />
+                                      </clipPath>
+                                      <linearGradient id="gradient_2" gradientUnits="userSpaceOnUse" x1="95" y1="-0" x2="-5.135" y2="38.4">
+                                        <stop offset="0.089" stop-color="#EBAC36" />
+                                        <stop offset="0.94" stop-color="#FE5000" />
+                                      </linearGradient>
+                                      <linearGradient id="gradient_3" gradientUnits="userSpaceOnUse" x1="480.604" y1="0" x2="-0" y2="341.333">
+                                        <stop offset="0.086" stop-color="#EBAC36" />
+                                        <stop offset="0.979" stop-color="#FE5000" />
+                                      </linearGradient>
+                                    </defs>
+                                    <g clip-path="url(#clip_path_1)">
+                                      <path d="M16.446 0C21.0896 0 24.6287 0.764046 27.0634 2.29212C29.498 3.82017 31.1023 5.74135 31.8763 8.05569C32.6503 10.37 33.0371 13.0107 33.0371 15.9777C33.0371 21.7339 31.4894 25.8433 28.3936 28.306C25.2978 30.7687 21.3476 32 16.5427 32C13.9952 32 11.5525 31.6661 9.21461 30.9986C6.87669 30.3308 4.75646 28.7881 2.85387 26.37C0.951289 23.952 0 20.4582 0 15.8885C0 13.6633 0.193484 11.7274 0.580447 10.0807C0.967414 8.43406 1.58011 7.01717 2.41853 5.83001C4.0309 3.51575 6.03022 1.96552 8.4165 1.17931C10.8028 0.393105 13.4793 0 16.446 0ZM16.4943 26.83C19.7835 26.83 22.1296 25.8832 23.5323 23.9896C24.9351 22.0958 25.6365 19.4326 25.6365 15.9999C25.6365 11.9461 24.8463 9.12757 23.2662 7.54452C21.6862 5.96144 19.4288 5.16991 16.4943 5.16991C13.6566 5.16991 11.4235 6.0724 9.79502 7.8774C8.16653 9.68241 7.35228 12.3456 7.35228 15.867C7.35228 19.2402 7.93273 21.9107 9.09363 23.8783C10.2545 25.8461 12.7215 26.83 16.4943 26.83ZM60.7052 15.9554C62.4465 16.7005 63.7122 17.6168 64.5023 18.7044C65.2923 19.7918 65.6875 21.1549 65.6875 22.7937C65.6875 25.446 64.9698 27.5395 63.5347 29.0741C62.0998 30.6086 59.1413 31.376 54.659 31.376C54.659 31.376 36.4715 31.376 36.4715 31.376C36.4715 31.376 36.4715 0.579388 36.4715 0.579388C36.4715 0.579388 53.5063 0.579388 53.5063 0.579388C57.3239 0.579388 60.3086 1.12163 62.4601 2.20612C64.6116 3.29062 65.6875 5.55617 65.6875 9.00275C65.6875 10.5478 65.3003 11.8551 64.5266 12.9248C63.7526 13.9944 62.4789 15.0046 60.7052 15.9554ZM53.4663 13.2367C55.0242 13.2367 56.225 12.9767 57.0691 12.4568C57.9129 11.9368 58.3349 10.9935 58.3349 9.6267C58.3349 7.19032 56.761 5.97212 53.6128 5.97212C53.6128 5.97212 43.3402 5.97212 43.3402 5.97212C43.3402 5.97212 43.3402 13.2367 43.3402 13.2367C43.3402 13.2367 53.4663 13.2367 53.4663 13.2367ZM53.4981 26.0278C55.0136 26.0278 56.1986 25.7587 57.0532 25.2207C57.9077 24.6825 58.3349 23.7261 58.3349 22.3509C58.3349 19.8402 56.771 18.5849 53.6432 18.5849C53.6432 18.5849 43.3402 18.5849 43.3402 18.5849C43.3402 18.5849 43.3402 26.0278 43.3402 26.0278C43.3402 26.0278 53.4981 26.0278 53.4981 26.0278ZM83.3427 31.376C78.6346 31.376 74.894 30.1634 72.1206 27.7385C69.3474 25.3134 67.9608 21.5866 67.9608 16.5578C67.9608 11.6483 69.1298 7.75786 71.4678 4.88652C73.8055 2.0151 77.8285 0.579388 83.5361 0.579388C83.5361 0.579388 95 0.579388 95 0.579388C95 0.579388 95 5.66016 95 5.66016C95 5.66016 83.633 5.66016 83.633 5.66016C80.4405 5.66016 78.2719 6.60755 77.1269 8.50236C75.9822 10.3972 75.4098 12.8964 75.4098 16C75.4098 16 75.4098 17.5222 75.4098 17.5222C75.4098 19.999 75.9178 22.0655 76.9336 23.7217C77.9494 25.378 80.1824 26.206 83.633 26.206C83.633 26.206 95 26.206 95 26.206C95 26.206 95 31.376 95 31.376C95 31.376 83.3427 31.376 83.3427 31.376Z" fill="url(#gradient_2)" />
+                                      <path d="M412.907 128.747C398.4 55.36 333.653 0 256 0C194.347 0 140.907 34.9867 114.133 86.08C50.0267 93.0133 0 147.307 0 213.333C0 284.053 57.28 341.333 128 341.333C128 341.333 405.333 341.333 405.333 341.333C464.213 341.333 512 293.547 512 234.667C512 178.347 468.16 132.693 412.907 128.747C412.907 128.747 412.907 128.747 412.907 128.747Z" fill="url(#gradient_3)" fill-rule="evenodd" transform="translate(0 85)" />
+                                      <path d="M412.907 128.747C398.4 55.36 333.653 0 256 0C194.347 0 140.907 34.9867 114.133 86.08C50.0267 93.0133 0 147.307 0 213.333C0 284.053 57.28 341.333 128 341.333C128 341.333 405.333 341.333 405.333 341.333C464.213 341.333 512 293.547 512 234.667C512 178.347 468.16 132.693 412.907 128.747C412.907 128.747 412.907 128.747 412.907 128.747Z" fill="url(#gradient_3)" fill-rule="evenodd" transform="translate(0 85)" />
+                                      <path d="M412.907 128.747C398.4 55.36 333.653 0 256 0C194.347 0 140.907 34.9867 114.133 86.08C50.0267 93.0133 0 147.307 0 213.333C0 284.053 57.28 341.333 128 341.333C128 341.333 405.333 341.333 405.333 341.333C464.213 341.333 512 293.547 512 234.667C512 178.347 468.16 132.693 412.907 128.747C412.907 128.747 412.907 128.747 412.907 128.747Z" fill="url(#gradient_3)" fill-rule="evenodd" transform="translate(0 85)" />
+                                      <path d="M412.907 128.747C398.4 55.36 333.653 0 256 0C194.347 0 140.907 34.9867 114.133 86.08C50.0267 93.0133 0 147.307 0 213.333C0 284.053 57.28 341.333 128 341.333C128 341.333 405.333 341.333 405.333 341.333C464.213 341.333 512 293.547 512 234.667C512 178.347 468.16 132.693 412.907 128.747C412.907 128.747 412.907 128.747 412.907 128.747Z" fill="url(#gradient_3)" fill-rule="evenodd" transform="translate(0 85)" />
                                     </g>
-                                    <rect width="256" height="256" />
-                                    <g transform="translate(22 95)">
-                                      <g>
-                                        <g transform="translate(143.404 0)">
-                                          <path d="M57.5965 60.9094L57.5965 66.9999C57.5965 66.9999 32.7652 66.9999 32.7652 66.9999C22.7366 66.9999 14.7685 63.2395 8.86076 58.1556C2.95362 53.0717 0 45.2586 0 34.716C0 24.4236 2.48986 16.2676 7.47021 10.2478C12.4501 4.22806 21.2248 0 33.3833 0C33.3833 0 57.5965 0 57.5965 0L57.5965 12.3124C57.5965 12.3124 33.1773 12.3124 33.1773 12.3124C26.3767 12.3124 21.9636 14.9093 19.5249 18.8818C17.0864 22.8542 15.8673 27.0402 15.8673 33.5466C15.8673 33.5466 15.8673 36.7381 15.8673 36.7381C15.8673 41.9305 17.3611 46.2628 19.5249 49.7349C21.6889 53.2071 26.0334 54.8181 33.3833 54.8181C33.3833 54.8181 57.5965 54.8181 57.5965 54.8181C57.5965 54.8181 57.5965 58.0302 57.5965 60.9094Z" fill="#FFFFFF" fill-rule="evenodd" />
-                                        </g>
-                                        <path d="M60.1302 39.2777C58.4354 36.969 55.7199 35.0237 51.9848 33.4418C55.7892 31.4233 58.5217 29.2787 60.1818 27.0079C61.842 24.7369 62.6721 22.5609 62.6721 18.6815C62.6394 12.4942 61.8254 9.05339 58.9012 6.21648C55.977 3.37958 51.7471 0.0713317 39.0144 0C38.5305 0 0 8.43166e-05 0 8.43166e-05L0 67C0 67 39.0144 67 39.0144 67C48.6299 67 54.9761 64.5504 58.0547 61.2925C61.1328 58.0346 62.6721 53.5904 62.6721 47.9594C62.6721 44.4802 61.8244 41.5864 60.1302 39.2777C60.1302 39.2777 60.1302 39.2777 60.1302 39.2777ZM36.456 27.6699C39.7977 27.6699 42.3742 27.118 44.1843 26.0141C45.995 24.9103 46.8998 22.9076 46.8998 20.006C46.8998 14.8337 43.5235 12.2475 36.7702 12.2475C36.7702 12.2475 14.7338 12.2475 14.7338 12.2475L14.7338 27.6699L36.456 27.6699C36.456 27.6699 36.456 27.6699 36.456 27.6699ZM44.1503 53.1112C42.3176 54.2535 39.7752 54.8249 36.5235 54.8249C36.5235 54.8249 14.7338 54.8249 14.7338 54.8249L14.7338 39.0238C14.7338 39.0238 36.8356 39.0238 36.8356 39.0238C43.5449 39.0238 46.8998 41.6888 46.8998 47.0189C46.8998 49.9383 45.9835 51.9689 44.1503 53.1112C44.1503 53.1112 44.1503 53.1112 44.1503 53.1112Z" fill="#FFFFFF" fill-rule="evenodd" stroke-width="0" stroke="#FFFFFF" transform="translate(75.099 0)" />
-                                        <path d="M53.7541 4.50603C48.9185 1.50201 41.889 0 32.6657 0C26.773 0 21.4568 0.772792 16.7171 2.31838C11.9774 3.86394 8.00629 6.91153 4.80379 11.4612C3.13847 13.7948 1.92151 16.5802 1.1529 19.8174C0.384302 23.0545 0 26.8603 0 31.2347C0 40.2181 1.88948 47.0865 5.66844 51.84C9.44742 56.5935 13.6587 59.6266 18.3024 60.9386C22.946 62.2511 27.7979 62.9074 32.8578 62.9074C42.4012 62.9074 50.2476 60.4871 56.396 55.6459C62.545 50.8045 65.6197 42.7259 65.6197 31.4099C65.6197 25.5772 64.8506 20.386 63.3135 15.8364C61.7764 11.2868 58.5901 7.51006 53.7541 4.50603C53.7541 4.50603 53.7541 4.50603 53.7541 4.50603ZM46.7408 47.1601C43.9546 50.8827 39.2949 52.7442 32.7618 52.7442C25.2679 52.7442 20.368 50.8102 18.0622 46.942C15.7564 43.0736 14.6035 37.8237 14.6035 31.1924C14.6035 24.2699 16.2208 19.0344 19.4553 15.4861C22.6898 11.9376 27.1253 10.1634 32.7618 10.1634C38.5902 10.1634 43.074 11.7194 46.2124 14.8317C49.3509 17.9438 50.9201 23.4845 50.9201 31.4538C50.9201 38.2021 49.527 43.4375 46.7408 47.1601C46.7408 47.1601 46.7408 47.1601 46.7408 47.1601Z" fill="#FFFFFF" fill-rule="evenodd" stroke-width="6" stroke="#FFFFFF" transform="translate(0 2.056)" />
-                                      </g>
-                                    </g>
-                                  </g>
-                                </svg>
+                                  </svg>
                                 {/if}
                               </div>
                               <div class="ml-1">
@@ -626,13 +662,42 @@
                                           " class="relative group flex items-start px-3 py-2 cursor-pointer hover:bg-slate-800/80 transition-colors duration-150">
                             <span class="absolute left-0 inset-y-0 w-1 bg-sky-500 opacity-0 transition-opacity duration-200 group-hover:opacity-100"></span>
                             <div class="flex-shrink-0 {if $product.gid == 7}text-sky-500{else}text-orange-600{/if}">
-
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" class="mr-3 size-6">
-                              <path d="M5.507 4.048A3 3 0 0 1 7.785 3h8.43a3 3 0 0 1 2.278 1.048l1.722 2.008A4.533 4.533 0 0 0 19.5 6h-15c-.243 0-.482.02-.715.056l1.722-2.008Z" />
-                              <path fill-rule="evenodd" d="M1.5 10.5a3 3 0 0 1 3-3h15a3 3 0 1 1 0 6h-15a3 3 0 0 1-3-3Zm15 0a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm2.25.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM4.5 15a3 3 0 1 0 0 6h15a3 3 0 1 0 0-6h-15Zm11.25 3.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM19.5 18a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z" clip-rule="evenodd" />
-                            </svg>
-                            
-                          
+                            {if $product.pid == 53}
+                              {* eazyBackup brand icon for Virtual Server product *}
+                              <svg width="24" height="24" viewBox="0 0 256 253" fill="none" xmlns="http://www.w3.org/2000/svg" class="mr-3">
+                                <g transform="translate(0 -0)">
+                                  <path d="M123.517 0.739711C135.162 3.20131 145.461 10.8791 151.254 21.3116C152.308 23.2457 154.297 27.8758 155.643 31.5682C156.989 35.2606 158.218 38.4841 158.335 38.7186C158.51 38.953 161.261 37.8394 164.421 36.257C173.491 31.6854 178.231 30.2788 185.779 29.9271C191.104 29.6927 193.094 29.8685 197.19 30.9235C209.479 33.9712 219.544 42.1765 224.927 53.4295C227.912 59.5835 228.907 63.8034 229.199 71.7156C229.55 80.1554 228.497 85.372 224.518 94.866C224.518 94.866 221.943 101.02 221.943 101.02C221.943 101.02 229.901 104.889 229.901 104.889C240.961 110.339 246.813 115.79 251.553 125.226C254.771 131.673 255.941 137.007 256 145.563C256 154.472 254.771 159.63 250.968 166.956C246.169 176.275 239.557 182.546 229.375 187.586C225.981 189.227 223.172 190.634 223.113 190.634C223.055 190.693 223.406 192.685 223.933 195.088C224.459 197.726 224.869 202.532 224.869 207.103C224.869 213.726 224.693 215.426 223.289 219.997C217.496 239.221 201.696 251.998 182.561 252.936C174.661 253.288 169.336 252.233 162.373 248.775C155.468 245.375 150.903 241.097 144.993 232.774C142.477 229.14 140.253 226.151 140.078 226.151C139.961 226.151 137.269 228.144 134.109 230.606C127.438 235.881 119.889 239.749 113.686 241.155C107.191 242.562 97.243 242.035 91.0402 239.925C81.0923 236.467 72.6658 228.847 67.8089 218.825C64.766 212.495 63.5957 207.748 62.6009 197.491C62.2498 194.092 61.9572 191.337 61.8401 191.22C61.7816 191.162 58.4462 191.748 54.4085 192.568C37.0289 196.026 23.4529 192.334 12.7443 181.257C2.67933 170.707 -1.53391 155.527 1.50898 140.699C3.38153 131.614 6.77553 125.402 14.5583 116.786C14.5583 116.786 19.7663 111.043 19.7663 111.043C19.7663 111.043 14.6168 105.592 14.6168 105.592C8.64807 99.262 5.72222 95.101 3.38153 89.533C-1.24132 78.3971 -1.12429 64.0378 3.73263 52.9606C7.7118 44.052 15.7286 35.3192 23.8625 31.0993C30.8261 27.4655 36.4437 26.0589 44.168 26.0589C51.8922 26.0589 55.4033 26.8795 64.4149 30.9821C67.9844 32.6232 71.0273 33.854 71.0859 33.7954C71.2029 33.6781 72.7243 30.6891 74.4799 27.1139C79.5708 16.9159 85.6566 10.1172 93.9075 5.48701C97.5356 3.43571 103.27 1.32581 107.366 0.505211C111.17 -0.256689 119.362 -0.139489 123.517 0.739711C123.517 0.739711 123.517 0.739711 123.517 0.739711Z" fill="#FE5000" fill-rule="evenodd" />
+                                  <path d="M118.784 71.936C126.976 71.936 134.656 69.632 134.656 52.736C134.656 33.536 115.456 1.14441e-05 71.936 1.14441e-05C33.536 1.14441e-05 0 28.672 0 68.096C0 101.12 23.808 134.4 69.888 134.4C92.928 134.4 129.024 120.064 129.024 100.352C129.024 95.488 124.416 87.552 119.04 87.552C113.664 87.552 104.192 99.072 84.992 99.072C72.96 99.072 56.32 88.32 56.32 75.52C56.32 71.168 60.416 71.936 63.232 71.936C63.232 71.936 118.784 71.936 118.784 71.936C118.784 71.936 118.784 71.936 118.784 71.936ZM70.4 47.36C63.744 47.36 55.04 49.408 55.04 40.192C55.04 32 61.952 23.296 70.4 23.296C79.872 23.296 85.504 30.464 85.504 39.68C85.504 48.896 77.312 47.36 70.4 47.36C70.4 47.36 70.4 47.36 70.4 47.36Z" fill="#FFFFFF" transform="translate(55.352 57.184)" />
+                                </g>
+                              </svg>
+                            {elseif $product.pid == 54}
+                              {* OBC brand icon for Virtual Server product *}
+                              <svg width="24" height="24" viewBox="0 0 93.176 32" fill="none" xmlns="http://www.w3.org/2000/svg" class="mr-3">
+                                <defs>
+                                  <clipPath id="clip_path_1">
+                                    <rect width="93.176" height="32" />
+                                  </clipPath>
+                                  <linearGradient id="gradient_2" gradientUnits="userSpaceOnUse" x1="95" y1="-0" x2="-5.135" y2="38.4">
+                                    <stop offset="0.089" stop-color="#EBAC36" />
+                                    <stop offset="0.94" stop-color="#FE5000" />
+                                  </linearGradient>
+                                  <linearGradient id="gradient_3" gradientUnits="userSpaceOnUse" x1="480.604" y1="0" x2="-0" y2="341.333">
+                                    <stop offset="0.086" stop-color="#EBAC36" />
+                                    <stop offset="0.979" stop-color="#FE5000" />
+                                  </linearGradient>
+                                </defs>
+                                <g clip-path="url(#clip_path_1)">
+                                  <path d="M16.446 0C21.0896 0 24.6287 0.764046 27.0634 2.29212C29.498 3.82017 31.1023 5.74135 31.8763 8.05569C32.6503 10.37 33.0371 13.0107 33.0371 15.9777C33.0371 21.7339 31.4894 25.8433 28.3936 28.306C25.2978 30.7687 21.3476 32 16.5427 32C13.9952 32 11.5525 31.6661 9.21461 30.9986C6.87669 30.3308 4.75646 28.7881 2.85387 26.37C0.951289 23.952 0 20.4582 0 15.8885C0 13.6633 0.193484 11.7274 0.580447 10.0807C0.967414 8.43406 1.58011 7.01717 2.41853 5.83001C4.0309 3.51575 6.03022 1.96552 8.4165 1.17931C10.8028 0.393105 13.4793 0 16.446 0ZM16.4943 26.83C19.7835 26.83 22.1296 25.8832 23.5323 23.9896C24.9351 22.0958 25.6365 19.4326 25.6365 15.9999C25.6365 11.9461 24.8463 9.12757 23.2662 7.54452C21.6862 5.96144 19.4288 5.16991 16.4943 5.16991C13.6566 5.16991 11.4235 6.0724 9.79502 7.8774C8.16653 9.68241 7.35228 12.3456 7.35228 15.867C7.35228 19.2402 7.93273 21.9107 9.09363 23.8783C10.2545 25.8461 12.7215 26.83 16.4943 26.83ZM60.7052 15.9554C62.4465 16.7005 63.7122 17.6168 64.5023 18.7044C65.2923 19.7918 65.6875 21.1549 65.6875 22.7937C65.6875 25.446 64.9698 27.5395 63.5347 29.0741C62.0998 30.6086 59.1413 31.376 54.659 31.376C54.659 31.376 36.4715 31.376 36.4715 31.376C36.4715 31.376 36.4715 0.579388 36.4715 0.579388C36.4715 0.579388 53.5063 0.579388 53.5063 0.579388C57.3239 0.579388 60.3086 1.12163 62.4601 2.20612C64.6116 3.29062 65.6875 5.55617 65.6875 9.00275C65.6875 10.5478 65.3003 11.8551 64.5266 12.9248C63.7526 13.9944 62.4789 15.0046 60.7052 15.9554ZM53.4663 13.2367C55.0242 13.2367 56.225 12.9767 57.0691 12.4568C57.9129 11.9368 58.3349 10.9935 58.3349 9.6267C58.3349 7.19032 56.761 5.97212 53.6128 5.97212C53.6128 5.97212 43.3402 5.97212 43.3402 5.97212C43.3402 5.97212 43.3402 13.2367 43.3402 13.2367C43.3402 13.2367 53.4663 13.2367 53.4663 13.2367ZM53.4981 26.0278C55.0136 26.0278 56.1986 25.7587 57.0532 25.2207C57.9077 24.6825 58.3349 23.7261 58.3349 22.3509C58.3349 19.8402 56.771 18.5849 53.6432 18.5849C53.6432 18.5849 43.3402 18.5849 43.3402 18.5849C43.3402 18.5849 43.3402 26.0278 43.3402 26.0278C43.3402 26.0278 53.4981 26.0278 53.4981 26.0278ZM83.3427 31.376C78.6346 31.376 74.894 30.1634 72.1206 27.7385C69.3474 25.3134 67.9608 21.5866 67.9608 16.5578C67.9608 11.6483 69.1298 7.75786 71.4678 4.88652C73.8055 2.0151 77.8285 0.579388 83.5361 0.579388C83.5361 0.579388 95 0.579388 95 0.579388C95 0.579388 95 5.66016 95 5.66016C95 5.66016 83.633 5.66016 83.633 5.66016C80.4405 5.66016 78.2719 6.60755 77.1269 8.50236C75.9822 10.3972 75.4098 12.8964 75.4098 16C75.4098 16 75.4098 17.5222 75.4098 17.5222C75.4098 19.999 75.9178 22.0655 76.9336 23.7217C77.9494 25.378 80.1824 26.206 83.633 26.206C83.633 26.206 95 26.206 95 26.206C95 26.206 95 31.376 95 31.376C95 31.376 83.3427 31.376 83.3427 31.376Z" fill="url(#gradient_2)" />
+                                  <path d="M412.907 128.747C398.4 55.36 333.653 0 256 0C194.347 0 140.907 34.9867 114.133 86.08C50.0267 93.0133 0 147.307 0 213.333C0 284.053 57.28 341.333 128 341.333C128 341.333 405.333 341.333 405.333 341.333C464.213 341.333 512 293.547 512 234.667C512 178.347 468.16 132.693 412.907 128.747C412.907 128.747 412.907 128.747 412.907 128.747Z" fill="url(#gradient_3)" fill-rule="evenodd" transform="translate(0 85)" />
+                                </g>
+                              </svg>
+                            {else}
+                              {* Fallback generic VM/server icon *}
+                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" class="mr-3 size-6">
+                                <path d="M5.507 4.048A3 3 0 0 1 7.785 3h8.43a3 3 0 0 1 2.278 1.048l1.722 2.008A4.533 4.533 0 0 0 19.5 6h-15c-.243 0-.482.02-.715.056l1.722-2.008Z" />
+                                <path fill-rule="evenodd" d="M1.5 10.5a3 3 0 0 1 3-3h15a3 3 0 1 1 0 6h-15a3 3 0 0 1-3-3Zm15 0a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm2.25.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM4.5 15a3 3 0 1 0 0 6h15a3 3 0 1 0 0-6h-15Zm11.25 3.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM19.5 18a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z" clip-rule="evenodd" />
+                              </svg>
+                            {/if}
                             </div>
                             <div class="ml-1">
                               <div class="text-sm text-gray-100">{$product.name}</div>
@@ -1328,92 +1393,77 @@
                 </div>
               </div>
             </div>
-          </div>
-
           <!-- right column: dynamic price list -->
-          <div class="w-full lg:w-1/2 text-gray-400 space-y-4 mt-12" x-show="mode==='single'" x-cloak>
-            <!-- Usage-based pricing -->
-            <div x-show="productType === 'usage'">
+          <div class="w-full lg:w-1/2 text-gray-400 space-y-4 mt-12" x-show="mode==='single'">
+            <!-- Usage-based / eazyBackup / OBC plans -->
+            <div x-show="isUsage()">
               <div class="max-w-lg mx-auto pr-6 pl-6 rounded-lg text-gray-300">
                 <h3 class="text-xl font-semibold mb-4"
                     x-text="(parseInt(selectedProduct)==60)
                       ? 'OBC Branded Backup Client'
                       : (parseInt(selectedProduct)==58)
                           ? 'eazyBackup Branded Backup Client'
-                          : 'Usage-Based Billing'">
+                          : 'Usage-Based Backup'">
                 </h3>
                 <p class="text-gray-400 mb-4">
                   Your plan includes a <strong x-text="priceFor(67)"></strong> base fee for 1&nbsp;terabyte of storage per <span x-text="termLabel()"></span>. Additional services are billed dynamically according to what you use:
                 </p>
                 <ul class="list-disc list-inside text-gray-400 mb-4 space-y-1">
                   <li><span class="font-medium">Cloud Storage:</span> <span x-text="priceFor(67)"></span> per terabyte per <span x-text="termLabel()"></span></li>
-                  <li><span class="font-medium">Device:</span> <span x-text="priceFor(88)"></span> per device per <span x-text="termLabel()"></span></li>
+                  <li><span class="font-medium">Devices / Endpoints:</span> <span x-text="priceFor(88)"></span> per device per <span x-text="termLabel()"></span></li>
                   <li><span class="font-medium">Disk Image (Hyper-V):</span> <span x-text="priceFor(91)"></span> per protected machine per <span x-text="termLabel()"></span></li>
                   <li><span class="font-medium">Hyper-V, Proxmox:</span> <span x-text="priceFor(97)"></span> per virtual machine per <span x-text="termLabel()"></span></li>
                   <li><span class="font-medium">VMware backups:</span> <span x-text="priceFor(99)"></span> per virtual machine per <span x-text="termLabel()"></span></li>
                   <li><span class="font-medium">Proxmox Guest VM:</span> <span x-text="priceFor(102)"></span> per virtual machine per <span x-text="termLabel()"></span></li>
                 </ul>
                 <p class="text-gray-400 mb-4">
-                  You're free to use all features without restriction; charges will automatically adjust each billing
-                  cycle to match your actual consumption.
-                </p>
-                <p class="text-gray-400 mb-4">
-                  <strong>Tip:</strong> Avoid additional charges by setting hard quotas for storage, devices, VMs, on your <a href="{$modulelink}&a=dashboard&tab=users" class="text-md font-medium text-slate-300 hover:text-sky-300"> Dashbard -> Users</a> page to cap usage.
-                </p>
-                <p class="text-gray-400">
-                  <strong>Special pricing:</strong> For instiutional and volume pricing, contact your eazyBackup account manager
+                  You're free to use all features; charges automatically adjust each <span x-text="termLabel()"></span> to match your actual consumption.
                 </p>
               </div>
             </div>
 
-            <div x-show="productType === 'ms365'">
+            <!-- Microsoft 365 backup plans -->
+            <div x-show="isMs365()">
               <div class="max-w-lg mx-auto pr-6 pl-6 rounded-lg text-gray-300">
-                <h3 class="text-xl font-semibold mb-4">MS 365 Backup Pricing</h3>
+                <h3 class="text-xl font-semibold mb-4">Microsoft 365 Backup Pricing</h3>
                 <p class="text-gray-400 mb-4">
-                  Your plan includes a <strong x-text="priceFor(60)"></strong> base fee for a single user per <span x-text="termLabel()"></span>. Billing for additional users will be charged according to what you use:
+                  Your plan includes a <strong x-text="priceFor(60)"></strong> base fee for a single Microsoft 365 user per <span x-text="termLabel()"></span>. Billing for additional users is usage-based:
                 </p>
                 <ul class="list-disc list-inside text-gray-400 mb-4 space-y-1">
-                  <li><span class="font-medium">Per User:</span> <span x-text="priceFor(60)"></span> per account per <span x-text="termLabel()"></span></li>
-                  <li><span class="font-medium">Storage:</span> Unlimited per User</li>
-                  <li><span class="font-medium">Retention:</span> 1 year (30 daily snapshots and 52 weekly snapshots)
-                  </li>
+                  <li><span class="font-medium">Per User:</span> <span x-text="priceFor(60)"></span> per protected 365 account per <span x-text="termLabel()"></span></li>
+                  <li><span class="font-medium">Storage:</span> Unlimited per user</li>
+                  <li><span class="font-medium">Retention:</span> 1 year (30 daily + 52 weekly snapshots)</li>
                 </ul>
                 <p class="text-gray-400 mb-4">
-                  Additional data retnetion can be purchased, please contact sales for more information.
+                  Longer retention periods are available; contact sales for extended-retention pricing.
                 </p>
               </div>
             </div>
 
-            <!-- Virtual Server Backup pricing (Hyper-V, Proxmox, VMware) -->
-            <div x-show="productType === 'vm'">
+            <!-- VM-only backup plans (Hyper-V / Proxmox / VMware) -->
+            <div x-show="isVm()">
               <div class="max-w-lg mx-auto pr-6 pl-6 rounded-lg text-gray-300">
                 <h3 class="text-xl font-semibold mb-4">Virtual Server Backup</h3>
                 <p class="text-gray-400 mb-4">
-                This plan backs up guest virtual machines only.
-                It does not back up physical servers, file-and-folder data, disk-image, etc. If you need those, choose the eazyBackup / OBC plans.
+                  This plan backs up guest virtual machines only (no physical servers or file-and-folder jobs). Pricing is:
                 </p>
                 <p class="text-gray-400 mb-4">
-                  Your plan includes a <strong x-text="priceFor(67)"></strong> base fee for 1&nbsp;terabyte of storage per <span x-text="termLabel()"></span>. Additional services are billed dynamically according to what you use:
+                  Base storage of <strong x-text="priceFor(67)"></strong> for 1&nbsp;terabyte per <span x-text="termLabel()"></span>, plus:
                 </p>
                 <ul class="list-disc list-inside text-gray-400 mb-4 space-y-1">
                   <li><span class="font-medium">Cloud Storage:</span> <span x-text="priceFor(67)"></span> per terabyte per <span x-text="termLabel()"></span></li>
-                  <li><span class="font-medium">Device:</span> No endpoint device charge</li>
-                  <li><span class="font-medium">Hyper-V:</span> <span x-text="priceFor(97)"></span> per virtual machine per <span x-text="termLabel()"></span></li>
-                  <li><span class="font-medium">Proxmox:</span> <span x-text="priceFor(102)"></span> per virtual machine per <span x-text="termLabel()"></span></li>
-                  <li><span class="font-medium">VMware:</span> <span x-text="priceFor(99)"></span> per virtual machine per <span x-text="termLabel()"></span></li>
+                  <li><span class="font-medium">Hyper-V VMs:</span> <span x-text="priceFor(97)"></span> per VM per <span x-text="termLabel()"></span></li>
+                  <li><span class="font-medium">Proxmox VMs:</span> <span x-text="priceFor(102)"></span> per VM per <span x-text="termLabel()"></span></li>
+                  <li><span class="font-medium">VMware VMs:</span> <span x-text="priceFor(99)"></span> per VM per <span x-text="termLabel()"></span></li>
                 </ul>
                 <p class="text-gray-400 mb-4">
-                  You're free to use all features without restriction; charges will automatically adjust each billing
-                  cycle to match your actual consumption.
-                </p>
-                <p class="text-gray-400">
-                  <strong>Tip:</strong> You can set quotas on the Dashboard Users page to cap usage if you like.
+                  You can freely add/remove VMs; charges adjust automatically each <span x-text="termLabel()"></span>.
                 </p>
               </div>
             </div>
 
-            <!-- fallback or placeholder -->
-            <div x-show="!productType">
+            <!-- Fallback or placeholder when nothing selected -->
+            <div x-show="!selectedProduct">
               <p class="italic text-gray-500">Select a service on the left to see pricing here.</p>
             </div>
           </div>
@@ -1421,29 +1471,6 @@
       </div>
     </div>
   </div>
-</div>
-
-<!-- Bulk Confirmation Modal -->
-<div x-data="{}" x-show="confirmOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center">
-  <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="$root.confirmOpen=false"></div>
-  <div class="relative w-full max-w-lg mx-4 rounded-2xl bg-[#0b1220] text-gray-100 shadow-2xl ring-1 ring-white/10"
-       x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
-       x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95">
-    <div class="px-6 py-4 border-b border-white/10">
-      <h3 class="text-xl font-semibold">Confirm Provision</h3>
-    </div>
-    <div class="px-6 py-4 space-y-2 text-sm">
-      <div class="flex justify-between"><span class="text-gray-400">Product</span><span x-text="$root.confirm.product"></span></div>
-      <div class="flex justify-between"><span class="text-gray-400">Billing term</span><span x-text="$root.confirm.term"></span></div>
-      <div class="flex justify-between"><span class="text-gray-400">Accounts</span><span x-text="$root.confirm.count"></span></div>
-      <div class="flex justify-between"><span class="text-gray-400">Billing start</span><span x-text="$root.confirm.start"></span></div>
-    </div>
-    <div class="px-6 py-4 flex justify-end gap-3 border-t border-white/10">
-      <button type="button" class="px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-600" @click="$root.confirmOpen=false">Cancel</button>
-      <button type="button" class="px-4 py-2 rounded-xl bg-green-600 hover:bg-green-500" @click="$root.confirmProvision()">Confirm</button>
-    </div>
-  </div>
-  
 </div>
 
 <!-- Footer Section -->
