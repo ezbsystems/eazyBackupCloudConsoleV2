@@ -4,7 +4,7 @@
         currentUserId: null, 
         currentInviteId: null 
     }" 
-     class="min-h-screen bg-gray-700 text-gray-300">
+     class="min-h-screen bg-gray-700 text-gray-100">
 
     <div class="container mx-auto px-4 pb-8">
         <div class="flex flex-col sm:flex-row h-16 justify-between items-start sm:items-center px-2">
@@ -22,14 +22,14 @@
 
         <div class="flex flex-col flex-1 overflow-y-auto bg-gray-700">
             <!-- Main Content Container -->
-            <div class="bg-gray-800 shadow rounded-b-md p-4 mb-4">
+            <div class="bg-slate-800 shadow rounded-b-xl p-4 mb-4">
                 
                 <div class="mb-6">
-                    <h3 class="text-lg font-semibold text-gray-300 mb-4">{lang key="navUserManagement"}</h3>
+                    <h3 class="text-lg font-semibold text-gray-100 mb-4">{lang key="navUserManagement"}</h3>
 
-                    <p class="text-sm text-gray-300 mb-1">{lang key="userManagement.usersFound" count=$users->count()}</p>
+                    <p class="text-sm text-gray-100 mb-1">{lang key="userManagement.usersFound" count=$users->count()}</p>
 
-                    <table class="w-full border-collapse text-sm text-gray-300">
+                    <table class="w-full border-collapse text-sm text-gray-100">
                         <thead>
                             <tr class="bg-gray-800">
                                 <th class="border-b border-gray-600 px-4 py-2 text-left">{lang key="userManagement.emailAddress"} / {lang key="userManagement.lastLogin"}</th>
@@ -114,9 +114,9 @@
                 </div>
 
                 <div class="mb-6">
-                    <h3 class="text-lg font-semibold text-gray-300 mb-4">{lang key="userManagement.inviteNewUser"}</h3>
+                    <h3 class="text-lg font-semibold text-gray-100 mb-4">{lang key="userManagement.inviteNewUser"}</h3>
 
-                    <p class="text-sm text-gray-300 mb-4">{lang key="userManagement.inviteNewUserDescription"}</p>
+                    <p class="text-sm text-gray-100 mb-4">{lang key="userManagement.inviteNewUserDescription"}</p>
 
                     <form method="post" action="{routePath('account-users-invite')}" class="space-y-4">
                         <div>
@@ -124,11 +124,11 @@
                                 type="email" 
                                 name="inviteemail" 
                                 placeholder="name@example.com" 
-                                class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600" 
+                                class="block w-full px-3 py-2 border border-gray-600 text-gray-100 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600" 
                                 value="{$formdata.inviteemail}" />
                         </div>
                         <div class="col-span-full">
-                            <label class="block text-sm/6 font-medium text-gray-300">
+                            <label class="block text-sm/6 font-medium text-gray-100">
                                 <input 
                                     type="radio" 
                                     class="accent-sky-600 rounded text-sky-600 focus:ring-sky-500" 
@@ -137,7 +137,7 @@
                                     checked="checked" />
                                 <span class="ml-2">{lang key="userManagement.allPermissions"}</span>
                             </label>
-                            <label class="block text-sm/6 font-medium text-gray-300">
+                            <label class="block text-sm/6 font-medium text-gray-100">
                                 <input 
                                     type="radio" 
                                     class="accent-sky-600 rounded text-sky-600 focus:ring-sky-500" 
@@ -154,7 +154,7 @@
                                         class="rounded accent-sky-600 text-sky-600 focus:ring-sky-500" 
                                         name="perms[{$permission.key}]" 
                                         value="1" />
-                                    <span class="text-sm ml-2 text-gray-300">{$permission.title}</span>
+                                    <span class="text-sm ml-2 text-gray-100">{$permission.title}</span>
                                     <small class="text-sm text-gray-500 block text-gray-400">{$permission.description}</small>
                                 </label>
                             {/foreach}
@@ -176,7 +176,7 @@
                     <h4 class="text-lg font-semibold text-white">
                         {lang key="userManagement.removeAccess"}
                     </h4>
-                    <button type="button" class="text-gray-300 hover:text-white" @click="removeUserModal = false">
+                    <button type="button" class="text-gray-100 hover:text-white" @click="removeUserModal = false">
                         &times;
                     </button>
                 </div>
@@ -203,7 +203,7 @@
                     <h4 class="text-lg font-semibold text-white">
                         {lang key="userManagement.cancelInvite"}
                     </h4>
-                    <button type="button" class="text-gray-300 hover:text-white" @click="cancelInviteModal = false">
+                    <button type="button" class="text-gray-100 hover:text-white" @click="cancelInviteModal = false">
                         &times;
                     </button>
                 </div>

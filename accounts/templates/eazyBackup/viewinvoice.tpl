@@ -6,17 +6,52 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{$companyname} - {$pagetitle}</title>    
 
-    <link href="{assetPath file='all.min.css'}?v={$versionHash}" rel="stylesheet">
-    <link href="{assetPath file='theme.min.css'}?v={$versionHash}" rel="stylesheet">
+    {* Core font + Tailwind + custom app styles, mirroring includes/head.tpl *}
+    {\WHMCS\View\Asset::fontCssInclude('open-sans-family.css')}
+    <link href="{$WEB_ROOT}/templates/{$template}/css/tailwind.css?v={$versionHash}" rel="stylesheet">
+    <link href="{$WEB_ROOT}/templates/{$template}/css/custom.css" rel="stylesheet">
+
+    {* Invoice-specific WHMCS styles for print/layout *}
     <link href="{$WEB_ROOT}/assets/css/fontawesome-all.min.css" rel="stylesheet">
     <link href="{assetPath file='invoice.min.css'}?v={$versionHash}" rel="stylesheet">
+
     <script>var whmcsBaseUrl = "{$WEB_ROOT}";</script>
     <script src="{assetPath file='scripts.min.js'}?v={$versionHash}"></script>
 
-</head>
-<body>
+    <style>
+        /* Override legacy invoice.css body background to match app shell */
+        body.invoice-view-page {
+            background-color: #020617; /* Tailwind bg-slate-950 */
+        }
 
-    <div class="container-fluid invoice-container">
+        /* Ensure back-to-invoices link matches dark theme text color */
+        body.invoice-view-page p.text-center.d-print-none a {
+            color: #f9fafb; /* near-white for dark background */
+        }
+
+        body.invoice-view-page p.text-center.d-print-none a:hover {
+            color: #e5e7eb; /* slate-200 */
+            text-decoration: underline;
+        }
+
+        /* Make payment method select readable within light invoice container */
+        body.invoice-view-page .invoice-container .custom-select {
+            background-color: #f9fafb !important; /* light background */
+            color: #111827 !important;            /* dark text */
+            border-color: #d1d5db !important;     /* light border */
+        }
+    </style>
+
+</head>
+<body class="invoice-view-page min-h-screen bg-slate-950 text-slate-200">
+
+    <!-- Nebula background -->
+    <div class="pointer-events-none fixed inset-0 bg-slate-900/80 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
+
+    <div class="relative container mx-auto px-4 pb-10 pt-6">
+        <div class="">
+
+    <div class="invoice-container">
 
         {if $invalidInvoiceIdRequested}
 
@@ -24,7 +59,7 @@
 
         {else}
 
-            <div class="row invoice-header">
+            <div class="row invoice-header mb-3">
                 <div class="col-12 col-sm-6 justify-content-sm-between text-center text-sm-left invoice-col">
 
                     {if $logo}
@@ -37,7 +72,7 @@
                 </div>
                 <div class="col-12 col-sm-6 invoice-col text-center">
 
-                    <div class="invoice-status">
+                    <div class="invoice-status mb-2">
                         {if $status eq "Draft"}
                             <span class="draft">{lang key='invoicesdraft'}</span>
                         {elseif $status eq "Unpaid"}
@@ -56,10 +91,10 @@
                     </div>
 
                     {if $status eq "Unpaid" || $status eq "Draft"}
-                        <div class="small-text">
+                        <div class="small-text text-slate-700">
                             {lang key='invoicesdatedue'}: {$datedue}
                         </div>
-                        <div class="payment-btn-container d-print-none" align="center">
+                        <div class="payment-btn-container d-print-none mt-2" align="center">
                             {$paymentbutton}
                         </div>
                     {/if}
@@ -67,7 +102,7 @@
                 </div>
             </div>
 
-            <hr>
+            <hr class="border-slate-800">
 
             {if $paymentSuccessAwaitingNotification}
                 {include file="$template/includes/panel.tpl" type="success" headerTitle="{lang key='success'}" bodyContent="{lang key='invoicePaymentSuccessAwaitingNotify'}" bodyTextCenter=true}

@@ -1,0 +1,18 @@
+/* Base styling for Stripe Elements outer containers across WHMCS */
+.StripeElement {
+    display: block;
+    width: 100%;
+    padding: 0.625rem 0.75rem;                 /* py-2.5 px-3 */
+    border-radius: 0.5rem;                     /* rounded-lg */
+    border: 1px solid #334155;                 /* slate-700 */
+    background-color: rgba(15, 23, 42, 0.6);   /* slate-900/60 */
+}
+
+.StripeElement--focus {
+    border-color: #22c55e;                     /* emerald-500 */
+    box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.6);
+}
+
+.StripeElement--invalid {
+    border-color: #fbbf24;                     /* softer amber */
+}

@@ -1,5 +1,5 @@
 {assign var="activeTab" value="details"}
-<div class="min-h-screen bg-gray-700 text-gray-300">
+<div class="min-h-screen bg-gray-700 text-gray-100">
     <div class="container mx-auto px-4 pb-8">
         <div class="flex flex-col sm:flex-row h-16 justify-between items-start sm:items-center px-2">
             <div class="flex items-center">
@@ -11,7 +11,7 @@
         </div>
         {include file="$template/includes/profile-nav.tpl"}
         <div class="flex flex-col flex-1 overflow-y-auto bg-gray-700">
-            <div class="bg-gray-800 shadow rounded-b-md p-4 mb-4">
+            <div class="bg-slate-800 shadow rounded-b-xl p-4 mb-4">
                 {if $successful}
                     <div class="mb-4 p-4 text-gray-100 bg-green-600 text-sm rounded-md">
                         {lang key='changessavedsuccessfully'}
@@ -27,8 +27,8 @@
                     <div class="border-b border-gray-900/10">
                         <div class="mt-4 grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-6">
                             <div class="sm:col-span-6">
-                                <h3 class="text-base/7 font-semibold text-gray-300">Email Categories</h3>
-                                <p class="mt-1 text-sm/6 text-gray-300">Choose which billing notifications you receive for cloud backup services.</p>
+                                <h3 class="text-base/7 font-semibold text-gray-100">Email Categories</h3>
+                                <p class="mt-1 text-sm/6 text-gray-100">Choose which billing notifications you receive for cloud backup services.</p>
                             </div>
 
                             <div class="sm:col-span-2">
@@ -38,7 +38,7 @@
                                         data-toggle
                                         data-target="notify_storage"
                                         style="{if $prefs.notify_storage}background-color: rgb(2 132 199 / 1){else}background-color: rgb(30 41 59 / 1){/if}"></button>
-                                    <span class="text-sm text-gray-300">Storage</span>
+                                    <span class="text-sm text-gray-100">Storage</span>
                                     <input type="hidden" name="notify_storage" id="notify_storage" value="{if $prefs.notify_storage}1{else}0{/if}">
                                 </div>
                             </div>
@@ -49,7 +49,7 @@
                                         data-toggle
                                         data-target="notify_devices"
                                         style="{if $prefs.notify_devices}background-color: rgb(2 132 199 / 1){else}background-color: rgb(30 41 59 / 1){/if}"></button>
-                                    <span class="text-sm text-gray-300">Devices</span>
+                                    <span class="text-sm text-gray-100">Devices</span>
                                     <input type="hidden" name="notify_devices" id="notify_devices" value="{if $prefs.notify_devices}1{else}0{/if}">
                                 </div>
                             </div>
@@ -60,19 +60,19 @@
                                         data-toggle
                                         data-target="notify_addons"
                                         style="{if $prefs.notify_addons}background-color: rgb(2 132 199 / 1){else}background-color: rgb(30 41 59 / 1){/if}"></button>
-                                    <span class="text-sm text-gray-300">Add-ons</span>
+                                    <span class="text-sm text-gray-100">Add-ons</span>
                                     <input type="hidden" name="notify_addons" id="notify_addons" value="{if $prefs.notify_addons}1{else}0{/if}">
                                 </div>
                             </div>
 
                             <div class="sm:col-span-6 pt-4">
-                                <h3 class="text-base/7 font-semibold text-gray-300">Recipient Routing</h3>
-                                <p class="mt-1 text-sm/6 text-gray-300">Where should we send notification emails?</p>
+                                <h3 class="text-base/7 font-semibold text-gray-100">Recipient Routing</h3>
+                                <p class="mt-1 text-sm/6 text-gray-100">Where should we send notification emails?</p>
                             </div>
 
                             <div class="sm:col-span-3">
-                                <label for="routing_policy" class="block text-sm/6 font-medium text-gray-300 mb-1">Default Recipient</label>
-                                <select id="routing_policy" name="routing_policy" class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600">
+                                <label for="routing_policy" class="block text-sm/6 font-medium text-gray-100 mb-1">Default Recipient</label>
+                                <select id="routing_policy" name="routing_policy" class="block w-full px-3 py-2 border border-gray-600 text-gray-100 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600">
                                     <option value="primary" {if $prefs.routing_policy=='primary'}selected{/if}>Primary</option>
                                     <option value="billing" {if $prefs.routing_policy=='billing'}selected{/if}>Billing</option>
                                     <option value="technical" {if $prefs.routing_policy=='technical'}selected{/if}>Technical</option>
@@ -81,14 +81,14 @@
                             </div>
 
                             <div class="sm:col-span-3">
-                                <label for="custom_recipients" class="block text-sm/6 font-medium text-gray-300 mb-1">Custom Recipient(s)</label>
-                                <input type="text" name="custom_recipients" id="custom_recipients" value="{$prefs.custom_recipients|escape}" placeholder="user@example.com, billing@example.com" class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600" />
+                                <label for="custom_recipients" class="block text-sm/6 font-medium text-gray-100 mb-1">Custom Recipient(s)</label>
+                                <input type="text" name="custom_recipients" id="custom_recipients" value="{$prefs.custom_recipients|escape}" placeholder="user@example.com, billing@example.com" class="block w-full px-3 py-2 border border-gray-600 text-gray-100 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600" />
                                 <p class="mt-1 text-xs text-gray-400">Only used when Default Recipient is set to Custom. Separate with commas or semicolons.</p>
                             </div>
 
                             <div class="sm:col-span-6 pt-4">
-                                <h3 class="text-base/7 font-semibold text-gray-300">Dashboard</h3>
-                                <p class="mt-1 text-sm/6 text-gray-300">Upcoming Charges panel visible on your dashboard.</p>
+                                <h3 class="text-base/7 font-semibold text-gray-100">Dashboard</h3>
+                                <p class="mt-1 text-sm/6 text-gray-100">Upcoming Charges panel visible on your dashboard.</p>
                             </div>
 
                             <div class="sm:col-span-3">
@@ -98,7 +98,7 @@
                                         data-toggle
                                         data-target="show_upcoming_charges"
                                         style="{if $prefs.show_upcoming_charges}background-color: rgb(2 132 199 / 1){else}background-color: rgb(30 41 59 / 1){/if}"></button>
-                                    <span class="text-sm text-gray-300">Show Upcoming Charges</span>
+                                    <span class="text-sm text-gray-100">Show Upcoming Charges</span>
                                     <input type="hidden" name="show_upcoming_charges" id="show_upcoming_charges" value="{if $prefs.show_upcoming_charges}1{else}0{/if}">
                                 </div>
                             </div>
@@ -106,7 +106,7 @@
                     </div>
 
                     <div class="mt-6 flex items-center justify-end gap-x-6">
-                        <button type="reset" class="text-sm/6 font-semibold text-gray-300">{lang key='cancel'}</button>
+                        <button type="reset" class="text-sm/6 font-semibold text-gray-100">{lang key='cancel'}</button>
                         <button type="submit" name="save" value="save" class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-sky-600 hover:bg-sky-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-700">{lang key='clientareasavechanges'}</button>
                     </div>
                 </form>

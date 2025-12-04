@@ -10,7 +10,7 @@
 </script>
 <script src="{$BASE_PATH_JS}/StatesDropdown.js"></script>
 
-<div class="min-h-screen bg-gray-700 text-gray-300">
+<div class="min-h-screen bg-gray-700 text-gray-100">
     <div class="container mx-auto px-4 pb-8">
         <div class="flex flex-col sm:flex-row h-16 justify-between items-start sm:items-center px-2">
             <!-- Navigation Horizontal -->
@@ -25,13 +25,13 @@
         {include file="$template/includes/profile-nav.tpl" activeTab=$activeTab}
         <div class="flex flex-col flex-1 overflow-y-auto bg-gray-700">
             <!-- Main Content Container -->
-			<div class="bg-gray-800 shadow rounded-b-md p-4 mb-4">	       		
+			<div class="bg-slate-800 shadow rounded-b-xl p-4 mb-4">	       		
 
     <form role="form" method="post" action="{routePath('account-contacts')}">
         <div class="mb-4">
-            <label for="inputContactId" class="blocktext-sm/6 font-medium text-gray-300">{lang key='clientareachoosecontact'}</label>
+            <label for="inputContactId" class="blocktext-sm/6 font-medium text-gray-100">{lang key='clientareachoosecontact'}</label>
             <div class="flex space-x-2">
-                <select name="contactid" id="inputContactId" onchange="submit()" class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600">
+                <select name="contactid" id="inputContactId" onchange="submit()" class="block w-full px-3 py-2 border border-gray-600 text-gray-100 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600">
                     {foreach $contacts as $contact}
                         <option value="{$contact.id}">{$contact.name} - {$contact.email}</option>
                     {/foreach}
@@ -54,60 +54,60 @@
             <div class="border-b border-gray-900/10 pb-8">           
                 <div class="mt-4 grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-6">
                     <div class="sm:col-span-3">
-                        <label for="inputFirstName" class="blocktext-sm/6 font-medium text-gray-300">{lang key='clientareafirstname'}</label>
-                        <input type="text" name="firstname" id="inputFirstName" value="{$formdata.firstname}" class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600" />
+                        <label for="inputFirstName" class="blocktext-sm/6 font-medium text-gray-100">{lang key='clientareafirstname'}</label>
+                        <input type="text" name="firstname" id="inputFirstName" value="{$formdata.firstname}" class="block w-full px-3 py-2 border border-gray-600 text-gray-100 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600" />
                     </div>
 
                     <div class="sm:col-span-3">
-                        <label for="inputLastName" class="blocktext-sm/6 font-medium text-gray-300">{lang key='clientarealastname'}</label>
-                        <input type="text" name="lastname" id="inputLastName" value="{$formdata.lastname}" class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600" />
+                        <label for="inputLastName" class="blocktext-sm/6 font-medium text-gray-100">{lang key='clientarealastname'}</label>
+                        <input type="text" name="lastname" id="inputLastName" value="{$formdata.lastname}" class="block w-full px-3 py-2 border border-gray-600 text-gray-100 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600" />
                     </div>
 
                     <div class="sm:col-span-3">
-                        <label for="inputCompanyName" class="blocktext-sm/6 font-medium text-gray-300">{lang key='clientareacompanyname'}</label>
-                        <input type="text" name="companyname" id="inputCompanyName" value="{$formdata.companyname}" class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600" />
+                        <label for="inputCompanyName" class="blocktext-sm/6 font-medium text-gray-100">{lang key='clientareacompanyname'}</label>
+                        <input type="text" name="companyname" id="inputCompanyName" value="{$formdata.companyname}" class="block w-full px-3 py-2 border border-gray-600 text-gray-100 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600" />
                     </div>
 
                     <div class="sm:col-span-3">
-                        <label for="inputEmail" class="blocktext-sm/6 font-medium text-gray-300">{lang key='clientareaemail'}</label>
-                        <input type="email" name="email" id="inputEmail" value="{$formdata.email}" class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600" />
+                        <label for="inputEmail" class="blocktext-sm/6 font-medium text-gray-100">{lang key='clientareaemail'}</label>
+                        <input type="email" name="email" id="inputEmail" value="{$formdata.email}" class="block w-full px-3 py-2 border border-gray-600 text-gray-100 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600" />
                     </div>
 
                     <div class="sm:col-span-3">
-                        <label for="country" class="blocktext-sm/6 font-medium text-gray-300">
+                        <label for="country" class="blocktext-sm/6 font-medium text-gray-100">
                             {lang key='clientareacountry'}
                         </label>
-                        {$countriesdropdown|replace:'<select':'<select id="country" class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600"'}
+                        {$countriesdropdown|replace:'<select':'<select id="country" class="block w-full px-3 py-2 border border-gray-600 text-gray-100 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600"'}
                     </div>
 
                     <div class="sm:col-span-3">
                         <label for="inputAddress1" 
-                            class="blocktext-sm/6 font-medium text-gray-300">{lang key='clientareaaddress1'}</label>
+                            class="blocktext-sm/6 font-medium text-gray-100">{lang key='clientareaaddress1'}</label>
                         <input type="text" name="address1" id="inputAddress1" value="{$formdata.address1}" 
-                            class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600" />
+                            class="block w-full px-3 py-2 border border-gray-600 text-gray-100 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600" />
                     </div>
 
 
 
                     <div class="sm:col-span-2 sm:col-start-1">
                         <label for="inputCity" 
-                            class="blocktext-sm/6 font-medium text-gray-300">{lang key='clientareacity'}</label>
+                            class="blocktext-sm/6 font-medium text-gray-100">{lang key='clientareacity'}</label>
                         <input type="text" name="city" id="inputCity" value="{$formdata.city}" 
-                            class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600" />
+                            class="block w-full px-3 py-2 border border-gray-600 text-gray-100 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600" />
                     </div>
 
                     <div class="sm:col-span-2">
                         <label for="inputState" 
-                            class="blocktext-sm/6 font-medium text-gray-300">{lang key='clientareastate'}</label>
+                            class="blocktext-sm/6 font-medium text-gray-100">{lang key='clientareastate'}</label>
                         <input type="text" name="state" id="inputState" value="{$formdata.state}" 
-                            class="h-9 py-1 block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600" />
+                            class="h-9 py-1 block w-full px-3 py-2 border border-gray-600 text-gray-100 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600" />
                     </div>
 
                     <div class="sm:col-span-2">
                         <label for="inputPostcode" 
-                            class="blocktext-sm/6 font-medium text-gray-300">{lang key='clientareapostcode'}</label>
+                            class="blocktext-sm/6 font-medium text-gray-100">{lang key='clientareapostcode'}</label>
                         <input type="text" name="postcode" id="inputPostcode" value="{$formdata.postcode}" 
-                            class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600" />
+                            class="block w-full px-3 py-2 border border-gray-600 text-gray-100 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600" />
                     </div>
                 
                     {* <div class="sm:col-span-2 sm:col-start-1">
@@ -133,8 +133,8 @@
                     </div> *}
 
                     <div class="form-group sm:col-span-2">
-                        <label for="inputPhone" class="col-form-label block text-sm font-medium text-gray-300">{lang key='clientareaphonenumber'}</label>
-                        <input type="tel" name="phonenumber" id="inputPhone" class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600" />
+                        <label for="inputPhone" class="col-form-label block text-sm font-medium text-gray-100">{lang key='clientareaphonenumber'}</label>
+                        <input type="tel" name="phonenumber" id="inputPhone" class="block w-full px-3 py-2 border border-gray-600 text-gray-100 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600" />
                     </div>        
 
                     <script>
@@ -171,7 +171,7 @@
             </div>       
     
             <div class="mt-6 flex items-center justify-end gap-x-6">
-                <button type="reset" class="text-sm/6 font-semibold text-gray-300">{lang key='cancel'}</button>
+                <button type="reset" class="text-sm/6 font-semibold text-gray-100">{lang key='cancel'}</button>
                 <button type="submit" class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-sky-600 hover:bg-sky-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-700">{lang key='clientareasavechanges'}</button>
                 
             </div>
@@ -180,10 +180,10 @@
 
 <script>
     $(document).ready(function(){
-        $('#country').removeClass().addClass('block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#192331] rounded focus:outline-none focus:ring-0 focus:border-sky-600');
+        $('#country').removeClass().addClass('block w-full px-3 py-2 border border-gray-600 text-gray-100 bg-[#192331] rounded focus:outline-none focus:ring-0 focus:border-sky-600');
     });
 
     $(document).ready(function(){
-        $('#inputContactId').removeClass().addClass('block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#192331] rounded focus:outline-none focus:ring-0 focus:border-sky-600');
+        $('#inputContactId').removeClass().addClass('block w-full px-3 py-2 border border-gray-600 text-gray-100 bg-[#192331] rounded focus:outline-none focus:ring-0 focus:border-sky-600');
     });
 </script>

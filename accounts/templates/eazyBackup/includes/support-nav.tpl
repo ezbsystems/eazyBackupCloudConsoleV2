@@ -1,4 +1,4 @@
-<div class="main-section-header-tabs rounded-t-md border-b border-gray-600 bg-gray-800 pt-4 px-2">
+<div class="main-section-header-tabs rounded-t-xl pt-4 px-2">
     <!-- Navbar Header: Hamburger Button (Visible on Medium and Smaller Screens) -->
     <div class="flex items-center justify-end px-4 py-3 [@media(min-width:1060px)]:hidden">
     <button 
@@ -18,8 +18,8 @@
 
 <div x-data="{ 
       activeSupportTab: '{$smarty.get.tab|default:"open"}' 
-    }">
-  <nav class="flex space-x-4">
+    }" class="pb-3 px-2">
+  <nav class="inline-flex rounded-full bg-slate-900/80 p-1 text-xs font-medium text-slate-400" aria-label="Support Navigation">
     <!-- "Open Tickets" tab -->
     <button 
       @click=" 
@@ -30,8 +30,8 @@
         }
       " 
       :class="activeSupportTab === 'open' 
-              ? 'inline-flex items-center text-sm text-gray-300 px-2 py-2 border-b-2 border-sky-600'
-              : 'inline-flex items-center text-sm text-gray-300 px-2 py-2 border-b-2 border-transparent hover:border-gray-500'"
+              ? 'px-4 py-1.5 rounded-full transition bg-slate-800 text-slate-50 shadow-sm inline-flex items-center'
+              : 'px-4 py-1.5 rounded-full transition hover:text-slate-200 inline-flex items-center'"
       id="open-tickets-tab"
     >
     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-2">
@@ -50,8 +50,8 @@
         }
       " 
       :class="activeSupportTab === 'closed' 
-              ? 'inline-flex items-center text-sm text-gray-300 px-2 py-2 border-b-2 border-sky-600'
-              : 'inline-flex items-center text-sm text-gray-300 px-2 py-2 border-b-2 border-transparent hover:border-gray-500'"
+              ? 'px-4 py-1.5 rounded-full transition bg-slate-800 text-slate-50 shadow-sm inline-flex items-center'
+              : 'px-4 py-1.5 rounded-full transition hover:text-slate-200 inline-flex items-center'"
       id="closed-tickets-tab"
     >
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-2">

@@ -26,8 +26,6 @@
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-5">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
                         </svg>
-                  
-                      
                     </span>
                     <input 
                         type="password" 
@@ -35,7 +33,7 @@
                         id="inputNewPassword1" 
                         placeholder="{lang key='newpassword'}" 
                         required 
-                        class="block w-full pl-10 pr-3 py-2 border border-gray-600 bg-gray-700 text-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-sky-600"
+                        class="block w-full pl-10 pr-3 py-2.5 rounded-lg border border-slate-700 bg-slate-900/60 text-sm text-white placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                     />
                 </div>
             </div>
@@ -55,7 +53,7 @@
                         id="inputNewPassword2" 
                         placeholder="{lang key='confirmnewpassword'}" 
                         required 
-                        class="block w-full pl-10 pr-3 py-2 border border-gray-600 bg-gray-700 text-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-sky-600"
+                        class="block w-full pl-10 pr-3 py-2.5 rounded-lg border border-slate-700 bg-slate-900/60 text-sm text-white placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                     />
                 </div>
                 <!-- Validation Message -->
@@ -68,12 +66,12 @@
                 
             </div>
 
-            <!-- Submit and Reset Buttons -->
+            <!-- Submit Button -->
             <div>
-                <div class="flex justify-center space-x-4">
+                <div class="flex justify-center">
                     <button 
                         type="submit" 
-                        class="items-center w-full px-4 py-2 border border-transparent shadow-sm text-md font-semisbold rounded-md text-white bg-sky-600 hover:bg-sky-700 border-transparent focus:border-transparent focus:ring-0"
+                        class="inline-flex w-full items-center justify-center rounded-full px-4 py-2 text-sm font-semibold text-white shadow-sm bg-[#FE5000] hover:bg-[#ff6a26] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-950 focus:ring-[#FE5000]"
                     >
                         {lang key='clientareasavechanges'}
                     </button>                    

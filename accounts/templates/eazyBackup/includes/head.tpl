@@ -23,7 +23,7 @@
 <link href="{$__assetPath__}" rel="stylesheet">
 {/assetExists}
 
-<link href="{$WEB_ROOT}/templates/{$template}/css/custom.css" rel="stylesheet">
+{* <link href="{$WEB_ROOT}/templates/{$template}/css/custom.css" rel="stylesheet"> *}
 
 <script>
     var csrfToken = '{$token}',

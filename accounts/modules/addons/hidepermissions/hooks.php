@@ -14,19 +14,35 @@
 * ******************************************************************** */
 add_hook('ClientAreaFooterOutput', 1, function ($vars) {
     if (defined('CLIENTAREA') && CLIENTAREA == 1) {
-        // Limit to contacts/sub-accounts page only
+        // Limit to contacts/sub-accounts & user/user-permissions pages only
         $tpl = isset($vars['templatefile']) ? (string)$vars['templatefile'] : '';
-        $isContacts = in_array($tpl, ['account-contacts-manage', 'clientareacontacts', 'contacts'], true);
-        if (!$isContacts) {
+
+        // Target templates:
+        // - Contacts/sub-accounts management
+        // - User management (invite form)
+        // - User permissions pages
+        $isTargetPage = in_array($tpl, [
+            'account-contacts-manage',
+            'clientareacontacts',
+            'contacts',
+            'account-user-management',    // Users page (invite permissions)
+            'account-user-permissions',   // Older/singular naming
+            'account-users-permissions',  // Newer/plural naming used by routePath('account-users-permissions', ...)
+        ], true);
+
+        if (!$isTargetPage) {
             $uri = isset($_SERVER['REQUEST_URI']) ? (string)$_SERVER['REQUEST_URI'] : '';
             if (strpos($uri, 'clientarea.php') !== false && strpos($uri, 'action=contacts') !== false) {
-                $isContacts = true;
+                $isTargetPage = true;
             }
         }
-        if (!$isContacts) {
+
+        if (!$isTargetPage) {
             return '';
         }
-        // Vanilla JS (no jQuery) to remove domain-related permission inputs
+
+        // Vanilla JS (no jQuery) to remove domain-related permission inputs from both
+        // Contacts and Users templates
         return '<script>
 document.addEventListener("DOMContentLoaded", function () {
   var selectors = [
@@ -35,13 +51,15 @@ document.addEventListener("DOMContentLoaded", function () {
     "input[name=\"email_preferences[domain]\"]"
   ];
   selectors.forEach(function (sel) {
-    var input = document.querySelector(sel);
-    if (!input) return;
-    var parent = input.parentElement;
-    if (parent && parent.previousElementSibling && parent.previousElementSibling.tagName === "BR") {
-      parent.previousElementSibling.remove();
-    }
-    if (parent) parent.remove();
+    var inputs = document.querySelectorAll(sel);
+    if (!inputs.length) return;
+    inputs.forEach(function (input) {
+      var parent = input.parentElement;
+      if (parent && parent.previousElementSibling && parent.previousElementSibling.tagName === "BR") {
+        parent.previousElementSibling.remove();
+      }
+      if (parent) parent.remove();
+    });
   });
 });
 </script>';

@@ -1,52 +1,106 @@
 <style>
-#stripeElements .form-control {
-  margin-bottom: 16px;
-}
-
+/* Base form control styling for dark theme */
 .form-control {
   display: block;
   width: 100%;
-  padding: 0.3rem 0.75rem;       
-  border: 1px solid #d1d5db;      
-  color: #D1D5DB;                
-  /* background-color: #fff;         */
-  border-radius: 0.25rem;         
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #334155;            /* slate-700 */
+  color: #e5e7eb;                       /* slate-200 */
+  background-color: rgba(15, 23, 42, .7); /* bg-slate-900/70 */
+  border-radius: 0.5rem;
   outline: none;
+}
+
+#stripeElements .form-control {
+  margin-bottom: 16px;
 }
 
 .StripeElement {
   padding: 11px 12px !important;
 }
 
-/* Override text color inside the billing contacts container */
-#billingContactsContainer,
-#billingContactsContainer * {
-    color: #1F2937 !important;
+/* Stripe Elements dark container overrides */
+#stripeElements .StripeElement {
+  display: block;
+  width: 100%;
+  padding: 0.625rem 0.75rem !important;
+  border: 1px solid #334155 !important;          /* slate-700 */
+  color: #e5e7eb !important;                     /* slate-200 */
+  background-color: rgba(15, 23, 42, 0.8) !important; /* bg-slate-900/80 */
+  border-radius: 0.5rem !important;
+  outline: none !important;
 }
 
-.control-label {
-  color: #1f2937 ;                 
+#stripeElements .StripeElement--focus {
+  border-color: #22c55e !important;              /* emerald-500 */
+  box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.6) !important;
+}
+
+#stripeElements .StripeElement--invalid {
+  border-color: #fbbf24 !important;              /* amber-400 */
+}
+
+/* Payment provider logos - header */
+.eb-payment-logo {
+  height: 1.75rem; /* ~28px */
+  width: auto;
+}
+
+.eb-payment-logo--pci {
+  height: 4.5rem; /* ~24px */
+  width: auto;
+}
+
+/* Payment provider logos - bottom strip */
+.eb-payment-logo-bottom {
+  height: 1.25rem; /* ~20px */
+  width: auto;
+}
+
+.eb-payment-logo-bottom--pci {
+  height: 2.5rem; /* ~24px */
+  width: auto;
 }
 </style>
 
 
 <script src="{$BASE_PATH_JS}/StatesDropdown.js"></script>
 
-<!-- Main Card Container -->
-<div class="w-full max-w-2xl mx-4 md:mx-auto mt-4 bg-white rounded-lg shadow">
-    <div class="p-2 md:p-8">
-        <h3 class="w-72 sm:w-96 mx-auto text-xl font-semibold mb-6">
-            {if $editMode}
-                {lang key='paymentMethodsManage.editPaymentMethod'}
-            {else}
-                {lang key='paymentMethodsManage.addPaymentMethod'}
-            {/if}
-        </h3>
+<div class="min-h-screen bg-slate-950 text-slate-200">
+    <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
+    <div class="relative z-10 container mx-auto px-4 pb-8 pt-6">
 
-        <form id="frmManagePaymentMethod" class="frm-credit-card-input" role="form" method="post" action="{if $editMode}{routePath('account-paymentmethods-save', $payMethod->id)}{else}{routePath('account-paymentmethods-add')}{/if}">
+        <!-- Main Card Container -->
+        <div class="max-w-2xl mx-auto rounded-3xl border border-slate-800/80 bg-slate-900/80 backdrop-blur-sm shadow-[0_18px_60px_rgba(0,0,0,0.65)] px-4 sm:px-6 py-6">
+            <div class="p-2 md:p-4">
+                <!-- Header block with title and badges -->
+                <div class="flex items-start justify-between mb-6 gap-4">
+                    <div>
+                        <h3 class="text-lg sm:text-xl font-semibold text-slate-50">
+                            {if $editMode}
+                                {lang key='paymentMethodsManage.editPaymentMethod'}
+                            {else}
+                                {lang key='paymentMethodsManage.addPaymentMethod'}
+                            {/if}
+                        </h3>
+                        <p class="mt-1 text-xs sm:text-sm text-slate-400">
+                            Card details are encrypted and stored securely with Stripe.
+                        </p>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <img src="{$WEB_ROOT}/assets/payments/stripe-badge.svg"
+                             alt="Payments powered by Stripe"
+                             class="eb-payment-logo">
+                        <img src="{$WEB_ROOT}/assets/payments/pci-dss-badge.svg"
+                             alt="PCI DSS"
+                             class="eb-payment-logo eb-payment-logo--pci">
+                    </div>
+                </div>
+
+                <form id="frmManagePaymentMethod" class="frm-credit-card-input" role="form" method="post" action="{if $editMode}{routePath('account-paymentmethods-save', $payMethod->id)}{else}{routePath('account-paymentmethods-add')}{/if}">
             
             <!-- Alert Message -->
-            <div class="bg-yellow-100 border border-yellow-400 text-yellow-700 text-center p-4 mb-4 gateway-errors assisted-cc-input-feedback hidden">
+            <div class="gateway-errors assisted-cc-input-feedback hidden mb-4 rounded-md border border-red-500/70 bg-red-900/40 px-4 py-3 text-xs sm:text-sm text-red-50 text-center">
                 {lang key='paymentMethodsManage.invalidCardDetails'}
             </div>
 
@@ -81,19 +135,17 @@
 
             <!-- Auxiliary Fields (e.g. Description) -->
             <div class="w-72 sm:w-96 mx-auto mb-4">
-            <!-- Label placed above the input with a bottom margin -->
-            <label for="inputDescription" class="block font-medium">
-              {lang key='paymentMethods.description'} (Optional)
-            </label>
-            <!-- Input field limited in width to w-52 -->
-            <input 
-              type="text" 
-              id="inputDescription" 
-              name="description" 
-              class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline focus:outline-2 focus:-outline-offset-2 focus:outline-sky-600 sm:text-sm/6" 
-              placeholder="Card description..."
-            >
-          </div>
+                <label for="inputDescription" class="block text-sm font-medium text-slate-200 mb-1">
+                    {lang key='paymentMethods.description'} {lang key='paymentMethodsManage.optional'}
+                </label>
+                <input 
+                    type="text" 
+                    id="inputDescription" 
+                    name="description" 
+                    class="block w-full rounded-md border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500" 
+                    placeholder="{lang key='paymentMethods.descriptionInput'}"
+                >
+            </div>
 
             <!-- Loading Indicator -->
             <div class="fieldgroup-loading hidden">
@@ -140,9 +192,9 @@
                         </label>
                         <div class="w-full">
                             <div class="w-full md:w-1/3">
-                                <input type="tel" class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline focus:outline-2 focus:-outline-offset-2 focus:outline-sky-600 sm:text-sm/6" id="inputCardExpiry" name="ccexpiry" autocomplete="cc-exp" value="{if $creditCard->getExpiryDate()}{$creditCard->getExpiryDate()->format('m / y')}{/if}"{if !$creditCardExpiryFieldEnabled} disabled{/if}>
+                                <input type="tel" class="form-control" id="inputCardExpiry" name="ccexpiry" autocomplete="cc-exp" value="{if $creditCard->getExpiryDate()}{$creditCard->getExpiryDate()->format('m / y')}{/if}"{if !$creditCardExpiryFieldEnabled} disabled{/if}>
                             </div>
-                            <span class="field-error-msg">{lang key='paymentMethodsManage.expiryDateNotValid'}</span>
+                            <span class="field-error-msg text-xs text-red-300 mt-1">{lang key='paymentMethodsManage.expiryDateNotValid'}</span>
                         </div>
                     </div>
 
@@ -153,7 +205,7 @@
                                 {lang key='creditcardcardissuenum'}
                             </label>
                             <div class="w-full">
-                                <input type="tel" class="form-control block w-full" id="inputCardIssue" name="ccissuenum" autocomplete="off" value="{$creditCard->getIssueNumber()}">
+                                <input type="tel" class="form-control" id="inputCardIssue" name="ccissuenum" autocomplete="off" value="{$creditCard->getIssueNumber()}">
                             </div>
                         </div>
                     {/if}
@@ -166,10 +218,9 @@
                             </label>
                             <div class="w-full">
                                 <div class="flex items-center mb-2">
-                                    <input type="tel" class="form-control input-inline input-inline-100 mr-2" id="inputCardCvc" name="cardcvv" autocomplete="off">
-                                    
+                                    <input type="tel" class="form-control input-inline input-inline-100 mr-2" id="inputCardCvc" name="cardcvv" autocomplete="off" placeholder="{lang key='creditcardcvvnumber'}">
                                 </div>
-                                <span class="field-error-msg">{lang key='paymentMethodsManage.cvcNumberNotValid'}</span>
+                                <span class="field-error-msg text-xs text-red-300 mt-1">{lang key='paymentMethodsManage.cvcNumberNotValid'}</span>
                             </div>
                         </div>
                     {/if}
@@ -182,34 +233,63 @@
             <div class="fieldgroup-auxfields{if $remoteUpdate} hidden{/if}">
                 <!-- Billing Address -->
                 <div class="mx-auto w-72 sm:w-96 flex flex-wrap mb-4">
-                    <label for="inputBillingAddress" class="w-full md:w-1/3 block font-medium">
+                    <label for="inputBillingAddress" class="w-full md:w-1/3 block text-sm font-medium text-slate-200 mb-1">
                         {lang key='billingAddress'}
                     </label>
                     <div class="w-full">
-                        <div id="billingContactsContainer" class="text-gray-800 mb-4">
+                        <div id="billingContactsContainer" class="mb-4">
                             {include file="$template/account-paymentmethods-billing-contacts.tpl"}
                         </div>                        
-                        <a href="#" class="inline-block bg-gray-200 shadow-sm text-sm font-medium rounded-md text-gray-600 px-3 py-2 rounded hover:bg-gray-300 space-x-4" data-toggle="modal" data-target="#modalBillingAddress">
+                        <a href="#" class="inline-flex items-center bg-slate-800/80 border border-slate-700 shadow-sm text-xs sm:text-sm font-medium rounded-full text-slate-100 px-3 py-1.5 hover:bg-slate-700 hover:border-slate-500 transition-colors" data-toggle="modal" data-target="#modalBillingAddress">
                             {lang key='paymentMethodsManage.addNewAddress'}
                         </a>
                     </div>
                 </div>
-                <div class="px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
-                <button 
-                type="submit" 
-                name="submit" 
-                id="btnSubmit" 
-                class="inline-flex justify-center items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-sky-600 hover:bg-sky-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-700"
-              >
-                {lang key='clientareasavechanges'}
-              </button>
 
-                
-                <a href="{routePath('account-paymentmethods')}" class="px-4 py-2 text-sm/6 font-semibold text-gray-900 mr-2">
-                  {lang key='cancel'}
-                </a>
+                <!-- Security / trust strip -->
+                <div class="mx-auto w-72 sm:w-96 mt-6 mb-4 flex flex-col gap-3">
+                    <div class="flex items-start gap-3 rounded-xl border border-slate-800 bg-slate-900/80 px-4 py-3">
+                        <svg class="mt-0.5 h-4 w-4 flex-none text-sky-400" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <path d="M7 10V8a5 5 0 0 1 10 0v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                            <rect x="5" y="10" width="14" height="9" rx="2" stroke="currentColor" stroke-width="1.5"/>
+                        </svg>
+                        <p class="text-xs text-slate-400">
+                            We don’t store your full card number on eazyBackup servers.
+                            Card details are encrypted and stored by Stripe, a PCI&nbsp;DSS Level&nbsp;1 service provider.
+                        </p>
+                    </div>
 
-              </div>
+                    <div class="flex flex-wrap items-center gap-3 text-[11px] sm:text-xs text-slate-400">
+                        <div class="flex items-center gap-2">
+                            <img src="{$WEB_ROOT}/assets/payments/stripe-badge.svg"
+                                 alt="Payments powered by Stripe"
+                                 class="eb-payment-logo-bottom">
+                            <span>Payments processed by Stripe</span>
+                        </div>
+                        <span class="hidden sm:inline text-slate-700">•</span>
+                        <div class="flex items-center gap-2">
+                            <img src="{$WEB_ROOT}/assets/payments/pci-dss-badge.svg"
+                                 alt="PCI DSS"
+                                 class="eb-payment-logo-bottom eb-payment-logo-bottom--pci">
+                            <span>PCI&nbsp;DSS Level&nbsp;1</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse sm:items-center">
+                    <button 
+                        type="submit" 
+                        name="submit" 
+                        id="btnSubmit" 
+                        class="btn-accent"
+                    >
+                        {lang key='clientareasavechanges'}
+                    </button>
+
+                    <a href="{routePath('account-paymentmethods')}" class="mr-4 text-sm/6 font-semibold text-slate-300 hover:text-slate-100">
+                        {lang key='cancel'}
+                    </a>
+                </div>
               
 
             <!-- Hidden Billing Inputs -->
@@ -220,21 +300,24 @@
             <input type="hidden" name="billing_state" id="inputBillingState" value="">
             <input type="hidden" name="billing_postcode" id="inputBillingPostcode" value="">
             <input type="hidden" name="billing_country" id="inputBillingCountry" value="">
-        </form>
+                </form>
 
-        <!-- Remote Input / Assisted Output Section -->
-        <div class="fieldgroup-remoteinput{if ($editMode && !$remoteUpdate) || !$editMode} hidden{/if}">
-            {if $remoteUpdate}
-                <div id="tokenGatewayRemoteUpdateOutput" class="text-center">
-                    {$remoteUpdate}
+                <!-- Remote Input / Assisted Output Section -->
+                <div class="fieldgroup-remoteinput{if ($editMode && !$remoteUpdate) || !$editMode} hidden{/if}">
+                    {if $remoteUpdate}
+                        <div id="tokenGatewayRemoteUpdateOutput" class="text-center">
+                            {$remoteUpdate}
+                        </div>
+                    {else}
+                        <div id="tokenGatewayRemoteInputOutput" class="text-center"></div>
+                        <div class="text-center">
+                            <iframe name="ccframe" class="auth3d-area" width="90%" height="600" scrolling="auto" src="about:blank"></iframe>
+                        </div>
+                    {/if}
                 </div>
-            {else}
-                <div id="tokenGatewayRemoteInputOutput" class="text-center"></div>
-                <div class="text-center">
-                    <iframe name="ccframe" class="auth3d-area" width="90%" height="600" scrolling="auto" src="about:blank"></iframe>
-                </div>
-            {/if}
+            </div>
         </div>
+
     </div>
 </div>
 
@@ -275,7 +358,7 @@
                                     {lang key='clientareafirstname'}
                                 </label>
                                 <input type="text" name="firstname" id="inputFirstName" value="{$contactfirstname}"
-                                       class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600">
+                                       class="block w-full rounded-md border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500">
                             </div>
 
                             <!-- Last Name -->
@@ -284,7 +367,7 @@
                                     {lang key='clientarealastname'}
                                 </label>
                                 <input type="text" name="lastname" id="inputLastName" value="{$contactlastname}"
-                                       class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600">
+                                       class="block w-full rounded-md border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500">
                             </div>
 
                             <!-- Company Name -->
@@ -293,7 +376,7 @@
                                     {lang key='clientareacompanyname'}
                                 </label>
                                 <input type="text" name="companyname" id="inputCompanyName" value="{$contactcompanyname}"
-                                       class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600">
+                                       class="block w-full rounded-md border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500">
                             </div>
 
                             
@@ -303,7 +386,7 @@
                                     {lang key='clientareacity'}
                                 </label>
                                 <input type="text" name="city" id="inputCity" value="{$contactcity}"
-                                       class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600">
+                                       class="block w-full rounded-md border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500">
                             </div>
 
                             <!-- State -->
@@ -312,7 +395,7 @@
                                     {lang key='clientareastate'}
                                 </label>
                                 <input type="text" name="state" id="inputState" value="{$contactstate}"
-                                        class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600">
+                                        class="block w-full rounded-md border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500">
                             </div>
 
                             {if $showTaxIdField}
@@ -321,7 +404,7 @@
                                     <label for="inputTaxId" class="block text-sm font-medium text-gray-300">
                                         {lang key=$taxIdLabel}
                                     </label>
-                                    <input type="text" name="tax_id" id="inputTaxId" class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600"
+                                    <input type="text" name="tax_id" id="inputTaxId" class="block w-full rounded-md border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
                                            value="{$contactTaxId}">
                                 </div>
                             {/if}
@@ -335,7 +418,7 @@
                                     {lang key='clientareaaddress1'}
                                 </label>
                                 <input type="text" name="address1" id="inputAddress1" value="{$contactaddress1}"
-                                       class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600">
+                                       class="block w-full rounded-md border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500">
                             </div>
 
                             <!-- Address 2 -->
@@ -344,7 +427,7 @@
                                     {lang key='clientareaaddress2'}
                                 </label>
                                 <input type="text" name="address2" id="inputAddress2" value="{$contactaddress2}"
-                                       class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600">
+                                       class="block w-full rounded-md border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500">
                             </div>
 
                             <!-- Phone Number -->
@@ -353,7 +436,7 @@
                                     {lang key='clientareaphonenumber'}
                                 </label>
                                 <input type="tel" name="phonenumber" id="inputPhone" value="{$contactphonenumber}" 
-                                        class="block w-full !px-3 !py-2 !border !border-gray-600 text-gray-300 !bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600" />
+                                        class="block w-full rounded-md border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500" />
                             </div>  
 
                             <!-- Country -->
@@ -362,7 +445,7 @@
                                     {lang key='clientareacountry'}
                                 </label>
                                 <select name="country" id="inputCountry"
-                                        class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600">
+                                        class="block w-full rounded-md border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500">
                                     {foreach $countries as $countryCode => $countryName}
                                         <option value="{$countryCode}"{if ($countryCode == $clientCountry)} selected="selected"{/if}>
                                             {$countryName}
@@ -377,7 +460,7 @@
                                     {lang key='clientareapostcode'}
                                 </label>
                                 <input type="text" name="postcode" id="inputPostcode" value="{$contactpostcode}"
-                                       class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600">
+                                       class="block w-full rounded-md border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500">
                             </div>
                         </div>
                     </div>
@@ -584,7 +667,10 @@
         });
 
         jQuery('input[name="billingcontact"]').on('ifChecked', function(e) {
-            var contact = jQuery('.billing-contact-' + jQuery(this).val());
+            var value    = jQuery(this).val();
+            var contact  = jQuery('.billing-contact-' + value);
+
+            // Populate hidden billing fields
             jQuery('#inputBillingName').val(contact.find('.name').html());
             jQuery('#inputBillingAddress1').val(contact.find('.address1').html());
             jQuery('#inputBillingAddress2').val(contact.find('.address2').html());
@@ -592,10 +678,20 @@
             jQuery('#inputBillingState').val(contact.find('.state').html());
             jQuery('#inputBillingPostcode').val(contact.find('.postcode').html());
             jQuery('#inputBillingCountry').val(contact.find('.country').html());
+
+            // Visual selection state for billing cards
+            jQuery('#innerBillingContactsContainer label').removeClass('ring-2 ring-sky-500 border-sky-500 bg-slate-900');
+            contact.addClass('ring-2 ring-sky-500 border-sky-500 bg-slate-900');
         });
 
         if (jQuery('input[name="type"]:checked', ccForm).length === 0) {
             jQuery('input[name="type"]', ccForm).first().parents('label').trigger('click');
+        }
+
+        // Ensure initial billing contact card selection styling
+        var initiallyChecked = jQuery('input[name="billingcontact"]:checked');
+        if (initiallyChecked.length) {
+            initiallyChecked.trigger('ifChecked');
         }
 
         jQuery('#billingContactForm').data('on-success', function(data) {
@@ -609,4 +705,82 @@
         $('#country').removeClass().addClass('block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#192331] rounded focus:outline-none focus:ring-0 focus:border-sky-600');
     });
 </script>
+
+{literal}
+<script>
+// Post-initialisation styling for Stripe Elements on payment method manage page
+(function () {
+    function applyStripeDarkTheme() {
+        var styledAnything = false;
+
+        if (window.card && typeof card.update === 'function') {
+            card.update({
+                style: {
+                    base: {
+                        color: '#e5e7eb', // slate-200
+                        iconColor: '#22c55e',
+                        '::placeholder': {
+                            color: '#6b7280' // gray-500
+                        },
+                        fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+                        fontSize: '14px'
+                    },
+                    invalid: {
+                        color: '#fca5a5',
+                        iconColor: '#fca5a5'
+                    }
+                }
+            });
+            styledAnything = true;
+        }
+
+        if (window.cardExpiryElements && typeof cardExpiryElements.update === 'function') {
+            cardExpiryElements.update({
+                style: {
+                    base: {
+                        color: '#e5e7eb',
+                        '::placeholder': {
+                            color: '#6b7280'
+                        }
+                    },
+                    invalid: {
+                        color: '#fca5a5'
+                    }
+                }
+            });
+            styledAnything = true;
+        }
+
+        if (window.cardCvcElements && typeof cardCvcElements.update === 'function') {
+            cardCvcElements.update({
+                style: {
+                    base: {
+                        color: '#e5e7eb',
+                        '::placeholder': {
+                            color: '#6b7280'
+                        }
+                    },
+                    invalid: {
+                        color: '#fca5a5'
+                    }
+                }
+            });
+            styledAnything = true;
+        }
+
+        return styledAnything;
+    }
+
+    if (!applyStripeDarkTheme()) {
+        var attempts = 0;
+        var iv = setInterval(function () {
+            attempts++;
+            if (applyStripeDarkTheme() || attempts > 40) {
+                clearInterval(iv);
+            }
+        }, 250);
+    }
+})();
+</script>
+{/literal}
 

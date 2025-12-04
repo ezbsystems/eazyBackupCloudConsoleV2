@@ -1,8 +1,15 @@
 <!-- accounts\templates\eazyBackup\login.tpl -->
 <div class="providerLinkingFeedback"></div>
 
-<form method="post" action="{routePath('login-validate')}" class="flex justify-center items-center min-h-screen bg-gray-700" role="form">
-    <div class="bg-gray-800 rounded-lg shadow p-8 max-w-lg w-full">
+<form method="post" action="{routePath('login-validate')}" class="flex justify-center items-center min-h-screen bg-slate-950 text-gray-300" role="form">
+    <!-- Global nebula background -->
+    <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
+
+    <div class="relative max-w-lg w-full">
+        <!-- glow behind the login card -->
+        <div class="pointer-events-none absolute -top-24 -right-16 w-[26rem] h-[26rem] bg-[radial-gradient(circle_at_center,_#1f2937a6,_transparent_65%)] -z-10"></div>
+
+        <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6 w-full">
         
             <div class="mb-6">
                 <h6 class="text-2xl font-semibold text-white">{lang key='loginheading'}</h6>
@@ -24,7 +31,7 @@
                         name="username" 
                         id="inputEmail" 
                         placeholder="name@company.com" 
-                        class="block w-full pl-10 pr-3 py-2 border border-gray-600 text-gray-300 bg-gray-700 rounded focus:outline-none focus:ring-0 focus:border-sky-600"
+                        class="block w-full pl-10 pr-3 py-2.5 rounded-lg border border-slate-700 bg-slate-900/60 text-sm text-white placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                     >
                 </div>
             </div>
@@ -46,7 +53,7 @@
                         name="password" 
                         id="inputPassword" 
                         placeholder="{lang key='clientareapassword'}" 
-                        class="block w-full pl-10 pr-3 py-2 border border-gray-600 text-gray-300 bg-gray-700 rounded focus:outline-none focus:ring-0 focus:border-sky-600"
+                        class="block w-full pl-10 pr-3 py-2.5 rounded-lg border border-slate-700 bg-slate-900/60 text-sm text-white placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                     >
                     <button type="button" id="togglePassword" tabindex="-1" 
                         class="absolute inset-y-0 right-0 px-3 text-gray-300 hover:text-gray-200 focus:outline-none">
@@ -73,15 +80,53 @@
                 <a href="{routePath('password-reset-begin')}" class="text-sm font-semibold text-sky-500 hover:underline">{lang key='forgotpw'}</a>
             </div>
             <div class="flex items-center justify-between mb-4">
-                <button id="login" type="submit" 
-                    class="items-center w-full px-4 py-2 border border-transparent shadow-sm text-md font-semisbold rounded-md text-white bg-sky-600 hover:bg-sky-700 border-transparent focus:border-transparent focus:ring-0">
-                    {lang key='loginbutton'}
-                </button>                
+                <button
+                    id="login"
+                    type="submit"
+                    class="group relative inline-flex w-full items-center justify-center overflow-hidden rounded-full px-[2px] py-[2px] focus:outline-none"
+                >
+                    <!-- Outer glowing ring -->
+                    <span
+                        class="absolute inset-0 rounded-full bg-[conic-gradient(from_180deg_at_50%_50%,_rgba(254,80,0,0.15),_rgba(254,80,0,0.6),_rgba(254,80,0,0.15))] opacity-80 blur-[2px] transition duration-500 group-hover:blur-[6px] group-hover:opacity-100"
+                        aria-hidden="true"
+                    ></span>
+
+                    <!-- Inner button surface -->
+                    <span
+                        class="relative inline-flex w-full items-center justify-center rounded-full bg-gradient-to-r from-[#FE5000] via-[#ff8a3a] to-[#FE5000] px-4 py-2 text-sm font-semibold text-white shadow-[0_0_25px_rgba(254,80,0,0.55)] transition duration-300 group-hover:shadow-[0_0_40px_rgba(254,80,0,0.85)] group-hover:translate-y-[1px]"
+                    >
+                        <!-- Lock icon -->
+                        <span
+                            class="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-black/20 text-white/90 transition-transform duration-300 group-hover:translate-x-[1px]"
+                            aria-hidden="true"
+                        >
+                            <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="1.8"
+                                class="h-3.5 w-3.5"
+                            >
+                                <path
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                    d="M16.5 10.5V8.25A4.25 4.25 0 0 0 8 8.25v2.25m8.5 0h-9a1.75 1.75 0 0 0-1.75 1.75v4.5A1.75 1.75 0 0 0 7.5 20.5h9a1.75 1.75 0 0 0 1.75-1.75v-4.5a1.75 1.75 0 0 0-1.75-1.75Z"
+                                />
+                            </svg>
+                        </span>
+
+                        <span class="relative text-md">
+                            {lang key='loginbutton'}
+                        </span>
+                    </span>
+                </button>
             </div>
 
         
-
+        
         <!-- Footer -->        
+        </div>
     </div>
 </form>
 
