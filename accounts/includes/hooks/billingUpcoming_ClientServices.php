@@ -30,10 +30,12 @@ function eb_render_upcoming_charges_panel($vars) {
         if (!$svc || !$svc->username) return '';
 
         // Upcoming charges: join recent notifications and grace for this service/username
+        $recentCutoff = date('Y-m-d H:i:s', strtotime('-5 days'));
         $rows = Capsule::table('eb_notifications_sent as n')
             ->leftJoin('eb_billing_grace as g', function($j){ $j->on('g.username','=','n.username'); })
             ->where('n.service_id',$serviceId)
-            ->where('n.created_at','>=',date('Y-m-d H:i:s', strtotime('-30 days')))
+            ->whereNull('n.acknowledged_at')
+            ->where('n.created_at','>=',$recentCutoff)
             ->orderBy('n.created_at','desc')
             ->limit(12)
             ->get(['n.created_at','n.category','n.subject','g.first_seen_at as grace_first_seen_at','g.grace_expires_at as grace_expires_at','g.grace_days as grace_days']);

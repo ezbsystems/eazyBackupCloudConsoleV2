@@ -656,15 +656,19 @@ function eazybackup_migrate_schema(): void {
             $t->json('merge_json');
             $t->unsignedInteger('email_log_id')->nullable();
             $t->enum('status', ['sent','failed'])->default('sent');
+            $t->dateTime('acknowledged_at')->nullable();
             $t->text('error')->nullable();
             $t->timestamp('created_at')->useCurrent();
             $t->timestamp('updated_at')->useCurrent()->useCurrentOnUpdate();
             $t->unique(['username','category','threshold_key'], 'uq_user_cat_key');
             $t->index(['service_id','created_at'], 'idx_service_created');
+            $t->index('acknowledged_at', 'idx_notifications_ack');
         });
     } else {
         eb_add_index_if_missing('eb_notifications_sent', "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_cat_key ON eb_notifications_sent (username, category, threshold_key)");
         eb_add_index_if_missing('eb_notifications_sent', "CREATE INDEX IF NOT EXISTS idx_service_created ON eb_notifications_sent (service_id, created_at)");
+        eb_add_column_if_missing('eb_notifications_sent','acknowledged_at', fn(Blueprint $t)=>$t->dateTime('acknowledged_at')->nullable());
+        eb_add_index_if_missing('eb_notifications_sent', "CREATE INDEX IF NOT EXISTS idx_notifications_ack ON eb_notifications_sent (acknowledged_at)");
     }
 
     // --- eb_module_settings (addon config backup store) ---
@@ -2605,6 +2609,35 @@ function eazybackup_clientarea(array $vars)
         require_once __DIR__ . "/pages/console/pulse.php";
         eb_pulse_snooze();
         exit;
+    } else if ($_REQUEST["a"] == "notification-dismiss") {
+        header('Content-Type: application/json');
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') { echo json_encode(['ok'=>false,'message'=>'Invalid method']); exit; }
+        if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { echo json_encode(['ok'=>false,'message'=>'Not authenticated']); exit; }
+        if (!function_exists('check_token') || !check_token('WHMCS.clientarea.default')) { echo json_encode(['ok'=>false,'message'=>'Invalid token']); exit; }
+        $notificationId = isset($_POST['notification_id']) ? (int)$_POST['notification_id'] : 0;
+        if ($notificationId <= 0) { echo json_encode(['ok'=>false,'message'=>'Invalid notification']); exit; }
+        $clientId = (int)$_SESSION['uid'];
+        try {
+            $row = Capsule::table('eb_notifications_sent as n')
+                ->join('tblhosting', 'tblhosting.id', '=', 'n.service_id')
+                ->where('n.id', $notificationId)
+                ->where('tblhosting.userid', $clientId)
+                ->select('n.id')
+                ->first();
+            if (!$row) {
+                echo json_encode(['ok'=>false,'message'=>'Notification not found']); exit;
+            }
+            Capsule::table('eb_notifications_sent')
+                ->where('id', $notificationId)
+                ->update([
+                    'acknowledged_at' => date('Y-m-d H:i:s'),
+                    'updated_at' => date('Y-m-d H:i:s'),
+                ]);
+            echo json_encode(['ok'=>true]);
+        } catch (\Throwable $e) {
+            echo json_encode(['ok'=>false,'message'=>'Failed to dismiss notification']);
+        }
+        exit;
     } else if ($_REQUEST["a"] == "tos-block") {
         // Blocking page with TOS modal
         if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) {
@@ -3061,18 +3094,20 @@ function eazybackup_clientarea(array $vars)
         $upcomingCharges = [];
         try {
             $now = date('Y-m-d H:i:s');
+            $recentCutoff = date('Y-m-d H:i:s', strtotime('-5 days'));
             $upcomingCharges = Capsule::table('eb_notifications_sent as n')
                 ->leftJoin('eb_billing_grace as g', function($j){ $j->on('g.username','=','n.username'); })
                 ->whereIn('n.service_id', $serviceIds)
-                ->where(function($q) use ($now){
-                    // keep if grace active OR no grace row (fallback to last 30 days)
+                ->whereNull('n.acknowledged_at')
+                ->where(function($q) use ($now, $recentCutoff){
+                    // keep if grace active OR no grace row (fallback to last 5 days)
                     $q->whereNotNull('g.grace_expires_at')->where('g.grace_expires_at','>=',$now)
-                      ->orWhere(function($q2) use ($now){ $q2->whereNull('g.grace_expires_at')->where('n.created_at','>=', date('Y-m-d H:i:s', strtotime('-30 days'))); });
+                      ->orWhere(function($q2) use ($recentCutoff){ $q2->whereNull('g.grace_expires_at')->where('n.created_at','>=', $recentCutoff); });
                 })
                 ->orderBy('n.created_at','desc')
                 ->limit(20)
                 ->get([
-                    'n.created_at','n.category','n.subject','n.username as username',
+                    'n.id as notification_id','n.created_at','n.category','n.subject','n.username as username',
                     'g.first_seen_at as grace_first_seen_at','g.grace_expires_at as grace_expires_at','g.grace_days as grace_days'
                 ]);
         } catch (\Throwable $e) { /* table may not exist yet */ }
@@ -3094,6 +3129,8 @@ function eazybackup_clientarea(array $vars)
                 'devices' => $devices,
                 'accounts' => $accounts,
                 'upcomingCharges' => $upcomingCharges,
+                'upcomingChargesToken' => function_exists('generate_token') ? generate_token('plain') : '',
+                'upcomingDismissUrl' => $vars['modulelink'] . '&a=notification-dismiss',
                 // Flag to trigger password modal on dashboard load
                 'mustSetPassword' => (function_exists('eazybackup_must_set_password') ? eazybackup_must_set_password((int)$clientId) : false),
                 // Client notification prefs for template conditionals

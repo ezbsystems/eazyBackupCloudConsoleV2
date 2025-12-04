@@ -1,6 +1,6 @@
 {* Upcoming Charges panel (uses eb_notifications_sent recent rows for this service) *}
 {if isset($upcomingCharges) && $upcomingCharges}
-<div class="bg-[#11182759] p-4 rounded-lg shadow mb-6">
+<div id="eb-upcoming-charges-panel" class="bg-[#11182759] p-4 rounded-lg shadow mb-6" data-dismiss-url="{$upcomingDismissUrl|escape:'html'}" data-token="{$upcomingChargesToken|escape:'html'}">
   <div class="flex items-center justify-between mb-3">
     <h3 class="text-md font-medium text-gray-300">Upcoming Charges</h3>
     <a href="index.php?m=eazybackup&a=notify-settings" class="text-gray-400 hover:text-gray-200" aria-label="Notification settings" title="Notification settings">
@@ -17,10 +17,11 @@
       <div class="col-span-2">First seen</div>
       <div class="col-span-2">Billing starts</div>
       <div class="col-span-1">Grace (days)</div>
-      <div class="col-span-2 text-right">Logged</div>
+      <div class="col-span-1 text-right">Logged</div>
+      <div class="col-span-1 text-right">Actions</div>
     </div>
     {foreach from=$upcomingCharges item=row}
-      <div class="grid grid-cols-12 gap-2 items-center border border-gray-700 rounded px-3 py-2 bg-gray-900/40">
+      <div class="grid grid-cols-12 gap-2 items-center border border-gray-700 rounded px-3 py-2 bg-gray-900/40" data-eb-row>
         <div class="col-span-3 flex items-center gap-2">
           <span class="text-xs px-2 py-0.5 rounded bg-gray-700 text-gray-300">{$row->category|capitalize}</span>
           <div class="text-gray-200 text-sm truncate">{$row->subject}</div>
@@ -29,7 +30,12 @@
         <div class="col-span-2 text-xs text-gray-300">{if $row->grace_first_seen_at}{$row->grace_first_seen_at}{else}-{/if}</div>
         <div class="col-span-2 text-xs text-gray-300">{if $row->grace_expires_at}{$row->grace_expires_at}{else}-{/if}</div>
         <div class="col-span-1 text-xs text-gray-300">{if $row->grace_days !== null}{$row->grace_days}{else}-{/if}</div>
-        <div class="col-span-2 text-right text-xs text-gray-400">{$row->created_at}</div>
+        <div class="col-span-1 text-right text-xs text-gray-400">{$row->created_at}</div>
+        <div class="col-span-1 text-right">
+          <button type="button" class="text-xs text-slate-400 hover:text-white border border-slate-600/70 rounded px-2 py-1 transition disabled:opacity-50" data-eb-dismiss="{$row->notification_id}">
+            Dismiss
+          </button>
+        </div>
       </div>
     {/foreach}
   </div>
@@ -37,5 +43,52 @@
     <div class="text-slate-400 text-sm">No recent changes.</div>
   {/if}
  </div>
+ <script>
+ document.addEventListener('DOMContentLoaded', function () {
+   var panel = document.getElementById('eb-upcoming-charges-panel');
+   if (!panel) { return; }
+   var dismissUrl = panel.dataset.dismissUrl || '';
+   var token = panel.dataset.token || '';
+   panel.addEventListener('click', function (ev) {
+     var btn = ev.target.closest('[data-eb-dismiss]');
+     if (!btn) { return; }
+     ev.preventDefault();
+     if (!dismissUrl) { return; }
+     var notificationId = btn.getAttribute('data-eb-dismiss');
+     if (!notificationId) { return; }
+     btn.disabled = true;
+     var payload = new URLSearchParams({ token: token, notification_id: notificationId }).toString();
+     fetch(dismissUrl, {
+       method: 'POST',
+       headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+       body: payload
+     })
+       .then(function (resp) { return resp.json().catch(function () { return {}; }); })
+       .then(function (data) {
+         if (data && data.ok) {
+           var row = btn.closest('[data-eb-row]');
+           if (row) { row.remove(); }
+           if (!panel.querySelector('[data-eb-row]')) {
+             var container = panel.querySelector('.space-y-2');
+             if (container) {
+               var empty = document.createElement('div');
+               empty.className = 'text-slate-400 text-sm';
+               empty.textContent = 'No recent changes.';
+               container.appendChild(empty);
+             }
+           }
+         } else {
+           btn.disabled = false;
+           alert((data && data.message) ? data.message : 'Unable to dismiss notification.');
+         }
+       })
+       .catch(function () {
+         btn.disabled = false;
+         alert('Unable to dismiss notification.');
+       });
+   });
+ });
+ </script>
+</div>
 {/if}
 
