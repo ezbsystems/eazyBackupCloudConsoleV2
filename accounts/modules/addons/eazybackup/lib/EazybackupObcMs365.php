@@ -381,10 +381,10 @@ class EazybackupObcMs365 {
             );
             if ($productId == "57") { // OBC MS365
                 $serverUrl = "https://csw.obcbackup.com/";
-                $installerPath = "/var/www/eazybackup.ca/client_installer/OBC-25.3.6.deb";
+                $installerPath = "/var/www/eazybackup.ca/client_installer/OBC-25.9.8.deb";
             } else { // Default to eazyBackup MS365
                 $serverUrl = "https://csw.eazybackup.ca/";
-                $installerPath = "/var/www/eazybackup.ca/client_installer/eazyBackup-25.3.6.deb";
+                $installerPath = "/var/www/eazybackup.ca/client_installer/eazyBackup-25.9.8.deb";
             }
 
             $debconfSelections = "backup-tool backup-tool/username string $username\nbackup-tool backup-tool/password password $password\nbackup-tool backup-tool/serverurl string $serverUrl\n";
