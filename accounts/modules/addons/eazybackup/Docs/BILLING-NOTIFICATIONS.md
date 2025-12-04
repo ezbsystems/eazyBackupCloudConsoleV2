@@ -208,9 +208,10 @@ In `eazybackup_config()` (Addon Settings):
 ### Client: Upcoming Charges Panel
 - Template include: `templates/console/partials/upcoming-charges.tpl`
 - Shown on `templates/clientarea/dashboard.tpl` above “Backup Status”.
-- Data source: recent rows in `eb_notifications_sent` (last 30 days) for the client’s active services; left-joined with `eb_billing_grace` to surface grace dates.
+- Data source: recent rows in `eb_notifications_sent` (last 5 days when no grace) for the client’s active services; left-joined with `eb_billing_grace` to surface grace dates.
 - When a device/add-on item includes grace fields, the panel displays:
   - “Enabled on <first_seen_at>, billing starts on <grace_expires_at> (grace <grace_days> days)”
+- Clients can dismiss a notification from the panel; this sets `acknowledged_at` on the underlying `eb_notifications_sent` row so it disappears immediately while keeping the record for audit.
 
 ### Admin: Notifications Page (basic)
 - `pages/notifications.php` — simple listing scoped to a service for quick review.

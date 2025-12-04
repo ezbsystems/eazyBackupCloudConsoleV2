@@ -10,6 +10,21 @@ if ($loader instanceof \Composer\Autoload\ClassLoader) {
     $loader->register(true); // prepend = true
 }
 
+// Bootstrap WHMCS so localAPI/logActivity are available for notifications.
+if (!defined('WHMCS')) {
+    $whmcsInit = dirname(__DIR__, 4) . '/init.php';
+    if (is_file($whmcsInit)) {
+        require_once $whmcsInit;
+        // WHMCS init pulls in its own Composer loader; ensure ours stays first.
+        if ($loader instanceof \Composer\Autoload\ClassLoader) {
+            $loader->unregister();
+            $loader->register(true);
+        }
+    } else {
+        fwrite(STDERR, "[ws-worker] WHMCS init.php not found at {$whmcsInit}\n");
+    }
+}
+
 // Runtime guard + forensic: make sure we really have league/uri v7 here.
 if (!class_exists(\League\Uri\Http::class, true) || !\method_exists(\League\Uri\Http::class, 'new')) {
     $where = class_exists(\League\Uri\Http::class, false)

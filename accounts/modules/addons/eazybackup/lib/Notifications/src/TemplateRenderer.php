@@ -5,10 +5,28 @@ namespace EazyBackup\Notifications;
 
 final class TemplateRenderer
 {
+    private static function logEvent(string $message): void
+    {
+        $msg = '[notify] ' . $message;
+        if (function_exists('logActivity')) {
+            try {
+                logActivity($msg);
+                return;
+            } catch (\Throwable $e) {
+                // fall through to error_log below if WHMCS logging failed
+                $msg .= ' (logActivity failed: ' . $e->getMessage() . ')';
+            }
+        }
+        error_log($msg);
+    }
+
     /** Send using WHMCS Local API SendEmail with a given template name and merge vars. */
     public static function send(string $templateSettingKey, array $mergeVars): array
     {
-        if (!function_exists('localAPI')) { throw new \RuntimeException('localAPI unavailable'); }
+        if (!function_exists('localAPI')) {
+            self::logEvent('localAPI unavailable when attempting to send template key ' . $templateSettingKey);
+            throw new \RuntimeException('localAPI unavailable');
+        }
         $templateName = Config::templateName($templateSettingKey);
         if ($templateName === '') { throw new \RuntimeException('Template not configured: ' . $templateSettingKey); }
         // Normal payload uses template by name
@@ -44,6 +62,9 @@ final class TemplateRenderer
                 if ($testClientId > 0) { $payload['id'] = $testClientId; }
                 if (getenv('EB_WS_DEBUG') === '1') { error_log('[notify] SendEmail TEST payload -> ' . json_encode($payload)); }
                 $resp = localAPI('SendEmail', $payload);
+                if (($resp['result'] ?? '') !== 'success') {
+                    self::logEvent('Test-mode SendEmail failed for template ' . $templateName . ': ' . json_encode($resp));
+                }
                 $last = $resp; $all[] = $resp;
             }
             return ['result'=>($last['result'] ?? 'success'), 'responses'=>$all];
@@ -74,7 +95,15 @@ final class TemplateRenderer
         if (getenv('EB_WS_DEBUG') === '1') {
             error_log('[notify] SendEmail payload keys=' . implode(',', array_keys($payload)) . ' tmpl=' . $templateName);
         }
-        $resp = localAPI('SendEmail', $payload);
+        try {
+            $resp = localAPI('SendEmail', $payload);
+        } catch (\Throwable $e) {
+            self::logEvent('SendEmail threw for template ' . $templateName . ': ' . $e->getMessage());
+            throw $e;
+        }
+        if (($resp['result'] ?? '') !== 'success') {
+            self::logEvent('SendEmail returned non-success for template ' . $templateName . ': ' . json_encode($resp));
+        }
         if (getenv('EB_WS_DEBUG') === '1') {
             error_log('[notify] SendEmail resp=' . json_encode($resp));
         }
