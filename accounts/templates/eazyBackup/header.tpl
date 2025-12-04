@@ -11,36 +11,56 @@
     {include file="modules/addons/eazybackup/templates/partials/_ui-tokens.tpl"}
 
     <style>
-/* Ensure Alpine cloaked elements are hidden before initialization */
-[x-cloak] { display: none !important; }
-/* Hide tooltips by default */
-.tooltip-content {
-    display: none;
-}
+    /* Ensure Alpine cloaked elements are hidden before initialization */
+    [x-cloak] { 
+        display: none !important; 
+    }
 
-/* Show tooltip on group hover */
-.group:hover .tooltip-content {
-    display: block;
-}
+    /* Hide tooltips by default */
+    .tooltip-content {
+        display: none;
+    }
 
-/* Positioning and styling for tooltips */
-.tooltip-content {
-    position: absolute;
-    bottom: 125%; /* Adjust as needed */
-    left: 50%;
-    transform: translateX(-50%);
-    background-color: #4B5563; /* Tailwind's gray-700 */
-    color: white;
-    padding: 0.5rem;
-    border-radius: 0.25rem;
-    white-space: nowrap;
-    z-index: 10;
-    font-size: 0.75rem;
-}
+    /* Show tooltip on group hover */
+    .group:hover .tooltip-content {
+        display: block;
+    }
 
+    /* Positioning and styling for tooltips */
+    .tooltip-content {
+        position: absolute;
+        bottom: 125%; /* Adjust as needed */
+        left: 50%;
+        transform: translateX(-50%);
+        background-color: #4B5563; /* Tailwind's gray-700 */
+        color: white;
+        padding: 0.5rem;
+        border-radius: 0.25rem;
+        white-space: nowrap;
+        z-index: 10;
+        font-size: 0.75rem;
+    }
 
+    /* Sidebar scrollbar (Chrome, Edge, Safari) */
+    #sidebar nav::-webkit-scrollbar {
+        width: 6px; /* thin */
+    }
 
-</style>
+    #sidebar nav::-webkit-scrollbar-track {
+        background: transparent; /* or a solid dark color if preferred */
+    }
+
+    #sidebar nav::-webkit-scrollbar-thumb {
+        background-color: #374151; /* dark gray */
+        border-radius: 9999px;
+    }
+
+    /* Sidebar scrollbar (Firefox) */
+    #sidebar nav {
+        scrollbar-width: thin;
+        scrollbar-color: #374151 transparent; /* thumb, track */
+    }
+    </style>
 </head>
 
 <body data-phone-cc-input="{$phoneNumberInputStyle}" class="flex eb-bg-page">
@@ -50,7 +70,7 @@
     <!-- Mobile Hamburger Button (Visible on small screens) -->
     <button
         id="menu-button"
-        class="lg:hidden p-4 focus:outline-none z-40 bg-gray-900"
+        class="lg:hidden p-4 focus:outline-none z-40 bg-slate-900"
     >
         <svg class="w-6 h-6 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path
@@ -67,28 +87,45 @@
         <!-- Sidebar (Desktop + Mobile) -->
         <aside
             id="sidebar"
-            class="fixed top-0 left-0 w-64 bg-gray-900 shadow-md ring-1 ring-inset ring-white/10 h-screen flex-shrink-0 z-40 hidden lg:block"
+            class="fixed top-0 left-0 w-64 bg-slate-900 shadow-md ring-1 ring-inset ring-white/10 h-screen flex-shrink-0 z-40 hidden lg:block"
         >
             <div class="h-full flex flex-col">
-                    <!-- Logo -->
-                    <div class="flex items-center justify-center h-16 border-b border-gray-700">
-                    {if $assetLogoPath}
-                        <a href="{$WEB_ROOT}/index.php" class="logo">
-                            <img src="{$WEB_ROOT}/assets/img/logo.svg" alt="{$companyname}" class="h-12 max-w-[175px] h-auto">
-                        </a>
-                    {else}
-                        <a href="{$WEB_ROOT}/index.php" class="logo text-2xl font-bold text-white">
-                            {$companyname}
-                        </a>
-                    {/if}
-                </div>
-
-                    <!-- Navigation Items -->
-                    <nav class="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
+                    <!-- Logo (hidden when logged out) -->
                     {if $loggedin}
+                        <div class="flex items-center justify-center h-16 border-b border-slate-700">
+                            {if $assetLogoPath}
+                                <a href="{$WEB_ROOT}/index.php" class="logo">
+                                    <img src="{$WEB_ROOT}/assets/img/logo.svg" alt="{$companyname}" class="h-12 max-w-[175px] h-auto">
+                                </a>
+                            {else}
+                                <a href="{$WEB_ROOT}/index.php" class="logo text-2xl font-bold text-white">
+                                    {$companyname}
+                                </a>
+                            {/if}
+                        </div>
+                    {/if}
+
+                    <!-- Navigation Items / Vertical logo when logged out -->
+                    <nav class="relative flex-1 px-2 py-4 space-y-1 overflow-hidden">
+                    {if !$loggedin}
+                        <!-- Vertical eazyBackup logo for logged-out state -->
+                        <div class="relative h-full w-full">
+                            <a href="https://accounts.eazybackup.ca/index.php">
+                                <img
+                                    src="{$WEB_ROOT}/assets/img/logo.svg"
+                                    alt="{$companyname}"
+                                    class="absolute opacity-10"
+                                    style="top:50%;left:50%;transform:translate(-50%,-50%) rotate(-90deg) scale(2.5);transform-origin:center;height:140%;width:auto;"
+                                >
+                            </a>
+                        </div>
+                    {/if}
+
+                    {if $loggedin}
+                        <div class="h-full overflow-y-auto space-y-1">
                         <!-- Dashboard -->
                         <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=dashboard"
-                        class="flex items-center px-2 py-2 text-gray-400 rounded-md hover:bg-[#1B2C50]
+                        class="flex items-center px-2 py-2 text-gray-300 rounded-md hover:bg-[#1B2C50]
                                 {if $smarty.get.m == 'eazybackup' && $smarty.get.a == 'dashboard'}bg-[#1B2C50] font-semibold{/if}"
                         >
                             {* <i class="fas fa-gauge mr-3 text-lg"></i> *}
@@ -102,7 +139,7 @@
 
                         <!-- My Services -->
                         <a href="/clientarea.php?action=services"
-                        class="flex items-center px-2 py-2 text-gray-400 rounded-md hover:bg-[#1B2C50]
+                        class="flex items-center px-2 py-2 text-gray-300 rounded-md hover:bg-[#1B2C50]
                                 {if $smarty.server.REQUEST_URI == '/clientarea.php?action=services'}bg-[#1B2C50] font-semibold{/if}"
                         >
                             {* <i class="fas fa-users-gear mr-3 text-lg"></i> *}
@@ -115,7 +152,7 @@
                         <!-- Order New Services button to open flyout) -->
                         <button
                             id="order-services-button"
-                            class="flex items-center w-full px-2 py-2 text-gray-400 rounded-md hover:bg-[#1B2C50] focus:outline-none"
+                            class="flex items-center w-full px-2 py-2 text-gray-300 rounded-md hover:bg-[#1B2C50] focus:outline-none"
                             aria-haspopup="true"
                             aria-expanded="false"
                             aria-controls="sidebar-flyout"
@@ -124,7 +161,7 @@
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 10.5V6a3.75 3.75 0 1 0-7.5 0v4.5m11.356-1.993 1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 0 1-1.12-1.243l1.264-12A1.125 1.125 0 0 1 5.513 7.5h12.974c.576 0 1.059.435 1.119 1.007ZM8.625 10.5a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm7.5 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" />
                             </svg>
                             Order New Services
-                            <svg class="w-4 h-4 ml-auto text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                            <svg class="w-4 h-4 ml-auto text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                                 <path
                                     stroke-linecap="round"
                                     stroke-linejoin="round"
@@ -138,7 +175,7 @@
                         
                         <button
                         id="download-backup-client-button"
-                        class="flex items-center w-full px-2 py-2 text-gray-400 rounded-md hover:bg-[#1B2C50] focus:outline-none"
+                        class="flex items-center w-full px-2 py-2 text-gray-300 rounded-md hover:bg-[#1B2C50] focus:outline-none"
                         aria-haspopup="true"
                         aria-expanded="false"
                         aria-controls="sidebar-download-flyout"
@@ -147,7 +184,7 @@
                             <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
                         </svg>                      
                         Download
-                        <svg class="w-4 h-4 ml-auto text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg class="w-4 h-4 ml-auto text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
                         </svg>
                         </button>
@@ -155,7 +192,7 @@
 
                         <!-- Support -->
                         <a href="{$WEB_ROOT}/supporttickets.php"
-                        class="flex items-center px-2 py-2 text-gray-400 rounded-md hover:bg-[#1B2C50]
+                        class="flex items-center px-2 py-2 text-gray-300 rounded-md hover:bg-[#1B2C50]
                                 {if $smarty.server.REQUEST_URI == '/supporttickets.php'}bg-[#1B2C50] font-semibold{/if}"
                         >
                             {* <i class="fas fa-question-circle mr-3 text-lg"></i> *}
@@ -167,7 +204,7 @@
 
                         <!-- Billing -->
                         <a href="{$WEB_ROOT}/clientarea.php?action=invoices"
-                        class="flex items-center px-2 py-2 text-gray-400 rounded-md hover:bg-[#1B2C50]
+                        class="flex items-center px-2 py-2 text-gray-300 rounded-md hover:bg-[#1B2C50]
                                 {if $smarty.server.REQUEST_URI == '/clientarea.php?action=invoices'}bg-[#1B2C50] font-semibold{/if}"
                         >
                             {* <i class="fas fa-file-invoice mr-3 text-lg"></i> *}
@@ -180,7 +217,7 @@
 
                         <!-- Affiliates -->
                         {* <a href="{$WEB_ROOT}/affiliates.php"
-                        class="flex items-center px-2 py-2 text-gray-400 rounded-md hover:bg-[#1B2C50]
+                        class="flex items-center px-2 py-2 text-gray-300 rounded-md hover:bg-[#1B2C50]
                                 {if $smarty.server.REQUEST_URI == '/affiliates.php'}bg-[#1B2C50] font-semibold{/if}"
                         > *}
                             {* <i class="fas fa-file-invoice mr-3 text-lg"></i> *}
@@ -196,7 +233,7 @@
                         <div x-data="{ open: false }" class="relative">
                         <button
                             @click="open = !open"
-                            class="flex items-center w-full px-2 py-2 text-left text-gray-400 rounded-md hover:bg-[#1B2C50]
+                            class="flex items-center w-full px-2 py-2 text-left text-gray-300 rounded-md hover:bg-[#1B2C50]
                                 {if $smarty.server.REQUEST_URI == '/control-panel-path'}bg-[#1B2C50] font-semibold{/if}"
                         >
                             {* <i class="fas fa-up-right-from-square mr-3 text-lg"></i> *}
@@ -220,11 +257,11 @@
                             @click.away="open = false"
                             class="mt-1 space-y-1 pl-8"
                         >
-                            <a href="https://panel.eazybackup.ca/" class="block px-2 py-1 text-gray-400 rounded-md hover:bg-[#1B2C50]">
+                            <a href="https://panel.eazybackup.ca/" class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]">
                                 eazyBackup Control Panel
                             </a>
                             {if $clientsdetails.groupid == 2 || $clientsdetails.groupid == 3 || $clientsdetails.groupid == 4 || $clientsdetails.groupid == 5 || $clientsdetails.groupid == 6 || $clientsdetails.groupid == 7}
-                                <a href="https://panel.obcbackup.com/" class="block px-2 py-1 text-gray-400 rounded-md hover:bg-[#1B2C50]">
+                                <a href="https://panel.obcbackup.com/" class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]">
                                     OBC Control Panel
                                 </a>
                             {/if}   
@@ -234,7 +271,7 @@
 
                     <!-- Knowledgebase -->
                     <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=knowledgebase"
-                    class="flex items-center px-2 py-2 text-gray-400 rounded-md hover:bg-[#1B2C50]
+                    class="flex items-center px-2 py-2 text-gray-300 rounded-md hover:bg-[#1B2C50]
                             {if $smarty.server.REQUEST_URI == '/index.php?m=eazybackup&a=knowledgebase'}bg-[#1B2C50] font-semibold{/if}"
                     >
                         {* <i class="fas fa-file-invoice mr-3 text-lg"></i> *}
@@ -260,7 +297,7 @@
                     }">
                         <button
                             @click="open = !open"
-                            class="flex items-center w-full px-2 py-2 text-left text-gray-400 rounded-md hover:bg-[#1B2C50]
+                            class="flex items-center w-full px-2 py-2 text-left text-gray-300 rounded-md hover:bg-[#1B2C50]
                                 {if 
                                     ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=dashboard')
                                     || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=buckets')
@@ -289,7 +326,7 @@
                         >
                             <!-- Dashboard -->
                             <a href="{$WEB_ROOT}/index.php?m=cloudstorage" 
-                            class="block px-2 py-1 text-gray-400 rounded-md hover:bg-[#1B2C50]
+                            class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
                                 {if $smarty.get.m == 'cloudstorage' and (empty($smarty.get.page) or $smarty.get.page == 'dashboard')}
                                     bg-[#1B2C50] font-semibold
                                 {/if}">
@@ -297,36 +334,36 @@
                             </a>
                             <!-- Buckets -->
                             <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=buckets" 
-                            class="block px-2 py-1 text-gray-400 rounded-md hover:bg-[#1B2C50]
+                            class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
                                     {if $smarty.server.REQUEST_URI|strstr:'page=buckets'} bg-[#1B2C50] font-semibold {/if}">
                                 Buckets
                             </a>
                             <!-- Access Keys -->
                             <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=access_keys" 
-                            class="block px-2 py-1 text-gray-400 rounded-md hover:bg-[#1B2C50]
+                            class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
                                     {if $smarty.server.REQUEST_URI|strstr:'page=access_keys'} bg-[#1B2C50] font-semibold {/if}">
                                 Access Keys
                             </a>
                             <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=users" 
-                            class="block px-2 py-1 text-gray-400 rounded-md hover:bg-[#1B2C50]
+                            class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
                                     {if $smarty.server.REQUEST_URI|strstr:'page=users'} bg-[#1B2C50] font-semibold {/if}">
                                 Users
                             </a>
                             <!-- Cloud Backups -->
                             <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=cloudbackup" 
-                            class="block px-2 py-1 text-gray-400 rounded-md hover:bg-[#1B2C50]
+                            class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
                                     {if $smarty.server.REQUEST_URI|strstr:'page=cloudbackup'} bg-[#1B2C50] font-semibold {/if}">
                                 Cloud Backups
                             </a>
                             <!-- Billing -->
                             <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=billing" 
-                            class="block px-2 py-1 text-gray-400 rounded-md hover:bg-[#1B2C50]
+                            class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
                                     {if $smarty.server.REQUEST_URI|strstr:'page=billing'} bg-[#1B2C50] font-semibold {/if}">
                                 Billing
                             </a>
                             <!-- History -->
                             <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=history"
-                            class="block px-2 py-1 text-gray-400 rounded-md hover:bg-[#1B2C50]
+                            class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
                                     {if $smarty.server.REQUEST_URI|strstr:'page=history'} bg-[#1B2C50] font-semibold {/if}">
                                 Historical Stats
                             </a>
@@ -339,7 +376,7 @@
 
                         <!-- Create -->
                         {* <a href="/index.php?m=eazybackup&amp;a=createorder"
-                        class="flex items-center px-2 py-2 text-gray-400 rounded-md hover:bg-[#1B2C50]
+                        class="flex items-center px-2 py-2 text-gray-300 rounded-md hover:bg-[#1B2C50]
                                 {if $smarty.server.REQUEST_URI == '/index.php?m=eazybackup&a=createorder'}bg-[#1B2C50] font-semibold{/if}"
                         > *}
                             {* <i class="fas fa-user-plus mr-3 text-lg"></i> *}
@@ -349,41 +386,42 @@
 
                             Create
                         </a> *}
+                        </div>
                     {/if}
                     </nav>
 
                     <!-- Secondary Navigation (User Info and Logout) -->
-                    <div class="px-2 py-4 border-t border-gray-700">
-                        <div class="flex items-center justify-between">
-                            <div class="flex items-center">
-                            <!-- User Icon -->
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-8 text-gray-400 mr-3">
-                                <path fill-rule="evenodd" d="M18.685 19.097A9.723 9.723 0 0 0 21.75 12c0-5.385-4.365-9.75-9.75-9.75S2.25 6.615 2.25 12a9.723 9.723 0 0 0 3.065 7.097A9.716 9.716 0 0 0 12 21.75a9.716 9.716 0 0 0 6.685-2.653Zm-12.54-1.285A7.486 7.486 0 0 1 12 15a7.486 7.486 0 0 1 5.855 2.812A8.224 8.224 0 0 1 12 20.25a8.224 8.224 0 0 1-5.855-2.438ZM15.75 9a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" clip-rule="evenodd" />
-                            </svg>
-                        
-                            <!-- User Info -->
-                            <div>
-                                <p class="text-white font-semibold">{$clientsdetails.firstname}</p>
-                                {if $loggedin}
-                                <a href="/clientarea.php?action=details" class="text-sm text-blue-300 hover:underline">
-                                    My Account
-                                </a>
-                                {/if}
-                            </div>
-                        </div>                    
-                        <!-- Theme Toggle Button (swaps icons) -->
-                        <button id="sidebarThemeToggle" class="p-2 focus:outline-none">
-                            <span id="sidebarThemeIcon">
-                                <!-- Default icon: if light mode is active, show night icon (inactive mode) -->
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" />
+                    {if $loggedin}
+                        <div class="px-2 py-4 border-t border-gray-700">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center">
+                                <!-- User Icon -->
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-8 text-gray-300 mr-3">
+                                    <path fill-rule="evenodd" d="M18.685 19.097A9.723 9.723 0 0 0 21.75 12c0-5.385-4.365-9.75-9.75-9.75S2.25 6.615 2.25 12a9.723 9.723 0 0 0 3.065 7.097A9.716 9.716 0 0 0 12 21.75a9.716 9.716 0 0 0 6.685-2.653Zm-12.54-1.285A7.486 7.486 0 0 1 12 15a7.486 7.486 0 0 1 5.855 2.812A8.224 8.224 0 0 1 12 20.25a8.224 8.224 0 0 1-5.855-2.438ZM15.75 9a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" clip-rule="evenodd" />
                                 </svg>
-                            </span>
-                        </button>
-                    </div>
+                            
+                                <!-- User Info -->
+                                <div>
+                                    <p class="text-white font-semibold">{$clientsdetails.firstname}</p>
+                                    <a href="/clientarea.php?action=details" class="text-sm text-blue-300 hover:underline">
+                                        My Account
+                                    </a>
+                                </div>
+                            </div>                    
+                            <!-- Theme Toggle Button (swaps icons) -->
+                            <button id="sidebarThemeToggle" class="p-2 focus:outline-none">
+                                <span id="sidebarThemeIcon">
+                                    <!-- Default icon: if light mode is active, show night icon (inactive mode) -->
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" />
+                                    </svg>
+                                </span>
+                            </button>
+                        </div>
+                    {/if}
                         <div class="mt-3">
                             {if $loggedin}
-                                <a href="{$WEB_ROOT}/logout.php" class="flex items-center px-2 py-2 text-gray-400 hover:text-red-400 rounded-md hover:bg-[#1B2C50]">
+                                <a href="{$WEB_ROOT}/logout.php" class="flex items-center px-2 py-2 text-gray-300 hover:text-red-400 rounded-md hover:bg-[#1B2C50]">
                                     <i class="fas fa-sign-out-alt mr-3 text-lg"></i>
                                     Log Out
                                 </a>
@@ -420,7 +458,7 @@
             <!-- Fly-Out Header -->
             <div class="bg-gray-900 h-16 flex items-center justify-between px-4 py-3 border-b border-gray-700">
                 <h2 class="text-lg font-semibold text-gray-100">Order New Services</h2>
-                <button id="flyout-close-button" class="text-gray-400 hover:text-gray-300 focus:outline-none" aria-label="Close menu">
+                <button id="flyout-close-button" class="text-gray-300 hover:text-gray-300 focus:outline-none" aria-label="Close menu">
                     <i class="fas fa-times fa-lg" aria-hidden="true"></i>
                 </button>
             </div>
@@ -435,9 +473,9 @@
                         <ul class="space-y-1">
                             <li>
                                 <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=createorder"
-                                class="group flex items-start space-x-3 p-4 rounded-md hover:bg-gray-800 transition-colors duration-200">
+                                class="group flex items-start space-x-3 p-4 rounded-md hover:bg-slate-800 transition-colors duration-200">
                                     <!-- Icon -->
-                                    <svg class="w-6 h-6 text-gray-400 group-hover:text-[#fe5000] transition-colors duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                    <svg class="w-6 h-6 text-gray-300 group-hover:text-[#fe5000] transition-colors duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 12V5.25" />
                                     </svg>
 
@@ -445,7 +483,7 @@
                                         <h3 class="font-semibold text-gray-300 group-hover:text-[#fe5000]">eazyBackup</h3>
                                         {* <p class="text-sm text-gray-300 mt-1">File and Folder Protection.</p> *}
                                         <!-- Bullet Points -->
-                                        <ul class="text-xs text-gray-400 list-disc ml-5 mt-2 space-y-1">
+                                        <ul class="text-xs text-white list-disc ml-5 mt-2 space-y-1">
                                             <li>Windows 10/11/Server, macOS, Linux</li>                                            
                                             <li>Protect unlimited files and folders</li>
                                             <li>Disk Image for Windows and Linux</li>
@@ -458,9 +496,9 @@
                                                         
                             <li>
                                 <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=createorder"
-                                class="group flex items-start space-x-3 p-4 rounded-md hover:bg-gray-800 transition-colors duration-200">
+                                class="group flex items-start space-x-3 p-4 rounded-md hover:bg-slate-800 transition-colors duration-200">
                                     <!-- Icon -->
-                                    <svg class="w-6 h-6 text-gray-400 group-hover:text-[#fe5000] transition-colors duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                    <svg class="w-6 h-6 text-gray-300 group-hover:text-[#fe5000] transition-colors duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 17.25v-.228a4.5 4.5 0 0 0-.12-1.03l-2.268-9.64a3.375 3.375 0 0 0-3.285-2.602H7.923a3.375 3.375 0 0 0-3.285 2.602l-2.268 9.64a4.5 4.5 0 0 0-.12 1.03v.228m19.5 0a3 3 0 0 1-3 3H5.25a3 3 0 0 1-3-3m19.5 0a3 3 0 0 0-3-3H5.25a3 3 0 0 0-3 3m16.5 0h.008v.008h-.008v-.008Zm-3 0h.008v.008h-.008v-.008Z" />
                                     </svg>
 
@@ -468,7 +506,7 @@
                                         <h3 class="font-semibold text-gray-300 group-hover:text-[#fe5000]">Microsoft 365 Backup</h3>
                                         {* <p class="text-sm text-gray-300 mt-1">Comprehensive Data Protection.</p> *}
                                         <!-- Bullet Points -->
-                                            <ul class="text-xs text-gray-400 list-disc ml-5 mt-2 space-y-1">
+                                            <ul class="text-xs text-white list-disc ml-5 mt-2 space-y-1">
                                             <li>Cloud backup for Microsoft 365</li>                                            
                                             <li>eazyBackup branded control panel</li>                                                             
                                         </ul>
@@ -478,9 +516,9 @@
                             
                             <li>
                                 <a href="{$WEB_ROOT}/index.php/store/eazybackup/hyper-v"
-                                class="group flex items-start space-x-3 p-4 rounded-md hover:bg-gray-800 transition-colors duration-200">
+                                class="group flex items-start space-x-3 p-4 rounded-md hover:bg-slate-800 transition-colors duration-200">
                                     <!-- Icon -->
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-gray-400 group-hover:text-[#fe5000] transition-colors duration-200">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-gray-300 group-hover:text-[#fe5000] transition-colors duration-200">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 0 1-3-3m3 3a3 3 0 1 0 0 6h13.5a3 3 0 1 0 0-6m-16.5-3a3 3 0 0 1 3-3h13.5a3 3 0 0 1 3 3m-19.5 0a4.5 4.5 0 0 1 .9-2.7L5.737 5.1a3.375 3.375 0 0 1 2.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 0 1 .9 2.7m0 0a3 3 0 0 1-3 3m0 3h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Zm-3 6h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Z" />
                                     </svg>
                                 
@@ -488,7 +526,7 @@
                                         <h3 class="font-semibold text-gray-300 group-hover:text-[#fe5000]">Virtual Server Backup</h3>
                                         {* <p class="text-sm text-gray-300 mt-1">Comprehensive Data Protection including Disk Image.</p> *}
                                         <!-- Bullet Points -->
-                                        <ul class="text-xs text-gray-400 list-disc ml-5 mt-2 space-y-1">                                            
+                                        <ul class="text-xs text-white list-disc ml-5 mt-2 space-y-1">                                            
                                             <li>For Windows and Linux Servers</li>
                                             <li>Hyper-V, Proxmox, VMware guest VM backups only</li> 
                                             <li>eazyBackup branded client</li>                                                                             
@@ -500,7 +538,7 @@
                             {if $isResellerClient}
                                 <li>
                                   <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=whitelabel"
-                                     class="group flex items-start space-x-3 p-4 rounded-md hover:bg-gray-800 transition-colors duration-200"
+                                     class="group flex items-start space-x-3 p-4 rounded-md hover:bg-slate-800 transition-colors duration-200"
                                      x-data="{ hover: false }"
                                      @mouseenter="hover = true"
                                      @mouseleave="hover = false">
@@ -512,7 +550,7 @@
                                          stroke-width="1.75"
                                          stroke-linecap="round"
                                          stroke-linejoin="round"
-                                         class="w-6 h-6 flex-shrink-0 text-gray-400 transition-all duration-300 group-hover:drop-shadow group-hover:scale-105">
+                                         class="w-6 h-6 flex-shrink-0 text-gray-300 transition-all duration-300 group-hover:drop-shadow group-hover:scale-105">
                                       <defs>
                                         <!-- Full spectrum gradient -->
                                         <linearGradient id="wl-rainbow" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -538,7 +576,7 @@
                                       </h3>
                                 
                                       <!-- Bullet Points -->
-                                      <ul class="text-xs text-gray-400 list-disc ml-5 mt-2 space-y-1">
+                                      <ul class="text-xs text-white list-disc ml-5 mt-2 space-y-1">
                                         <li>Fully branded backup client</li>
                                         <li>Brandable emails and control panel</li>
                                       </ul>
@@ -555,18 +593,18 @@
                             <li>
                                 {if isset($whitelabel_product_name) && $whitelabel_product_name neq "OBC"}
                                     <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=createorder"
-                                    class="group flex items-start space-x-3 p-4 rounded-md hover:bg-gray-800 transition-colors duration-200">
+                                    class="group flex items-start space-x-3 p-4 rounded-md hover:bg-slate-800 transition-colors duration-200">
                                 {else}
                                     <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=createorder"
-                                    class="group flex items-start space-x-3 p-4 rounded-md hover:bg-gray-800 transition-colors duration-200">
+                                    class="group flex items-start space-x-3 p-4 rounded-md hover:bg-slate-800 transition-colors duration-200">
                                 {/if}                    
-                                        <svg class="w-6 h-6 text-gray-400 group-hover:text-indigo-600 transition-colors duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                        <svg class="w-6 h-6 text-gray-300 group-hover:text-indigo-600 transition-colors duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25a2.25 2.25 0 0 1-2.25-2.25V5.25" />
                                         </svg>
                                         <div>
                                                 <h3 class="font-semibold text-gray-300 group-hover:text-indigo-600">OBC</h3>
                                             <!-- Bullet Points -->
-                                            <ul class="text-xs text-gray-400 list-disc ml-5 mt-2 space-y-1">
+                                            <ul class="text-xs text-white list-disc ml-5 mt-2 space-y-1">
                                                 <li>Windows 10/11/Server, macOS, Linux</li>
                                                 <li>Protect unlimited files and folders</li>
                                                 <li>Disk Image for Windows and Linux</li>
@@ -580,15 +618,15 @@
                             <li>
                                 <!-- Microsoft 365 Backup-->
                                 <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=createorder"
-                                class="group flex items-start space-x-3 p-4 rounded-md hover:bg-gray-800 transition-colors duration-200">
+                                class="group flex items-start space-x-3 p-4 rounded-md hover:bg-slate-800 transition-colors duration-200">
                                     <!-- Icon -->
-                                    <svg class="w-6 h-6 text-gray-400 group-hover:text-indigo-600 transition-colors duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                    <svg class="w-6 h-6 text-gray-300 group-hover:text-indigo-600 transition-colors duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 17.25v-.228a4.5 4.5 0 0 0-.12-1.03l-2.268-9.64a3.375 3.375 0 0 0-3.285-2.602H7.923a3.375 3.375 0 0 0-3.285 2.602l-2.268 9.64a4.5 4.5 0 0 0-.12 1.03v.228m19.5 0a3 3 0 0 1-3 3H5.25a3 3 0 0 1-3-3m19.5 0a3 3 0 0 0-3-3H5.25a3 3 0 0 0-3 3m16.5 0h.008v.008h-.008v-.008Zm-3 0h.008v.008h-.008v-.008Z" />
                                     </svg>
                                     <div>
                                         <h3 class="font-semibold text-gray-300 group-hover:text-indigo-600">Microsoft 365 Backup (OBC)</h3>
                                         <!-- Bullet Points -->
-                                        <ul class="text-xs text-gray-400 list-disc ml-5 mt-2 space-y-1">
+                                        <ul class="text-xs text-white list-disc ml-5 mt-2 space-y-1">
                                             <li>Cloud Backup for Microsoft 365</li>
                                             <li>OBC branded control panel</li>
                                         </ul>
@@ -599,17 +637,17 @@
                             <li>
                                 {if isset($whitelabel_product_name) && $whitelabel_product_name neq "OBC"}
                                     <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=createorder"
-                                    class="group flex items-start space-x-3 p-4 rounded-md hover:bg-gray-800 transition-colors duration-200">
+                                    class="group flex items-start space-x-3 p-4 rounded-md hover:bg-slate-800 transition-colors duration-200">
                                 {else}
                                     <a href="{$WEB_ROOT}/index.php/store/obc/hyper-v-server"
-                                    class="group flex items-start space-x-3 p-4 rounded-md hover:bg-gray-800 transition-colors duration-200">
+                                    class="group flex items-start space-x-3 p-4 rounded-md hover:bg-slate-800 transition-colors duration-200">
                                 {/if}                    
-                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-gray-400 group-hover:text-indigo-600 transition-colors duration-200">
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-gray-300 group-hover:text-indigo-600 transition-colors duration-200">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 0 1-3-3m3 3a3 3 0 1 0 0 6h13.5a3 3 0 1 0 0-6m-16.5-3a3 3 0 0 1 3-3h13.5a3 3 0 0 1 3 3m-19.5 0a4.5 4.5 0 0 1 .9-2.7L5.737 5.1a3.375 3.375 0 0 1 2.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 0 1 .9 2.7m0 0a3 3 0 0 1-3 3m0 3h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Zm-3 6h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Z" />
                                         </svg>
                                         <div>
                                             <h3 class="font-semibold text-gray-300 group-hover:text-indigo-600">Virtual Server Backup (OBC)</h3>                        
-                                            <ul class="text-xs text-gray-400 list-disc ml-5 mt-2 space-y-1">
+                                            <ul class="text-xs text-white list-disc ml-5 mt-2 space-y-1">
                                                 <li>For Windows and Linux Servers</li>
                                                 <li>Hyper-V, Proxmox, VMware guest VM backups only</li> 
                                                 <li>OBC branded client</li>
@@ -1543,13 +1581,13 @@ document.addEventListener('DOMContentLoaded', function() {
     if (document.documentElement.classList.contains('dark')) {
       console.log('Dark mode active');
       iconWrapper.innerHTML = `
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-gray-400">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-gray-300">
           <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
         </svg>`;
     } else {
       console.log('Light mode active');
       iconWrapper.innerHTML = `
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-gray-400">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-gray-300">
           <path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" />
         </svg>`;
     }

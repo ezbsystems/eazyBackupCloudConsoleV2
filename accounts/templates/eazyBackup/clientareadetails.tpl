@@ -1,5 +1,5 @@
 {assign var="activeTab" value="details"}
-<div class="min-h-screen bg-gray-700 text-gray-300">
+<div class="min-h-screen bg-gray-700 text-gray-100">
     <div class="container mx-auto px-4 pb-8">
         <div class="flex flex-col sm:flex-row h-16 justify-between items-start sm:items-center px-2">
             <!-- Navigation Horizontal -->
@@ -13,7 +13,7 @@
         {include file="$template/includes/profile-nav.tpl"}
         <div class="flex flex-col flex-1 overflow-y-auto bg-gray-700">
             <!-- Main Content Container -->
-            <div class="bg-gray-800 shadow rounded-b-md p-4 mb-4">
+            <div class="bg-slate-800 shadow rounded-b-xl p-4 mb-4">
 
         {if $successful}
             <div class="mb-4 p-4 text-gray-100 bg-green-600 text-sm rounded-md">
@@ -33,98 +33,98 @@
 
                     <div class="sm:col-span-3">
                         <label for="inputFirstName"
-                            class="block text-sm/6 font-medium text-gray-300 mb-1">{lang key='clientareafirstname'}</label>
+                            class="block text-sm/6 font-medium text-gray-100 mb-1">{lang key='clientareafirstname'}</label>
                         <input type="text" name="firstname" id="inputFirstName" value="{$clientfirstname}"
-                            class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600"
+                            class="block w-full px-3 py-2 border border-gray-600 text-gray-100 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600"
                             {if in_array('firstname', $uneditablefields)} disabled{/if} />
                     </div>
                     <div class="sm:col-span-3">
                         <label for="inputLastName"
-                            class="block text-sm/6 font-medium text-gray-300 mb-1">{lang key='clientarealastname'}</label>
+                            class="block text-sm/6 font-medium text-gray-100 mb-1">{lang key='clientarealastname'}</label>
                         <input type="text" name="lastname" id="inputLastName" value="{$clientlastname}"
-                            class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600"
+                            class="block w-full px-3 py-2 border border-gray-600 text-gray-100 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600"
                             {if in_array('lastname', $uneditablefields)} disabled{/if} />
                     </div>
                     <div class="sm:col-span-3">
                         <label for="inputCompanyName"
-                            class="block text-sm/6 font-medium text-gray-300 mb-1">{lang key='clientareacompanyname'}</label>
+                            class="block text-sm/6 font-medium text-gray-100 mb-1">{lang key='clientareacompanyname'}</label>
                         <input type="text" name="companyname" id="inputCompanyName" value="{$clientcompanyname}"
-                            class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600"
+                            class="block w-full px-3 py-2 border border-gray-600 text-gray-100 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600"
                             {if in_array('companyname', $uneditablefields)} disabled{/if} />
                     </div>
                     <div class="sm:col-span-3">
                         <label for="inputEmail"
-                            class="blocktext-sm/6 font-medium text-gray-300">{lang key='clientareaemail'}</label>
+                            class="blocktext-sm/6 font-medium text-gray-100">{lang key='clientareaemail'}</label>
                         <input type="email" name="email" id="inputEmail" value="{$clientemail}"
-                            class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600"
+                            class="block w-full px-3 py-2 border border-gray-600 text-gray-100 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600"
                             ring-1 ring-inset ring-gray-100 hover:bg-gray-50 rounded-md bg-white px-3 py-2 block w-full
                             mt-1 rounded-md border-gray-300 shadow-sm focus:border-sky-500 focus:ring
                             focus:ring-sky-200 {if in_array('email', $uneditablefields)} disabled{/if} />
                     </div>
                     <div class="sm:col-span-3">
-                        <label for="country" class="block text-sm/6 font-medium text-gray-300 mb-1">
+                        <label for="country" class="block text-sm/6 font-medium text-gray-100 mb-1">
                             {lang key='clientareacountry'}
                         </label>
-                        {$clientcountriesdropdown|replace:'<select':'<select id="country" class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600"'}
+                        {$clientcountriesdropdown|replace:'<select':'<select id="country" class="block w-full px-3 py-2 border border-gray-600 text-gray-100 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600"'}
 
                     </div>
                     <div class="sm:col-span-3">
                         <label for="inputAddress1"
-                            class="block text-sm/6 font-medium text-gray-300 mb-1">{lang key='clientareaaddress1'}</label>
+                            class="block text-sm/6 font-medium text-gray-100 mb-1">{lang key='clientareaaddress1'}</label>
                         <input type="text" name="address1" id="inputAddress1" value="{$clientaddress1}"
-                            class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600"
+                            class="block w-full px-3 py-2 border border-gray-600 text-gray-100 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600"
                             value="{$clientaddress1}" {if in_array('address1', $uneditablefields)} disabled{/if} />
                     </div>
 
                     <div class="sm:col-span-2 sm:col-start-1">
                         <label for="inputCity"
-                            class="block text-sm/6 font-medium text-gray-300 mb-1">{lang key='clientareacity'}</label>
+                            class="block text-sm/6 font-medium text-gray-100 mb-1">{lang key='clientareacity'}</label>
                         <input type="text" name="city" id="inputCity" value="{$clientcity}"
-                            class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600"
+                            class="block w-full px-3 py-2 border border-gray-600 text-gray-100 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600"
                             {if in_array('city', $uneditablefields)} disabled{/if} />
                     </div>
                     <div class="sm:col-span-2">
                         <label for="inputState"
-                            class="block text-sm/6 font-medium text-gray-300 mb-1">{lang key='clientareastate'}</label>
+                            class="block text-sm/6 font-medium text-gray-100 mb-1">{lang key='clientareastate'}</label>
                         <input type="text" name="state" id="inputState" value="{$clientstate}"
-                            class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600"
+                            class="block w-full px-3 py-2 border border-gray-600 text-gray-100 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600"
                             {if in_array('state', $uneditablefields)} disabled{/if} />
                     </div>
                     <div class="sm:col-span-2">
                         <label for="inputPostcode"
-                            class="block text-sm/6 font-medium text-gray-300 mb-1">{lang key='clientareapostcode'}</label>
+                            class="block text-sm/6 font-medium text-gray-100 mb-1">{lang key='clientareapostcode'}</label>
                         <input type="text" name="postcode" id="inputPostcode" value="{$clientpostcode}"
                             {if in_array('postcode', $uneditablefields)} disabled="disabled" {/if}
-                            class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600" />
+                            class="block w-full px-3 py-2 border border-gray-600 text-gray-100 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600" />
                     </div>
 
                     {*                    
                     <div class="sm:col-span-2">
-                    <label for="inputPhone" class="block text-sm font-medium text-gray-300">Phone Number</label>
+                    <label for="inputPhone" class="block text-sm font-medium text-gray-100">Phone Number</label>
                     <input type="tel" name="phonenumber" id="inputPhone" 
                            value="{$formdata.phonenumber|default:$clientphonenumber}" 
                            placeholder="Enter phone number" 
-                           class="w-full rounded-md border border-gray-600 px-3 py-2 text-gray-300 bg-gray-700 focus:outline-none focus:ring-0 focus:border-sky-600" />
+                           class="w-full rounded-md border border-gray-600 px-3 py-2 text-gray-100 bg-gray-700 focus:outline-none focus:ring-0 focus:border-sky-600" />
                     </div> *}
 
                     <div class="form-group sm:col-span-2">
-                        <label for="inputPhone" class="col-form-label block text-sm font-medium text-gray-300">{lang key='clientareaphonenumber'}</label>
-                        <input type="tel" name="phonenumber" id="inputPhone" value="{$clientphonenumber}"{if in_array('phonenumber',$uneditablefields)} disabled=""{/if} class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600" />
+                        <label for="inputPhone" class="col-form-label block text-sm font-medium text-gray-100">{lang key='clientareaphonenumber'}</label>
+                        <input type="tel" name="phonenumber" id="inputPhone" value="{$clientphonenumber}"{if in_array('phonenumber',$uneditablefields)} disabled=""{/if} class="block w-full px-3 py-2 border border-gray-600 text-gray-100 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600" />
                     </div>               
                 </div>
             </div>
             <div class="pb-12">
-                <h2 class="text-base/7 font-semibold text-gray-300">Manage Your Default Billing Contact</h2>
-                <p class="mt-1 text-sm/6 text-gray-300">Select the default billing contact to ensure invoices and
+                <h2 class="text-base/7 font-semibold text-gray-100">Manage Your Default Billing Contact</h2>
+                <p class="mt-1 text-sm/6 text-gray-100">Select the default billing contact to ensure invoices and
                     payment notifications are sent to the right person or department.</p>
 
                 <div class="mt-4 space-y-10">
                     <!-- Billing Section -->
                     <div>
                         <label for="inputBillingContact"
-                            class="block text-sm/6 font-medium text-gray-300 mb-1">{lang key='defaultbillingcontact'}</label>
+                            class="block text-sm/6 font-medium text-gray-100 mb-1">{lang key='defaultbillingcontact'}</label>
                         <select id="inputBillingContact" name="billingcid"
-                            class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600">
+                            class="block w-full px-3 py-2 border border-gray-600 text-gray-100 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600">
                             <option value="0">{lang key='usedefaultcontact'}</option>
                             {foreach $contacts as $contact}
                                 <option value="{$contact.id}" {if $contact.id eq $billingcid} selected="selected" {/if}>
@@ -134,7 +134,7 @@
                     </div>
 
                     <div class="mt-6 flex items-center justify-end gap-x-6">
-                        <button type="reset" class="text-sm/6 font-semibold text-gray-300">
+                        <button type="reset" class="text-sm/6 font-semibold text-gray-100">
                             {lang key='cancel'}
                         </button>
                         <button type="submit" name="save" value="save"

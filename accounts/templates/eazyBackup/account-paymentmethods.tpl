@@ -1,4 +1,4 @@
-<div class="min-h-screen bg-gray-700 text-gray-300">
+<div class="min-h-screen bg-gray-700 text-gray-100">
     <div class="container mx-auto px-4 pb-8">
         <div class="flex flex-col sm:flex-row h-16 justify-between items-start sm:items-center px-2">
             <!-- Navigation Horizontal -->
@@ -13,7 +13,7 @@
         {include file="$template/includes/profile-nav.tpl"}
         <div class="flex flex-col flex-1 overflow-y-auto bg-gray-700">
             <!-- Main Content Container -->
-            <div class="bg-gray-800 shadow rounded-b-md p-4 mb-4">
+            <div class="bg-slate-800 shadow rounded-b-xl p-4 mb-4">
 
 
                 {if $createSuccess}
@@ -56,11 +56,11 @@
                     <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700 dataTable no-footer">
                         <thead class="border-b border-gray-500">
                             <tr>
-                                <th class="px-4 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-300 sorting_asc"></th>
-                                <th class="px-4 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-300 sorting_asc">{lang key='paymentMethods.name'}</th>
-                                <th class="px-4 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-300 sorting_asc">{lang key='paymentMethods.description'}</th>
-                                <th class="px-4 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-300 sorting_asc">{lang key='paymentMethods.status'}</th>
-                                <th class="px-4 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-300 sorting_asc" colspan="2">{lang key='paymentMethods.actions'}</th>
+                                <th class="px-4 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-100 sorting_asc"></th>
+                                <th class="px-4 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-100 sorting_asc">{lang key='paymentMethods.name'}</th>
+                                <th class="px-4 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-100 sorting_asc">{lang key='paymentMethods.description'}</th>
+                                <th class="px-4 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-100 sorting_asc">{lang key='paymentMethods.status'}</th>
+                                <th class="px-4 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-100 sorting_asc" colspan="2">{lang key='paymentMethods.actions'}</th>
                             </tr>
                         </thead>
                         <tbody>

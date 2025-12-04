@@ -1,4 +1,4 @@
-<div class="min-h-screen bg-gray-700 text-gray-300">
+<div class="min-h-screen bg-gray-700 text-gray-100">
   <div class="container mx-auto px-4 pb-8">
     <div class="flex flex-col sm:flex-row h-16 justify-between items-start sm:items-center px-2">
       <div class="flex items-center">
@@ -8,35 +8,35 @@
         <h2 class="text-2xl font-semibold text-white">Terms</h2>
       </div>
     </div>
-
-    <div class="bg-slate-800 rounded-lg border border-slate-700 shadow-lg p-6">
+    {include file="$template/includes/profile-nav.tpl"}
+    <div class="bg-slate-800 shadow rounded-b-xl p-4 mb-4">
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
         <div>
-          <h6 class="text-sm font-medium text-slate-400">Name</h6>
+          <h6 class="text-sm font-medium text-gray-100">Name</h6>
           <p class="text-md font-medium text-slate-200">{$user_name|escape}</p>
         </div>
         <div>
-          <h6 class="text-sm font-medium text-slate-400">Email</h6>
+          <h6 class="text-sm font-medium text-gray-100">Email</h6>
           <p class="text-md font-medium text-slate-200">{$user_email|escape}</p>
         </div>
         <div>
-          <h6 class="text-sm font-medium text-slate-400">TOS Version</h6>
+          <h6 class="text-sm font-medium text-gray-100">TOS Version</h6>
           <p class="text-md font-medium text-slate-200">{if $accepted_version}{$accepted_version|escape}{else}<span class="text-slate-500">—</span>{/if}</p>
         </div>
         <div>
-          <h6 class="text-sm font-medium text-slate-400">Accepted</h6>
+          <h6 class="text-sm font-medium text-gray-100">Accepted</h6>
           <p class="text-md font-medium text-slate-200">{if $accepted_at}{$accepted_at|escape}{else}<span class="text-slate-500">—</span>{/if}</p>
         </div>
       </div>
 
       <div class="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-6">
         <div>
-          <h6 class="text-sm font-medium text-slate-400">Accepted IP</h6>
+          <h6 class="text-sm font-medium text-gray-100">Accepted IP</h6>
           <p class="text-md font-medium text-slate-200">{if $accepted_ip}{$accepted_ip|escape}{else}<span class="text-slate-500">—</span>{/if}</p>
         </div>
         <div>
-          <h6 class="text-sm font-medium text-slate-400">User Agent</h6>
-          <p class="text-xs text-slate-400 break-all">{if $accepted_ua}{$accepted_ua|escape}{else}<span class="text-slate-500">—</span>{/if}</p>
+          <h6 class="text-sm font-medium text-gray-100">User Agent</h6>
+          <p class="text-xs text-gray-100 break-all">{if $accepted_ua}{$accepted_ua|escape}{else}<span class="text-slate-500">—</span>{/if}</p>
         </div>
       </div>
 
@@ -47,7 +47,7 @@
             View TOS (you agreed to)
           </a>
         {else}
-          <p class="text-slate-400 text-sm">You have not accepted any Terms of Service yet. You will be prompted on next login if required.</p>
+          <p class="text-gray-100 text-sm">You have not accepted any Terms of Service yet. You will be prompted on next login if required.</p>
         {/if}
       </div>
     </div>

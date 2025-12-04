@@ -1,4 +1,4 @@
-<div class="min-h-screen bg-gray-700 text-gray-300">
+<div class="min-h-screen bg-gray-700 text-gray-100">
     <div class="container mx-auto px-4 pb-8">
         <div class="flex flex-col sm:flex-row h-16 justify-between items-start sm:items-center px-2">
             <!-- Navigation Horizontal -->
@@ -13,7 +13,7 @@
         {include file="$template/includes/profile-nav.tpl" activeTab=$activeTab}
         <div class="flex flex-col flex-1 overflow-y-auto bg-gray-700">
         <!-- Main Content Container -->
-        <div class="bg-gray-800 shadow rounded-b-md p-4 mb-4">	   
+        <div class="bg-slate-800 shadow rounded-b-xl p-4 mb-4">	   
 
     {include file="$template/includes/flashmessage-darkmode.tpl"}
 
@@ -22,7 +22,7 @@
         <div class="mt-4 grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-6">
             <!-- Existing Password -->
             <div class="sm:col-span-3">
-                <label for="inputExistingPassword" class="block text-sm/6 font-medium text-gray-300">
+                <label for="inputExistingPassword" class="block text-sm/6 font-medium text-gray-100">
                     {lang key='existingpassword'}
                 </label>
                 <div class="sm:col-span-2">
@@ -31,7 +31,7 @@
                         name="existingpw" 
                         id="inputExistingPassword" 
                         autocomplete="off" 
-                        class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600" 
+                        class="block w-full px-3 py-2 border border-gray-600 text-gray-100 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600" 
                     />
                 </div>
             </div>
@@ -40,7 +40,7 @@
         <div class="mt-4 grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-6">
             <!-- New Password -->
             <div id="newPassword1" class="sm:col-span-3">
-                <label for="inputNewPassword1" class="block text-sm/6 font-medium text-gray-300">
+                <label for="inputNewPassword1" class="block text-sm/6 font-medium text-gray-100">
                     {lang key='newpassword'}
                 </label>
                 <div class="sm:col-span-2 space-y-2">
@@ -49,14 +49,14 @@
                         name="newpw" 
                         id="inputNewPassword1" 
                         autocomplete="off" 
-                        class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600" 
+                        class="block w-full px-3 py-2 border border-gray-600 text-gray-100 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600" 
                     />               
                 </div>            
             </div>
 
             <!-- Confirm New Password -->
             <div id="newPassword2" class="sm:col-span-3">
-                <label for="inputNewPassword2" class="block text-sm/6 font-medium text-gray-300">
+                <label for="inputNewPassword2" class="block text-sm/6 font-medium text-gray-100">
                     {lang key='confirmnewpassword'}
                 </label>
                 <div class="sm:col-span-2">
@@ -65,7 +65,7 @@
                         name="confirmpw" 
                         id="inputNewPassword2" 
                         autocomplete="off" 
-                        class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600" 
+                        class="block w-full px-3 py-2 border border-gray-600 text-gray-100 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600" 
                     />
                     <div id="inputNewPassword2Msg" class="mt-1 text-sm text-gray-600"></div>
                 </div>
@@ -75,7 +75,7 @@
             <div class="flex items-center justify-end space-x-4">
                 <button 
                     type="reset" 
-                    class="text-sm/6 font-semibold text-gray-300"
+                    class="text-sm/6 font-semibold text-gray-100"
                 >
                     {lang key='cancel'}
                 </button>

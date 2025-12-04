@@ -1,4 +1,4 @@
-<div class="min-h-screen bg-gray-700 text-gray-300">
+<div class="min-h-screen bg-gray-700 text-gray-100">
     <div class="container mx-auto px-4 pb-8">
         <div class="flex flex-col sm:flex-row h-16 justify-between items-start sm:items-center px-2">
             <!-- Navigation Horizontal -->
@@ -13,12 +13,12 @@
         {include file="$template/includes/profile-nav.tpl" activeTab=$activeTab}
         <div class="flex flex-col flex-1 overflow-y-auto bg-gray-700">
             <!-- Main Content Container -->
-			<div class="bg-gray-800 shadow rounded-b-md p-4 mb-4">	       		
+			<div class="bg-slate-800 shadow rounded-b-xl p-4 mb-4">	       		
 
 				{if $linkableProviders}
 					<!-- Linked Accounts Card -->
 					<div class="bg-white shadow rounded p-4 mb-6">
-						<h3 class="text-xl font-semibold mb-3 text-gray-300">
+						<h3 class="text-xl font-semibold mb-3 text-gray-100">
 							{lang key='remoteAuthn.titleLinkedAccounts'}
 						</h3>
 
@@ -33,15 +33,15 @@
 				{if $twoFactorAuthAvailable}
 					<div class="border-b border-gray-900/10 pb-8">
 						<div class="card-body">
-							<h3 class="text-lg font-semibold text-gray-300 mb-4">{lang key='twofactorauth'}</h3>
+							<h3 class="text-lg font-semibold text-gray-100 mb-4">{lang key='twofactorauth'}</h3>
 				
 						{if $twoFactorAuthEnabled}
-							<p class="twofa-config-link text-gray-300">
-								{lang key='twofacurrently'} <span class="inline-flex items-center rounded-md bg-green-600 px-2 py-1 text-sm font-semibold text-gray-300 ring-1 ring-green-600/20 ring-inset">{lang key='enabled'|strtolower}</span>
+							<p class="twofa-config-link text-gray-100">
+								{lang key='twofacurrently'} <span class="inline-flex items-center rounded-md bg-green-600 px-2 py-1 text-sm font-semibold text-gray-100 ring-1 ring-green-600/20 ring-inset">{lang key='enabled'|strtolower}</span>
 							</p>
 						{else}
-							<p class="twofa-config-link text-gray-300">
-								{lang key='twofacurrently'} <span class="inline-flex items-center rounded-md bg-red-700 px-2 py-1 text-sm font-semibold text-gray-300 ring-1 ring-red-600/10 ring-inset">{lang key='disabled'|strtolower}</span>
+							<p class="twofa-config-link text-gray-100">
+								{lang key='twofacurrently'} <span class="inline-flex items-center rounded-md bg-red-700 px-2 py-1 text-sm font-semibold text-gray-100 ring-1 ring-red-600/10 ring-inset">{lang key='disabled'|strtolower}</span>
 							</p>
 						{/if}
 				

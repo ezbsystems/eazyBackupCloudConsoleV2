@@ -6,92 +6,96 @@
         box-shadow: 0 0 8px rgba(59, 130, 246, 0.9);
     }
 </style>
-
 {/literal}
 
-<div x-data="dashboardTabs('{$modulelink}', 'dashboard', '{$initialTab|escape:"html"}')" class="mx-4 bg-gray-800">
-    <!-- Card Container -->
-    <div class="min-h-screen bg-gray-800 container mx-auto pb-8">
-        <!-- Header & Breadcrumb -->
-        <div class="flex justify-between items-center h-16 space-y-12 px-2">
-            <nav aria-label="breadcrumb">
-                <ol class="flex space-x-2 text-gray-300">
-                    <li class="flex items-center">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
-                            stroke="currentColor" class="size-6 mr-2">
-                            <path stroke-linecap="round" stroke-linejoin="round"
-                                d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" />
-                        </svg>
-                        <h2 class="text-2xl font-semibold text-white mr-2">Dashboard</h2>
-                        <h2 class="text-md font-medium text-white"> / <span x-text="activeTab==='users' ? 'Users' : 'Backup Status'"></span></h2>
-                    </li>
-                </ol>
-            </nav>
-        </div>
-        <div class="">
-            <!-- Tabs Navigation -->
-            <ul class="flex border-b border-gray-700" role="tablist" x-cloak>
-                <li class="mr-2" role="presentation">
-                    <a :href="tabHref('dashboard')" @click="switchTab('dashboard', $event)"
-                       :class="tabClass('dashboard')" role="tab" :aria-selected="activeTab === 'dashboard'">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
-                             stroke="currentColor" class="w-5 h-5 mr-1">
-                            <path stroke-linecap="round" stroke-linejoin="round"
-                                  d="M7.5 14.25v2.25m3-4.5v4.5m3-6.75v6.75m3-9v9M6 20.25h12A2.25 2.25 0 0 0 20.25 18V6A2.25 2.25 0 0 0 18 3.75H6A2.25 2.25 0 0 0 3.75 6v12A2.25 2.25 0 0 0 6 20.25Z"/>
-                        </svg>
-                        Backup Status
-                    </a>
-                </li>
-                <li class="mr-2" role="presentation">
-                    <a :href="tabHref('users')" @click="switchTab('users', $event)"
-                       :class="tabClass('users')" role="tab" :aria-selected="activeTab === 'users'">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
-                             stroke="currentColor" class="w-5 h-5 mr-1">
-                            <path stroke-linecap="round" stroke-linejoin="round"
-                                  d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"/>
-                        </svg>
-                        <i class="bi bi-person mr-1"></i> Users
-                    </a>
-                </li>
-                <li class="mr-2" role="presentation">
-                    <a :href="vaultsHref()" :class="vaultsClass()" role="tab" aria-selected="false">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
-                             stroke="currentColor" class="w-5 h-5 mr-1">
-                            <path stroke-linecap="round" stroke-linejoin="round"
-                                  d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125"/>
-                        </svg>
-                        Vaults
-                    </a>
-                </li>
-            </ul>
+<div x-data="dashboardTabs('{$modulelink}', 'dashboard', '{$initialTab|escape:"html"}')" class="min-h-screen bg-slate-950 text-gray-300">
+    <!-- Global nebula background -->
+    <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
+
+    <div class="container mx-auto px-4 py-8">
+        <!-- Glass panel container -->
+        <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
+            <!-- Header & Tabs -->
+            <div class="flex flex-col mb-4 px-2 space-y-3">
+                <nav aria-label="breadcrumb">
+                    <ol class="flex space-x-2">
+                        <li class="flex items-center">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                                stroke="currentColor" class="size-6 mr-2">
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                    d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" />
+                            </svg>
+                            <h2 class="text-2xl font-semibold text-white mr-2">Dashboard</h2>
+                            <h2 class="text-md font-medium text-white">
+                                / <span x-text="activeTab==='users' ? 'Users' : 'Backup Status'"></span>
+                            </h2>
+                        </li>
+                    </ol>
+                </nav>
+
+                <!-- Pill nav -->
+                <div class="mt-4 sm:mt-0">
+                    <nav class="inline-flex space-x-1 rounded-full bg-slate-900/80 p-1 text-sm font-medium text-slate-400"
+                         role="tablist" aria-label="Backup dashboard navigation" x-cloak>
+                        <a :href="tabHref('dashboard')" @click="switchTab('dashboard', $event)"
+                           :class="tabClass('dashboard')" role="tab" :aria-selected="activeTab === 'dashboard'">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                                 stroke="currentColor" class="w-5 h-5 mr-1">
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                      d="M7.5 14.25v2.25m3-4.5v4.5m3-6.75v6.75m3-9v9M6 20.25h12A2.25 2.25 0 0 0 20.25 18V6A2.25 2.25 0 0 0 18 3.75H6A2.25 2.25 0 0 0 3.75 6v12A2.25 2.25 0 0 0 6 20.25Z"/>
+                            </svg>
+                            Backup Status
+                        </a>
+
+                        <a :href="tabHref('users')" @click="switchTab('users', $event)"
+                           :class="tabClass('users')" role="tab" :aria-selected="activeTab === 'users'">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                                 stroke="currentColor" class="w-5 h-5 mr-1">
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                      d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"/>
+                            </svg>
+                            <i class="bi bi-person mr-1"></i> Users
+                        </a>
+
+                        <a :href="vaultsHref()" :class="vaultsClass()" role="tab" aria-selected="false">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                                 stroke="currentColor" class="w-5 h-5 mr-1">
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                      d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125"/>
+                            </svg>
+                            Vaults
+                        </a>
+                    </nav>
+                </div>
+            </div>
 
             <!-- Tabs Content -->
             <div class="mt-4">
                 <div x-show="activeTab === 'dashboard'" x-transition x-cloak>
-                    <h2 class="text-md font-medium text-gray-300 mb-4 px-2">Account summary</h2>
+                    <h2 class="text-md font-medium text-white mb-4 px-2">Account summary</h2>
                     <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                        <div class="bg-[#11182759] p-4 rounded-lg shadow">
-                            <h5 class="text-2xl font-bold text-gray-400">
-                                <span class="text-2xl font-bold text-gray-100">{$totalAccounts}</span>
-                                <span class="text-lg font-semibold text-gray-400">Users</span>
+                        <div class="bg-slate-900 p-4 rounded-lg shadow">
+                            <h5 class="text-2xl font-bold text-white">
+                                <span class="text-2xl font-bold text-white">{$totalAccounts}</span>
+                                <span class="text-lg font-semibold text-gray-200">Users</span>
                             </h5>
                         </div>
-                        <div class="bg-[#11182759] p-4 rounded-lg shadow">
-                            <h5 class="text-2xl font-bold text-gray-400">
-                                <span class="text-2xl font-bold text-gray-100">{$totalDevices}</span>
-                                <span class="text-lg font-semibold text-gray-400">Devices</span>
+                        <div class="bg-slate-900 p-4 rounded-lg shadow">
+                            <h5 class="text-2xl font-bold text-white">
+                                <span class="text-2xl font-bold text-white">{$totalDevices}</span>
+                                <span class="text-lg font-semibold text-gray-200">Devices</span>
                             </h5>
                         </div>
-                        <div class="bg-[#11182759] p-4 rounded-lg shadow">
-                            <h5 class="text-2xl font-bold text-gray-400">
-                                <span class="text-2xl font-bold text-gray-100">{$totalProtectedItems}</span>
-                                <span class="text-lg font-semibold text-gray-400">Protected Items</span>
+                        <div class="bg-slate-900 p-4 rounded-lg shadow">
+                            <h5 class="text-2xl font-bold text-white">
+                                <span class="text-2xl font-bold text-white">{$totalProtectedItems}</span>
+                                <span class="text-lg font-semibold text-gray-200">Protected Items</span>
                             </h5>
                         </div>
-                        <div class="bg-[#11182759] p-4 rounded-lg shadow">
-                            <h5 class="text-2xl font-bold text-gray-400">
-                                <span class="text-2xl font-bold text-gray-100">{$totalStorageUsed}</span>
-                                <span class="text-lg font-semibold text-gray-400">Storage</span>
+                        <div class="bg-slate-900 p-4 rounded-lg shadow">
+                            <h5 class="text-2xl font-bold text-white">
+                                <span class="text-2xl font-bold text-white">{$totalStorageUsed}</span>
+                                <span class="text-lg font-semibold text-gray-200">Storage</span>
                             </h5>
                         </div>
                     </div>                   
@@ -155,7 +159,7 @@
                                     <!-- Left Column: Device Info -->
                                     <div class="flex items-center space-x-3">
                                         <div class="flex-shrink-0 pt-1" x-init="tippy($el, { content: device.is_active ? 'Online' : 'Offline' } )">
-                                            <div class="w-2.5 h-2.5 rounded-full" :class="device.is_active ? 'bg-blue-500 status-glow' : 'bg-gray-500'"></div>
+                                            <div class="w-2.5 h-2.5 rounded-full" :class="device.is_active ? 'bg-green-500 status-glow' : 'bg-gray-500'"></div>
                                         </div>
                                         <div class="flex flex-col">
                                             <div class="flex items-center space-x-2">
@@ -727,8 +731,8 @@ try {
 <script>
   // Centralized tab state helper
   window.dashboardTabs = function (moduleLink, currentAction, serverInitialTab) {
-    const activeClass = 'flex items-center py-2 px-2 border-sky-400 border-b-2 text-sky-400 font-semibold';
-    const inactiveClass = 'flex items-center py-2 px-4 text-gray-300 hover:text-sky-400 border-b-2 border-transparent hover:border-gray-300 hover:border-gray-500 font-semibold';
+    const activeClass = 'inline-flex items-center px-4 py-1.5 rounded-full bg-slate-800 text-slate-50 shadow-sm';
+    const inactiveClass = 'inline-flex items-center px-4 py-1.5 rounded-full text-slate-400 hover:text-slate-200 transition';
 
     // Single source of truth: start from server-provided initial tab (already whitelisted)
     const initialTab = (typeof serverInitialTab === 'string' && serverInitialTab) ? serverInitialTab : 'dashboard';
