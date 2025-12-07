@@ -431,6 +431,33 @@
                 hideLoader();
             });
 
+            // Display messages in the alert container
+            function showMessage(message, containerId, type = 'info') {
+                const container = document.getElementById(containerId);
+                if (!container) {
+                    // Fallback to toast if container not found
+                    if (window.toast) {
+                        if (type === 'success') window.toast.success(message);
+                        else if (type === 'fail' || type === 'error') window.toast.error(message);
+                        else window.toast.info(message);
+                    }
+                    return;
+                }
+                container.textContent = message;
+                container.classList.remove('hidden', 'bg-red-600', 'bg-green-600', 'bg-blue-600');
+                if (type === 'fail' || type === 'error') {
+                    container.classList.add('bg-red-600');
+                } else if (type === 'success') {
+                    container.classList.add('bg-green-600');
+                } else {
+                    container.classList.add('bg-blue-600');
+                }
+                // Auto-hide after 10 seconds
+                setTimeout(function() {
+                    container.classList.add('hidden');
+                }, 10000);
+            }
+
             // Toggle Delete Confirmation Modal
             function toggleDeleteModal(show) {
                 const modal = document.getElementById('deleteConfirmationModal');
@@ -470,7 +497,7 @@
                                 d.prefix = folderPath;
                                 var mk = parseInt(maxKeys, 10);
                                 if (!isNaN(mk) && mk > 0) {
-                                    d.max_keys = mk;
+                                    d.max_keys = Math.min(mk, 100); // Cap at 100 for versions
                                 }
                                 d.include_deleted = jQuery('#filterIncludeDeleted').length ? (jQuery('#filterIncludeDeleted').is(':checked') ? 1 : 0) : 1;
                                 d.only_with_versions = jQuery('#filterOnlyWithVersions').length ? (jQuery('#filterOnlyWithVersions').is(':checked') ? 1 : 0) : 0;
@@ -478,10 +505,11 @@
                                 d.username    = username;
                                 d.bucket      = bucketName;
                                 d.folder_path = folderPath;
-                                d.max_keys    = maxKeys;
+                                d.max_keys    = Math.min(parseInt(maxKeys, 10) || 50, 50); // Cap at 50 for faster loads
                             }
                         },
                         type: 'POST',
+                        timeout: 15000, // 15 second client-side timeout
                         error: function(xhr, error, thrown) {
                             // Keep user-facing message brief; log details for debugging.
                             const currentUrl = showVersions ? versionsIndexUrl : normalUrl;
@@ -493,12 +521,24 @@
                                 body: (xhr && xhr.responseText ? xhr.responseText.substring(0, 500) : '')
                             });
                             let msg = 'Unable to load objects right now. Please retry in a moment.';
-                            if (xhr && (xhr.status === 502 || xhr.status === 504 || xhr.status === 524)) {
-                                msg = 'Bucket listing timed out. Please refresh to try again.';
+                            let isTimeout = false;
+                            if (error === 'timeout' || (xhr && xhr.statusText === 'timeout')) {
+                                msg = 'This bucket has many objects and listing timed out. Try navigating into a folder or use the Refresh button to retry.';
+                                isTimeout = true;
+                            } else if (xhr && (xhr.status === 502 || xhr.status === 504 || xhr.status === 524)) {
+                                msg = 'This bucket has many objects and listing timed out. Try navigating into a folder or use the Refresh button to retry.';
+                                isTimeout = true;
                             } else if (xhr && xhr.status === 0) {
-                                msg = 'Network issue while loading objects. Please retry.';
+                                msg = 'Network issue while loading objects. Please check your connection and retry.';
                             }
                             showMessage(msg, 'alertMessage', 'fail');
+                            if (window.toast) {
+                                if (isTimeout) {
+                                    window.toast.error('Large bucket - listing timed out. Try a subfolder.');
+                                } else {
+                                    window.toast.error('Failed to load objects');
+                                }
+                            }
                             hideLoader();
                         },
                         dataSrc: function(response) {

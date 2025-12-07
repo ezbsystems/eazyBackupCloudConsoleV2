@@ -118,6 +118,14 @@
     $encryptionKey = $module->where('setting', 'encryption_key')->pluck('value')->first();
     $s3Region = $module->where('setting', 's3_region')->pluck('value')->first() ?: 'us-east-1';
 
+    // Release session lock BEFORE making S3 calls.
+    // WHMCS file-based sessions hold a lock for the duration of the request.
+    // Without this, long S3 list operations block ALL other requests from the same user,
+    // making the entire WHMCS site appear unresponsive.
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        session_write_close();
+    }
+
     $bucketObject = new BucketController($s3Endpoint, $cephAdminUser, $cephAdminAccessKey, $cephAdminSecretKey, $s3Region);
     $s3Connection = $bucketObject->connectS3Client($userId, $encryptionKey);
 
@@ -135,12 +143,13 @@
     $prefix = isset($_POST['folder_path']) ? trim($_POST['folder_path']) : '';
     $continuationToken = isset($_POST['continuation_token']) ? trim($_POST['continuation_token']) : '';
     // Cap page size to avoid long, blocking list calls on very large buckets.
+    // Default reduced to 50 for faster initial loads on large buckets.
     $rawMaxKeys = isset($_POST['max_keys']) ? trim($_POST['max_keys']) : '';
-    $maxKeys = 200;
+    $maxKeys = 50;
     if ($rawMaxKeys !== '') {
         $parsed = (int)$rawMaxKeys;
         if ($parsed > 0) {
-            $maxKeys = min($parsed, 200);
+            $maxKeys = min($parsed, 100); // Hard cap at 100
         }
     }
     $action = isset($_POST['action']) ? trim($_POST['action']) : '';
@@ -153,7 +162,41 @@
         'delimiter' => '/'
     ];
 
-    $contents = $bucketObject->listBucketContents($options, $action);
+    // Server-side cache for bucket listings (30 second TTL)
+    // This dramatically improves performance for large buckets by avoiding repeated S3 calls
+    $cacheKey = 'bucket_list_' . md5($bucketName . '|' . $prefix . '|' . $continuationToken . '|' . $maxKeys);
+    $cacheTtl = 30; // seconds
+    $cacheDir = sys_get_temp_dir() . '/cloudstorage_cache';
+    $cacheFile = $cacheDir . '/' . $cacheKey . '.json';
+    $contents = null;
+
+    // Try to read from cache
+    if (file_exists($cacheFile)) {
+        $cacheData = @file_get_contents($cacheFile);
+        if ($cacheData !== false) {
+            $cached = @json_decode($cacheData, true);
+            if (is_array($cached) && isset($cached['expires']) && $cached['expires'] > time()) {
+                $contents = $cached['data'];
+            }
+        }
+    }
+
+    // If not cached or expired, fetch from S3
+    if ($contents === null) {
+        $contents = $bucketObject->listBucketContents($options, $action);
+        
+        // Cache successful responses
+        if (isset($contents['status']) && $contents['status'] === 'success') {
+            if (!is_dir($cacheDir)) {
+                @mkdir($cacheDir, 0755, true);
+            }
+            $cachePayload = json_encode([
+                'expires' => time() + $cacheTtl,
+                'data' => $contents
+            ]);
+            @file_put_contents($cacheFile, $cachePayload, LOCK_EX);
+        }
+    }
 
     $jsonData = [
         'continuationToken' => $contents['continuationToken'],
