@@ -29,7 +29,17 @@
                     </svg>
                 </a>
                 <h2 class="text-2xl font-semibold text-white flex items-center gap-2">
-                    <span>Live Progress: {$job.name}</span>
+                    {if $is_restore}
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                        </svg>
+                        <span>Restore Progress: {$job.name}</span>
+                        <span class="inline-flex items-center rounded-full bg-emerald-500/15 px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide text-emerald-200 border border-emerald-400/40">
+                            Restore
+                        </span>
+                    {else}
+                        <span>Live Progress: {$job.name}</span>
+                    {/if}
                     <span class="inline-flex items-center rounded-full bg-amber-500/15 px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide text-amber-200 border border-amber-400/40">
                         Beta
                     </span>
@@ -44,6 +54,22 @@
                 Cancel Run
             </button>
         </div>
+        
+        {* Restore metadata info box *}
+        {if $is_restore && $restore_metadata}
+        <div class="mb-6 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-100 flex items-start gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mt-[2px]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+            </svg>
+            <div>
+                <p class="font-semibold text-emerald-100 text-[0.75rem] uppercase tracking-wide">Restore Operation</p>
+                <p class="mt-1 text-[0.75rem] leading-relaxed text-emerald-100/90">
+                    Restoring snapshot <code class="bg-emerald-900/50 px-1 rounded">{$restore_metadata.manifest_id|truncate:16:'...'}</code> 
+                    to <code class="bg-emerald-900/50 px-1 rounded">{$restore_metadata.target_path}</code>
+                </p>
+            </div>
+        </div>
+        {/if}
         <div class="mb-6 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs text-amber-100 flex items-start gap-2">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mt-[2px]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 9v3.75M12 15.75h.007M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -369,7 +395,7 @@ const etaModel = {
 })();
 
 function updateProgress() {
-    fetch('modules/addons/cloudstorage/api/cloudbackup_progress.php?run_id={$run.id}')
+    fetch('modules/addons/cloudstorage/api/cloudbackup_progress.php?run_uuid={$run.run_uuid|default:$run.id}')
         .then(response => response.json())
         .then(data => {
             if (data.status === 'success' && data.run) {
@@ -860,7 +886,7 @@ function setStructuredLogs(entries) {
 }
 
 function updateFormattedLogs() {
-    let url = 'modules/addons/cloudstorage/api/cloudbackup_get_live_logs.php?run_id={$run.id}';
+    let url = 'modules/addons/cloudstorage/api/cloudbackup_get_live_logs.php?run_uuid={$run.run_uuid|default:$run.id}';
     if (lastLogsHash) {
         url += '&hash=' + encodeURIComponent(lastLogsHash);
     }
@@ -883,7 +909,7 @@ function updateFormattedLogs() {
 // Prefer sanitized event stream over logs when available
 let terminalEventSeen = false;
 function updateEventLogs() {
-    let url = 'modules/addons/cloudstorage/api/cloudbackup_get_run_events.php?run_id={$run.id}&limit=500';
+    let url = 'modules/addons/cloudstorage/api/cloudbackup_get_run_events.php?run_uuid={$run.run_uuid|default:$run.id}&limit=500';
     if (lastEventId > 0) {
         url += '&since_id=' + encodeURIComponent(String(lastEventId));
     }
@@ -959,12 +985,18 @@ function cancelRun(runId) {
         return;
     }
     
+    const btn = document.getElementById('cancelButton');
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Cancel requested...';
+    }
+    
     fetch('modules/addons/cloudstorage/api/cloudbackup_cancel_run.php', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
         },
-        body: new URLSearchParams([['run_id', runId]])
+        body: new URLSearchParams([['run_uuid', runId]])
     })
     .then(response => response.json())
     .then(data => {
@@ -973,6 +1005,7 @@ function cancelRun(runId) {
             updateProgress();
         } else {
             alert(data.message || 'Failed to cancel run');
+            if (btn) { btn.disabled = false; btn.textContent = 'Cancel Run'; }
         }
     });
 }

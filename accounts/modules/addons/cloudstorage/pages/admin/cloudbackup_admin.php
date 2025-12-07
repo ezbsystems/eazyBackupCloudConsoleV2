@@ -5,6 +5,101 @@ require_once __DIR__ . '/../../lib/Admin/CloudBackupAdminController.php';
 use WHMCS\Module\Addon\CloudStorage\Admin\CloudBackupAdminController;
 use WHMCS\Database\Capsule;
 
+function cloudbackup_get_setting(string $key, $default = null)
+{
+    try {
+        $val = Capsule::table('tbladdonmodules')
+            ->where('module', 'cloudstorage')
+            ->where('setting', $key)
+            ->value('value');
+        return ($val !== null && $val !== '') ? $val : $default;
+    } catch (\Throwable $e) {
+        return $default;
+    }
+}
+
+function cloudbackup_get_timing_settings(): array
+{
+    $defaultWatchdog = 720;
+    $defaultReclaim = 180;
+    $defaultReclaimEnabled = true;
+
+    $storedWatchdog = (int) cloudbackup_get_setting('cloudbackup_agent_watchdog_timeout_seconds', $defaultWatchdog);
+    $storedReclaim = (int) cloudbackup_get_setting('cloudbackup_agent_reclaim_grace_seconds', $defaultReclaim);
+    $storedReclaimEnabledRaw = cloudbackup_get_setting('cloudbackup_agent_reclaim_enabled', $defaultReclaimEnabled ? '1' : '0');
+    $storedReclaimEnabled = !in_array(strtolower((string) $storedReclaimEnabledRaw), ['0', 'false', 'off', 'no'], true);
+
+    $effectiveWatchdog = getenv('AGENT_WATCHDOG_TIMEOUT_SECONDS') !== false
+        ? (int) getenv('AGENT_WATCHDOG_TIMEOUT_SECONDS')
+        : $storedWatchdog;
+    $effectiveReclaim = getenv('AGENT_RECLAIM_GRACE_SECONDS') !== false
+        ? (int) getenv('AGENT_RECLAIM_GRACE_SECONDS')
+        : $storedReclaim;
+    $effectiveReclaimEnabled = getenv('AGENT_RECLAIM_ENABLED') !== false
+        ? !in_array(strtolower((string) getenv('AGENT_RECLAIM_ENABLED')), ['0', 'false', 'off', 'no'], true)
+        : $storedReclaimEnabled;
+
+    return [
+        'stored_watchdog' => $storedWatchdog,
+        'stored_reclaim' => $storedReclaim,
+        'stored_reclaim_enabled' => $storedReclaimEnabled,
+        'effective_watchdog' => $effectiveWatchdog,
+        'effective_reclaim' => $effectiveReclaim,
+        'effective_reclaim_enabled' => $effectiveReclaimEnabled,
+    ];
+}
+
+function cloudbackup_get_watchdog_status(): array
+{
+    $okActiveStates = ['active', 'activating'];
+
+    $parseSystemctl = function (string $unit): array {
+        $out = @shell_exec("systemctl show {$unit} --no-page --property=ActiveState,SubState,Result,UnitFileState 2>/dev/null");
+        $data = [
+            'ActiveState' => 'unknown',
+            'SubState' => 'unknown',
+            'Result' => 'unknown',
+            'UnitFileState' => 'unknown',
+        ];
+        if (!is_string($out)) {
+            return $data;
+        }
+        foreach (explode("\n", $out) as $line) {
+            if (strpos($line, '=') === false) {
+                continue;
+            }
+            [$k, $v] = explode('=', $line, 2);
+            $k = trim($k);
+            $v = trim($v);
+            if ($k !== '' && $v !== '') {
+                $data[$k] = $v;
+            }
+        }
+        return $data;
+    };
+
+    $service = $parseSystemctl('e3-agent-watchdog.service');
+    $timer = $parseSystemctl('e3-agent-watchdog.timer');
+
+    $serviceOk = in_array($service['ActiveState'], $okActiveStates, true);
+    // For oneshot services, ActiveState=inactive is expected; treat Result=success as OK
+    if (!$serviceOk && $service['ActiveState'] === 'inactive' && $service['Result'] === 'success') {
+        $serviceOk = true;
+        $service['ActiveState'] = 'idle';
+    }
+
+    $timerOk = in_array($timer['ActiveState'], $okActiveStates, true);
+
+    return [
+        'service_status' => $service['ActiveState'],
+        'service_result' => $service['Result'],
+        'service_ok' => $serviceOk,
+        'timer_status' => $timer['ActiveState'],
+        'timer_result' => $timer['Result'],
+        'timer_ok' => $timerOk,
+    ];
+}
+
 function cloudstorage_admin_cloudbackup($vars)
 {
     ob_start();
@@ -25,11 +120,40 @@ function cloudstorage_admin_cloudbackup($vars)
             ->first();
         
         if ($run) {
+            $structured = [];
+            try {
+                if (Capsule::schema()->hasTable('s3_cloudbackup_run_logs')) {
+                    $logRows = Capsule::table('s3_cloudbackup_run_logs')
+                        ->where('run_id', $runId)
+                        ->orderBy('created_at', 'asc')
+                        ->limit(500)
+                        ->get();
+                    foreach ($logRows as $row) {
+                        $details = null;
+                        if (!empty($row->details_json)) {
+                            $dec = json_decode($row->details_json, true);
+                            if (json_last_error() === JSON_ERROR_NONE) {
+                                $details = $dec;
+                            }
+                        }
+                        $structured[] = [
+                            'ts' => (string)$row->created_at,
+                            'level' => $row->level ?? 'info',
+                            'code' => $row->code ?? '',
+                            'message' => $row->message ?? '',
+                            'details' => $details,
+                        ];
+                    }
+                }
+            } catch (\Throwable $e) {
+                // best-effort
+            }
             header('Content-Type: application/json');
             echo json_encode([
                 'status' => 'success',
                 'backup_log' => $run->log_excerpt ?? '',
-                'validation_log' => $run->validation_log_excerpt ?? ''
+                'validation_log' => $run->validation_log_excerpt ?? '',
+                'structured_logs' => $structured,
             ]);
         } else {
             header('Content-Type: application/json');
@@ -93,6 +217,41 @@ function cloudstorage_admin_cloudbackup($vars)
     $maxConcurrentJobs = $vars['cloudbackup_global_max_concurrent_jobs'] ?? 'Not configured';
     $maxBandwidth = $vars['cloudbackup_global_max_bandwidth_kbps'] ?? 'Not configured';
     
+    $timingSettings = cloudbackup_get_timing_settings();
+    $watchdogSaveStatus = null;
+    $watchdogSaveMessage = null;
+    $watchdogStatus = cloudbackup_get_watchdog_status();
+
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_watchdog_settings'])) {
+        $watchdog = max(60, (int) ($_POST['agent_watchdog_timeout_seconds'] ?? $timingSettings['stored_watchdog']));
+        $reclaim = max(30, (int) ($_POST['agent_reclaim_grace_seconds'] ?? $timingSettings['stored_reclaim']));
+        if ($reclaim >= $watchdog) {
+            $reclaim = max(30, $watchdog - 60);
+        }
+        $reclaimEnabled = isset($_POST['agent_reclaim_enabled']) ? '1' : '0';
+
+        try {
+            Capsule::table('tbladdonmodules')->updateOrInsert(
+                ['module' => 'cloudstorage', 'setting' => 'cloudbackup_agent_watchdog_timeout_seconds'],
+                ['value' => $watchdog]
+            );
+            Capsule::table('tbladdonmodules')->updateOrInsert(
+                ['module' => 'cloudstorage', 'setting' => 'cloudbackup_agent_reclaim_grace_seconds'],
+                ['value' => $reclaim]
+            );
+            Capsule::table('tbladdonmodules')->updateOrInsert(
+                ['module' => 'cloudstorage', 'setting' => 'cloudbackup_agent_reclaim_enabled'],
+                ['value' => $reclaimEnabled]
+            );
+            $watchdogSaveStatus = 'success';
+            $watchdogSaveMessage = 'Watchdog/reclaim settings updated.';
+            $timingSettings = cloudbackup_get_timing_settings();
+        } catch (\Throwable $e) {
+            $watchdogSaveStatus = 'error';
+            $watchdogSaveMessage = 'Failed to save settings: ' . $e->getMessage();
+        }
+    }
+    
     // Get filters from request
     $filters = [
         'client_id' => $_GET['client_id'] ?? null,
@@ -146,6 +305,10 @@ function cloudstorage_admin_cloudbackup($vars)
         'worker_host' => $workerHost,
         'max_concurrent_jobs' => $maxConcurrentJobs,
         'max_bandwidth' => $maxBandwidth,
+        'watchdog_settings' => $timingSettings,
+        'watchdog_save_status' => $watchdogSaveStatus,
+        'watchdog_save_message' => $watchdogSaveMessage,
+        'watchdog_status' => $watchdogStatus,
         'metrics' => [
             'total_jobs' => $totalJobs,
             'active_jobs' => $activeJobs,

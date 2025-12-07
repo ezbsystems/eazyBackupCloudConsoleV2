@@ -40,8 +40,8 @@ if (is_null($product) || empty($product->username)) {
     exit();
 }
 
-$runId = $_GET['run_id'] ?? null;
-if (!$runId) {
+$runIdentifier = $_GET['run_uuid'] ?? $_GET['run_id'] ?? null;
+if (!$runIdentifier) {
     $jsonData = [
         'status' => 'fail',
         'message' => 'Run ID is required.'
@@ -49,9 +49,7 @@ if (!$runId) {
     $response = new JsonResponse($jsonData, 200);
     $response->send();
     exit();
-}
-
-$run = CloudBackupController::getRun($runId, $loggedInUserId);
+$run = CloudBackupController::getRun($runIdentifier, $loggedInUserId);
 if (!$run) {
     $jsonData = [
         'status' => 'fail',
@@ -148,8 +146,8 @@ try {
     $hasFinishedAt = !empty($run['finished_at']);
     if ($isTerminal && $hasFinishedAt) {
         // Check if already notified
-        $alreadyNotified = Capsule::table('s3_cloudbackup_runs')
-            ->where('id', (int)$runId)
+            $alreadyNotified = Capsule::table('s3_cloudbackup_runs')
+                ->where('id', (int)($run['id'] ?? 0))
             ->value('notified_at');
         if (!$alreadyNotified) {
             // Load email template setting
@@ -218,7 +216,7 @@ try {
                         // Mark notified for success or skipped (to avoid repeated attempts via polling)
                         if (in_array(($res['status'] ?? ''), ['success','skipped'], true)) {
                             Capsule::table('s3_cloudbackup_runs')
-                                ->where('id', (int)$runId)
+                                ->where('id', (int)($run['id'] ?? 0))
                                 ->update(['notified_at' => date('Y-m-d H:i:s')]);
                         }
                     }
@@ -228,7 +226,7 @@ try {
     }
 } catch (\Throwable $e) {
     // Do not impact progress response
-    logModuleCall('cloudstorage', 'progress_notify_error', ['run_id' => $runId], $e->getMessage());
+    logModuleCall('cloudstorage', 'progress_notify_error', ['run_id' => $run['id'] ?? $runIdentifier], $e->getMessage());
 }
 
 $response = new JsonResponse($jsonData, 200);

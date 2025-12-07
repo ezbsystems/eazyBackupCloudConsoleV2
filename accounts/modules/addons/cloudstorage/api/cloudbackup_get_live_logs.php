@@ -30,15 +30,15 @@ if (is_null($product) || empty($product->username)) {
     exit();
 }
 
-$runId = $_GET['run_id'] ?? null;
-if (!$runId) {
+$runIdentifier = $_GET['run_uuid'] ?? ($_GET['run_id'] ?? null);
+if (!$runIdentifier) {
     $response = new JsonResponse(['status' => 'fail', 'message' => 'Run ID is required.'], 200);
     $response->send();
     exit();
 }
 
 // Verify run ownership and get run details
-$run = CloudBackupController::getRun($runId, $loggedInUserId);
+$run = CloudBackupController::getRun($runIdentifier, $loggedInUserId);
 if (!$run) {
     $response = new JsonResponse(['status' => 'fail', 'message' => 'Run not found or access denied.'], 200);
     $response->send();

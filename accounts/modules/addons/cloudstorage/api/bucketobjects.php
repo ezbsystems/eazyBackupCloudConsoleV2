@@ -134,7 +134,15 @@
 
     $prefix = isset($_POST['folder_path']) ? trim($_POST['folder_path']) : '';
     $continuationToken = isset($_POST['continuation_token']) ? trim($_POST['continuation_token']) : '';
-    $maxKeys = isset($_POST['max_keys']) && !empty($_POST['max_keys']) ? trim($_POST['max_keys']) : 1000;
+    // Cap page size to avoid long, blocking list calls on very large buckets.
+    $rawMaxKeys = isset($_POST['max_keys']) ? trim($_POST['max_keys']) : '';
+    $maxKeys = 200;
+    if ($rawMaxKeys !== '') {
+        $parsed = (int)$rawMaxKeys;
+        if ($parsed > 0) {
+            $maxKeys = min($parsed, 200);
+        }
+    }
     $action = isset($_POST['action']) ? trim($_POST['action']) : '';
 
     $options = [

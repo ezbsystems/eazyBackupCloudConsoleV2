@@ -2,8 +2,15 @@
     <div class="row">
         <div class="col-md-12">
             <h2>Cloud Backup Administration</h2>
+            <ul class="nav nav-pills" style="margin-bottom:15px;">
+                <li class="active"><a href="#cb-dashboard">Dashboard</a></li>
+                <li><a href="#cb-jobs">Jobs</a></li>
+                <li><a href="#cb-runs">Runs</a></li>
+                <li><a href="#cb-agents">Agents</a></li>
+                <li><a href="#cb-clients">Clients</a></li>
+            </ul>
             
-            <div class="panel panel-default">
+            <div class="panel panel-default" id="cb-dashboard">
                 <div class="panel-heading">
                     <h3 class="panel-title">Configuration</h3>
                 </div>
@@ -19,8 +26,68 @@
                 </div>
             </div>
 
-            <!-- Metrics Dashboard -->
             <div class="panel panel-default">
+                <div class="panel-heading">
+                    <h3 class="panel-title">Agent Watchdog & Resume</h3>
+                </div>
+                <div class="panel-body">
+                    {if $watchdog_save_status eq 'success'}
+                        <div class="alert alert-success">{$watchdog_save_message}</div>
+                    {elseif $watchdog_save_status eq 'error'}
+                        <div class="alert alert-danger">{$watchdog_save_message}</div>
+                    {/if}
+                    <div class="row" style="margin-bottom: 15px;">
+                        <div class="col-md-6">
+                            <strong>Service status:</strong>
+                            {if $watchdog_status.service_ok}
+                                <span class="label label-success">{$watchdog_status.service_status|default:'unknown'} (last={$watchdog_status.service_result|default:'unknown'})</span>
+                            {else}
+                                <span class="label label-danger">{$watchdog_status.service_status|default:'unknown'} (last={$watchdog_status.service_result|default:'unknown'})</span>
+                            {/if}
+                        </div>
+                        <div class="col-md-6">
+                            <strong>Timer status:</strong>
+                            {if $watchdog_status.timer_ok}
+                                <span class="label label-success">{$watchdog_status.timer_status|default:'unknown'} (last={$watchdog_status.timer_result|default:'unknown'})</span>
+                            {else}
+                                <span class="label label-danger">{$watchdog_status.timer_status|default:'unknown'} (last={$watchdog_status.timer_result|default:'unknown'})</span>
+                            {/if}
+                        </div>
+                    </div>
+                    <form method="post" action="addonmodules.php?module=cloudstorage&action=cloudbackup_admin">
+                        <input type="hidden" name="update_watchdog_settings" value="1">
+                        <div class="row">
+                            <div class="col-md-4">
+                                <label>Watchdog timeout (seconds)</label>
+                                <input type="number" min="60" step="30" name="agent_watchdog_timeout_seconds" class="form-control" value="{$watchdog_settings.stored_watchdog|default:720}">
+                                <p class="help-block">Effective: {$watchdog_settings.effective_watchdog} (env overrides if set)</p>
+                            </div>
+                            <div class="col-md-4">
+                                <label>Reclaim grace (seconds)</label>
+                                <input type="number" min="30" step="15" name="agent_reclaim_grace_seconds" class="form-control" value="{$watchdog_settings.stored_reclaim|default:180}">
+                                <p class="help-block">Effective: {$watchdog_settings.effective_reclaim} (must be &lt; timeout)</p>
+                            </div>
+                            <div class="col-md-4">
+                                <label>Reclaim enabled</label>
+                                <div class="checkbox">
+                                    <label>
+                                        <input type="checkbox" name="agent_reclaim_enabled" value="1" {if $watchdog_settings.stored_reclaim_enabled}checked{/if}> Allow agent to reclaim stale in-progress run
+                                    </label>
+                                </div>
+                                <p class="help-block">Effective: {if $watchdog_settings.effective_reclaim_enabled}On{else}Off{/if}</p>
+                            </div>
+                        </div>
+                        <div class="row" style="margin-top: 15px;">
+                            <div class="col-md-12">
+                                <button type="submit" class="btn btn-primary">Save Watchdog Settings</button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Metrics Dashboard -->
+            <div class="panel panel-default" id="cb-dashboard-metrics">
                 <div class="panel-heading">
                     <h3 class="panel-title">Metrics Dashboard</h3>
                 </div>
@@ -71,7 +138,7 @@
                 </div>
             </div>
 
-            <div class="panel panel-default">
+            <div class="panel panel-default" id="cb-filters">
                 <div class="panel-heading">
                     <h3 class="panel-title">Filters</h3>
                 </div>
@@ -133,7 +200,7 @@
                 </div>
             </div>
 
-            <div class="panel panel-default">
+            <div class="panel panel-default" id="cb-jobs">
                 <div class="panel-heading">
                     <h3 class="panel-title">Jobs ({count($jobs)})</h3>
                 </div>
@@ -145,6 +212,7 @@
                                 <th>Client</th>
                                 <th>Job Name</th>
                                 <th>Source</th>
+                                <th>Engine</th>
                                 <th>Destination</th>
                                 <th>Schedule</th>
                                 <th>Status</th>
@@ -159,6 +227,7 @@
                                         <td>{$job.firstname} {$job.lastname}</td>
                                         <td>{$job.name}</td>
                                         <td>{$job.source_display_name} ({$job.source_type})</td>
+                                        <td>{$job.engine|default:'sync'|upper}</td>
                                         <td>Bucket #{$job.dest_bucket_id} / {$job.dest_prefix}</td>
                                         <td>{$job.schedule_type|ucfirst}</td>
                                         <td>
@@ -179,7 +248,7 @@
                 </div>
             </div>
 
-            <div class="panel panel-default">
+            <div class="panel panel-default" id="cb-runs">
                 <div class="panel-heading">
                     <h3 class="panel-title">Recent Runs</h3>
                 </div>
@@ -190,11 +259,14 @@
                                 <th>ID</th>
                                 <th>Client</th>
                                 <th>Job</th>
+                                <th>Engine</th>
                                 <th>Status</th>
                                 <th>Started</th>
                                 <th>Finished</th>
                                 <th>Progress</th>
-                                <th>Actions</th>
+                                        <th>Log Ref</th>
+                                        <th>Actions</th>
+                                        <th>Maintenance</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -204,6 +276,7 @@
                                         <td>{$run.id}</td>
                                         <td>{$run.firstname} {$run.lastname}</td>
                                         <td>{$run.job_name}</td>
+                                        <td>{$run.engine|default:'sync'|upper}</td>
                                         <td>
                                             <span class="label label-{if $run.status eq 'success'}success{elseif $run.status eq 'failed'}danger{elseif $run.status eq 'running'}info{else}default{/if}">
                                                 {$run.status|ucfirst}
@@ -212,6 +285,7 @@
                                         <td>{if $run.started_at}{$run.started_at|date_format:"%d %b %Y %H:%M"}{else}-{/if}</td>
                                         <td>{if $run.finished_at}{$run.finished_at|date_format:"%d %b %Y %H:%M"}{else}-{/if}</td>
                                         <td>{if $run.progress_pct}{$run.progress_pct}%{else}-{/if}</td>
+                                        <td>{if $run.log_ref}{$run.log_ref}{else}-{/if}</td>
                                         <td>
                                             {if $run.status eq 'running' || $run.status eq 'starting'}
                                                 <button onclick="forceCancelRun({$run.id})" class="btn btn-danger btn-xs">Force Stop</button>
@@ -219,6 +293,12 @@
                                             {if $run.log_excerpt || $run.validation_log_excerpt}
                                                 <button onclick="showRunLogs({$run.id})" class="btn btn-info btn-xs">View Logs</button>
                                             {/if}
+                                        </td>
+                                        <td>
+                                            <div class="btn-group">
+                                                <button class="btn btn-default btn-xs" onclick="enqueueMaintenance({$run.id}, 'maintenance_quick')">Quick</button>
+                                                <button class="btn btn-default btn-xs" onclick="enqueueMaintenance({$run.id}, 'maintenance_full')">Full</button>
+                                            </div>
                                         </td>
                                     </tr>
                                 {/foreach}
@@ -296,6 +376,23 @@ function showRunLogs(runId) {
         .catch(error => {
             alert('Error loading logs: ' + error);
         });
+}
+
+function enqueueMaintenance(runId, type) {
+    fetch('modules/addons/cloudstorage/api/admin_cloudbackup_request_command.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ run_id: runId, type })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === 'success') {
+            alert('Maintenance (' + type + ') enqueued for run ' + runId);
+        } else {
+            alert(data.message || 'Failed to enqueue maintenance');
+        }
+    })
+    .catch(() => alert('Error enqueuing maintenance'));
 }
 </script>
 

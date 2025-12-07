@@ -39,8 +39,8 @@ if (is_null($product) || empty($product->username)) {
     exit();
 }
 
-$runId = $_GET['run_id'] ?? null;
-if (!$runId) {
+$runIdentifier = $_GET['run_uuid'] ?? ($_GET['run_id'] ?? null);
+if (!$runIdentifier) {
     $jsonData = [
         'status' => 'fail',
         'message' => 'Run ID is required.'
@@ -51,7 +51,7 @@ if (!$runId) {
 }
 
 // Verify run ownership and get run details
-$run = CloudBackupController::getRun($runId, $loggedInUserId);
+$run = CloudBackupController::getRun($runIdentifier, $loggedInUserId);
 if (!$run) {
     $jsonData = [
         'status' => 'fail',
@@ -73,11 +73,42 @@ if (!empty($run['validation_log_excerpt']) && $run['validation_mode'] === 'post_
 	$formattedValidationLog = $valSan['formatted_log'];
 }
 
+// Append structured run_logs entries (client-visible)
+$structuredLogs = [];
+try {
+    if (\WHMCS\Database\Capsule::schema()->hasTable('s3_cloudbackup_run_logs')) {
+        $logRows = \WHMCS\Database\Capsule::table('s3_cloudbackup_run_logs')
+                    ->where('run_id', $run['id'] ?? 0)
+            ->orderBy('created_at', 'asc')
+            ->limit(500)
+            ->get();
+        foreach ($logRows as $row) {
+            $details = null;
+            if (!empty($row->details_json)) {
+                $dec = json_decode($row->details_json, true);
+                if (json_last_error() === JSON_ERROR_NONE) {
+                    $details = $dec;
+                }
+            }
+            $structuredLogs[] = [
+                'ts' => (string) $row->created_at,
+                'level' => (string) ($row->level ?? 'info'),
+                'code' => $row->code ?? '',
+                'message' => $row->message ?? '',
+                'details' => $details,
+            ];
+        }
+    }
+} catch (\Throwable $e) {
+    // ignore; best-effort
+}
+
 $jsonData = [
     'status' => 'success',
     'backup_log' => $formattedBackupLog,
     'validation_log' => $formattedValidationLog,
-    'has_validation' => !empty($run['validation_log_excerpt']) && $run['validation_mode'] === 'post_run'
+    'has_validation' => !empty($run['validation_log_excerpt']) && $run['validation_mode'] === 'post_run',
+    'structured_logs' => $structuredLogs,
 ];
 
 $response = new JsonResponse($jsonData, 200);
