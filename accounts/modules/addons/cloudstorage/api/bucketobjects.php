@@ -6,6 +6,15 @@
         die("This file cannot be accessed directly");
     }
 
+    // CRITICAL: Release session lock IMMEDIATELY after init.php loads.
+    // WHMCS uses file-based sessions that block ALL concurrent requests.
+    // We must close the session before doing ANY slow operations.
+    // The session data is still readable after this call, just not writable.
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        // Save any session changes made by init.php, then release lock
+        session_write_close();
+    }
+
     use Symfony\Component\HttpFoundation\JsonResponse;
     use WHMCS\ClientArea;
     use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
@@ -117,14 +126,6 @@
     $cephAdminSecretKey = $module->where('setting', 'ceph_secret_key')->pluck('value')->first();
     $encryptionKey = $module->where('setting', 'encryption_key')->pluck('value')->first();
     $s3Region = $module->where('setting', 's3_region')->pluck('value')->first() ?: 'us-east-1';
-
-    // Release session lock BEFORE making S3 calls.
-    // WHMCS file-based sessions hold a lock for the duration of the request.
-    // Without this, long S3 list operations block ALL other requests from the same user,
-    // making the entire WHMCS site appear unresponsive.
-    if (session_status() === PHP_SESSION_ACTIVE) {
-        session_write_close();
-    }
 
     $bucketObject = new BucketController($s3Endpoint, $cephAdminUser, $cephAdminAccessKey, $cephAdminSecretKey, $s3Region);
     $s3Connection = $bucketObject->connectS3Client($userId, $encryptionKey);
