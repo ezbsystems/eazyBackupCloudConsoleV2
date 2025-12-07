@@ -20,13 +20,15 @@ $mode = $_POST['mode'] ?? '';
 $prefix = $_POST['prefix'] ?? '';
 $keyMarker = $_POST['key_marker'] ?? '';
 $versionIdMarker = $_POST['version_id_marker'] ?? '';
+// Reduced default from 1000 to 100 for faster initial loads on large buckets.
+// listObjectVersions is inherently slower than listObjectsV2.
 $rawMax = $_POST['max_keys'] ?? null;
-$maxKeys = 1000;
+$maxKeys = 100;
 if ($rawMax !== null) {
     if (is_numeric($rawMax)) {
         $mk = (int)$rawMax;
         if ($mk > 0) {
-            $maxKeys = ($mk > 1000) ? 1000 : $mk;
+            $maxKeys = ($mk > 200) ? 200 : $mk; // Hard cap at 200
         }
     }
 }
@@ -101,6 +103,14 @@ $cephAdminSecretKey = $module->where('setting', 'ceph_secret_key')->pluck('value
 $encryptionKey = $module->where('setting', 'encryption_key')->pluck('value')->first();
 $s3Region = $module->where('setting', 's3_region')->pluck('value')->first() ?: 'us-east-1';
 
+// Release session lock BEFORE making S3 calls.
+// WHMCS file-based sessions hold a lock for the duration of the request.
+// Without this, long S3 list operations block ALL other requests from the same user,
+// making the entire WHMCS site appear unresponsive.
+if (session_status() === PHP_SESSION_ACTIVE) {
+    session_write_close();
+}
+
 $bucketController = new BucketController($s3Endpoint, $cephAdminUser, $cephAdminAccessKey, $cephAdminSecretKey, $s3Region);
 $conn = $bucketController->connectS3Client($userId, $encryptionKey);
 if ($conn['status'] !== 'success') {
@@ -111,14 +121,47 @@ if ($conn['status'] !== 'success') {
 
 $result = null;
 if ($mode === 'index') {
-    $result = $bucketController->getVersionsIndex($bucketName, [
-        'prefix' => $prefix,
-        'key_marker' => $keyMarker ?: null,
-        'version_id_marker' => $versionIdMarker ?: null,
-        'max_keys' => $maxKeys,
-        'include_deleted' => $includeDeleted,
-        'only_with_versions' => $onlyWithVersions
-    ]);
+    // Server-side cache for version listings (30 second TTL)
+    // This dramatically improves performance for large buckets
+    $cacheKey = 'versions_index_' . md5($bucketName . '|' . $prefix . '|' . $keyMarker . '|' . $versionIdMarker . '|' . $maxKeys . '|' . ($includeDeleted ? '1' : '0') . '|' . ($onlyWithVersions ? '1' : '0'));
+    $cacheTtl = 30; // seconds
+    $cacheDir = sys_get_temp_dir() . '/cloudstorage_cache';
+    $cacheFile = $cacheDir . '/' . $cacheKey . '.json';
+
+    // Try to read from cache
+    if (file_exists($cacheFile)) {
+        $cacheData = @file_get_contents($cacheFile);
+        if ($cacheData !== false) {
+            $cached = @json_decode($cacheData, true);
+            if (is_array($cached) && isset($cached['expires']) && $cached['expires'] > time()) {
+                $result = $cached['data'];
+            }
+        }
+    }
+
+    // If not cached or expired, fetch from S3
+    if ($result === null) {
+        $result = $bucketController->getVersionsIndex($bucketName, [
+            'prefix' => $prefix,
+            'key_marker' => $keyMarker ?: null,
+            'version_id_marker' => $versionIdMarker ?: null,
+            'max_keys' => $maxKeys,
+            'include_deleted' => $includeDeleted,
+            'only_with_versions' => $onlyWithVersions
+        ]);
+        
+        // Cache successful responses
+        if (isset($result['status']) && $result['status'] === 'success') {
+            if (!is_dir($cacheDir)) {
+                @mkdir($cacheDir, 0755, true);
+            }
+            $cachePayload = json_encode([
+                'expires' => time() + $cacheTtl,
+                'data' => $result
+            ]);
+            @file_put_contents($cacheFile, $cachePayload, LOCK_EX);
+        }
+    }
 } elseif ($mode === 'restore') {
     $key = $_POST['key'] ?? '';
     $sourceVersionId = $_POST['source_version_id'] ?? '';

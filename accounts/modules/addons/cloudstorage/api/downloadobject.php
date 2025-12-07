@@ -81,6 +81,13 @@ $cephAdminSecretKey = $module->where('setting', 'ceph_secret_key')->pluck('value
 $encryptionKey = $module->where('setting', 'encryption_key')->pluck('value')->first();
 $s3Region = $module->where('setting', 's3_region')->pluck('value')->first() ?: 'us-east-1';
 
+// Release session lock BEFORE making S3 calls.
+// WHMCS file-based sessions hold a lock for the duration of the request.
+// File downloads can take significant time and should not block other requests.
+if (session_status() === PHP_SESSION_ACTIVE) {
+    session_write_close();
+}
+
 // Connect S3 and stream object
 $bucketCtrl = new BucketController($s3Endpoint, $cephAdminUser, $cephAdminAccessKey, $cephAdminSecretKey, $s3Region);
 $conn = $bucketCtrl->connectS3Client($userId, $encryptionKey);

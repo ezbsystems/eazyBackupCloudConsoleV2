@@ -1207,10 +1207,12 @@ class BucketController {
                 'use_path_style_endpoint' => true,
                 'signature_version' => 'v4',
                 // Guard against long-running RGW list calls that can block WHMCS.
+                // Keep timeouts short; session locks are released before S3 calls
+                // in API endpoints, but we still want fast failures.
                 'http' => [
                     'connect_timeout' => 5.0,
-                    'timeout' => 20.0,
-                    'read_timeout' => 20.0,
+                    'timeout' => 8.0,
+                    'read_timeout' => 8.0,
                 ],
             ];
 
