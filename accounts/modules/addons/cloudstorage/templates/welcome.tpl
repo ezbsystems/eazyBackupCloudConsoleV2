@@ -112,7 +112,7 @@
                                         <input id="eb-username" name="username" type="text" autocomplete="username"
                                                class="block w-full rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2.5 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                                                placeholder="Choose a username (a-z, 0-9, ., _, -)" />
-                                        <p class="text-[11px] text-slate-400">Allowed: letters, numbers, ., _, -; min 6 characters.</p>
+                                        <p class="text-[11px] text-slate-400">Allowed: letters, numbers, ., _, -; min 8 characters.</p>
                                         <p id="eb-err-username" class="hidden text-[11px] text-rose-400 mt-1"></p>
                                     </div>
                                     <div class="space-y-1.5">
@@ -208,9 +208,9 @@
                                 // Front-end validation to match backend (comet)
                                 const needsUser = (choice==='backup' || choice==='ms365');
                                 if (needsUser) {
-                                    const reUser = /^[A-Za-z0-9_.-]{6,}$/;
+                                    const reUser = /^[A-Za-z0-9_.-]{8,}$/;
                                     if (!reUser.test(uname)) {
-                                        const msg = 'Backup username must be at least 6 characters and may contain only a-z, A-Z, 0-9, _, ., -';
+                                        const msg = 'Backup username must be at least 8 characters and may contain only a-z, A-Z, 0-9, _, ., -';
                                         ebSetError('eb-err-username', msg);
                                         try { if (window.showToast) window.showToast(msg, 'error'); } catch(_){}
                                         ebDisableSubmit(false);

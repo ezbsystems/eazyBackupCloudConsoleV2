@@ -37,8 +37,8 @@ if (is_null($product) || empty($product->username)) {
     exit();
 }
 
-$runId = $_POST['run_id'] ?? null;
-if (!$runId) {
+$runIdentifier = $_POST['run_uuid'] ?? $_POST['run_id'] ?? null;
+if (!$runIdentifier) {
     $jsonData = [
         'status' => 'fail',
         'message' => 'Run ID is required.'
@@ -48,7 +48,7 @@ if (!$runId) {
     exit();
 }
 
-$result = CloudBackupController::cancelRun($runId, $loggedInUserId);
+$result = CloudBackupController::cancelRun($runIdentifier, $loggedInUserId);
 
 $response = new JsonResponse($result, 200);
 $response->send();

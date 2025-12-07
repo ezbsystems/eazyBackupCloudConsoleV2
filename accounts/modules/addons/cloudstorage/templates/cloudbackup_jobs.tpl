@@ -16,6 +16,10 @@
                    class="px-4 py-1.5 rounded-full transition {if $smarty.get.view == 'cloudbackup_settings'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
                     Settings
                 </a>
+                <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_agents"
+                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.view == 'cloudbackup_agents'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
+                    Agents
+                </a>
             </nav>
         </div>
         <!-- Glass panel container -->
@@ -56,16 +60,52 @@
                     </span>
                 </h2>
             </div>
-            <button
-                type="button"
-                onclick="openCreateJobModal()"
-                class="btn-run-now"
-            >
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 6v12m6-6H6" />
-                </svg>
-                <span>Create Job</span>
-            </button>
+            <div x-data="{ open: false }" class="relative">
+                <button
+                    type="button"
+                    class="btn-run-now"
+                    @click="open = !open"
+                    @click.away="open = false"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 6v12m6-6H6" />
+                    </svg>
+                    <span>Create Job</span>
+                    <svg class="w-4 h-4 ml-1 text-slate-200" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                    </svg>
+                </button>
+                <div
+                    x-show="open"
+                    x-transition
+                    class="absolute right-0 mt-2 w-56 rounded-lg border border-slate-800 bg-slate-900 shadow-lg z-10"
+                    style="display: none;"
+                >
+                    <div class="px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 border-b border-slate-800">
+                        Select backup source
+                    </div>
+                    <button
+                        type="button"
+                        class="flex w-full items-center gap-2 px-4 py-3 text-sm text-slate-100 hover:bg-slate-800 transition"
+                        @click="open = false; openCreateJobModal();"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-5 w-5 text-sky-300">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9.75v6.75m0 0-3-3m3 3 3-3m-8.25 6a4.5 4.5 0 0 1-1.41-8.775 5.25 5.25 0 0 1 10.233-2.33 3 3 0 0 1 3.758 3.848A3.752 3.752 0 0 1 18 19.5H6.75Z" />
+                        </svg>
+                        <span>Cloud Backup</span>
+                    </button>
+                    <button
+                        type="button"
+                        class="flex w-full items-center gap-2 px-4 py-3 text-sm text-slate-100 hover:bg-slate-800 transition"
+                        @click="open = false; openLocalJobWizard();"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-5 w-5 text-[#FE5000]">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 12V5.25" />
+                        </svg>
+                        <span>Local Backup</span>
+                    </button>
+                </div>
+            </div>
         </div>
         <div class="mb-6 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs text-amber-100 flex items-start gap-2">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mt-[2px]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -201,20 +241,26 @@
                         </svg>
                     </button>
                 </div>
-                <div x-show="selected === 'google_drive'" x-cloak class="mt-2">
-                    <div class="text-sm font-semibold text-slate-200">Google Drive (read-only backup)</div>
-                    <p class="mt-1 text-xs text-slate-400">
-                        We use read-only access to list and copy your selected Google Drive files into your chosen e3 bucket.
-                        We do not modify or delete anything in Google Drive.
-                    </p>
-                </div>
             </div>
         </div>
 
         <!-- Filters -->
         <div class="mb-4 flex flex-col sm:flex-row gap-3 justify-between items-start sm:items-center">
-            <input type="text" placeholder="Search jobs" class="w-full sm:w-80 rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
-                   x-model="$store.jobFilters.q" @input="$dispatch('jobs-filter-apply')">
+            <div class="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                <input type="text" placeholder="Search jobs" class="w-full sm:w-80 rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                    x-model="$store.jobFilters.q" @input="$dispatch('jobs-filter-apply')">
+                <select class="rounded-full border border-slate-700 bg-slate-900/80 px-3 py-2 text-xs text-slate-200"
+                    x-model="$store.jobFilters.sourceType" @change="$dispatch('jobs-filter-apply')">
+                    <option value="all">All Sources</option>
+                    <option value="local_agent">Local Agent</option>
+                    <option value="cloud">Cloud-to-Cloud</option>
+                    <option value="s3_compatible">S3-Compatible</option>
+                    <option value="aws">AWS</option>
+                    <option value="sftp">SFTP</option>
+                    <option value="google_drive">Google Drive</option>
+                    <option value="dropbox">Dropbox</option>
+                </select>
+            </div>
             <div class="inline-flex rounded-full bg-slate-900/80 p-1 text-xs font-medium text-slate-400">
                 <button class="px-3 py-1.5 rounded-full transition" :class="($store.jobFilters.status==='all') ? 'bg-slate-800 text-slate-50 shadow-sm' : 'hover:text-slate-200'" @click="$store.jobFilters.status='all'; $dispatch('jobs-filter-apply')">All</button>
                 <button class="px-3 py-1.5 rounded-full transition" :class="($store.jobFilters.status==='success') ? 'bg-slate-800 text-slate-50 shadow-sm' : 'hover:text-slate-200'" @click="$store.jobFilters.status='success'; $dispatch('jobs-filter-apply')">Success</button>
@@ -296,6 +342,11 @@
                                 <div>
                                     <div class="flex items-center gap-2">
                                         <h3 class="text-sm font-semibold text-white">{$job.name}</h3>
+                                        {if $job.source_type eq 'local_agent'}
+                                            <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.65rem] font-semibold bg-sky-500/15 text-sky-200 border border-sky-400/40">
+                                                Local Agent
+                                            </span>
+                                        {/if}
                                         <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium
                                             {if $job.status eq 'active'}bg-emerald-500/10 text-emerald-300
                                             {elseif $job.status eq 'paused'}bg-amber-500/15 text-amber-300
@@ -316,6 +367,7 @@
                                             {elseif $job.source_type eq 'sftp'}SFTP
                                             {elseif $job.source_type eq 'google_drive'}Google Drive
                                             {elseif $job.source_type eq 'dropbox'}Dropbox
+                                            {elseif $job.source_type eq 'local_agent'}Local Agent
                                             {else}{$job.source_type|capitalize}{/if}
                                         </span>
                                         →
@@ -356,7 +408,7 @@
                                     </button>
                                 </div>
                                 <button
-                                    onclick="editJob({$job.id})"
+                                    onclick="editJob({$job.id}, '{$job.source_type}')"
                                     class="icon-btn"
                                     title="Edit"
                                 >
@@ -393,13 +445,30 @@
                                     </svg>
                               
                                 </button>
+                                <button
+                                    onclick="openRestoreModal({$job.id})"
+                                    class="icon-btn"
+                                    title="Restore"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 4v9m0 0l-3.5-3.5M12 13l3.5-3.5M6 20h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.5" />
+                                    </svg>
+                                </button>
                             </div>
                         </div>
                         <div class="mt-2 grid grid-cols-1 sm:grid-cols-6 gap-4 text-xs text-slate-400">
                             <div>
                                 <h6 class="text-sm font-medium text-slate-400">Source</h6>
                                 <span class="text-md font-medium text-slate-300">{$job.source_display_name}</span>
-                                <span class="text-xs text-slate-500 ml-2">({$job.source_type})</span>
+                                <span class="text-xs text-slate-500 ml-2">
+                                    {if $job.source_type eq 'local_agent' && $job.agent_hostname}
+                                        ({$job.agent_hostname|escape:'html'})
+                                    {elseif $job.source_type eq 'local_agent' && $job.agent_id}
+                                        (Agent #{$job.agent_id})
+                                    {else}
+                                        ({$job.source_type})
+                                    {/if}
+                                </span>
                             </div>
                             <div>
                                 <h6 class="text-sm font-medium text-slate-400">Destination</h6>
@@ -507,6 +576,74 @@
     </div>
 </div>
 
+<!-- Restore Wizard Modal -->
+<div id="restoreWizardModal" class="fixed inset-0 z-[2100] hidden">
+    <div class="absolute inset-0 bg-black/75" onclick="closeRestoreModal()"></div>
+    <div class="absolute inset-0 flex items-center justify-center p-4">
+        <div class="w-full max-w-3xl rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl overflow-hidden">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800">
+                <div>
+                    <p class="text-xs uppercase text-slate-400 tracking-wide">Restore</p>
+                    <h3 class="text-xl font-semibold text-white">Restore Snapshot</h3>
+                    <p class="text-[11px] text-slate-400 mt-1">Select a snapshot (recent run), choose a target path, and optionally request a mount. File-tree browse is not yet available; restore uses the selected snapshot manifest.</p>
+                </div>
+                <button class="icon-btn" onclick="closeRestoreModal()" aria-label="Close wizard">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            <div class="px-6 py-4">
+                <div class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-400 mb-4">
+                    <span class="px-2 py-1 rounded-full border border-slate-700 bg-slate-900" id="restoreStepLabel">Step 1 of 3</span>
+                    <span class="text-slate-300" id="restoreStepTitle">Select Snapshot</span>
+                </div>
+
+                <div class="space-y-6">
+                    <!-- Step 1 -->
+                    <div class="restore-step" data-step="1">
+                        <label class="block text-sm font-medium text-slate-200 mb-2">Snapshot (from recent runs)</label>
+                        <div class="mb-3">
+                            <select id="restoreRunSelect" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-slate-100">
+                                <option value="">Loading runs…</option>
+                            </select>
+                            <p class="text-xs text-slate-400 mt-1">Pick a run whose snapshot you want to restore. Uses the manifest ID stored on the run.</p>
+                        </div>
+                    </div>
+
+                    <!-- Step 2 -->
+                    <div class="restore-step hidden" data-step="2">
+                        <label class="block text-sm font-medium text-slate-200 mb-2">Restore Target</label>
+                        <div class="space-y-3">
+                            <input id="restoreTargetPath" type="text" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-slate-100" placeholder="Destination path on agent (e.g., C:\Restores\job123)">
+                            <label class="inline-flex items-center gap-2 text-sm text-slate-300">
+                                <input id="restoreMount" type="checkbox" class="rounded border-slate-600 bg-slate-800">
+                                <span>Request mount instead of copy (not yet implemented in agent; will report failure)</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Step 3 -->
+                    <div class="restore-step hidden" data-step="3">
+                        <div class="rounded-xl border border-slate-800 bg-slate-900 px-4 py-3 text-slate-100">
+                            <p class="text-sm font-semibold mb-2">Review</p>
+                            <div id="restoreReview" class="text-xs whitespace-pre-wrap leading-5 bg-slate-950 border border-slate-800 rounded-lg p-3 overflow-auto max-h-64"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex justify-between items-center mt-6">
+                    <button type="button" class="px-4 py-2 rounded-lg border border-slate-700 bg-slate-800 text-slate-100" onclick="restorePrev()">Back</button>
+                    <div class="flex gap-2">
+                        <button type="button" class="px-4 py-2 rounded-lg border border-slate-700 bg-slate-800 text-slate-100" onclick="closeRestoreModal()">Cancel</button>
+                        <button type="button" class="px-4 py-2 rounded-lg bg-sky-600 text-white" onclick="restoreNext()">Next</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Create Job Slide-Over (dynamically populated) -->
 <div id="createJobSlideover" x-data="{ isOpen: false }" x-show="isOpen" class="fixed inset-0 z-50" style="display: none;">
     <!-- Backdrop -->
@@ -574,7 +711,8 @@
                     { value: 'aws', label: 'Amazon S3 (AWS)' },
                     { value: 'sftp', label: 'SFTP/SSH Server' },
                     { value: 'google_drive', label: 'Google Drive' },
-                    { value: 'dropbox', label: 'Dropbox' }
+                    { value: 'dropbox', label: 'Dropbox' },
+                    { value: 'local_agent', label: 'Local Agent (Windows)' }
                 ],
                 labelFor(val) {
                     const o = this.options.find(opt => opt.value === val);
@@ -592,6 +730,7 @@
                     <option value="sftp">SFTP/SSH Server</option>
                     <option value="google_drive">Google Drive</option>
                     <option value="dropbox">Dropbox</option>
+                    <option value="local_agent">Local Agent (Windows)</option>
                 </select>
                 <!-- Alpine-powered dropdown UI -->
                 <div class="relative">
@@ -830,6 +969,55 @@
                         <label class="block text-sm font-medium text-slate-300 mb-2">Remote Path</label>
                         <input type="text" name="sftp_path" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600" placeholder="/backups/" required>
                     </div>
+                </div>
+
+                <!-- Local Agent fields -->
+                <div id="localAgentFields" class="source-type-fields hidden">
+                    <div class="mb-4" x-data="{
+                        options: [],
+                        loading: false,
+                        async load() {
+                            this.loading = true;
+                            try {
+                                const resp = await fetch('modules/addons/cloudstorage/api/agent_list.php');
+                                const data = await resp.json();
+                                if (data.status === 'success') {
+                                    this.options = (data.agents || []).filter(a => a.status === 'active');
+                                }
+                            } catch (e) {
+                            } finally {
+                                this.loading = false;
+                            }
+                        }
+                    }" x-init="load()">
+                        <label class="block text-sm font-medium text-slate-300 mb-2">Agent</label>
+                        <select name="agent_id" id="agent_id" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600" required>
+                            <option value="">Select an agent</option>
+                            <template x-for="a in options" :key="a.id">
+                                <option :value="a.id" x-text="a.hostname ? (a.hostname + ' (ID ' + a.id + ')') : ('Agent #' + a.id)"></option>
+                            </template>
+                        </select>
+                        <p class="text-xs text-slate-400 mt-1" x-show="!loading && options.length === 0">No active agents found. Create an agent first.</p>
+                    </div>
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-slate-300 mb-2">Local Source Path</label>
+                        <input type="text" name="local_source_path" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600" placeholder="C:\Data" />
+                    </div>
+                    <div class="mb-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-300 mb-2">Include (glob, optional)</label>
+                            <input type="text" name="local_include_glob" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600" placeholder="**\\*.docx" />
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-300 mb-2">Exclude (glob, optional)</label>
+                            <input type="text" name="local_exclude_glob" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600" placeholder="**\\node_modules\\**" />
+                        </div>
+                    </div>
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-slate-300 mb-2">Bandwidth Limit (KB/s, optional)</label>
+                        <input type="number" name="local_bandwidth_limit_kbps" min="0" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600" placeholder="0 = unlimited" />
+                    </div>
+                    <p class="text-xs text-slate-400">Local Agent jobs run on your Windows agent. Ensure the path exists on that machine.</p>
                 </div>
 
                 <!-- Google Drive fields -->
@@ -1527,6 +1715,7 @@
                         <option value="sftp">SFTP/SSH Server</option>
                         <option value="google_drive">Google Drive</option>
                         <option value="dropbox">Dropbox</option>
+                        <option value="local_agent">Local Agent (Windows)</option>
                     </select>
                 </div>
 
@@ -1800,6 +1989,57 @@
                     <div class="mb-3">
                         <label class="block text-sm font-medium text-slate-300 mb-2">Password</label>
                         <input type="password" id="edit_sftp_password" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2" placeholder="Leave blank to keep existing" />
+                    </div>
+                </div>
+
+                <div id="edit_local_fields" class="mb-4 hidden">
+                    <div class="mb-3" x-data="{
+                        options: [],
+                        loading: false,
+                        async load(selectedId) {
+                            this.loading = true;
+                            try {
+                                const resp = await fetch('modules/addons/cloudstorage/api/agent_list.php');
+                                const data = await resp.json();
+                                if (data.status === 'success') {
+                                    this.options = (data.agents || []).filter(a => a.status === 'active');
+                                    const sel = document.getElementById('edit_agent_id');
+                                    if (sel && selectedId) {
+                                        sel.value = String(selectedId);
+                                    }
+                                }
+                            } catch (e) {
+                            } finally {
+                                this.loading = false;
+                            }
+                        }
+                    }" x-init="load(document.getElementById('edit_agent_id') ? document.getElementById('edit_agent_id').value : '')">
+                        <label class="block text-sm font-medium text-slate-300 mb-2">Agent</label>
+                        <select id="edit_agent_id" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2" required>
+                            <option value="">Select an agent</option>
+                            <template x-for="a in options" :key="a.id">
+                                <option :value="a.id" x-text="a.hostname ? (a.hostname + ' (ID ' + a.id + ')') : ('Agent #' + a.id)"></option>
+                            </template>
+                        </select>
+                        <p class="text-xs text-slate-400 mt-1" x-show="!loading && options.length === 0">No active agents found. Create an agent first.</p>
+                    </div>
+                    <div class="mb-3">
+                        <label class="block text-sm font-medium text-slate-300 mb-2">Local Source Path</label>
+                        <input type="text" id="edit_local_source_path" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2" placeholder="C:\Data" />
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-300 mb-2">Include (glob, optional)</label>
+                            <input type="text" id="edit_local_include_glob" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2" placeholder="**\\*.docx" />
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-300 mb-2">Exclude (glob, optional)</label>
+                            <input type="text" id="edit_local_exclude_glob" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2" placeholder="**\\node_modules\\**" />
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="block text-sm font-medium text-slate-300 mb-2">Bandwidth Limit (KB/s, optional)</label>
+                        <input type="number" id="edit_local_bandwidth_limit_kbps" min="0" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2" placeholder="0 = unlimited" />
                     </div>
                 </div>
 
@@ -2224,6 +2464,272 @@
     </div>
 </div>
 
+<!-- Local Agent Job Wizard Modal -->
+<div id="localJobWizardModal" class="fixed inset-0 z-[2000] hidden">
+    <div class="absolute inset-0 bg-black/75" onclick="closeLocalJobWizard()"></div>
+    <div class="absolute inset-0 flex items-center justify-center p-4">
+        <div class="w-full max-w-5xl rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl overflow-hidden">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800">
+                <div>
+                    <p class="text-xs uppercase text-slate-400 tracking-wide">Local Agent</p>
+                    <h3 class="text-xl font-semibold text-white">Backup Job Wizard</h3>
+                    <p class="text-[11px] text-amber-300 mt-1">Destinations are S3-only. Local destinations are disabled until schema change.</p>
+                </div>
+                <button class="icon-btn" onclick="closeLocalJobWizard()" aria-label="Close wizard">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+
+            <div class="px-6 py-4">
+                <div class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-400 mb-4">
+                    <span class="px-2 py-1 rounded-full border border-slate-700 bg-slate-900" id="localWizardStepLabel">Step 1 of 5</span>
+                    <span class="text-slate-300" id="localWizardStepTitle">Mode & Agent</span>
+                </div>
+
+                <div class="space-y-6">
+                    <!-- Step 1 -->
+                    <div class="wizard-step" data-step="1">
+                        <div class="grid md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-slate-200 mb-2">Job Name</label>
+                                <input id="localWizardName" type="text" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-slate-100" placeholder="My local backup">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-slate-200 mb-2">Backup Engine</label>
+                                <div class="flex gap-2">
+                                    <button type="button" data-engine-btn="sync" class="px-4 py-2 rounded-lg border border-slate-700 bg-slate-800 text-slate-100" onclick="localWizardSet('engine','sync')">Sync (rclone)</button>
+                                    <button type="button" data-engine-btn="kopia" class="px-4 py-2 rounded-lg border border-slate-700 bg-slate-800 text-slate-100" onclick="localWizardSet('engine','kopia')">Backup (Kopia)</button>
+                                </div>
+                            </div>
+                            <div x-data="{
+                                options: [],
+                                loading: false,
+                                isOpen: false,
+                                selectedId: '',
+                                selectedName: '',
+                                async load() {
+                                    this.loading = true;
+                                    try {
+                                        const resp = await fetch('modules/addons/cloudstorage/api/agent_list.php');
+                                        const data = await resp.json();
+                                        if (data.status === 'success') {
+                                            this.options = (data.agents || []).filter(a => a.status === 'active');
+                                        }
+                                    } catch (e) {} finally { this.loading = false; }
+                                },
+                                choose(opt) {
+                                    this.selectedId = opt.id;
+                                    this.selectedName = opt.hostname ? (opt.hostname + ' (ID ' + opt.id + ')') : ('Agent #' + opt.id);
+                                    const hid = document.getElementById('localWizardAgentId');
+                                    if (hid) hid.value = this.selectedId;
+                                    this.isOpen = false;
+                                }
+                            }" x-init="load()">
+                                <label class="block text-sm font-medium text-slate-200 mb-2">Agent</label>
+                                <input type="hidden" id="localWizardAgentId">
+                                <div class="relative">
+                                    <button type="button" class="w-full px-4 py-2 rounded-lg border border-slate-700 bg-slate-800 text-slate-100 flex justify-between items-center"
+                                            @click="isOpen = !isOpen">
+                                        <span x-text="selectedName || (loading ? 'Loading agents…' : 'Select agent')"></span>
+                                        <svg class="w-4 h-4 text-slate-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                                        </svg>
+                                    </button>
+                                    <div x-show="isOpen" class="absolute z-10 mt-1 w-full bg-slate-900 border border-slate-700 rounded-md shadow-lg max-h-60 overflow-auto" style="display:none;">
+                                        <template x-for="opt in options" :key="opt.id">
+                                            <div class="px-3 py-2 text-slate-200 hover:bg-slate-800 cursor-pointer" @click="choose(opt)">
+                                                <span x-text="opt.hostname ? (opt.hostname + ' (ID ' + opt.id + ')') : ('Agent #' + opt.id)"></span>
+                                            </div>
+                                        </template>
+                                        <div class="px-3 py-2 text-slate-500 text-xs" x-show="!loading && options.length===0">No active agents found.</div>
+                                    </div>
+                                </div>
+                                <p class="text-xs text-slate-500 mt-1">Select your registered local agent.</p>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-slate-200 mb-2">Destination</label>
+                                <div class="flex gap-2">
+                                    <button type="button" class="px-4 py-2 rounded-lg border border-slate-700 bg-slate-800 text-slate-100 opacity-100" disabled>S3 (only)</button>
+                                    <button type="button" class="px-4 py-2 rounded-lg border border-slate-700 bg-slate-800 text-slate-500 cursor-not-allowed" disabled>Local (disabled)</button>
+                                </div>
+                            </div>
+                            <div id="localWizardS3Fields">
+                                <label class="block text-sm font-medium text-slate-200 mb-2">Bucket</label>
+                                <div
+                                    x-data="{
+                                        isOpen: false,
+                                        search: '',
+                                        selectedId: '',
+                                        selectedName: '',
+                                        options: [
+                                            {foreach from=$buckets item=bucket name=bloopWizard}
+                                                { id: '{$bucket->id}', name: '{$bucket->name|escape:'javascript'}' }{if !$smarty.foreach.bloopWizard.last},{/if}
+                                            {/foreach}
+                                        ],
+                                        get filtered() {
+                                            const q = (this.search || '').toLowerCase();
+                                            if (!q) return this.options;
+                                            return this.options.filter(o => (o.name || '').toLowerCase().includes(q));
+                                        },
+                                        choose(opt) {
+                                            if (!opt) return;
+                                            this.selectedId = String(opt.id || '');
+                                            this.selectedName = opt.name || '';
+                                            const hid = document.getElementById('localWizardBucketId');
+                                            if (hid) hid.value = this.selectedId;
+                                            this.isOpen = false;
+                                        }
+                                    }"
+                                    @click.away="isOpen=false"
+                                >
+                                    <input type="hidden" id="localWizardBucketId">
+                                    <div class="relative">
+                                        <button type="button"
+                                                @click="isOpen = !isOpen"
+                                                class="relative w-full px-3 py-2 text-left text-slate-300 bg-slate-900 border border-gray-600 rounded-md shadow-sm cursor-default focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500">
+                                            <span class="block truncate" x-text="selectedName || 'Select a bucket'"></span>
+                                            <span class="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
+                                                <svg class="w-5 h-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                                    <path fill-rule="evenodd" d="M10 3a1 1 0 01.707.293l3 3a1 1 0 01-1.414 1.414L10 5.414 7.707 7.707a1 1 0 01-1.414-1.414l3-3A1 1 0 0110 3zm-3.707 9.293a1 1 0 011.414 0L10 14.586l2.293-2.293a1 1 0 011.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>
+                                                </svg>
+                                            </span>
+                                        </button>
+                                        <div x-show="isOpen" class="absolute z-10 mt-1 w-full bg-slate-900 border border-slate-600 rounded-md shadow-lg">
+                                            <div class="p-2">
+                                                <input type="text" x-model="search" placeholder="Search buckets..." class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-300 focus:outline-none focus:ring-sky-500 focus:border-sky-500">
+                                            </div>
+                                            <ul class="py-1 max-h-60 overflow-auto text-sm scrollbar_thin">
+                                                <template x-for="opt in filtered" :key="opt.id">
+                                                    <li @click="choose(opt)" class="px-4 py-2 text-gray-300 cursor-pointer select-none hover:bg-gray-700" x-text="opt.name"></li>
+                                                </template>
+                                                <template x-if="filtered.length === 0">
+                                                    <li class="px-4 py-2 text-gray-400">No buckets found.</li>
+                                                </template>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="mt-3">
+                                    <label class="block text-sm font-medium text-slate-200 mb-2">Prefix (optional)</label>
+                                    <input id="localWizardPrefix" type="text" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-slate-100" placeholder="backups/job123/">
+                                </div>
+                                <div class="mt-3">
+                                    <button type="button" class="px-3 py-2 rounded-md border border-slate-700 text-slate-200 hover:border-slate-500" onclick="openInlineBucketCreate()">
+                                        Create new bucket
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="localWizardLocalFields" class="hidden">
+                                <label class="block text-sm font-medium text-slate-200 mb-2">Local Destination Path</label>
+                                <input id="localWizardLocalPath" type="text" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-slate-100" placeholder="E.g. D:\Backups">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Step 2 -->
+                    <div class="wizard-step hidden" data-step="2">
+                        <label class="block text-sm font-medium text-slate-200 mb-2">Source selection</label>
+                        <input id="localWizardSource" type="text" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-slate-100" placeholder="C:\Data or /path">
+                        <div class="grid md:grid-cols-2 gap-4 mt-3">
+                            <div>
+                                <label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Include globs</label>
+                                <textarea id="localWizardInclude" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100" rows="3" placeholder="**"></textarea>
+                            </div>
+                            <div>
+                                <label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Exclude globs</label>
+                                <textarea id="localWizardExclude" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100" rows="3" placeholder="**/temp/**"></textarea>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Step 3 -->
+                    <div class="wizard-step hidden" data-step="3">
+                        <label class="block text-sm font-medium text-slate-200 mb-2">Schedule</label>
+                        <div class="grid md:grid-cols-2 gap-4">
+                            <select id="localWizardScheduleType" class="bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-slate-100">
+                                <option value="manual">Manual</option>
+                                <option value="daily">Daily</option>
+                                <option value="weekly">Weekly</option>
+                                <option value="cron">Cron</option>
+                            </select>
+                            <input id="localWizardTime" type="time" class="bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-slate-100" />
+                            <select id="localWizardWeekday" class="bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-slate-100">
+                                <option value="1">Monday</option>
+                                <option value="2">Tuesday</option>
+                                <option value="3">Wednesday</option>
+                                <option value="4">Thursday</option>
+                                <option value="5">Friday</option>
+                                <option value="6">Saturday</option>
+                                <option value="7">Sunday</option>
+                            </select>
+                            <input id="localWizardCron" type="text" class="bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-slate-100" placeholder="*/30 * * * *" />
+                        </div>
+                    </div>
+
+                    <!-- Step 4 -->
+                    <div class="wizard-step hidden" data-step="4">
+                        <div class="grid md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-slate-200 mb-2">Retention</label>
+                                <textarea id="localWizardRetention" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100" rows="4" placeholder="&#123;&quot;keep_last&quot;:30,&quot;keep_daily&quot;:7&#125;"></textarea>
+                                <p class="text-xs text-slate-500 mt-1">JSON or simple values; kept server-side.</p>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-slate-200 mb-2">Kopia Policy</label>
+                                <textarea id="localWizardPolicy" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100" rows="4" placeholder="&#123;&quot;compression&quot;:&quot;none&quot;,&quot;parallel_uploads&quot;:8&#125;"></textarea>
+                                <div class="grid grid-cols-3 gap-2 mt-2">
+                                    <div>
+                                        <label class="block text-xs text-slate-400 mb-1">Bandwidth (KB/s)</label>
+                                        <input id="localWizardBandwidth" type="number" value="0" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100" placeholder="0 = unlimited">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs text-slate-400 mb-1">Parallel uploads</label>
+                                        <input id="localWizardParallelism" type="number" value="8" min="1" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100" placeholder="8">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs text-slate-400 mb-1">Compression</label>
+                                        <select id="localWizardCompression" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100">
+                                            <option value="none" selected>None</option>
+                                            <option value="zstd-default">zstd-default</option>
+                                            <option value="pgzip">pgzip</option>
+                                            <option value="s2">s2</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="mt-3">
+                                    <label class="inline-flex items-center gap-2">
+                                        <input id="localWizardDebugLogs" type="checkbox" class="rounded border-slate-600 bg-slate-800">
+                                        <span class="text-sm text-slate-200">Enable detailed Kopia debug logs</span>
+                                    </label>
+                                    <p class="text-xs text-slate-500 mt-1">Adds more step-level events to the live progress view for troubleshooting.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Step 5 -->
+                    <div class="wizard-step hidden" data-step="5">
+                        <div class="rounded-xl border border-slate-800 bg-slate-900 px-4 py-3 text-slate-100">
+                            <p class="text-sm font-semibold mb-2">Review</p>
+                            <pre id="localWizardReview" class="text-xs whitespace-pre-wrap leading-5 bg-slate-950 border border-slate-800 rounded-lg p-3 overflow-auto max-h-64"></pre>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex justify-between items-center mt-6">
+                    <button type="button" class="px-4 py-2 rounded-lg border border-slate-700 bg-slate-800 text-slate-100" onclick="localWizardPrev()">Back</button>
+                    <div class="flex gap-2">
+                        <button type="button" class="px-4 py-2 rounded-lg border border-slate-700 bg-slate-800 text-slate-100" onclick="closeLocalJobWizard()">Cancel</button>
+                            <button type="button" id="localWizardNextBtn" data-local-wizard-next class="px-4 py-2 rounded-lg bg-sky-600 text-white" onclick="localWizardNext()">Next</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
 {literal}
 function openCreateJobModal() {
@@ -2255,6 +2761,606 @@ function openCreateJobModal() {
     applyInitialSourceState();
 }
 
+// Local Agent Wizard (engine=sync/kopia) helpers
+window.localWizardState = {
+    step: 1,
+    totalSteps: 5,
+    data: {
+        engine: 'kopia',
+        dest_type: 's3',
+        bucket_auto_create: true,
+    },
+    editMode: false,
+    jobId: '',
+    loading: false,
+};
+
+function resetLocalWizardFields() {
+    window.localWizardState.data = {
+        engine: 'kopia',
+        dest_type: 's3',
+        bucket_auto_create: true,
+    };
+    // Reset inputs to defaults
+    const idsToClear = [
+        'localWizardName','localWizardAgentId','localWizardBucketId','localWizardPrefix',
+        'localWizardLocalPath','localWizardSource','localWizardInclude','localWizardExclude',
+        'localWizardTime','localWizardCron','localWizardRetention','localWizardPolicy'
+    ];
+    idsToClear.forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+    const week = document.getElementById('localWizardWeekday');
+    if (week) week.value = '1';
+    const sched = document.getElementById('localWizardScheduleType');
+    if (sched) sched.value = 'manual';
+    const bw = document.getElementById('localWizardBandwidth');
+    if (bw) bw.value = '0';
+    const par = document.getElementById('localWizardParallelism');
+    if (par) par.value = '8';
+    const comp = document.getElementById('localWizardCompression');
+    if (comp) comp.value = 'none';
+    const dbg = document.getElementById('localWizardDebugLogs');
+    if (dbg) dbg.checked = false;
+    // Reset button labels
+    const agentBtn = document.querySelector('#localWizardAgentId')?.parentElement?.querySelector('button span');
+    if (agentBtn) agentBtn.textContent = 'Select agent';
+    const bucketBtn = document.getElementById('localWizardBucketId')?.parentElement?.querySelector('button .block');
+    if (bucketBtn) bucketBtn.textContent = 'Select a bucket';
+    // Reset engine button styles
+    localWizardSet('engine', 'kopia');
+}
+
+function openLocalJobWizard(opts = {}) {
+    const modal = document.getElementById('localJobWizardModal');
+    if (!modal) return;
+    resetLocalWizardFields();
+    window.localWizardState.editMode = !!opts.editMode;
+    window.localWizardState.jobId = opts.jobId || '';
+    window.localWizardState.loading = !!opts.loading;
+    modal.classList.remove('hidden');
+    window.localWizardState.step = 1;
+    localWizardUpdateView();
+    if (opts.job) {
+        localWizardFillFromJob(opts.job, opts.source || {});
+    }
+}
+
+function closeLocalJobWizard() {
+    const modal = document.getElementById('localJobWizardModal');
+    if (modal) modal.classList.add('hidden');
+    window.localWizardState.editMode = false;
+    window.localWizardState.jobId = '';
+    window.localWizardState.loading = false;
+    resetLocalWizardFields();
+}
+
+function openLocalJobWizardForEdit(jobId) {
+    const modal = document.getElementById('localJobWizardModal');
+    if (!modal) {
+        // Fall back to existing slide-over if wizard markup missing
+        ensureEditPanel();
+        return openEditSlideover(jobId);
+    }
+    window.localWizardState.loading = true;
+    openLocalJobWizard({ editMode: true, jobId, loading: true });
+    fetch('modules/addons/cloudstorage/api/cloudbackup_get_job.php?job_id=' + encodeURIComponent(jobId))
+        .then((r) => r.json())
+        .then((data) => {
+            if (data.status !== 'success' || !data.job) {
+                toast?.error?.(data.message || 'Failed to load job');
+                closeLocalJobWizard();
+                return;
+            }
+            const j = data.job;
+            const s = data.source || {};
+            if ((j.source_type || '').toLowerCase() !== 'local_agent') {
+                // Not a local agent job; route to slide-over
+                closeLocalJobWizard();
+                ensureEditPanel();
+                openEditSlideover(jobId);
+                return;
+            }
+            localWizardFillFromJob(j, s);
+        })
+        .catch((err) => {
+            toast?.error?.('Failed to load job: ' + err);
+            closeLocalJobWizard();
+        })
+        .finally(() => {
+            window.localWizardState.loading = false;
+            localWizardUpdateView();
+        });
+}
+
+function localWizardSetAgentSelection(agentId, agentLabel) {
+    const hid = document.getElementById('localWizardAgentId');
+    if (hid) hid.value = agentId || '';
+    // Button text fallback
+    const btnLabel = hid?.parentElement?.querySelector('button span');
+    if (btnLabel && agentLabel) {
+        btnLabel.textContent = agentLabel;
+    }
+    // Sync Alpine component state if present
+    const root = hid?.closest('[x-data]');
+    if (root && root.__x && root.__x.$data) {
+        try {
+            root.__x.$data.selectedId = agentId || '';
+            root.__x.$data.selectedName = agentLabel || '';
+            // If options arrive later, keep the label by reapplying once after a short delay
+            setTimeout(() => {
+                if (root.__x && root.__x.$data) {
+                    root.__x.$data.selectedId = agentId || '';
+                    root.__x.$data.selectedName = agentLabel || '';
+                }
+            }, 150);
+        } catch (e) {}
+    }
+}
+
+function localWizardFillFromJob(j, s) {
+    const source = s || {};
+    const job = j || {};
+    localWizardSet('engine', job.backup_mode === 'sync' ? 'sync' : 'kopia');
+    const nameEl = document.getElementById('localWizardName');
+    if (nameEl) nameEl.value = job.name || '';
+
+    const agentLabel = job.agent_hostname
+        ? `${job.agent_hostname} (ID ${job.agent_id || ''})`
+        : (job.agent_id ? `Agent #${job.agent_id}` : 'Select agent');
+    localWizardSetAgentSelection(job.agent_id || '', agentLabel);
+
+    const bucketHidden = document.getElementById('localWizardBucketId');
+    if (bucketHidden) {
+        bucketHidden.value = job.dest_bucket_id || '';
+        const bucketBtnLabel = bucketHidden.parentElement?.querySelector('button .block');
+        if (bucketBtnLabel) {
+            const name = job.dest_bucket_name || (job.dest_bucket_id ? `Bucket #${job.dest_bucket_id}` : 'Select a bucket');
+            bucketBtnLabel.textContent = name;
+        }
+    }
+    const prefixEl = document.getElementById('localWizardPrefix');
+    if (prefixEl) prefixEl.value = job.dest_prefix || '';
+    const localPathEl = document.getElementById('localWizardLocalPath');
+    if (localPathEl) localPathEl.value = job.dest_local_path || '';
+    const srcEl = document.getElementById('localWizardSource');
+    if (srcEl) srcEl.value = job.source_path || '';
+    const incEl = document.getElementById('localWizardInclude');
+    if (incEl) incEl.value = source.include_glob || job.local_include_glob || '';
+    const excEl = document.getElementById('localWizardExclude');
+    if (excEl) excEl.value = source.exclude_glob || job.local_exclude_glob || '';
+    const bwEl = document.getElementById('localWizardBandwidth');
+    if (bwEl) bwEl.value = source.bandwidth_limit_kbps || job.local_bandwidth_limit_kbps || job.bandwidth_limit_kbps || '0';
+    const policyObj = job.policy_json ? (safeParseJSON(job.policy_json) || {}) : {};
+    const parEl = document.getElementById('localWizardParallelism');
+    if (parEl) parEl.value = job.parallelism || policyObj.parallel_uploads || '8';
+    const compEl = document.getElementById('localWizardCompression');
+    if (compEl) compEl.value = policyObj.compression || 'none';
+    const dbgEl = document.getElementById('localWizardDebugLogs');
+    if (dbgEl) dbgEl.checked = !!policyObj.debug_logs;
+
+    // Schedule
+    const schedType = document.getElementById('localWizardScheduleType');
+    if (schedType) schedType.value = job.schedule_type || (job.schedule_json?.type) || 'manual';
+    const schedTime = document.getElementById('localWizardTime');
+    if (schedTime) schedTime.value = job.schedule_time || (job.schedule_json?.time) || '';
+    const schedWeek = document.getElementById('localWizardWeekday');
+    if (schedWeek) schedWeek.value = job.schedule_weekday || (job.schedule_json?.weekday) || '1';
+    const schedCron = document.getElementById('localWizardCron');
+    if (schedCron) schedCron.value = job.schedule_cron || (job.schedule_json?.cron) || '';
+
+    // Retention & policy textareas
+    const retTxt = document.getElementById('localWizardRetention');
+    if (retTxt) {
+        const rj = job.retention_json || '';
+        retTxt.value = typeof rj === 'string' ? rj : JSON.stringify(rj || {}, null, 2);
+    }
+    const polTxt = document.getElementById('localWizardPolicy');
+    if (polTxt) {
+        const pj = job.policy_json || '';
+        polTxt.value = typeof pj === 'string' ? pj : JSON.stringify(pj || {}, null, 2);
+    }
+
+    localWizardBuildReview();
+}
+
+function localWizardSet(key, val) {
+    window.localWizardState.data[key] = val;
+    if (key === 'engine') {
+        const buttons = document.querySelectorAll('[data-engine-btn]');
+        buttons.forEach((btn) => {
+            const e = btn.getAttribute('data-engine-btn');
+            if (e === val) {
+                btn.classList.add('ring-2','ring-sky-500','bg-slate-700');
+            } else {
+                btn.classList.remove('ring-2','ring-sky-500','bg-slate-700');
+            }
+        });
+    }
+}
+
+function localWizardNext() {
+    const state = window.localWizardState;
+    if (state.loading) return;
+    if (state.step < state.totalSteps) {
+        state.step += 1;
+        if (state.step === state.totalSteps) {
+            localWizardBuildReview();
+        }
+        localWizardUpdateView();
+        return;
+    }
+    localWizardSubmit();
+}
+
+function localWizardPrev() {
+    const state = window.localWizardState;
+    if (state.step > 1) {
+        state.step -= 1;
+        localWizardUpdateView();
+    }
+}
+
+function localWizardUpdateView() {
+    const state = window.localWizardState;
+    const steps = document.querySelectorAll('#localJobWizardModal .wizard-step');
+    steps.forEach((el) => {
+        const target = parseInt(el.getAttribute('data-step'), 10);
+        if (target === state.step) {
+            el.classList.remove('hidden');
+        } else {
+            el.classList.add('hidden');
+        }
+    });
+    const label = document.getElementById('localWizardStepLabel');
+    const title = document.getElementById('localWizardStepTitle');
+    if (label) label.textContent = `Step ${state.step} of ${state.totalSteps}`;
+    if (title) {
+        const titles = {
+            1: 'Mode & Agent',
+            2: 'Source Selection',
+            3: 'Schedule',
+            4: 'Retention & Policy',
+            5: 'Review',
+        };
+        title.textContent = titles[state.step] || 'Wizard';
+    }
+    const nextBtn = document.getElementById('localWizardNextBtn');
+    if (nextBtn) {
+        if (state.loading) {
+            nextBtn.textContent = 'Loading…';
+            nextBtn.disabled = true;
+            nextBtn.classList.add('opacity-60', 'cursor-not-allowed');
+        } else {
+            nextBtn.disabled = false;
+            nextBtn.classList.remove('opacity-60', 'cursor-not-allowed');
+            const finalLabel = state.editMode ? 'Save changes' : 'Create job';
+            nextBtn.textContent = (state.step === state.totalSteps) ? finalLabel : 'Next';
+        }
+    }
+}
+
+function localWizardBuildReview() {
+    const s = window.localWizardState.data;
+    s.agent_id = document.getElementById('localWizardAgentId')?.value || '';
+    s.name = document.getElementById('localWizardName')?.value || '';
+    s.dest_prefix = document.getElementById('localWizardPrefix')?.value || '';
+    s.dest_local_path = document.getElementById('localWizardLocalPath')?.value || '';
+    s.dest_bucket_id = document.getElementById('localWizardBucketId')?.value || '';
+    s.source_path = document.getElementById('localWizardSource')?.value || '';
+    s.include = document.getElementById('localWizardInclude')?.value || '';
+    s.exclude = document.getElementById('localWizardExclude')?.value || '';
+    s.schedule_type = document.getElementById('localWizardScheduleType')?.value || 'manual';
+    s.schedule_time = document.getElementById('localWizardTime')?.value || '';
+    s.schedule_weekday = document.getElementById('localWizardWeekday')?.value || '';
+    s.schedule_cron = document.getElementById('localWizardCron')?.value || '';
+    s.schedule_json = {
+        type: s.schedule_type,
+        time: s.schedule_time,
+        weekday: s.schedule_weekday,
+        cron: s.schedule_cron,
+    };
+    const retentionTxt = document.getElementById('localWizardRetention')?.value || '';
+    const policyTxt = document.getElementById('localWizardPolicy')?.value || '';
+    const parsedPol = policyTxt ? safeParseJSON(policyTxt) : null;
+    let policyObj = (parsedPol && typeof parsedPol === 'object') ? parsedPol : {};
+    const bwVal = document.getElementById('localWizardBandwidth')?.value || '';
+    const parVal = document.getElementById('localWizardParallelism')?.value || '';
+    const compVal = document.getElementById('localWizardCompression')?.value || 'none';
+    const dbgVal = !!document.getElementById('localWizardDebugLogs')?.checked;
+    s.retention_json = retentionTxt ? safeParseJSON(retentionTxt) || retentionTxt : '';
+    s.bandwidth_limit_kbps = bwVal;
+    s.parallelism = parVal;
+    if (compVal) {
+        policyObj.compression = compVal;
+    }
+    if (parVal) {
+        const pi = parseInt(parVal, 10);
+        if (!isNaN(pi) && pi > 0) {
+            policyObj.parallel_uploads = pi;
+        }
+    }
+    if (dbgVal) {
+        policyObj.debug_logs = true;
+    }
+    s.policy_json = policyObj;
+
+    const review = document.getElementById('localWizardReview');
+    if (review) {
+        review.textContent = JSON.stringify(s, null, 2);
+    }
+}
+
+function safeParseJSON(txt) {
+    try {
+        return JSON.parse(txt);
+    } catch (e) {
+        return null;
+    }
+}
+
+function localWizardSubmit() {
+    const s = window.localWizardState.data;
+    const isEdit = !!window.localWizardState.editMode;
+    if (!s.name) {
+        return toast?.error?.('Job name is required');
+    }
+    if (!s.agent_id) {
+        return toast?.error?.('Agent ID is required');
+    }
+    if (!s.dest_bucket_id) {
+        return toast?.error?.('Bucket ID is required');
+    }
+    const payload = {
+        name: s.name,
+        source_type: 'local_agent',
+        source_display_name: 'Local Agent',
+        source_path: s.source_path || '',
+        dest_bucket_id: s.dest_bucket_id,
+        dest_prefix: s.dest_prefix || '',
+        backup_mode: s.engine === 'sync' ? 'sync' : 'archive',
+        engine: s.engine || 'kopia',
+        agent_id: s.agent_id,
+        dest_type: 's3',
+        // JSON fields must be stringified
+        schedule_json: s.schedule_json && typeof s.schedule_json === 'object' ? JSON.stringify(s.schedule_json) : '',
+        retention_json: (s.retention_json && typeof s.retention_json === 'object') ? JSON.stringify(s.retention_json) : (typeof s.retention_json === 'string' ? s.retention_json : ''),
+        policy_json: (s.policy_json && typeof s.policy_json === 'object') ? JSON.stringify(s.policy_json) : (typeof s.policy_json === 'string' ? s.policy_json : ''),
+        bandwidth_limit_kbps: s.bandwidth_limit_kbps || '',
+        parallelism: s.parallelism || '',
+        encryption_mode: s.encryption_mode || 'repokey',
+        compression: s.compression || '',
+        // legacy retention fields kept for compatibility
+        retention_mode: 'none',
+        retention_value: '',
+        schedule_type: s.schedule_type || 'manual',
+        schedule_time: s.schedule_time || '',
+        schedule_weekday: s.schedule_weekday || '',
+        schedule_cron: s.schedule_cron || '',
+        // include/exclude hints for local agent; server currently stores local_* fields
+        local_include_glob: s.include || '',
+        local_exclude_glob: s.exclude || '',
+    };
+    if (isEdit) {
+        payload.job_id = window.localWizardState.jobId;
+    }
+
+    const opts = {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams(payload),
+    };
+    const endpoint = isEdit
+        ? 'modules/addons/cloudstorage/api/cloudbackup_update_job.php'
+        : 'modules/addons/cloudstorage/api/cloudbackup_create_job.php';
+    if (isEdit && !payload.job_id) {
+        return toast?.error?.('Missing job ID for update');
+    }
+    fetch(endpoint, opts)
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'success') {
+                toast?.success?.(isEdit ? 'Local agent job updated' : 'Local agent job created');
+                closeLocalJobWizard();
+                setTimeout(() => location.reload(), 800);
+            } else {
+                toast?.error?.(data.message || (isEdit ? 'Failed to update job' : 'Failed to create job'));
+            }
+        })
+        .catch(err => toast?.error?.('Error ' + (isEdit ? 'updating' : 'creating') + ' job: ' + err));
+}
+
+// Open inline bucket create (reuse existing create panel helper)
+function openInlineBucketCreate() {
+    const toggle = document.querySelector('#inlineCreateBucketMsg');
+    if (toggle) {
+        toggle.classList.remove('hidden');
+    }
+    const btn = document.querySelector('[onclick=\"createBucketInline().finally(() => creating=false)\"]');
+    if (btn) {
+        btn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+}
+
+// Restore wizard state/helpers
+window.restoreState = { jobId: null, step: 1, totalSteps: 3, runs: [], selectedRunId: '', targetPath: '', mount: false };
+
+function openRestoreModal(jobId) {
+    window.restoreState.jobId = jobId;
+    window.restoreState.step = 1;
+    window.restoreState.selectedRunId = '';
+    window.restoreState.targetPath = '';
+    window.restoreState.mount = false;
+    const modal = document.getElementById('restoreWizardModal');
+    if (modal) modal.classList.remove('hidden');
+    loadRestoreRuns(jobId);
+    updateRestoreView();
+}
+
+function closeRestoreModal() {
+    const modal = document.getElementById('restoreWizardModal');
+    if (modal) modal.classList.add('hidden');
+}
+
+function loadRestoreRuns(jobId) {
+    const sel = document.getElementById('restoreRunSelect');
+    if (sel) {
+        sel.innerHTML = '<option value=\"\">Loading runs…</option>';
+    }
+    fetch('modules/addons/cloudstorage/api/cloudbackup_list_runs.php?job_id=' + encodeURIComponent(jobId))
+        .then(r => r.json())
+        .then(data => {
+            if (data.status !== 'success') {
+                if (sel) sel.innerHTML = '<option value=\"\">Failed to load runs</option>';
+                return;
+            }
+            window.restoreState.runs = data.runs || [];
+            if (sel) {
+                sel.innerHTML = '';
+                if (!window.restoreState.runs.length) {
+                    sel.innerHTML = '<option value=\"\">No runs available</option>';
+                } else {
+                    window.restoreState.runs.forEach((run) => {
+                        const opt = document.createElement('option');
+                        opt.value = String(run.id);
+                        const ts = run.started_at ? (' @ ' + run.started_at) : '';
+                        opt.textContent = `Run #${run.id} (${run.status})${ts} ${run.log_ref ? ' – manifest ' + run.log_ref : ''}`;
+                        sel.appendChild(opt);
+                    });
+                }
+            }
+        })
+        .catch(() => {
+            if (sel) sel.innerHTML = '<option value=\"\">Failed to load runs</option>';
+        });
+}
+
+function restoreNext() {
+    const st = window.restoreState;
+    if (st.step === 1) {
+        const sel = document.getElementById('restoreRunSelect');
+        st.selectedRunId = sel ? sel.value : '';
+        if (!st.selectedRunId) {
+            return toast?.error?.('Select a run/snapshot to restore');
+        }
+    } else if (st.step === 2) {
+        const tp = document.getElementById('restoreTargetPath');
+        st.targetPath = tp ? (tp.value || '') : '';
+        st.mount = document.getElementById('restoreMount')?.checked || false;
+        if (!st.targetPath) {
+            return toast?.error?.('Target path is required');
+        }
+    }
+    if (st.step < st.totalSteps) {
+        st.step += 1;
+        if (st.step === st.totalSteps) {
+            buildRestoreReview();
+        }
+        updateRestoreView();
+    } else {
+        submitRestore();
+    }
+}
+
+function restorePrev() {
+    const st = window.restoreState;
+    if (st.step > 1) {
+        st.step -= 1;
+        updateRestoreView();
+    }
+}
+
+function updateRestoreView() {
+    const st = window.restoreState;
+    document.querySelectorAll('#restoreWizardModal .restore-step').forEach((el) => {
+        const s = parseInt(el.getAttribute('data-step'), 10);
+        if (s === st.step) el.classList.remove('hidden'); else el.classList.add('hidden');
+    });
+    const label = document.getElementById('restoreStepLabel');
+    const title = document.getElementById('restoreStepTitle');
+    if (label) label.textContent = `Step ${st.step} of ${st.totalSteps}`;
+    if (title) {
+        const titles = {1:'Select Snapshot',2:'Target',3:'Review'};
+        title.textContent = titles[st.step] || 'Restore';
+    }
+}
+
+function buildRestoreReview() {
+    const st = window.restoreState;
+    const run = (st.runs || []).find(r => String(r.run_uuid || r.id) === String(st.selectedRunId));
+    const review = {
+        run_uuid: st.selectedRunId,
+        manifest_id: run ? (run.log_ref || '') : '',
+        target_path: st.targetPath,
+        mount: st.mount,
+    };
+    const el = document.getElementById('restoreReview');
+    if (el) {
+        el.textContent = JSON.stringify(review, null, 2);
+    }
+}
+
+function submitRestore() {
+    const st = window.restoreState;
+    const run = (st.runs || []).find(r => String(r.run_uuid || r.id) === String(st.selectedRunId));
+    const manifest = run ? (run.log_ref || '') : '';
+    if (!manifest) {
+        return toast?.error?.('Selected run has no manifest (log_ref). Cannot restore.');
+    }
+    
+    // Use the new restore API that creates a trackable restore run
+    const payload = {
+        backup_run_id: st.selectedRunId,
+        target_path: st.targetPath,
+        mount: st.mount ? 'true' : 'false',
+    };
+    
+    // Show loading state
+    const submitBtn = document.querySelector('#restoreWizardModal button[onclick*="restoreNext"]');
+    const originalText = submitBtn ? submitBtn.textContent : 'Submit';
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Starting restore...';
+    }
+    
+    fetch('modules/addons/cloudstorage/api/cloudbackup_start_restore.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams(payload),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === 'success') {
+            toast?.success?.('Restore started! Redirecting to progress view...');
+            closeRestoreModal();
+            
+            // Redirect to live progress page for the restore run
+            // Use the backup run's job_id for the live view
+            const restoreRunParam = data.restore_run_uuid || data.restore_run_id;
+            if (restoreRunParam) {
+                setTimeout(() => {
+                    window.location.href = 'index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_live&job_id=' + 
+                        encodeURIComponent(data.job_id) + '&run_id=' + encodeURIComponent(restoreRunParam);
+                }, 1000);
+            }
+        } else {
+            toast?.error?.(data.message || 'Failed to start restore');
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.textContent = originalText;
+            }
+        }
+    })
+    .catch(err => {
+        toast?.error?.('Error starting restore: ' + err);
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = originalText;
+        }
+    });
+}
+
 function closeModal(modalId) {
     document.getElementById(modalId).classList.add('hidden');
 }
@@ -2269,6 +3375,7 @@ document.getElementById('sourceType').addEventListener('change', function() {
     const sftpFields = document.getElementById('sftpFields');
     const gdriveFields = document.getElementById('gdriveFields');
     const dropboxFields = document.getElementById('dropboxFields');
+    const localFields = document.getElementById('localAgentFields');
     // Helper to enable/disable inputs in a group
     function setGroupEnabled(groupEl, enabled) {
         if (!groupEl) return;
@@ -2290,6 +3397,7 @@ document.getElementById('sourceType').addEventListener('change', function() {
         setGroupEnabled(sftpFields, false);
         gdriveFields.classList.add('hidden'); setGroupEnabled(gdriveFields, false);
         dropboxFields.classList.add('hidden'); setGroupEnabled(dropboxFields, false);
+        if (localFields) { localFields.classList.add('hidden'); setGroupEnabled(localFields, false); }
     } else if (this.value === 'aws') {
         s3Fields.classList.add('hidden');
         setGroupEnabled(s3Fields, false);
@@ -2299,18 +3407,28 @@ document.getElementById('sourceType').addEventListener('change', function() {
         setGroupEnabled(sftpFields, false);
         gdriveFields.classList.add('hidden'); setGroupEnabled(gdriveFields, false);
         dropboxFields.classList.add('hidden'); setGroupEnabled(dropboxFields, false);
+        if (localFields) { localFields.classList.add('hidden'); setGroupEnabled(localFields, false); }
     } else if (this.value === 'google_drive') {
         s3Fields.classList.add('hidden'); setGroupEnabled(s3Fields, false);
         awsFields.classList.add('hidden'); setGroupEnabled(awsFields, false);
         sftpFields.classList.add('hidden'); setGroupEnabled(sftpFields, false);
         gdriveFields.classList.remove('hidden'); setGroupEnabled(gdriveFields, true);
         dropboxFields.classList.add('hidden'); setGroupEnabled(dropboxFields, false);
+        if (localFields) { localFields.classList.add('hidden'); setGroupEnabled(localFields, false); }
     } else if (this.value === 'dropbox') {
         s3Fields.classList.add('hidden'); setGroupEnabled(s3Fields, false);
         awsFields.classList.add('hidden'); setGroupEnabled(awsFields, false);
         sftpFields.classList.add('hidden'); setGroupEnabled(sftpFields, false);
         gdriveFields.classList.add('hidden'); setGroupEnabled(gdriveFields, false);
         dropboxFields.classList.remove('hidden'); setGroupEnabled(dropboxFields, true);
+        if (localFields) { localFields.classList.add('hidden'); setGroupEnabled(localFields, false); }
+    } else if (this.value === 'local_agent') {
+        if (localFields) { localFields.classList.remove('hidden'); setGroupEnabled(localFields, true); }
+        s3Fields.classList.add('hidden'); setGroupEnabled(s3Fields, false);
+        awsFields.classList.add('hidden'); setGroupEnabled(awsFields, false);
+        sftpFields.classList.add('hidden'); setGroupEnabled(sftpFields, false);
+        gdriveFields.classList.add('hidden'); setGroupEnabled(gdriveFields, false);
+        dropboxFields.classList.add('hidden'); setGroupEnabled(dropboxFields, false);
     } else {
         s3Fields.classList.add('hidden');
         setGroupEnabled(s3Fields, false);
@@ -2320,6 +3438,7 @@ document.getElementById('sourceType').addEventListener('change', function() {
         setGroupEnabled(sftpFields, true);
         gdriveFields.classList.add('hidden'); setGroupEnabled(gdriveFields, false);
         dropboxFields.classList.add('hidden'); setGroupEnabled(dropboxFields, false);
+        if (localFields) { localFields.classList.add('hidden'); setGroupEnabled(localFields, false); }
     }
     // Auto-populate hidden Source Display Name from selected source type (for S3-Compatible only)
     try {
@@ -2423,6 +3542,14 @@ function doCreateJobSubmit(formEl) {
         };
         sourceDisplayName = formData.get('sftp_display_name');
         sourcePath = formData.get('sftp_path');
+    } else if (sourceType === 'local_agent') {
+        sourceConfig = {
+            include_glob: formData.get('local_include_glob'),
+            exclude_glob: formData.get('local_exclude_glob'),
+            bandwidth_limit_kbps: formData.get('local_bandwidth_limit_kbps')
+        };
+        sourceDisplayName = 'Local Agent';
+        sourcePath = formData.get('local_source_path');
     } else if (sourceType === 'google_drive') {
 		sourceConfig = {
 			root_folder_id: formData.get('gdrive_root_folder_id')
@@ -2466,6 +3593,9 @@ function doCreateJobSubmit(formEl) {
         client_id: formData.get('client_id'),
         s3_user_id: formData.get('s3_user_id')
     };
+    if (sourceType === 'local_agent') {
+        jobData.agent_id = formData.get('agent_id') || '';
+    }
     // Include Google Drive connection id when applicable
     if (sourceType === 'google_drive') {
         const connId = formData.get('source_connection_id') || '';
@@ -2758,7 +3888,8 @@ function startRun(jobId) {
     .then(response => response.json())
     .then(data => {
         if (data.status === 'success') {
-            window.location.href = 'index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_live&run_id=' + data.run_id;
+            const runParam = data.run_uuid || data.run_id;
+            window.location.href = 'index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_live&run_id=' + runParam;
         } else {
             alert(data.message || 'Failed to start run');
         }
@@ -2805,7 +3936,12 @@ function deleteJob(jobId) {
     });
 }
 
-function editJob(jobId) {
+function editJob(jobId, sourceType) {
+    // If explicitly a local agent job, open the wizard for edit; otherwise use slide-over.
+    if (sourceType && sourceType.toLowerCase() === 'local_agent') {
+        openLocalJobWizardForEdit(jobId);
+        return;
+    }
     ensureEditPanel();
     openEditSlideover(jobId);
 }
@@ -2918,6 +4054,20 @@ function openEditSlideover(jobId) {
                 document.getElementById('edit_sftp_username').value = s.user || '';
                 const sftpPathEl = document.getElementById('edit_sftp_path');
                 if (sftpPathEl) { sftpPathEl.value = j.source_path || ''; }
+            } else if (sourceTypeValue === 'local_agent') {
+                const lp = document.getElementById('edit_local_source_path');
+                if (lp) lp.value = j.source_path || '';
+                const inc = document.getElementById('edit_local_include_glob');
+                if (inc) inc.value = s.include_glob || '';
+                const exc = document.getElementById('edit_local_exclude_glob');
+                if (exc) exc.value = s.exclude_glob || '';
+                const bw = document.getElementById('edit_local_bandwidth_limit_kbps');
+                if (bw) bw.value = s.bandwidth_limit_kbps || '';
+                const agentSel = document.getElementById('edit_agent_id');
+                if (agentSel) {
+                    agentSel.value = j.agent_id || '';
+                    try { agentSel.dispatchEvent(new Event('change')); } catch (e) {}
+                }
             } else if (sourceTypeValue === 'google_drive') {
                 const root = document.getElementById('edit_gdrive_root_folder_id');
                 if (root) root.value = (s.root_folder_id || '');
@@ -3046,12 +4196,14 @@ function onEditSourceTypeChange() {
     const sftp = document.getElementById('edit_sftp_fields');
     const gdr = document.getElementById('edit_gdrive_fields');
     const drp = document.getElementById('edit_dropbox_fields');
+    const lcl = document.getElementById('edit_local_fields');
     const setEnabled = (el, on) => { if (!el) return; el.querySelectorAll('input,select,textarea,button').forEach(e => on ? e.removeAttribute('disabled') : e.setAttribute('disabled','disabled')); };
-    if (t === 's3_compatible') { s3.classList.remove('hidden'); setEnabled(s3,true); aws.classList.add('hidden'); setEnabled(aws,false); sftp.classList.add('hidden'); setEnabled(sftp,false); gdr.classList.add('hidden'); setEnabled(gdr,false); drp.classList.add('hidden'); setEnabled(drp,false); }
-    else if (t === 'aws') { s3.classList.add('hidden'); setEnabled(s3,false); aws.classList.remove('hidden'); setEnabled(aws,true); sftp.classList.add('hidden'); setEnabled(sftp,false); gdr.classList.add('hidden'); setEnabled(gdr,false); drp.classList.add('hidden'); setEnabled(drp,false); }
-    else if (t === 'sftp') { s3.classList.add('hidden'); setEnabled(s3,false); aws.classList.add('hidden'); setEnabled(aws,false); sftp.classList.remove('hidden'); setEnabled(sftp,true); gdr.classList.add('hidden'); setEnabled(gdr,false); drp.classList.add('hidden'); setEnabled(drp,false); }
-    else if (t === 'google_drive') { s3.classList.add('hidden'); setEnabled(s3,false); aws.classList.add('hidden'); setEnabled(aws,false); sftp.classList.add('hidden'); setEnabled(sftp,false); gdr.classList.remove('hidden'); setEnabled(gdr,true); drp.classList.add('hidden'); setEnabled(drp,false); }
-    else if (t === 'dropbox') { s3.classList.add('hidden'); setEnabled(s3,false); aws.classList.add('hidden'); setEnabled(aws,false); sftp.classList.add('hidden'); setEnabled(sftp,false); gdr.classList.add('hidden'); setEnabled(gdr,false); drp.classList.remove('hidden'); setEnabled(drp,true); }
+    if (t === 's3_compatible') { s3.classList.remove('hidden'); setEnabled(s3,true); aws.classList.add('hidden'); setEnabled(aws,false); sftp.classList.add('hidden'); setEnabled(sftp,false); gdr.classList.add('hidden'); setEnabled(gdr,false); drp.classList.add('hidden'); setEnabled(drp,false); if (lcl) { lcl.classList.add('hidden'); setEnabled(lcl,false);} }
+    else if (t === 'aws') { s3.classList.add('hidden'); setEnabled(s3,false); aws.classList.remove('hidden'); setEnabled(aws,true); sftp.classList.add('hidden'); setEnabled(sftp,false); gdr.classList.add('hidden'); setEnabled(gdr,false); drp.classList.add('hidden'); setEnabled(drp,false); if (lcl) { lcl.classList.add('hidden'); setEnabled(lcl,false);} }
+    else if (t === 'sftp') { s3.classList.add('hidden'); setEnabled(s3,false); aws.classList.add('hidden'); setEnabled(aws,false); sftp.classList.remove('hidden'); setEnabled(sftp,true); gdr.classList.add('hidden'); setEnabled(gdr,false); drp.classList.add('hidden'); setEnabled(drp,false); if (lcl) { lcl.classList.add('hidden'); setEnabled(lcl,false);} }
+    else if (t === 'google_drive') { s3.classList.add('hidden'); setEnabled(s3,false); aws.classList.add('hidden'); setEnabled(aws,false); sftp.classList.add('hidden'); setEnabled(sftp,false); gdr.classList.remove('hidden'); setEnabled(gdr,true); drp.classList.add('hidden'); setEnabled(drp,false); if (lcl) { lcl.classList.add('hidden'); setEnabled(lcl,false);} }
+    else if (t === 'dropbox') { s3.classList.add('hidden'); setEnabled(s3,false); aws.classList.add('hidden'); setEnabled(aws,false); sftp.classList.add('hidden'); setEnabled(sftp,false); gdr.classList.add('hidden'); setEnabled(gdr,false); drp.classList.remove('hidden'); setEnabled(drp,true); if (lcl) { lcl.classList.add('hidden'); setEnabled(lcl,false);} }
+    else if (t === 'local_agent') { if (lcl) { lcl.classList.remove('hidden'); setEnabled(lcl,true); } s3.classList.add('hidden'); setEnabled(s3,false); aws.classList.add('hidden'); setEnabled(aws,false); sftp.classList.add('hidden'); setEnabled(sftp,false); gdr.classList.add('hidden'); setEnabled(gdr,false); drp.classList.add('hidden'); setEnabled(drp,false); }
 }
 
 function onEditScheduleChange() {
@@ -3185,6 +4337,17 @@ function saveEditedJob() {
         if (token) payload.set('dropbox_token', token);
         if (root) payload.set('dropbox_root', root);
         if (path) payload.set('source_path', path);
+    } else if (stype === 'local_agent') {
+        const lp = (document.getElementById('edit_local_source_path').value || '').trim();
+        const inc = (document.getElementById('edit_local_include_glob').value || '').trim();
+        const exc = (document.getElementById('edit_local_exclude_glob').value || '').trim();
+        const bw = (document.getElementById('edit_local_bandwidth_limit_kbps').value || '').trim();
+        const agentId = (document.getElementById('edit_agent_id').value || '').trim();
+        if (lp) payload.set('source_path', lp);
+        if (inc) payload.set('local_include_glob', inc);
+        if (exc) payload.set('local_exclude_glob', exc);
+        if (bw) payload.set('local_bandwidth_limit_kbps', bw);
+        if (agentId) payload.set('agent_id', agentId);
     }
 
     // destination
@@ -3280,7 +4443,7 @@ function updateJobRowInPlace(jobId, updatedJob) {
 document.addEventListener('alpine:init', () => {
 	try {
 		if (window.Alpine && !Alpine.store('jobFilters')) {
-			Alpine.store('jobFilters', { q: '', status: 'all' });
+			Alpine.store('jobFilters', { q: '', status: 'all', sourceType: 'all' });
 		}
 	} catch (e) {}
 });
@@ -3290,9 +4453,10 @@ function jobListFilter() {
 		init() { this.apply(); },
 		apply() {
 			try {
-				const store = (window.Alpine && Alpine.store('jobFilters')) ? Alpine.store('jobFilters') : { q:'', status:'all' };
+				const store = (window.Alpine && Alpine.store('jobFilters')) ? Alpine.store('jobFilters') : { q:'', status:'all', sourceType:'all' };
 				const q = (store.q || '').toLowerCase();
 				const status = (store.status || 'all').toLowerCase();
+                const sourceFilter = (store.sourceType || 'all').toLowerCase();
 				const now = Date.now();
 				const cards = this.$root.querySelectorAll('[data-job-card]');
 				cards.forEach((card) => {
@@ -3313,6 +4477,13 @@ function jobListFilter() {
 					// Text search across name, job status, last run status, source, source type, and destination
 					const hay = (name + ' ' + jobStatus + ' ' + lastStatus + ' ' + source + ' ' + sourceType + ' ' + dest).trim();
 					let ok = (!q || hay.indexOf(q) !== -1);
+					if (ok && sourceFilter !== 'all') {
+                        if (sourceFilter === 'cloud') {
+                            ok = (sourceType !== 'local_agent');
+                        } else {
+                            ok = (sourceType === sourceFilter);
+                        }
+                    }
 					if (ok && status !== 'all') {
 						if (status === 'failed_recent') {
 							ok = failedRecent;

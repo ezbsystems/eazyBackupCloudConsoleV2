@@ -121,7 +121,11 @@ func (d *Database) GetNextQueuedRuns(ctx context.Context, limit int) ([]Run, err
 		SELECT r.id, r.job_id
 		FROM s3_cloudbackup_runs r
 		INNER JOIN s3_cloudbackup_jobs j ON j.id = r.job_id
-		WHERE r.status = 'queued' AND j.status = 'active'
+		WHERE r.status = 'queued'
+		  AND j.status = 'active'
+		  AND (j.agent_id IS NULL OR j.agent_id = 0)
+		  AND (j.source_type IS NULL OR j.source_type <> 'local_agent')
+		  AND (j.engine IS NULL OR j.engine <> 'kopia')
 		ORDER BY r.id ASC
 		LIMIT ?`, limit)
 	if err != nil {

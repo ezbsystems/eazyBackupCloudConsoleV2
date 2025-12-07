@@ -483,21 +483,23 @@
                         },
                         type: 'POST',
                         error: function(xhr, error, thrown) {
+                            // Keep user-facing message brief; log details for debugging.
                             const currentUrl = showVersions ? versionsIndexUrl : normalUrl;
-                            let msg = 'Request failed: ' + currentUrl + ' (' + (xhr.status||'') + ')';
-                            try {
-                                const raw = xhr && xhr.responseText ? xhr.responseText.toString() : '';
-                                if (raw) {
-                                    // Try JSON first
-                                    try {
-                                        const j = JSON.parse(raw);
-                                        if (j && j.message) msg = j.message;
-                                    } catch(e) {
-                                        msg = msg + '\n' + raw.substring(0, 300);
-                                    }
-                                }
-                            } catch(e) {}
+                            console.error('Bucket browse request failed', {
+                                url: currentUrl,
+                                status: xhr ? xhr.status : null,
+                                error,
+                                thrown,
+                                body: (xhr && xhr.responseText ? xhr.responseText.substring(0, 500) : '')
+                            });
+                            let msg = 'Unable to load objects right now. Please retry in a moment.';
+                            if (xhr && (xhr.status === 502 || xhr.status === 504 || xhr.status === 524)) {
+                                msg = 'Bucket listing timed out. Please refresh to try again.';
+                            } else if (xhr && xhr.status === 0) {
+                                msg = 'Network issue while loading objects. Please retry.';
+                            }
                             showMessage(msg, 'alertMessage', 'fail');
+                            hideLoader();
                         },
                         dataSrc: function(response) {
                             if (response.status === 'fail') {

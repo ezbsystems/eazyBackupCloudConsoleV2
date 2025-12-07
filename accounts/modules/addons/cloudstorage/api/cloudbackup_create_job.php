@@ -82,8 +82,24 @@ if (empty($encryptionKey)) {
     exit();
 }
 
-// Map per-source path inputs to a common source_path (path is optional across sources)
+// Normalize/force local_agent when agent_id is provided (defensive server-side guard)
 $sourceTypeForPath = $_POST['source_type'] ?? '';
+$engineForJob = $_POST['engine'] ?? '';
+$agentIdPosted = isset($_POST['agent_id']) ? (int)$_POST['agent_id'] : 0;
+if ($agentIdPosted > 0) {
+    // If source_type missing/blank or a legacy value, force to local_agent
+    if ($sourceTypeForPath === '' || $sourceTypeForPath === 'local') {
+        $sourceTypeForPath = 'local_agent';
+        $_POST['source_type'] = 'local_agent';
+    }
+    // Kopia engine currently only supported for local agent; enforce to avoid worker pickup
+    if ($engineForJob === 'kopia' && $sourceTypeForPath !== 'local_agent') {
+        $sourceTypeForPath = 'local_agent';
+        $_POST['source_type'] = 'local_agent';
+    }
+}
+
+// Map per-source path inputs to a common source_path (path is optional across sources)
 if (!isset($_POST['source_path']) || $_POST['source_path'] === '') {
     $mapped = '';
     if ($sourceTypeForPath === 'aws') {
@@ -92,17 +108,41 @@ if (!isset($_POST['source_path']) || $_POST['source_path'] === '') {
         $mapped = $_POST['s3_path'] ?? '';
     } elseif ($sourceTypeForPath === 'sftp') {
         $mapped = $_POST['sftp_path'] ?? '';
-    } elseif ($sourceTypeForPath === 'google_drive') {
-        $mapped = $_POST['gdrive_path'] ?? '';
-    } elseif ($sourceTypeForPath === 'dropbox') {
-        $mapped = $_POST['dropbox_path'] ?? '';
-    }
+} elseif ($sourceTypeForPath === 'google_drive') {
+    $mapped = $_POST['gdrive_path'] ?? '';
+} elseif ($sourceTypeForPath === 'dropbox') {
+    $mapped = $_POST['dropbox_path'] ?? '';
+} elseif ($sourceTypeForPath === 'local_agent') {
+    $mapped = $_POST['local_source_path'] ?? '';
+}
     $_POST['source_path'] = $mapped;
 }
 
+// Validate agent assignment for local_agent jobs
+$agentIdForJob = null;
+$hasAgentIdJobs = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'agent_id');
+if (($sourceTypeForPath ?? '') === 'local_agent' && $hasAgentIdJobs) {
+    $agentIdForJob = isset($_POST['agent_id']) ? (int)$_POST['agent_id'] : 0;
+    if ($agentIdForJob <= 0) {
+        $response = new JsonResponse(['status' => 'fail', 'message' => 'Agent is required for Local Agent jobs.'], 200);
+        $response->send();
+        exit();
+    }
+    $agentRow = Capsule::table('s3_cloudbackup_agents')
+        ->where('id', $agentIdForJob)
+        ->where('client_id', $loggedInUserId)
+        ->where('status', 'active')
+        ->first();
+    if (!$agentRow) {
+        $response = new JsonResponse(['status' => 'fail', 'message' => 'Selected agent not found or inactive.'], 200);
+        $response->send();
+        exit();
+    }
+}
+
 // Validate POST data (defer source_config validation to reconstruction step below)
-// Note: source_path is optional (root if empty)
-$requiredFields = ['name', 'source_type', 'source_display_name', 'dest_bucket_id', 'dest_prefix'];
+// Note: source_path is optional (root if empty), dest_prefix optional
+$requiredFields = ['name', 'source_type', 'source_display_name', 'dest_bucket_id'];
 foreach ($requiredFields as $field) {
     if (!isset($_POST[$field]) || empty($_POST[$field])) {
         $jsonData = [
@@ -113,6 +153,28 @@ foreach ($requiredFields as $field) {
         $response->send();
         exit();
     }
+}
+
+// Kopia engine is only supported with Local Agent and requires an agent_id
+if (($engineForJob ?? '') === 'kopia') {
+    if (($sourceTypeForPath ?? '') !== 'local_agent') {
+        // Force the source_type to local_agent when engine=kopia
+        $sourceTypeForPath = 'local_agent';
+        $_POST['source_type'] = 'local_agent';
+    }
+    if ($agentIdPosted <= 0) {
+        $response = new JsonResponse(['status' => 'fail', 'message' => 'Local Agent (Kopia) jobs require an Agent. Please select an agent.'], 200);
+        $response->send();
+        exit();
+    }
+}
+
+// Enforce S3-only destinations for now
+$destType = $_POST['dest_type'] ?? 's3';
+if ($destType !== 's3') {
+    $response = new JsonResponse(['status' => 'fail', 'message' => 'Only S3 destinations are supported at this time.'], 200);
+    $response->send();
+    exit();
 }
 
 // Reconstruct source_config if not provided or failed to decode
@@ -214,6 +276,17 @@ if (!$sourceConfig) {
         ];
         // Attach connection id for persistence
         $_POST['__resolved_source_connection_id'] = $sourceConnectionId;
+    } elseif ($sourceType === 'local_agent') {
+        $path = $_POST['local_source_path'] ?? $_POST['source_path'] ?? '';
+        $inc = $_POST['local_include_glob'] ?? null;
+        $exc = $_POST['local_exclude_glob'] ?? null;
+        $bw  = $_POST['local_bandwidth_limit_kbps'] ?? null;
+        $sourceConfig = [
+            'include_glob' => $inc,
+            'exclude_glob' => $exc,
+            'bandwidth_limit_kbps' => $bw,
+        ];
+        $_POST['source_path'] = $path;
     }
 }
 
@@ -265,6 +338,39 @@ if (!$bucket) {
     exit();
 }
 
+// Normalize JSON-ish fields that may arrive HTML-entity encoded
+$normalizeJsonField = function ($val) {
+    if ($val === null) {
+        return null;
+    }
+    if (is_array($val)) {
+        return json_encode($val);
+    }
+    $raw = (string) $val;
+    if ($raw === '') {
+        return null;
+    }
+    // decode common encodings
+    $candidates = [
+        $raw,
+        html_entity_decode($raw, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+        trim($raw, "'\""),
+    ];
+    foreach ($candidates as $cand) {
+        $decoded = json_decode($cand, true);
+        if (json_last_error() === JSON_ERROR_NONE) {
+            return json_encode($decoded);
+        }
+    }
+    // fallback: store as null to avoid invalid JSON insert
+    logModuleCall('cloudstorage', 'create_job_json_normalize_failed', ['input' => $raw], json_last_error_msg(), null);
+    return null;
+};
+
+$scheduleJsonNorm = $normalizeJsonField($_POST['schedule_json'] ?? null);
+$retentionJsonNorm = $normalizeJsonField($_POST['retention_json'] ?? null);
+$policyJsonNorm = $normalizeJsonField($_POST['policy_json'] ?? null);
+
 // Prepare job data
 $jobData = [
     'client_id' => $loggedInUserId,
@@ -277,6 +383,11 @@ $jobData = [
     'dest_bucket_id' => $_POST['dest_bucket_id'],
     'dest_prefix' => $_POST['dest_prefix'],
     'backup_mode' => $_POST['backup_mode'] ?? 'sync',
+    'engine' => $_POST['engine'] ?? 'sync',
+    'dest_type' => 's3', // enforce S3-only until schema supports local
+    'dest_local_path' => $_POST['dest_local_path'] ?? null,
+    'bucket_auto_create' => isset($_POST['bucket_auto_create']) ? 1 : 0,
+    'schedule_json' => $scheduleJsonNorm,
     'encryption_enabled' => isset($_POST['encryption_enabled']) ? (int)$_POST['encryption_enabled'] : 0,
     'validation_mode' => $_POST['validation_mode'] ?? 'none',
     'schedule_type' => $_POST['schedule_type'] ?? 'manual',
@@ -285,22 +396,35 @@ $jobData = [
     'timezone' => $_POST['timezone'] ?? null,
     'retention_mode' => $_POST['retention_mode'] ?? 'none',
     'retention_value' => isset($_POST['retention_value']) ? (int)$_POST['retention_value'] : null,
+    'retention_json' => $retentionJsonNorm,
+    'policy_json' => $policyJsonNorm,
+    'bandwidth_limit_kbps' => isset($_POST['bandwidth_limit_kbps']) ? (int)$_POST['bandwidth_limit_kbps'] : null,
+    'parallelism' => isset($_POST['parallelism']) ? (int)$_POST['parallelism'] : null,
+    'encryption_mode' => $_POST['encryption_mode'] ?? null,
+    'compression' => $_POST['compression'] ?? null,
     'notify_override_email' => $_POST['notify_override_email'] ?? null,
     'notify_on_success' => isset($_POST['notify_on_success']) ? 1 : 0,
     'notify_on_warning' => isset($_POST['notify_on_warning']) ? 1 : 0,
     'notify_on_failure' => isset($_POST['notify_on_failure']) ? 1 : 0,
 ];
+if (($st ?? '') === 'local_agent') {
+    if ($hasAgentIdJobs) {
+        $jobData['agent_id'] = $agentIdForJob;
+    }
+}
 if (($_POST['source_type'] ?? '') === 'google_drive') {
     $jobData['source_connection_id'] = (int) ($_POST['__resolved_source_connection_id'] ?? ($_POST['source_connection_id'] ?? 0));
 }
 
-// Validate destination prefix required
+// Normalize destination prefix (optional). Ensure trailing slash when non-empty.
 $destPrefix = isset($_POST['dest_prefix']) ? trim((string)$_POST['dest_prefix']) : '';
-if ($destPrefix === '') {
-    $response = new JsonResponse(['status' => 'fail', 'message' => 'Destination Prefix is required.'], 200);
-    $response->send();
-    exit();
+if ($destPrefix !== '') {
+    $destPrefix = ltrim($destPrefix, '/');
+    if ($destPrefix !== '' && substr($destPrefix, -1) !== '/') {
+        $destPrefix .= '/';
+    }
 }
+$_POST['dest_prefix'] = $destPrefix;
 
 // Enforce versioning on the selected destination bucket
 $ver = CloudBackupController::ensureVersioningForBucketId((int)$_POST['dest_bucket_id']);
@@ -311,7 +435,29 @@ if (!is_array($ver) || ($ver['status'] ?? 'fail') !== 'success') {
     exit();
 }
 
-$result = CloudBackupController::createJob($jobData, $encryptionKey);
+$debugPayload = [
+    'client_id' => $loggedInUserId,
+    'engine' => $jobData['engine'] ?? null,
+    'source_type' => $jobData['source_type'] ?? null,
+    'agent_id' => $jobData['agent_id'] ?? null,
+    'dest_bucket_id' => $jobData['dest_bucket_id'] ?? null,
+    'dest_prefix' => $jobData['dest_prefix'] ?? null,
+    'schedule_json' => $jobData['schedule_json'] ?? null,
+    'retention_json' => $jobData['retention_json'] ?? null,
+    'policy_json' => $jobData['policy_json'] ?? null,
+];
+logModuleCall('cloudstorage', 'create_job_debug', $debugPayload, null, null);
+
+try {
+    $result = CloudBackupController::createJob($jobData, $encryptionKey);
+} catch (\Throwable $e) {
+    logModuleCall('cloudstorage', 'create_job_exception', $jobData, $e->getMessage(), $e->getTraceAsString());
+    $result = ['status' => 'fail', 'message' => 'Create job exception. Please contact support.'];
+}
+
+if (!is_array($result) || ($result['status'] ?? 'fail') !== 'success') {
+    logModuleCall('cloudstorage', 'create_job_failed', $jobData, $result, null);
+}
 
 // Align bucket lifecycle with retention and enforce versioning when keep_days
 if (is_array($result) && ($result['status'] ?? 'fail') === 'success' && isset($result['job_id'])) {

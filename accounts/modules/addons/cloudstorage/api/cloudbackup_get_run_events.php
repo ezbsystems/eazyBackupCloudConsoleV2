@@ -20,24 +20,25 @@ if (!$ca->isLoggedIn()) {
 }
 
 $userId = $ca->getUserID();
-$runId = isset($_GET['run_id']) ? (int) $_GET['run_id'] : 0;
+$runIdentifier = $_GET['run_uuid'] ?? ($_GET['run_id'] ?? null);
 $sinceId = isset($_GET['since_id']) ? (int) $_GET['since_id'] : 0;
 $limit = isset($_GET['limit']) ? (int) $_GET['limit'] : 250;
 if ($limit <= 0 || $limit > 1000) {
     $limit = 250;
 }
 
-if ($runId <= 0) {
+if (empty($runIdentifier)) {
     (new JsonResponse(['status' => 'fail', 'message' => 'Run ID is required.'], 200))->send();
     exit;
 }
 
 // Ownership check
-$run = CloudBackupController::getRun($runId, $userId);
+$run = CloudBackupController::getRun($runIdentifier, $userId);
 if (!$run) {
     (new JsonResponse(['status' => 'fail', 'message' => 'Run not found or access denied.'], 200))->send();
     exit;
 }
+$runId = (int) ($run['id'] ?? 0);
 
 // Fetch events
 $query = Capsule::table('s3_cloudbackup_run_events')

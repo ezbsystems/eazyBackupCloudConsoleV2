@@ -13,7 +13,7 @@ function cloudstorage_config()
         'description' => 'This module show the usage of your buckets.',
         'author' => 'eazybackup',
         'language' => 'english',
-        'version' => '1.5.0',
+        'version' => '1.9.2',
         'fields' => [
             's3_region' => [
                 'FriendlyName' => 'S3 Region',
@@ -32,6 +32,18 @@ function cloudstorage_config()
                 'Type' => 'text',
                 'Size' => '250',
                 'Description' => 'Enter the S3 endpoint.'
+            ],
+            'cloudbackup_agent_s3_endpoint' => [
+                'FriendlyName' => 'Cloud Backup Agent S3 Endpoint',
+                'Type' => 'text',
+                'Size' => '250',
+                'Description' => 'Endpoint used by the Windows backup agent. Leave empty to fall back to the S3 Endpoint.'
+            ],
+            'cloudbackup_agent_s3_region' => [
+                'FriendlyName' => 'Cloud Backup Agent S3 Region',
+                'Type' => 'text',
+                'Size' => '50',
+                'Description' => 'Optional region used by the Windows backup agent. Leave empty for Ceph/default/auto-detect.'
             ],
             'ceph_server_ip' => [
                 'FriendlyName' => 'Ceph Server Ip',
@@ -208,6 +220,19 @@ function cloudstorage_get_email_templates()
         logModuleCall('cloudstorage', 'get_email_templates', [], $e->getMessage());
         return ['' => 'Error loading templates'];
     }
+}
+
+/**
+ * Generate a UUIDv4 string.
+ *
+ * @return string
+ */
+function cloudstorage_generate_uuid()
+{
+    $data = random_bytes(16);
+    $data[6] = chr((ord($data[6]) & 0x0f) | 0x40);
+    $data[8] = chr((ord($data[8]) & 0x3f) | 0x80);
+    return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
 }
 
 /**
@@ -442,7 +467,7 @@ function cloudstorage_activate() {
             $table->unsignedInteger('client_id');
             $table->unsignedInteger('s3_user_id');
             $table->string('name', 191);
-            $table->enum('source_type', ['s3_compatible', 'aws', 'sftp', 'google_drive', 'dropbox', 'smb', 'nas'])->default('s3_compatible');
+            $table->enum('source_type', ['s3_compatible', 'aws', 'sftp', 'google_drive', 'dropbox', 'smb', 'nas', 'local_agent'])->default('s3_compatible');
             $table->string('source_display_name', 191);
             $table->mediumText('source_config_enc');
             $table->string('source_path', 1024);
@@ -479,6 +504,7 @@ function cloudstorage_activate() {
         if (!Capsule::schema()->hasTable('s3_cloudbackup_runs')) {
             Capsule::schema()->create('s3_cloudbackup_runs', function ($table) {
             $table->bigIncrements('id');
+            $table->string('run_uuid', 36)->nullable();
             $table->unsignedInteger('job_id');
             $table->enum('trigger_type', ['manual', 'schedule', 'validation'])->default('manual');
             $table->enum('status', ['queued', 'starting', 'running', 'success', 'warning', 'failed', 'cancelled'])->default('queued');
@@ -506,6 +532,7 @@ function cloudstorage_activate() {
             $table->index('job_id');
             $table->index('status');
             $table->index('started_at');
+            $table->index('run_uuid');
             $table->foreign('job_id')->references('id')->on('s3_cloudbackup_jobs')->onDelete('cascade');
             });
         }
@@ -573,6 +600,96 @@ function cloudstorage_activate() {
                 });
                 logModuleCall('cloudstorage', 'activate', [], 'Added source_connection_id to s3_cloudbackup_jobs', [], []);
             }
+            // Add agent_id for local agent binding (nullable to preserve existing jobs)
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'agent_id')) {
+                \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_jobs', function ($table) {
+                    $table->unsignedInteger('agent_id')->nullable()->after('client_id');
+                    $table->index('agent_id');
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Added agent_id to s3_cloudbackup_jobs', [], []);
+            }
+            // Kopia/engine fields for local agent jobs
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'engine')) {
+                \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_jobs', function ($table) {
+                    $table->enum('engine', ['sync', 'kopia'])->default('sync')->after('backup_mode');
+                    $table->enum('dest_type', ['s3', 'local'])->default('s3')->after('dest_prefix');
+                    $table->string('dest_local_path', 1024)->nullable()->after('dest_prefix');
+                    $table->tinyInteger('bucket_auto_create')->default(0)->after('dest_prefix');
+                    $table->json('schedule_json')->nullable()->after('schedule_cron');
+                    $table->json('retention_json')->nullable()->after('retention_mode');
+                    $table->json('policy_json')->nullable()->after('retention_json');
+                    $table->integer('bandwidth_limit_kbps')->nullable()->after('policy_json');
+                    $table->integer('parallelism')->nullable()->after('bandwidth_limit_kbps');
+                    $table->string('encryption_mode', 64)->nullable()->after('parallelism');
+                    $table->string('compression', 64)->nullable()->after('encryption_mode');
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Added Kopia/engine fields to s3_cloudbackup_jobs', [], []);
+            }
+        }
+
+        // Backfill columns on runs table for agent support and timestamps
+        if (\WHMCS\Database\Capsule::schema()->hasTable('s3_cloudbackup_runs')) {
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'agent_id')) {
+                \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_runs', function ($table) {
+                    $table->unsignedInteger('agent_id')->nullable()->after('job_id');
+                    $table->index('agent_id');
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Added agent_id to s3_cloudbackup_runs', [], []);
+            }
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'updated_at')) {
+                \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_runs', function ($table) {
+                    $table->timestamp('updated_at')->nullable()->after('created_at');
+                    $table->index('updated_at');
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Added updated_at to s3_cloudbackup_runs', [], []);
+            }
+            // Kopia/engine metadata on runs
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'engine')) {
+                \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_runs', function ($table) {
+                    $table->enum('engine', ['sync', 'kopia'])->default('sync')->after('trigger_type');
+                    $table->json('stats_json')->nullable()->after('speed_bytes_per_sec');
+                    $table->json('progress_json')->nullable()->after('stats_json');
+                    $table->string('log_ref', 255)->nullable()->after('progress_json');
+                    $table->json('policy_snapshot')->nullable()->after('log_ref');
+                    $table->string('dest_bucket', 255)->nullable()->after('policy_snapshot');
+                    $table->string('dest_prefix', 255)->nullable()->after('dest_bucket');
+                    $table->string('dest_local_path', 1024)->nullable()->after('dest_prefix');
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Added Kopia/engine fields to s3_cloudbackup_runs', [], []);
+            }
+        }
+
+        // Run logs table for Kopia/local agent
+        if (!Capsule::schema()->hasTable('s3_cloudbackup_run_logs')) {
+            Capsule::schema()->create('s3_cloudbackup_run_logs', function ($table) {
+                $table->bigIncrements('id');
+                $table->unsignedBigInteger('run_id');
+                $table->timestamp('created_at')->useCurrent();
+                $table->string('level', 16)->default('info');
+                $table->string('code', 64)->nullable();
+                $table->mediumText('message');
+                $table->json('details_json')->nullable();
+                $table->index(['run_id', 'created_at']);
+                $table->foreign('run_id')->references('id')->on('s3_cloudbackup_runs')->onDelete('cascade');
+            });
+            logModuleCall('cloudstorage', 'activate', [], 'Created s3_cloudbackup_run_logs table', [], []);
+        }
+
+        // Run commands table (for maintenance/restore/cancel extensions)
+        if (!Capsule::schema()->hasTable('s3_cloudbackup_run_commands')) {
+            Capsule::schema()->create('s3_cloudbackup_run_commands', function ($table) {
+                $table->bigIncrements('id');
+                $table->unsignedBigInteger('run_id');
+                $table->string('type', 64); // cancel|maintenance_quick|maintenance_full|restore
+                $table->json('payload_json')->nullable(); // target_path, manifest_id, etc.
+                $table->enum('status', ['pending','processing','completed','failed'])->default('pending');
+                $table->mediumText('result_message')->nullable();
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('processed_at')->nullable();
+                $table->index(['run_id','status']);
+                $table->foreign('run_id')->references('id')->on('s3_cloudbackup_runs')->onDelete('cascade');
+            });
+            logModuleCall('cloudstorage', 'activate', [], 'Created s3_cloudbackup_run_commands table', [], []);
         }
 
         // Trial signup email verification table
@@ -818,13 +935,13 @@ function cloudstorage_upgrade($vars) {
             }
         }
 
-        // Ensure source_type enum includes 'aws' (modify existing column if needed)
+        // Ensure source_type enum includes new providers (aws + local_agent) for upgraded installs
         if (\WHMCS\Database\Capsule::schema()->hasTable('s3_cloudbackup_jobs')) {
             try {
-                // Attempt to alter enum to include 'aws'
+                // Attempt to alter enum to include aws + local_agent
                 \WHMCS\Database\Capsule::statement("
                     ALTER TABLE `s3_cloudbackup_jobs`
-                    MODIFY COLUMN `source_type` ENUM('s3_compatible','aws','sftp','google_drive','dropbox','smb','nas') NOT NULL DEFAULT 's3_compatible'
+                    MODIFY COLUMN `source_type` ENUM('s3_compatible','aws','sftp','google_drive','dropbox','smb','nas','local_agent') NOT NULL DEFAULT 's3_compatible'
                 ");
             } catch (\Exception $e) {
                 // Safe to ignore if already updated, but log for visibility
@@ -839,7 +956,7 @@ function cloudstorage_upgrade($vars) {
                 $table->unsignedInteger('client_id');
                 $table->unsignedInteger('s3_user_id');
                 $table->string('name', 191);
-                $table->enum('source_type', ['s3_compatible', 'aws', 'sftp', 'google_drive', 'dropbox', 'smb', 'nas'])->default('s3_compatible');
+                $table->enum('source_type', ['s3_compatible', 'aws', 'sftp', 'google_drive', 'dropbox', 'smb', 'nas', 'local_agent'])->default('s3_compatible');
                 $table->string('source_display_name', 191);
                 $table->mediumText('source_config_enc');
                 $table->unsignedInteger('source_connection_id')->nullable();
@@ -912,6 +1029,7 @@ function cloudstorage_upgrade($vars) {
         if (!\WHMCS\Database\Capsule::schema()->hasTable('s3_cloudbackup_runs')) {
             \WHMCS\Database\Capsule::schema()->create('s3_cloudbackup_runs', function ($table) {
                 $table->bigIncrements('id');
+                $table->string('run_uuid', 36)->nullable();
                 $table->unsignedInteger('job_id');
                 $table->enum('trigger_type', ['manual', 'schedule', 'validation'])->default('manual');
                 $table->enum('status', ['queued', 'starting', 'running', 'success', 'warning', 'failed', 'cancelled'])->default('queued');
@@ -939,8 +1057,113 @@ function cloudstorage_upgrade($vars) {
                 $table->index('job_id');
                 $table->index('status');
                 $table->index('started_at');
+                $table->index('run_uuid');
                 $table->foreign('job_id')->references('id')->on('s3_cloudbackup_jobs')->onDelete('cascade');
             });
+        }
+
+        // Add Kopia/engine columns to jobs on upgrade
+        if (\WHMCS\Database\Capsule::schema()->hasTable('s3_cloudbackup_jobs')) {
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'engine')) {
+                try {
+                    \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_jobs', function ($table) {
+                        $table->enum('engine', ['sync', 'kopia'])->default('sync')->after('backup_mode');
+                        $table->enum('dest_type', ['s3', 'local'])->default('s3')->after('dest_prefix');
+                        $table->string('dest_local_path', 1024)->nullable()->after('dest_prefix');
+                        $table->tinyInteger('bucket_auto_create')->default(0)->after('dest_prefix');
+                        $table->json('schedule_json')->nullable()->after('schedule_cron');
+                        $table->json('retention_json')->nullable()->after('retention_mode');
+                        $table->json('policy_json')->nullable()->after('retention_json');
+                        $table->integer('bandwidth_limit_kbps')->nullable()->after('policy_json');
+                        $table->integer('parallelism')->nullable()->after('bandwidth_limit_kbps');
+                        $table->string('encryption_mode', 64)->nullable()->after('parallelism');
+                        $table->string('compression', 64)->nullable()->after('encryption_mode');
+                    });
+                    logModuleCall('cloudstorage', 'upgrade', [], 'Added Kopia/engine fields to s3_cloudbackup_jobs', [], []);
+                } catch (\Exception $e) {
+                    logModuleCall('cloudstorage', 'upgrade_add_kopia_fields_jobs', [], $e->getMessage(), [], []);
+                }
+            }
+        }
+
+        // Add Kopia/engine columns to runs on upgrade
+        if (\WHMCS\Database\Capsule::schema()->hasTable('s3_cloudbackup_runs')) {
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'engine')) {
+                try {
+                    \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_runs', function ($table) {
+                        $table->enum('engine', ['sync', 'kopia'])->default('sync')->after('trigger_type');
+                        $table->json('stats_json')->nullable()->after('speed_bytes_per_sec');
+                        $table->json('progress_json')->nullable()->after('stats_json');
+                        $table->string('log_ref', 255)->nullable()->after('progress_json');
+                        $table->json('policy_snapshot')->nullable()->after('log_ref');
+                        $table->string('dest_bucket', 255)->nullable()->after('policy_snapshot');
+                        $table->string('dest_prefix', 255)->nullable()->after('dest_bucket');
+                        $table->string('dest_local_path', 1024)->nullable()->after('dest_prefix');
+                    });
+                    logModuleCall('cloudstorage', 'upgrade', [], 'Added Kopia/engine fields to s3_cloudbackup_runs', [], []);
+                } catch (\Exception $e) {
+                    logModuleCall('cloudstorage', 'upgrade_add_kopia_fields_runs', [], $e->getMessage(), [], []);
+                }
+            }
+        }
+
+        // Add run_uuid to s3_cloudbackup_runs for customer-facing identifiers
+        if (\WHMCS\Database\Capsule::schema()->hasTable('s3_cloudbackup_runs')) {
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_uuid')) {
+                try {
+                    \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_runs', function ($table) {
+                        $table->string('run_uuid', 36)->nullable()->after('id');
+                        $table->index('run_uuid');
+                    });
+                    // Backfill existing rows with UUIDs
+                    \WHMCS\Database\Capsule::table('s3_cloudbackup_runs')
+                        ->whereNull('run_uuid')
+                        ->orderBy('id')
+                        ->chunk(500, function ($runs) {
+                            foreach ($runs as $run) {
+                                \WHMCS\Database\Capsule::table('s3_cloudbackup_runs')
+                                    ->where('id', $run->id)
+                                    ->update(['run_uuid' => cloudstorage_generate_uuid()]);
+                            }
+                        });
+                    logModuleCall('cloudstorage', 'upgrade_add_run_uuid', [], 'run_uuid added and backfilled');
+                } catch (\Exception $e) {
+                    logModuleCall('cloudstorage', 'upgrade_add_run_uuid_error', [], $e->getMessage(), [], []);
+                }
+            }
+        }
+
+        // Create run logs table if missing on upgrade
+        if (!\WHMCS\Database\Capsule::schema()->hasTable('s3_cloudbackup_run_logs')) {
+            \WHMCS\Database\Capsule::schema()->create('s3_cloudbackup_run_logs', function ($table) {
+                $table->bigIncrements('id');
+                $table->unsignedBigInteger('run_id');
+                $table->timestamp('created_at')->useCurrent();
+                $table->string('level', 16)->default('info');
+                $table->string('code', 64)->nullable();
+                $table->mediumText('message');
+                $table->json('details_json')->nullable();
+                $table->index(['run_id', 'created_at']);
+                $table->foreign('run_id')->references('id')->on('s3_cloudbackup_runs')->onDelete('cascade');
+            });
+            logModuleCall('cloudstorage', 'upgrade', [], 'Created s3_cloudbackup_run_logs table', [], []);
+        }
+
+        // Create run commands table if missing on upgrade
+        if (!\WHMCS\Database\Capsule::schema()->hasTable('s3_cloudbackup_run_commands')) {
+            \WHMCS\Database\Capsule::schema()->create('s3_cloudbackup_run_commands', function ($table) {
+                $table->bigIncrements('id');
+                $table->unsignedBigInteger('run_id');
+                $table->string('type', 64);
+                $table->json('payload_json')->nullable();
+                $table->enum('status', ['pending','processing','completed','failed'])->default('pending');
+                $table->mediumText('result_message')->nullable();
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('processed_at')->nullable();
+                $table->index(['run_id','status']);
+                $table->foreign('run_id')->references('id')->on('s3_cloudbackup_runs')->onDelete('cascade');
+            });
+            logModuleCall('cloudstorage', 'upgrade', [], 'Created s3_cloudbackup_run_commands table', [], []);
         }
 
         if (!\WHMCS\Database\Capsule::schema()->hasTable('s3_cloudbackup_settings')) {
@@ -1190,6 +1413,11 @@ function cloudstorage_clientarea($vars) {
                     $pagetitle = 'Live Backup Progress';
                     $templatefile = 'templates/cloudbackup_live';
                     $viewVars = require 'pages/cloudbackup_live.php';
+                    break;
+                case 'cloudbackup_agents':
+                    $pagetitle = 'Backup Agents';
+                    $templatefile = 'templates/cloudbackup_agents';
+                    $viewVars = require 'pages/cloudbackup_agents.php';
                     break;
                 case 'cloudbackup_settings':
                     $pagetitle = 'Backup Settings';

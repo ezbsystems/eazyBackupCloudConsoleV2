@@ -97,6 +97,49 @@ if (isset($_POST['source_display_name'])) {
     $updateData['source_display_name'] = $_POST['source_display_name'];
 }
 
+// Map per-source path inputs for consistency
+$sourceTypeForPath = $_POST['source_type'] ?? ($existingJob['source_type'] ?? '');
+if (!isset($_POST['source_path']) || $_POST['source_path'] === '') {
+    $mapped = '';
+    if ($sourceTypeForPath === 'aws') {
+        $mapped = $_POST['aws_path'] ?? '';
+    } elseif ($sourceTypeForPath === 's3_compatible') {
+        $mapped = $_POST['s3_path'] ?? '';
+    } elseif ($sourceTypeForPath === 'sftp') {
+        $mapped = $_POST['sftp_path'] ?? '';
+    } elseif ($sourceTypeForPath === 'google_drive') {
+        $mapped = $_POST['gdrive_path'] ?? '';
+    } elseif ($sourceTypeForPath === 'dropbox') {
+        $mapped = $_POST['dropbox_path'] ?? '';
+    } elseif ($sourceTypeForPath === 'local_agent') {
+        $mapped = $_POST['local_source_path'] ?? '';
+    }
+    $_POST['source_path'] = $mapped;
+}
+
+// Validate agent assignment for local_agent jobs when provided/required
+$hasAgentIdJobs = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'agent_id');
+$agentIdForJob = null;
+if (($sourceTypeForPath === 'local_agent' || isset($_POST['agent_id'])) && $hasAgentIdJobs) {
+    $agentIdForJob = isset($_POST['agent_id']) ? (int)$_POST['agent_id'] : ($existingJob['agent_id'] ?? 0);
+    if ($agentIdForJob <= 0) {
+        $response = new JsonResponse(['status' => 'fail', 'message' => 'Agent is required for Local Agent jobs.'], 200);
+        $response->send();
+        exit();
+    }
+    $agentRow = Capsule::table('s3_cloudbackup_agents')
+        ->where('id', $agentIdForJob)
+        ->where('client_id', $loggedInUserId)
+        ->where('status', 'active')
+        ->first();
+    if (!$agentRow) {
+        $response = new JsonResponse(['status' => 'fail', 'message' => 'Selected agent not found or inactive.'], 200);
+        $response->send();
+        exit();
+    }
+    $updateData['agent_id'] = $agentIdForJob;
+}
+
 if (isset($_POST['source_path'])) {
     $updateData['source_path'] = $_POST['source_path'];
 }
@@ -106,8 +149,26 @@ if (isset($_POST['dest_bucket_id'])) {
 if (isset($_POST['dest_prefix'])) {
     $updateData['dest_prefix'] = $_POST['dest_prefix'];
 }
+if (isset($_POST['dest_local_path'])) {
+    $updateData['dest_local_path'] = $_POST['dest_local_path'];
+}
+// Enforce S3-only destinations for now
+if (isset($_POST['dest_type'])) {
+    if ($_POST['dest_type'] !== 's3') {
+        $response = new JsonResponse(['status' => 'fail', 'message' => 'Only S3 destinations are supported at this time.'], 200);
+        $response->send();
+        exit();
+    }
+    $updateData['dest_type'] = 's3';
+}
+if (isset($_POST['bucket_auto_create'])) {
+    $updateData['bucket_auto_create'] = isset($_POST['bucket_auto_create']) ? 1 : 0;
+}
 if (isset($_POST['backup_mode'])) {
     $updateData['backup_mode'] = $_POST['backup_mode'];
+}
+if (isset($_POST['engine'])) {
+    $updateData['engine'] = $_POST['engine'];
 }
 if (isset($_POST['encryption_enabled'])) {
     $updateData['encryption_enabled'] = (int)$_POST['encryption_enabled'];
@@ -132,6 +193,27 @@ if (isset($_POST['retention_mode'])) {
 }
 if (isset($_POST['retention_value'])) {
     $updateData['retention_value'] = isset($_POST['retention_value']) ? (int)$_POST['retention_value'] : null;
+}
+if (isset($_POST['retention_json'])) {
+    $updateData['retention_json'] = is_array($_POST['retention_json']) ? json_encode($_POST['retention_json']) : $_POST['retention_json'];
+}
+if (isset($_POST['policy_json'])) {
+    $updateData['policy_json'] = is_array($_POST['policy_json']) ? json_encode($_POST['policy_json']) : $_POST['policy_json'];
+}
+if (isset($_POST['schedule_json'])) {
+    $updateData['schedule_json'] = is_array($_POST['schedule_json']) ? json_encode($_POST['schedule_json']) : $_POST['schedule_json'];
+}
+if (isset($_POST['bandwidth_limit_kbps'])) {
+    $updateData['bandwidth_limit_kbps'] = isset($_POST['bandwidth_limit_kbps']) ? (int)$_POST['bandwidth_limit_kbps'] : null;
+}
+if (isset($_POST['parallelism'])) {
+    $updateData['parallelism'] = isset($_POST['parallelism']) ? (int)$_POST['parallelism'] : null;
+}
+if (isset($_POST['encryption_mode'])) {
+    $updateData['encryption_mode'] = $_POST['encryption_mode'];
+}
+if (isset($_POST['compression'])) {
+    $updateData['compression'] = $_POST['compression'];
 }
 if (isset($_POST['notify_override_email'])) {
     $updateData['notify_override_email'] = $_POST['notify_override_email'];

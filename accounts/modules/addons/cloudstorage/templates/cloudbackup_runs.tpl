@@ -16,6 +16,10 @@
                    class="px-4 py-1.5 rounded-full transition {if $smarty.get.view == 'cloudbackup_settings'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
                     Settings
                 </a>
+                <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_agents"
+                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.view == 'cloudbackup_agents'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
+                    Agents
+                </a>
             </nav>
         </div>
         <!-- Glass panel container -->
@@ -182,9 +186,9 @@
                                 </td>
                                 <td class="px-6 py-4 whitespace-nowrap text-sm">
                                     {if $run.status eq 'running'}
-                                        <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_live&run_id={$run.id}" class="text-sky-400 hover:text-sky-500">View Live</a>
+                                        <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_live&run_id={$run.run_uuid|default:$run.id}" class="text-sky-400 hover:text-sky-500">View Live</a>
                                     {elseif $run.log_excerpt}
-                                        <button onclick="showRunDetails({$run.id})" class="text-sky-400 hover:text-sky-500">View Details</button>
+                                        <button onclick="showRunDetails('{$run.run_uuid|default:$run.id}')" class="text-sky-400 hover:text-sky-500">View Details</button>
                                     {/if}
                                 </td>
                             </tr>
@@ -291,6 +295,7 @@
                         <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_runs&job_id={$j->id}" class="block bg-slate-700 hover:bg-slate-600 border border-slate-600 rounded-md p-4">
                             <div class="text-white font-semibold">{$j->name}</div>
                             <div class="text-sm text-slate-300 mt-1">{$j->source_display_name}</div>
+                            <div class="text-xs text-slate-400 mt-1 uppercase">Engine: {$j->engine|default:'sync'|upper}</div>
                             <div class="text-xs text-slate-400 mt-2">
                                 Dest Bucket 
                                 {if isset($j->dest_bucket_name) && $j->dest_bucket_name}
@@ -357,24 +362,26 @@ function showRunDetails(runId) {
         validationSection.classList.add('hidden');
     }
     
-    // Fetch sanitized events instead of raw/formatted rclone logs
-    fetch('modules/addons/cloudstorage/api/cloudbackup_get_run_events.php?run_id=' + encodeURIComponent(runId) + '&limit=1000')
+    // Fetch structured logs (includes s3_cloudbackup_run_logs when available)
+    fetch('modules/addons/cloudstorage/api/cloudbackup_get_run_logs.php?run_uuid=' + encodeURIComponent(runId))
         .then(response => response.json())
         .then(data => {
             if (data.status === 'success') {
-                const events = Array.isArray(data.events) ? data.events : [];
-                if (events.length === 0) {
-                    logExcerpt.textContent = 'No event log data available for this run.';
+                const structured = Array.isArray(data.structured_logs) ? data.structured_logs : [];
+                const lines = structured.map(row => {
+                    const ts = row.ts ? '[' + row.ts + '] ' : '';
+                    const lvl = row.level ? '(' + row.level + ') ' : '';
+                    return ts + lvl + (row.message || '');
+                });
+                const fallbackLog = data.backup_log || '';
+                logExcerpt.textContent = lines.length > 0 ? lines.join('\n') : (fallbackLog || 'No log data available for this run.');
+
+                if (data.has_validation && data.validation_log) {
+                    if (validationSection) validationSection.classList.remove('hidden');
+                    validationLogExcerpt.textContent = data.validation_log;
                 } else {
-                    // Render events as lines: [ts] MESSAGE
-                    const lines = events.map(ev => {
-                        const ts = ev.ts ? '[' + ev.ts + '] ' : '';
-                        return ts + (ev.message || '');
-                    });
-                    logExcerpt.textContent = lines.join('\n');
+                    if (validationSection) validationSection.classList.add('hidden');
                 }
-                // Hide validation block in event mode (optional future enhancement: show validation events)
-                if (validationSection) validationSection.classList.add('hidden');
             } else {
                 logExcerpt.textContent = 'Error: ' + (data.message || 'Failed to load log details');
                 if (window.toast) {

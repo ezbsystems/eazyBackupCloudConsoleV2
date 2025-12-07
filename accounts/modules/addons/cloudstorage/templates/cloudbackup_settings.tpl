@@ -15,6 +15,10 @@
                    class="py-4 px-1 border-b-2 font-medium text-sm {if $smarty.get.view == 'cloudbackup_settings'}border-sky-500 text-sky-400{else}border-transparent text-slate-400 hover:text-slate-300 hover:border-slate-300{/if}">
                     Settings
                 </a>
+                <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_agents"
+                   class="py-4 px-1 border-b-2 font-medium text-sm {if $smarty.get.view == 'cloudbackup_agents'}border-sky-500 text-sky-400{else}border-transparent text-slate-400 hover:text-slate-300 hover:border-slate-300{/if}">
+                    Agents
+                </a>
             </nav>
         </div>
 

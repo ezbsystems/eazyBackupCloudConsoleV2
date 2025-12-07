@@ -23,13 +23,47 @@ class CloudBackupController {
             $jobs = Capsule::table('s3_cloudbackup_jobs')
                 ->where('client_id', $clientId)
                 ->where('status', '!=', 'deleted')
+                ->select('*')
                 ->orderBy('created_at', 'desc')
                 ->get();
+
+            // Preload agent hostnames for local agent jobs
+            $agentNames = [];
+            $agentIds = [];
+            foreach ($jobs as $job) {
+                if (!empty($job->agent_id)) {
+                    $agentIds[] = (int) $job->agent_id;
+                }
+            }
+            if (!empty($agentIds)) {
+                $agentRows = Capsule::table('s3_cloudbackup_agents')
+                    ->whereIn('id', $agentIds)
+                    ->where('client_id', $clientId)
+                    ->select('id', 'hostname')
+                    ->get();
+                foreach ($agentRows as $agent) {
+                    $agentNames[(int) $agent->id] = $agent->hostname;
+                }
+            }
 
             $jobsWithLastRun = [];
             foreach ($jobs as $job) {
                 $jobArray = (array) $job;
+                // Decode structured policy/retention/schedule if present
+                foreach (['policy_json','retention_json','schedule_json'] as $jsonField) {
+                    if (isset($jobArray[$jsonField]) && is_string($jobArray[$jsonField])) {
+                        $decoded = json_decode($jobArray[$jsonField], true);
+                        if (json_last_error() === JSON_ERROR_NONE) {
+                            $jobArray[$jsonField] = $decoded;
+                        }
+                    }
+                }
                 
+                // Attach agent hostname when available
+                if (!empty($job->agent_id)) {
+                    $jobArray['agent_hostname'] = $agentNames[(int) $job->agent_id] ?? null;
+                }
+
                 // Get last run summary
                 $lastRun = Capsule::table('s3_cloudbackup_runs')
                     ->where('job_id', $job->id)
@@ -114,16 +148,27 @@ class CloudBackupController {
                 'dest_bucket_id' => $data['dest_bucket_id'],
                 'dest_prefix' => $data['dest_prefix'],
                 'backup_mode' => $data['backup_mode'] ?? 'sync',
+                'engine' => $data['engine'] ?? 'sync',
+                'dest_type' => $data['dest_type'] ?? 's3',
+                'dest_local_path' => $data['dest_local_path'] ?? null,
+                'bucket_auto_create' => $data['bucket_auto_create'] ?? 0,
                 'schedule_type' => $data['schedule_type'] ?? 'manual',
                 'schedule_time' => $data['schedule_time'] ?? null,
                 'schedule_weekday' => $data['schedule_weekday'] ?? null,
                 'schedule_cron' => $data['schedule_cron'] ?? null,
+                'schedule_json' => $data['schedule_json'] ?? null,
                 'timezone' => $data['timezone'] ?? null,
                 'encryption_enabled' => $data['encryption_enabled'] ?? 0,
                 'compression_enabled' => $data['compression_enabled'] ?? 0,
                 'validation_mode' => $data['validation_mode'] ?? 'none',
                 'retention_mode' => $data['retention_mode'] ?? 'none',
                 'retention_value' => $data['retention_value'] ?? null,
+                'retention_json' => $data['retention_json'] ?? null,
+                'policy_json' => $data['policy_json'] ?? null,
+                'bandwidth_limit_kbps' => $data['bandwidth_limit_kbps'] ?? null,
+                'parallelism' => $data['parallelism'] ?? null,
+                'encryption_mode' => $data['encryption_mode'] ?? null,
+                'compression' => $data['compression'] ?? null,
                 'notify_override_email' => $data['notify_override_email'] ?? null,
                 'notify_on_success' => $data['notify_on_success'] ?? 0,
                 'notify_on_warning' => $data['notify_on_warning'] ?? 1,
@@ -132,6 +177,9 @@ class CloudBackupController {
                 'created_at' => date('Y-m-d H:i:s'),
                 'updated_at' => date('Y-m-d H:i:s'),
             ];
+            if (isset($data['agent_id'])) {
+                $jobData['agent_id'] = $data['agent_id'];
+            }
 
             $jobId = Capsule::table('s3_cloudbackup_jobs')->insertGetId($jobData);
 
@@ -192,8 +240,20 @@ class CloudBackupController {
             if (isset($data['dest_prefix'])) {
                 $updateData['dest_prefix'] = $data['dest_prefix'];
             }
+            if (array_key_exists('dest_local_path', $data)) {
+                $updateData['dest_local_path'] = $data['dest_local_path'];
+            }
+            if (array_key_exists('dest_type', $data)) {
+                $updateData['dest_type'] = $data['dest_type'];
+            }
+            if (array_key_exists('bucket_auto_create', $data)) {
+                $updateData['bucket_auto_create'] = $data['bucket_auto_create'];
+            }
             if (isset($data['backup_mode'])) {
                 $updateData['backup_mode'] = $data['backup_mode'];
+            }
+            if (isset($data['engine'])) {
+                $updateData['engine'] = $data['engine'];
             }
             if (isset($data['schedule_type'])) {
                 $updateData['schedule_type'] = $data['schedule_type'];
@@ -207,6 +267,9 @@ class CloudBackupController {
             if (isset($data['schedule_cron'])) {
                 $updateData['schedule_cron'] = $data['schedule_cron'];
             }
+            if (array_key_exists('schedule_json', $data)) {
+                $updateData['schedule_json'] = $data['schedule_json'];
+            }
             if (isset($data['timezone'])) {
                 $updateData['timezone'] = $data['timezone'];
             }
@@ -215,6 +278,24 @@ class CloudBackupController {
             }
             if (isset($data['retention_value'])) {
                 $updateData['retention_value'] = $data['retention_value'];
+            }
+            if (array_key_exists('retention_json', $data)) {
+                $updateData['retention_json'] = $data['retention_json'];
+            }
+            if (array_key_exists('policy_json', $data)) {
+                $updateData['policy_json'] = $data['policy_json'];
+            }
+            if (array_key_exists('bandwidth_limit_kbps', $data)) {
+                $updateData['bandwidth_limit_kbps'] = $data['bandwidth_limit_kbps'];
+            }
+            if (array_key_exists('parallelism', $data)) {
+                $updateData['parallelism'] = $data['parallelism'];
+            }
+            if (array_key_exists('encryption_mode', $data)) {
+                $updateData['encryption_mode'] = $data['encryption_mode'];
+            }
+            if (array_key_exists('compression', $data)) {
+                $updateData['compression'] = $data['compression'];
             }
             if (isset($data['notify_override_email'])) {
                 $updateData['notify_override_email'] = $data['notify_override_email'];
@@ -297,6 +378,7 @@ class CloudBackupController {
 
             $runs = Capsule::table('s3_cloudbackup_runs')
                 ->where('job_id', $jobId)
+                ->select('*')
                 ->orderBy('started_at', 'desc')
                 ->get();
 
@@ -320,12 +402,17 @@ class CloudBackupController {
     public static function getRun($runId, $clientId)
     {
         try {
-            $run = Capsule::table('s3_cloudbackup_runs')
+            $query = Capsule::table('s3_cloudbackup_runs')
                 ->join('s3_cloudbackup_jobs', 's3_cloudbackup_runs.job_id', '=', 's3_cloudbackup_jobs.id')
-                ->where('s3_cloudbackup_runs.id', $runId)
-                ->where('s3_cloudbackup_jobs.client_id', $clientId)
-                ->select('s3_cloudbackup_runs.*')
-                ->first();
+                ->where('s3_cloudbackup_jobs.client_id', $clientId);
+
+            if (self::isUuid($runId)) {
+                $query->where('s3_cloudbackup_runs.run_uuid', $runId);
+            } else {
+                $query->where('s3_cloudbackup_runs.id', $runId);
+            }
+
+            $run = $query->select('s3_cloudbackup_runs.*')->first();
 
             if (!$run) {
                 return null;
@@ -333,7 +420,7 @@ class CloudBackupController {
 
             return (array) $run;
         } catch (\Exception $e) {
-            logModuleCall(self::$module, 'getRun', ['run_id' => $runId, 'client_id' => $clientId], $e->getMessage());
+            logModuleCall(self::$module, 'getRun', ['run' => $runId, 'client_id' => $clientId], $e->getMessage());
             return null;
         }
     }
@@ -352,10 +439,12 @@ class CloudBackupController {
             // Verify job ownership and status
             $job = self::getJob($jobId, $clientId);
             if (!$job) {
+                logModuleCall(self::$module, 'startRun', ['job_id' => $jobId, 'client_id' => $clientId], 'Job not found or access denied');
                 return ['status' => 'fail', 'message' => 'Job not found or access denied'];
             }
 
             if ($job['status'] !== 'active') {
+                logModuleCall(self::$module, 'startRun', ['job_id' => $jobId, 'client_id' => $clientId], 'Job is not active');
                 return ['status' => 'fail', 'message' => 'Job is not active'];
             }
 
@@ -365,6 +454,7 @@ class CloudBackupController {
                 ->where('is_active', 1)
                 ->first();
             if (!$bucket) {
+                logModuleCall(self::$module, 'startRun', ['job_id' => $jobId, 'client_id' => $clientId], 'Destination bucket not found or inactive');
                 return ['status' => 'fail', 'message' => 'Destination bucket not found or inactive'];
             }
             // Optional: ensure ownership alignment (bucket belongs to one of client's storage users)
@@ -372,7 +462,53 @@ class CloudBackupController {
                 ->where('id', $job['s3_user_id'] ?? 0)
                 ->first();
             if (!$clientUser || (int)$bucket->user_id !== (int)$clientUser->id) {
+                logModuleCall(self::$module, 'startRun', ['job_id' => $jobId, 'client_id' => $clientId], 'Destination bucket ownership mismatch');
                 return ['status' => 'fail', 'message' => 'Destination bucket ownership mismatch'];
+            }
+
+            // Normalize/validate local agent jobs before proceeding
+            $hasAgentIdJobs = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'agent_id');
+            $hasSourceTypeCol = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'source_type');
+            $jobIsLocalAgent = ($job['source_type'] ?? '') === 'local_agent';
+
+            // Legacy rows may have engine=kopia + agent_id but blank source_type (enum not updated when created)
+            if (!$jobIsLocalAgent && $hasAgentIdJobs && !empty($job['agent_id']) && (($job['engine'] ?? '') === 'kopia')) {
+                if ($hasSourceTypeCol) {
+                    // Best-effort backfill to mark it local_agent so workers ignore
+                    try {
+                        Capsule::table('s3_cloudbackup_jobs')->where('id', $jobId)->update(['source_type' => 'local_agent']);
+                        $job['source_type'] = 'local_agent';
+                        $jobIsLocalAgent = true;
+                    } catch (\Throwable $e) {
+                        logModuleCall(self::$module, 'startRun_backfill_source_type', ['job_id' => $jobId], $e->getMessage());
+                    }
+                }
+            }
+
+            // Hard-require agent_id for local_agent jobs to avoid the cloud worker picking them up
+            if ($jobIsLocalAgent) {
+                if (!$hasAgentIdJobs || empty($job['agent_id'])) {
+                    logModuleCall(self::$module, 'startRun', ['job_id' => $jobId, 'client_id' => $clientId], 'Local agent job missing agent assignment');
+                    return ['status' => 'fail', 'message' => 'This Local Agent job is missing an assigned agent. Please edit the job and select an agent.'];
+                }
+            }
+
+            // If engine is Kopia but the row still isn't marked local_agent or lacks agent_id, stop and fail fast
+            if (($job['engine'] ?? '') === 'kopia') {
+                if (!$jobIsLocalAgent && $hasSourceTypeCol) {
+                    // Attempt a best-effort fix
+                    try {
+                        Capsule::table('s3_cloudbackup_jobs')->where('id', $jobId)->update(['source_type' => 'local_agent']);
+                        $job['source_type'] = 'local_agent';
+                        $jobIsLocalAgent = true;
+                    } catch (\Throwable $e) {
+                        logModuleCall(self::$module, 'startRun_backfill_source_type_kopia', ['job_id' => $jobId], $e->getMessage());
+                    }
+                }
+                if (empty($job['agent_id'])) {
+                    logModuleCall(self::$module, 'startRun', ['job_id' => $jobId, 'client_id' => $clientId], 'Kopia job missing agent assignment');
+                    return ['status' => 'fail', 'message' => 'Kopia jobs require a Local Agent. Please assign an agent before starting the run.'];
+                }
             }
 
             // Re-validate AWS/S3-compatible source bucket and credentials at start time
@@ -389,10 +525,12 @@ class CloudBackupController {
                         ->value('value');
                 }
                 if (empty($ekey)) {
+                    logModuleCall(self::$module, 'startRun', ['job_id' => $jobId, 'client_id' => $clientId], 'Encryption key not configured');
                     return ['status' => 'fail', 'message' => 'Encryption key not configured'];
                 }
                 $dec = self::decryptSourceConfig($job, $ekey);
                 if (!is_array($dec)) {
+                    logModuleCall(self::$module, 'startRun', ['job_id' => $jobId, 'client_id' => $clientId], 'Unable to decrypt source configuration');
                     return ['status' => 'fail', 'message' => 'Unable to decrypt source configuration'];
                 }
                 $check = AwsS3Validator::validateBucketExists([
@@ -407,18 +545,62 @@ class CloudBackupController {
                     if (!empty($check['message'])) {
                         $msg .= ': ' . $check['message'];
                     }
+                    logModuleCall(self::$module, 'startRun', ['job_id' => $jobId, 'client_id' => $clientId], $msg);
                     return ['status' => 'fail', 'message' => $msg];
                 }
             }
 
-            $runId = Capsule::table('s3_cloudbackup_runs')->insertGetId([
+            // Run insert payload (gate optional columns by schema)
+            $hasDestTypeCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'dest_type');
+            $hasDestBucketCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'dest_bucket');
+            $hasDestPrefixCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'dest_prefix');
+            $hasDestLocalCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'dest_local_path');
+            $hasEngineCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'engine');
+            $hasWorkerHostCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'worker_host');
+            $hasRunUuidCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_uuid');
+
+            $runInsert = [
                 'job_id' => $jobId,
                 'trigger_type' => $triggerType,
                 'status' => 'queued',
                 'created_at' => date('Y-m-d H:i:s'),
-            ]);
+            ];
+            if ($hasRunUuidCol) {
+                $runInsert['run_uuid'] = self::generateUuid();
+            }
+            if ($hasEngineCol) {
+                $runInsert['engine'] = $job['engine'] ?? 'sync';
+            }
+            if ($hasDestTypeCol) {
+                $runInsert['dest_type'] = $job['dest_type'] ?? 's3';
+            }
+            if ($hasDestBucketCol) {
+                $runInsert['dest_bucket'] = $bucket->name ?? null;
+            }
+            if ($hasDestPrefixCol) {
+                $runInsert['dest_prefix'] = $job['dest_prefix'] ?? null;
+            }
+            if ($hasDestLocalCol) {
+                $runInsert['dest_local_path'] = $job['dest_local_path'] ?? null;
+            }
+            // Bind run to agent so agents can filter/claim (only if column exists)
+            $hasAgentIdCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'agent_id');
+            if ($hasAgentIdCol && !empty($job['agent_id'])) {
+                $runInsert['agent_id'] = (int)$job['agent_id'];
+                // Hint: mark worker_host so cloud workers ignore; agent will claim via agent_next_run
+                if ($hasWorkerHostCol) {
+                    $runInsert['worker_host'] = 'agent-' . (int)$job['agent_id'];
+                }
+            }
+            $runId = Capsule::table('s3_cloudbackup_runs')->insertGetId($runInsert);
 
-            return ['status' => 'success', 'run_id' => $runId];
+            $response = ['status' => 'success', 'run_id' => $runId];
+            if ($hasRunUuidCol) {
+                $response['run_uuid'] = $runInsert['run_uuid'];
+            }
+
+            logModuleCall(self::$module, 'startRun', ['job_id' => $jobId, 'client_id' => $clientId], $response);
+            return $response;
         } catch (\Exception $e) {
             logModuleCall(self::$module, 'startRun', ['job_id' => $jobId, 'client_id' => $clientId], $e->getMessage());
             return ['status' => 'fail', 'message' => 'Failed to start run. Please try again later.'];
@@ -446,11 +628,14 @@ class CloudBackupController {
                 return ['status' => 'fail', 'message' => 'Run cannot be cancelled in current status'];
             }
 
+            $update = ['cancel_requested' => 1];
+            // Immediately mark allowed states as cancelled in DB so they are not picked up and UI reflects cancel
+            $update['status'] = 'cancelled';
+            $update['finished_at'] = Capsule::raw('NOW()');
+
             Capsule::table('s3_cloudbackup_runs')
-                ->where('id', $runId)
-                ->update([
-                    'cancel_requested' => 1,
-                ]);
+                ->where('id', $run['id'])
+                ->update($update);
 
             return ['status' => 'success'];
         } catch (\Exception $e) {
@@ -894,6 +1079,30 @@ class CloudBackupController {
             logModuleCall(self::$module, 'ensureVersioningForBucketId', ['bucket_id' => $bucketId], $e->getMessage());
             return ['status' => 'error', 'message' => 'Error enforcing bucket versioning'];
         }
+    }
+
+    /**
+     * Detect UUID format.
+     *
+     * @param mixed $value
+     * @return bool
+     */
+    private static function isUuid($value): bool
+    {
+        return is_string($value) && preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $value);
+    }
+
+    /**
+     * Generate a UUIDv4 (local fallback to avoid reliance on global helpers).
+     *
+     * @return string
+     */
+    public static function generateUuid(): string
+    {
+        $data = random_bytes(16);
+        $data[6] = chr((ord($data[6]) & 0x0f) | 0x40);
+        $data[8] = chr((ord($data[8]) & 0x3f) | 0x80);
+        return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
     }
 }
 

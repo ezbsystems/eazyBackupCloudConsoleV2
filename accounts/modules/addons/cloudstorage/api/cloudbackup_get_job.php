@@ -108,6 +108,7 @@ $outJob = [
     'id'                    => (int) $job['id'],
     'client_id'             => (int) $job['client_id'],
     's3_user_id'            => (int) $job['s3_user_id'],
+    'agent_id'              => isset($job['agent_id']) ? (int) $job['agent_id'] : null,
     'name'                  => $job['name'],
     'source_type'           => $job['source_type'],
     'source_display_name'   => $job['source_display_name'],

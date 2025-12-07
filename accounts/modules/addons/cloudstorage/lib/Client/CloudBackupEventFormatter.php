@@ -55,6 +55,38 @@ class CloudBackupEventFormatter
             'ERROR_QUOTA' => 'Storage provider quota exceeded.',
             'ERROR_INTERNAL' => 'Unexpected error — our team has been notified.',
             'LOG_TRUNCATED' => 'Display log truncated due to size. Showing summary only.',
+            // Kopia-specific
+            'KOPIA_MANIFEST_RECORDED' => 'Snapshot manifest recorded: {manifest_id}.',
+            'KOPIA_MANIFEST_MISSING' => 'Snapshot manifest missing. Source={source} Bucket={bucket} Prefix={prefix} Repo={repo_path}.',
+            'KOPIA_MANIFEST_UPDATE_FAILED' => 'Failed to record manifest: {error}.',
+            'KOPIA_UPLOAD_FAILED' => 'Kopia upload failed: {error}.',
+            'KOPIA_MANIFEST_FALLBACK' => 'Snapshot manifest recovered from repository: {manifest_id}.',
+            'KOPIA_STAGE' => 'Stage: {stage}.',
+            'KOPIA_POLICY' => 'Policy: compression={compression}, parallel_uploads={parallel_uploads}.',
+            'KOPIA_UPLOAD_START' => 'Starting upload from {source} to {bucket}/{prefix}.',
+            'KOPIA_UPLOAD_COMPLETE' => 'Upload completed.',
+            'KOPIA_UPLOAD_NIL_MANIFEST' => 'Upload returned nil manifest.',
+            'KOPIA_SAVE_SNAPSHOT_FAILED' => 'Failed to save snapshot: {error}.',
+            'KOPIA_SOURCE_EMPTY' => 'Source path appears empty: {source}.',
+            'KOPIA_THROTTLE_SET' => 'Upload throttled to {upload_bytes_per_sec} bytes/s.',
+            'KOPIA_THROTTLE_SET_FAILED' => 'Failed to set throttle: {error}.',
+            
+            // Restore-specific
+            'RESTORE_QUEUED' => 'Restore queued for snapshot {manifest_id} to {target_path}.',
+            'RESTORE_STARTING' => 'Starting restore of snapshot {manifest_id} to {target_path}.',
+            'RESTORE_COMPLETED' => 'Restore completed successfully to {target_path}.',
+            'RESTORE_FAILED' => 'Restore failed: {error}.',
+            'RESTORE_PROGRESS' => 'Restored {files_restored} files, {dirs_restored} directories ({bytes_restored}).',
+            'KOPIA_RESTORE_CONNECTING' => 'Connecting to repository at {bucket}/{prefix}.',
+            'KOPIA_RESTORE_LOADING' => 'Loading snapshot {manifest_id} for restore.',
+            'KOPIA_RESTORE_SNAPSHOT_LOADED' => 'Snapshot loaded: source={source_path}, time={start_time}.',
+            'KOPIA_RESTORE_STARTED' => 'Restore started to {target_path}.',
+            'KOPIA_RESTORE_STATS' => 'Restore stats: {files_restored} files, {dirs_restored} dirs, {bytes_restored} bytes.',
+            
+            // Maintenance-specific
+            'MAINTENANCE_STARTING' => 'Starting maintenance ({mode}).',
+            'MAINTENANCE_COMPLETED' => 'Maintenance ({mode}) completed successfully.',
+            'MAINTENANCE_FAILED' => 'Maintenance ({mode}) failed: {error}.',
         ];
     }
 
@@ -92,8 +124,14 @@ class CloudBackupEventFormatter
         if (isset($params['bytes_total'])) {
             $out['bytes_total'] = HelperController::formatSizeUnitsPlain((int) $params['bytes_total']);
         }
+        if (isset($params['bytes_restored'])) {
+            $out['bytes_restored'] = HelperController::formatSizeUnitsPlain((int) $params['bytes_restored']);
+        }
         if (isset($params['speed_bps'])) {
             $out['speed'] = HelperController::formatSizeUnitsPlain((int) $params['speed_bps']);
+        }
+        if (isset($params['upload_bytes_per_sec'])) {
+            $out['upload_bytes_per_sec'] = HelperController::formatSizeUnitsPlain((int) $params['upload_bytes_per_sec']);
         }
         if (isset($params['eta_seconds'])) {
             $out['eta'] = self::formatEta((int) $params['eta_seconds']);
@@ -101,11 +139,15 @@ class CloudBackupEventFormatter
         if (isset($params['pct'])) {
             $out['pct'] = number_format((float) $params['pct'], 2);
         }
-        // Truncate prefixes
-        foreach (['source_prefix_trunc','dest_prefix_trunc'] as $k) {
+        // Truncate prefixes and paths
+        foreach (['source_prefix_trunc', 'dest_prefix_trunc', 'target_path', 'source_path'] as $k) {
             if (isset($params[$k])) {
                 $out[$k] = self::truncatePath((string) $params[$k], 60);
             }
+        }
+        // Truncate manifest IDs for display
+        if (isset($params['manifest_id']) && strlen($params['manifest_id']) > 20) {
+            $out['manifest_id'] = substr($params['manifest_id'], 0, 16) . '...';
         }
         return $out;
     }

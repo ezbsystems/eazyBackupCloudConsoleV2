@@ -1205,7 +1205,13 @@ class BucketController {
                     'secret' => $this->secretKey,
                 ],
                 'use_path_style_endpoint' => true,
-                'signature_version' => 'v4'
+                'signature_version' => 'v4',
+                // Guard against long-running RGW list calls that can block WHMCS.
+                'http' => [
+                    'connect_timeout' => 5.0,
+                    'timeout' => 20.0,
+                    'read_timeout' => 20.0,
+                ],
             ];
 
             $this->s3Client = new S3Client($s3ClientConfig);
