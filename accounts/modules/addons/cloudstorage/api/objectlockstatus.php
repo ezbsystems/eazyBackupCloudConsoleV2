@@ -6,6 +6,11 @@
         die("This file cannot be accessed directly");
     }
 
+    // CRITICAL: Release session lock IMMEDIATELY after init.php loads.
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        session_write_close();
+    }
+
     use Symfony\Component\HttpFoundation\JsonResponse;
     use WHMCS\ClientArea;
     use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
@@ -80,14 +85,6 @@
     $adminSecretKey = $module->where('setting', 'ceph_secret_key')->pluck('value')->first();
     $encryptionKey = $module->where('setting', 'encryption_key')->pluck('value')->first();
     $s3Region = $module->where('setting', 's3_region')->pluck('value')->first() ?: 'us-east-1';
-
-    // Release session lock BEFORE making S3 calls.
-    // WHMCS file-based sessions hold a lock for the duration of the request.
-    // Without this, long S3 operations (especially version/retention checks on large buckets)
-    // block ALL other requests from the same user.
-    if (session_status() === PHP_SESSION_ACTIVE) {
-        session_write_close();
-    }
 
     // Initialize bucket controller and S3 client connection
     $bucketController = new BucketController($endpoint, $adminUser, $adminAccessKey, $adminSecretKey, $s3Region);
