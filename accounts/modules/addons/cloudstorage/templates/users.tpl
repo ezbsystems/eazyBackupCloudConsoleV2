@@ -456,8 +456,8 @@
 															</div>
 														</div>
 														
-														<!-- Expandable Keys Section - Only show when decrypted -->
-														<div x-show="subuser.decrypted" x-collapse class="border-t border-slate-600 p-3 space-y-3">
+													<!-- Expandable Keys Section - Only show when decrypted -->
+													<div x-show="subuser.decrypted" x-transition class="border-t border-slate-600 p-3 space-y-3">
 															<!-- Access Key -->
 															<div>
 																<label class="block text-xs text-slate-400 mb-1">Access Key</label>

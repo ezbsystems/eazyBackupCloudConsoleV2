@@ -71,6 +71,7 @@ $fields = [
     'status',
     'progress_pct',
     'bytes_transferred',
+    'bytes_processed',    // Bytes read/hashed from source (for dedup progress tracking)
     'bytes_total',
     'objects_transferred',
     'objects_total',
@@ -134,6 +135,134 @@ if (empty($update)) {
 // Touch updated_at when the column exists (older schemas may not have it)
 if ($hasUpdatedAtColumn) {
     $update['updated_at'] = Capsule::raw('NOW()');
+}
+
+// Handle disk_manifests_json for Hyper-V and disk image backups
+if (array_key_exists('disk_manifests_json', $body) && is_array($body['disk_manifests_json'])) {
+    $hasDiskManifests = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'disk_manifests_json');
+    if ($hasDiskManifests) {
+        $update['disk_manifests_json'] = json_encode($body['disk_manifests_json']);
+    }
+}
+
+// Handle Hyper-V results
+if (isset($body['hyperv_results']) && is_array($body['hyperv_results'])) {
+    try {
+        // Get the job for this run to find VM mappings
+        $job = Capsule::table('s3_cloudbackup_runs as r')
+            ->join('s3_cloudbackup_jobs as j', 'r.job_id', '=', 'j.id')
+            ->where('r.id', $runId)
+            ->select('j.id as job_id')
+            ->first();
+        
+        foreach ($body['hyperv_results'] as $vmResult) {
+            $vmId = $vmResult['vm_id'] ?? null;
+            $vmName = $vmResult['vm_name'] ?? '';
+            $backupType = $vmResult['backup_type'] ?? 'Full';
+            $checkpointId = $vmResult['checkpoint_id'] ?? '';
+            $rctIds = $vmResult['rct_ids'] ?? [];
+            $diskManifests = $vmResult['disk_manifests'] ?? [];
+            $totalBytes = $vmResult['total_bytes'] ?? 0;
+            $changedBytes = $vmResult['changed_bytes'] ?? 0;
+            $consistencyLevel = $vmResult['consistency_level'] ?? 'Application';
+            $durationSeconds = $vmResult['duration_seconds'] ?? 0;
+            $error = $vmResult['error'] ?? null;
+            
+            if (!$vmId) {
+                continue;
+            }
+            
+            // Skip creating records for VMs that failed - they have no valid backup data
+            if (!empty($error)) {
+                // Log the failed VM for diagnostics
+                logModuleCall('cloudstorage', 'agent_update_run_hyperv_vm_failed', [
+                    'run_id' => $runId,
+                    'vm_id' => $vmId,
+                    'vm_name' => $vmName,
+                ], $error);
+                continue;
+            }
+            
+            // Create or update checkpoint record
+            if ($checkpointId) {
+                // Deactivate old checkpoints for this VM
+                Capsule::table('s3_hyperv_checkpoints')
+                    ->where('vm_id', $vmId)
+                    ->where('is_active', true)
+                    ->update(['is_active' => false, 'merged_at' => Capsule::raw('NOW()')]);
+                
+                // Create new checkpoint record
+                Capsule::table('s3_hyperv_checkpoints')->insert([
+                    'vm_id' => $vmId,
+                    'run_id' => $runId,
+                    'checkpoint_id' => $checkpointId,
+                    'checkpoint_name' => 'EazyBackup_' . date('Ymd_His'),
+                    'checkpoint_type' => $consistencyLevel === 'Application' ? 'Production' : 'Standard',
+                    'rct_ids' => json_encode($rctIds),
+                    'is_active' => true,
+                    'created_at' => Capsule::raw('NOW()'),
+                ]);
+            }
+            
+            // Create backup point record
+            $manifestId = '';
+            if (!empty($diskManifests)) {
+                $manifestId = reset($diskManifests); // Use first disk's manifest as primary
+            }
+            
+            // Find parent backup for incremental
+            $parentBackupId = null;
+            if ($backupType === 'Incremental') {
+                $parentBackup = Capsule::table('s3_hyperv_backup_points')
+                    ->where('vm_id', $vmId)
+                    ->orderBy('created_at', 'desc')
+                    ->first();
+                $parentBackupId = $parentBackup->id ?? null;
+            }
+            
+            // Handle warnings from the agent
+            $warnings = $vmResult['warnings'] ?? [];
+            $warningCode = $vmResult['warning_code'] ?? null;
+            $hasWarnings = !empty($warnings);
+
+            // Insert backup point record
+            $backupPointData = [
+                'vm_id' => $vmId,
+                'run_id' => $runId,
+                'backup_type' => $backupType,
+                'manifest_id' => $manifestId,
+                'parent_backup_id' => $parentBackupId,
+                'disk_manifests' => json_encode($diskManifests),
+                'total_size_bytes' => $totalBytes,
+                'changed_size_bytes' => $changedBytes,
+                'duration_seconds' => $durationSeconds,
+                'consistency_level' => $consistencyLevel,
+                'created_at' => Capsule::raw('NOW()'),
+            ];
+
+            // Add warnings columns if schema supports them
+            if (Capsule::schema()->hasColumn('s3_hyperv_backup_points', 'warnings_json')) {
+                $backupPointData['warnings_json'] = json_encode($warnings);
+                $backupPointData['warning_code'] = $warningCode;
+                $backupPointData['has_warnings'] = $hasWarnings;
+            }
+
+            Capsule::table('s3_hyperv_backup_points')->insert($backupPointData);
+            
+            // Update VM's RCT enabled status based on whether we got RCT IDs
+            if (!empty($rctIds)) {
+                Capsule::table('s3_hyperv_vms')
+                    ->where('id', $vmId)
+                    ->update(['rct_enabled' => true, 'updated_at' => Capsule::raw('NOW()')]);
+            }
+        }
+    } catch (\Throwable $e) {
+        // Log but don't fail the update
+        logModuleCall('cloudstorage', 'agent_update_run_hyperv_error', [
+            'run_id' => $runId,
+            'agent_id' => $agent->id,
+        ], $e->getMessage());
+    }
 }
 
 try {

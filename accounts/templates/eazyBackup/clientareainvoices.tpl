@@ -187,7 +187,14 @@ jQuery(document).ready(function () {
                 // select element:               
                 length.find('select')
                     .removeClass()
-                    .addClass("inline-block appearance-none px-3 py-1.5 border border-slate-700 text-slate-200 bg-slate-900/70 rounded-lg focus:outline-none focus:ring-0 focus:border-sky-600 text-xs");
+                    .addClass("inline-block appearance-none border border-slate-700 text-slate-200 bg-slate-900/70 rounded-lg focus:outline-none focus:ring-0 focus:border-sky-600 text-xs cursor-pointer")
+                    .css({
+                        'padding': '0.375rem 2rem 0.375rem 0.75rem',
+                        'background-image': 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%2394a3b8\' stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'1.5\' d=\'m6 8 4 4 4-4\'/%3E%3C/svg%3E")',
+                        'background-position': 'right 0.5rem center',
+                        'background-repeat': 'no-repeat',
+                        'background-size': '1.25em 1.25em'
+                    });
 
                 // For the search box, make the label text smaller.
                 filter.find('label')

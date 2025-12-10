@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/../../../../init.php';
+require_once __DIR__ . '/../lib/Client/MspController.php';
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -10,6 +11,7 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\ClientArea;
 use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
+use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 
 $ca = new ClientArea();
 if (!$ca->isLoggedIn()) {
@@ -33,6 +35,13 @@ if ($jobId <= 0) {
 $job = CloudBackupController::getJob($jobId, $clientId);
 if (!$job) {
     (new JsonResponse(['status' => 'fail', 'message' => 'Job not found or access denied'], 200))->send();
+    exit;
+}
+
+// MSP tenant authorization check
+$accessCheck = MspController::validateJobAccess($jobId, $clientId);
+if (!$accessCheck['valid']) {
+    (new JsonResponse(['status' => 'fail', 'message' => $accessCheck['message']], 200))->send();
     exit;
 }
 

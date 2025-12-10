@@ -256,6 +256,7 @@ document.addEventListener('DOMContentLoaded', function(){
 
   // Vault slide-over wiring
   const vpanel = document.getElementById('vault-slide-panel');
+  const vbackdrop = document.getElementById('vault-panel-backdrop');
   if (vpanel) {
     const vclose = document.getElementById('vault-panel-close');
     const idEl = document.getElementById('vault-mgr-id');
@@ -272,6 +273,26 @@ document.addEventListener('DOMContentLoaded', function(){
     const delCancel = document.getElementById('vault-delete-cancel');
     const delConfirm = document.getElementById('vault-delete-confirm-btn');
     const delPwd = document.getElementById('vault-delete-password');
+
+    // Helper to show backdrop
+    function showBackdrop() {
+      if (vbackdrop) {
+        vbackdrop.classList.remove('opacity-0', 'pointer-events-none');
+        vbackdrop.classList.add('opacity-100', 'pointer-events-auto');
+      }
+    }
+    // Helper to hide backdrop
+    function hideBackdrop() {
+      if (vbackdrop) {
+        vbackdrop.classList.remove('opacity-100', 'pointer-events-auto');
+        vbackdrop.classList.add('opacity-0', 'pointer-events-none');
+      }
+    }
+    // Close panel function
+    function closeVaultPanel() {
+      vpanel.classList.add('translate-x-full');
+      hideBackdrop();
+    }
 
     function openVaultPanel(btn){
       try {
@@ -340,9 +361,13 @@ document.addEventListener('DOMContentLoaded', function(){
         } catch(_){}
       }
       vpanel.classList.remove('translate-x-full');
+      showBackdrop();
       try { document.dispatchEvent(new CustomEvent('vault:open', { detail: { id, name } })); } catch(_) {}
     }
-    vclose && vclose.addEventListener('click', ()=> vpanel.classList.add('translate-x-full'));
+    // Close panel when clicking close button
+    vclose && vclose.addEventListener('click', closeVaultPanel);
+    // Close panel when clicking backdrop (outside the panel)
+    vbackdrop && vbackdrop.addEventListener('click', closeVaultPanel);
     unlimitedEl && unlimitedEl.addEventListener('change', ()=>{
       if (sizeEl && unitEl) {
         const on = !!unlimitedEl.checked;
@@ -371,7 +396,16 @@ document.addEventListener('DOMContentLoaded', function(){
         if (on) { sizeEl.value=''; }
       }
     });
+    // Use event delegation for vault panel buttons so dynamically created buttons also work
     document.querySelectorAll('.open-vault-panel').forEach(btn => btn.addEventListener('click', (e)=>{ e.preventDefault(); openVaultPanel(btn); }));
+    // Also handle configure-vault-button clicks (the edit pencil in quota column) with event delegation
+    document.addEventListener('click', (e) => {
+      const configBtn = e.target.closest('.configure-vault-button');
+      if (configBtn) {
+        e.preventDefault();
+        openVaultPanel(configBtn);
+      }
+    });
 
     async function callVault(action, extra={}){
       try {
@@ -409,15 +443,248 @@ document.addEventListener('DOMContentLoaded', function(){
       try{ if(window.showToast) window.showToast(r.message || (r.status==='success'?'Changes saved.':'Save failed'), r.status==='success'?'success':'error'); }catch(_){ }
       if (r.status==='success') {
         titleName.textContent = newName;
+        // Calculate new quota bytes
+        let newQuotaBytes = 0;
+        if (!unlimited) {
+          newQuotaBytes = unit==='TB' ? Math.round(size*(1024**4)) : Math.round(size*(1024**3));
+        }
+        const quotaEnabled = !unlimited && newQuotaBytes > 0;
+        
+        // Update the manage button data attributes
         const btn = document.querySelector('.open-vault-panel[data-vault-id="' + id + '"]');
         if (btn) {
           btn.setAttribute('data-vault-name', newName);
-          btn.setAttribute('data-vault-quota-enabled', (!unlimited).toString());
-          let bytes = 0; if (!unlimited) { bytes = unit==='TB' ? Math.round(size*(1024**4)) : Math.round(size*(1024**3)); }
-          btn.setAttribute('data-vault-quota-bytes', String(bytes));
+          btn.setAttribute('data-vault-quota-enabled', quotaEnabled.toString());
+          btn.setAttribute('data-vault-quota-bytes', String(newQuotaBytes));
         }
+        
+        // Update the table row dynamically
+        updateVaultTableRow(id, newName, quotaEnabled, newQuotaBytes);
+        
+        // Update the billing summary card
+        updateBillingSummary();
       }
     });
+    
+    // Helper function to format bytes to human-readable size
+    function formatBytes(bytes, decimals = 2) {
+      if (bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(decimals)) + sizes[i];
+    }
+    
+    // Update a single vault row in the table
+    function updateVaultTableRow(vaultId, newName, quotaEnabled, quotaBytes) {
+      const esc = (str) => (window.CSS && CSS.escape ? CSS.escape(str) : str);
+      let targetRow = document.querySelector(`tr[data-vault-id="${esc(vaultId)}"]`);
+      if (!targetRow) {
+        const btn = document.querySelector(`.open-vault-panel[data-vault-id="${esc(vaultId)}"]`);
+        if (btn) targetRow = btn.closest('tr');
+      }
+      if (!targetRow) return;
+
+      const usedBytes = parseInt(targetRow.getAttribute('data-used-bytes') || '0', 10);
+      const acct = targetRow.getAttribute('data-account') || targetRow.getAttribute('data-acct') || '';
+      const serviceId = targetRow.getAttribute('data-service-id') || '';
+      const username = targetRow.getAttribute('data-username') || '';
+
+      // Update data attributes
+      targetRow.setAttribute('data-quota-bytes', String(quotaBytes));
+      targetRow.setAttribute('data-name', newName);
+
+      // Update the vault name cell (best-effort)
+      const nameCell = targetRow.querySelector('td[x-show="cols.name"]') || targetRow.querySelector('td:nth-child(2)');
+      if (nameCell) nameCell.textContent = newName;
+
+      // Update the quota cell
+      const quotaCell = targetRow.querySelector('[data-cell="quota"]') || targetRow.querySelector('td[x-show="cols.quota"]');
+      if (quotaCell) {
+        if (!quotaEnabled || quotaBytes === 0) {
+          quotaCell.innerHTML = '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-slate-300">Unlimited</span>';
+        } else {
+          const quotaFormatted = formatBytes(quotaBytes, 2);
+          quotaCell.innerHTML = `
+            <div class="flex flex-col gap-1">
+              <span class="inline-flex items-center gap-2">
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-slate-200" title="Exact quota: ${quotaFormatted}">${quotaFormatted}</span>
+                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-900/40 text-emerald-300">On</span>
+                <button type="button" class="configure-vault-button ml-1 p-1.5 rounded hover:bg-slate-700 text-slate-300"
+                    title="Edit quota"
+                    data-vault-id="${vaultId}"
+                    data-vault-name="${newName}"
+                    data-vault-quota-enabled="true"
+                    data-vault-quota-bytes="${quotaBytes}"
+                    data-service-id="${serviceId}"
+                    data-username="${username}">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232a2.5 2.5 0 113.536 3.536L7.5 20.036 3 21l.964-4.5L15.232 5.232z"/></svg>
+                </button>
+              </span>
+              <span class="text-[10px] text-slate-500">Per-vault limit</span>
+            </div>`;
+        }
+      }
+
+      // Update the usage cell
+      const usageCell = targetRow.querySelector('[data-cell="usage"]') || targetRow.querySelector('td[x-show="cols.usage"]');
+      if (usageCell) {
+        if (!quotaEnabled || quotaBytes === 0) {
+          usageCell.innerHTML = `
+            <div class="w-56">
+              <div class="h-2.5 w-full rounded bg-slate-800/70 overflow-hidden">
+                <div class="h-full w-1/3 bg-gradient-to-r from-slate-600/40 via-slate-500/40 to-slate-600/40 animate-pulse"></div>
+              </div>
+              <div class="mt-1 text-xs text-slate-500">Usage unavailable (no quota)</div>
+            </div>`;
+        } else {
+          let pct = (usedBytes / quotaBytes) * 100;
+          if (pct > 100) pct = 100;
+          if (pct < 0) pct = 0;
+          const pctColor = pct < 70 ? 'bg-emerald-500' : (pct < 90 ? 'bg-amber-500' : 'bg-rose-500');
+          usageCell.innerHTML = `
+            <div class="w-56">
+              <div class="h-2.5 w-full rounded bg-slate-800/70 overflow-hidden" title="${formatBytes(usedBytes, 2)} of ${formatBytes(quotaBytes, 2)} (${pct.toFixed(1)}%)">
+                <div class="h-full transition-[width] duration-500 ${pctColor}" style="width: ${pct}%;"></div>
+              </div>
+              <div class="mt-1 text-xs text-slate-400">${formatBytes(usedBytes, 2)} / ${formatBytes(quotaBytes, 2)} (${pct.toFixed(1)}%)</div>
+            </div>`;
+        }
+      }
+
+      // Update the manage button attributes
+      const manageBtn = targetRow.querySelector('.open-vault-panel[data-vault-id="' + vaultId + '"]');
+      if (manageBtn) {
+        manageBtn.setAttribute('data-vault-name', newName);
+        manageBtn.setAttribute('data-vault-quota-enabled', quotaEnabled.toString());
+        manageBtn.setAttribute('data-vault-quota-bytes', String(quotaBytes));
+        if (serviceId) manageBtn.setAttribute('data-service-id', serviceId);
+        if (username) manageBtn.setAttribute('data-username', username);
+      }
+
+      // Update account grouping totals if present
+      if (acct) {
+        updateAccountGroup(acct);
+      }
+    }
+
+    // Update per-account header & summary rows (aggregated view)
+    function updateAccountGroup(acct) {
+      if (!acct) return;
+      const rows = document.querySelectorAll(`tr[data-account="${acct}"]`);
+      if (!rows.length) return;
+      let totalUsedBytes = 0;
+      let totalQuotaBytes = 0;
+      let count = 0;
+      rows.forEach(r => {
+        count++;
+        const used = parseInt(r.getAttribute('data-used-bytes') || '0', 10);
+        const quota = parseInt(r.getAttribute('data-quota-bytes') || '0', 10);
+        totalUsedBytes += used;
+        if (quota > 0) totalQuotaBytes += quota;
+      });
+      const tbBytes = 1024 * 1024 * 1024 * 1024;
+      const billableTB = totalQuotaBytes > 0 ? Math.ceil(totalQuotaBytes / tbBytes) : 0;
+
+      const header = document.querySelector(`tr[data-account-header="${acct}"]`);
+      if (header) {
+        header.setAttribute('data-total-quota-bytes', String(totalQuotaBytes));
+        header.setAttribute('data-total-used-bytes', String(totalUsedBytes));
+        const quotaSpan = header.querySelector('.acct-total-quota');
+        if (quotaSpan) quotaSpan.textContent = `Total Quota: ${formatBytes(totalQuotaBytes, 2)}`;
+        const billableSpan = header.querySelector('.acct-billable');
+        if (billableSpan) billableSpan.textContent = `Billable: ${billableTB > 0 ? billableTB + ' TB' : '—'}`;
+        const badge = header.querySelector('.acct-count-badge');
+        if (badge) badge.textContent = `${count} vault${count !== 1 ? 's' : ''}`;
+      }
+
+      const summary = document.querySelector(`tr[data-account-summary="${acct}"]`);
+      if (summary) {
+        const usedEl = summary.querySelector('.acct-summary-used');
+        if (usedEl) usedEl.textContent = `Total Used: ${formatBytes(totalUsedBytes, 2)}`;
+        const quotaEl = summary.querySelector('.acct-summary-quota');
+        if (quotaEl) quotaEl.textContent = `Total Quota: ${formatBytes(totalQuotaBytes, 2)}`;
+        const billableEl = summary.querySelector('.acct-summary-billable');
+        if (billableEl) billableEl.textContent = `Billable: ${billableTB > 0 ? billableTB + ' TB' : '—'}`;
+      }
+    }
+    
+    // Update the billing summary card (per-user view)
+    function updateBillingSummary() {
+      // Recalculate totals from all vault rows
+      const allRows = document.querySelectorAll('tr[data-used-bytes][data-quota-bytes]');
+      let totalUsedBytes = 0;
+      let totalQuotaBytes = 0;
+      let vaultCount = 0;
+      let quotaEnabledCount = 0;
+      
+      allRows.forEach(row => {
+        vaultCount++;
+        const usedBytes = parseInt(row.getAttribute('data-used-bytes') || '0', 10);
+        const quotaBytes = parseInt(row.getAttribute('data-quota-bytes') || '0', 10);
+        totalUsedBytes += usedBytes;
+        if (quotaBytes > 0) {
+          totalQuotaBytes += quotaBytes;
+          quotaEnabledCount++;
+        }
+      });
+      
+      // Calculate billable TB tier (round up to nearest 1TB)
+      const tbBytes = 1024 * 1024 * 1024 * 1024; // 1TB in bytes
+      const billableTB = totalQuotaBytes > 0 ? Math.ceil(totalQuotaBytes / tbBytes) : 0;
+      
+      // Update summary card elements
+      const summaryCard = document.querySelector('.bg-gradient-to-r.from-slate-800\\/80');
+      if (summaryCard) {
+        // Update vault count text
+        const vaultCountEl = summaryCard.querySelector('p.text-xs.text-slate-400');
+        if (vaultCountEl) {
+          vaultCountEl.textContent = `${vaultCount} vault${vaultCount !== 1 ? 's' : ''}${quotaEnabledCount > 0 ? `, ${quotaEnabledCount} with quota enabled` : ''}`;
+        }
+        
+        // Update Total Used
+        const totalUsedEl = summaryCard.querySelectorAll('.flex.flex-col span.text-slate-200')[0];
+        if (totalUsedEl) totalUsedEl.textContent = formatBytes(totalUsedBytes, 2);
+        
+        // Update Total Quota
+        const totalQuotaEl = summaryCard.querySelectorAll('.flex.flex-col span.text-slate-200')[1];
+        if (totalQuotaEl) {
+          totalQuotaEl.innerHTML = totalQuotaBytes > 0 
+            ? formatBytes(totalQuotaBytes, 2) 
+            : '<span class="text-slate-400">No quotas set</span>';
+        }
+        
+        // Update Billable Tier
+        const billableEl = summaryCard.querySelector('.text-emerald-400.font-bold');
+        if (billableEl) {
+          billableEl.innerHTML = billableTB > 0 
+            ? `${billableTB} TB` 
+            : '<span class="text-slate-400 text-sm font-normal">—</span>';
+        }
+        
+        // Update the explanation text
+        const explanationDiv = summaryCard.querySelector('.mt-3.pt-3.border-t');
+        if (explanationDiv) {
+          if (totalQuotaBytes > 0) {
+            explanationDiv.classList.remove('hidden');
+            explanationDiv.style.display = '';
+            const explanationP = explanationDiv.querySelector('p');
+            if (explanationP) {
+              explanationP.innerHTML = `
+                <svg class="inline h-3.5 w-3.5 mr-1 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+                Your total quota across all vaults is <strong class="text-slate-300">${formatBytes(totalQuotaBytes, 2)}</strong>. 
+                Billing is calculated by summing all vault quotas, then rounding up to the nearest 1TB tier 
+                (<strong class="text-emerald-400">${billableTB} TB</strong>).
+              `;
+            }
+          } else {
+            explanationDiv.style.display = 'none';
+          }
+        }
+      }
+    }
 
     delBtn && delBtn.addEventListener('click', ()=>{ if (delWrap) delWrap.classList.toggle('hidden'); });
     delCancel && delCancel.addEventListener('click', ()=>{ if (delWrap) delWrap.classList.add('hidden'); if (delPwd) delPwd.value=''; });

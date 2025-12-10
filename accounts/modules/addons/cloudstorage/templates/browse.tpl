@@ -64,8 +64,8 @@
     </div>
 
     <!-- Main Content -->
-    <div class="container mx-auto px-4 flex-1 flex flex-col pb-6">
-        <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6 flex-1">
+    <div class="container mx-auto flex-1 flex flex-col pb-10">
+        <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-4 py-6 flex-1">
             <style>
             [x-cloak] { display: none !important; }
             .btn-run-now {
@@ -98,6 +98,105 @@
                 #bucket-layout {
                     flex-direction: column;
                 }
+            }
+            /* Dark thin scrollbar for table container */
+            .table-scroll-container {
+                scrollbar-width: thin;
+                scrollbar-color: #334155 #1e293b;
+            }
+            .table-scroll-container::-webkit-scrollbar {
+                width: 6px;
+                height: 6px;
+            }
+            .table-scroll-container::-webkit-scrollbar-track {
+                background: #1e293b;
+                border-radius: 3px;
+            }
+            .table-scroll-container::-webkit-scrollbar-thumb {
+                background: #334155;
+                border-radius: 3px;
+            }
+            .table-scroll-container::-webkit-scrollbar-thumb:hover {
+                background: #475569;
+            }
+            /* DataTables pagination styling to match billing */
+            .dataTables_paginate .paginate_button {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                min-width: 32px;
+                height: 32px;
+                padding: 0 8px;
+                margin: 0 2px;
+                border-radius: 6px;
+                font-size: 12px;
+                font-weight: 500;
+                cursor: pointer;
+                transition: all 0.15s ease;
+            }
+            /* DataTables controls override to match billing table */
+            .browser-dt-filter input.dt-eb-input {
+                width: 100% !important;
+                padding: 0.375rem 0.75rem !important;
+                border: 1px solid #334155 !important;
+                color: #e2e8f0 !important;
+                background-color: rgba(15, 23, 42, 0.7) !important;
+                border-radius: 0.5rem !important;
+                font-size: 0.75rem !important;
+                line-height: 1.25rem !important;
+                outline: none !important;
+                box-shadow: none !important;
+                margin: 0 !important;
+                height: auto !important;
+                background-clip: padding-box !important;
+            }
+            .browser-dt-filter input.dt-eb-input:focus {
+                border-color: #0284c7 !important;
+            }
+            .browser-dt-filter label {
+                display: block !important;
+                text-align: left !important;
+            }
+            .browser-dt-length select.dt-eb-select {
+                width: auto !important;
+                padding: 0.375rem 2rem 0.375rem 0.75rem !important;
+                border: 1px solid #334155 !important;
+                color: #e2e8f0 !important;
+                background-color: rgba(15, 23, 42, 0.7) !important;
+                border-radius: 0.5rem !important;
+                font-size: 0.75rem !important;
+                line-height: 1.25rem !important;
+                outline: none !important;
+                box-shadow: none !important;
+                margin: 0 !important;
+                background-position: right 0.5rem center !important;
+                background-repeat: no-repeat !important;
+                background-size: 1.25em 1.25em !important;
+                background-clip: padding-box !important;
+            }
+            /* Toggle switch styling (matching cloudnas.tpl) */
+            .toggle-switch {
+                position: relative;
+                width: 2.75rem;
+                height: 1.5rem;
+                border-radius: 9999px;
+                transition: background-color 0.2s;
+                cursor: pointer;
+                flex-shrink: 0;
+            }
+            .toggle-switch .toggle-knob {
+                position: absolute;
+                top: 0.125rem;
+                left: 0.125rem;
+                width: 1.25rem;
+                height: 1.25rem;
+                background: white;
+                border-radius: 9999px;
+                transition: transform 0.2s;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+            }
+            .toggle-switch.active .toggle-knob {
+                transform: translateX(1.25rem);
             }
             </style>
 
@@ -263,46 +362,97 @@
 
             <!-- Bucket Contents Table + Details Panel -->
             <div id="bucket-layout" class="mt-4 flex flex-col gap-4 lg:flex-row lg:items-start">
-                <div class="flex-1 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-                    <div class="overflow-x-auto">
-                        <table id="bucketContents" class="min-w-full text-left text-sm text-slate-200">
-                            <thead class="bg-slate-900/80 border-b border-slate-800">
+                <div class="flex-1 rounded-2xl border border-slate-800 bg-slate-900/80 backdrop-blur-sm shadow-[0_18px_60px_rgba(0,0,0,0.65)]">
+                    <!-- Table title row -->
+                    <div class="px-4 py-3">
+                        <h3 class="text-sm font-semibold text-slate-100">Objects</h3>
+                    </div>
+                    <!-- Table content with fixed height and scrollable area -->
+                    <div class="p-4">
+                        <div class="table-scroll-container overflow-auto" style="max-height: 520px;">
+                            <table id="bucketContents" class="table-auto w-full text-sm text-slate-200">
+                                <thead class="bg-slate-900/90 border-b border-slate-800 text-xs uppercase tracking-wide text-slate-400 sticky top-0 z-10">
                                 <tr>
                                     <!-- Checkbox for selecting all files -->
-                                    <th class="px-6 py-3 text-xs font-medium uppercase tracking-wider text-slate-400">
-                                        <input type="checkbox" id="selectAllFiles" />
+                                        <th class="px-4 py-3 text-left font-semibold w-10">
+                                            <input type="checkbox" id="selectAllFiles" class="rounded border-slate-600 bg-slate-800 text-sky-500 focus:ring-sky-500 focus:ring-offset-0" />
                                     </th>
-                                    <th class="px-6 py-3 text-xs font-medium uppercase tracking-wider text-slate-400"></th>
-                                    <th class="px-6 py-3 text-xs font-medium uppercase tracking-wider text-slate-400">Name</th>
-                                    <th class="px-6 py-3 text-xs font-medium uppercase tracking-wider text-slate-400">Size</th>
-                                    <th class="px-6 py-3 text-xs font-medium uppercase tracking-wider text-slate-400">Last Modified</th>
-                                    <th class="px-6 py-3 text-xs font-medium uppercase tracking-wider text-slate-400">ETag</th>
-                                    <th class="px-6 py-3 text-xs font-medium uppercase tracking-wider text-slate-400">Storage Class</th>
-                                    <th class="px-6 py-3 text-xs font-medium uppercase tracking-wider text-slate-400">Owner</th>
-                                    <th class="px-6 py-3 text-xs font-medium uppercase tracking-wider text-slate-400">Version Id</th>
-                                    <th class="px-6 py-3 text-xs font-medium uppercase tracking-wider text-slate-400"></th>
+                                        <th class="px-4 py-3 text-left font-semibold w-8"></th>
+                                        <th class="px-4 py-3 text-left font-semibold">Name</th>
+                                        <th class="px-4 py-3 text-left font-semibold whitespace-nowrap">Size</th>
+                                        <th class="px-4 py-3 text-left font-semibold whitespace-nowrap">Last Modified</th>
+                                        <th class="px-4 py-3 text-left font-semibold">ETag</th>
+                                        <th class="px-4 py-3 text-left font-semibold whitespace-nowrap">Storage Class</th>
+                                        <th class="px-4 py-3 text-left font-semibold">Owner</th>
+                                        <th class="px-4 py-3 text-left font-semibold whitespace-nowrap">Version Id</th>
+                                        <th class="px-4 py-3 text-left font-semibold w-10"></th>
                                 </tr>
                             </thead>
-                            <tbody class="bg-slate-900 divide-y divide-slate-800">
+                                <tbody class="bg-slate-900/60 divide-y divide-slate-800 text-slate-300">
                                 <!-- DataTables will populate additional rows here -->
                             </tbody>
                         </table>
+                        </div>
                     </div>
                 </div>
 
             </div>
 
             <!-- Upload Files Card -->
-            <div class="mt-6 bg-[#11182759] rounded-md p-4">
-                <h3 class="text-lg font-semibold text-white mb-4">Upload Files</h3>
-                <div class="upload-container relative border-2 border-dashed border-gray-600 rounded-md p-6 text-center cursor-pointer hover:bg-gray-600">
+            <div class="mt-5 rounded-2xl border border-slate-800 bg-slate-900/80 backdrop-blur-sm shadow-[0_18px_60px_rgba(0,0,0,0.65)]">
+                <!-- Title row -->
+                <div class="px-4 py-3">
+                    <h3 class="text-sm font-semibold text-slate-100">Upload Files & Folders</h3>
+                </div>
+                <!-- Content -->
+                <div class="p-4 pt-0">
+                    <div class="upload-container relative border-2 border-dashed border-slate-700 rounded-xl p-6 text-center cursor-pointer hover:bg-slate-800/50 hover:border-slate-600 transition-colors" id="dropZone">
                     <input id="fileInput" type="file" name="uploadedFiles[]" multiple class="hidden">
-                    <label for="fileInput" class="text-gray-300">
-                        Drop files here to upload or <span class="text-sky-500 underline">browse</span> to select
-                    </label>
-                    <div id="progressContainer" class="hidden mt-4">
-                        <progress id="fileUploadProgress" value="0" max="100" class="w-full h-2 bg-gray-600 rounded"></progress>
-                        <div id="uploadStatus" class="mt-2 text-sm text-gray-300"></div>
+                        <input id="folderInput" type="file" name="uploadedFolders[]" webkitdirectory directory multiple class="hidden">
+                        <div class="flex flex-col items-center gap-3">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                            </svg>
+                            <div class="text-slate-300 text-sm">
+                                <span class="font-medium">Drag and drop</span> files or folders here
+                    </div>
+                            <div class="text-slate-500 text-xs">or</div>
+                            <div class="flex gap-3">
+                                <button type="button" onclick="document.getElementById('fileInput').click()" class="inline-flex items-center rounded-lg border border-slate-700 bg-slate-900/80 px-3 py-1.5 text-xs font-medium text-slate-100 hover:bg-slate-800 hover:border-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500 transition-colors">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                    </svg>
+                                    Select Files
+                                </button>
+                                <button type="button" onclick="document.getElementById('folderInput').click()" class="inline-flex items-center rounded-lg border border-slate-700 bg-slate-900/80 px-3 py-1.5 text-xs font-medium text-slate-100 hover:bg-slate-800 hover:border-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500 transition-colors">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                                    </svg>
+                                    Select Folder
+                                </button>
+                </div>
+                            <div class="text-[11px] text-slate-500 mt-1">Folder uploads preserve directory structure</div>
+                        </div>
+                    </div>
+                    <!-- Upload Queue -->
+                    <div id="uploadQueueContainer" class="hidden mt-4">
+                        <div class="flex items-center justify-between mb-2">
+                            <h4 class="text-xs font-medium text-slate-300">Upload Queue</h4>
+                            <div class="flex items-center gap-3">
+                                <span id="uploadQueueSummary" class="text-[11px] text-slate-400"></span>
+                                <button type="button" id="cancelAllUploads" class="text-[11px] text-red-400 hover:text-red-300 hidden">Cancel All</button>
+                            </div>
+                        </div>
+                        <div id="uploadQueueProgress" class="mb-2">
+                            <div class="flex items-center justify-between text-[11px] text-slate-400 mb-1">
+                                <span id="uploadProgressText">0 / 0 files</span>
+                                <span id="uploadProgressPercent">0%</span>
+                            </div>
+                            <div class="w-full bg-slate-800 rounded-full h-1.5">
+                                <div id="uploadProgressBar" class="bg-emerald-500 h-1.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+                            </div>
+                        </div>
+                        <div id="uploadQueue" class="max-h-40 overflow-y-auto space-y-1 table-scroll-container"></div>
                     </div>
                 </div>
             </div>
@@ -499,8 +649,8 @@
                                 if (!isNaN(mk) && mk > 0) {
                                     d.max_keys = Math.min(mk, 100); // Cap at 100 for versions
                                 }
-                                d.include_deleted = jQuery('#filterIncludeDeleted').length ? (jQuery('#filterIncludeDeleted').is(':checked') ? 1 : 0) : 1;
-                                d.only_with_versions = jQuery('#filterOnlyWithVersions').length ? (jQuery('#filterOnlyWithVersions').is(':checked') ? 1 : 0) : 0;
+                                d.include_deleted = jQuery('#filterIncludeDeletedToggle').length ? (jQuery('#filterIncludeDeletedToggle').attr('data-active') === 'true' ? 1 : 0) : 1;
+                                d.only_with_versions = jQuery('#filterOnlyWithVersionsToggle').length ? (jQuery('#filterOnlyWithVersionsToggle').attr('data-active') === 'true' ? 1 : 0) : 0;
                             } else {
                                 d.username    = username;
                                 d.bucket      = bucketName;
@@ -733,93 +883,144 @@
                     search: true,
                     pageLength: 10,
                     lengthMenu: [10, 25, 50, 100],
+                    autoWidth: false,
+                    responsive: true,
+                    bInfo: false,
                     language: {
-                        emptyTable: "No objects found"
+                        emptyTable: "No objects found",
+                        paginate: {
+                            previous: "Previous",
+                            next: "Next"
+                        }
                     },
-                    dom: "<'flex items-center justify-between mb-4'<'flex items-center space-x-2'l><'flex items-center space-x-2'f>>" +
+                    dom: "<'browser-dt-controls'<'browser-dt-length'l><'browser-dt-filter'f>>" +
                         "tr" +
-                        "<'flex items-center justify-between mt-4'<'text-gray-400'i><'pagination-wrapper'p>>",
+                        "<'browser-dt-footer'<'browser-dt-info'i><'browser-dt-pagination'p>>",
 
                     initComplete: function(settings, json) {
-                        // LENGTH MENU
-                        const $lengthContainer = jQuery('.dataTables_length');
-
-                        $lengthContainer.removeClass('dataTables_length');
+                        const wrapper = jQuery('#bucketContents_wrapper');
+                        
+                        // Wrap length and filter in a styled container matching billing table
+                        wrapper.find('.browser-dt-controls')
+                            .addClass('flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between px-4 py-3 border-b border-slate-800');
+                        
+                        // LENGTH MENU - matching billing table style
+                        const $lengthContainer = wrapper.find('.browser-dt-length');
+                        $lengthContainer.addClass('mr-auto');
 
                         let $lengthLabel = $lengthContainer.find('label');
-                        $lengthLabel.addClass('text-gray-400 mr-2');
+                        // Wrap text nodes in spans for consistent styling
+                        $lengthLabel.contents().filter(function() {
+                            return this.nodeType === 3 && jQuery.trim(jQuery(this).text()) !== "";
+                        }).each(function() {
+                            var text = jQuery.trim(jQuery(this).text());
+                            jQuery(this).replaceWith('<span>' + text + '</span>');
+                        });
+                        $lengthLabel.removeClass().addClass('text-xs inline-flex items-center text-slate-300 space-x-1');
 
                         let $lengthSelect = $lengthContainer.find('select');
                         $lengthSelect.removeClass().addClass(
-                            "bg-gray-700 text-gray-300 border border-gray-600 rounded pl-2 pr-8 py-2 focus:outline-none focus:ring-0 " +
-                            "focus:border-sky-600"
-                        );
+                            "dt-eb-select inline-block appearance-none border border-slate-700 text-slate-200 bg-slate-900/70 rounded-lg focus:outline-none focus:ring-0 focus:border-sky-600 text-xs cursor-pointer"
+                        ).css({
+                            'padding': '0.375rem 2rem 0.375rem 0.75rem',
+                            'background-image': 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%2394a3b8\' stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'1.5\' d=\'m6 8 4 4 4-4\'/%3E%3C/svg%3E")',
+                            'background-position': 'right 0.5rem center',
+                            'background-repeat': 'no-repeat',
+                            'background-size': '1.25em 1.25em'
+                        });
 
-                        // --- SEARCH BOX ---
-                        const $filterContainer = jQuery('.dataTables_filter');
-                        $filterContainer.removeClass('dataTables_filter');
+                        // SEARCH BOX - matching billing table style exactly
+                        const $filterContainer = wrapper.find('.browser-dt-filter');
+                        $filterContainer.addClass('ml-auto');
 
-                        let $filterLabel = $filterContainer.find('label');
-                        // 1) Remove the text node (which says "Search:")
-                        $filterLabel.contents().filter(function() {
-                            return this.nodeType === 3; // text node
-                        }).remove();
+                        $filterContainer.find('label')
+                            .removeClass()
+                            .addClass('text-xs text-slate-300');
 
-                        $filterLabel.addClass('text-gray-400 mr-2');
-
-                        let $searchInput = $filterLabel.find('input[type="search"]');
-                        $searchInput
+                        $filterContainer.find('input')
                             .removeClass()
                             .addClass(
-                                "block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600"
+                                "dt-eb-input block w-full px-3 py-1.5 border border-slate-700 text-slate-200 bg-slate-900/70 rounded-lg focus:outline-none focus:ring-0 focus:border-sky-600 text-xs"
                             )
-                            .attr('placeholder', 'Search');
+                            .attr('placeholder', 'Search...');
 
-                        $filterContainer.addClass('flex items-center space-x-2');
+                        // FOOTER - info and pagination
+                        wrapper.find('.browser-dt-footer')
+                            .addClass('flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between px-4 py-3 border-t border-slate-800');
+                        
+                        wrapper.find('.browser-dt-info').addClass('text-xs text-slate-400');
+                        wrapper.find('.browser-dt-pagination').addClass('ml-auto');
 
-                        let $pagination = jQuery('.dataTables_paginate .paginate_button');
-                        $pagination.removeClass().addClass(
-                            "px-3 py-1 mx-0.5 rounded bg-gray-700 text-gray-300 hover:bg-gray-600"
-                        );
+                        // PAGINATION - matching billing table style
+                        const stylePagination = function() {
+                            wrapper.find('.dataTables_paginate .paginate_button').each(function() {
+                                const $btn = jQuery(this);
+                                $btn.removeClass();
+                                if ($btn.hasClass('current') || $btn.attr('class')?.includes('current')) {
+                                    $btn.addClass('px-3 py-1 mx-0.5 rounded-lg bg-sky-600 text-white text-xs font-medium cursor-default');
+                                } else if ($btn.hasClass('disabled') || $btn.attr('class')?.includes('disabled')) {
+                                    $btn.addClass('px-3 py-1 mx-0.5 rounded-lg bg-slate-800 text-slate-500 text-xs font-medium cursor-not-allowed opacity-50');
+                                } else {
+                                    $btn.addClass('px-3 py-1 mx-0.5 rounded-lg border border-slate-700 bg-slate-900/80 text-slate-100 text-xs font-medium hover:bg-slate-800 hover:border-slate-500 cursor-pointer');
+                                }
+                            });
+                        };
+                        stylePagination();
 
-                        jQuery('.dataTables_paginate .paginate_button.current').removeClass().addClass(
-                            "px-3 py-1 mx-0.5 rounded bg-sky-600 text-white"
-                        );
-
-                        jQuery('.dataTables_paginate .disabled').removeClass().addClass(
-                            "px-3 py-1 mx-0.5 rounded bg-gray-500 text-gray-300 opacity-50 cursor-not-allowed"
-                        );
-
-                        let $paginationWrapper = jQuery('.pagination-wrapper');
-                        // Just ensuring there's some styling
-                        $paginationWrapper.addClass('space-x-1');
-
-                        // INFO TEXT (Showing entries)
-                        let $info = jQuery('.dataTables_info');
-                        $info.addClass('text-gray-400');
+                        // Re-style pagination on page change
+                        jQuery('#bucketContents').on('draw.dt', stylePagination);
 
                         // Add versions filter bar when toggle enabled
                         const toolbarId = 'versionsFilterBar';
                         jQuery(`#${toolbarId}`).remove();
-                        const $container = jQuery('<div id="'+toolbarId+'" class="mt-2 flex items-center space-x-4"></div>');
-                        $container.append(`
-                            <label class="flex items-center space-x-2 text-gray-300">
-                                <input id="filterIncludeDeleted" type="checkbox" class="h-4 w-4 text-sky-600 border-gray-600 rounded" checked>
-                                <span class="text-sm">Include deleted keys (no current version)</span>
-                            </label>
+                        const $versionFilters = jQuery('<div id="'+toolbarId+'" class="mt-2 flex flex-wrap items-center gap-4 sm:gap-6 px-4"></div>');
+                        $versionFilters.append(`
+                            <div class="flex items-center gap-2">
+                                <button id="filterIncludeDeletedToggle" type="button" 
+                                        class="toggle-switch bg-slate-700"
+                                        data-active="false">
+                                    <span class="toggle-knob"></span>
+                                </button>
+                                <span class="text-xs text-slate-300">Include deleted keys</span>
+                            </div>
                         `);
-                        $container.append(`
-                            <label class="flex items-center space-x-2 text-gray-300">
-                                <input id="filterOnlyWithVersions" type="checkbox" class="h-4 w-4 text-sky-600 border-gray-600 rounded">
-                                <span class="text-sm">Only show keys with versions under this prefix</span>
-                            </label>
+                        $versionFilters.append(`
+                            <div class="flex items-center gap-2">
+                                <button id="filterOnlyWithVersionsToggle" type="button" 
+                                        class="toggle-switch bg-slate-700"
+                                        data-active="false">
+                                    <span class="toggle-knob"></span>
+                                </button>
+                                <span class="text-xs text-slate-300">Only keys with versions</span>
+                            </div>
                         `);
-                        jQuery(this.api().table().container()).find('.dataTables_length').after($container);
-                        // React to filter changes
-                        jQuery('#filterIncludeDeleted, #filterOnlyWithVersions').on('change', debounce(function(){
+                        wrapper.find('.browser-dt-controls').after($versionFilters);
+                        
+                        // Toggle button click handlers
+                        jQuery('#filterIncludeDeletedToggle').on('click', function() {
+                            const $btn = jQuery(this);
+                            const isActive = $btn.attr('data-active') === 'true';
+                            const newState = !isActive;
+                            $btn.attr('data-active', newState ? 'true' : 'false');
+                            $btn.toggleClass('active bg-sky-600', newState);
+                            $btn.toggleClass('bg-slate-700', !newState);
+                            // Trigger reload
                             if (showVersions) { window.__allowNextIndexReload = true; }
                             jQuery('#bucketContents').DataTable().ajax.reload();
-                        }, 200));
+                        });
+                        
+                        jQuery('#filterOnlyWithVersionsToggle').on('click', function() {
+                            const $btn = jQuery(this);
+                            const isActive = $btn.attr('data-active') === 'true';
+                            const newState = !isActive;
+                            $btn.attr('data-active', newState ? 'true' : 'false');
+                            $btn.toggleClass('active bg-sky-600', newState);
+                            $btn.toggleClass('bg-slate-700', !newState);
+                            // Trigger reload
+                            if (showVersions) { window.__allowNextIndexReload = true; }
+                            jQuery('#bucketContents').DataTable().ajax.reload();
+                        });
+                        
                         // Hide loader once DataTable is ready
                         try { document.getElementById('loading-overlay')?.classList.add('hidden'); } catch (e) {}
                     },
@@ -864,79 +1065,414 @@
                     } catch(_) {}
                 });
 
-                // File Input Change
+                // ===== Enhanced Upload Manager with Folder Support =====
+                const uploadManager = {
+                    queue: [],
+                    isUploading: false,
+                    completedCount: 0,
+                    failedCount: 0,
+                    totalCount: 0,
+                    cancelled: false,
+                    concurrency: 3, // Max concurrent uploads
+                    activeUploads: 0,
+
+                    reset() {
+                        this.queue = [];
+                        this.isUploading = false;
+                        this.completedCount = 0;
+                        this.failedCount = 0;
+                        this.totalCount = 0;
+                        this.cancelled = false;
+                        this.activeUploads = 0;
+                    },
+
+                    addToQueue(file, relativePath = '') {
+                        const id = 'upload-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+                        this.queue.push({
+                            id,
+                            file,
+                            relativePath,
+                            status: 'pending', // pending, uploading, completed, failed, cancelled
+                            progress: 0,
+                            error: null
+                        });
+                        this.totalCount++;
+                        return id;
+                    },
+
+                    updateUI() {
+                        const container = document.getElementById('uploadQueueContainer');
+                        const queueEl = document.getElementById('uploadQueue');
+                        const summaryEl = document.getElementById('uploadQueueSummary');
+                        const progressText = document.getElementById('uploadProgressText');
+                        const progressPercent = document.getElementById('uploadProgressPercent');
+                        const progressBar = document.getElementById('uploadProgressBar');
+                        const cancelBtn = document.getElementById('cancelAllUploads');
+
+                        if (this.totalCount === 0) {
+                            container.classList.add('hidden');
+                            return;
+                        }
+
+                        container.classList.remove('hidden');
+                        
+                        // Show cancel button while uploading
+                        if (this.isUploading && !this.cancelled) {
+                            cancelBtn.classList.remove('hidden');
+                        } else {
+                            cancelBtn.classList.add('hidden');
+                        }
+
+                        // Update summary
+                        const pending = this.queue.filter(i => i.status === 'pending').length;
+                        const uploading = this.queue.filter(i => i.status === 'uploading').length;
+                        summaryEl.textContent = `${this.completedCount} completed, ${this.failedCount} failed, ${pending + uploading} remaining`;
+
+                        // Update progress bar
+                        const percent = this.totalCount > 0 ? Math.round((this.completedCount / this.totalCount) * 100) : 0;
+                        progressText.textContent = `${this.completedCount} / ${this.totalCount} files`;
+                        progressPercent.textContent = `${percent}%`;
+                        progressBar.style.width = `${percent}%`;
+
+                        // Update queue list (show last 10 items)
+                        const recentItems = this.queue.slice(-10);
+                        queueEl.innerHTML = recentItems.map(item => {
+                            const displayPath = item.relativePath ? item.relativePath + '/' + item.file.name : item.file.name;
+                            const truncatedPath = displayPath.length > 50 ? '...' + displayPath.slice(-47) : displayPath;
+                            
+                            let statusIcon = '';
+                            let statusClass = '';
+                            
+                            switch(item.status) {
+                                case 'pending':
+                                    statusIcon = '<svg class="animate-pulse h-4 w-4 text-gray-400" fill="currentColor" viewBox="0 0 20 20"><circle cx="10" cy="10" r="3"/></svg>';
+                                    statusClass = 'text-gray-400';
+                                    break;
+                                case 'uploading':
+                                    statusIcon = '<svg class="animate-spin h-4 w-4 text-sky-400" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>';
+                                    statusClass = 'text-sky-400';
+                                    break;
+                                case 'completed':
+                                    statusIcon = '<svg class="h-4 w-4 text-emerald-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>';
+                                    statusClass = 'text-emerald-400';
+                                    break;
+                                case 'failed':
+                                    statusIcon = '<svg class="h-4 w-4 text-red-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>';
+                                    statusClass = 'text-red-400';
+                                    break;
+                                case 'cancelled':
+                                    statusIcon = '<svg class="h-4 w-4 text-gray-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>';
+                                    statusClass = 'text-gray-500';
+                                    break;
+                            }
+                            
+                            return `
+                                <div class="flex items-center justify-between py-1 px-2 rounded bg-slate-800/50 text-xs ${statusClass}">
+                                    <div class="flex items-center gap-2 truncate flex-1">
+                                        ${statusIcon}
+                                        <span class="truncate" title="${displayPath}">${truncatedPath}</span>
+                                    </div>
+                                    ${item.status === 'uploading' ? `<span class="ml-2">${item.progress}%</span>` : ''}
+                                </div>
+                            `;
+                        }).join('');
+                    },
+
+                    async processQueue() {
+                        if (this.isUploading) return;
+                        this.isUploading = true;
+                        this.updateUI();
+
+                        const uploadNext = async () => {
+                            if (this.cancelled) return;
+                            
+                            const pendingItem = this.queue.find(i => i.status === 'pending');
+                            if (!pendingItem) {
+                                if (this.activeUploads === 0) {
+                                    this.onComplete();
+                                }
+                                return;
+                            }
+
+                            if (this.activeUploads >= this.concurrency) return;
+
+                            this.activeUploads++;
+                            pendingItem.status = 'uploading';
+                            this.updateUI();
+
+                            try {
+                                await this.uploadSingleFile(pendingItem);
+                                pendingItem.status = 'completed';
+                                this.completedCount++;
+                            } catch (err) {
+                                pendingItem.status = 'failed';
+                                pendingItem.error = err.message || 'Upload failed';
+                                this.failedCount++;
+                            }
+
+                            this.activeUploads--;
+                            this.updateUI();
+                            
+                            // Process next item
+                            uploadNext();
+                        };
+
+                        // Start concurrent uploads
+                        for (let i = 0; i < this.concurrency; i++) {
+                            uploadNext();
+                        }
+                    },
+
+                    uploadSingleFile(item) {
+                        return new Promise((resolve, reject) => {
+                            const formData = new FormData();
+                            formData.append('username', username);
+                            formData.append('bucket', bucketName);
+                            formData.append('folder_path', folderPath);
+                            formData.append('relativePath', item.relativePath);
+                            formData.append('uploadedFiles', item.file);
+
+                            const xhr = new XMLHttpRequest();
+                            
+                            xhr.upload.addEventListener('progress', (e) => {
+                                if (e.lengthComputable) {
+                                    item.progress = Math.round((e.loaded / e.total) * 100);
+                                    this.updateUI();
+                                }
+                            });
+
+                            xhr.onload = () => {
+                                if (xhr.status >= 200 && xhr.status < 300) {
+                                    try {
+                                        const response = JSON.parse(xhr.responseText);
+                                        if (response.status === 'success') {
+                                            resolve(response);
+                                        } else {
+                                            reject(new Error(response.message || 'Upload failed'));
+                                        }
+                                    } catch (e) {
+                                        reject(new Error('Invalid response'));
+                                    }
+                                } else {
+                                    reject(new Error(`HTTP ${xhr.status}`));
+                                }
+                            };
+
+                            xhr.onerror = () => reject(new Error('Network error'));
+                            xhr.onabort = () => reject(new Error('Cancelled'));
+
+                            xhr.open('POST', '/modules/addons/cloudstorage/api/uploadobject.php');
+                            xhr.send(formData);
+                        });
+                    },
+
+                    onComplete() {
+                        this.isUploading = false;
+                        this.updateUI();
+                        
+                        if (this.completedCount > 0) {
+                            if (window.toast) {
+                                if (this.failedCount > 0) {
+                                    window.toast.info(`Uploaded ${this.completedCount} files, ${this.failedCount} failed`);
+                                } else {
+                                    window.toast.success(`Successfully uploaded ${this.completedCount} file${this.completedCount > 1 ? 's' : ''}`);
+                                }
+                            }
+                            // Reload table
+                            if (showVersions) { window.__allowNextIndexReload = true; }
+                            jQuery('#bucketContents').DataTable().ajax.reload();
+                        }
+                    },
+
+                    cancelAll() {
+                        this.cancelled = true;
+                        this.queue.forEach(item => {
+                            if (item.status === 'pending') {
+                                item.status = 'cancelled';
+                            }
+                        });
+                        this.updateUI();
+                        if (window.toast) window.toast.info('Upload cancelled');
+                    }
+                };
+
+                // Cancel all button handler
+                document.getElementById('cancelAllUploads').addEventListener('click', () => {
+                    uploadManager.cancelAll();
+                });
+
+                // ===== Folder Traversal Functions =====
+                async function readEntriesRecursively(entry, basePath = '') {
+                    const files = [];
+                    
+                    if (entry.isFile) {
+                        const file = await new Promise((resolve, reject) => {
+                            entry.file(resolve, reject);
+                        });
+                        // Store the relative path (excluding the file name)
+                        files.push({
+                            file: file,
+                            relativePath: basePath.replace(/\/$/, '') // Remove trailing slash
+                        });
+                    } else if (entry.isDirectory) {
+                        const reader = entry.createReader();
+                        const entries = await readAllEntries(reader);
+                        
+                        for (const child of entries) {
+                            const childPath = basePath + entry.name + '/';
+                            const subFiles = await readEntriesRecursively(child, childPath);
+                            files.push(...subFiles);
+                        }
+                    }
+                    
+                    return files;
+                }
+
+                async function readAllEntries(reader) {
+                    const allEntries = [];
+                    
+                    // readEntries can return batches, so we need to call it repeatedly
+                    const readBatch = () => {
+                        return new Promise((resolve, reject) => {
+                            reader.readEntries(resolve, reject);
+                        });
+                    };
+                    
+                    let batch;
+                    do {
+                        batch = await readBatch();
+                        allEntries.push(...batch);
+                    } while (batch.length > 0);
+                    
+                    return allEntries;
+                }
+
+                async function handleDroppedItems(dataTransfer) {
+                    const items = [...dataTransfer.items];
+                    const allFiles = [];
+                    
+                    for (const item of items) {
+                        if (item.kind !== 'file') continue;
+                        
+                        // Try to get as entry for folder support
+                        const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+                        
+                        if (entry) {
+                            try {
+                                const files = await readEntriesRecursively(entry, '');
+                                allFiles.push(...files);
+                            } catch (err) {
+                                console.error('Error reading entry:', err);
+                                // Fallback to regular file
+                                const file = item.getAsFile();
+                                if (file) {
+                                    allFiles.push({ file, relativePath: '' });
+                                }
+                            }
+                        } else {
+                            // Fallback for browsers without webkitGetAsEntry
+                            const file = item.getAsFile();
+                            if (file) {
+                                allFiles.push({ file, relativePath: '' });
+                            }
+                        }
+                    }
+                    
+                    return allFiles;
+                }
+
+                // File Input Change (regular files)
                 jQuery('#fileInput').on('change', function() {
                     const files = this.files;
                     if (files.length === 0) return;
-                    jQuery('#progressContainer').removeClass('hidden');
-                    handleFiles(files);
+                    
+                    uploadManager.reset();
+                    Array.from(files).forEach(file => {
+                        uploadManager.addToQueue(file, '');
+                    });
+                    uploadManager.processQueue();
+                    
+                    // Reset input
+                    this.value = '';
+                });
+
+                // Folder Input Change (folder selection)
+                jQuery('#folderInput').on('change', function() {
+                    const files = this.files;
+                    if (files.length === 0) return;
+                    
+                    uploadManager.reset();
+                    
+                    Array.from(files).forEach(file => {
+                        // webkitRelativePath contains the full path including folder name
+                        // e.g., "myFolder/subfolder/file.txt"
+                        let relativePath = file.webkitRelativePath || '';
+                        
+                        // Remove the filename from the path to get just the folder structure
+                        const lastSlash = relativePath.lastIndexOf('/');
+                        if (lastSlash > 0) {
+                            relativePath = relativePath.substring(0, lastSlash);
+                        } else {
+                            relativePath = '';
+                        }
+                        
+                        uploadManager.addToQueue(file, relativePath);
+                    });
+                    
+                    if (uploadManager.totalCount > 0) {
+                        if (window.toast) window.toast.info(`Queued ${uploadManager.totalCount} files for upload`);
+                        uploadManager.processQueue();
+                    }
+                    
+                    // Reset input
+                    this.value = '';
                 });
 
                 // Drag and Drop Handlers
-                jQuery('.upload-container').on('dragover', function(e) {
+                const dropZone = document.getElementById('dropZone');
+                
+                dropZone.addEventListener('dragover', function(e) {
                     e.preventDefault();
                     e.stopPropagation();
-                    jQuery(this).addClass('bg-gray-600');
+                    this.classList.add('border-sky-500', 'bg-slate-700/50');
                 });
 
-                jQuery('.upload-container').on('dragleave', function(e) {
+                dropZone.addEventListener('dragleave', function(e) {
                     e.preventDefault();
                     e.stopPropagation();
-                    jQuery(this).removeClass('bg-gray-600');
+                    this.classList.remove('border-sky-500', 'bg-slate-700/50');
                 });
 
-                jQuery('.upload-container').on('drop', function(e) {
+                dropZone.addEventListener('drop', async function(e) {
                     e.preventDefault();
                     e.stopPropagation();
-                    jQuery(this).removeClass('bg-gray-600');
+                    this.classList.remove('border-sky-500', 'bg-slate-700/50');
 
-                    const files = e.originalEvent.dataTransfer.files;
-                    if (files.length === 0) return;
-                    jQuery('#progressContainer').removeClass('hidden');
-                    handleFiles(files);
-                });
-
-                // Process & Upload Multiple Files
-                function handleFiles(files) {
-                    Array.from(files).forEach((file, index) => {
-                        uploadFile(file, index + 1);
-                    });
-                }
-
-                function uploadFile(file, fileIndex) {
-                    const formData = new FormData();
-                    formData.append('username', username);
-                    formData.append('bucket', bucketName);
-                    formData.append('uploadedFiles', file);
-
-                    jQuery.ajax({
-                        xhr: function () {
-                            const xhr = new XMLHttpRequest();
-                            xhr.upload.addEventListener('progress', function (e) {
-                                if (e.lengthComputable) {
-                                    const progress = Math.round((e.loaded / e.total) * 100);
-                                    jQuery('#fileUploadProgress').val(progress);
-                                    jQuery('#uploadStatus').html(`Uploading file ${fileIndex}: ${progress}%`);
-                                }
-                            });
-                            return xhr;
-                        },
-                        url: '/modules/addons/cloudstorage/api/uploadobject.php',
-                        type: 'POST',
-                        data: formData,
-                        contentType: false,
-                        processData: false,
-                        success: function (response) {
-                            jQuery('#uploadStatus').append(`<br>File ${file.name} uploaded successfully!`);
-                            // Reload table to see the new file
-                            if (showVersions) { window.__allowNextIndexReload = true; }
-                            table.ajax.reload();
-                        },
-                        error: function (xhr, status, error) {
-                            jQuery('#uploadStatus').append(`<br>Error uploading file ${file.name}: ${error}`);
+                    // Show loading indicator
+                    if (window.toast) window.toast.info('Scanning files and folders...');
+                    
+                    try {
+                        const filesWithPaths = await handleDroppedItems(e.dataTransfer);
+                        
+                        if (filesWithPaths.length === 0) {
+                            if (window.toast) window.toast.error('No files found to upload');
+                            return;
+                        }
+                        
+                        uploadManager.reset();
+                        
+                        filesWithPaths.forEach(({ file, relativePath }) => {
+                            uploadManager.addToQueue(file, relativePath);
+                        });
+                        
+                        if (window.toast) window.toast.info(`Queued ${uploadManager.totalCount} files for upload`);
+                        uploadManager.processQueue();
+                        
+                    } catch (err) {
+                        console.error('Error processing dropped items:', err);
+                        if (window.toast) window.toast.error('Error processing dropped files');
                         }
                     });
-                }
             });
 
             // Up One Level
@@ -1014,8 +1550,8 @@
                             mode: 'index',
                             prefix: folderPath,
                             max_keys: maxKeys,
-                            include_deleted: jQuery('#filterIncludeDeleted').length ? (jQuery('#filterIncludeDeleted').is(':checked') ? 1 : 0) : 1,
-                            only_with_versions: jQuery('#filterOnlyWithVersions').length ? (jQuery('#filterOnlyWithVersions').is(':checked') ? 1 : 0) : 0,
+                            include_deleted: jQuery('#filterIncludeDeletedToggle').length ? (jQuery('#filterIncludeDeletedToggle').attr('data-active') === 'true' ? 1 : 0) : 1,
+                            only_with_versions: jQuery('#filterOnlyWithVersionsToggle').length ? (jQuery('#filterOnlyWithVersionsToggle').attr('data-active') === 'true' ? 1 : 0) : 0,
                             key_marker: keyMarker || '',
                             version_id_marker: versionIdMarker || ''
                         },

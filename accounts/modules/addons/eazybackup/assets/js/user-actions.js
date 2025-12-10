@@ -12,6 +12,8 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   async function doResetPassword(detail) {
+    // Cache the host used for loader so we hide it reliably even if we show a modal next
+    const modalCard = document.querySelector('.min-h-screen .container') || document.body;
     try {
       // Open a dedicated password reset modal with input + generate button.
       const chosen = await passwordResetModal();
@@ -19,7 +21,6 @@ document.addEventListener('DOMContentLoaded', () => {
       const inputPassword = chosen.password || '';
       if (!inputPassword || inputPassword.length < 8) { toast('Password must be at least 8 characters.', 'warning'); return; }
 
-      const modalCard = document.querySelector('.min-h-screen .container') || document.body;
       window.ebShowLoader?.(modalCard, 'Resetting password…');
 
       // Determine service ID from event detail or fallback to data attribute
@@ -43,6 +44,8 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       if (r && r.result === 'success') {
+        // Hide loader before showing the success dialog so the overlay doesn't sit above it
+        window.ebHideLoader?.(modalCard);
         const newPassword = String(inputPassword);
 
         const actionPanel = `
@@ -82,13 +85,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
       } else {
         const msg = (r && (r.message || r.error)) || 'Password reset failed.';
+        window.ebHideLoader?.(modalCard);
         toast(msg, 'error');
       }
 
     } catch (_) {
+      window.ebHideLoader?.(modalCard);
       toast('Network error while resetting password.', 'error');
     } finally {
-      const modalCard = document.querySelector('.min-h-screen .container') || document.body;
       window.ebHideLoader?.(modalCard);
     }
   }

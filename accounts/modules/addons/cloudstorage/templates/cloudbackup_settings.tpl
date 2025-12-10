@@ -1,26 +1,6 @@
 <div class="min-h-screen bg-[#11182759] text-gray-300">
     <div class="container mx-auto px-4 pb-8">
-        <!-- Navigation Tabs -->
-        <div class="mb-6 border-b border-slate-700">
-            <nav class="flex space-x-8" aria-label="Cloud Backup Navigation">
-                <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_jobs"
-                   class="py-4 px-1 border-b-2 font-medium text-sm {if $smarty.get.view == 'cloudbackup_jobs' or empty($smarty.get.view)}border-sky-500 text-sky-400{else}border-transparent text-slate-400 hover:text-slate-300 hover:border-slate-300{/if}">
-                    Jobs
-                </a>
-                <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_runs"
-                   class="py-4 px-1 border-b-2 font-medium text-sm {if $smarty.get.view == 'cloudbackup_runs'}border-sky-500 text-sky-400{else}border-transparent text-slate-400 hover:text-slate-300 hover:border-slate-300{/if}">
-                    Run History
-                </a>
-                <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_settings"
-                   class="py-4 px-1 border-b-2 font-medium text-sm {if $smarty.get.view == 'cloudbackup_settings'}border-sky-500 text-sky-400{else}border-transparent text-slate-400 hover:text-slate-300 hover:border-slate-300{/if}">
-                    Settings
-                </a>
-                <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_agents"
-                   class="py-4 px-1 border-b-2 font-medium text-sm {if $smarty.get.view == 'cloudbackup_agents'}border-sky-500 text-sky-400{else}border-transparent text-slate-400 hover:text-slate-300 hover:border-slate-300{/if}">
-                    Agents
-                </a>
-            </nav>
-        </div>
+        {include file="modules/addons/cloudstorage/templates/partials/cloudbackup_nav.tpl"}
 
         <div class="flex flex-col sm:flex-row h-16 justify-between items-start sm:items-center mb-6">
             <h2 class="text-2xl font-semibold text-white">Backup Settings</h2>

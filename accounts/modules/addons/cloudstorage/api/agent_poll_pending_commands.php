@@ -73,7 +73,73 @@ $hasAgentIdJobs = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'agent_id'
 try {
     $commands = [];
     
-    // Find pending commands for jobs owned by this agent
+    // First, check for NAS commands (these are tied directly to agent_id, not jobs)
+    $nasCommands = Capsule::table('s3_cloudbackup_run_commands')
+        ->where('agent_id', $agent->id)
+        ->where('status', 'pending')
+        ->whereIn('type', ['nas_mount', 'nas_unmount', 'nas_mount_snapshot', 'nas_unmount_snapshot'])
+        ->orderBy('id', 'asc')
+        ->limit(5)
+        ->get(['id as command_id', 'run_id', 'type', 'payload_json']);
+
+    // Next, check for filesystem browse and discovery commands (agent-scoped, no job context)
+    $browseCommands = Capsule::table('s3_cloudbackup_run_commands')
+        ->where('agent_id', $agent->id)
+        ->where('status', 'pending')
+        ->whereIn('type', ['browse_directory', 'list_hyperv_vms'])
+        ->orderBy('id', 'asc')
+        ->limit(5)
+        ->get(['id as command_id', 'run_id', 'type', 'payload_json']);
+    
+    foreach ($nasCommands as $cmd) {
+        $payload = [];
+        if (!empty($cmd->payload_json)) {
+            $dec = json_decode($cmd->payload_json, true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($dec)) {
+                $payload = $dec;
+            }
+        }
+        
+        $commands[] = [
+            'command_id' => (int) $cmd->command_id,
+            'type' => $cmd->type,
+            'run_id' => (int) ($cmd->run_id ?? 0),
+            'job_id' => 0,
+            'payload' => empty($payload) ? new \stdClass() : $payload, // Ensure {} not [] in JSON
+            'job_context' => null,
+        ];
+        
+        // Mark as processing
+        Capsule::table('s3_cloudbackup_run_commands')
+            ->where('id', $cmd->command_id)
+            ->update(['status' => 'processing']);
+    }
+
+    // Handle browse_directory and list_hyperv_vms commands (no job context needed)
+    foreach ($browseCommands as $cmd) {
+        $payload = [];
+        if (!empty($cmd->payload_json)) {
+            $dec = json_decode($cmd->payload_json, true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($dec)) {
+                $payload = $dec;
+            }
+        }
+
+        $commands[] = [
+            'command_id' => (int) $cmd->command_id,
+            'type' => $cmd->type,
+            'run_id' => (int) ($cmd->run_id ?? 0),
+            'job_id' => 0,
+            'payload' => empty($payload) ? new \stdClass() : $payload, // Ensure {} not [] in JSON
+            'job_context' => null,
+        ];
+
+        Capsule::table('s3_cloudbackup_run_commands')
+            ->where('id', $cmd->command_id)
+            ->update(['status' => 'processing']);
+    }
+    
+    // Then, find pending commands for jobs owned by this agent
     // We join through: commands -> runs -> jobs to verify ownership
     $cmdQuery = Capsule::table('s3_cloudbackup_run_commands as c')
         ->join('s3_cloudbackup_runs as r', 'c.run_id', '=', 'r.id')
@@ -115,7 +181,7 @@ try {
         $payload = [];
         if (!empty($cmd->payload_json)) {
             $dec = json_decode($cmd->payload_json, true);
-            if (json_last_error() === JSON_ERROR_NONE) {
+            if (json_last_error() === JSON_ERROR_NONE && is_array($dec)) {
                 $payload = $dec;
             }
         }
@@ -212,7 +278,7 @@ try {
             'type' => $cmd->type,
             'run_id' => (int) $cmd->run_id,
             'job_id' => (int) $cmd->job_id,
-            'payload' => $payload,
+            'payload' => empty($payload) ? new \stdClass() : $payload, // Ensure {} not [] in JSON
             'job_context' => $jobContext,
         ];
         

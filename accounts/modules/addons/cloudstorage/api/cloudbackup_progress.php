@@ -49,6 +49,8 @@ if (!$runIdentifier) {
     $response = new JsonResponse($jsonData, 200);
     $response->send();
     exit();
+}
+
 $run = CloudBackupController::getRun($runIdentifier, $loggedInUserId);
 if (!$run) {
     $jsonData = [
@@ -124,7 +126,8 @@ $jsonData = [
         'worker_host' => $run['worker_host'] ?? '',
         'progress_pct' => $run['progress_pct'],
         'bytes_total' => $run['bytes_total'],
-        'bytes_transferred' => $run['bytes_transferred'],
+        'bytes_transferred' => $run['bytes_transferred'],      // Actual bytes uploaded (with deduplication)
+        'bytes_processed' => $run['bytes_processed'] ?? null,  // Bytes read/scanned from source
         'objects_total' => $run['objects_total'],
         'objects_transferred' => $run['objects_transferred'],
         'speed_bytes_per_sec' => $run['speed_bytes_per_sec'],

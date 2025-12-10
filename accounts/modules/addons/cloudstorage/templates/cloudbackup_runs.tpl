@@ -1,27 +1,7 @@
 <div class="min-h-screen bg-slate-950 text-gray-300">
     <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
     <div class="container mx-auto px-4 pb-10 pt-6 relative pointer-events-auto">
-        <!-- Navigation Tabs (pill style) -->
-        <div class="mb-6">
-            <nav class="inline-flex rounded-full bg-slate-900/80 p-1 text-xs font-medium text-slate-400" aria-label="Cloud Backup Navigation">
-                <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_jobs"
-                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.view == 'cloudbackup_jobs' || empty($smarty.get.view)}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-                    Jobs
-                </a>
-                <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_runs"
-                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.view == 'cloudbackup_runs'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-                    Run History
-                </a>
-                <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_settings"
-                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.view == 'cloudbackup_settings'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-                    Settings
-                </a>
-                <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_agents"
-                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.view == 'cloudbackup_agents'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-                    Agents
-                </a>
-            </nav>
-        </div>
+        {include file="modules/addons/cloudstorage/templates/partials/cloudbackup_nav.tpl"}
         <!-- Glass panel container -->
         <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
 

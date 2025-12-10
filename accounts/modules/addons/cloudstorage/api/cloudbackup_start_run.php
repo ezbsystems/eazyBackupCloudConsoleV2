@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/../../../../init.php';
+require_once __DIR__ . '/../lib/Client/MspController.php';
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -11,6 +12,7 @@ use WHMCS\ClientArea;
 use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
+use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 
 $ca = new ClientArea();
 if (!$ca->isLoggedIn()) {
@@ -44,6 +46,17 @@ if (!$jobId) {
         'message' => 'Job ID is required.'
     ];
     $response = new JsonResponse($jsonData, 200);
+    $response->send();
+    exit();
+}
+
+// MSP tenant authorization check
+$accessCheck = MspController::validateJobAccess((int)$jobId, $loggedInUserId);
+if (!$accessCheck['valid']) {
+    $response = new JsonResponse([
+        'status' => 'fail',
+        'message' => $accessCheck['message']
+    ], 200);
     $response->send();
     exit();
 }

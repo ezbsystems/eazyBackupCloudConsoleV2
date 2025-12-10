@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/../../../../init.php';
+require_once __DIR__ . '/../lib/Client/MspController.php';
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -12,6 +13,7 @@ use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
 use WHMCS\Module\Addon\CloudStorage\Client\AwsS3Validator;
+use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 use WHMCS\Database\Capsule;
 
 $ca = new ClientArea();
@@ -88,8 +90,24 @@ if (!$existingJob) {
     exit();
 }
 
+// MSP tenant authorization check
+$accessCheck = MspController::validateJobAccess((int)$jobId, $loggedInUserId);
+if (!$accessCheck['valid']) {
+    $response = new JsonResponse([
+        'status' => 'fail',
+        'message' => $accessCheck['message']
+    ], 200);
+    $response->send();
+    exit();
+}
+
 // Prepare update data
 $updateData = [];
+// Disk image fields
+$diskSourceVolume = $_POST['disk_source_volume'] ?? '';
+$diskImageFormat = $_POST['disk_image_format'] ?? 'vhdx';
+$diskTempDir = $_POST['disk_temp_dir'] ?? '';
+
 if (isset($_POST['name'])) {
     $updateData['name'] = $_POST['name'];
 }
@@ -117,6 +135,30 @@ if (!isset($_POST['source_path']) || $_POST['source_path'] === '') {
     $_POST['source_path'] = $mapped;
 }
 
+// Normalize source_paths (multi-select from Local Agent file browser)
+$sourcePaths = [];
+if (isset($_POST['source_paths'])) {
+    if (is_array($_POST['source_paths'])) {
+        $sourcePaths = array_values(array_filter(array_map('strval', $_POST['source_paths']), fn($p) => trim($p) !== ''));
+    } elseif (is_string($_POST['source_paths'])) {
+        $raw = trim($_POST['source_paths']);
+        $decoded = json_decode($raw, true);
+        if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+            $sourcePaths = array_values(array_filter(array_map('strval', $decoded), fn($p) => trim($p) !== ''));
+        } elseif ($raw !== '') {
+            $sourcePaths = array_values(array_filter(array_map('trim', explode(';', $raw)), fn($p) => $p !== ''));
+        }
+    }
+}
+$primarySourcePath = $_POST['source_path'] ?? ($existingJob['source_path'] ?? '');
+if (!empty($sourcePaths)) {
+    $primarySourcePath = $sourcePaths[0];
+    $_POST['source_path'] = $primarySourcePath;
+} elseif ($primarySourcePath !== '') {
+    $sourcePaths[] = $primarySourcePath;
+}
+$hasSourcePathsJson = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'source_paths_json');
+
 // Validate agent assignment for local_agent jobs when provided/required
 $hasAgentIdJobs = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'agent_id');
 $agentIdForJob = null;
@@ -142,6 +184,9 @@ if (($sourceTypeForPath === 'local_agent' || isset($_POST['agent_id'])) && $hasA
 
 if (isset($_POST['source_path'])) {
     $updateData['source_path'] = $_POST['source_path'];
+}
+if ($hasSourcePathsJson && !empty($sourcePaths)) {
+    $updateData['source_paths_json'] = json_encode($sourcePaths, JSON_UNESCAPED_SLASHES);
 }
 if (isset($_POST['dest_bucket_id'])) {
     $updateData['dest_bucket_id'] = $_POST['dest_bucket_id'];
@@ -169,6 +214,16 @@ if (isset($_POST['backup_mode'])) {
 }
 if (isset($_POST['engine'])) {
     $updateData['engine'] = $_POST['engine'];
+}
+if (($updateData['engine'] ?? '') === 'disk_image') {
+    if ($diskSourceVolume === '') {
+        $response = new JsonResponse(['status' => 'fail', 'message' => 'Disk source volume is required for disk image backups.'], 200);
+        $response->send();
+        exit();
+    }
+    if ($diskImageFormat === '') {
+        $diskImageFormat = 'vhdx';
+    }
 }
 if (isset($_POST['encryption_enabled'])) {
     $updateData['encryption_enabled'] = (int)$_POST['encryption_enabled'];
@@ -214,6 +269,9 @@ if (isset($_POST['encryption_mode'])) {
 }
 if (isset($_POST['compression'])) {
     $updateData['compression'] = $_POST['compression'];
+    $updateData['disk_source_volume'] = $diskSourceVolume;
+    $updateData['disk_image_format'] = $diskImageFormat;
+    $updateData['disk_temp_dir'] = $diskTempDir;
 }
 if (isset($_POST['notify_override_email'])) {
     $updateData['notify_override_email'] = $_POST['notify_override_email'];
@@ -316,6 +374,36 @@ if ($postedSourceType === 'aws') {
         'token' => (isset($tok) && $tok !== '') ? $tok : ($reconstructed['token'] ?? ($existingDec['token'] ?? '')),
         'root'  => $root,
     ];
+} elseif ($postedSourceType === 'local_agent') {
+    // Reconstruct local_agent source_config with network credentials
+    $inc = $_POST['local_include_glob'] ?? ($reconstructed['include_glob'] ?? ($existingDec['include_glob'] ?? null));
+    $exc = $_POST['local_exclude_glob'] ?? ($reconstructed['exclude_glob'] ?? ($existingDec['exclude_glob'] ?? null));
+    $bw = isset($_POST['local_bandwidth_limit_kbps']) ? (int)$_POST['local_bandwidth_limit_kbps'] : ($reconstructed['bandwidth_limit_kbps'] ?? ($existingDec['bandwidth_limit_kbps'] ?? null));
+    $reconstructed = [
+        'include_glob' => $inc,
+        'exclude_glob' => $exc,
+        'bandwidth_limit_kbps' => $bw,
+    ];
+
+    // Handle network share credentials for UNC paths
+    $netUser = $_POST['network_username'] ?? null;
+    $netPass = $_POST['network_password'] ?? null;
+    $netDomain = $_POST['network_domain'] ?? ($reconstructed['network_credentials']['domain'] ?? ($existingDec['network_credentials']['domain'] ?? ''));
+
+    // Only update if new credentials provided, otherwise preserve existing
+    if (!empty($netUser) && !empty($netPass)) {
+        // Encrypt credentials before storage using HelperController
+        $encryptedUser = \WHMCS\Module\Addon\CloudStorage\Client\HelperController::encryptKey($netUser, $encryptionKey);
+        $encryptedPass = \WHMCS\Module\Addon\CloudStorage\Client\HelperController::encryptKey($netPass, $encryptionKey);
+        $reconstructed['network_credentials'] = [
+            'username' => $encryptedUser,
+            'password' => $encryptedPass,
+            'domain' => $netDomain,
+        ];
+    } elseif (isset($existingDec['network_credentials'])) {
+        // Preserve existing encrypted credentials
+        $reconstructed['network_credentials'] = $existingDec['network_credentials'];
+    }
 }
 
 if (is_array($reconstructed)) {

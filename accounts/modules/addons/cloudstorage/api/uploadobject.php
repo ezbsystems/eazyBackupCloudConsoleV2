@@ -103,6 +103,10 @@
 
     $bucketName = $_POST['bucket'];
 
+    // Get optional path parameters for folder upload support
+    $relativePath = isset($_POST['relativePath']) ? trim($_POST['relativePath']) : '';
+    $folderPath = isset($_POST['folder_path']) ? trim($_POST['folder_path']) : '';
+
     // check bucket belongs to the logged in user
     $bucket = DBController::getRow('s3_buckets', [
         ['name', '=', $bucketName],
@@ -156,7 +160,24 @@
         exit();
     }
 
-    $result = $bucketObject->saveUploadedFiles($bucketName, $_FILES['uploadedFiles']['name'], $_FILES['uploadedFiles']['tmp_name']);
+    // Build the S3 key with folder path and relative path support
+    $fileName = $_FILES['uploadedFiles']['name'];
+    
+    // Sanitize relative path (remove leading/trailing slashes, prevent directory traversal)
+    $relativePath = trim($relativePath, '/\\');
+    $relativePath = preg_replace('/\.\.\/|\.\.\\\\/', '', $relativePath); // Remove ../ patterns
+    
+    // Sanitize folder path
+    $folderPath = trim($folderPath, '/\\');
+    $folderPath = preg_replace('/\.\.\/|\.\.\\\\/', '', $folderPath);
+    
+    // Build the full key
+    $keyParts = array_filter([$folderPath, $relativePath, $fileName], function($part) {
+        return $part !== '' && $part !== null;
+    });
+    $key = implode('/', $keyParts);
+    
+    $result = $bucketObject->saveUploadedFiles($bucketName, $key, $_FILES['uploadedFiles']['tmp_name']);
     $response = new JsonResponse($result, 200);
     $response->send();
     exit();

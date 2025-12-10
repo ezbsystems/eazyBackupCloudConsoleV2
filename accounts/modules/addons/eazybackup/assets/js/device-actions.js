@@ -187,7 +187,7 @@ document.addEventListener('DOMContentLoaded', function () {
   async function tailwindConfirm(title, message) {
     return new Promise((resolve) => {
       const overlay = document.createElement('div');
-      overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60';
+      overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/75';
       overlay.innerHTML = `
         <div class="bg-slate-800/95 border border-slate-700 rounded-lg shadow-xl w-full max-w-md">
           <div class="px-5 py-4 border-b border-slate-700">

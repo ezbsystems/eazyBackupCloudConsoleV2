@@ -55,24 +55,47 @@ if (!$cmd) {
     respond(['status' => 'fail', 'message' => 'Command not found'], 404);
 }
 
-// Ownership check via run -> job -> agent.client_id
-$run = Capsule::table('s3_cloudbackup_runs as r')
-    ->join('s3_cloudbackup_jobs as j', 'r.job_id', '=', 'j.id')
-    ->where('r.id', $cmd->run_id)
-    ->select('j.client_id', 'j.agent_id', 'r.agent_id as run_agent_id')
-    ->first();
+// For commands with agent_id set directly (browse, discovery commands), check ownership via agent_id
+// These commands have run_id = NULL as they're not tied to a specific backup run
+$agentScopedCommands = ['browse_directory', 'list_hyperv_vms', 'nas_mount', 'nas_unmount', 'nas_mount_snapshot', 'nas_unmount_snapshot'];
+if (in_array(strtolower((string) $cmd->type), $agentScopedCommands, true)) {
+    // Ownership check via agent_id column on the command itself
+    if ((int) ($cmd->agent_id ?? 0) !== (int) $agent->id) {
+        respond(['status' => 'fail', 'message' => 'Unauthorized'], 403);
+    }
+} else {
+    // For run-bound commands (restore, maintenance), check via run -> job -> agent
+    $run = Capsule::table('s3_cloudbackup_runs as r')
+        ->join('s3_cloudbackup_jobs as j', 'r.job_id', '=', 'j.id')
+        ->where('r.id', $cmd->run_id)
+        ->select('j.client_id', 'j.agent_id', 'r.agent_id as run_agent_id')
+        ->first();
 
-if (!$run || (int)$run->agent_id !== (int)$agent->id) {
-    respond(['status' => 'fail', 'message' => 'Unauthorized'], 403);
+    if (!$run || (int)$run->agent_id !== (int)$agent->id) {
+        respond(['status' => 'fail', 'message' => 'Unauthorized'], 403);
+    }
+}
+
+// Build update array with schema compatibility
+$updates = [
+    'status' => $status,
+    'result_message' => $resultMessage,
+];
+
+// Be tolerant of older schemas that may not have these columns
+$hasUpdatedAt = Capsule::schema()->hasColumn('s3_cloudbackup_run_commands', 'updated_at');
+$hasProcessedAt = Capsule::schema()->hasColumn('s3_cloudbackup_run_commands', 'processed_at');
+
+if ($hasUpdatedAt) {
+    $updates['updated_at'] = Capsule::raw('NOW()');
+}
+if ($hasProcessedAt) {
+    $updates['processed_at'] = Capsule::raw('NOW()');
 }
 
 Capsule::table('s3_cloudbackup_run_commands')
     ->where('id', $commandId)
-    ->update([
-        'status' => $status,
-        'result_message' => $resultMessage,
-        'processed_at' => Capsule::raw('NOW()'),
-    ]);
+    ->update($updates);
 
 respond(['status' => 'success']);
 

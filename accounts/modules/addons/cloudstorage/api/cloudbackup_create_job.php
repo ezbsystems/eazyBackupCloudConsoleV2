@@ -86,6 +86,10 @@ if (empty($encryptionKey)) {
 $sourceTypeForPath = $_POST['source_type'] ?? '';
 $engineForJob = $_POST['engine'] ?? '';
 $agentIdPosted = isset($_POST['agent_id']) ? (int)$_POST['agent_id'] : 0;
+// Disk image specific
+$diskSourceVolume = $_POST['disk_source_volume'] ?? '';
+$diskImageFormat = $_POST['disk_image_format'] ?? 'vhdx';
+$diskTempDir = $_POST['disk_temp_dir'] ?? '';
 if ($agentIdPosted > 0) {
     // If source_type missing/blank or a legacy value, force to local_agent
     if ($sourceTypeForPath === '' || $sourceTypeForPath === 'local') {
@@ -120,6 +124,7 @@ if (!isset($_POST['source_path']) || $_POST['source_path'] === '') {
 
 // Validate agent assignment for local_agent jobs
 $agentIdForJob = null;
+$agentRow = null;
 $hasAgentIdJobs = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'agent_id');
 if (($sourceTypeForPath ?? '') === 'local_agent' && $hasAgentIdJobs) {
     $agentIdForJob = isset($_POST['agent_id']) ? (int)$_POST['agent_id'] : 0;
@@ -137,6 +142,53 @@ if (($sourceTypeForPath ?? '') === 'local_agent' && $hasAgentIdJobs) {
         $response = new JsonResponse(['status' => 'fail', 'message' => 'Selected agent not found or inactive.'], 200);
         $response->send();
         exit();
+    }
+    
+    // MSP Validation: If MSP client, validate agent belongs to the expected tenant context
+    require_once __DIR__ . '/../lib/Client/MspController.php';
+    $isMspClient = \WHMCS\Module\Addon\CloudStorage\Client\MspController::isMspClient($loggedInUserId);
+    
+    if ($isMspClient && $agentRow) {
+        $agentTenantId = $agentRow->tenant_id ?? null;
+        
+        // If a tenant was explicitly selected in the wizard, validate consistency
+        $wizardTenantId = isset($_POST['wizard_tenant_id']) && $_POST['wizard_tenant_id'] !== '' 
+            ? ((int)$_POST['wizard_tenant_id'] ?: null) 
+            : null;
+        
+        // Handle "direct" selection (agents with no tenant)
+        if (isset($_POST['wizard_tenant_id']) && $_POST['wizard_tenant_id'] === 'direct') {
+            if ($agentTenantId !== null) {
+                $response = new JsonResponse([
+                    'status' => 'fail', 
+                    'message' => 'Selected agent belongs to a tenant but "Direct" was chosen. Please select an agent without a tenant.'
+                ], 200);
+                $response->send();
+                exit();
+            }
+        } elseif ($wizardTenantId !== null) {
+            // Validate the tenant belongs to this MSP
+            $tenant = \WHMCS\Module\Addon\CloudStorage\Client\MspController::getTenant($wizardTenantId, $loggedInUserId);
+            if (!$tenant) {
+                $response = new JsonResponse([
+                    'status' => 'fail', 
+                    'message' => 'Invalid tenant selected.'
+                ], 200);
+                $response->send();
+                exit();
+            }
+            
+            // Validate agent belongs to the selected tenant
+            if ((int)$agentTenantId !== $wizardTenantId) {
+                $response = new JsonResponse([
+                    'status' => 'fail', 
+                    'message' => 'Selected agent does not belong to the chosen tenant.'
+                ], 200);
+                $response->send();
+                exit();
+            }
+        }
+        // If no tenant filter was applied (empty string), allow any agent owned by this client
     }
 }
 
@@ -166,6 +218,29 @@ if (($engineForJob ?? '') === 'kopia') {
         $response = new JsonResponse(['status' => 'fail', 'message' => 'Local Agent (Kopia) jobs require an Agent. Please select an agent.'], 200);
         $response->send();
         exit();
+    }
+}
+if (($engineForJob ?? '') === 'disk_image') {
+    if (($sourceTypeForPath ?? '') !== 'local_agent') {
+        $sourceTypeForPath = 'local_agent';
+        $_POST['source_type'] = 'local_agent';
+    }
+    if ($agentIdPosted <= 0) {
+        $response = new JsonResponse(['status' => 'fail', 'message' => 'Disk Image jobs require an Agent. Please select an agent.'], 200);
+        $response->send();
+        exit();
+    }
+}
+
+// Validate disk image requirements when engine=disk_image
+if (($engineForJob ?? '') === 'disk_image') {
+    if ($diskSourceVolume === '') {
+        $response = new JsonResponse(['status' => 'fail', 'message' => 'Disk source volume is required for disk image backups.'], 200);
+        $response->send();
+        exit();
+    }
+    if ($diskImageFormat === '') {
+        $diskImageFormat = 'vhdx';
     }
 }
 
@@ -287,6 +362,21 @@ if (!$sourceConfig) {
             'bandwidth_limit_kbps' => $bw,
         ];
         $_POST['source_path'] = $path;
+
+        // Handle network share credentials for UNC paths
+        $netUser = $_POST['network_username'] ?? '';
+        $netPass = $_POST['network_password'] ?? '';
+        $netDomain = $_POST['network_domain'] ?? '';
+        if (!empty($netUser) && !empty($netPass)) {
+            // Encrypt credentials before storage using HelperController
+            $encryptedUser = \WHMCS\Module\Addon\CloudStorage\Client\HelperController::encryptKey($netUser, $encryptionKey);
+            $encryptedPass = \WHMCS\Module\Addon\CloudStorage\Client\HelperController::encryptKey($netPass, $encryptionKey);
+            $sourceConfig['network_credentials'] = [
+                'username' => $encryptedUser,
+                'password' => $encryptedPass,
+                'domain' => $netDomain, // Domain doesn't need encryption
+            ];
+        }
     }
 }
 
@@ -371,6 +461,31 @@ $scheduleJsonNorm = $normalizeJsonField($_POST['schedule_json'] ?? null);
 $retentionJsonNorm = $normalizeJsonField($_POST['retention_json'] ?? null);
 $policyJsonNorm = $normalizeJsonField($_POST['policy_json'] ?? null);
 
+// Normalize source_paths (multi-select from Local Agent file browser)
+$sourcePaths = [];
+if (isset($_POST['source_paths'])) {
+    if (is_array($_POST['source_paths'])) {
+        $sourcePaths = array_values(array_filter(array_map('strval', $_POST['source_paths']), fn($p) => trim($p) !== ''));
+    } elseif (is_string($_POST['source_paths'])) {
+        $raw = trim($_POST['source_paths']);
+        $decoded = json_decode($raw, true);
+        if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+            $sourcePaths = array_values(array_filter(array_map('strval', $decoded), fn($p) => trim($p) !== ''));
+        } elseif ($raw !== '') {
+            $sourcePaths = array_values(array_filter(array_map('trim', explode(';', $raw)), fn($p) => $p !== ''));
+        }
+    }
+}
+// Ensure primary source_path stays in sync
+$primarySourcePath = $_POST['source_path'] ?? '';
+if (!empty($sourcePaths)) {
+    $primarySourcePath = $sourcePaths[0];
+    $_POST['source_path'] = $primarySourcePath;
+} elseif ($primarySourcePath !== '') {
+    $sourcePaths[] = $primarySourcePath;
+}
+$hasSourcePathsJson = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'source_paths_json');
+
 // Prepare job data
 $jobData = [
     'client_id' => $loggedInUserId,
@@ -379,7 +494,7 @@ $jobData = [
     'source_type' => $_POST['source_type'],
     'source_display_name' => $_POST['source_display_name'],
     'source_config' => $sourceConfig,
-    'source_path' => $_POST['source_path'] ?? '',
+    'source_path' => $primarySourcePath,
     'dest_bucket_id' => $_POST['dest_bucket_id'],
     'dest_prefix' => $_POST['dest_prefix'],
     'backup_mode' => $_POST['backup_mode'] ?? 'sync',
@@ -407,6 +522,27 @@ $jobData = [
     'notify_on_warning' => isset($_POST['notify_on_warning']) ? 1 : 0,
     'notify_on_failure' => isset($_POST['notify_on_failure']) ? 1 : 0,
 ];
+if ($hasSourcePathsJson) {
+    $jobData['source_paths_json'] = json_encode($sourcePaths, JSON_UNESCAPED_SLASHES);
+}
+// Disk image fields (optional, only stored if provided)
+if ($diskSourceVolume !== '') {
+    $jobData['disk_source_volume'] = $diskSourceVolume;
+}
+$jobData['disk_image_format'] = $diskImageFormat;
+if ($diskTempDir !== '') {
+    $jobData['disk_temp_dir'] = $diskTempDir;
+}
+
+// Hyper-V specific fields
+if (($engineForJob ?? '') === 'hyperv') {
+    $jobData['hyperv_enabled'] = isset($_POST['hyperv_enabled']) ? 1 : 0;
+    $hypervConfig = $_POST['hyperv_config'] ?? '';
+    if ($hypervConfig !== '') {
+        $jobData['hyperv_config'] = $hypervConfig;
+    }
+}
+
 if (($st ?? '') === 'local_agent') {
     if ($hasAgentIdJobs) {
         $jobData['agent_id'] = $agentIdForJob;
@@ -472,6 +608,44 @@ if (is_array($result) && ($result['status'] ?? 'fail') === 'success' && isset($r
     } catch (\Throwable $e) {
         if (($jobData['retention_mode'] ?? 'none') === 'keep_days' && (int)($jobData['retention_value'] ?? 0) > 0) {
             $result = ['status' => 'fail', 'message' => 'Unable to enforce Keep N days retention.'];
+        }
+    }
+    
+    // Register Hyper-V VMs if this is a Hyper-V job
+    if (($engineForJob ?? '') === 'hyperv' && isset($_POST['hyperv_vm_ids'])) {
+        try {
+            $hypervVmIds = json_decode($_POST['hyperv_vm_ids'], true);
+            if (is_array($hypervVmIds) && count($hypervVmIds) > 0) {
+                $jobId = (int) $result['job_id'];
+                foreach ($hypervVmIds as $vmGuid) {
+                    // Check if VM already exists
+                    $existingVm = Capsule::table('s3_hyperv_vms')
+                        ->where('job_id', $jobId)
+                        ->where('vm_guid', $vmGuid)
+                        ->first();
+                    
+                    if (!$existingVm) {
+                        // Insert placeholder VM record - agent will update details on first run
+                        Capsule::table('s3_hyperv_vms')->insert([
+                            'job_id' => $jobId,
+                            'vm_name' => $vmGuid, // Will be updated by agent
+                            'vm_guid' => $vmGuid,
+                            'backup_enabled' => 1,
+                            'created_at' => Capsule::raw('NOW()'),
+                            'updated_at' => Capsule::raw('NOW()'),
+                        ]);
+                    }
+                }
+                logModuleCall('cloudstorage', 'create_job_hyperv_vms_registered', [
+                    'job_id' => $jobId,
+                    'vm_count' => count($hypervVmIds),
+                ], null);
+            }
+        } catch (\Throwable $e) {
+            logModuleCall('cloudstorage', 'create_job_hyperv_vms_error', [
+                'job_id' => $result['job_id'] ?? null,
+            ], $e->getMessage());
+            // Don't fail the job creation, just log the error
         }
     }
 }
