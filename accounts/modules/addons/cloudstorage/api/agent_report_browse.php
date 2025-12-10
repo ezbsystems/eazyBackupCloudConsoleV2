@@ -1,0 +1,86 @@
+<?php
+
+require_once __DIR__ . '/../../../../init.php';
+
+use Illuminate\Database\Capsule\Manager as Capsule;
+use Symfony\Component\HttpFoundation\JsonResponse;
+
+if (!defined("WHMCS")) {
+    die("This file cannot be accessed directly");
+}
+
+function respond(array $data, int $httpCode = 200): void
+{
+    (new JsonResponse($data, $httpCode))->send();
+    exit;
+}
+
+// Agent authentication
+$agentId = $_SERVER['HTTP_X_AGENT_ID'] ?? ($_POST['agent_id'] ?? null);
+$agentToken = $_SERVER['HTTP_X_AGENT_TOKEN'] ?? ($_POST['agent_token'] ?? null);
+if (!$agentId || !$agentToken) {
+    respond(['status' => 'fail', 'message' => 'Missing agent headers'], 401);
+}
+
+$agent = Capsule::table('s3_cloudbackup_agents')
+    ->where('id', $agentId)
+    ->first();
+
+if (!$agent || $agent->status !== 'active' || $agent->agent_token !== $agentToken) {
+    respond(['status' => 'fail', 'message' => 'Unauthorized'], 401);
+}
+
+// Touch last_seen_at
+Capsule::table('s3_cloudbackup_agents')
+    ->where('id', $agentId)
+    ->update(['last_seen_at' => Capsule::raw('NOW()')]);
+
+$bodyRaw = file_get_contents('php://input');
+$body = $bodyRaw ? json_decode($bodyRaw, true) : [];
+
+$commandId = isset($body['command_id']) ? (int) $body['command_id'] : 0;
+$result = $body['result'] ?? null;
+
+if ($commandId <= 0) {
+    respond(['status' => 'fail', 'message' => 'command_id is required'], 400);
+}
+
+$cmd = Capsule::table('s3_cloudbackup_run_commands')
+    ->where('id', $commandId)
+    ->first(['id', 'agent_id', 'type', 'status']);
+
+if (!$cmd || (int) $cmd->agent_id !== (int) $agentId) {
+    respond(['status' => 'fail', 'message' => 'Command not found'], 404);
+}
+$validTypes = ['browse_directory', 'list_hyperv_vms'];
+if (!in_array(strtolower((string) $cmd->type), $validTypes, true)) {
+    respond(['status' => 'fail', 'message' => 'Invalid command type for browse/discovery'], 400);
+}
+
+$resultJson = json_encode($result ?? [], JSON_UNESCAPED_SLASHES);
+
+// Avoid re-completing an already completed command
+if (strtolower((string) $cmd->status) === 'completed') {
+    respond(['status' => 'success']);
+}
+
+// Be tolerant of older schemas missing updated_at/processed_at
+$updates = [
+    'status' => 'completed',
+    'result_message' => $resultJson,
+];
+$hasUpdatedAt = Capsule::schema()->hasColumn('s3_cloudbackup_run_commands', 'updated_at');
+$hasProcessedAt = Capsule::schema()->hasColumn('s3_cloudbackup_run_commands', 'processed_at');
+if ($hasUpdatedAt) {
+    $updates['updated_at'] = Capsule::raw('NOW()');
+}
+if ($hasProcessedAt) {
+    $updates['processed_at'] = Capsule::raw('NOW()');
+}
+
+Capsule::table('s3_cloudbackup_run_commands')
+    ->where('id', $commandId)
+    ->update($updates);
+
+respond(['status' => 'success']);
+

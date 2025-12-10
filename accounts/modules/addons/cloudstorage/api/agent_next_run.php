@@ -114,6 +114,9 @@ $timing = getAgentTimingConfig();
 $hasAgentIdRuns = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'agent_id');
 $hasAgentIdJobs = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'agent_id');
 $hasUpdatedAtRuns = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'updated_at');
+$hasDiskSource = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'disk_source_volume');
+$hasDiskFormat = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'disk_image_format');
+$hasDiskTemp = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'disk_temp_dir');
 
 try {
     $runData = null;
@@ -338,6 +341,40 @@ try {
             $engineVal = 'kopia'; // sensible default for local agent jobs
         }
 
+        // Decrypt network credentials if present in source_config
+        $sourceConfig = json_decode($job->source_config ?? '{}', true) ?? [];
+        $networkCreds = null;
+        if (isset($sourceConfig['network_credentials']) && is_array($sourceConfig['network_credentials'])) {
+            $encNetCreds = $sourceConfig['network_credentials'];
+            $encUser = $encNetCreds['username'] ?? '';
+            $encPass = $encNetCreds['password'] ?? '';
+            $domain = $encNetCreds['domain'] ?? '';
+
+            // Try decrypting with both encryption keys
+            $decUser = '';
+            $decPass = '';
+            if ($encUser && $encKeyPrimary) {
+                $decUser = HelperController::decryptKey($encUser, $encKeyPrimary);
+            }
+            if ($decUser === '' && $encUser && $encKeySecondary) {
+                $decUser = HelperController::decryptKey($encUser, $encKeySecondary);
+            }
+            if ($encPass && $encKeyPrimary) {
+                $decPass = HelperController::decryptKey($encPass, $encKeyPrimary);
+            }
+            if ($decPass === '' && $encPass && $encKeySecondary) {
+                $decPass = HelperController::decryptKey($encPass, $encKeySecondary);
+            }
+
+            if ($decUser !== '' && $decPass !== '') {
+                $networkCreds = [
+                    'username' => $decUser,
+                    'password' => $decPass,
+                    'domain' => $domain,
+                ];
+            }
+        }
+
         $runData = [
             'run_id' => $run->id,
             'job_id' => $run->job_id,
@@ -359,7 +396,64 @@ try {
             'schedule_json' => json_decode($job->schedule_json ?? 'null', true),
             'retention_json' => json_decode($job->retention_json ?? 'null', true),
             'policy_json' => json_decode($job->policy_json ?? 'null', true),
+            'network_credentials' => $networkCreds,
         ];
+        if ($hasDiskSource) {
+            $runData['disk_source_volume'] = $job->disk_source_volume ?? '';
+        }
+        if ($hasDiskFormat) {
+            $runData['disk_image_format'] = $job->disk_image_format ?? '';
+        }
+        if ($hasDiskTemp) {
+            $runData['disk_temp_dir'] = $job->disk_temp_dir ?? '';
+        }
+        
+        // Hyper-V specific data
+        if ($engineVal === 'hyperv') {
+            $hypervConfig = json_decode($job->hyperv_config ?? '{}', true);
+            // Ensure hyperv_config is always an object, not an array (for Go unmarshaling)
+            if (!is_array($hypervConfig) || empty($hypervConfig)) {
+                $hypervConfig = new \stdClass();
+            }
+            $runData['hyperv_config'] = $hypervConfig;
+            
+            // Fetch VMs configured for this job with last checkpoint info
+            $hypervVMs = [];
+            try {
+                $vms = Capsule::table('s3_hyperv_vms')
+                    ->where('job_id', $job->id)
+                    ->where('backup_enabled', true)
+                    ->get();
+                
+                foreach ($vms as $vm) {
+                    $lastCheckpoint = Capsule::table('s3_hyperv_checkpoints')
+                        ->where('vm_id', $vm->id)
+                        ->where('is_active', true)
+                        ->orderBy('created_at', 'desc')
+                        ->first();
+                    
+                    $lastRctIds = json_decode($lastCheckpoint->rct_ids ?? '{}', true);
+                    // Ensure last_rct_ids is always an object
+                    if (!is_array($lastRctIds) || empty($lastRctIds)) {
+                        $lastRctIds = new \stdClass();
+                    }
+                    
+                    $hypervVMs[] = [
+                        'vm_id' => (int) $vm->id,
+                        'vm_name' => $vm->vm_name,
+                        'vm_guid' => $vm->vm_guid,
+                        'last_checkpoint_id' => $lastCheckpoint->checkpoint_id ?? null,
+                        'last_rct_ids' => $lastRctIds,
+                    ];
+                }
+            } catch (\Throwable $e) {
+                // Tables may not exist yet, log but continue
+                logModuleCall('cloudstorage', 'agent_next_run_hyperv', ['job_id' => $job->id], $e->getMessage());
+            }
+            
+            $runData['hyperv_vms'] = $hypervVMs;
+        }
+        
         $debugInfo['has_access_key'] = !empty($runData['dest_access_key']);
         $debugInfo['has_secret_key'] = !empty($runData['dest_secret_key']);
         $debugInfo['dest_bucket'] = $runData['dest_bucket_name'];

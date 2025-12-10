@@ -1,6 +1,7 @@
 <?php
 
 use WHMCS\Database\Capsule;
+use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -13,7 +14,7 @@ function cloudstorage_config()
         'description' => 'This module show the usage of your buckets.',
         'author' => 'eazybackup',
         'language' => 'english',
-        'version' => '1.9.2',
+        'version' => '2.0.0',
         'fields' => [
             's3_region' => [
                 'FriendlyName' => 'S3 Region',
@@ -187,8 +188,193 @@ function cloudstorage_config()
                 'Default' => '2',
                 'Description' => 'Minimum seconds between progress events from worker.'
             ],
+            'msp_client_groups' => [
+                'FriendlyName' => 'MSP Client Groups',
+                'Type'         => 'textarea',
+                'Rows'         => '3',
+                'Cols'         => '60',
+                'Description'  => cloudstorage_AdminGroupsDescription(),
+            ],
+            // Tenant Portal Email Templates
+            'tenant_welcome_email_template' => [
+                'FriendlyName' => 'Tenant Welcome Email Template',
+                'Type' => 'dropdown',
+                'Options' => cloudstorage_get_email_templates(),
+                'Description' => 'Email sent to new tenant admin users when MSP creates their portal account.'
+            ],
+            'tenant_password_reset_email_template' => [
+                'FriendlyName' => 'Tenant Password Reset Email Template',
+                'Type' => 'dropdown',
+                'Options' => cloudstorage_get_email_templates(),
+                'Description' => 'Email sent when tenant portal users request a password reset.'
+            ],
+            'e3_enabled_client_groups' => [
+                'FriendlyName' => 'e3 Cloud Backup - Allowed Client Groups',
+                'Type'         => 'textarea',
+                'Rows'         => '3',
+                'Cols'         => '60',
+                'Description'  => cloudstorage_ClientGroupsCheckboxUI('e3_enabled_client_groups', 'Select client groups that can access the e3 Cloud Backup menu.'),
+            ],
         ]
     ];
+}
+
+/**
+ * Build a checkbox UI for selecting client groups.
+ *
+ * @param string $settingName The setting key (used for the hidden textarea name suffix)
+ * @param string $labelHelper Fallback helper text
+ * @return string
+ */
+function cloudstorage_ClientGroupsCheckboxUI(string $settingName, string $labelHelper = 'Comma-separated client group IDs'): string
+{
+    try {
+        $rows = Capsule::table('tblclientgroups')->select('id', 'groupname')->orderBy('id')->get();
+        $savedCsv = Capsule::table('tbladdonmodules')
+            ->where('module', 'cloudstorage')
+            ->where('setting', $settingName)
+            ->value('value');
+
+        $selected = [];
+        if (is_string($savedCsv) && $savedCsv !== '') {
+            foreach (explode(',', $savedCsv) as $v) {
+                $v = trim($v);
+                if ($v !== '') {
+                    $selected[(int)$v] = true;
+                }
+            }
+        }
+
+        ob_start();
+        ?>
+<style>
+  .eb-group-checkboxes { margin-top:8px; max-height:300px; overflow:auto; background:#0f172a; border:1px solid #1e293b; border-radius:6px; padding:12px; }
+  .eb-group-checkboxes label { display:flex; align-items:center; gap:8px; padding:6px 8px; margin-bottom:4px; background:#0b1220; border:1px solid #1f2937; border-radius:4px; cursor:pointer; color:#e2e8f0; transition:background-color .15s ease; }
+  .eb-group-checkboxes label:hover { background:#111827; }
+  .eb-group-checkboxes input[type="checkbox"] { width:16px; height:16px; accent-color:#0ea5e9; cursor:pointer; }
+  .eb-group-checkboxes .group-name { flex:1; }
+  .eb-group-checkboxes .group-id { color:#64748b; font-size:12px; }
+  .eb-muted { color:#94a3b8; font-size:12px; margin-top:6px; }
+</style>
+<div id="eb-<?=$settingName?>-ui">
+  <div class="eb-group-checkboxes">
+    <?php if (count($rows) === 0): ?>
+      <div style="color:#94a3b8;">No client groups found. Create client groups in WHMCS first.</div>
+    <?php else: ?>
+      <?php foreach ($rows as $r):
+        $gid = (int)$r->id;
+        $checked = isset($selected[$gid]) ? 'checked' : '';
+      ?>
+        <label>
+          <input type="checkbox" class="eb-group-cb-<?=$settingName?>" data-id="<?= $gid ?>" <?= $checked ?>>
+          <span class="group-name"><?= htmlspecialchars($r->groupname, ENT_QUOTES, 'UTF-8'); ?></span>
+          <span class="group-id">ID: <?= $gid ?></span>
+        </label>
+      <?php endforeach; ?>
+    <?php endif; ?>
+  </div>
+  <div class="eb-muted">Check the groups that should be allowed. <?=$labelHelper?></div>
+</div>
+<script>
+(function(){
+  function syncCheckboxes<?=$settingName?>(){
+    var cbs = document.querySelectorAll('.eb-group-cb-<?=$settingName?>:checked');
+    var ids = [];
+    for(var i=0;i<cbs.length;i++){ ids.push(cbs[i].getAttribute('data-id')); }
+    var val = ids.join(', ');
+    var ta = document.querySelector('[name$="[<?=$settingName?>]"]') || document.querySelector('[name="<?=$settingName?>"]');
+    if(ta){ ta.value = val; }
+  }
+  var cbs = document.querySelectorAll('.eb-group-cb-<?=$settingName?>');
+  for(var i=0;i<cbs.length;i++){
+    cbs[i].addEventListener('change', syncCheckboxes<?=$settingName?>);
+  }
+  syncCheckboxes<?=$settingName?>();
+})();
+</script>
+        <?php
+        return ob_get_clean();
+    } catch (\Throwable $e) {
+        return $labelHelper;
+    }
+}
+
+/**
+ * Checkbox UI description for selecting MSP client groups.
+ * Simplified from dual-pane to checkboxes for better compatibility with WHMCS admin.
+ */
+function cloudstorage_AdminGroupsDescription(): string
+{
+    try {
+        $rows = Capsule::table('tblclientgroups')->select('id', 'groupname')->orderBy('id')->get();
+        $savedCsv = Capsule::table('tbladdonmodules')
+            ->where('module', 'cloudstorage')
+            ->where('setting', 'msp_client_groups')
+            ->value('value');
+
+        $selected = [];
+        if (is_string($savedCsv) && $savedCsv !== '') {
+            foreach (explode(',', $savedCsv) as $v) {
+                $v = trim($v);
+                if ($v !== '') {
+                    $selected[(int)$v] = true;
+                }
+            }
+        }
+
+        ob_start();
+        ?>
+<style>
+  .eb-msp-checkboxes { margin-top:8px; max-height:300px; overflow:auto; background:#0f172a; border:1px solid #1e293b; border-radius:6px; padding:12px; }
+  .eb-msp-checkboxes label { display:flex; align-items:center; gap:8px; padding:6px 8px; margin-bottom:4px; background:#0b1220; border:1px solid #1f2937; border-radius:4px; cursor:pointer; color:#e2e8f0; transition:background-color .15s ease; }
+  .eb-msp-checkboxes label:hover { background:#111827; }
+  .eb-msp-checkboxes input[type="checkbox"] { width:16px; height:16px; accent-color:#0ea5e9; cursor:pointer; }
+  .eb-msp-checkboxes .group-name { flex:1; }
+  .eb-msp-checkboxes .group-id { color:#64748b; font-size:12px; }
+  .eb-muted { color:#94a3b8; font-size:12px; margin-top:6px; }
+</style>
+<div id="eb-msp-groups-ui">
+  <div class="eb-msp-checkboxes">
+    <?php if (count($rows) === 0): ?>
+      <div style="color:#94a3b8;">No client groups found. Create client groups in WHMCS first.</div>
+    <?php else: ?>
+      <?php foreach ($rows as $r): 
+        $gid = (int)$r->id;
+        $checked = isset($selected[$gid]) ? 'checked' : '';
+      ?>
+        <label>
+          <input type="checkbox" class="eb-msp-cb" data-id="<?= $gid ?>" <?= $checked ?>>
+          <span class="group-name"><?= htmlspecialchars($r->groupname, ENT_QUOTES, 'UTF-8'); ?></span>
+          <span class="group-id">ID: <?= $gid ?></span>
+        </label>
+      <?php endforeach; ?>
+    <?php endif; ?>
+  </div>
+  <div class="eb-muted">Check the groups that should be treated as MSP accounts.</div>
+</div>
+<script>
+(function(){
+  function syncCheckboxes(){
+    var cbs = document.querySelectorAll('.eb-msp-cb:checked');
+    var ids = [];
+    for(var i=0; i<cbs.length; i++){ ids.push(cbs[i].getAttribute('data-id')); }
+    var val = ids.join(', ');
+    var ta = document.querySelector('[name$="[msp_client_groups]"]') || document.querySelector('[name="msp_client_groups"]');
+    if(ta){ ta.value = val; }
+  }
+  var cbs = document.querySelectorAll('.eb-msp-cb');
+  for(var i=0; i<cbs.length; i++){
+    cbs[i].addEventListener('change', syncCheckboxes);
+  }
+  // Initial sync
+  syncCheckboxes();
+})();
+</script>
+        <?php
+        return ob_get_clean();
+    } catch (\Throwable $e) {
+        return 'Comma-separated client group IDs that should be treated as MSPs.';
+    }
 }
 
 /**
@@ -219,6 +405,88 @@ function cloudstorage_get_email_templates()
     } catch (\Exception $e) {
         logModuleCall('cloudstorage', 'get_email_templates', [], $e->getMessage());
         return ['' => 'Error loading templates'];
+    }
+}
+
+/**
+ * Create Tenant Portal email templates if they don't exist.
+ * Called during module activation.
+ */
+function cloudstorage_create_email_templates()
+{
+    try {
+        // Template 1: Tenant Portal Welcome Email
+        $welcomeExists = Capsule::table('tblemailtemplates')
+            ->where('name', 'Tenant Portal Welcome')
+            ->where('type', 'general')
+            ->exists();
+
+        if (!$welcomeExists) {
+            Capsule::table('tblemailtemplates')->insert([
+                'type' => 'general',
+                'name' => 'Tenant Portal Welcome',
+                'subject' => 'Your backup portal account is ready - {$tenant_name}',
+                'message' => '<p>Hi {$admin_name},</p>
+<p>Your organization <strong>{$tenant_name}</strong> has been set up with cloud backup services.</p>
+<div style="background: #f1f5f9; border-radius: 8px; padding: 20px; margin: 20px 0;">
+    <p style="margin: 0 0 10px 0;"><strong>Portal URL:</strong><br><a href="{$portal_url}">{$portal_url}</a></p>
+    <p style="margin: 0 0 10px 0;"><strong>Email:</strong><br>{$admin_email}</p>
+    <p style="margin: 0;"><strong>Temporary Password:</strong><br><code style="background: #e2e8f0; padding: 4px 8px; border-radius: 4px;">{$temp_password}</code></p>
+</div>
+<p style="color: #ef4444;"><strong>Important:</strong> Please change your password after your first login.</p>
+<p>Best regards,<br>{$msp_name}</p>',
+                'attachments' => '',
+                'fromname' => '',
+                'fromemail' => '',
+                'disabled' => 0,
+                'custom' => 0,
+                'language' => '',
+                'copyto' => '',
+                'blind_copy_to' => '',
+                'plaintext' => 0,
+                'created_at' => date('Y-m-d H:i:s'),
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+            logModuleCall('cloudstorage', 'create_email_templates', [], 'Created Tenant Portal Welcome template', [], []);
+        }
+
+        // Template 2: Tenant Portal Password Reset Email
+        $resetExists = Capsule::table('tblemailtemplates')
+            ->where('name', 'Tenant Portal Password Reset')
+            ->where('type', 'general')
+            ->exists();
+
+        if (!$resetExists) {
+            Capsule::table('tblemailtemplates')->insert([
+                'type' => 'general',
+                'name' => 'Tenant Portal Password Reset',
+                'subject' => 'Reset your backup portal password',
+                'message' => '<p>Hi {$user_name},</p>
+<p>We received a request to reset your password for the backup portal.</p>
+<div style="background: #f1f5f9; border-radius: 8px; padding: 20px; margin: 20px 0;">
+    <p><a href="{$reset_url}" style="display: inline-block; padding: 12px 24px; background: #0ea5e9; color: white; text-decoration: none; border-radius: 6px; font-weight: bold;">Reset Your Password</a></p>
+    <p style="font-size: 12px; color: #64748b; margin-top: 10px;">Or copy this link: {$reset_url}</p>
+</div>
+<p>This link will expire in 1 hour.</p>
+<p>If you did not request this password reset, you can safely ignore this email.</p>
+<p>Best regards,<br>{$company_name}</p>',
+                'attachments' => '',
+                'fromname' => '',
+                'fromemail' => '',
+                'disabled' => 0,
+                'custom' => 0,
+                'language' => '',
+                'copyto' => '',
+                'blind_copy_to' => '',
+                'plaintext' => 0,
+                'created_at' => date('Y-m-d H:i:s'),
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+            logModuleCall('cloudstorage', 'create_email_templates', [], 'Created Tenant Portal Password Reset template', [], []);
+        }
+
+    } catch (\Throwable $e) {
+        logModuleCall('cloudstorage', 'create_email_templates', [], 'Error: ' . $e->getMessage(), [], []);
     }
 }
 
@@ -461,6 +729,24 @@ function cloudstorage_activate() {
         }
 
         // Cloud Backup tables
+        if (!Capsule::schema()->hasTable('s3_cloudbackup_agents')) {
+            Capsule::schema()->create('s3_cloudbackup_agents', function ($table) {
+                $table->bigIncrements('id');
+                $table->unsignedInteger('client_id');
+                $table->string('agent_token', 191);
+                $table->string('hostname', 191)->nullable();
+                $table->enum('status', ['active', 'disabled'])->default('active');
+                $table->dateTime('last_seen_at')->nullable();
+                $table->text('volumes_json')->nullable();
+                $table->dateTime('volumes_updated_at')->nullable();
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('updated_at')->useCurrent();
+
+                $table->unique('agent_token');
+                $table->index('client_id');
+            });
+        }
+
         if (!Capsule::schema()->hasTable('s3_cloudbackup_jobs')) {
             Capsule::schema()->create('s3_cloudbackup_jobs', function ($table) {
             $table->increments('id');
@@ -514,7 +800,8 @@ function cloudstorage_activate() {
             $table->timestamp('notified_at')->nullable();
             $table->decimal('progress_pct', 5, 2)->nullable();
             $table->unsignedBigInteger('bytes_total')->nullable();
-            $table->unsignedBigInteger('bytes_transferred')->nullable();
+            $table->unsignedBigInteger('bytes_transferred')->nullable();     // Actual bytes uploaded to storage
+            $table->unsignedBigInteger('bytes_processed')->nullable();       // Bytes read/scanned from source (for dedup)
             $table->unsignedBigInteger('objects_total')->nullable();
             $table->unsignedBigInteger('objects_transferred')->nullable();
             $table->unsignedBigInteger('speed_bytes_per_sec')->nullable();
@@ -591,6 +878,171 @@ function cloudstorage_activate() {
             logModuleCall('cloudstorage', 'activate', [], 'Created s3_cloudbackup_sources table', [], []);
         }
 
+        // -----------------------------
+        // MSP / Tenant tables
+        // -----------------------------
+        if (!Capsule::schema()->hasTable('s3_backup_tenants')) {
+            Capsule::schema()->create('s3_backup_tenants', function ($table) {
+                $table->increments('id');
+                $table->unsignedInteger('client_id');              // MSP's WHMCS client_id
+                $table->string('name', 255);
+                $table->string('slug', 100);
+                $table->string('ceph_uid', 191)->nullable();       // Ceph RGW user ID
+                $table->string('bucket_name', 255)->nullable();    // Optional dedicated bucket
+                $table->unsignedBigInteger('storage_quota_bytes')->nullable();
+                $table->enum('status', ['active', 'suspended', 'deleted'])->default('active');
+                $table->text('branding_json')->nullable();         // Logo, colors, support info
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('updated_at')->useCurrent();
+
+                $table->unique(['client_id', 'slug']);
+                $table->index('client_id');
+                $table->index('ceph_uid');
+                $table->index('status');
+            });
+            logModuleCall('cloudstorage', 'activate', [], 'Created s3_backup_tenants table', [], []);
+        }
+
+        // Add profile/billing columns to s3_backup_tenants for enhanced onboarding
+        if (Capsule::schema()->hasTable('s3_backup_tenants')) {
+            if (!Capsule::schema()->hasColumn('s3_backup_tenants', 'contact_email')) {
+                Capsule::schema()->table('s3_backup_tenants', function ($table) {
+                    $table->string('contact_email', 255)->nullable()->after('slug');
+                    $table->string('contact_name', 255)->nullable()->after('contact_email');
+                    $table->string('contact_phone', 50)->nullable()->after('contact_name');
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Added contact fields to s3_backup_tenants', [], []);
+            }
+            if (!Capsule::schema()->hasColumn('s3_backup_tenants', 'address_line1')) {
+                Capsule::schema()->table('s3_backup_tenants', function ($table) {
+                    $table->string('address_line1', 255)->nullable()->after('contact_phone');
+                    $table->string('address_line2', 255)->nullable()->after('address_line1');
+                    $table->string('city', 100)->nullable()->after('address_line2');
+                    $table->string('state', 100)->nullable()->after('city');
+                    $table->string('postal_code', 20)->nullable()->after('state');
+                    $table->string('country', 2)->nullable()->after('postal_code'); // ISO 3166-1 alpha-2
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Added address fields to s3_backup_tenants', [], []);
+            }
+            if (!Capsule::schema()->hasColumn('s3_backup_tenants', 'stripe_customer_id')) {
+                Capsule::schema()->table('s3_backup_tenants', function ($table) {
+                    $table->string('stripe_customer_id', 255)->nullable()->after('country');
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Added stripe_customer_id to s3_backup_tenants', [], []);
+            }
+        }
+
+        if (!Capsule::schema()->hasTable('s3_backup_tenant_users')) {
+            Capsule::schema()->create('s3_backup_tenant_users', function ($table) {
+                $table->increments('id');
+                $table->unsignedInteger('tenant_id');
+                $table->string('email', 255);
+                $table->string('password_hash', 255);
+                $table->string('name', 255);
+                $table->enum('role', ['admin', 'user'])->default('user');
+                $table->enum('status', ['active', 'disabled'])->default('active');
+                $table->string('password_reset_token', 64)->nullable();
+                $table->dateTime('password_reset_expires')->nullable();
+                $table->dateTime('last_login_at')->nullable();
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('updated_at')->useCurrent();
+
+                $table->unique(['tenant_id', 'email']);
+                $table->index('tenant_id');
+                $table->index('email');
+                $table->foreign('tenant_id')->references('id')->on('s3_backup_tenants')->onDelete('cascade');
+            });
+            logModuleCall('cloudstorage', 'activate', [], 'Created s3_backup_tenant_users table', [], []);
+        }
+
+        if (!Capsule::schema()->hasTable('s3_agent_enrollment_tokens')) {
+            Capsule::schema()->create('s3_agent_enrollment_tokens', function ($table) {
+                $table->increments('id');
+                $table->unsignedInteger('client_id');              // MSP/client who owns the token
+                $table->unsignedInteger('tenant_id')->nullable();  // Scoped to tenant (NULL = direct client)
+                $table->string('token', 64);                       // ENR-xxxxxxxx
+                $table->string('description', 255)->nullable();    // Friendly label
+                $table->unsignedInteger('max_uses')->nullable();   // NULL = unlimited
+                $table->unsignedInteger('use_count')->default(0);
+                $table->dateTime('expires_at')->nullable();        // NULL = never
+                $table->dateTime('revoked_at')->nullable();
+                $table->timestamp('created_at')->useCurrent();
+
+                $table->unique('token');
+                $table->index('client_id');
+                $table->index('tenant_id');
+                $table->index('expires_at');
+            });
+            logModuleCall('cloudstorage', 'activate', [], 'Created s3_agent_enrollment_tokens table', [], []);
+        }
+
+        if (!Capsule::schema()->hasTable('s3_backup_usage_snapshots')) {
+            Capsule::schema()->create('s3_backup_usage_snapshots', function ($table) {
+                $table->increments('id');
+                $table->unsignedInteger('client_id');
+                $table->unsignedInteger('tenant_id')->nullable();
+                $table->date('period_start');
+                $table->date('period_end');
+                $table->unsignedBigInteger('storage_bytes')->default(0);
+                $table->unsignedInteger('agent_count')->default(0);
+                $table->unsignedInteger('disk_image_agent_count')->default(0);
+                $table->unsignedInteger('vm_count')->default(0);
+                $table->dateTime('calculated_at');
+                $table->timestamp('created_at')->useCurrent();
+
+                $table->index(['client_id', 'period_start']);
+                $table->index(['tenant_id', 'period_start']);
+            });
+            logModuleCall('cloudstorage', 'activate', [], 'Created s3_backup_usage_snapshots table', [], []);
+        }
+
+        if (!Capsule::schema()->hasTable('s3_msp_portal_domains')) {
+            Capsule::schema()->create('s3_msp_portal_domains', function ($table) {
+                $table->increments('id');
+                $table->unsignedInteger('client_id');              // MSP's WHMCS client_id
+                $table->string('domain', 255);                     // backup.acmemsp.com
+                $table->tinyInteger('is_primary')->default(0);
+                $table->tinyInteger('is_verified')->default(0);
+                $table->text('branding_json')->nullable();         // Logo, colors override
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('updated_at')->useCurrent();
+
+                $table->unique('domain');
+                $table->index('client_id');
+            });
+            logModuleCall('cloudstorage', 'activate', [], 'Created s3_msp_portal_domains table', [], []);
+        }
+
+        // Extend agents with tenant scoping and enrollment metadata
+        if (Capsule::schema()->hasTable('s3_cloudbackup_agents')) {
+            if (!Capsule::schema()->hasColumn('s3_cloudbackup_agents', 'tenant_id')) {
+                Capsule::schema()->table('s3_cloudbackup_agents', function ($table) {
+                    $table->unsignedInteger('tenant_id')->nullable()->after('client_id');
+                    $table->index('tenant_id');
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Added tenant_id to s3_cloudbackup_agents', [], []);
+            }
+            if (!Capsule::schema()->hasColumn('s3_cloudbackup_agents', 'tenant_user_id')) {
+                Capsule::schema()->table('s3_cloudbackup_agents', function ($table) {
+                    $table->unsignedInteger('tenant_user_id')->nullable()->after('tenant_id');
+                    $table->index('tenant_user_id');
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Added tenant_user_id to s3_cloudbackup_agents', [], []);
+            }
+            if (!Capsule::schema()->hasColumn('s3_cloudbackup_agents', 'agent_type')) {
+                Capsule::schema()->table('s3_cloudbackup_agents', function ($table) {
+                    $table->enum('agent_type', ['workstation', 'server', 'hypervisor'])->default('workstation')->after('status');
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Added agent_type to s3_cloudbackup_agents', [], []);
+            }
+            if (!Capsule::schema()->hasColumn('s3_cloudbackup_agents', 'enrollment_token_id')) {
+                Capsule::schema()->table('s3_cloudbackup_agents', function ($table) {
+                    $table->unsignedInteger('enrollment_token_id')->nullable()->after('agent_token');
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Added enrollment_token_id to s3_cloudbackup_agents', [], []);
+            }
+        }
+
         // Add source_connection_id to jobs if missing
         if (\WHMCS\Database\Capsule::schema()->hasTable('s3_cloudbackup_jobs')) {
             if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'source_connection_id')) {
@@ -624,6 +1076,22 @@ function cloudstorage_activate() {
                     $table->string('compression', 64)->nullable()->after('encryption_mode');
                 });
                 logModuleCall('cloudstorage', 'activate', [], 'Added Kopia/engine fields to s3_cloudbackup_jobs', [], []);
+            }
+        }
+
+        // Ensure agent volume columns exist for UI device picker
+        if (\WHMCS\Database\Capsule::schema()->hasTable('s3_cloudbackup_agents')) {
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_agents', 'volumes_json')) {
+                \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_agents', function ($table) {
+                    $table->text('volumes_json')->nullable()->after('last_seen_at');
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Added volumes_json to s3_cloudbackup_agents', [], []);
+            }
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_agents', 'volumes_updated_at')) {
+                \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_agents', function ($table) {
+                    $table->dateTime('volumes_updated_at')->nullable()->after('volumes_json');
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Added volumes_updated_at to s3_cloudbackup_agents', [], []);
             }
         }
 
@@ -722,6 +1190,9 @@ function cloudstorage_activate() {
             });
             logModuleCall('cloudstorage', 'activate', [], 'Created cloudstorage_trial_selection table', [], []);
         }
+
+        // Create Tenant Portal Email Templates if they don't exist
+        cloudstorage_create_email_templates();
 
         logModuleCall('cloudstorage', 'activate', [], 'Module activation completed successfully', [], []);
         
@@ -1040,6 +1511,7 @@ function cloudstorage_upgrade($vars) {
                 $table->decimal('progress_pct', 5, 2)->nullable();
                 $table->unsignedBigInteger('bytes_total')->nullable();
                 $table->unsignedBigInteger('bytes_transferred')->nullable();
+                $table->unsignedBigInteger('bytes_processed')->nullable();    // Bytes read/scanned from source
                 $table->unsignedBigInteger('objects_total')->nullable();
                 $table->unsignedBigInteger('objects_transferred')->nullable();
                 $table->unsignedBigInteger('speed_bytes_per_sec')->nullable();
@@ -1129,6 +1601,17 @@ function cloudstorage_upgrade($vars) {
                     logModuleCall('cloudstorage', 'upgrade_add_run_uuid', [], 'run_uuid added and backfilled');
                 } catch (\Exception $e) {
                     logModuleCall('cloudstorage', 'upgrade_add_run_uuid_error', [], $e->getMessage(), [], []);
+                }
+            }
+            // Add bytes_processed column for deduplication progress tracking
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'bytes_processed')) {
+                try {
+                    \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_runs', function ($table) {
+                        $table->unsignedBigInteger('bytes_processed')->nullable()->after('bytes_transferred');
+                    });
+                    logModuleCall('cloudstorage', 'upgrade_add_bytes_processed', [], 'bytes_processed column added');
+                } catch (\Exception $e) {
+                    logModuleCall('cloudstorage', 'upgrade_add_bytes_processed_error', [], $e->getMessage(), [], []);
                 }
             }
         }
@@ -1274,6 +1757,27 @@ function cloudstorage_upgrade($vars) {
 
 function cloudstorage_clientarea($vars) {
     $page = $_GET['page'];
+    $clientId = isset($_SESSION['uid']) ? (int) $_SESSION['uid'] : 0;
+    $clientGroupId = 0;
+    if ($clientId > 0) {
+        try {
+            $clientGroupId = (int) Capsule::table('tblclients')->where('id', $clientId)->value('groupid');
+        } catch (\Throwable $e) {
+            $clientGroupId = 0;
+        }
+    }
+    $e3AllowedGroupsCsv = (string) (Capsule::table('tbladdonmodules')
+        ->where('module', 'cloudstorage')
+        ->where('setting', 'e3_enabled_client_groups')
+        ->value('value') ?? '');
+    $e3Allowed = false;
+    if ($clientGroupId > 0 && $e3AllowedGroupsCsv !== '') {
+        $ids = array_filter(array_map('trim', explode(',', $e3AllowedGroupsCsv)), function ($v) {
+            return $v !== '';
+        });
+        $ids = array_map('intval', $ids);
+        $e3Allowed = in_array($clientGroupId, $ids, true);
+    }
     // Preserve module configuration values separately from view variables
     $config = $vars;
     $encryptionKey = $config['encryption_key'];
@@ -1361,6 +1865,48 @@ function cloudstorage_clientarea($vars) {
             $viewVars = require 'pages/history.php';
             break;
 
+        case 'e3backup':
+            $view = $_GET['view'] ?? 'dashboard';
+            switch ($view) {
+                case 'live':
+                    $pagetitle = 'e3 Cloud Backup - Live Progress';
+                    $templatefile = 'templates/e3backup_live';
+                    $viewVars = require 'pages/e3backup_live.php';
+                    break;
+                case 'agents':
+                    $pagetitle = 'e3 Cloud Backup - Agents';
+                    $templatefile = 'templates/e3backup_agents';
+                    $viewVars = require 'pages/e3backup_agents.php';
+                    break;
+                case 'tokens':
+                    $pagetitle = 'e3 Cloud Backup - Enrollment Tokens';
+                    $templatefile = 'templates/e3backup_tokens';
+                    $viewVars = require 'pages/e3backup_tokens.php';
+                    break;
+                case 'tenants':
+                    $pagetitle = 'e3 Cloud Backup - Tenants';
+                    $templatefile = 'templates/e3backup_tenants';
+                    $viewVars = require 'pages/e3backup_tenants.php';
+                    break;
+                case 'jobs':
+                    $pagetitle = 'e3 Cloud Backup - Jobs';
+                    $templatefile = 'templates/e3backup_jobs';
+                    $viewVars = require 'pages/e3backup_jobs.php';
+                    break;
+                case 'tenant_users':
+                    $pagetitle = 'e3 Cloud Backup - Tenant Users';
+                    $templatefile = 'templates/e3backup_tenant_users';
+                    $viewVars = require 'pages/e3backup_tenant_users.php';
+                    break;
+                case 'dashboard':
+                default:
+                    $pagetitle = 'e3 Cloud Backup';
+                    $templatefile = 'templates/e3backup_dashboard';
+                    $viewVars = require 'pages/e3backup_dashboard.php';
+                    break;
+            }
+            break;
+
         case 'browse':
             $pagetitle = "Browse Bucket";
             $templatefile = 'templates/browse';
@@ -1419,6 +1965,11 @@ function cloudstorage_clientarea($vars) {
                     $templatefile = 'templates/cloudbackup_agents';
                     $viewVars = require 'pages/cloudbackup_agents.php';
                     break;
+                case 'cloudnas':
+                    $pagetitle = 'Cloud NAS';
+                    $templatefile = 'templates/cloudnas';
+                    $viewVars = require 'pages/cloudnas.php';
+                    break;
                 case 'cloudbackup_settings':
                     $pagetitle = 'Backup Settings';
                     $templatefile = 'templates/cloudbackup_settings';
@@ -1448,7 +1999,10 @@ function cloudstorage_clientarea($vars) {
     return [
         'pagetitle' => $pagetitle,
         'templatefile' => $templatefile,
-        'vars' => $viewVars ?? [],
+        'vars' => array_merge($viewVars ?? [], [
+            'clientGroupId' => $clientGroupId,
+            'e3Allowed' => $e3Allowed,
+        ]),
     ];
 }
 

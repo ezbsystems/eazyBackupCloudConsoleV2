@@ -17,7 +17,11 @@ class CloudBackupEventFormatter
         $id = (string) $messageId;
         $tmpl = isset($dict[$id]) ? $dict[$id] : '';
         if ($tmpl === '') {
-            // Fallback generic message
+            // Fallback: use 'message' param if provided by the agent
+            if (isset($params['message']) && is_string($params['message']) && $params['message'] !== '') {
+                return $params['message'];
+            }
+            // Final fallback generic message
             return 'Update received.';
         }
         // Sanitize and humanize known params
@@ -87,6 +91,22 @@ class CloudBackupEventFormatter
             'MAINTENANCE_STARTING' => 'Starting maintenance ({mode}).',
             'MAINTENANCE_COMPLETED' => 'Maintenance ({mode}) completed successfully.',
             'MAINTENANCE_FAILED' => 'Maintenance ({mode}) failed: {error}.',
+            
+            // Hyper-V specific
+            'HYPERV_NO_VMS' => 'No VMs configured for backup.',
+            'HYPERV_VM_STARTING' => 'Starting backup of VM "{vm_name}".',
+            'HYPERV_VM_COMPLETE' => 'VM "{vm_name}" backed up successfully ({backup_type}, {consistency}).',
+            'HYPERV_VM_FAILED' => 'VM "{vm_name}" backup failed: {message}',
+            'HYPERV_CHECKPOINTS_DISABLED' => '⚠️ {message}',
+            'HYPERV_DISK_STARTING' => 'Backing up disk: {disk_path} ({size}).',
+            'HYPERV_BACKUP_COMPLETE' => '{message}',
+            
+            // Disk Image specific
+            'DISK_IMAGE_STARTING' => 'Starting disk image backup of {volume}.',
+            'DISK_IMAGE_STREAM_START' => 'Streaming disk image to cloud storage.',
+            'DISK_IMAGE_STREAM_COMPLETED' => 'Disk image stream completed.',
+            'DISK_IMAGE_COMPLETED' => 'Disk image backup completed.',
+            'DISK_IMAGE_FAILED' => 'Disk image backup failed: {error}.',
         ];
     }
 
@@ -126,6 +146,16 @@ class CloudBackupEventFormatter
         }
         if (isset($params['bytes_restored'])) {
             $out['bytes_restored'] = HelperController::formatSizeUnitsPlain((int) $params['bytes_restored']);
+        }
+        // Hyper-V specific sizes
+        if (isset($params['size']) && is_numeric($params['size'])) {
+            $out['size'] = HelperController::formatSizeUnitsPlain((int) $params['size']);
+        }
+        if (isset($params['total_bytes']) && is_numeric($params['total_bytes'])) {
+            $out['total_bytes'] = HelperController::formatSizeUnitsPlain((int) $params['total_bytes']);
+        }
+        if (isset($params['changed_bytes']) && is_numeric($params['changed_bytes'])) {
+            $out['changed_bytes'] = HelperController::formatSizeUnitsPlain((int) $params['changed_bytes']);
         }
         if (isset($params['speed_bps'])) {
             $out['speed'] = HelperController::formatSizeUnitsPlain((int) $params['speed_bps']);

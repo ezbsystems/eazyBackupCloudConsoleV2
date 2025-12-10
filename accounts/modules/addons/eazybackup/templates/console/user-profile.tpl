@@ -705,6 +705,87 @@
       </div>
 
       <div x-show="activeSubTab === 'storage'" x-cloak x-transition>
+          {* Calculate totals across all vaults for billing summary *}
+          {assign var=totalQuotaBytes value=0}
+          {assign var=totalUsedBytes value=0}
+          {assign var=vaultCount value=0}
+          {assign var=quotaEnabledCount value=0}
+          {foreach from=$vaults item=v}
+              {assign var=vaultCount value=$vaultCount+1}
+              {* Sum used bytes *}
+              {if isset($v.Statistics.ClientProvidedSize.Size)}
+                  {assign var=totalUsedBytes value=$totalUsedBytes+$v.Statistics.ClientProvidedSize.Size}
+              {elseif isset($v.ClientProvidedSize.Size)}
+                  {assign var=totalUsedBytes value=$totalUsedBytes+$v.ClientProvidedSize.Size}
+              {elseif isset($v.Size.Size)}
+                  {assign var=totalUsedBytes value=$totalUsedBytes+$v.Size.Size}
+              {elseif isset($v.Size)}
+                  {assign var=totalUsedBytes value=$totalUsedBytes+$v.Size}
+              {/if}
+              {* Sum quota bytes (only if enabled) *}
+              {if $v.StorageLimitEnabled|default:false && $v.StorageLimitBytes|default:0 > 0}
+                  {assign var=totalQuotaBytes value=$totalQuotaBytes+$v.StorageLimitBytes}
+                  {assign var=quotaEnabledCount value=$quotaEnabledCount+1}
+              {/if}
+          {/foreach}
+          {* Calculate billable TB tier (round up to nearest 1TB) *}
+          {assign var=tbBytes value=1099511627776}
+          {if $totalQuotaBytes > 0}
+              {assign var=billableTB value=ceil($totalQuotaBytes/$tbBytes)}
+          {else}
+              {assign var=billableTB value=0}
+          {/if}
+          
+          {* Account-Level Billing Summary Card *}
+          <div class="mb-4 p-4 bg-gradient-to-r from-slate-800/80 to-slate-900/80 rounded-xl border border-slate-700/60 shadow-lg">
+              <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <div class="flex items-center gap-3">
+                      <div class="p-2 rounded-lg bg-sky-500/10 border border-sky-500/20">
+                          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                          </svg>
+                      </div>
+                      <div>
+                          <h3 class="text-sm font-semibold text-white">Account Storage Summary</h3>
+                          <p class="text-xs text-slate-400">{$vaultCount} vault{if $vaultCount != 1}s{/if}{if $quotaEnabledCount > 0}, {$quotaEnabledCount} with quota enabled{/if}</p>
+                      </div>
+                  </div>
+                  <div class="flex flex-wrap items-center gap-4 sm:gap-6 text-sm">
+                      <div class="flex flex-col">
+                          <span class="text-[10px] uppercase tracking-wider text-slate-500 font-medium">Total Used</span>
+                          <span class="text-slate-200 font-semibold">{\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($totalUsedBytes, 2)}</span>
+                      </div>
+                      <div class="flex flex-col">
+                          <span class="text-[10px] uppercase tracking-wider text-slate-500 font-medium">Total Quota</span>
+                          <span class="text-slate-200 font-semibold">{if $totalQuotaBytes > 0}{\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($totalQuotaBytes, 2)}{else}<span class="text-slate-400">No quotas set</span>{/if}</span>
+                      </div>
+                      <div class="flex flex-col border-l border-slate-600/50 pl-4 sm:pl-6">
+                          <span class="text-[10px] uppercase tracking-wider text-slate-500 font-medium flex items-center gap-1">
+                              Billable Tier
+                              <span class="cursor-help text-slate-400" title="Billing is based on the sum of all vault quotas, rounded up to the nearest 1TB tier.">
+                                  <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                  </svg>
+                              </span>
+                          </span>
+                          <span class="text-emerald-400 font-bold text-lg">{if $billableTB > 0}{$billableTB} TB{else}<span class="text-slate-400 text-sm font-normal">—</span>{/if}</span>
+                      </div>
+                  </div>
+              </div>
+              {if $totalQuotaBytes > 0}
+              <div class="mt-3 pt-3 border-t border-slate-700/50">
+                  <p class="text-[11px] text-slate-400 leading-relaxed">
+                      <svg class="inline h-3.5 w-3.5 mr-1 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                      </svg>
+                      Your total quota across all vaults is <strong class="text-slate-300">{\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($totalQuotaBytes, 2)}</strong>. 
+                      Billing is calculated by summing all vault quotas, then rounding up to the nearest 1TB tier 
+                      (<strong class="text-emerald-400">{$billableTB} TB</strong>).
+                  </p>
+              </div>
+              {/if}
+          </div>
+          
           <div class="bg-gray-900/50 rounded-lg overflow-visible" x-data="{
               open:false,
               search:'',
@@ -743,7 +824,16 @@
                           <th x-show="cols.type" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Type</th>
                           <th x-show="cols.init" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Initialized</th>
                           <th x-show="cols.stored" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Stored</th>
-                          <th x-show="cols.quota" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Quota</th>
+                          <th x-show="cols.quota" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                              <span class="inline-flex items-center gap-1">
+                                  Quota
+                                  <span class="cursor-help text-slate-500 hover:text-slate-300" title="Per-vault quota. Billing is based on the sum of all vault quotas, rounded up to the nearest 1TB tier.">
+                                      <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                      </svg>
+                                  </span>
+                              </span>
+                          </th>
                           <th x-show="cols.usage" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Usage</th>
                           <th x-show="cols.actions" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Actions</th>
               </tr>
@@ -835,22 +925,25 @@
                                   {if not $hasQuota}
                                       <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-slate-300">Unlimited</span>
                                   {else}
-                                      <span class="inline-flex items-center gap-2">
-                                          <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-slate-200" title="Storage quota">{\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($quotaBytes)}</span>
-                                          {if $quotaEnabled}
-                                              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-900/40 text-emerald-300">On</span>
-                                          {else}
-                                              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-700 text-slate-300">Off</span>
-                                          {/if}
-                                          <button type="button" class="configure-vault-button ml-1 p-1.5 rounded hover:bg-slate-700 text-slate-300"
-                                              title="Edit quota"
-                                          data-vault-id="{$vaultId}"
-                                          data-vault-name="{$vault.Description}"
-                                              data-vault-quota-enabled="{$quotaEnabled}"
-                                              data-vault-quota-bytes="{$quotaBytes}">
-                                              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232a2.5 2.5 0 113.536 3.536L7.5 20.036 3 21l.964-4.5L15.232 5.232z"/></svg>
-                                  </button>
-                                      </span>
+                                      <div class="flex flex-col gap-1">
+                                          <span class="inline-flex items-center gap-2">
+                                              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-slate-200" title="Exact quota: {\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($quotaBytes, 2)}">{\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($quotaBytes, 2)}</span>
+                                              {if $quotaEnabled}
+                                                  <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-900/40 text-emerald-300">On</span>
+                                              {else}
+                                                  <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-700 text-slate-300">Off</span>
+                                              {/if}
+                                              <button type="button" class="configure-vault-button ml-1 p-1.5 rounded hover:bg-slate-700 text-slate-300"
+                                                  title="Edit quota"
+                                                  data-vault-id="{$vaultId}"
+                                                  data-vault-name="{$vault.Description}"
+                                                  data-vault-quota-enabled="{$quotaEnabled}"
+                                                  data-vault-quota-bytes="{$quotaBytes}">
+                                                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232a2.5 2.5 0 113.536 3.536L7.5 20.036 3 21l.964-4.5L15.232 5.232z"/></svg>
+                                              </button>
+                                          </span>
+                                          <span class="text-[10px] text-slate-500">Per-vault limit</span>
+                                      </div>
                                   {/if}
                               </td>
                               <td x-show="cols.usage" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
@@ -1044,10 +1137,14 @@
   </div>
 </div>
 
-{* New: Vault slide-over panel *}
-<div id="vault-slide-panel" class="fixed inset-y-0 right-0 z-50 w-full max-w-2xl transform translate-x-full transition-transform duration-200 ease-out">
-  <div class="h-full bg-slate-900 border-l border-slate-700 shadow-xl flex flex-col"
-      data-modulelink="{$modulelink}" data-serviceid="{$serviceid}" data-username="{$username}">
+{* Vault slide-over panel *}
+<div id="vault-slide-panel-container" class="fixed inset-0 z-50 pointer-events-none">
+  {* Backdrop overlay - closes panel when clicked *}
+  <div id="vault-panel-backdrop" class="absolute inset-0 bg-black/50 opacity-0 transition-opacity duration-200 pointer-events-none"></div>
+  {* Panel *}
+  <div id="vault-slide-panel" class="absolute inset-y-0 right-0 w-full max-w-2xl transform translate-x-full transition-transform duration-200 ease-out pointer-events-auto">
+    <div class="h-full bg-slate-900 border-l border-slate-700 shadow-xl flex flex-col"
+        data-modulelink="{$modulelink}" data-serviceid="{$serviceid}" data-username="{$username}">
     <div class="flex items-center justify-between px-4 py-3 border-b border-slate-700">
       <div>
         <h3 class="text-slate-200 text-lg font-semibold">Manage Storage Vault</h3>

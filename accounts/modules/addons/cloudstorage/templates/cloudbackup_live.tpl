@@ -1,23 +1,7 @@
 <div class="min-h-screen bg-slate-950 text-gray-300">
     <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
     <div class="container mx-auto px-4 pb-10 pt-6 relative pointer-events-auto">
-        <!-- Navigation Tabs (pill style) -->
-        <div class="mb-6">
-            <nav class="inline-flex rounded-full bg-slate-900/80 p-1 text-xs font-medium text-slate-400" aria-label="Cloud Backup Navigation">
-                <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_jobs"
-                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.view == 'cloudbackup_jobs' || empty($smarty.get.view)}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-                    Jobs
-                </a>
-                <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_runs&job_id={$job.id}"
-                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.view == 'cloudbackup_runs' || $smarty.get.view == 'cloudbackup_live'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-                    Run History
-                </a>
-                <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_settings"
-                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.view == 'cloudbackup_settings'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-                    Settings
-                </a>
-            </nav>
-        </div>
+        {include file="modules/addons/cloudstorage/templates/partials/cloudbackup_nav.tpl"}
         <!-- Glass panel container -->
         <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
 
@@ -84,7 +68,7 @@
         </div>
 
         <!-- Compact Metrics Strip -->
-        <div class="mb-6 grid gap-4 md:grid-cols-4">
+        <div class="mb-6 grid gap-4 md:grid-cols-5">
             <div class="rounded-2xl border border-slate-800/80 bg-slate-900/70 px-4 py-3">
                 <p class="text-xs font-medium text-slate-400 uppercase tracking-wide">Status</p>
                 <p class="mt-1">
@@ -99,7 +83,19 @@
                 </p>
             </div>
             <div class="rounded-2xl border border-slate-800/80 bg-slate-900/70 px-4 py-3">
-                <p class="text-xs font-medium text-slate-400 uppercase tracking-wide">Bytes Transferred</p>
+                <p class="text-xs font-medium text-slate-400 uppercase tracking-wide">Processed</p>
+                <p class="mt-1 text-2xl font-semibold text-white" id="bytesProcessedTop">
+                    {if $run.bytes_processed}
+                        {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.bytes_processed)}
+                    {elseif $run.bytes_transferred}
+                        {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.bytes_transferred)}
+                    {else}
+                        0.00 Bytes
+                    {/if}
+                </p>
+            </div>
+            <div class="rounded-2xl border border-slate-800/80 bg-slate-900/70 px-4 py-3">
+                <p class="text-xs font-medium text-slate-400 uppercase tracking-wide">Uploaded</p>
                 <p class="mt-1 text-2xl font-semibold text-white" id="bytesTransferredTop">
                     {if $run.bytes_transferred}
                         {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.bytes_transferred)}
@@ -170,9 +166,11 @@
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-6">
                 <div>
-                    <h6 class="text-sm font-medium text-slate-400 mb-2">Bytes Transferred</h6>
-                    <div class="text-2xl font-semibold text-slate-300 transition-opacity duration-300" id="bytesTransferred">
-                        {if $run.bytes_transferred}
+                    <h6 class="text-sm font-medium text-slate-400 mb-2">Bytes Processed</h6>
+                    <div class="text-2xl font-semibold text-slate-300 transition-opacity duration-300" id="bytesProcessed">
+                        {if $run.bytes_processed}
+                            {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.bytes_processed)}
+                        {elseif $run.bytes_transferred}
                             {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.bytes_transferred)}
                         {else}
                             0.00 Bytes
@@ -183,6 +181,24 @@
                             of {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.bytes_total)}
                         </div>
                     {/if}
+                </div>
+                <div>
+                    <h6 class="text-sm font-medium text-slate-400 mb-2">Bytes Uploaded</h6>
+                    <div class="text-2xl font-semibold text-slate-300 transition-opacity duration-300" id="bytesTransferred">
+                        {if $run.bytes_transferred}
+                            {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.bytes_transferred)}
+                        {else}
+                            0.00 Bytes
+                        {/if}
+                    </div>
+                    <div class="text-sm text-slate-500 mt-1" id="dedupSavings">
+                        {if $run.bytes_processed && $run.bytes_transferred && $run.bytes_processed > 0}
+                            {assign var="savings" value=100-($run.bytes_transferred/$run.bytes_processed*100)}
+                            {if $savings > 0}
+                                <span class="text-emerald-400">{$savings|string_format:"%.1f"}% dedup savings</span>
+                            {/if}
+                        {/if}
+                    </div>
                 </div>
                 <div>
                     <h6 class="text-sm font-medium text-slate-400 mb-2">Speed</h6>
@@ -219,7 +235,8 @@
                                 'starting': { color: 'blue', text: 'Starting', pulse: true },
                                 'queued': { color: 'yellow', text: 'Queued', pulse: true },
                                 'warning': { color: 'yellow', text: 'Warning', pulse: false },
-                                'cancelled': { color: 'gray', text: 'Cancelled', pulse: false }
+                                'cancelled': { color: 'gray', text: 'Cancelled', pulse: false },
+                                'partial_success': { color: 'yellow', text: 'Partial Success', pulse: false }
                             };
                             return configs[this.status] || { color: 'gray', text: this.status.charAt(0).toUpperCase() + this.status.slice(1), pulse: false };
                         }
@@ -402,12 +419,14 @@ function updateProgress() {
                 const run = data.run;
                 
                 // Compute progress percentage with sensible fallbacks
+                // Use bytes_processed (scanned from source) for progress, not bytes_transferred (uploaded)
                 let progressPct = 0;
                 const apiPct = parseFloat(run.progress_pct);
+                const bytesProcessedForPct = run.bytes_processed || run.bytes_transferred || 0;
                 if (!isNaN(apiPct) && apiPct > 0) {
                     progressPct = apiPct;
-                } else if (run.bytes_total && run.bytes_total > 0 && run.bytes_transferred >= 0) {
-                    progressPct = Math.min(100, (run.bytes_transferred / run.bytes_total) * 100);
+                } else if (run.bytes_total && run.bytes_total > 0 && bytesProcessedForPct >= 0) {
+                    progressPct = Math.min(100, (bytesProcessedForPct / run.bytes_total) * 100);
                 } else if (run.objects_total && run.objects_total > 0 && run.objects_transferred >= 0) {
                     progressPct = Math.min(100, (run.objects_transferred / run.objects_total) * 100);
                 } else {
@@ -453,7 +472,7 @@ function updateProgress() {
                     }
                 }
 
-                const isFinished = ['success','failed','cancelled','warning'].includes(run.status);
+                const isFinished = ['success','failed','cancelled','warning','partial_success'].includes(run.status);
 
                 if (!isFinished) {
                     // Running state
@@ -504,7 +523,24 @@ function updateProgress() {
                 
                 // Logs are rendered exclusively from the sanitized event stream (see updateEventLogs).
                 
-                // Update bytes transferred with 2 decimal places
+                // Update bytes processed (scanned from source)
+                const bytesProcessed = run.bytes_processed || run.bytes_transferred || 0;
+                if (bytesProcessed !== undefined && bytesProcessed !== null) {
+                    const processedEl = document.getElementById('bytesProcessed');
+                    const processedTopEl = document.getElementById('bytesProcessedTop');
+                    if (processedEl) {
+                        processedEl.textContent = formatBytes(bytesProcessed);
+                        processedEl.classList.add('opacity-0');
+                        setTimeout(() => processedEl.classList.remove('opacity-0'), 50);
+                    }
+                    if (processedTopEl) {
+                        processedTopEl.textContent = formatBytes(bytesProcessed);
+                        processedTopEl.classList.add('opacity-0');
+                        setTimeout(() => processedTopEl.classList.remove('opacity-0'), 50);
+                    }
+                }
+                
+                // Update bytes uploaded (actual network transfer)
                 if (run.bytes_transferred !== undefined && run.bytes_transferred !== null) {
                     const bytesEl = document.getElementById('bytesTransferred');
                     const bytesTopEl = document.getElementById('bytesTransferredTop');
@@ -517,6 +553,17 @@ function updateProgress() {
                         bytesTopEl.textContent = formatBytes(run.bytes_transferred);
                         bytesTopEl.classList.add('opacity-0');
                         setTimeout(() => bytesTopEl.classList.remove('opacity-0'), 50);
+                    }
+                    
+                    // Update dedup savings
+                    const dedupEl = document.getElementById('dedupSavings');
+                    if (dedupEl && bytesProcessed > 0) {
+                        const savings = 100 - (run.bytes_transferred / bytesProcessed * 100);
+                        if (savings > 0) {
+                            dedupEl.innerHTML = '<span class="text-emerald-400">' + savings.toFixed(1) + '% dedup savings</span>';
+                        } else {
+                            dedupEl.innerHTML = '';
+                        }
                     }
                 }
                 
@@ -565,7 +612,8 @@ function updateProgress() {
                         'starting': { text: 'Starting', color: 'blue', pulse: true },
                         'queued': { text: 'Queued', color: 'yellow', pulse: true },
                         'warning': { text: 'Warning', color: 'yellow', pulse: false },
-                        'cancelled': { text: 'Cancelled', color: 'gray', pulse: false }
+                        'cancelled': { text: 'Cancelled', color: 'gray', pulse: false },
+                        'partial_success': { text: 'Partial Success', color: 'yellow', pulse: false }
                     };
                     const statusConfig = statusMap[run.status] || { 
                         text: run.status.charAt(0).toUpperCase() + run.status.slice(1), 
@@ -684,7 +732,7 @@ function updateProgress() {
                 isRunning = newIsRunning;
                 
                 // Stop polling if finished
-                if (['success', 'failed', 'cancelled', 'warning'].includes(run.status)) {
+                if (['success', 'failed', 'cancelled', 'warning', 'partial_success'].includes(run.status)) {
                     if (progressInterval) {
                         clearInterval(progressInterval);
                         progressInterval = null;

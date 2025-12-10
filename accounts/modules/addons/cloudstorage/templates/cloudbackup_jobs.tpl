@@ -1,27 +1,7 @@
 <div class="min-h-screen bg-slate-950 text-gray-300">
     <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
     <div class="container mx-auto px-4 pb-10 pt-6 relative pointer-events-relative w-full px-3 py-2 text-left text-slate-300 bg-slate-900 border border-gray-600 rounded-md shadow-sm cursor-default focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500">
-        <!-- Navigation Tabs (pill style) -->
-        <div class="mb-6">
-            <nav class="inline-flex rounded-full bg-slate-900/80 p-1 text-xs font-medium text-slate-400" aria-label="Cloud Backup Navigation">
-                <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_jobs"
-                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.view == 'cloudbackup_jobs' || empty($smarty.get.view)}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-                    Jobs
-                </a>
-                <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_runs"
-                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.view == 'cloudbackup_runs'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-                    Run History
-                </a>
-                <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_settings"
-                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.view == 'cloudbackup_settings'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-                    Settings
-                </a>
-                <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_agents"
-                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.view == 'cloudbackup_agents'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-                    Agents
-                </a>
-            </nav>
-        </div>
+        {include file="modules/addons/cloudstorage/templates/partials/cloudbackup_nav.tpl"}
         <!-- Glass panel container -->
         <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
         <style>
@@ -2468,25 +2448,49 @@
 <div id="localJobWizardModal" class="fixed inset-0 z-[2000] hidden">
     <div class="absolute inset-0 bg-black/75" onclick="closeLocalJobWizard()"></div>
     <div class="absolute inset-0 flex items-center justify-center p-4">
-        <div class="w-full max-w-5xl rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl overflow-hidden">
-            <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800">
-                <div>
-                    <p class="text-xs uppercase text-slate-400 tracking-wide">Local Agent</p>
-                    <h3 class="text-xl font-semibold text-white">Backup Job Wizard</h3>
-                    <p class="text-[11px] text-amber-300 mt-1">Destinations are S3-only. Local destinations are disabled until schema change.</p>
+        <div class="w-full max-w-5xl h-[85vh] rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl overflow-hidden flex flex-col">
+            <div class="px-6 py-4 border-b border-slate-800 shrink-0">
+                <div class="flex items-center justify-between mb-4">
+                    <div>
+                        <p class="text-xs uppercase text-slate-400 tracking-wide">Local Agent</p>
+                        <h3 class="text-xl font-semibold text-white">Backup Job Wizard</h3>
+                    </div>
+                    <button class="icon-btn" onclick="closeLocalJobWizard()" aria-label="Close wizard">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
                 </div>
-                <button class="icon-btn" onclick="closeLocalJobWizard()" aria-label="Close wizard">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                </button>
+                <!-- Breadcrumb Navigation -->
+                <nav id="localWizardBreadcrumb" class="flex items-center gap-1">
+                    <button type="button" data-wizard-step="1" onclick="localWizardGoToStep(1)" class="wizard-crumb group flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all" data-active="true">
+                        <span class="w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-bold bg-cyan-500 text-white group-[.is-active]:bg-cyan-500 group-[.is-locked]:bg-slate-700 group-[.is-complete]:bg-emerald-500">1</span>
+                        <span class="hidden sm:inline">Setup</span>
+                    </button>
+                    <svg class="w-4 h-4 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                    <button type="button" data-wizard-step="2" onclick="localWizardGoToStep(2)" class="wizard-crumb group flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all" data-locked="true">
+                        <span class="w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-bold bg-slate-700 text-slate-400">2</span>
+                        <span class="hidden sm:inline">Source</span>
+                    </button>
+                    <svg class="w-4 h-4 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                    <button type="button" data-wizard-step="3" onclick="localWizardGoToStep(3)" class="wizard-crumb group flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all" data-locked="true">
+                        <span class="w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-bold bg-slate-700 text-slate-400">3</span>
+                        <span class="hidden sm:inline">Schedule</span>
+                    </button>
+                    <svg class="w-4 h-4 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                    <button type="button" data-wizard-step="4" onclick="localWizardGoToStep(4)" class="wizard-crumb group flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all" data-locked="true">
+                        <span class="w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-bold bg-slate-700 text-slate-400">4</span>
+                        <span class="hidden sm:inline">Policy</span>
+                    </button>
+                    <svg class="w-4 h-4 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                    <button type="button" data-wizard-step="5" onclick="localWizardGoToStep(5)" class="wizard-crumb group flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all" data-locked="true">
+                        <span class="w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-bold bg-slate-700 text-slate-400">5</span>
+                        <span class="hidden sm:inline">Review</span>
+                    </button>
+                </nav>
             </div>
 
-            <div class="px-6 py-4">
-                <div class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-400 mb-4">
-                    <span class="px-2 py-1 rounded-full border border-slate-700 bg-slate-900" id="localWizardStepLabel">Step 1 of 5</span>
-                    <span class="text-slate-300" id="localWizardStepTitle">Mode & Agent</span>
-                </div>
+            <div class="px-6 py-4 overflow-y-auto flex-1 scrollbar-thin-dark">
 
                 <div class="space-y-6">
                     <!-- Step 1 -->
@@ -2494,13 +2498,85 @@
                         <div class="grid md:grid-cols-2 gap-4">
                             <div>
                                 <label class="block text-sm font-medium text-slate-200 mb-2">Job Name</label>
-                                <input id="localWizardName" type="text" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-slate-100" placeholder="My local backup">
+                                <input id="localWizardName" type="text" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50" placeholder="My local backup">
                             </div>
-                            <div>
-                                <label class="block text-sm font-medium text-slate-200 mb-2">Backup Engine</label>
-                                <div class="flex gap-2">
-                                    <button type="button" data-engine-btn="sync" class="px-4 py-2 rounded-lg border border-slate-700 bg-slate-800 text-slate-100" onclick="localWizardSet('engine','sync')">Sync (rclone)</button>
-                                    <button type="button" data-engine-btn="kopia" class="px-4 py-2 rounded-lg border border-slate-700 bg-slate-800 text-slate-100" onclick="localWizardSet('engine','kopia')">Backup (Kopia)</button>
+                            <div class="md:col-span-2" x-data="{ showAdvanced: false }">
+                                <div class="flex items-center justify-between mb-3">
+                                    <label class="block text-sm font-medium text-slate-200">Backup Engine</label>
+                                    <label class="flex items-center gap-2 text-xs text-slate-400 cursor-pointer">
+                                        <span>Advanced</span>
+                                        <button @click="showAdvanced = !showAdvanced" type="button" 
+                                                class="relative w-9 h-5 rounded-full transition-colors"
+                                                :class="showAdvanced ? 'bg-cyan-600' : 'bg-slate-700'">
+                                            <span class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform"
+                                                  :class="showAdvanced ? 'translate-x-4' : 'translate-x-0'"></span>
+                                        </button>
+                                    </label>
+                                </div>
+                                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                    <!-- File Backup (Archive) - Primary option -->
+                                    <button type="button" data-engine-btn="kopia" 
+                                            class="engine-card group flex flex-col items-center gap-2 p-4 rounded-xl border border-slate-700 bg-slate-800/50 hover:bg-slate-800 hover:border-slate-600 transition-all text-center"
+                                            onclick="localWizardSet('engine','kopia')">
+                                        <div class="w-10 h-10 rounded-lg bg-slate-700/50 flex items-center justify-center group-[.selected]:bg-cyan-500/20">
+                                            <svg class="w-5 h-5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
+                                            </svg>
+                                        </div>
+                                        <div>
+                                            <p class="text-sm font-medium text-slate-200">File Backup</p>
+                                            <p class="text-[10px] text-slate-500">(Archive)</p>
+                                        </div>
+                                    </button>
+
+                                    <!-- Disk Image -->
+                                    <button type="button" data-engine-btn="disk_image" 
+                                            class="engine-card group flex flex-col items-center gap-2 p-4 rounded-xl border border-slate-700 bg-slate-800/50 hover:bg-slate-800 hover:border-slate-600 transition-all text-center"
+                                            onclick="localWizardSet('engine','disk_image')">
+                                        <div class="w-10 h-10 rounded-lg bg-slate-700/50 flex items-center justify-center group-[.selected]:bg-cyan-500/20">
+                                            <svg class="w-5 h-5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12a3 3 0 106 0 3 3 0 00-6 0z" />
+                                            </svg>
+                                        </div>
+                                        <div>
+                                            <p class="text-sm font-medium text-slate-200">Disk Image</p>
+                                            <p class="text-[10px] text-slate-500">(Full Disk)</p>
+                                        </div>
+                                    </button>
+
+                                    <!-- Hyper-V (Coming Soon) -->
+                                    <button type="button" disabled
+                                            class="engine-card group flex flex-col items-center gap-2 p-4 rounded-xl border border-slate-700/50 bg-slate-800/30 text-center opacity-50 cursor-not-allowed">
+                                        <div class="w-10 h-10 rounded-lg bg-slate-700/30 flex items-center justify-center">
+                                            <svg class="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5.25 14.25h13.5m-13.5 0a3 3 0 01-3-3m3 3a3 3 0 100 6h13.5a3 3 0 100-6m-16.5-3a3 3 0 013-3h13.5a3 3 0 013 3m-19.5 0a4.5 4.5 0 01.9-2.7L5.737 5.1a3.375 3.375 0 012.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 01.9 2.7m0 0a3 3 0 01-3 3m0 3h.008v.008h-.008v-.008zm0-6h.008v.008h-.008v-.008zm-3 6h.008v.008h-.008v-.008zm0-6h.008v.008h-.008v-.008z" />
+                                            </svg>
+                                        </div>
+                                        <div>
+                                            <p class="text-sm font-medium text-slate-400">Hyper-V</p>
+                                            <p class="text-[10px] text-slate-600">(Coming Soon)</p>
+                                        </div>
+                                    </button>
+
+                                    <!-- File Backup (Sync) - Advanced option -->
+                                    <button type="button" data-engine-btn="sync" 
+                                            x-show="showAdvanced"
+                                            x-transition:enter="transition ease-out duration-200"
+                                            x-transition:enter-start="opacity-0 scale-95"
+                                            x-transition:enter-end="opacity-100 scale-100"
+                                            class="engine-card group flex flex-col items-center gap-2 p-4 rounded-xl border border-slate-700 bg-slate-800/50 hover:bg-slate-800 hover:border-slate-600 transition-all text-center"
+                                            onclick="localWizardSet('engine','sync')">
+                                        <div class="w-10 h-10 rounded-lg bg-slate-700/50 flex items-center justify-center group-[.selected]:bg-cyan-500/20">
+                                            <svg class="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                                            </svg>
+                                        </div>
+                                        <div>
+                                            <p class="text-sm font-medium text-slate-200">File Backup</p>
+                                            <p class="text-[10px] text-slate-500">(Sync)</p>
+                                        </div>
+                                    </button>
                                 </div>
                             </div>
                             <div x-data="{
@@ -2524,6 +2600,10 @@
                                     this.selectedName = opt.hostname ? (opt.hostname + ' (ID ' + opt.id + ')') : ('Agent #' + opt.id);
                                     const hid = document.getElementById('localWizardAgentId');
                                     if (hid) hid.value = this.selectedId;
+                                    if (window.localWizardState?.data) {
+                                        window.localWizardState.data.agent_id = this.selectedId;
+                                    }
+                                    localWizardOnAgentSelected(this.selectedId);
                                     this.isOpen = false;
                                 }
                             }" x-init="load()">
@@ -2555,6 +2635,7 @@
                                     <button type="button" class="px-4 py-2 rounded-lg border border-slate-700 bg-slate-800 text-slate-500 cursor-not-allowed" disabled>Local (disabled)</button>
                                 </div>
                             </div>
+                            <!-- Disk image fields moved to Step 2 -->
                             <div id="localWizardS3Fields">
                                 <label class="block text-sm font-medium text-slate-200 mb-2">Bucket</label>
                                 <div
@@ -2580,6 +2661,8 @@
                                             const hid = document.getElementById('localWizardBucketId');
                                             if (hid) hid.value = this.selectedId;
                                             this.isOpen = false;
+                                            // Update breadcrumb state when bucket changes
+                                            if (typeof localWizardUpdateView === 'function') localWizardUpdateView();
                                         }
                                     }"
                                     @click.away="isOpen=false"
@@ -2613,7 +2696,7 @@
                                 </div>
                                 <div class="mt-3">
                                     <label class="block text-sm font-medium text-slate-200 mb-2">Prefix (optional)</label>
-                                    <input id="localWizardPrefix" type="text" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-slate-100" placeholder="backups/job123/">
+                                    <input id="localWizardPrefix" type="text" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50" placeholder="backups/job123/">
                                 </div>
                                 <div class="mt-3">
                                     <button type="button" class="px-3 py-2 rounded-md border border-slate-700 text-slate-200 hover:border-slate-500" onclick="openInlineBucketCreate()">
@@ -2623,23 +2706,291 @@
                             </div>
                             <div id="localWizardLocalFields" class="hidden">
                                 <label class="block text-sm font-medium text-slate-200 mb-2">Local Destination Path</label>
-                                <input id="localWizardLocalPath" type="text" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-slate-100" placeholder="E.g. D:\Backups">
+                                <input id="localWizardLocalPath" type="text" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50" placeholder="E.g. D:\Backups">
                             </div>
                         </div>
                     </div>
 
                     <!-- Step 2 -->
-                    <div class="wizard-step hidden" data-step="2">
-                        <label class="block text-sm font-medium text-slate-200 mb-2">Source selection</label>
-                        <input id="localWizardSource" type="text" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-slate-100" placeholder="C:\Data or /path">
-                        <div class="grid md:grid-cols-2 gap-4 mt-3">
+                    <div class="wizard-step hidden" data-step="2" x-data="{ get isDiskImage() { return window.localWizardState?.data?.engine === 'disk_image'; } }">
+                        <div class="flex items-center justify-between mb-3">
                             <div>
-                                <label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Include globs</label>
-                                <textarea id="localWizardInclude" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100" rows="3" placeholder="**"></textarea>
+                                <label class="block text-sm font-medium text-slate-200" x-text="isDiskImage ? 'Volume Selection' : 'Source selection'"></label>
+                                <p class="text-xs text-slate-500" x-text="isDiskImage ? 'Select a local disk volume to create an image backup' : 'Browse your agent and select folders to back up'"></p>
                             </div>
-                            <div>
-                                <label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Exclude globs</label>
-                                <textarea id="localWizardExclude" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100" rows="3" placeholder="**/temp/**"></textarea>
+                            <button type="button" class="text-xs px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 transition" @click="$dispatch('refresh-browser')">Refresh</button>
+                        </div>
+
+                        <div x-data="fileBrowser()" x-init="init()" class="grid lg:grid-cols-3 gap-4">
+                            <input type="hidden" id="localWizardSource" />
+                            <input type="hidden" id="localWizardSourcePaths" />
+
+                            <!-- File/Volume browser -->
+                            <div class="lg:col-span-2 rounded-xl border border-slate-800 bg-slate-900/60 overflow-hidden">
+                                <!-- Breadcrumb - hidden in disk image mode -->
+                                <div x-show="!isDiskImageMode" class="flex items-center gap-1 px-4 py-2 bg-slate-800/60 border-b border-slate-800 overflow-x-auto text-xs text-slate-300">
+                                    <button type="button" class="px-2 py-1 rounded hover:bg-slate-700 transition" @click="navigateTo('')">This PC</button>
+                                    <template x-for="(segment, idx) in pathSegments" :key="idx">
+                                        <div class="flex items-center shrink-0">
+                                            <svg class="w-4 h-4 text-slate-600 mx-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                                            </svg>
+                                            <button type="button" class="px-2 py-1 rounded hover:bg-slate-700 transition truncate max-w-[120px]" x-text="segment.name" @click="navigateTo(segment.path)"></button>
+                                        </div>
+                                    </template>
+                                </div>
+
+                                <!-- Header for disk image mode -->
+                                <div x-show="isDiskImageMode" class="flex items-center gap-2 px-4 py-3 bg-slate-800/60 border-b border-slate-800">
+                                    <svg class="w-5 h-5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12a3 3 0 106 0 3 3 0 00-6 0z" />
+                                    </svg>
+                                    <span class="text-sm text-slate-300">Local Disk Volumes</span>
+                                    <span class="text-xs text-slate-500 ml-auto">Select one volume for disk image backup</span>
+                                </div>
+
+                                <div class="h-[420px] overflow-y-auto scrollbar_thin">
+                                    <div x-show="loading" class="flex items-center justify-center h-full py-12">
+                                        <div class="text-center">
+                                            <svg class="animate-spin h-8 w-8 text-cyan-500 mx-auto mb-2" viewBox="0 0 24 24" fill="none">
+                                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                                            </svg>
+                                            <p class="text-sm text-slate-400">Loading...</p>
+                                        </div>
+                                    </div>
+
+                                    <div x-show="error && !loading" class="px-4 py-6 text-center">
+                                        <p class="text-sm text-red-400" x-text="error"></p>
+                                        <button type="button" class="mt-3 px-3 py-2 rounded-lg bg-slate-800 text-slate-200 text-xs" @click="retry()">Retry</button>
+                                    </div>
+
+                                    <!-- DISK IMAGE MODE: Volume cards grid -->
+                                    <div x-show="!loading && !error && isDiskImageMode" class="p-4">
+                                        <div class="grid grid-cols-2 gap-3">
+                                            <template x-for="entry in localVolumes" :key="entry.path">
+                                                <button type="button" 
+                                                        class="volume-card group p-4 rounded-xl border text-left transition-all"
+                                                        :class="selectedVolume === entry.path 
+                                                            ? 'border-cyan-500 bg-cyan-500/10 ring-2 ring-cyan-500/40' 
+                                                            : 'border-slate-700 bg-slate-800/50 hover:border-slate-600 hover:bg-slate-800'"
+                                                        @click="selectVolume(entry)">
+                                                    <div class="flex items-start gap-3">
+                                                        <div class="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
+                                                             :class="selectedVolume === entry.path ? 'bg-cyan-500/20' : 'bg-slate-700/50'">
+                                                            <svg class="w-6 h-6" :class="selectedVolume === entry.path ? 'text-cyan-400' : 'text-blue-400'" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12a3 3 0 106 0 3 3 0 00-6 0z" />
+                                                            </svg>
+                                                        </div>
+                                                        <div class="flex-1 min-w-0">
+                                                            <p class="text-base font-semibold text-slate-100" x-text="entry.path || entry.name"></p>
+                                                            <p class="text-sm text-slate-400 truncate" x-text="entry.label || 'Local Disk'"></p>
+                                                            <div class="flex items-center gap-2 mt-1">
+                                                                <span class="text-xs text-slate-500" x-text="entry.filesystem || ''"></span>
+                                                                <span x-show="entry.size_bytes" class="text-xs text-slate-500">•</span>
+                                                                <span x-show="entry.size_bytes" class="text-xs text-slate-500" x-text="formatBytes(entry.size_bytes)"></span>
+                                                            </div>
+                                                        </div>
+                                                        <div class="shrink-0">
+                                                            <div class="w-5 h-5 rounded-full border-2 flex items-center justify-center"
+                                                                 :class="selectedVolume === entry.path ? 'border-cyan-500 bg-cyan-500' : 'border-slate-600'">
+                                                                <svg x-show="selectedVolume === entry.path" class="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
+                                                                </svg>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </button>
+                                            </template>
+                                        </div>
+                                        <div x-show="localVolumes.length === 0" class="text-center py-12 text-sm text-slate-500">
+                                            No local disk volumes found
+                                        </div>
+                                    </div>
+
+                                    <!-- FILE BACKUP MODE: Standard folder browser -->
+                                    <div x-show="!loading && !error && !isDiskImageMode" class="p-2 space-y-1">
+                                        <button x-show="parentPath || currentPath" type="button" class="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-800/60 text-left transition" @click="navigateTo(parentPath || '')">
+                                            <div class="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center">
+                                                <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" />
+                                                </svg>
+                                            </div>
+                                            <span class="text-sm text-slate-400" x-text="parentPath ? '..' : 'This PC'"></span>
+                                        </button>
+
+                                        <template x-for="entry in entries" :key="entry.path">
+                                            <div class="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-slate-800/60 transition" :class="isSelected(entry.path) ? 'bg-cyan-500/10 ring-1 ring-cyan-500/40' : ''">
+                                                <label class="w-5 h-5 flex items-center justify-center rounded border cursor-pointer" :class="isSelected(entry.path) ? 'bg-cyan-500 border-cyan-500' : 'border-slate-600'">
+                                                    <input type="checkbox" class="hidden" :checked="isSelected(entry.path)" @change="toggleSelection(entry)">
+                                                    <svg x-show="isSelected(entry.path)" class="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
+                                                    </svg>
+                                                </label>
+                                                <button type="button" class="flex-1 flex items-center gap-3 text-left" @click="entry.is_dir ? navigateTo(entry.path) : null">
+                                                    <div class="w-8 h-8 rounded-lg flex items-center justify-center bg-slate-800">
+                                                        <template x-if="entry.icon === 'drive' && !entry.is_network">
+                                                            <svg class="w-5 h-5 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z" />
+                                                            </svg>
+                                                        </template>
+                                                        <template x-if="entry.is_network">
+                                                            <svg class="w-5 h-5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
+                                                            </svg>
+                                                        </template>
+                                                        <template x-if="entry.is_dir && entry.icon !== 'drive' && !entry.is_network">
+                                                            <svg class="w-5 h-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
+                                                            </svg>
+                                                        </template>
+                                                        <template x-if="!entry.is_dir && entry.icon !== 'drive'">
+                                                            <svg class="w-5 h-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                                                            </svg>
+                                                        </template>
+                                                    </div>
+                                                    <div class="flex-1 min-w-0">
+                                                        <p class="text-sm text-slate-100 truncate" x-text="entry.name"></p>
+                                                        <p class="text-xs text-slate-500" x-text="entry.is_network ? (entry.unc_path || 'Network Drive') : (entry.is_dir ? 'Folder' : formatBytes(entry.size))"></p>
+                                                    </div>
+                                                    <svg x-show="entry.is_dir" class="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                                                    </svg>
+                                                </button>
+                                            </div>
+                                        </template>
+
+                                        <div x-show="entries.length === 0 && !loading && !error" class="text-center py-12 text-sm text-slate-500">
+                                            This folder is empty
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Sidebar -->
+                            <div class="space-y-4">
+                                <!-- DISK IMAGE MODE: Volume Selection Summary & Options -->
+                                <template x-if="isDiskImageMode">
+                                    <div class="space-y-4">
+                                        <!-- Selected Volume -->
+                                        <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+                                            <h4 class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Selected Volume</h4>
+                                            <div x-show="selectedVolume" class="flex items-center gap-3 p-3 rounded-lg bg-cyan-500/10 border border-cyan-500/30">
+                                                <div class="w-10 h-10 rounded-lg bg-cyan-500/20 flex items-center justify-center">
+                                                    <svg class="w-5 h-5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12a3 3 0 106 0 3 3 0 00-6 0z" />
+                                                    </svg>
+                                                </div>
+                                                <div class="flex-1 min-w-0">
+                                                    <p class="text-sm font-medium text-cyan-100" x-text="selectedVolume"></p>
+                                                    <p class="text-xs text-cyan-300/70" x-text="selectedVolumeInfo?.label || 'Local Disk'"></p>
+                                                </div>
+                                            </div>
+                                            <div x-show="!selectedVolume" class="text-center text-xs text-slate-500 py-4">
+                                                Select a volume from the list
+                                            </div>
+                                        </div>
+
+                                        <!-- Hidden inputs for disk image data -->
+                                        <input type="hidden" id="localWizardDiskVolume" x-model="selectedVolume">
+                                        <input type="hidden" id="localWizardDiskVolumeSelect" value="">
+
+                                        <!-- Image Format -->
+                                        <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+                                            <label class="block text-xs uppercase tracking-wide text-slate-400 mb-2">Image Format</label>
+                                            <select id="localWizardDiskFormat" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50">
+                                                <option value="vhdx">VHDX (Windows)</option>
+                                                <option value="raw">Raw (Linux)</option>
+                                            </select>
+                                            <p class="text-xs text-slate-500 mt-2">VHDX recommended for Windows, Raw for Linux systems.</p>
+                                        </div>
+
+                                        <!-- Temp Directory -->
+                                        <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+                                            <label class="block text-xs uppercase tracking-wide text-slate-400 mb-2">Temp Directory (optional)</label>
+                                            <input id="localWizardDiskTemp" type="text" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50" placeholder="C:\ProgramData\E3Backup\runs\tmp">
+                                            <p class="text-xs text-slate-500 mt-2">Temporary storage for the disk image. Ensure enough free space.</p>
+                                        </div>
+                                    </div>
+                                </template>
+
+                                <!-- FILE BACKUP MODE: Folder Selection Summary -->
+                                <template x-if="!isDiskImageMode">
+                                    <div class="space-y-4">
+                                        <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+                                            <div class="flex items-center justify-between mb-2">
+                                                <h4 class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Selected</h4>
+                                                <span class="text-xs text-cyan-300" x-text="selectedPaths.length"></span>
+                                            </div>
+                                            <div class="space-y-2 max-h-48 overflow-y-auto">
+                                                <template x-for="path in selectedPaths" :key="path">
+                                                    <div class="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-slate-800/60">
+                                                        <svg class="w-3 h-3 text-cyan-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
+                                                        </svg>
+                                                        <span class="text-xs text-slate-200 truncate flex-1" x-text="path"></span>
+                                                        <button type="button" class="p-1 hover:bg-slate-700 rounded" @click="removeSelection(path)">
+                                                            <svg class="w-3 h-3 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                                            </svg>
+                                                        </button>
+                                                    </div>
+                                                </template>
+                                                <div x-show="selectedPaths.length === 0" class="text-center text-xs text-slate-500 py-4">
+                                                    No folders selected yet
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4 space-y-2">
+                                            <label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Add manually</label>
+                                            <div class="flex gap-2">
+                                                <input type="text" x-model="manualPath" class="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50" placeholder="C:\Data or /path" @keyup.enter="addManualPath()">
+                                                <button type="button" class="px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm" @click="addManualPath()">Add</button>
+                                            </div>
+                                        </div>
+
+                                        <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4 space-y-3">
+                                            <div>
+                                                <label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Include globs</label>
+                                                <textarea id="localWizardInclude" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50" rows="2" placeholder="**"></textarea>
+                                            </div>
+                                            <div>
+                                                <label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Exclude globs</label>
+                                                <textarea id="localWizardExclude" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50" rows="2" placeholder="**/temp/**"></textarea>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </template>
+
+                                <!-- Network Credentials (only for file backup mode) -->
+                                <div x-show="hasNetworkPaths && !isDiskImageMode" class="rounded-xl border border-purple-500/30 bg-purple-900/20 p-4 space-y-3">
+                                    <div class="flex items-center gap-2 mb-2">
+                                        <svg class="w-5 h-5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
+                                        </svg>
+                                        <h4 class="text-sm font-medium text-purple-200">Network Share Credentials</h4>
+                                    </div>
+                                    <p class="text-xs text-purple-300/70">Your selection includes network paths. The agent will need credentials to access these locations when running as a service.</p>
+                                    <div class="space-y-2">
+                                        <div>
+                                            <label class="block text-xs text-slate-400 mb-1">Username</label>
+                                            <input type="text" x-model="networkUsername" id="localWizardNetworkUsername" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50" placeholder="DOMAIN\username or user@domain.com" @input="syncCredentials()">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-slate-400 mb-1">Password</label>
+                                            <input type="password" x-model="networkPassword" id="localWizardNetworkPassword" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50" placeholder="Network password" @input="syncCredentials()">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-slate-400 mb-1">Domain (optional)</label>
+                                            <input type="text" x-model="networkDomain" id="localWizardNetworkDomain" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50" placeholder="MYDOMAIN" @input="syncCredentials()">
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -2648,14 +2999,14 @@
                     <div class="wizard-step hidden" data-step="3">
                         <label class="block text-sm font-medium text-slate-200 mb-2">Schedule</label>
                         <div class="grid md:grid-cols-2 gap-4">
-                            <select id="localWizardScheduleType" class="bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-slate-100">
+                            <select id="localWizardScheduleType" class="bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50">
                                 <option value="manual">Manual</option>
                                 <option value="daily">Daily</option>
                                 <option value="weekly">Weekly</option>
                                 <option value="cron">Cron</option>
                             </select>
-                            <input id="localWizardTime" type="time" class="bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-slate-100" />
-                            <select id="localWizardWeekday" class="bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-slate-100">
+                            <input id="localWizardTime" type="time" class="bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50" />
+                            <select id="localWizardWeekday" class="bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50">
                                 <option value="1">Monday</option>
                                 <option value="2">Tuesday</option>
                                 <option value="3">Wednesday</option>
@@ -2664,7 +3015,7 @@
                                 <option value="6">Saturday</option>
                                 <option value="7">Sunday</option>
                             </select>
-                            <input id="localWizardCron" type="text" class="bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-slate-100" placeholder="*/30 * * * *" />
+                            <input id="localWizardCron" type="text" class="bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50" placeholder="*/30 * * * *" />
                         </div>
                     </div>
 
@@ -2673,24 +3024,24 @@
                         <div class="grid md:grid-cols-2 gap-4">
                             <div>
                                 <label class="block text-sm font-medium text-slate-200 mb-2">Retention</label>
-                                <textarea id="localWizardRetention" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100" rows="4" placeholder="&#123;&quot;keep_last&quot;:30,&quot;keep_daily&quot;:7&#125;"></textarea>
+                                <textarea id="localWizardRetention" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50" rows="4" placeholder="&#123;&quot;keep_last&quot;:30,&quot;keep_daily&quot;:7&#125;"></textarea>
                                 <p class="text-xs text-slate-500 mt-1">JSON or simple values; kept server-side.</p>
                             </div>
                             <div>
-                                <label class="block text-sm font-medium text-slate-200 mb-2">Kopia Policy</label>
-                                <textarea id="localWizardPolicy" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100" rows="4" placeholder="&#123;&quot;compression&quot;:&quot;none&quot;,&quot;parallel_uploads&quot;:8&#125;"></textarea>
-                                <div class="grid grid-cols-3 gap-2 mt-2">
+                                <label class="block text-sm font-medium text-slate-200 mb-2">Backup Policy</label>
+                                <textarea id="localWizardPolicy" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50" rows="4" placeholder="&#123;&quot;compression&quot;:&quot;none&quot;,&quot;parallel_uploads&quot;:8&#125;"></textarea>
+                                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-3">
                                     <div>
                                         <label class="block text-xs text-slate-400 mb-1">Bandwidth (KB/s)</label>
-                                        <input id="localWizardBandwidth" type="number" value="0" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100" placeholder="0 = unlimited">
+                                        <input id="localWizardBandwidth" type="number" value="0" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50" placeholder="0 = unlimited">
                                     </div>
                                     <div>
                                         <label class="block text-xs text-slate-400 mb-1">Parallel uploads</label>
-                                        <input id="localWizardParallelism" type="number" value="8" min="1" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100" placeholder="8">
+                                        <input id="localWizardParallelism" type="number" value="8" min="1" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50" placeholder="8">
                                     </div>
                                     <div>
                                         <label class="block text-xs text-slate-400 mb-1">Compression</label>
-                                        <select id="localWizardCompression" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100">
+                                        <select id="localWizardCompression" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50">
                                             <option value="none" selected>None</option>
                                             <option value="zstd-default">zstd-default</option>
                                             <option value="pgzip">pgzip</option>
@@ -2701,7 +3052,7 @@
                                 <div class="mt-3">
                                     <label class="inline-flex items-center gap-2">
                                         <input id="localWizardDebugLogs" type="checkbox" class="rounded border-slate-600 bg-slate-800">
-                                        <span class="text-sm text-slate-200">Enable detailed Kopia debug logs</span>
+                                        <span class="text-sm text-slate-200">Enable detailed eazyBackup debug logs</span>
                                     </label>
                                     <p class="text-xs text-slate-500 mt-1">Adds more step-level events to the live progress view for troubleshooting.</p>
                                 </div>
@@ -2718,17 +3069,56 @@
                     </div>
                 </div>
 
-                <div class="flex justify-between items-center mt-6">
-                    <button type="button" class="px-4 py-2 rounded-lg border border-slate-700 bg-slate-800 text-slate-100" onclick="localWizardPrev()">Back</button>
-                    <div class="flex gap-2">
-                        <button type="button" class="px-4 py-2 rounded-lg border border-slate-700 bg-slate-800 text-slate-100" onclick="closeLocalJobWizard()">Cancel</button>
-                            <button type="button" id="localWizardNextBtn" data-local-wizard-next class="px-4 py-2 rounded-lg bg-sky-600 text-white" onclick="localWizardNext()">Next</button>
-                    </div>
+            </div>
+
+            <div class="flex justify-between items-center px-6 py-4 border-t border-slate-800 shrink-0 bg-slate-950">
+                <button type="button" class="px-4 py-2 rounded-lg border border-slate-700 bg-slate-800 text-slate-100" onclick="localWizardPrev()">Back</button>
+                <div class="flex gap-2">
+                    <button type="button" class="px-4 py-2 rounded-lg border border-slate-700 bg-slate-800 text-slate-100" onclick="closeLocalJobWizard()">Cancel</button>
+                        <button type="button" id="localWizardNextBtn" data-local-wizard-next class="px-4 py-2 rounded-lg bg-sky-600 text-white" onclick="localWizardNext()">Next</button>
                 </div>
             </div>
         </div>
     </div>
 </div>
+
+<style>
+/* Dark thin scrollbar for wizard modal */
+.scrollbar-thin-dark {
+    scrollbar-width: thin;
+    scrollbar-color: #475569 #1e293b;
+}
+.scrollbar-thin-dark::-webkit-scrollbar {
+    width: 6px;
+}
+.scrollbar-thin-dark::-webkit-scrollbar-track {
+    background: #1e293b;
+    border-radius: 3px;
+}
+.scrollbar-thin-dark::-webkit-scrollbar-thumb {
+    background: #475569;
+    border-radius: 3px;
+}
+.scrollbar-thin-dark::-webkit-scrollbar-thumb:hover {
+    background: #64748b;
+}
+
+/* Breadcrumb navigation styles */
+#localWizardBreadcrumb .wizard-crumb {
+    transition: all 0.15s ease;
+}
+#localWizardBreadcrumb .wizard-crumb:not(:disabled):hover {
+    background: rgba(51, 65, 85, 0.5);
+}
+
+/* Engine card styles */
+.engine-card.selected .w-10 {
+    background: rgba(6, 182, 212, 0.15);
+}
+.engine-card.selected svg {
+    color: #22d3ee;
+}
+</style>
 
 <script>
 {literal}
@@ -2761,7 +3151,7 @@ function openCreateJobModal() {
     applyInitialSourceState();
 }
 
-// Local Agent Wizard (engine=sync/kopia) helpers
+// Local Agent Wizard helpers
 window.localWizardState = {
     step: 1,
     totalSteps: 5,
@@ -2780,12 +3170,14 @@ function resetLocalWizardFields() {
         engine: 'kopia',
         dest_type: 's3',
         bucket_auto_create: true,
+        source_paths: [],
     };
     // Reset inputs to defaults
     const idsToClear = [
         'localWizardName','localWizardAgentId','localWizardBucketId','localWizardPrefix',
-        'localWizardLocalPath','localWizardSource','localWizardInclude','localWizardExclude',
-        'localWizardTime','localWizardCron','localWizardRetention','localWizardPolicy'
+        'localWizardLocalPath','localWizardSource','localWizardSourcePaths','localWizardInclude','localWizardExclude',
+        'localWizardTime','localWizardCron','localWizardRetention','localWizardPolicy',
+        'localWizardDiskVolume','localWizardDiskTemp'
     ];
     idsToClear.forEach((id) => {
         const el = document.getElementById(id);
@@ -2803,6 +3195,12 @@ function resetLocalWizardFields() {
     if (comp) comp.value = 'none';
     const dbg = document.getElementById('localWizardDebugLogs');
     if (dbg) dbg.checked = false;
+    const diskFormat = document.getElementById('localWizardDiskFormat');
+    if (diskFormat) diskFormat.value = 'vhdx';
+    const diskVolume = document.getElementById('localWizardDiskVolume');
+    if (diskVolume) diskVolume.value = '';
+    const diskTemp = document.getElementById('localWizardDiskTemp');
+    if (diskTemp) diskTemp.value = '';
     // Reset button labels
     const agentBtn = document.querySelector('#localWizardAgentId')?.parentElement?.querySelector('button span');
     if (agentBtn) agentBtn.textContent = 'Select agent';
@@ -2902,7 +3300,12 @@ function localWizardSetAgentSelection(agentId, agentLabel) {
 function localWizardFillFromJob(j, s) {
     const source = s || {};
     const job = j || {};
-    localWizardSet('engine', job.backup_mode === 'sync' ? 'sync' : 'kopia');
+    const engineVal = (job.engine || '').toLowerCase();
+    if (engineVal === 'disk_image') {
+        localWizardSet('engine', 'disk_image');
+    } else {
+        localWizardSet('engine', job.backup_mode === 'sync' ? 'sync' : 'kopia');
+    }
     const nameEl = document.getElementById('localWizardName');
     if (nameEl) nameEl.value = job.name || '';
 
@@ -2926,6 +3329,30 @@ function localWizardFillFromJob(j, s) {
     if (localPathEl) localPathEl.value = job.dest_local_path || '';
     const srcEl = document.getElementById('localWizardSource');
     if (srcEl) srcEl.value = job.source_path || '';
+    const pathsHidden = document.getElementById('localWizardSourcePaths');
+    let parsedPaths = [];
+    if (job.source_paths_json) {
+        const parsed = safeParseJSON(job.source_paths_json);
+        if (Array.isArray(parsed)) {
+            parsedPaths = parsed;
+        }
+    }
+    if (!parsedPaths.length && job.source_path) {
+        parsedPaths = [job.source_path];
+    }
+    if (pathsHidden) {
+        pathsHidden.value = JSON.stringify(parsedPaths);
+    }
+    if (window.localWizardState?.data) {
+        window.localWizardState.data.source_paths = parsedPaths;
+        window.localWizardState.data.source_path = parsedPaths[0] || job.source_path || '';
+    }
+    const diskVolEl = document.getElementById('localWizardDiskVolume');
+    if (diskVolEl) diskVolEl.value = job.disk_source_volume || '';
+    const diskFmtEl = document.getElementById('localWizardDiskFormat');
+    if (diskFmtEl) diskFmtEl.value = (job.disk_image_format || 'vhdx');
+    const diskTempEl = document.getElementById('localWizardDiskTemp');
+    if (diskTempEl) diskTempEl.value = job.disk_temp_dir || '';
     const incEl = document.getElementById('localWizardInclude');
     if (incEl) incEl.value = source.include_glob || job.local_include_glob || '';
     const excEl = document.getElementById('localWizardExclude');
@@ -2962,6 +3389,11 @@ function localWizardFillFromJob(j, s) {
         polTxt.value = typeof pj === 'string' ? pj : JSON.stringify(pj || {}, null, 2);
     }
 
+    // Trigger agent selected event to load volumes/directories
+    if (job.agent_id) {
+        localWizardOnAgentSelected(job.agent_id);
+    }
+
     localWizardBuildReview();
 }
 
@@ -2972,17 +3404,353 @@ function localWizardSet(key, val) {
         buttons.forEach((btn) => {
             const e = btn.getAttribute('data-engine-btn');
             if (e === val) {
-                btn.classList.add('ring-2','ring-sky-500','bg-slate-700');
+                btn.classList.add('selected', 'ring-2', 'ring-cyan-500', 'border-cyan-500/50', 'bg-slate-800');
             } else {
-                btn.classList.remove('ring-2','ring-sky-500','bg-slate-700');
+                btn.classList.remove('selected', 'ring-2', 'ring-cyan-500', 'border-cyan-500/50', 'bg-slate-800');
             }
         });
+        // Dispatch engine-changed event for the file browser to react
+        window.dispatchEvent(new CustomEvent('engine-changed', { detail: { engine: val } }));
+        // Update breadcrumb state when engine changes
+        localWizardUpdateView();
     }
 }
+
+const localWizardVolumeState = {
+    volumes: [],
+    updatedAt: '',
+    loading: false,
+    lastAgentId: '',
+};
+
+function localWizardOnAgentSelected(agentId) {
+    if (!agentId) return;
+    localWizardVolumeState.lastAgentId = agentId;
+    // Dispatch event for fileBrowser to load volumes/directories
+    window.dispatchEvent(new CustomEvent('local-agent-selected', { detail: { agentId } }));
+    // Update breadcrumb state when agent changes
+    localWizardUpdateView();
+}
+
+// Volume loading for disk image mode is now handled by the fileBrowser component in Step 2
+// The fileBrowser loads volumes via the browse_directory API with empty path
+
+function localWizardFormatVolumeLabel(v) {
+    const parts = [];
+    if (v.path) parts.push(v.path);
+    if (v.label) parts.push(v.label);
+    if (v.size_bytes) parts.push(localWizardFormatBytes(v.size_bytes));
+    return parts.join(' — ');
+}
+
+function localWizardFormatBytes(n) {
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let val = Number(n);
+    let idx = 0;
+    while (val >= 1024 && idx < units.length - 1) {
+        val /= 1024;
+        idx += 1;
+    }
+    return `${val.toFixed(idx === 0 ? 0 : 1)} ${units[idx]}`;
+}
+
+// Alpine.js component backing the remote filesystem browser
+function fileBrowser() {
+    return {
+        loading: false,
+        error: null,
+        currentPath: '',
+        parentPath: '',
+        entries: [],
+        selectedPaths: [],
+        networkPathsInfo: [], // Track which paths are network paths with their UNC info
+        manualPath: '',
+        agentId: '',
+        networkUsername: '',
+        networkPassword: '',
+        networkDomain: '',
+        // Disk image mode properties
+        selectedVolume: '',
+        selectedVolumeInfo: null,
+
+        get isDiskImageMode() {
+            return window.localWizardState?.data?.engine === 'disk_image';
+        },
+
+        get localVolumes() {
+            // Filter to only show local (non-network) drives at root level
+            // Exclude network drives, UNC paths, and drives with network type
+            if (this.currentPath !== '') return [];
+            return this.entries.filter(e => {
+                // Must be a drive
+                if (e.icon !== 'drive') return false;
+                // Exclude if flagged as network
+                if (e.is_network) return false;
+                // Exclude if type is network
+                if (e.type === 'network') return false;
+                // Exclude UNC paths (\\server\share)
+                if (e.path && e.path.startsWith('\\\\')) return false;
+                // Exclude if has UNC path set
+                if (e.unc_path && e.unc_path !== '') return false;
+                return true;
+            });
+        },
+
+        get hasNetworkPaths() {
+            return this.selectedPaths.some(path => this.isNetworkPath(path));
+        },
+
+        isNetworkPath(path) {
+            // Check if path is a UNC path or a network drive we've tracked
+            if (path && path.startsWith('\\\\')) return true;
+            return this.networkPathsInfo.some(info => info.path === path && info.is_network);
+        },
+
+        selectVolume(entry) {
+            this.selectedVolume = entry.path;
+            this.selectedVolumeInfo = entry;
+            this.syncDiskVolumeToWizard();
+        },
+
+        syncDiskVolumeToWizard() {
+            const input = document.getElementById('localWizardDiskVolume');
+            if (input) input.value = this.selectedVolume || '';
+            if (window.localWizardState?.data) {
+                window.localWizardState.data.disk_source_volume = this.selectedVolume || '';
+            }
+        },
+
+        get pathSegments() {
+            if (!this.currentPath) return [];
+            const sep = this.currentPath.includes('\\') ? '\\' : '/';
+            const parts = this.currentPath.split(sep).filter(Boolean);
+            let acc = '';
+            return parts.map((p, idx) => {
+                acc += (idx === 0 && sep === '\\') ? (p + sep) : (sep + p);
+                return { name: p, path: acc };
+            });
+        },
+
+        init() {
+            this.agentId = document.getElementById('localWizardAgentId')?.value || '';
+            const preset = document.getElementById('localWizardSourcePaths')?.value || '';
+            if (preset) {
+                try {
+                    const parsed = JSON.parse(preset);
+                    if (Array.isArray(parsed)) {
+                        this.selectedPaths = parsed;
+                    }
+                } catch (e) {}
+            }
+            // Load preset disk volume if in disk image mode
+            const diskVolume = document.getElementById('localWizardDiskVolume')?.value || '';
+            if (diskVolume) {
+                this.selectedVolume = diskVolume;
+            }
+            if (this.agentId) {
+                this.loadDirectory('');
+            } else {
+                this.error = 'Select an agent to browse.';
+            }
+            window.addEventListener('local-agent-selected', (e) => {
+                this.agentId = e.detail?.agentId || '';
+                this.selectedPaths = [];
+                this.selectedVolume = '';
+                this.selectedVolumeInfo = null;
+                this.syncToWizard();
+                this.syncDiskVolumeToWizard();
+                if (this.agentId) {
+                    this.loadDirectory('');
+                } else {
+                    this.error = 'Select an agent to browse.';
+                }
+            });
+            window.addEventListener('refresh-browser', () => {
+                // For disk image mode, always reload root to get volumes
+                const path = this.isDiskImageMode ? '' : (this.currentPath || '');
+                this.loadDirectory(path);
+            });
+            // Listen for engine changes to reload view
+            window.addEventListener('engine-changed', () => {
+                // Reset selections when engine changes
+                if (this.isDiskImageMode) {
+                    this.selectedPaths = [];
+                    this.syncToWizard();
+                } else {
+                    this.selectedVolume = '';
+                    this.selectedVolumeInfo = null;
+                    this.syncDiskVolumeToWizard();
+                }
+                // Reload directory (volumes for disk image, folders for file backup)
+                this.loadDirectory('');
+            });
+        },
+
+        async loadDirectory(path) {
+            if (!this.agentId) {
+                this.error = 'Select an agent to browse.';
+                return;
+            }
+            // Optimistically reflect target path to avoid flicker back to root
+            this.currentPath = path || '';
+            this.parentPath = path ? '' : this.parentPath;
+            this.entries = [];
+            this.loading = true;
+            this.error = null;
+            try {
+                const resp = await fetch(`modules/addons/cloudstorage/api/agent_browse_filesystem.php?agent_id=${this.agentId}&path=${encodeURIComponent(path || '')}`);
+                const text = await resp.text();
+                let data;
+                try {
+                    data = JSON.parse(text);
+                } catch (e) {
+                    this.error = `Browse failed (non-JSON response): ${text.slice(0, 120)}...`;
+                    return;
+                }
+                if (data.status === 'success') {
+                    const res = data.data || {};
+                    this.currentPath = res.path || '';
+                    this.parentPath = res.parent || '';
+                    this.entries = Array.isArray(res.entries) ? res.entries : [];
+                } else {
+                    this.error = data.message || 'Failed to load directory';
+                }
+            } catch (e) {
+                this.error = e.message || 'Network error';
+            } finally {
+                this.loading = false;
+                this.syncToWizard();
+            }
+        },
+
+        navigateTo(path) {
+            this.loadDirectory(path || '');
+        },
+
+        retry() {
+            this.loadDirectory(this.currentPath || '');
+        },
+
+        isSelected(path) {
+            return this.selectedPaths.includes(path);
+        },
+
+        toggleSelection(entry) {
+            const path = entry.path;
+            if (!path) return;
+            if (this.isSelected(path)) {
+                this.selectedPaths = this.selectedPaths.filter((p) => p !== path);
+                this.networkPathsInfo = this.networkPathsInfo.filter((info) => info.path !== path);
+            } else {
+                this.selectedPaths = [...this.selectedPaths, path];
+                // Track network path info if applicable
+                if (entry.is_network || (entry.unc_path && entry.unc_path !== '')) {
+                    this.networkPathsInfo.push({
+                        path: path,
+                        is_network: true,
+                        unc_path: entry.unc_path || path
+                    });
+                }
+            }
+            this.syncToWizard();
+        },
+
+        removeSelection(path) {
+            this.selectedPaths = this.selectedPaths.filter((p) => p !== path);
+            this.syncToWizard();
+        },
+
+        addManualPath() {
+            const p = (this.manualPath || '').trim();
+            if (!p) return;
+            if (!this.selectedPaths.includes(p)) {
+                this.selectedPaths.push(p);
+            }
+            this.manualPath = '';
+            this.syncToWizard();
+        },
+
+        syncToWizard() {
+            const srcInput = document.getElementById('localWizardSource');
+            const pathsInput = document.getElementById('localWizardSourcePaths');
+            const first = this.selectedPaths[0] || '';
+            if (srcInput) srcInput.value = first;
+            if (pathsInput) pathsInput.value = JSON.stringify(this.selectedPaths);
+            if (window.localWizardState?.data) {
+                window.localWizardState.data.source_path = first;
+                window.localWizardState.data.source_paths = [...this.selectedPaths];
+            }
+            this.syncCredentials();
+        },
+
+        syncCredentials() {
+            if (window.localWizardState?.data && this.hasNetworkPaths) {
+                window.localWizardState.data.network_username = this.networkUsername;
+                window.localWizardState.data.network_password = this.networkPassword;
+                window.localWizardState.data.network_domain = this.networkDomain;
+            } else if (window.localWizardState?.data) {
+                // Clear credentials if no network paths
+                window.localWizardState.data.network_username = '';
+                window.localWizardState.data.network_password = '';
+                window.localWizardState.data.network_domain = '';
+            }
+        },
+
+        formatBytes(n) {
+            const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+            let val = Number(n || 0);
+            let idx = 0;
+            while (val >= 1024 && idx < units.length - 1) {
+                val /= 1024;
+                idx += 1;
+            }
+            return `${val.toFixed(idx === 0 ? 0 : 1)} ${units[idx]}`;
+        },
+    };
+}
+
+function localWizardSetDiskVolume(val) {
+    const input = document.getElementById('localWizardDiskVolume');
+    if (input) {
+        input.value = val;
+    }
+    if (window.localWizardState?.data) {
+        window.localWizardState.data.disk_source_volume = val;
+    }
+    localWizardBuildReview();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    // Add event listener for Job Name input to update breadcrumb state
+    const nameInput = document.getElementById('localWizardName');
+    if (nameInput) {
+        nameInput.addEventListener('input', () => {
+            localWizardUpdateView();
+        });
+    }
+
+    // Add MutationObserver for bucket selection (since it's Alpine-managed)
+    const bucketInput = document.getElementById('localWizardBucketId');
+    if (bucketInput) {
+        const observer = new MutationObserver(() => {
+            localWizardUpdateView();
+        });
+        observer.observe(bucketInput, { attributes: true, attributeFilter: ['value'] });
+        // Also listen for direct value changes
+        bucketInput.addEventListener('change', () => localWizardUpdateView());
+    }
+});
 
 function localWizardNext() {
     const state = window.localWizardState;
     if (state.loading) return;
+
+    // Validate Step 1 before proceeding
+    if (state.step === 1 && !localWizardIsStep1Valid()) {
+        toast?.error?.('Please fill in Job Name, select an Agent, Engine, and Bucket before proceeding');
+        return;
+    }
+
     if (state.step < state.totalSteps) {
         state.step += 1;
         if (state.step === state.totalSteps) {
@@ -3013,19 +3781,40 @@ function localWizardUpdateView() {
             el.classList.add('hidden');
         }
     });
-    const label = document.getElementById('localWizardStepLabel');
-    const title = document.getElementById('localWizardStepTitle');
-    if (label) label.textContent = `Step ${state.step} of ${state.totalSteps}`;
-    if (title) {
-        const titles = {
-            1: 'Mode & Agent',
-            2: 'Source Selection',
-            3: 'Schedule',
-            4: 'Retention & Policy',
-            5: 'Review',
-        };
-        title.textContent = titles[state.step] || 'Wizard';
-    }
+
+    // Update breadcrumb navigation
+    const crumbs = document.querySelectorAll('#localWizardBreadcrumb .wizard-crumb');
+    const step1Valid = localWizardIsStep1Valid();
+    crumbs.forEach((crumb) => {
+        const stepNum = parseInt(crumb.getAttribute('data-wizard-step'), 10);
+        const numBadge = crumb.querySelector('span:first-child');
+        const isActive = stepNum === state.step;
+        const isComplete = stepNum < state.step;
+        const isLocked = stepNum > 1 && !step1Valid;
+        const isAccessible = stepNum === 1 || (step1Valid && stepNum <= state.step + 1);
+
+        // Reset classes
+        crumb.classList.remove('bg-slate-800/50', 'text-slate-300', 'text-slate-500', 'cursor-not-allowed', 'hover:bg-slate-800');
+        numBadge.classList.remove('bg-cyan-500', 'bg-emerald-500', 'bg-slate-700', 'text-white', 'text-slate-400');
+
+        if (isActive) {
+            crumb.classList.add('bg-slate-800/50', 'text-slate-300');
+            numBadge.classList.add('bg-cyan-500', 'text-white');
+        } else if (isComplete) {
+            crumb.classList.add('text-slate-300', 'hover:bg-slate-800');
+            numBadge.classList.add('bg-emerald-500', 'text-white');
+        } else if (isLocked) {
+            crumb.classList.add('text-slate-500', 'cursor-not-allowed');
+            numBadge.classList.add('bg-slate-700', 'text-slate-400');
+        } else {
+            crumb.classList.add('text-slate-400', 'hover:bg-slate-800');
+            numBadge.classList.add('bg-slate-700', 'text-slate-400');
+        }
+
+        crumb.disabled = isLocked;
+        crumb.style.pointerEvents = isLocked ? 'none' : 'auto';
+    });
+
     const nextBtn = document.getElementById('localWizardNextBtn');
     if (nextBtn) {
         if (state.loading) {
@@ -3033,11 +3822,52 @@ function localWizardUpdateView() {
             nextBtn.disabled = true;
             nextBtn.classList.add('opacity-60', 'cursor-not-allowed');
         } else {
-            nextBtn.disabled = false;
-            nextBtn.classList.remove('opacity-60', 'cursor-not-allowed');
+            // Check if Step 1 validation should block Next
+            const canProceed = state.step !== 1 || step1Valid;
+            nextBtn.disabled = !canProceed;
+            if (canProceed) {
+                nextBtn.classList.remove('opacity-60', 'cursor-not-allowed');
+            } else {
+                nextBtn.classList.add('opacity-60', 'cursor-not-allowed');
+            }
             const finalLabel = state.editMode ? 'Save changes' : 'Create job';
             nextBtn.textContent = (state.step === state.totalSteps) ? finalLabel : 'Next';
         }
+    }
+}
+
+function localWizardIsStep1Valid() {
+    const name = document.getElementById('localWizardName')?.value?.trim() || '';
+    const agentId = document.getElementById('localWizardAgentId')?.value || '';
+    const engine = window.localWizardState?.data?.engine || '';
+    const bucketId = document.getElementById('localWizardBucketId')?.value || '';
+    return name !== '' && agentId !== '' && engine !== '' && bucketId !== '';
+}
+
+function localWizardGoToStep(stepNum) {
+    const state = window.localWizardState;
+    if (state.loading) return;
+
+    // Can always go back
+    if (stepNum < state.step) {
+        state.step = stepNum;
+        localWizardUpdateView();
+        return;
+    }
+
+    // Going forward - validate Step 1 first
+    if (stepNum > 1 && !localWizardIsStep1Valid()) {
+        toast?.error?.('Please complete all required fields in Setup before proceeding');
+        return;
+    }
+
+    // Can go forward to adjacent step or already visited
+    if (stepNum <= state.step + 1) {
+        state.step = stepNum;
+        if (state.step === state.totalSteps) {
+            localWizardBuildReview();
+        }
+        localWizardUpdateView();
     }
 }
 
@@ -3049,6 +3879,15 @@ function localWizardBuildReview() {
     s.dest_local_path = document.getElementById('localWizardLocalPath')?.value || '';
     s.dest_bucket_id = document.getElementById('localWizardBucketId')?.value || '';
     s.source_path = document.getElementById('localWizardSource')?.value || '';
+    const srcPathsRaw = document.getElementById('localWizardSourcePaths')?.value || '[]';
+    const srcPathsParsed = safeParseJSON(srcPathsRaw);
+    s.source_paths = Array.isArray(srcPathsParsed) ? srcPathsParsed : [];
+    s.disk_source_volume = document.getElementById('localWizardDiskVolume')?.value || '';
+    s.disk_image_format = document.getElementById('localWizardDiskFormat')?.value || 'vhdx';
+    s.disk_temp_dir = document.getElementById('localWizardDiskTemp')?.value || '';
+    if ((s.engine || '') === 'disk_image' && !s.source_path) {
+        s.source_path = s.disk_source_volume;
+    }
     s.include = document.getElementById('localWizardInclude')?.value || '';
     s.exclude = document.getElementById('localWizardExclude')?.value || '';
     s.schedule_type = document.getElementById('localWizardScheduleType')?.value || 'manual';
@@ -3088,7 +3927,17 @@ function localWizardBuildReview() {
 
     const review = document.getElementById('localWizardReview');
     if (review) {
-        review.textContent = JSON.stringify(s, null, 2);
+        // Create user-friendly review object
+        const displayData = { ...s };
+        // Replace engine names with eazyBackup display names
+        if (displayData.engine === 'kopia') {
+            displayData.engine = 'eazyBackup (Archive)';
+        } else if (displayData.engine === 'sync') {
+            displayData.engine = 'eazyBackup (Sync)';
+        } else if (displayData.engine === 'disk_image') {
+            displayData.engine = 'eazyBackup (Disk Image)';
+        }
+        review.textContent = JSON.stringify(displayData, null, 2);
     }
 }
 
@@ -3112,11 +3961,15 @@ function localWizardSubmit() {
     if (!s.dest_bucket_id) {
         return toast?.error?.('Bucket ID is required');
     }
+    if ((s.engine || '') === 'disk_image' && !s.disk_source_volume) {
+        return toast?.error?.('Disk volume is required for disk image backups');
+    }
     const payload = {
         name: s.name,
         source_type: 'local_agent',
         source_display_name: 'Local Agent',
-        source_path: s.source_path || '',
+        source_path: (s.engine === 'disk_image') ? (s.disk_source_volume || s.source_path || '') : (s.source_path || ''),
+        source_paths: Array.isArray(s.source_paths) ? s.source_paths : (s.source_path ? [s.source_path] : []),
         dest_bucket_id: s.dest_bucket_id,
         dest_prefix: s.dest_prefix || '',
         backup_mode: s.engine === 'sync' ? 'sync' : 'archive',
@@ -3141,6 +3994,13 @@ function localWizardSubmit() {
         // include/exclude hints for local agent; server currently stores local_* fields
         local_include_glob: s.include || '',
         local_exclude_glob: s.exclude || '',
+        disk_source_volume: s.disk_source_volume || '',
+        disk_image_format: s.disk_image_format || '',
+        disk_temp_dir: s.disk_temp_dir || '',
+        // Network share credentials (encrypted on server)
+        network_username: s.network_username || '',
+        network_password: s.network_password || '',
+        network_domain: s.network_domain || '',
     };
     if (isEdit) {
         payload.job_id = window.localWizardState.jobId;

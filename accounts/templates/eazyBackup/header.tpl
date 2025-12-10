@@ -350,11 +350,17 @@
                                 Users
                             </a>
                             <!-- Cloud Backups -->
-                            <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=cloudbackup" 
+                            {* <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=cloudbackup" 
                             class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
-                                    {if $smarty.server.REQUEST_URI|strstr:'page=cloudbackup'} bg-[#1B2C50] font-semibold {/if}">
+                                    {if $smarty.server.REQUEST_URI|strstr:'page=cloudbackup' && !($smarty.server.REQUEST_URI|strstr:'view=cloudnas')} bg-[#1B2C50] font-semibold {/if}">
                                 Cloud Backups
-                            </a>
+                            </a> *}
+                            <!-- Cloud NAS -->
+                            {* <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=cloudbackup&view=cloudnas" 
+                            class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
+                                    {if $smarty.server.REQUEST_URI|strstr:'view=cloudnas'} bg-[#1B2C50] font-semibold {/if}">
+                                Cloud NAS
+                            </a> *}
                             <!-- Billing -->
                             <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=billing" 
                             class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
@@ -371,6 +377,74 @@
                         </div>
                     </div>                  
 
+                    {if $e3Allowed}
+                    <!-- e3 Cloud Backup (Dropdown) -->
+                    <div x-data="{
+                        open: [
+                            'index.php?m=cloudstorage&page=e3backup',
+                        ].some(path => window.location.href.includes(path))
+                    }">
+                        <button
+                            @click="open = !open"
+                            class="flex items-center w-full px-2 py-2 text-left text-gray-300 rounded-md hover:bg-[#1B2C50]
+                                {if $smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=e3backup'} bg-[#1B2C50] font-semibold {/if}"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-3">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
+                            </svg>
+                            e3 Cloud Backup
+                            <svg class="w-4 h-4 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                            </svg>
+                        </button>
+
+                        <!-- Dropdown Menu -->
+                        <div
+                            x-show="open"
+                            @click.away="open = false"
+                            class="mt-1 space-y-1 pl-8"
+                        >
+                            <!-- Dashboard -->
+                            <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup" 
+                               class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
+                                    {if $smarty.get.page == 'e3backup' && empty($smarty.get.view)} bg-[#1B2C50] font-semibold {/if}">
+                                Dashboard
+                            </a>
+                            <!-- Agents -->
+                            <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=agents" 
+                               class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
+                                    {if $smarty.get.view == 'agents'} bg-[#1B2C50] font-semibold {/if}">
+                                Agents
+                            </a>
+                            <!-- Jobs -->
+                            <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=jobs" 
+                               class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
+                                    {if $smarty.get.view == 'jobs'} bg-[#1B2C50] font-semibold {/if}">
+                                Jobs
+                            </a>
+                            <!-- Enrollment Tokens -->
+                            <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=tokens" 
+                               class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
+                                    {if $smarty.get.view == 'tokens'} bg-[#1B2C50] font-semibold {/if}">
+                                Enrollment Tokens
+                            </a>
+                            {if $isMspClient}
+                            <!-- Tenants (MSP Only) -->
+                            <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=tenants" 
+                               class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
+                                    {if $smarty.get.view == 'tenants'} bg-[#1B2C50] font-semibold {/if}">
+                                Tenants
+                            </a>
+                            <!-- Tenant Users (MSP Only) -->
+                            <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=tenant_users" 
+                               class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
+                                    {if $smarty.get.view == 'tenant_users'} bg-[#1B2C50] font-semibold {/if}">
+                                Tenant Users
+                            </a>
+                            {/if}
+                        </div>
+                    </div>
+                    {/if}
 
                        
 

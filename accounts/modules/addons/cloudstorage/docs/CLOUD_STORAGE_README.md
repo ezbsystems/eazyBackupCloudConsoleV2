@@ -376,3 +376,71 @@ The bucket browser (`templates/browse.tpl`) has been modernized to match the Clo
 - Copy URL(s) and validate both HTTPS and `s3://` forms.
 - Download single file.
 - Queue a large prefix delete and confirm the cron drains it safely.
+
+## Folder Upload Support
+
+The bucket browser now supports uploading entire folders with their directory structure preserved. This feature allows customers to drag-and-drop folders or use the folder picker to upload complete directory trees to S3.
+
+### Features
+
+1. **Folder Selection Button**: A dedicated "Select Folder" button that opens the browser's native folder picker dialog (using `webkitdirectory` attribute).
+
+2. **Drag-and-Drop Folders**: Users can drag folders directly onto the upload zone. The browser recursively traverses the folder structure using the `FileSystemEntry` API (`webkitGetAsEntry`).
+
+3. **Preserved Directory Structure**: When uploading a folder, the relative path of each file within the folder is preserved as an S3 key prefix. For example:
+   - Dragging folder `reports/` containing `2024/january.pdf` and `2024/february.pdf`
+   - Results in keys: `reports/2024/january.pdf` and `reports/2024/february.pdf`
+
+4. **Current Path Awareness**: Uploads respect the current browsing location. If you're viewing `backup/daily/`, uploaded files/folders are placed under that prefix.
+
+5. **Upload Queue UI**: A visual queue shows:
+   - Total files to upload and completion progress
+   - Per-file status (pending, uploading, completed, failed)
+   - Progress bar with percentage
+   - Cancel all button to abort remaining uploads
+
+6. **Concurrent Uploads**: Up to 3 files upload simultaneously for faster throughput.
+
+### Implementation Details
+
+#### Frontend (`templates/browse.tpl`)
+
+- **Folder input**: `<input type="file" webkitdirectory directory multiple>` enables native folder selection
+- **Drag-drop handling**: Uses `DataTransferItem.webkitGetAsEntry()` to detect and traverse dropped folders
+- **Recursive traversal**: `readEntriesRecursively()` function walks the directory tree and collects all files with their relative paths
+- **Upload manager**: JavaScript class handles queuing, concurrency control, progress tracking, and error handling
+
+#### Backend (`api/uploadobject.php`)
+
+Accepts two new optional POST parameters:
+- `relativePath`: The folder path relative to the root of the uploaded folder (e.g., `subfolder/nested`)
+- `folder_path`: The current browsing prefix where uploads should be placed
+
+The final S3 key is constructed as: `folder_path/relativePath/filename`
+
+Both paths are sanitized to prevent directory traversal attacks (`../` patterns are stripped).
+
+### Browser Compatibility
+
+| Feature | Chrome | Firefox | Safari | Edge |
+|---------|--------|---------|--------|------|
+| Folder picker (`webkitdirectory`) | ✅ | ✅ | ✅ | ✅ |
+| Drag-drop folders (`webkitGetAsEntry`) | ✅ | ✅ | ✅ | ✅ |
+
+Note: The `webkit` prefix is historical; these APIs are now standardized and work across all modern browsers.
+
+### Limitations
+
+- **File size**: Individual files are still limited by PHP's `upload_max_filesize` and `post_max_size` settings. For very large files, consider the future presigned URL + multipart upload feature.
+- **Empty folders**: Empty folders are not uploaded (S3 folders are just key prefixes, so empty folders have no representation).
+- **Symlinks**: Symbolic links within folders are not followed.
+
+### Testing Checklist
+
+- [ ] Click "Select Folder" and choose a folder with nested subfolders → all files uploaded with correct paths
+- [ ] Drag a folder onto the upload zone → folder structure preserved
+- [ ] Drag multiple folders at once → all processed correctly
+- [ ] Upload while in a subfolder prefix → files placed under that prefix
+- [ ] Cancel uploads mid-queue → remaining files cancelled, completed files retained
+- [ ] Upload fails for some files → partial success shown with failure count
+- [ ] Empty folder → no files queued (expected behavior)

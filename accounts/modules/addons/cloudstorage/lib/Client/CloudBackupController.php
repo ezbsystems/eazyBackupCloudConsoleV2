@@ -629,15 +629,21 @@ class CloudBackupController {
             }
 
             $update = ['cancel_requested' => 1];
-            // Immediately mark allowed states as cancelled in DB so they are not picked up and UI reflects cancel
-            $update['status'] = 'cancelled';
-            $update['finished_at'] = Capsule::raw('NOW()');
+            
+            // For 'queued' runs that haven't been picked up by agent yet, cancel immediately
+            // For 'starting' or 'running' runs, agent will poll and see cancel_requested
+            if ($run['status'] === 'queued') {
+                $update['status'] = 'cancelled';
+                $update['finished_at'] = Capsule::raw('NOW()');
+            }
+            // Note: Don't set status to 'cancelled' for running jobs - let the agent do that
+            // so it can properly clean up (e.g., merge Hyper-V checkpoints)
 
             Capsule::table('s3_cloudbackup_runs')
                 ->where('id', $run['id'])
                 ->update($update);
 
-            return ['status' => 'success'];
+            return ['status' => 'success', 'message' => 'Cancellation requested'];
         } catch (\Exception $e) {
             logModuleCall(self::$module, 'cancelRun', ['run_id' => $runId, 'client_id' => $clientId], $e->getMessage());
             return ['status' => 'fail', 'message' => 'Failed to cancel run. Please try again later.'];

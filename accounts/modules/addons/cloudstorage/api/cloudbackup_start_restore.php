@@ -11,6 +11,7 @@
  */
 
 require_once __DIR__ . '/../../../../init.php';
+require_once __DIR__ . '/../lib/Client/MspController.php';
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -20,6 +21,7 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\ClientArea;
 use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
+use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 
 function respond(array $data, int $httpCode = 200): void
 {
@@ -65,6 +67,12 @@ $job = Capsule::table('s3_cloudbackup_jobs as j')
 
 if (!$job) {
     respond(['status' => 'fail', 'message' => 'Backup job not found for this run']);
+}
+
+// MSP tenant authorization check
+$accessCheck = MspController::validateJobAccess((int)$job->job_id, $clientId);
+if (!$accessCheck['valid']) {
+    respond(['status' => 'fail', 'message' => $accessCheck['message']]);
 }
 
 // Get the manifest ID from the backup run
