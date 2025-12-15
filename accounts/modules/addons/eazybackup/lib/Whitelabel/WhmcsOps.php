@@ -6,6 +6,86 @@ use WHMCS\Database\Capsule;
 
 class WhmcsOps
 {
+    /**
+     * Link one or more configurable option IDs (tblproductconfigoptions.id aka "cid")
+     * to a product by attaching their config groups (tblproductconfiggroups) via
+     * tblproductconfiglinks (pid<->gid).
+     *
+     * Idempotent: safe to call repeatedly.
+     *
+     * @param int $productId WHMCS Product ID (tblproducts.id)
+     * @param int[] $configOptionIds WHMCS Config Option IDs (tblproductconfigoptions.id)
+     * @return array{ok:bool, linked_gids:int[], missing_cids:int[]}
+     */
+    public function attachConfigOptionsToProductByCid(int $productId, array $configOptionIds): array
+    {
+        $productId = (int)$productId;
+        if ($productId <= 0) {
+            return ['ok' => false, 'linked_gids' => [], 'missing_cids' => array_values(array_map('intval', $configOptionIds))];
+        }
+
+        // Normalize cids to unique positive ints
+        $cids = [];
+        foreach ($configOptionIds as $cid) {
+            $cid = (int)$cid;
+            if ($cid > 0) {
+                $cids[$cid] = true;
+            }
+        }
+        $cids = array_keys($cids);
+        if (empty($cids)) {
+            return ['ok' => true, 'linked_gids' => [], 'missing_cids' => []];
+        }
+
+        try {
+            // Find gids for requested cids
+            $rows = Capsule::table('tblproductconfigoptions')
+                ->select(['id', 'gid'])
+                ->whereIn('id', $cids)
+                ->get();
+
+            $foundCidToGid = [];
+            $gids = [];
+            foreach ($rows as $r) {
+                $cid = (int)($r->id ?? 0);
+                $gid = (int)($r->gid ?? 0);
+                if ($cid > 0 && $gid > 0) {
+                    $foundCidToGid[$cid] = $gid;
+                    $gids[$gid] = true;
+                }
+            }
+
+            $missing = [];
+            foreach ($cids as $cid) {
+                if (!isset($foundCidToGid[$cid])) {
+                    $missing[] = (int)$cid;
+                }
+            }
+
+            $linked = [];
+            foreach (array_keys($gids) as $gid) {
+                Capsule::table('tblproductconfiglinks')->updateOrInsert(
+                    ['pid' => $productId, 'gid' => (int)$gid],
+                    ['pid' => $productId, 'gid' => (int)$gid]
+                );
+                $linked[] = (int)$gid;
+            }
+
+            return ['ok' => true, 'linked_gids' => $linked, 'missing_cids' => $missing];
+        } catch (\Throwable $e) {
+            try {
+                logModuleCall(
+                    'eazybackup',
+                    'whitelabel_attach_configoptions_exception',
+                    ['product_id' => $productId, 'cids' => $cids],
+                    $e->getMessage()
+                );
+            } catch (\Throwable $__) {}
+
+            return ['ok' => false, 'linked_gids' => [], 'missing_cids' => array_values($cids)];
+        }
+    }
+
     public function addServerAndGroup(string $name, string $hostname, string $module = 'comet'): array
     {
         $sid = Capsule::table('tblservers')->insertGetId([

@@ -3,20 +3,20 @@
     <div class="container mx-auto px-4 py-6 relative pointer-events-auto">
         <!-- Navigation Tabs -->
         <div class="mb-6">
-            <nav class="inline-flex rounded-full bg-slate-900/80 p-1 text-xs font-medium text-slate-400" aria-label="Cloud Backup Navigation">
-                <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_jobs"
+            <nav class="inline-flex rounded-full bg-slate-900/80 p-1 text-xs font-medium text-slate-400" aria-label="e3 Cloud Backup Navigation">
+                <a href="index.php?m=cloudstorage&page=e3backup"
+                   class="px-4 py-1.5 rounded-full transition hover:text-slate-200">
+                    Dashboard
+                </a>
+                <a href="index.php?m=cloudstorage&page=e3backup&view=jobs"
                    class="px-4 py-1.5 rounded-full transition hover:text-slate-200">
                     Jobs
                 </a>
-                <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_runs"
-                   class="px-4 py-1.5 rounded-full transition hover:text-slate-200">
-                    Run History
-                </a>
-                <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_hyperv"
+                <a href="index.php?m=cloudstorage&page=e3backup&view=hyperv"
                    class="px-4 py-1.5 rounded-full transition bg-slate-800 text-slate-50 shadow-sm">
                     Hyper-V
                 </a>
-                <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_agents"
+                <a href="index.php?m=cloudstorage&page=e3backup&view=agents"
                    class="px-4 py-1.5 rounded-full transition hover:text-slate-200">
                     Agents
                 </a>
@@ -39,7 +39,7 @@
         {if $selectedJob}
         <!-- Job Details View -->
         <div class="mb-4">
-            <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_hyperv" class="text-sm text-sky-400 hover:text-sky-300 flex items-center gap-1">
+            <a href="index.php?m=cloudstorage&page=e3backup&view=hyperv" class="text-sm text-sky-400 hover:text-sky-300 flex items-center gap-1">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
                 </svg>
@@ -172,10 +172,20 @@
                                 {/if}
                             </td>
                             <td class="px-4 py-3">
-                                <button onclick="toggleVMBackup({$vm.id}, {if $vm.backup_enabled}false{else}true{/if})" 
-                                        class="text-xs px-2 py-1 rounded bg-slate-800 border border-slate-700 hover:border-slate-500 transition">
-                                    {if $vm.backup_enabled}Exclude{else}Include{/if}
-                                </button>
+                                <div class="flex items-center gap-2">
+                                    <a href="index.php?m=cloudstorage&page=e3backup&view=hyperv_restore&vm_id={$vm.id}" 
+                                       class="text-xs px-2 py-1 rounded bg-sky-600/20 border border-sky-500/40 text-sky-300 hover:bg-sky-600/30 hover:border-sky-400 transition flex items-center gap-1"
+                                       title="Restore VM Disks">
+                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                                        </svg>
+                                        Restore
+                                    </a>
+                                    <button onclick="toggleVMBackup({$vm.id}, {if $vm.backup_enabled}false{else}true{/if})" 
+                                            class="text-xs px-2 py-1 rounded bg-slate-800 border border-slate-700 hover:border-slate-500 transition">
+                                        {if $vm.backup_enabled}Exclude{else}Include{/if}
+                                    </button>
+                                </div>
                             </td>
                         </tr>
                         {/foreach}
@@ -198,7 +208,7 @@
         {if $hypervJobs|@count > 0}
         <div class="grid gap-4">
             {foreach $hypervJobs as $job}
-            <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_hyperv&job_id={$job.id}" 
+            <a href="index.php?m=cloudstorage&page=e3backup&view=hyperv&job_id={$job.id}" 
                class="block rounded-xl border border-slate-800/80 bg-slate-900/70 p-6 hover:border-slate-700 transition group">
                 <div class="flex items-center justify-between">
                     <div class="flex items-center gap-4">
@@ -234,7 +244,7 @@
             </svg>
             <h3 class="text-xl font-semibold text-white mb-2">No Hyper-V Jobs Configured</h3>
             <p class="text-slate-400 mb-6">Create a new backup job with Hyper-V as the source type to get started.</p>
-            <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_jobs&action=create" 
+            <a href="index.php?m=cloudstorage&page=e3backup&view=jobs" 
                class="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-gradient-to-r from-[#FE5000] via-[#FF7A33] to-[#FF924D] text-slate-950 font-semibold text-sm hover:shadow-lg transition">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>

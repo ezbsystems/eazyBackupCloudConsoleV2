@@ -350,17 +350,17 @@
                                 Users
                             </a>
                             <!-- Cloud Backups -->
-                            {* <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=cloudbackup" 
+                            <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=cloudbackup" 
                             class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
                                     {if $smarty.server.REQUEST_URI|strstr:'page=cloudbackup' && !($smarty.server.REQUEST_URI|strstr:'view=cloudnas')} bg-[#1B2C50] font-semibold {/if}">
                                 Cloud Backups
-                            </a> *}
+                            </a>
                             <!-- Cloud NAS -->
-                            {* <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=cloudbackup&view=cloudnas" 
+                            <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=cloudbackup&view=cloudnas" 
                             class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
                                     {if $smarty.server.REQUEST_URI|strstr:'view=cloudnas'} bg-[#1B2C50] font-semibold {/if}">
                                 Cloud NAS
-                            </a> *}
+                            </a>
                             <!-- Billing -->
                             <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=billing" 
                             class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
@@ -421,6 +421,12 @@
                                class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
                                     {if $smarty.get.view == 'jobs'} bg-[#1B2C50] font-semibold {/if}">
                                 Jobs
+                            </a>
+                            <!-- Hyper-V -->
+                            <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=hyperv" 
+                               class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
+                                    {if $smarty.get.view == 'hyperv' || $smarty.get.view == 'hyperv_restore'} bg-[#1B2C50] font-semibold {/if}">
+                                Hyper-V
                             </a>
                             <!-- Enrollment Tokens -->
                             <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=tokens" 

@@ -1,6 +1,6 @@
 <?php
 /**
- * Hyper-V Backup Management Page
+ * e3 Cloud Backup - Hyper-V Management Page
  * 
  * Displays and manages Hyper-V VMs configured for backup.
  */

@@ -462,12 +462,15 @@ $retentionJsonNorm = $normalizeJsonField($_POST['retention_json'] ?? null);
 $policyJsonNorm = $normalizeJsonField($_POST['policy_json'] ?? null);
 
 // Normalize source_paths (multi-select from Local Agent file browser)
+// Note: WHMCS may HTML-encode POST data, so we need to decode before JSON parsing
 $sourcePaths = [];
 if (isset($_POST['source_paths'])) {
     if (is_array($_POST['source_paths'])) {
         $sourcePaths = array_values(array_filter(array_map('strval', $_POST['source_paths']), fn($p) => trim($p) !== ''));
     } elseif (is_string($_POST['source_paths'])) {
         $raw = trim($_POST['source_paths']);
+        // HTML-decode first (WHMCS encodes POST data)
+        $raw = html_entity_decode($raw, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $decoded = json_decode($raw, true);
         if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
             $sourcePaths = array_values(array_filter(array_map('strval', $decoded), fn($p) => trim($p) !== ''));
@@ -477,7 +480,11 @@ if (isset($_POST['source_paths'])) {
     }
 }
 // Ensure primary source_path stays in sync
+// HTML-decode in case WHMCS encoded it
 $primarySourcePath = $_POST['source_path'] ?? '';
+if ($primarySourcePath !== '') {
+    $primarySourcePath = html_entity_decode($primarySourcePath, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+}
 if (!empty($sourcePaths)) {
     $primarySourcePath = $sourcePaths[0];
     $_POST['source_path'] = $primarySourcePath;
@@ -612,11 +619,73 @@ if (is_array($result) && ($result['status'] ?? 'fail') === 'success' && isset($r
     }
     
     // Register Hyper-V VMs if this is a Hyper-V job
-    if (($engineForJob ?? '') === 'hyperv' && isset($_POST['hyperv_vm_ids'])) {
+    // Log debug info for Hyper-V job creation
+    if (($engineForJob ?? '') === 'hyperv') {
+        logModuleCall('cloudstorage', 'create_job_hyperv_debug', [
+            'engine' => $engineForJob,
+            'has_hyperv_vm_ids' => isset($_POST['hyperv_vm_ids']),
+            'hyperv_vm_ids_raw' => $_POST['hyperv_vm_ids'] ?? '(not set)',
+            'hyperv_config_raw' => $_POST['hyperv_config'] ?? '(not set)',
+            'source_paths' => $_POST['source_paths'] ?? '(not set)',
+        ], null);
+    }
+    
+    if (($engineForJob ?? '') === 'hyperv') {
         try {
-            $hypervVmIds = json_decode($_POST['hyperv_vm_ids'], true);
+            // Try hyperv_vm_ids first, then fall back to source_paths
+            $hypervVmIds = null;
+            $sourceUsed = 'none';
+            
+            if (isset($_POST['hyperv_vm_ids']) && $_POST['hyperv_vm_ids'] !== '') {
+                // WHMCS may HTML-encode POST data, so decode it first
+                $rawVmIds = $_POST['hyperv_vm_ids'];
+                $decodedVmIds = html_entity_decode($rawVmIds, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+                $hypervVmIds = json_decode($decodedVmIds, true);
+                $sourceUsed = 'hyperv_vm_ids';
+            }
+            
+            // Fallback: try source_paths (frontend sets this to hyperv_vm_ids for hyperv engine)
+            if ((!is_array($hypervVmIds) || empty($hypervVmIds)) && isset($_POST['source_paths'])) {
+                $fallbackPaths = $_POST['source_paths'];
+                if (is_string($fallbackPaths)) {
+                    $fallbackPaths = json_decode($fallbackPaths, true);
+                }
+                if (is_array($fallbackPaths) && !empty($fallbackPaths)) {
+                    // Check if these look like GUIDs (VM IDs)
+                    $firstPath = $fallbackPaths[0] ?? '';
+                    if (preg_match('/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i', $firstPath)) {
+                        $hypervVmIds = $fallbackPaths;
+                        $sourceUsed = 'source_paths';
+                    }
+                }
+            }
+            
+            logModuleCall('cloudstorage', 'create_job_hyperv_vm_ids_parsed', [
+                'job_id' => $result['job_id'] ?? null,
+                'hypervVmIds_decoded' => $hypervVmIds,
+                'is_array' => is_array($hypervVmIds),
+                'count' => is_array($hypervVmIds) ? count($hypervVmIds) : 0,
+                'source_used' => $sourceUsed,
+            ], null);
+            
             if (is_array($hypervVmIds) && count($hypervVmIds) > 0) {
                 $jobId = (int) $result['job_id'];
+                $agentId = (int) ($_POST['agent_id'] ?? 0);
+                
+                // Parse hyperv_vms to get VM names (also HTML-decode)
+                $vmNameMap = [];
+                if (isset($_POST['hyperv_vms']) && $_POST['hyperv_vms'] !== '') {
+                    $rawVms = html_entity_decode($_POST['hyperv_vms'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+                    $vmsList = json_decode($rawVms, true);
+                    if (is_array($vmsList)) {
+                        foreach ($vmsList as $vmInfo) {
+                            if (isset($vmInfo['id']) && isset($vmInfo['name'])) {
+                                $vmNameMap[$vmInfo['id']] = $vmInfo['name'];
+                            }
+                        }
+                    }
+                }
+                
                 foreach ($hypervVmIds as $vmGuid) {
                     // Check if VM already exists
                     $existingVm = Capsule::table('s3_hyperv_vms')
@@ -625,20 +694,28 @@ if (is_array($result) && ($result['status'] ?? 'fail') === 'success' && isset($r
                         ->first();
                     
                     if (!$existingVm) {
-                        // Insert placeholder VM record - agent will update details on first run
-                        Capsule::table('s3_hyperv_vms')->insert([
+                        // Use actual VM name if available, otherwise use GUID as placeholder
+                        $vmName = $vmNameMap[$vmGuid] ?? $vmGuid;
+                        
+                        $insertData = [
                             'job_id' => $jobId,
-                            'vm_name' => $vmGuid, // Will be updated by agent
+                            'vm_name' => $vmName,
                             'vm_guid' => $vmGuid,
                             'backup_enabled' => 1,
                             'created_at' => Capsule::raw('NOW()'),
                             'updated_at' => Capsule::raw('NOW()'),
-                        ]);
+                        ];
+                        // Add agent_id if the column exists
+                        if (Capsule::schema()->hasColumn('s3_hyperv_vms', 'agent_id')) {
+                            $insertData['agent_id'] = $agentId > 0 ? $agentId : null;
+                        }
+                        Capsule::table('s3_hyperv_vms')->insert($insertData);
                     }
                 }
                 logModuleCall('cloudstorage', 'create_job_hyperv_vms_registered', [
                     'job_id' => $jobId,
                     'vm_count' => count($hypervVmIds),
+                    'vm_names_found' => count($vmNameMap),
                 ], null);
             }
         } catch (\Throwable $e) {

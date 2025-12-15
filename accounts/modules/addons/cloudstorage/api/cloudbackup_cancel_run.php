@@ -48,7 +48,20 @@ if (!$runIdentifier) {
     exit();
 }
 
+// Debug: Log the cancel request
+logModuleCall('cloudstorage', 'cancel_run_request', [
+    'run_identifier' => $runIdentifier,
+    'client_id' => $loggedInUserId,
+    'post_data' => $_POST,
+], 'Received cancel request');
+
 $result = CloudBackupController::cancelRun($runIdentifier, $loggedInUserId);
+
+// Debug: Log the result
+logModuleCall('cloudstorage', 'cancel_run_result', [
+    'run_identifier' => $runIdentifier,
+    'result' => $result,
+], 'Cancel result');
 
 $response = new JsonResponse($result, 200);
 $response->send();

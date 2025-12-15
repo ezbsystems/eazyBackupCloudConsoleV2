@@ -37,19 +37,31 @@ $job = CloudBackupController::getJob($run['job_id'], $loggedInUserId);
 
 // Detect if this is a restore run
 $isRestore = false;
+$isHypervRestore = false;
 $restoreMetadata = null;
 
 // Check run_type column if it exists
-if (!empty($run['run_type']) && $run['run_type'] === 'restore') {
-    $isRestore = true;
+if (!empty($run['run_type'])) {
+    if ($run['run_type'] === 'restore') {
+        $isRestore = true;
+    } elseif ($run['run_type'] === 'hyperv_restore') {
+        $isRestore = true;
+        $isHypervRestore = true;
+    }
 }
 
 // Also check stats_json for restore metadata
 if (!empty($run['stats_json'])) {
     $statsJson = is_string($run['stats_json']) ? json_decode($run['stats_json'], true) : $run['stats_json'];
-    if (json_last_error() === JSON_ERROR_NONE && !empty($statsJson['type']) && $statsJson['type'] === 'restore') {
-        $isRestore = true;
-        $restoreMetadata = $statsJson;
+    if (json_last_error() === JSON_ERROR_NONE) {
+        if (!empty($statsJson['type']) && $statsJson['type'] === 'restore') {
+            $isRestore = true;
+            $restoreMetadata = $statsJson;
+        } elseif (!empty($statsJson['type']) && $statsJson['type'] === 'hyperv_restore') {
+            $isRestore = true;
+            $isHypervRestore = true;
+            $restoreMetadata = $statsJson;
+        }
     }
 }
 
@@ -57,6 +69,7 @@ return [
     'run' => $run,
     'job' => $job,
     'is_restore' => $isRestore,
+    'is_hyperv_restore' => $isHypervRestore,
     'restore_metadata' => $restoreMetadata,
 ];
 

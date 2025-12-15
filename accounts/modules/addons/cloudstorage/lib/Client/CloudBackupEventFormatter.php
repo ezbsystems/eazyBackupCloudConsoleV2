@@ -19,14 +19,21 @@ class CloudBackupEventFormatter
         if ($tmpl === '') {
             // Fallback: use 'message' param if provided by the agent
             if (isset($params['message']) && is_string($params['message']) && $params['message'] !== '') {
-                return $params['message'];
+                // Sanitize branding and cancellation errors
+                $msg = self::sanitizeBranding($params['message']);
+                if (self::isCancellationError($params['message'])) {
+                    return 'Operation was cancelled.';
+                }
+                return $msg;
             }
             // Final fallback generic message
             return 'Update received.';
         }
         // Sanitize and humanize known params
         $safe = self::sanitizeParams($params);
-        return self::interpolate($tmpl, $safe);
+        $result = self::interpolate($tmpl, $safe);
+        // Final pass to ensure no branding leaks
+        return self::sanitizeBranding($result);
     }
 
     /**
@@ -59,11 +66,11 @@ class CloudBackupEventFormatter
             'ERROR_QUOTA' => 'Storage provider quota exceeded.',
             'ERROR_INTERNAL' => 'Unexpected error — our team has been notified.',
             'LOG_TRUNCATED' => 'Display log truncated due to size. Showing summary only.',
-            // Kopia-specific
+            // Backup engine specific (internal IDs use KOPIA_ prefix but user-facing text uses eazyBackup)
             'KOPIA_MANIFEST_RECORDED' => 'Snapshot manifest recorded: {manifest_id}.',
-            'KOPIA_MANIFEST_MISSING' => 'Snapshot manifest missing. Source={source} Bucket={bucket} Prefix={prefix} Repo={repo_path}.',
+            'KOPIA_MANIFEST_MISSING' => 'Snapshot manifest missing. Source={source} Bucket={bucket} Prefix={prefix}.',
             'KOPIA_MANIFEST_UPDATE_FAILED' => 'Failed to record manifest: {error}.',
-            'KOPIA_UPLOAD_FAILED' => 'Kopia upload failed: {error}.',
+            'KOPIA_UPLOAD_FAILED' => 'Upload failed: {error}.',
             'KOPIA_MANIFEST_FALLBACK' => 'Snapshot manifest recovered from repository: {manifest_id}.',
             'KOPIA_STAGE' => 'Stage: {stage}.',
             'KOPIA_POLICY' => 'Policy: compression={compression}, parallel_uploads={parallel_uploads}.',
@@ -92,7 +99,7 @@ class CloudBackupEventFormatter
             'MAINTENANCE_COMPLETED' => 'Maintenance ({mode}) completed successfully.',
             'MAINTENANCE_FAILED' => 'Maintenance ({mode}) failed: {error}.',
             
-            // Hyper-V specific
+            // Hyper-V specific (backup)
             'HYPERV_NO_VMS' => 'No VMs configured for backup.',
             'HYPERV_VM_STARTING' => 'Starting backup of VM "{vm_name}".',
             'HYPERV_VM_COMPLETE' => 'VM "{vm_name}" backed up successfully ({backup_type}, {consistency}).',
@@ -100,6 +107,16 @@ class CloudBackupEventFormatter
             'HYPERV_CHECKPOINTS_DISABLED' => '⚠️ {message}',
             'HYPERV_DISK_STARTING' => 'Backing up disk: {disk_path} ({size}).',
             'HYPERV_BACKUP_COMPLETE' => '{message}',
+            
+            // Hyper-V specific (restore)
+            'HYPERV_RESTORE_STARTING' => 'Starting Hyper-V disk restore for VM "{vm_name}" ({disk_count} disks) to {target_path}.',
+            'HYPERV_RESTORE_DISK_STARTING' => 'Restoring disk {disk_index}/{total_disks}: {disk_name}.',
+            'HYPERV_RESTORE_DISK_PROGRESS' => 'Restoring disk: {disk_name} - {bytes_done} of {bytes_total}.',
+            'HYPERV_RESTORE_DISK_COMPLETE' => 'Disk {disk_name} restored successfully ({disk_index}/{total_disks}).',
+            'HYPERV_RESTORE_DISK_FAILED' => 'Disk {disk_name} restore failed: {message}.',
+            'HYPERV_RESTORE_COMPLETE' => 'Hyper-V restore completed: {restored_disks}/{total_disks} disks restored to {target_path}.',
+            'HYPERV_RESTORE_FAILED' => 'Hyper-V restore failed: {message}.',
+            'HYPERV_RESTORE_QUEUED' => 'Hyper-V restore queued for VM "{vm_name}" ({disk_count} disks).',
             
             // Disk Image specific
             'DISK_IMAGE_STARTING' => 'Starting disk image backup of {volume}.',
@@ -129,6 +146,59 @@ class CloudBackupEventFormatter
     }
 
     /**
+     * Replace internal engine names with user-facing brand names.
+     * This is a critical security/branding function - "kopia" should never appear in user-facing output.
+     *
+     * @param string $text
+     * @return string
+     */
+    private static function sanitizeBranding($text)
+    {
+        if (!is_string($text) || $text === '') {
+            return $text;
+        }
+        // Replace various forms of "kopia" with "eazyBackup"
+        $patterns = [
+            '/\bKopia\b/i' => 'eazyBackup',
+            '/\bkopia\b/i' => 'eazyBackup',
+            '/kopia:/i' => 'backup engine:',
+            '/kopia\s+upload/i' => 'upload',
+            '/kopia\s+error/i' => 'backup error',
+        ];
+        foreach ($patterns as $pattern => $replacement) {
+            $text = preg_replace($pattern, $replacement, $text);
+        }
+        return $text;
+    }
+
+    /**
+     * Check if an error message indicates a cancellation (not a real error).
+     *
+     * @param string $text
+     * @return bool
+     */
+    private static function isCancellationError($text)
+    {
+        if (!is_string($text) || $text === '') {
+            return false;
+        }
+        $cancellationIndicators = [
+            'context canceled',
+            'context cancelled',
+            'operation was canceled',
+            'operation cancelled',
+            'context deadline exceeded',
+        ];
+        $lower = strtolower($text);
+        foreach ($cancellationIndicators as $indicator) {
+            if (strpos($lower, $indicator) !== false) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Sanitize and humanize known params.
      *
      * @param array $params
@@ -137,6 +207,25 @@ class CloudBackupEventFormatter
     private static function sanitizeParams(array $params)
     {
         $out = $params;
+        
+        // Sanitize branding in all string params
+        foreach ($out as $key => $value) {
+            if (is_string($value)) {
+                $out[$key] = self::sanitizeBranding($value);
+            }
+        }
+        
+        // Special handling for error params - suppress cancellation errors
+        if (isset($out['error']) && is_string($out['error'])) {
+            if (self::isCancellationError($out['error'])) {
+                $out['error'] = 'Operation was cancelled.';
+            }
+        }
+        if (isset($out['message']) && is_string($out['message'])) {
+            if (self::isCancellationError($out['message'])) {
+                $out['message'] = 'Operation was cancelled.';
+            }
+        }
         // Humanize sizes (plain text for log rendering)
         if (isset($params['bytes_done'])) {
             $out['bytes_done'] = HelperController::formatSizeUnitsPlain((int) $params['bytes_done']);

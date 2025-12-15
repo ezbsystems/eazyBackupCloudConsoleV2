@@ -423,7 +423,7 @@ function cloudNAS() {
                 const res = await fetch('modules/addons/cloudstorage/api/cloudbackup_list_jobs.php');
                 const data = await res.json();
                 if (data.status === 'success') {
-                    // Filter to only show jobs with kopia engine (which have snapshots)
+                    // Filter to only show eazyBackup Archive jobs (engine=kopia in DB) which have snapshots
                     this.backupJobs = (data.jobs || []).filter(j => j.engine === 'kopia');
                 }
             } catch (e) {

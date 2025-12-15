@@ -1,6 +1,28 @@
 <div class="min-h-screen bg-slate-950 text-gray-200" x-data="jobsApp()">
     <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
     <div class="container mx-auto px-4 py-6 relative pointer-events-auto">
+        <!-- Navigation Tabs -->
+        <div class="mb-6">
+            <nav class="inline-flex rounded-full bg-slate-900/80 p-1 text-xs font-medium text-slate-400" aria-label="e3 Cloud Backup Navigation">
+                <a href="index.php?m=cloudstorage&page=e3backup"
+                   class="px-4 py-1.5 rounded-full transition hover:text-slate-200">
+                    Dashboard
+                </a>
+                <a href="index.php?m=cloudstorage&page=e3backup&view=jobs"
+                   class="px-4 py-1.5 rounded-full transition bg-slate-800 text-slate-50 shadow-sm">
+                    Jobs
+                </a>
+                <a href="index.php?m=cloudstorage&page=e3backup&view=hyperv"
+                   class="px-4 py-1.5 rounded-full transition hover:text-slate-200">
+                    Hyper-V
+                </a>
+                <a href="index.php?m=cloudstorage&page=e3backup&view=agents"
+                   class="px-4 py-1.5 rounded-full transition hover:text-slate-200">
+                    Agents
+                </a>
+            </nav>
+        </div>
+
         <!-- Header -->
         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
             <div>
@@ -151,7 +173,7 @@
                                     <span x-text="job.source_type"></span>
                                 </span>
                             </td>
-                            <td class="px-4 py-3 text-slate-300" x-text="job.engine"></td>
+                            <td class="px-4 py-3 text-slate-300" x-text="formatEngine(job.engine)"></td>
                             <td class="px-4 py-3 text-slate-300" x-text="job.schedule_type"></td>
                             <td class="px-4 py-3">
                                 <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold"
@@ -163,7 +185,8 @@
                             </td>
                             <td class="px-4 py-3 text-slate-300" x-text="job.created_at"></td>
                             <td class="px-4 py-3">
-                                <div class="flex items-center gap-1">
+                                <!-- Desktop: Individual buttons (hidden on small screens) -->
+                                <div class="hidden md:flex items-center gap-1">
                                     <!-- Run Now -->
                                     <button @click="runJob(job.id)" class="p-1.5 rounded hover:bg-slate-700 text-sky-400 hover:text-sky-300" title="Run Now">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
@@ -180,7 +203,7 @@
                                         </svg>
                                     </button>
                                     <!-- Restore -->
-                                    <button @click="openRestoreModal(job.id)" class="p-1.5 rounded hover:bg-slate-700 text-emerald-400 hover:text-emerald-300" title="Restore">
+                                    <button @click="openRestore(job)" class="p-1.5 rounded hover:bg-slate-700 text-emerald-400 hover:text-emerald-300" title="Restore">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
                                         </svg>
@@ -192,17 +215,118 @@
                                         </svg>
                                     </button>
                                     <!-- Delete -->
-                                    <button @click="deleteJob(job.id, job.name)" class="p-1.5 rounded hover:bg-slate-700 text-rose-400 hover:text-rose-300" title="Delete">
+                                    <button @click="openDeleteModal(job)" class="p-1.5 rounded hover:bg-slate-700 text-rose-400 hover:text-rose-300" title="Delete">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
                                         </svg>
                                     </button>
+                                </div>
+                                <!-- Mobile: Dropdown menu (visible on small screens) -->
+                                <div class="md:hidden relative" x-data="{ open: false }" @click.away="open = false">
+                                    <button @click="open = !open" class="p-1.5 rounded hover:bg-slate-700 text-slate-400 hover:text-slate-300" title="Actions">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
+                                            <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>
+                                        </svg>
+                                    </button>
+                                    <div x-show="open" x-cloak
+                                         x-transition:enter="transition ease-out duration-100"
+                                         x-transition:enter-start="opacity-0 scale-95"
+                                         x-transition:enter-end="opacity-100 scale-100"
+                                         x-transition:leave="transition ease-in duration-75"
+                                         x-transition:leave-start="opacity-100 scale-100"
+                                         x-transition:leave-end="opacity-0 scale-95"
+                                         class="absolute right-0 mt-1 w-40 rounded-lg border border-slate-700 bg-slate-900 shadow-xl z-50 py-1">
+                                        <button @click="runJob(job.id); open = false" class="w-full px-3 py-2 text-left text-sm text-sky-400 hover:bg-slate-800 flex items-center gap-2">
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                                            Run Now
+                                        </button>
+                                        <button @click="toggleJobStatus(job.id, job.status); open = false" class="w-full px-3 py-2 text-left text-sm hover:bg-slate-800 flex items-center gap-2" :class="job.status === 'active' ? 'text-amber-400' : 'text-emerald-400'">
+                                            <svg x-show="job.status === 'active'" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/></svg>
+                                            <svg x-show="job.status !== 'active'" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                                            <span x-text="job.status === 'active' ? 'Pause' : 'Resume'"></span>
+                                        </button>
+                                        <button @click="openRestore(job); open = false" class="w-full px-3 py-2 text-left text-sm text-emerald-400 hover:bg-slate-800 flex items-center gap-2">
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+                                            Restore
+                                        </button>
+                                        <button @click="viewLogs(job.id); open = false" class="w-full px-3 py-2 text-left text-sm text-slate-300 hover:bg-slate-800 flex items-center gap-2">
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                                            View Logs
+                                        </button>
+                                        <div class="border-t border-slate-700 my-1"></div>
+                                        <button @click="openDeleteModal(job); open = false" class="w-full px-3 py-2 text-left text-sm text-rose-400 hover:bg-slate-800 flex items-center gap-2">
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                                            Delete
+                                        </button>
+                                    </div>
                                 </div>
                             </td>
                         </tr>
                     </template>
                 </tbody>
             </table>
+        </div>
+
+        <!-- Delete Job Confirmation Modal -->
+        <div
+            x-show="deleteModalOpen"
+            x-cloak
+            class="fixed inset-0 z-[2200] flex items-center justify-center p-4"
+            style="display:none;"
+            @keydown.escape.window="closeDeleteModal()"
+        >
+            <div class="absolute inset-0 bg-black/70" @click="closeDeleteModal()"></div>
+            <div
+                class="relative w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl overflow-hidden"
+                @click.stop
+                x-transition:enter="transition ease-out duration-150"
+                x-transition:enter-start="opacity-0 scale-95"
+                x-transition:enter-end="opacity-100 scale-100"
+                x-transition:leave="transition ease-in duration-100"
+                x-transition:leave-start="opacity-100 scale-100"
+                x-transition:leave-end="opacity-0 scale-95"
+            >
+                <div class="p-5">
+                    <div class="flex items-start gap-3">
+                        <div class="mt-0.5 flex h-10 w-10 items-center justify-center rounded-full bg-rose-500/15 text-rose-300 border border-rose-400/30">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                            </svg>
+                        </div>
+                        <div class="flex-1">
+                            <h3 class="text-lg font-semibold text-white">Delete job?</h3>
+                            <p class="mt-1 text-sm text-slate-300">
+                                This will remove the job configuration and stop scheduled runs.
+                            </p>
+                            <p class="mt-2 text-sm text-slate-400">
+                                Job: <span class="text-slate-200 font-semibold" x-text="deleteJobName || ('Job #' + deleteJobId)"></span>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                <div class="px-5 py-4 bg-slate-800 border-t border-slate-700 flex justify-end gap-2">
+                    <button
+                        type="button"
+                        class="px-4 py-2 rounded-md border border-slate-600 text-slate-200 hover:border-slate-500 hover:bg-slate-800"
+                        @click="closeDeleteModal()"
+                        :disabled="deleteInProgress"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        class="px-4 py-2 rounded-md bg-rose-600 text-white hover:bg-rose-500 inline-flex items-center gap-2"
+                        @click="confirmDeleteJob()"
+                        :disabled="deleteInProgress"
+                    >
+                        <svg x-show="deleteInProgress" class="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                        </svg>
+                        <span x-text="deleteInProgress ? 'Deleting…' : 'Delete'"></span>
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -280,12 +404,95 @@
 
 {literal}
 <script>
+// ========================================
+// e3backup: shared helpers (toast + reload)
+// ========================================
+function e3backupNotify(type, message) {
+    const msg = String(message || '');
+    try {
+        // Preferred: window.toast.{success,error,info}
+        if (window.toast && typeof window.toast[type] === 'function') {
+            window.toast[type](msg);
+            return;
+        }
+        // Some pages expose `toast` globally
+        if (typeof toast !== 'undefined' && toast && typeof toast[type] === 'function') {
+            toast[type](msg);
+            return;
+        }
+    } catch (e) {
+        // fall through to inline toast
+    }
+
+    // Minimal inline fallback toast (no alert popups)
+    try {
+        const wrapId = 'e3backup-inline-toasts';
+        let wrap = document.getElementById(wrapId);
+        if (!wrap) {
+            wrap = document.createElement('div');
+            wrap.id = wrapId;
+            wrap.className = 'fixed top-4 right-4 z-[9999] space-y-2 pointer-events-none';
+            document.body.appendChild(wrap);
+        }
+        const el = document.createElement('div');
+        const isErr = type === 'error';
+        el.className = [
+            'pointer-events-auto',
+            // Smaller + tighter toast
+            'rounded-lg px-3 py-2 shadow-lg',
+            'text-sm font-medium leading-snug',
+            // Solid backgrounds (success = green, error = red)
+            isErr ? 'bg-rose-600 text-white' : 'bg-emerald-600 text-white'
+        ].join(' ');
+        el.textContent = msg || (isErr ? 'Error' : 'Success');
+        wrap.appendChild(el);
+        setTimeout(() => {
+            el.classList.add('opacity-0');
+            el.style.transition = 'opacity 250ms ease';
+            setTimeout(() => el.remove(), 260);
+        }, 2600);
+    } catch (e) {
+        // Last resort: do nothing (still better than alert spam)
+        console[type === 'error' ? 'error' : 'log'](msg);
+    }
+}
+
+function e3backupGetJobsApp() {
+    const root = document.querySelector('[x-data="jobsApp()"]');
+    if (!root) return null;
+    // Alpine v3
+    try {
+        if (window.Alpine && typeof window.Alpine.$data === 'function') {
+            return window.Alpine.$data(root);
+        }
+    } catch (e) {}
+    // Alpine v2 fallback
+    if (root.__x && root.__x.$data) return root.__x.$data;
+    // Alpine v3 internals fallback
+    if (root._x_dataStack && root._x_dataStack.length) return root._x_dataStack[0];
+    return null;
+}
+
+function e3backupReloadJobs() {
+    const app = e3backupGetJobsApp();
+    if (app && typeof app.loadJobs === 'function') {
+        return app.loadJobs();
+    }
+    console.warn('e3backupReloadJobs: jobsApp() not found/initialized yet');
+    return null;
+}
+
 function jobsApp() {
     return {
         jobs: [],
         loading: true,
         tenantFilter: '',
         agentFilter: '',
+        // Delete confirmation modal state
+        deleteModalOpen: false,
+        deleteJobId: '',
+        deleteJobName: '',
+        deleteInProgress: false,
         agents: {/literal}{if $agents}{$agents|@json_encode}{else}[]{/if}{literal},
         get filteredAgents() {
             if (!this.tenantFilter || this.tenantFilter === 'direct') {
@@ -334,17 +541,15 @@ function jobsApp() {
                 const data = await res.json();
                 if (data.status === 'success') {
                     const runParam = data.run_uuid || data.run_id;
-                    if (window.toast) toast.success('Backup started! Redirecting to progress...');
+                    e3backupNotify('success', 'Backup started! Redirecting to progress...');
                     setTimeout(() => {
                         window.location.href = 'index.php?m=cloudstorage&page=e3backup&view=live&run_id=' + runParam;
                     }, 500);
                 } else {
-                    if (window.toast) toast.error(data.message || 'Failed to start backup');
-                    else alert(data.message || 'Failed to start backup');
+                    e3backupNotify('error', data.message || 'Failed to start backup');
                 }
             } catch (e) {
-                if (window.toast) toast.error('Error starting backup');
-                else alert('Error starting backup');
+                e3backupNotify('error', 'Error starting backup');
             }
         },
         async toggleJobStatus(jobId, currentStatus) {
@@ -357,21 +562,35 @@ function jobsApp() {
                 });
                 const data = await res.json();
                 if (data.status === 'success') {
-                    if (window.toast) toast.success('Job ' + (newStatus === 'paused' ? 'paused' : 'resumed'));
-                    this.loadJobs();
+                    e3backupNotify('success', 'Job ' + (newStatus === 'paused' ? 'paused' : 'resumed'));
+                    this.loadJobs(); // stay scoped to filters
                 } else {
-                    if (window.toast) toast.error(data.message || 'Failed to update job');
-                    else alert(data.message || 'Failed to update job');
+                    e3backupNotify('error', data.message || 'Failed to update job');
                 }
             } catch (e) {
-                if (window.toast) toast.error('Error updating job');
-                else alert('Error updating job');
+                e3backupNotify('error', 'Error updating job');
             }
         },
         async deleteJob(jobId, jobName) {
-            if (!confirm('Are you sure you want to delete job "' + (jobName || jobId) + '"? This cannot be undone.')) {
-                return;
-            }
+            // Backwards compatibility: route old direct calls to the modal flow
+            this.openDeleteModal({ id: jobId, name: jobName });
+        },
+        openDeleteModal(job) {
+            this.deleteJobId = job?.id ? String(job.id) : '';
+            this.deleteJobName = job?.name ? String(job.name) : '';
+            this.deleteInProgress = false;
+            this.deleteModalOpen = true;
+        },
+        closeDeleteModal() {
+            if (this.deleteInProgress) return;
+            this.deleteModalOpen = false;
+            this.deleteJobId = '';
+            this.deleteJobName = '';
+        },
+        async confirmDeleteJob() {
+            const jobId = this.deleteJobId;
+            if (!jobId || this.deleteInProgress) return;
+            this.deleteInProgress = true;
             try {
                 const res = await fetch('modules/addons/cloudstorage/api/cloudbackup_delete_job.php', {
                     method: 'POST',
@@ -380,19 +599,32 @@ function jobsApp() {
                 });
                 const data = await res.json();
                 if (data.status === 'success') {
-                    if (window.toast) toast.success('Job deleted');
-                    this.loadJobs();
+                    e3backupNotify('success', 'Job deleted');
+                    this.deleteModalOpen = false;
+                    this.deleteInProgress = false;
+                    this.deleteJobId = '';
+                    this.deleteJobName = '';
+                    this.loadJobs(); // keep current filters
                 } else {
-                    if (window.toast) toast.error(data.message || 'Failed to delete job');
-                    else alert(data.message || 'Failed to delete job');
+                    e3backupNotify('error', data.message || 'Failed to delete job');
+                    this.deleteInProgress = false;
                 }
             } catch (e) {
-                if (window.toast) toast.error('Error deleting job');
-                else alert('Error deleting job');
+                e3backupNotify('error', 'Error deleting job');
+                this.deleteInProgress = false;
             }
         },
         viewLogs(jobId) {
             window.location.href = 'index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_runs&job_id=' + encodeURIComponent(jobId);
+        },
+        openRestore(job) {
+            // For Hyper-V jobs, redirect to the Hyper-V page to select a VM
+            if (job.engine === 'hyperv') {
+                window.location.href = 'index.php?m=cloudstorage&page=e3backup&view=hyperv&job_id=' + encodeURIComponent(job.id);
+                return;
+            }
+            // For regular jobs, open the restore modal
+            window.openRestoreModal(job.id);
         },
         openRestoreModal(jobId) {
             window.openRestoreModal(jobId);
@@ -411,6 +643,14 @@ function jobsApp() {
         },
         sourceClass(type) {
             return 'bg-sky-500/15 text-sky-200';
+        },
+        formatEngine(engine) {
+            const e = (engine || '').toLowerCase();
+            if (e === 'kopia') return 'eazyBackup (Archive)';
+            if (e === 'sync') return 'eazyBackup (Sync)';
+            if (e === 'disk_image') return 'Disk Image';
+            if (e === 'hyperv') return 'Hyper-V';
+            return engine || '-';
         }
     }
 }
@@ -634,20 +874,15 @@ function doCreateJobSubmit(formEl) {
     .then(data => {
         if (data.status === 'success') {
             closeCreateSlideover();
-            // Reload jobs list
-            if (window.Alpine) {
-                const app = document.querySelector('[x-data="jobsApp()"]');
-                if (app && app.__x && app.__x.$data) {
-                    app.__x.$data.loadJobs();
-                }
-            }
-            if (window.toast) toast.success('Job created successfully!');
+            // Reload jobs list (AJAX, no full page refresh)
+            e3backupReloadJobs();
+            e3backupNotify('success', 'Job created successfully!');
         } else {
             if (msgEl) {
                 msgEl.textContent = data.message || 'Failed to create job';
                 msgEl.classList.remove('hidden');
             }
-            if (window.toast) toast.error(data.message || 'Failed to create job');
+            e3backupNotify('error', data.message || 'Failed to create job');
         }
     })
     .catch(err => {
@@ -655,7 +890,7 @@ function doCreateJobSubmit(formEl) {
             msgEl.textContent = 'Error: ' + err.message;
             msgEl.classList.remove('hidden');
         }
-        if (window.toast) toast.error('Error creating job');
+        e3backupNotify('error', 'Error creating job');
     });
 }
 
@@ -1778,23 +2013,28 @@ function localWizardSubmit() {
     const s = window.localWizardState.data;
     const isEdit = !!window.localWizardState.editMode;
     if (!s.name) {
-        window.toast?.error?.('Job name is required') || alert('Job name is required');
+        const msg = 'Job name is required';
+        e3backupNotify('error', msg);
         return;
     }
     if (!s.agent_id) {
-        window.toast?.error?.('Agent ID is required') || alert('Agent ID is required');
+        const msg = 'Agent ID is required';
+        e3backupNotify('error', msg);
         return;
     }
     if (!s.dest_bucket_id) {
-        window.toast?.error?.('Bucket ID is required') || alert('Bucket ID is required');
+        const msg = 'Bucket ID is required';
+        e3backupNotify('error', msg);
         return;
     }
     if ((s.engine || '') === 'disk_image' && !s.disk_source_volume) {
-        window.toast?.error?.('Disk volume is required for disk image backups') || alert('Disk volume is required');
+        const msg = 'Disk volume is required for disk image backups';
+        e3backupNotify('error', msg);
         return;
     }
     if ((s.engine || '') === 'hyperv' && (!s.hyperv_vm_ids || s.hyperv_vm_ids.length === 0)) {
-        window.toast?.error?.('Please select at least one VM to backup') || alert('Please select at least one VM');
+        const msg = 'Please select at least one VM to backup';
+        e3backupNotify('error', msg);
         return;
     }
     
@@ -1810,12 +2050,15 @@ function localWizardSubmit() {
         sourcePath = 'Hyper-V VMs (' + s.hyperv_vm_ids.length + ')';
     }
     
+    // Serialize source_paths as JSON to preserve array structure through URLSearchParams
+    const sourcePathsArray = Array.isArray(s.source_paths) ? s.source_paths : (s.source_path ? [s.source_path] : []);
+    
     const payload = {
         name: s.name,
         source_type: 'local_agent',
         source_display_name: sourceDisplayName,
         source_path: sourcePath,
-        source_paths: Array.isArray(s.source_paths) ? s.source_paths : (s.source_path ? [s.source_path] : []),
+        source_paths: JSON.stringify(sourcePathsArray),
         dest_bucket_id: s.dest_bucket_id,
         dest_prefix: s.dest_prefix || '',
         backup_mode: s.engine === 'sync' ? 'sync' : 'archive',
@@ -1850,6 +2093,8 @@ function localWizardSubmit() {
     if (s.engine === 'hyperv') {
         payload.hyperv_enabled = '1';
         payload.hyperv_vm_ids = JSON.stringify(s.hyperv_vm_ids || []);
+        // Send VM info with names for proper registration
+        payload.hyperv_vms = JSON.stringify(s.hyperv_vms || []);
         payload.hyperv_config = JSON.stringify({
             vms: s.hyperv_vm_ids || [],
             enable_rct: s.hyperv_enable_rct !== false,
@@ -1872,28 +2117,26 @@ function localWizardSubmit() {
         ? 'modules/addons/cloudstorage/api/cloudbackup_update_job.php'
         : 'modules/addons/cloudstorage/api/cloudbackup_create_job.php';
     if (isEdit && !payload.job_id) {
-        window.toast?.error?.('Missing job ID for update') || alert('Missing job ID for update');
+        const msg = 'Missing job ID for update';
+        e3backupNotify('error', msg);
         return;
     }
     fetch(endpoint, opts)
         .then(r => r.json())
         .then(data => {
             if (data.status === 'success') {
-                window.toast?.success?.(isEdit ? 'Local agent job updated' : 'Local agent job created') || alert(isEdit ? 'Job updated!' : 'Job created!');
+                e3backupNotify('success', isEdit ? 'Local agent job updated' : 'Local agent job created');
                 closeLocalJobWizard();
-                // Reload jobs list
-                if (window.Alpine) {
-                    const app = document.querySelector('[x-data="jobsApp()"]');
-                    if (app && app.__x && app.__x.$data) {
-                        app.__x.$data.loadJobs();
-                    }
-                }
+                // Reload jobs list (AJAX, no full page refresh)
+                e3backupReloadJobs();
             } else {
-                window.toast?.error?.(data.message || (isEdit ? 'Failed to update job' : 'Failed to create job')) || alert(data.message || 'Failed');
+                const msg = data.message || (isEdit ? 'Failed to update job' : 'Failed to create job');
+                e3backupNotify('error', msg);
             }
         })
         .catch(err => {
-            window.toast?.error?.('Error ' + (isEdit ? 'updating' : 'creating') + ' job: ' + err) || alert('Error: ' + err);
+            const msg = 'Error ' + (isEdit ? 'updating' : 'creating') + ' job: ' + err;
+            e3backupNotify('error', msg);
         });
 }
 

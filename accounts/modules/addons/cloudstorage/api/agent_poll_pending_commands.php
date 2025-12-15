@@ -154,7 +154,7 @@ try {
     }
     
     // Only get restore and maintenance commands (cancel is handled during active runs)
-    $cmdQuery->whereIn('c.type', ['restore', 'maintenance_quick', 'maintenance_full']);
+    $cmdQuery->whereIn('c.type', ['restore', 'hyperv_restore', 'maintenance_quick', 'maintenance_full']);
     
     $cmdRows = $cmdQuery
         ->select(
@@ -188,7 +188,7 @@ try {
         
         // For restore commands, we need to provide full job context so agent can connect to repo
         $jobContext = null;
-        if (in_array($cmd->type, ['restore', 'maintenance_quick', 'maintenance_full'])) {
+        if (in_array($cmd->type, ['restore', 'hyperv_restore', 'maintenance_quick', 'maintenance_full'])) {
             // Get bucket info
             $bucket = Capsule::table('s3_buckets')
                 ->where('id', $cmd->dest_bucket_id)
