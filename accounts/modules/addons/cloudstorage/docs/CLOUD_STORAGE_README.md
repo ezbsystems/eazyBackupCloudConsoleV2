@@ -444,3 +444,234 @@ Note: The `webkit` prefix is historical; these APIs are now standardized and wor
 - [ ] Cancel uploads mid-queue → remaining files cancelled, completed files retained
 - [ ] Upload fails for some files → partial success shown with failure count
 - [ ] Empty folder → no files queued (expected behavior)
+
+## Deprovision Cloud Storage Customer (Admin Flow)
+
+The Cloud Storage addon now includes an **admin-only deprovision flow** that safely tears down a storage customer (primary S3 user + any sub‑tenants) while respecting Object Lock and protected system accounts.
+
+### Overview
+
+- New **Admin page**: `Deprovision Cloud Storage Customer`
+  - Admin route: `addonmodules.php?module=cloudstorage&action=deprovision`
+  - Implemented in `pages/admin/deprovision.php`
+- New **helper class**: `lib/Admin/DeprovisionHelper.php`
+  - Encapsulates protected resource checks, user/bucket discovery, and job queueing.
+- New **user deprovision cron**:
+  - `accounts/crons/s3deleteuser.php`
+  - Works alongside the existing bucket deletion cron `accounts/crons/s3deletebucket.php`.
+
+The design intentionally separates **“queue work in the admin UI”** from **“perform destructive actions in background crons”** so that large tenants and Object Lock edge cases are handled robustly and auditable.
+
+### Database Changes
+
+#### `s3_users` (existing table, extended)
+
+On activation/upgrade (`cloudstorage_activate()` / `cloudstorage_upgrade()` in `cloudstorage.php`), the following columns are ensured:
+
+- `is_active TINYINT(1) DEFAULT 1`
+  - Flags whether a storage user is active from the module’s perspective.
+  - Used to hide deprovisioned users/buckets from other UIs.
+- `deleted_at TIMESTAMP NULL`
+  - Timestamp when a user was deprovisioned.
+
+> Note: The code is defensive; if these columns don’t exist yet (older schema), writes that depend on them are skipped rather than crashing.
+
+#### `s3_delete_users` (new table)
+
+New table to track **full customer deprovision jobs**:
+
+- `id` (PK)
+- `primary_user_id` (FK → `s3_users.id`)
+- `requested_by_admin_id` (nullable WHMCS `tbladmins.id`)
+- `status` enum:
+  - `'queued'` — waiting for processing
+  - `'running'` — actively being processed by the cron
+  - `'blocked'` — cannot proceed (e.g., Object Lock retention, protected user/bucket)
+  - `'failed'` — unrecoverable error after retries
+  - `'success'` — fully deprovisioned
+- `attempt_count` (TINYINT)
+- `error` (TEXT) — last error or blocked reason
+- `plan_json` (TEXT) — JSON snapshot of users + buckets at queue time
+- `created_at`, `started_at`, `completed_at` (timestamps)
+
+Created/ensured in both `cloudstorage_activate()` (for fresh installs) and `cloudstorage_upgrade()` (for upgrades).
+
+#### `s3_delete_buckets` (existing table, extended)
+
+The bucket delete queue now has richer status tracking:
+
+- New columns:
+  - `status` enum (`queued`,`running`,`blocked`,`failed`,`success`) — per-bucket lifecycle
+  - `error` (TEXT) — reason for failure or Object Lock blockage
+  - `started_at`, `completed_at` (timestamps)
+  - Index on (`status`, `created_at`)
+
+Existing schema is upgraded in `cloudstorage_upgrade()`; all code paths check for the presence of these columns before writing.
+
+### Protected System Resources
+
+Certain RGW users and buckets are **hard-protected** and can never be deleted by the deprovision flow:
+
+- Protected **usernames**:
+  - `eazybackup`
+  - `eazybackup-backups`
+- Protected **bucket names**:
+  - `csw-eazybackup-data`
+  - `csw-obc-data`
+
+Rules:
+
+- Usernames are checked both in plain and tenant-qualified forms (e.g. `<tenant>$eazybackup`).
+- If the primary user or any sub‑tenant has a protected username, the deprovision job is **blocked** and cannot be queued or processed.
+- If any bucket name is protected, the job is **blocked** with a clear reason.
+
+Implementation:
+
+- Centralized in `DeprovisionHelper::isProtectedUsername()` / `isProtectedBucket()`.
+- Used by:
+  - Admin UI when building the plan (`buildDeprovisionPlan()`).
+  - Bucket deletion flow (`BucketController`).
+  - User deletion cron (`s3deleteuser.php`) as a safety net.
+
+### Admin Deprovision Page (`pages/admin/deprovision.php`)
+
+The admin page provides:
+
+- **Lookup**:
+  - By WHMCS Service ID (`tblhosting.id`) or Storage Username (`tblhosting.username` / `s3_users.username`).
+  - Uses `DeprovisionHelper::resolvePrimaryUser()` to locate the primary `s3_users` row:
+    - First, a row with `username = <storageUsername>` and `parent_id IS NULL`.
+    - If not found, treats the username as a tenant and resolves its parent.
+- **Preview**:
+  - Primary user: username, Ceph UID, tenant_id, active status.
+  - Sub‑tenants: each `s3_users` row where `parent_id = primary.id`.
+  - Buckets: all `s3_buckets` rows with `user_id` in primary + sub‑tenants, including:
+    - `object_lock_enabled`
+    - `versioning`
+    - `is_active`
+  - WHMCS client + service context for audit (client name, email, service status).
+- **Protected warnings**:
+  - Displays any protected usernames/buckets that will block the deprovision.
+- **Confirmation**:
+  - “Danger Zone” confirmation box:
+    - Checkbox acknowledging permanent deletion.
+    - Typed phrase `DEPROVISION <USERNAME>` (uppercased) required.
+  - Only when the plan is `can_proceed = true`.
+
+#### Queueing a deprovision job
+
+When an admin confirms:
+
+1. `DeprovisionHelper::buildDeprovisionPlan($primaryUserId)` is called again to generate a fresh plan.
+2. `DeprovisionHelper::queueDeprovision($primaryUserId, $adminId, $plan)`:
+   - Validates no protected resources are present.
+   - Ensures there is no other `s3_delete_users` job in `queued`/`running` for this primary user.
+   - Within a DB transaction:
+     - Inserts a row into `s3_delete_users` with `status='queued'` and `plan_json` snapshot.
+     - Sets `s3_users.is_active = 0` (if column present) for primary + sub‑tenants.
+     - Sets `s3_buckets.is_active = 0` (if column present) for all buckets belonging to those users.
+     - Queues each bucket into `s3_delete_buckets` (deduped; respects presence/absence of `status` column).
+
+The page then shows a “Recent Deprovision Jobs” table populated from `s3_delete_users` joined to `s3_users` (primary username).
+
+### Background Processing
+
+The deprovision flow is executed in two stages by crons:
+
+#### 1) Bucket deletion (`accounts/crons/s3deletebucket.php`)
+
+Responsibilities:
+
+- Drain `s3_delete_buckets`:
+  - For new schema: jobs where `status IN ('queued','running')` and `attempt_count < MAX_ATTEMPTS`.
+  - For legacy schema: uses `attempt_count` alone.
+- Use **admin credentials** to delete buckets:
+  - Uses `BucketController::deleteBucketAsAdmin()` which:
+    - Calls `connectS3ClientAsAdmin()` to connect with admin access/secret key.
+    - Deletes:
+      - Objects (`deleteBucketContents()`).
+      - Versions and delete markers (`deleteBucketVersionsAndMarkers()`).
+      - Multipart uploads (`handleIncompleteMultipartUploads()`).
+      - The bucket itself (`deleteBucket()` + wait for `BucketNotExists`).
+    - Detects Object Lock / retention errors via `isRetentionError()` and returns `blocked` when applicable.
+- Updates `s3_delete_buckets`:
+  - `status='running'` when work starts.
+  - `status='success'` + `completed_at` when bucket + DB row are fully removed.
+  - `status='blocked'` for Object Lock / retention (no further retries).
+  - `status='failed'` after `MAX_ATTEMPTS` non‑retention errors.
+- Cleans up `s3_buckets`:
+  - Deletes the bucket row when the bucket is confirmed gone.
+  - Updates `deleted_at` (if the column exists) for audit.
+
+#### 2) User deletion (`accounts/crons/s3deleteuser.php`)
+
+Responsibilities:
+
+- Drain `s3_delete_users`:
+  - Jobs with `status IN ('queued','running')` and `attempt_count < MAX_ATTEMPTS`.
+- For each job:
+  1. Mark job `running`, bump `attempt_count`, clear stale `error`.
+  2. Resolve:
+     - Primary user (`s3_users.id = primary_user_id`).
+     - Sub‑tenants (`s3_users.parent_id = primary_user_id`).
+     - All relevant user IDs (primary + sub‑tenants).
+  3. Bucket gate:
+     - Count **pending bucket delete jobs** in `s3_delete_buckets` for those user IDs:
+       - `status IN ('queued','running')` (or `attempt_count < N` on legacy schema).
+     - Count **active buckets** in `s3_buckets` (`is_active=1` when column exists).
+     - If any pending/active:
+       - Set job back to `queued` with a readable `error`.
+       - Do **not** attempt user deletion yet.
+     - If any bucket jobs are `blocked`:
+       - Mark job `blocked` with a message referencing Object Lock retention.
+  4. Delete RGW users (once buckets are cleared):
+     - Builds a list of users to delete: all sub‑tenants first, then primary.
+     - For each:
+       - Compute Ceph UID via `DeprovisionHelper::computeCephUid()`:
+         - If `tenant_id` exists: `<tenant_id>$<username>`.
+         - Else: `<username>`.
+       - Call `AdminOps::removeUser($endpoint, $adminAccessKey, $adminSecretKey, $cephUid)`.
+       - Treats `NoSuchUser` as success (user already gone).
+       - Updates `s3_users` (if columns exist):
+         - `is_active = 0`
+         - `deleted_at = NOW()`
+       - Deletes `s3_user_access_keys` rows for that user.
+  5. Finalize job:
+     - If all users were successfully deleted or already absent:
+       - Set `status='success'`, `completed_at = NOW()`, and clear `error` (or store minor warnings).
+     - If some users failed and attempts remain:
+       - Set `status='queued'` with an aggregated `error` message.
+     - If failures persist and `attempt_count >= MAX_ATTEMPTS`:
+       - Set `status='failed'` and `completed_at = NOW()`.
+
+The cron is defensive: any thrown exception is caught and logged, and the job is marked `failed` with `completed_at` set, so it never remains indefinitely in `running`.
+
+### Object Lock Behavior in Deprovision
+
+Object‑locked buckets are **never forcibly purged** by deprovision:
+
+- Bucket deletion cron attempts to delete contents and the bucket using admin credentials.
+- If RGW returns errors indicating Object Lock/retention (Compliance or Governance), those jobs are marked:
+  - `status='blocked'` in `s3_delete_buckets` with the full error in `error`.
+- User deletion cron:
+  - Sees blocked buckets and marks the `s3_delete_users` job as `blocked`.
+  - Does **not** attempt to delete RGW users while locked data still exists.
+
+This ensures the system respects regulatory/retention guarantees and surfaces a clear “cannot fully deprovision” state to admins instead of repeatedly failing or silently skipping locked data.
+
+### Deprovision Testing Checklist
+
+- [ ] Queue deprovision for a normal customer with 1–2 buckets:
+  - [ ] Job appears in the Deprovision page with `status=queued`.
+  - [ ] `s3_delete_buckets` rows are created for each bucket.
+  - [ ] `s3deletebucket.php` cron drains those rows and removes buckets from RGW + DB.
+  - [ ] `s3deleteuser.php` cron deletes RGW users and marks `s3_delete_users.status=success`, `completed_at` set.
+- [ ] Queue deprovision for a customer with Object‑Locked bucket(s):
+  - [ ] Bucket delete jobs for locked buckets are marked `status=blocked` with retention errors.
+  - [ ] User deprovision job transitions to `status=blocked` with a clear message.
+  - [ ] RGW users for **unlocked** buckets are handled correctly (if design allows partial deprovision in future).
+- [ ] Queue deprovision for a customer whose RGW user was manually removed:
+  - [ ] Deprovision cron treats `NoSuchUser` as success and still marks the job `success`.
+- [ ] Attempt to queue deprovision for a protected user/bucket:
+  - [ ] Admin UI shows protected warnings and **does not** allow queueing.
+  - [ ] No `s3_delete_users` row is created for protected resources.

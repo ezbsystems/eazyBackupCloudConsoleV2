@@ -531,7 +531,11 @@ function cloudstorage_activate() {
                 $table->string('username');
                 $table->unsignedInteger('parent_id')->nullable();
                 $table->unsignedInteger('tenant_id')->nullable();
+                $table->tinyInteger('is_active')->default(1);
                 $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('deleted_at')->nullable();
+
+                $table->index('is_active');
             });
             logModuleCall('cloudstorage', 'activate', [], 'Created s3_users table', [], []);
         }
@@ -641,14 +645,41 @@ function cloudstorage_activate() {
 
         if (!Capsule::schema()->hasTable('s3_delete_buckets')) {
             Capsule::schema()->create('s3_delete_buckets', function ($table) {
-            $table->increments('id');
-            $table->unsignedInteger('user_id');
-            $table->string('bucket_name');
-            $table->tinyInteger('attempt_count')->default(0);
-            $table->timestamp('created_at')->useCurrent();
+                $table->increments('id');
+                $table->unsignedInteger('user_id');
+                $table->string('bucket_name');
+                $table->enum('status', ['queued', 'running', 'blocked', 'failed', 'success'])->default('queued');
+                $table->tinyInteger('attempt_count')->default(0);
+                $table->text('error')->nullable();
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('started_at')->nullable();
+                $table->timestamp('completed_at')->nullable();
 
-            $table->foreign('user_id')->references('id')->on('s3_users')->onDelete('cascade');
+                $table->index(['status', 'created_at']);
+                $table->foreign('user_id')->references('id')->on('s3_users')->onDelete('cascade');
             });
+            logModuleCall('cloudstorage', 'activate', [], 'Created s3_delete_buckets table', [], []);
+        }
+
+        // Deprovision job queue for user deletion
+        if (!Capsule::schema()->hasTable('s3_delete_users')) {
+            Capsule::schema()->create('s3_delete_users', function ($table) {
+                $table->increments('id');
+                $table->unsignedInteger('primary_user_id');
+                $table->unsignedInteger('requested_by_admin_id')->nullable();
+                $table->enum('status', ['queued', 'running', 'blocked', 'failed', 'success'])->default('queued');
+                $table->tinyInteger('attempt_count')->default(0);
+                $table->text('error')->nullable();
+                $table->text('plan_json')->nullable(); // snapshot of usernames/buckets at confirmation
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('started_at')->nullable();
+                $table->timestamp('completed_at')->nullable();
+
+                $table->index(['status', 'created_at']);
+                $table->index('primary_user_id');
+                $table->foreign('primary_user_id')->references('id')->on('s3_users')->onDelete('cascade');
+            });
+            logModuleCall('cloudstorage', 'activate', [], 'Created s3_delete_users table', [], []);
         }
 
         // Background prefix delete queue
@@ -1914,6 +1945,78 @@ function cloudstorage_upgrade($vars) {
             });
         }
 
+        // ---------------------------------------------------
+        // Cloud Storage Deprovision: s3_users status columns
+        // ---------------------------------------------------
+        if (\WHMCS\Database\Capsule::schema()->hasTable('s3_users')) {
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_users', 'is_active')) {
+                try {
+                    \WHMCS\Database\Capsule::schema()->table('s3_users', function ($table) {
+                        $table->tinyInteger('is_active')->default(1)->after('tenant_id');
+                        $table->index('is_active');
+                    });
+                    logModuleCall('cloudstorage', 'upgrade', [], 'Added is_active column to s3_users', [], []);
+                } catch (\Exception $e) {
+                    logModuleCall('cloudstorage', 'upgrade_add_s3_users_is_active', [], $e->getMessage(), [], []);
+                }
+            }
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_users', 'deleted_at')) {
+                try {
+                    \WHMCS\Database\Capsule::schema()->table('s3_users', function ($table) {
+                        $table->timestamp('deleted_at')->nullable()->after('created_at');
+                    });
+                    logModuleCall('cloudstorage', 'upgrade', [], 'Added deleted_at column to s3_users', [], []);
+                } catch (\Exception $e) {
+                    logModuleCall('cloudstorage', 'upgrade_add_s3_users_deleted_at', [], $e->getMessage(), [], []);
+                }
+            }
+        }
+
+        // ---------------------------------------------------
+        // Cloud Storage Deprovision: s3_delete_users job queue
+        // ---------------------------------------------------
+        if (!\WHMCS\Database\Capsule::schema()->hasTable('s3_delete_users')) {
+            try {
+                \WHMCS\Database\Capsule::schema()->create('s3_delete_users', function ($table) {
+                    $table->increments('id');
+                    $table->unsignedInteger('primary_user_id');
+                    $table->unsignedInteger('requested_by_admin_id')->nullable();
+                    $table->enum('status', ['queued', 'running', 'blocked', 'failed', 'success'])->default('queued');
+                    $table->tinyInteger('attempt_count')->default(0);
+                    $table->text('error')->nullable();
+                    $table->text('plan_json')->nullable(); // snapshot of usernames/buckets at confirmation
+                    $table->timestamp('created_at')->useCurrent();
+                    $table->timestamp('started_at')->nullable();
+                    $table->timestamp('completed_at')->nullable();
+
+                    $table->index(['status', 'created_at']);
+                    $table->index('primary_user_id');
+                    $table->foreign('primary_user_id')->references('id')->on('s3_users')->onDelete('cascade');
+                });
+                logModuleCall('cloudstorage', 'upgrade', [], 'Created s3_delete_users table', [], []);
+            } catch (\Exception $e) {
+                logModuleCall('cloudstorage', 'upgrade_create_s3_delete_users', [], $e->getMessage(), [], []);
+            }
+        }
+
+        // Add status and error columns to s3_delete_buckets for better tracking
+        if (\WHMCS\Database\Capsule::schema()->hasTable('s3_delete_buckets')) {
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_delete_buckets', 'status')) {
+                try {
+                    \WHMCS\Database\Capsule::schema()->table('s3_delete_buckets', function ($table) {
+                        $table->enum('status', ['queued', 'running', 'blocked', 'failed', 'success'])->default('queued')->after('bucket_name');
+                        $table->text('error')->nullable()->after('attempt_count');
+                        $table->timestamp('started_at')->nullable()->after('created_at');
+                        $table->timestamp('completed_at')->nullable()->after('started_at');
+                        $table->index(['status', 'created_at']);
+                    });
+                    logModuleCall('cloudstorage', 'upgrade', [], 'Added status/error columns to s3_delete_buckets', [], []);
+                } catch (\Exception $e) {
+                    logModuleCall('cloudstorage', 'upgrade_add_s3_delete_buckets_status', [], $e->getMessage(), [], []);
+                }
+            }
+        }
+
         return ['status' => 'success'];
     } catch (\Exception $e) {
         logModuleCall('cloudstorage', 'upgrade', $vars, $e->getMessage());
@@ -2208,22 +2311,56 @@ function cloudstorage_clientarea($vars) {
  */
 function cloudstorage_output($vars)
 {
-    // Clean any output buffer to prevent language files from outputting
-    while (ob_get_level()) {
-        ob_end_clean();
-    }
-    
-    $action = $_REQUEST['action'] ?? 'bucket_monitor';
-    
+    // Entry point for the Cloud Storage addon in the WHMCS admin area.
+    // Render a simple overview + navigation when no specific action is requested.
+    $action = $_REQUEST['action'] ?? '';
+    $baseUrl = $_SERVER['PHP_SELF'] . '?module=cloudstorage';
+
     switch ($action) {
         case 'cloudbackup_admin':
             require_once __DIR__ . '/pages/admin/cloudbackup_admin.php';
             cloudstorage_admin_cloudbackup($vars);
             break;
+        case 'deprovision':
+            require_once __DIR__ . '/pages/admin/deprovision.php';
+            cloudstorage_admin_deprovision($vars);
+            break;
+        case 'reconcile':
+            require_once __DIR__ . '/pages/admin/reconcile.php';
+            cloudstorage_admin_reconcile($vars);
+            break;
         case 'bucket_monitor':
-        default:
             require_once __DIR__ . '/pages/admin/bucket_monitor.php';
             cloudstorage_admin_bucket_monitor($vars);
+            break;
+        default:
+            // Default overview / entry page with navigation tabs
+            echo '<div class="content-padded">';
+            echo '<h2 class="page-title">e3 Object Storage</h2>';
+            echo '<p class="text-muted">Use the tabs below to access Cloud Storage administration tools.</p>';
+
+            echo '<ul class="nav nav-tabs" style="margin-bottom:15px;">';
+            echo '  <li class="active"><a href="' . htmlspecialchars($baseUrl) . '">Overview</a></li>';
+            echo '  <li><a href="' . htmlspecialchars($baseUrl . '&action=bucket_monitor') . '">Cloud Storage Bucket Monitor</a></li>';
+            echo '  <li><a href="' . htmlspecialchars($baseUrl . '&action=cloudbackup_admin') . '">Cloud Backup Admin</a></li>';
+            echo '  <li><a href="' . htmlspecialchars($baseUrl . '&action=deprovision') . '">Deprovision Cloud Storage Customer</a></li>';
+            echo '  <li><a href="' . htmlspecialchars($baseUrl . '&action=reconcile') . '">Reconciliation</a></li>';
+            echo '</ul>';
+
+            echo '<div class="panel panel-default">';
+            echo '  <div class="panel-heading"><i class="fa fa-database"></i> Overview</div>';
+            echo '  <div class="panel-body">';
+            echo '      <p>This module provides e3 Object Storage management for WHMCS administrators:</p>';
+            echo '      <ul>';
+            echo '          <li>Cloud Storage Bucket Monitor &mdash; view bucket sizes, growth, and ownership.</li>';
+            echo '          <li>Cloud Backup Admin &mdash; manage e3 Cloud Backup jobs and agents.</li>';
+            echo '          <li>Deprovision Cloud Storage Customer &mdash; safely remove a customer&apos;s buckets and RGW users.</li>';
+            echo '          <li>Reconciliation &mdash; identify RGW buckets/users that don&apos;t map to an active WHMCS e3 service.</li>';
+            echo '      </ul>';
+            echo '      <p>Select a tab above to get started.</p>';
+            echo '  </div>';
+            echo '</div>';
+            echo '</div>';
             break;
     }
 }
@@ -2243,6 +2380,12 @@ function cloudstorage_sidebar($vars)
         </a>
         <a href="' . $_SERVER['PHP_SELF'] . '?module=cloudstorage&action=cloudbackup_admin" class="list-group-item">
             <i class="fa fa-cloud-upload"></i> Cloud Backup Admin
+        </a>
+        <a href="' . $_SERVER['PHP_SELF'] . '?module=cloudstorage&action=deprovision" class="list-group-item">
+            <i class="fa fa-user-times"></i> Deprovision Customer
+        </a>
+        <a href="' . $_SERVER['PHP_SELF'] . '?module=cloudstorage&action=reconcile" class="list-group-item">
+            <i class="fa fa-exchange"></i> Reconciliation
         </a>
     </div>';
     

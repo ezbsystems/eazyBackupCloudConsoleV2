@@ -1233,6 +1233,198 @@ class BucketController {
     }
 
     /**
+     * Connect to S3 using admin credentials (for deprovision operations).
+     * This allows bucket deletion even when user keys are revoked.
+     *
+     * @return array
+     */
+    public function connectS3ClientAsAdmin()
+    {
+        try {
+            if (empty($this->adminAccessKey) || empty($this->adminSecretKey)) {
+                return ['status' => 'fail', 'message' => 'Admin credentials not configured.'];
+            }
+
+            // For non-AWS S3-compatible endpoints, force us-east-1
+            $effectiveRegion = $this->region;
+            try {
+                $host = parse_url((string)$this->endpoint, PHP_URL_HOST) ?: '';
+                $isAws = is_string($host) && stripos($host, 'amazonaws.com') !== false;
+                if (!$isAws) {
+                    $effectiveRegion = 'us-east-1';
+                }
+            } catch (\Throwable $e) {
+                // Default to current region if parsing fails
+            }
+
+            $s3ClientConfig = [
+                'version' => 'latest',
+                'region' => $effectiveRegion,
+                'endpoint' => $this->endpoint,
+                'credentials' => [
+                    'key' => $this->adminAccessKey,
+                    'secret' => $this->adminSecretKey,
+                ],
+                'use_path_style_endpoint' => true,
+                'signature_version' => 'v4',
+                'http' => [
+                    'connect_timeout' => 10.0,
+                    'timeout' => 120.0,  // Longer timeout for admin operations (bulk deletes)
+                    'read_timeout' => 120.0,
+                ],
+            ];
+
+            $this->s3Client = new S3Client($s3ClientConfig);
+            $this->accessKey = $this->adminAccessKey;
+            $this->secretKey = $this->adminSecretKey;
+
+            return [
+                'status' => 'success',
+                's3client' => $this->s3Client
+            ];
+        } catch (\Exception $e) {
+            logModuleCall($this->module, __FUNCTION__, [], $e->getMessage());
+
+            return [
+                'status' => 'fail',
+                'message' => 'Admin connection failure: ' . $e->getMessage()
+            ];
+        }
+    }
+
+    /**
+     * Delete a bucket using admin credentials (for deprovision).
+     * Handles Object Lock buckets by detecting retention errors.
+     *
+     * @param int $userId The s3_users.id for the bucket owner
+     * @param string $bucketName The bucket name
+     * @param bool $useAdminCreds Whether to use admin credentials (default true for deprovision)
+     * @return array Result with status, message, and optional blocked flag
+     */
+    public function deleteBucketAsAdmin($userId, $bucketName, $useAdminCreds = true)
+    {
+        // Check protected bucket names
+        if (in_array($bucketName, $this->protectedBucketNames)) {
+            return [
+                'status' => 'fail',
+                'message' => "Bucket '{$bucketName}' is protected and cannot be deleted.",
+                'blocked' => true,
+            ];
+        }
+
+        // Connect as admin if requested
+        if ($useAdminCreds) {
+            $connResult = $this->connectS3ClientAsAdmin();
+            if ($connResult['status'] !== 'success') {
+                return $connResult;
+            }
+        }
+
+        // Try to delete bucket contents
+        try {
+            $response = $this->deleteBucketContents($bucketName);
+            if ($response['status'] == 'fail') {
+                // Check if this is an Object Lock retention error
+                if ($this->isRetentionError($response['message'] ?? '')) {
+                    return [
+                        'status' => 'fail',
+                        'message' => 'Bucket has Object Lock retention; cannot delete objects until retention expires.',
+                        'blocked' => true,
+                    ];
+                }
+                return $response;
+            }
+        } catch (S3Exception $e) {
+            if ($this->isRetentionError($e->getMessage())) {
+                return [
+                    'status' => 'fail',
+                    'message' => 'Object Lock retention prevents deletion: ' . $e->getMessage(),
+                    'blocked' => true,
+                ];
+            }
+            throw $e;
+        }
+
+        // Delete versions and markers
+        try {
+            $response = $this->deleteBucketVersionsAndMarkers($bucketName);
+            if ($response['status'] == 'fail') {
+                if ($this->isRetentionError($response['message'] ?? '')) {
+                    return [
+                        'status' => 'fail',
+                        'message' => 'Cannot delete versioned objects due to Object Lock retention.',
+                        'blocked' => true,
+                    ];
+                }
+                return $response;
+            }
+        } catch (S3Exception $e) {
+            if ($this->isRetentionError($e->getMessage())) {
+                return [
+                    'status' => 'fail',
+                    'message' => 'Object Lock retention prevents version deletion: ' . $e->getMessage(),
+                    'blocked' => true,
+                ];
+            }
+            throw $e;
+        }
+
+        // Handle incomplete multipart uploads
+        $response = $this->handleIncompleteMultipartUploads($bucketName);
+        if ($response['status'] == 'fail') {
+            return $response;
+        }
+
+        // Finally delete the bucket itself
+        try {
+            $this->s3Client->deleteBucket(['Bucket' => $bucketName]);
+            $this->s3Client->waitUntil('BucketNotExists', ['Bucket' => $bucketName]);
+
+            return ['status' => 'success', 'message' => 'Bucket deleted successfully.'];
+        } catch (S3Exception $e) {
+            logModuleCall($this->module, __FUNCTION__, [$userId, $bucketName], $e->getMessage());
+
+            if ($this->isRetentionError($e->getMessage())) {
+                return [
+                    'status' => 'fail',
+                    'message' => 'Cannot delete bucket due to Object Lock retention.',
+                    'blocked' => true,
+                ];
+            }
+
+            return ['status' => 'fail', 'message' => 'Failed to delete bucket: ' . $e->getMessage()];
+        }
+    }
+
+    /**
+     * Check if an error message indicates Object Lock retention.
+     *
+     * @param string $message The error message
+     * @return bool
+     */
+    private function isRetentionError(string $message): bool
+    {
+        $retentionIndicators = [
+            'ObjectLocked',
+            'object is locked',
+            'retention',
+            'governance',
+            'compliance',
+            'legal hold',
+            'AccessDenied',  // Often returned for locked objects
+            'cannot be deleted',
+        ];
+
+        $messageLower = strtolower($message);
+        foreach ($retentionIndicators as $indicator) {
+            if (strpos($messageLower, strtolower($indicator)) !== false) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Delete Bucket Object
      *
      * @param string $bucketName
