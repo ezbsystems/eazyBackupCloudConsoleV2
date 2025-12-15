@@ -60,6 +60,7 @@ function cloudstorage_reconcile_normalize_owner(string $owner): array
     return [
         'owner_raw' => $owner,
         'owner_base' => $base,
+        'owner_base_lc' => strtolower($base),
         'tenant_prefix' => $tenant,
     ];
 }
@@ -98,23 +99,25 @@ function cloudstorage_reconcile_get_services(int $pid, bool $activeOnly = true):
     }
 
     $rows = $q->get();
+    // Use lowercase username keys to avoid case-sensitivity mismatches between RGW and WHMCS.
     $map = [];
     foreach ($rows as $r) {
         if (!is_string($r->username) || $r->username === '') {
             continue;
         }
+        $key = strtolower($r->username);
         // Prefer Active, else highest ID wins
-        if (!isset($map[$r->username])) {
-            $map[$r->username] = $r;
+        if (!isset($map[$key])) {
+            $map[$key] = $r;
             continue;
         }
-        $existing = $map[$r->username];
+        $existing = $map[$key];
         $existingActive = ($existing->domainstatus ?? '') === 'Active';
         $newActive = ($r->domainstatus ?? '') === 'Active';
         if ($newActive && !$existingActive) {
-            $map[$r->username] = $r;
+            $map[$key] = $r;
         } elseif ($newActive === $existingActive && (int)$r->id > (int)$existing->id) {
-            $map[$r->username] = $r;
+            $map[$key] = $r;
         }
     }
     return $map;
@@ -159,7 +162,7 @@ function cloudstorage_reconcile_scan($vars, array $request): array
         $rgwBucketsRaw = [];
     }
 
-    // WHMCS services mapping (username -> service)
+    // WHMCS services mapping (lowercased username -> service)
     $serviceMap = cloudstorage_reconcile_get_services($pid, $activeOnly);
 
     // Build s3_users username -> primary username mapping (for tenant/sub-tenant ownership)
@@ -179,12 +182,13 @@ function cloudstorage_reconcile_scan($vars, array $request): array
         $parentIdById = [];
     }
 
-    $primaryByUsername = [];
+    // Map is keyed by lowercased username to avoid case mismatches (RGW may return mixed case).
+    $primaryByUsernameLc = [];
     if (!empty($usernameById)) {
         // Build a username->primaryUsername map by walking parent_id to root
         $idByUsername = [];
         foreach ($usernameById as $id => $uname) {
-            if ($uname !== '') { $idByUsername[$uname] = $id; }
+            if ($uname !== '') { $idByUsername[strtolower($uname)] = $id; }
         }
 
         $resolvePrimaryForId = function (int $id) use (&$parentIdById): int {
@@ -201,10 +205,10 @@ function cloudstorage_reconcile_scan($vars, array $request): array
             return $cur;
         };
 
-        foreach ($idByUsername as $uname => $id) {
+        foreach ($idByUsername as $unameLc => $id) {
             $rootId = $resolvePrimaryForId((int)$id);
-            $primary = $usernameById[$rootId] ?? $uname;
-            $primaryByUsername[$uname] = $primary;
+            $primary = $usernameById[$rootId] ?? $unameLc;
+            $primaryByUsernameLc[$unameLc] = $primary;
         }
     }
 
@@ -222,6 +226,7 @@ function cloudstorage_reconcile_scan($vars, array $request): array
         $ownerRaw = (string) ($b['owner'] ?? 'Unknown');
         $norm = cloudstorage_reconcile_normalize_owner($ownerRaw);
         $ownerBase = $norm['owner_base'];
+        $ownerBaseLc = $norm['owner_base_lc'];
 
         $rgwBucketCount++;
 
@@ -230,12 +235,13 @@ function cloudstorage_reconcile_scan($vars, array $request): array
         $ownerProtected = DeprovisionHelper::isProtectedUsername($ownerRaw) || DeprovisionHelper::isProtectedUsername($ownerBase);
 
         // Resolve owner to a primary username when possible (tenant/sub-tenant -> primary)
-        $mappedPrimary = $primaryByUsername[$ownerBase] ?? $ownerBase;
+        $mappedPrimary = $primaryByUsernameLc[$ownerBaseLc] ?? $ownerBase;
+        $mappedPrimaryLc = strtolower($mappedPrimary);
 
         // Determine WHMCS service match:
         // - direct match on owner_base
         // - or match via mapped primary (parent) username
-        $service = $serviceMap[$ownerBase] ?? ($serviceMap[$mappedPrimary] ?? null);
+        $service = $serviceMap[$ownerBaseLc] ?? ($serviceMap[$mappedPrimaryLc] ?? null);
         $hasService = $service !== null;
 
         if (!$hasService) {
@@ -252,7 +258,7 @@ function cloudstorage_reconcile_scan($vars, array $request): array
 
         // Track owners for owner reconciliation (only owners that have at least one bucket)
         // Aggregate by owner_base so that the same user isn't counted multiple times across different tenant prefixes.
-        $ownerKey = $ownerBase;
+        $ownerKey = $ownerBaseLc;
         if (!isset($ownerAgg[$ownerKey])) {
             $ownerAgg[$ownerKey] = [
                 'owner_base' => $ownerBase,
@@ -292,13 +298,13 @@ function cloudstorage_reconcile_scan($vars, array $request): array
     // WHMCS services with no buckets in RGW (optional helpful list)
     $rgwOwnerBases = [];
     foreach ($ownerAgg as $o) {
-        $rgwOwnerBases[$o['owner_base']] = true;
+        $rgwOwnerBases[strtolower($o['owner_base'])] = true;
     }
     $servicesNoBuckets = [];
     foreach ($serviceMap as $uname => $svc) {
         if (!isset($rgwOwnerBases[$uname])) {
             $servicesNoBuckets[] = [
-                'username' => $uname,
+                'username' => (string) $svc->username,
                 'service_id' => (int) $svc->id,
                 'client_id' => (int) $svc->userid,
                 'domainstatus' => (string) $svc->domainstatus,
