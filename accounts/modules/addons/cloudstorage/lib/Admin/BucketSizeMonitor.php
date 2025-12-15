@@ -592,42 +592,61 @@ class BucketSizeMonitor {
     {
         try {
             $startDate = date('Y-m-d', strtotime("-{$days} days"));
-            
-            // Use aggregated daily data instead of all collection points to prevent memory issues
-            // This reduces data from potentially ~400k points to just ~30 points for 30 days
-            $query = Capsule::table('s3_bucket_sizes_history')
+
+            // IMPORTANT:
+            // We always record multiple collection points per bucket per day.
+            // To avoid dramatically overcounting (e.g., 24 collections x 30 days),
+            // we FIRST collapse to one value per bucket per day (MAX(size)),
+            // THEN sum across buckets per day.
+
+            // Step 1: per-bucket, per-day MAX(size)
+            $baseQuery = Capsule::table('s3_bucket_sizes_history')
                 ->select([
                     Capsule::raw('DATE(collected_at) as date'),
-                    Capsule::raw('SUM(bucket_size_bytes) as total_size_bytes'),
-                    Capsule::raw('COUNT(DISTINCT bucket_name) as bucket_count'),
-                    Capsule::raw('MAX(collected_at) as latest_collection')
+                    'bucket_name',
+                    Capsule::raw('MAX(bucket_size_bytes) as max_size_bytes'),
                 ])
                 ->where('collected_at', '>=', $startDate);
-            
+
             if (!empty($bucketName)) {
-                $query->where('bucket_name', $bucketName);
+                $baseQuery->where('bucket_name', $bucketName);
             }
-            
+
             if (!empty($bucketOwner)) {
-                $query->where('bucket_owner', $bucketOwner);
+                $baseQuery->where('bucket_owner', $bucketOwner);
             }
-            
-            $results = $query
-                ->groupBy(Capsule::raw('DATE(collected_at)'))
+
+            $perBucketDaily = $baseQuery
+                ->groupBy('bucket_name', Capsule::raw('DATE(collected_at)'))
                 ->orderBy('date', 'ASC')
                 ->get();
-            
+
+            // Step 2: aggregate per day across all buckets
+            $totalsByDate = [];
+            foreach ($perBucketDaily as $row) {
+                $date = $row->date;
+                if (!isset($totalsByDate[$date])) {
+                    $totalsByDate[$date] = [
+                        'total_size_bytes' => 0,
+                        'bucket_count' => 0,
+                    ];
+                }
+                $totalsByDate[$date]['total_size_bytes'] += (int) $row->max_size_bytes;
+                $totalsByDate[$date]['bucket_count']++;
+            }
+
+            ksort($totalsByDate);
+
             // Format data for ApexCharts with timestamps
             $totalSizeChart = [];
             $individualBuckets = [];
-            
-            foreach ($results as $row) {
-                // Convert date to timestamp for ApexCharts
-                $timestamp = strtotime($row->date . ' 12:00:00') * 1000; // Use noon for consistent display
-                
+
+            foreach ($totalsByDate as $date => $agg) {
+                $timestamp = strtotime($date . ' 12:00:00') * 1000; // Use noon for consistent display
+
                 $totalSizeChart[] = [
                     'x' => $timestamp,
-                    'y' => (int)$row->total_size_bytes
+                    'y' => (int) $agg['total_size_bytes'],
                 ];
             }
             

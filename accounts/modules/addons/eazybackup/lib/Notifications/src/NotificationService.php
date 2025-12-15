@@ -8,6 +8,37 @@ use WHMCS\Database\Capsule;
 
 class NotificationService
 {
+    private function suppressNewServiceDays(): int
+    {
+        // 0 disables suppression
+        $raw = (string)Config::get('notify_suppress_new_service_days', '15');
+        $days = (int)trim($raw);
+        return $days < 0 ? 0 : $days;
+    }
+
+    private function isServiceWithinNewServiceSuppressionWindow(int $serviceId): bool
+    {
+        // Allow testing even when suppression is enabled
+        if (Config::bool('notify_test_mode', false)) { return false; }
+
+        $days = $this->suppressNewServiceDays();
+        if ($days <= 0) { return false; }
+
+        try {
+            $reg = (string)Capsule::table('tblhosting')->where('id', $serviceId)->value('regdate');
+            $reg = trim($reg);
+            if ($reg === '') { return false; }
+
+            $ts = strtotime($reg . ' 00:00:00');
+            if ($ts === false) { return false; }
+
+            $ageDays = (int)floor((time() - $ts) / 86400);
+            return $ageDays >= 0 && $ageDays < $days;
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
     private function billingTermLabelForService(int $serviceId): string
     {
         try {
@@ -151,6 +182,13 @@ class NotificationService
         if (!Config::bool('notify_addons', true)) return;
         $svc = $this->serviceForUsername($pdo, $username);
         if (!$svc) return;
+
+        // Suppress billing-impacting notifications for newly created services (trial / fresh orders)
+        if ($this->isServiceWithinNewServiceSuppressionWindow((int)$svc['service_id'])) {
+            $this->debug('addon notify suppressed for new service window (service_id=' . (int)$svc['service_id'] . ')');
+            return;
+        }
+
         // Client preference gate
         try { $pref = Capsule::table('eb_client_notify_prefs')->where('client_id', (int)$svc['client_id'])->value('notify_addons'); if ($pref !== null && (int)$pref === 0) { $this->debug('addon notify suppressed by client preference'); return; } } catch (\Throwable $_) {}
         // Only these add-ons are gated by usage > billed qty
@@ -244,6 +282,12 @@ class NotificationService
 		$svc = $this->serviceForUsername($pdo, $username);
         if (!$svc) return;
 		$this->debug("service mapped service_id={$svc['service_id']} client_id={$svc['client_id']}");
+
+        // Suppress billing-impacting notifications for newly created services (trial / fresh orders)
+        if ($this->isServiceWithinNewServiceSuppressionWindow((int)$svc['service_id'])) {
+            $this->debug('storage notify suppressed for new service window (service_id=' . (int)$svc['service_id'] . ')');
+            return;
+        }
 
         // Suppress storage notifications for excluded product packages
         if ($this->isStorageDeviceNotificationsDisabled((int)$svc['service_id'])) {

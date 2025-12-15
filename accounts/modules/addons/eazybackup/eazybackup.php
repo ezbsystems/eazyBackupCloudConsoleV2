@@ -1686,6 +1686,13 @@ function eazybackup_config()
                 'Default' => '90',
                 'Description' => 'Trigger at this % of each TiB milestone (e.g., 90)',
             ],
+            'notify_suppress_new_service_days' => [
+                'FriendlyName' => 'Suppress new-service billing notifications (days)',
+                'Type' => 'text',
+                'Size' => '5',
+                'Default' => '15',
+                'Description' => 'Do not send Storage/Add-on billing notifications for services created within this many days (0 disables).',
+            ],
             'notify_routing' => [
                 'FriendlyName' => 'Recipient Routing',
                 'Type' => 'dropdown',
