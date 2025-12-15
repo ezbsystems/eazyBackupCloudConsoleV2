@@ -59,12 +59,15 @@ function cloudstorage_reconcile_normalize_owner(string $owner): array
 
     // Defensive: some legacy user records contain trailing spaces; normalize for matching.
     $base = trim($base);
+    $tenant = $tenant !== null ? trim($tenant) : null;
 
     return [
         'owner_raw' => $owner,
         'owner_base' => $base,
         'owner_base_lc' => strtolower($base),
         'tenant_prefix' => $tenant,
+        // Tenant-aware key used for disambiguating duplicate usernames across different tenants.
+        'owner_key' => (($tenant !== null && $tenant !== '') ? $tenant : '0') . '$' . strtolower($base),
     ];
 }
 
@@ -172,30 +175,27 @@ function cloudstorage_reconcile_scan($vars, array $request): array
     // Build s3_users username -> primary username mapping (for tenant/sub-tenant ownership)
     $usernameById = [];
     $parentIdById = [];
+    $tenantIdById = [];
     try {
-        $rows = Capsule::table('s3_users')->select(['id', 'username', 'parent_id'])->get();
+        $rows = Capsule::table('s3_users')->select(['id', 'username', 'parent_id', 'tenant_id'])->get();
         foreach ($rows as $r) {
             $id = (int) ($r->id ?? 0);
             if ($id <= 0) { continue; }
             // Trim usernames; some legacy tenant usernames have trailing spaces (breaks reconciliation matching)
             $usernameById[$id] = trim((string) ($r->username ?? ''));
             $parentIdById[$id] = isset($r->parent_id) ? (int) $r->parent_id : null;
+            $tenantIdById[$id] = isset($r->tenant_id) ? trim((string)$r->tenant_id) : '';
         }
     } catch (\Throwable $e) {
         // If s3_users is unavailable, we still reconcile using owner_base only.
         $usernameById = [];
         $parentIdById = [];
+        $tenantIdById = [];
     }
 
-    // Map is keyed by lowercased username to avoid case mismatches (RGW may return mixed case).
-    $primaryByUsernameLc = [];
+    // Tenant-aware map keyed by "<tenant_id>$<lower(username)>"
+    $primaryByTenantKey = [];
     if (!empty($usernameById)) {
-        // Build a username->primaryUsername map by walking parent_id to root
-        $idByUsername = [];
-        foreach ($usernameById as $id => $uname) {
-            if ($uname !== '') { $idByUsername[strtolower(trim($uname))] = $id; }
-        }
-
         $resolvePrimaryForId = function (int $id) use (&$parentIdById): int {
             $seen = 0;
             $cur = $id;
@@ -210,10 +210,15 @@ function cloudstorage_reconcile_scan($vars, array $request): array
             return $cur;
         };
 
-        foreach ($idByUsername as $unameLc => $id) {
+        // For every s3_users row, build a tenant-aware key and map to the primary's username.
+        foreach ($usernameById as $id => $uname) {
+            if ($uname === '') { continue; }
+            $tenantId = $tenantIdById[$id] ?? '';
+            $tenantKey = (($tenantId !== '') ? $tenantId : '0') . '$' . strtolower($uname);
+
             $rootId = $resolvePrimaryForId((int)$id);
-            $primary = $usernameById[$rootId] ?? $unameLc;
-            $primaryByUsernameLc[$unameLc] = $primary;
+            $primaryUsername = $usernameById[$rootId] ?? $uname;
+            $primaryByTenantKey[$tenantKey] = $primaryUsername;
         }
     }
 
@@ -232,6 +237,7 @@ function cloudstorage_reconcile_scan($vars, array $request): array
         $norm = cloudstorage_reconcile_normalize_owner($ownerRaw);
         $ownerBase = $norm['owner_base'];
         $ownerBaseLc = $norm['owner_base_lc'];
+        $ownerTenantKey = $norm['owner_key'];
 
         $rgwBucketCount++;
 
@@ -240,7 +246,7 @@ function cloudstorage_reconcile_scan($vars, array $request): array
         $ownerProtected = DeprovisionHelper::isProtectedUsername($ownerRaw) || DeprovisionHelper::isProtectedUsername($ownerBase);
 
         // Resolve owner to a primary username when possible (tenant/sub-tenant -> primary)
-        $mappedPrimary = $primaryByUsernameLc[$ownerBaseLc] ?? $ownerBase;
+        $mappedPrimary = $primaryByTenantKey[$ownerTenantKey] ?? $ownerBase;
         $mappedPrimaryLc = strtolower($mappedPrimary);
 
         // Determine WHMCS service match:
@@ -263,7 +269,8 @@ function cloudstorage_reconcile_scan($vars, array $request): array
 
         // Track owners for owner reconciliation (only owners that have at least one bucket)
         // Aggregate by owner_base so that the same user isn't counted multiple times across different tenant prefixes.
-        $ownerKey = $ownerBaseLc;
+        // IMPORTANT: include tenant_prefix in the key so "ryan" under two tenants doesn't merge.
+        $ownerKey = $ownerTenantKey;
         if (!isset($ownerAgg[$ownerKey])) {
             $ownerAgg[$ownerKey] = [
                 'owner_base' => $ownerBase,
