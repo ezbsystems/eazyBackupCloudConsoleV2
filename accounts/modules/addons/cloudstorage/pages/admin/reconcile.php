@@ -162,6 +162,52 @@ function cloudstorage_reconcile_scan($vars, array $request): array
     // WHMCS services mapping (username -> service)
     $serviceMap = cloudstorage_reconcile_get_services($pid, $activeOnly);
 
+    // Build s3_users username -> primary username mapping (for tenant/sub-tenant ownership)
+    $usernameById = [];
+    $parentIdById = [];
+    try {
+        $rows = Capsule::table('s3_users')->select(['id', 'username', 'parent_id'])->get();
+        foreach ($rows as $r) {
+            $id = (int) ($r->id ?? 0);
+            if ($id <= 0) { continue; }
+            $usernameById[$id] = (string) ($r->username ?? '');
+            $parentIdById[$id] = isset($r->parent_id) ? (int) $r->parent_id : null;
+        }
+    } catch (\Throwable $e) {
+        // If s3_users is unavailable, we still reconcile using owner_base only.
+        $usernameById = [];
+        $parentIdById = [];
+    }
+
+    $primaryByUsername = [];
+    if (!empty($usernameById)) {
+        // Build a username->primaryUsername map by walking parent_id to root
+        $idByUsername = [];
+        foreach ($usernameById as $id => $uname) {
+            if ($uname !== '') { $idByUsername[$uname] = $id; }
+        }
+
+        $resolvePrimaryForId = function (int $id) use (&$parentIdById): int {
+            $seen = 0;
+            $cur = $id;
+            while ($seen < 8) {
+                $seen++;
+                $pid = $parentIdById[$cur] ?? null;
+                if (empty($pid)) { break; }
+                $pid = (int) $pid;
+                if ($pid <= 0 || $pid === $cur) { break; }
+                $cur = $pid;
+            }
+            return $cur;
+        };
+
+        foreach ($idByUsername as $uname => $id) {
+            $rootId = $resolvePrimaryForId((int)$id);
+            $primary = $usernameById[$rootId] ?? $uname;
+            $primaryByUsername[$uname] = $primary;
+        }
+    }
+
     // Build results
     $orphBuckets = [];
     $ownerAgg = []; // owner_raw -> {owner_base, bucket_count, buckets[]}
@@ -183,7 +229,13 @@ function cloudstorage_reconcile_scan($vars, array $request): array
         $bucketProtected = DeprovisionHelper::isProtectedBucket($bucketName);
         $ownerProtected = DeprovisionHelper::isProtectedUsername($ownerRaw) || DeprovisionHelper::isProtectedUsername($ownerBase);
 
-        $service = $serviceMap[$ownerBase] ?? null;
+        // Resolve owner to a primary username when possible (tenant/sub-tenant -> primary)
+        $mappedPrimary = $primaryByUsername[$ownerBase] ?? $ownerBase;
+
+        // Determine WHMCS service match:
+        // - direct match on owner_base
+        // - or match via mapped primary (parent) username
+        $service = $serviceMap[$ownerBase] ?? ($serviceMap[$mappedPrimary] ?? null);
         $hasService = $service !== null;
 
         if (!$hasService) {
@@ -191,6 +243,7 @@ function cloudstorage_reconcile_scan($vars, array $request): array
                 'bucket' => $bucketName,
                 'owner_raw' => $ownerRaw,
                 'owner_base' => $ownerBase,
+                'mapped_primary' => $mappedPrimary,
                 'tenant_prefix' => $norm['tenant_prefix'],
                 'protected_bucket' => $bucketProtected,
                 'protected_owner' => $ownerProtected,
@@ -198,11 +251,14 @@ function cloudstorage_reconcile_scan($vars, array $request): array
         }
 
         // Track owners for owner reconciliation (only owners that have at least one bucket)
-        if (!isset($ownerAgg[$ownerRaw])) {
-            $ownerAgg[$ownerRaw] = [
-                'owner_raw' => $ownerRaw,
+        // Aggregate by owner_base so that the same user isn't counted multiple times across different tenant prefixes.
+        $ownerKey = $ownerBase;
+        if (!isset($ownerAgg[$ownerKey])) {
+            $ownerAgg[$ownerKey] = [
                 'owner_base' => $ownerBase,
-                'tenant_prefix' => $norm['tenant_prefix'],
+                'mapped_primary' => $mappedPrimary,
+                'tenant_prefix_sample' => $norm['tenant_prefix'],
+                'owner_raw_samples' => [],
                 'bucket_count' => 0,
                 'buckets' => [],
                 'protected_owner' => $ownerProtected,
@@ -215,9 +271,13 @@ function cloudstorage_reconcile_scan($vars, array $request): array
                 ] : null,
             ];
         }
-        $ownerAgg[$ownerRaw]['bucket_count']++;
-        if (count($ownerAgg[$ownerRaw]['buckets']) < 10) {
-            $ownerAgg[$ownerRaw]['buckets'][] = $bucketName;
+        // Store up to 3 raw owner variants seen for this base owner
+        if (count($ownerAgg[$ownerKey]['owner_raw_samples']) < 3) {
+            $ownerAgg[$ownerKey]['owner_raw_samples'][] = $ownerRaw;
+        }
+        $ownerAgg[$ownerKey]['bucket_count']++;
+        if (count($ownerAgg[$ownerKey]['buckets']) < 10) {
+            $ownerAgg[$ownerKey]['buckets'][] = $bucketName;
         }
     }
 
@@ -336,6 +396,7 @@ function cloudstorage_reconcile_render(string $csrfToken): void
                   <th>Bucket</th>
                   <th>Owner (raw)</th>
                   <th>Owner (base)</th>
+                  <th>Mapped Primary</th>
                   <th>Protected</th>
                 </tr>
               </thead>
@@ -356,8 +417,9 @@ function cloudstorage_reconcile_render(string $csrfToken): void
             <table class="table table-striped table-hover eb-recon-table">
               <thead>
                 <tr>
-                  <th>Owner (raw)</th>
                   <th>Owner (base)</th>
+                  <th>Mapped Primary</th>
+                  <th>Owner (raw samples)</th>
                   <th>Bucket count</th>
                   <th>Sample buckets</th>
                   <th>Protected</th>
@@ -445,7 +507,7 @@ function cloudstorage_reconcile_render(string $csrfToken): void
     var body = document.getElementById('orphanBucketsBody');
     if (!body) return;
     if (!rows || rows.length === 0) {
-      body.innerHTML = '<tr><td colspan=\"4\" class=\"eb-recon-muted\">No orphan buckets found.</td></tr>';
+      body.innerHTML = '<tr><td colspan=\"5\" class=\"eb-recon-muted\">No orphan buckets found.</td></tr>';
       return;
     }
     var html = '';
@@ -458,6 +520,7 @@ function cloudstorage_reconcile_render(string $csrfToken): void
         '<td class=\"eb-recon-mono\">' + escapeHtml(r.bucket) + '</td>' +
         '<td class=\"eb-recon-mono\">' + escapeHtml(r.owner_raw) + '</td>' +
         '<td class=\"eb-recon-mono\">' + escapeHtml(r.owner_base) + '</td>' +
+        '<td class=\"eb-recon-mono\">' + escapeHtml(r.mapped_primary || r.owner_base) + '</td>' +
         '<td>' + protCell + '</td>' +
       '</tr>';
     });
@@ -469,7 +532,7 @@ function cloudstorage_reconcile_render(string $csrfToken): void
     var body = document.getElementById('orphanOwnersBody');
     if (!body) return;
     if (!rows || rows.length === 0) {
-      body.innerHTML = '<tr><td colspan=\"5\" class=\"eb-recon-muted\">No orphan owners found.</td></tr>';
+      body.innerHTML = '<tr><td colspan=\"6\" class=\"eb-recon-muted\">No orphan owners found.</td></tr>';
       return;
     }
     // Sort by bucket_count desc
@@ -478,8 +541,9 @@ function cloudstorage_reconcile_render(string $csrfToken): void
     rows.forEach(function(r) {
       var protCell = r.protected_owner ? pill('PROTECTED', 'warn') : pill('No', 'ok');
       html += '<tr>' +
-        '<td class=\"eb-recon-mono\">' + escapeHtml(r.owner_raw) + '</td>' +
         '<td class=\"eb-recon-mono\">' + escapeHtml(r.owner_base) + '</td>' +
+        '<td class=\"eb-recon-mono\">' + escapeHtml(r.mapped_primary || r.owner_base) + '</td>' +
+        '<td class=\"eb-recon-mono\">' + escapeHtml((r.owner_raw_samples || []).join(', ')) + '</td>' +
         '<td>' + escapeHtml(r.bucket_count) + '</td>' +
         '<td class=\"eb-recon-mono\">' + escapeHtml((r.buckets || []).join(', ')) + '</td>' +
         '<td>' + protCell + '</td>' +
