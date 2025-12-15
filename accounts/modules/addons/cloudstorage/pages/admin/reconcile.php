@@ -57,6 +57,9 @@ function cloudstorage_reconcile_normalize_owner(string $owner): array
         $base = $parts[1] ?? $owner;
     }
 
+    // Defensive: some legacy user records contain trailing spaces; normalize for matching.
+    $base = trim($base);
+
     return [
         'owner_raw' => $owner,
         'owner_base' => $base,
@@ -105,7 +108,8 @@ function cloudstorage_reconcile_get_services(int $pid, bool $activeOnly = true):
         if (!is_string($r->username) || $r->username === '') {
             continue;
         }
-        $key = strtolower($r->username);
+        // Trim to avoid subtle mismatches from trailing spaces
+        $key = strtolower(trim($r->username));
         // Prefer Active, else highest ID wins
         if (!isset($map[$key])) {
             $map[$key] = $r;
@@ -173,7 +177,8 @@ function cloudstorage_reconcile_scan($vars, array $request): array
         foreach ($rows as $r) {
             $id = (int) ($r->id ?? 0);
             if ($id <= 0) { continue; }
-            $usernameById[$id] = (string) ($r->username ?? '');
+            // Trim usernames; some legacy tenant usernames have trailing spaces (breaks reconciliation matching)
+            $usernameById[$id] = trim((string) ($r->username ?? ''));
             $parentIdById[$id] = isset($r->parent_id) ? (int) $r->parent_id : null;
         }
     } catch (\Throwable $e) {
@@ -188,7 +193,7 @@ function cloudstorage_reconcile_scan($vars, array $request): array
         // Build a username->primaryUsername map by walking parent_id to root
         $idByUsername = [];
         foreach ($usernameById as $id => $uname) {
-            if ($uname !== '') { $idByUsername[strtolower($uname)] = $id; }
+            if ($uname !== '') { $idByUsername[strtolower(trim($uname))] = $id; }
         }
 
         $resolvePrimaryForId = function (int $id) use (&$parentIdById): int {
