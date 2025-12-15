@@ -192,11 +192,13 @@
                         {/if}
                     </div>
                     <div class="text-sm text-slate-500 mt-1" id="dedupSavings">
-                        {if $run.bytes_processed && $run.bytes_transferred && $run.bytes_processed > 0}
+                        {if $run.bytes_processed && $run.bytes_transferred && $run.bytes_processed > 0 && $run.bytes_transferred > 0}
                             {assign var="savings" value=100-($run.bytes_transferred/$run.bytes_processed*100)}
-                            {if $savings > 0}
+                            {if $savings > 0.5}
                                 <span class="text-emerald-400">{$savings|string_format:"%.1f"}% dedup savings</span>
                             {/if}
+                        {elseif $run.bytes_processed && !$run.bytes_transferred && ($run.status eq 'running' || $run.status eq 'starting')}
+                            <span class="text-slate-400">Scanning...</span>
                         {/if}
                     </div>
                 </div>
@@ -361,6 +363,9 @@ let eventsInterval;
 let isRunning = {if $isRunningStatus}true{else}false{/if};
 let lastLogsHash = null;
 let lastEventId = 0;
+let fetchRetryCount = 0;
+const MAX_FETCH_RETRIES = 3;
+const RETRY_DELAY_MS = 2000;
 
 // Smoothly tween the bar to a target percentage
 let currentPct = (() => {
@@ -412,7 +417,7 @@ const etaModel = {
 })();
 
 function updateProgress() {
-    fetch('modules/addons/cloudstorage/api/cloudbackup_progress.php?run_uuid={$run.run_uuid|default:$run.id}')
+    fetch('/modules/addons/cloudstorage/api/cloudbackup_progress.php?run_uuid={$run.run_uuid|default:$run.id}')
         .then(response => response.json())
         .then(data => {
             if (data.status === 'success' && data.run) {
@@ -528,39 +533,36 @@ function updateProgress() {
                 if (bytesProcessed !== undefined && bytesProcessed !== null) {
                     const processedEl = document.getElementById('bytesProcessed');
                     const processedTopEl = document.getElementById('bytesProcessedTop');
-                    if (processedEl) {
-                        processedEl.textContent = formatBytes(bytesProcessed);
-                        processedEl.classList.add('opacity-0');
-                        setTimeout(() => processedEl.classList.remove('opacity-0'), 50);
-                    }
-                    if (processedTopEl) {
-                        processedTopEl.textContent = formatBytes(bytesProcessed);
-                        processedTopEl.classList.add('opacity-0');
-                        setTimeout(() => processedTopEl.classList.remove('opacity-0'), 50);
-                    }
+                    const processedFormatted = formatBytes(bytesProcessed);
+                    smoothUpdate(processedEl, processedFormatted);
+                    smoothUpdate(processedTopEl, processedFormatted);
                 }
                 
                 // Update bytes uploaded (actual network transfer)
                 if (run.bytes_transferred !== undefined && run.bytes_transferred !== null) {
                     const bytesEl = document.getElementById('bytesTransferred');
                     const bytesTopEl = document.getElementById('bytesTransferredTop');
-                    if (bytesEl) {
-                        bytesEl.textContent = formatBytes(run.bytes_transferred);
-                        bytesEl.classList.add('opacity-0');
-                        setTimeout(() => bytesEl.classList.remove('opacity-0'), 50);
-                    }
-                    if (bytesTopEl) {
-                        bytesTopEl.textContent = formatBytes(run.bytes_transferred);
-                        bytesTopEl.classList.add('opacity-0');
-                        setTimeout(() => bytesTopEl.classList.remove('opacity-0'), 50);
-                    }
+                    const transferredFormatted = formatBytes(run.bytes_transferred);
+                    smoothUpdate(bytesEl, transferredFormatted);
+                    smoothUpdate(bytesTopEl, transferredFormatted);
                     
-                    // Update dedup savings
+                    // Update dedup savings - only show when both processed and transferred have values
                     const dedupEl = document.getElementById('dedupSavings');
-                    if (dedupEl && bytesProcessed > 0) {
-                        const savings = 100 - (run.bytes_transferred / bytesProcessed * 100);
-                        if (savings > 0) {
-                            dedupEl.innerHTML = '<span class="text-emerald-400">' + savings.toFixed(1) + '% dedup savings</span>';
+                    if (dedupEl) {
+                        const processed = run.bytes_processed || 0;
+                        const transferred = run.bytes_transferred || 0;
+                        
+                        // Only calculate savings when upload has actually started
+                        if (processed > 0 && transferred > 0) {
+                            const savings = 100 - (transferred / processed * 100);
+                            if (savings > 0.5) { // Only show if > 0.5% savings (meaningful)
+                                dedupEl.innerHTML = '<span class="text-emerald-400">' + savings.toFixed(1) + '% dedup savings</span>';
+                            } else {
+                                dedupEl.innerHTML = '';
+                            }
+                        } else if (processed > 0 && transferred === 0 && ['running', 'starting'].includes(run.status)) {
+                            // Scanning phase - no uploads yet
+                            dedupEl.innerHTML = '<span class="text-slate-400">Scanning...</span>';
                         } else {
                             dedupEl.innerHTML = '';
                         }
@@ -570,27 +572,17 @@ function updateProgress() {
                 // Update speed with 2 decimal places
                 if (run.speed_bytes_per_sec !== undefined && run.speed_bytes_per_sec !== null) {
                     const speedEl = document.getElementById('speed');
-                    if (speedEl) {
-                        speedEl.textContent = formatBytes(run.speed_bytes_per_sec) + '/s';
-                        speedEl.classList.add('opacity-0');
-                        setTimeout(() => speedEl.classList.remove('opacity-0'), 50);
-                    }
+                    const speedFormatted = formatBytes(run.speed_bytes_per_sec) + '/s';
+                    smoothUpdate(speedEl, speedFormatted);
                 }
                 
                 // Update ETA values (top card and panel) with integer seconds
                 if (run.eta_seconds !== undefined && run.eta_seconds !== null) {
                     const etaEl = document.getElementById('eta');
                     const etaTopEl = document.getElementById('etaTop');
-                    if (etaEl) {
-                        etaEl.textContent = formatEta(run.eta_seconds);
-                        etaEl.classList.add('opacity-0');
-                        setTimeout(() => etaEl.classList.remove('opacity-0'), 50);
-                    }
-                    if (etaTopEl) {
-                        etaTopEl.textContent = formatEta(run.eta_seconds);
-                        etaTopEl.classList.add('opacity-0');
-                        setTimeout(() => etaTopEl.classList.remove('opacity-0'), 50);
-                    }
+                    const etaFormatted = formatEta(run.eta_seconds);
+                    smoothUpdate(etaEl, etaFormatted);
+                    smoothUpdate(etaTopEl, etaFormatted);
                 }
                 
                 // Update current item
@@ -643,6 +635,8 @@ function updateProgress() {
                 // Handle running/completed state transitions
                 if (run.status && ['running','starting','queued'].includes(run.status)) {
                     isRunning = true;
+                    // Ensure polling is running if state transitioned to active
+                    ensurePollingStarted();
                 } else {
                     isRunning = false;
                     clearIntervals();
@@ -664,15 +658,27 @@ function updateProgress() {
                         cancelButton.style.display = 'none';
                     }
                 }
+                
+                // Reset retry counter on success
+                fetchRetryCount = 0;
             }
         })
         .catch(err => {
             console.error('Failed to fetch progress', err);
+            // Retry logic: retry a few times before giving up
+            fetchRetryCount++;
+            if (fetchRetryCount <= MAX_FETCH_RETRIES && isRunning) {
+                console.log('Retrying progress fetch in ' + RETRY_DELAY_MS + 'ms (attempt ' + fetchRetryCount + '/' + MAX_FETCH_RETRIES + ')');
+                setTimeout(updateProgress, RETRY_DELAY_MS);
+            } else if (fetchRetryCount > MAX_FETCH_RETRIES) {
+                console.warn('Max retries reached for progress updates. Polling will continue on next interval.');
+                fetchRetryCount = 0; // Reset for next interval
+            }
         });
 }
 
 function updateLiveLogs() {
-    let url = 'modules/addons/cloudstorage/api/cloudbackup_get_live_logs.php?run_uuid={$run.run_uuid|default:$run.id}';
+    let url = '/modules/addons/cloudstorage/api/cloudbackup_get_live_logs.php?run_uuid={$run.run_uuid|default:$run.id}';
     if (lastLogsHash) {
         url += '&after_hash=' + encodeURIComponent(lastLogsHash);
     }
@@ -710,7 +716,7 @@ function updateLiveLogs() {
 }
 
 function updateEventLogs() {
-    let url = 'modules/addons/cloudstorage/api/cloudbackup_get_run_events.php?run_uuid={$run.run_uuid|default:$run.id}&limit=500';
+    let url = '/modules/addons/cloudstorage/api/cloudbackup_get_run_events.php?run_uuid={$run.run_uuid|default:$run.id}&limit=500';
     if (lastEventId) {
         url += '&after_event_id=' + encodeURIComponent(lastEventId);
     }
@@ -762,31 +768,208 @@ function clearLogs() {
 }
 
 function cancelRun(runId) {
-    if (!confirm('Are you sure you want to cancel this run?')) return;
-    fetch('modules/addons/cloudstorage/api/cloudbackup_cancel_run.php', {
+    showCancelModal(runId);
+}
+
+function showCancelModal(runId) {
+    // Create modal overlay
+    const overlay = document.createElement('div');
+    overlay.id = 'cancelModalOverlay';
+    overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm';
+    overlay.innerHTML = `
+        <div class="relative w-full max-w-md mx-4 rounded-2xl border border-slate-700/80 bg-slate-900/95 shadow-2xl overflow-hidden transform transition-all duration-200 scale-95 opacity-0" id="cancelModalContent">
+            <!-- Header with warning icon -->
+            <div class="px-6 pt-6 pb-4">
+                <div class="flex items-start gap-4">
+                    <div class="flex-shrink-0 w-12 h-12 rounded-full bg-rose-500/15 flex items-center justify-center">
+                        <svg class="w-6 h-6 text-rose-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                    </div>
+                    <div class="flex-1">
+                        <h3 class="text-lg font-semibold text-white">Cancel Backup?</h3>
+                        <p class="mt-2 text-sm text-slate-400 leading-relaxed">
+                            Are you sure you want to cancel this backup operation? 
+                            <span class="text-rose-300">This action cannot be undone.</span>
+                        </p>
+                        <p class="mt-2 text-xs text-slate-500">
+                            The agent will gracefully stop the backup and clean up any temporary files.
+                        </p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Action buttons -->
+            <div class="px-6 py-4 bg-slate-800/50 flex justify-end gap-3">
+                <button onclick="closeCancelModal()" class="px-4 py-2 text-sm font-medium text-slate-300 bg-slate-700/50 hover:bg-slate-700 rounded-lg border border-slate-600/50 transition-colors">
+                    Keep Running
+                </button>
+                <button type="button" id="confirmCancelBtn" class="px-4 py-2 text-sm font-medium text-white bg-rose-600 hover:bg-rose-500 rounded-lg transition-colors flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                    Cancel Backup
+                </button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(overlay);
+
+    // Bind handlers after insertion (avoids Smarty parsing issues with JS template-literal interpolations in .tpl files)
+    const confirmBtn = document.getElementById('confirmCancelBtn');
+    if (confirmBtn) {
+        confirmBtn.addEventListener('click', () => confirmCancel(runId));
+    }
+    
+    // Animate in
+    requestAnimationFrame(() => {
+        const content = document.getElementById('cancelModalContent');
+        if (content) {
+            content.classList.remove('scale-95', 'opacity-0');
+            content.classList.add('scale-100', 'opacity-100');
+        }
+    });
+    
+    // Close on overlay click
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) {
+            closeCancelModal();
+        }
+    });
+    
+    // Close on Escape key
+    const escHandler = (e) => {
+        if (e.key === 'Escape') {
+            closeCancelModal();
+            document.removeEventListener('keydown', escHandler);
+        }
+    };
+    document.addEventListener('keydown', escHandler);
+}
+
+function closeCancelModal() {
+    const overlay = document.getElementById('cancelModalOverlay');
+    const content = document.getElementById('cancelModalContent');
+    if (content) {
+        content.classList.remove('scale-100', 'opacity-100');
+        content.classList.add('scale-95', 'opacity-0');
+    }
+    setTimeout(() => {
+        if (overlay) overlay.remove();
+    }, 150);
+}
+
+function confirmCancel(runId) {
+    const btn = document.getElementById('confirmCancelBtn');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `
+            <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            Cancelling...
+        `;
+    }
+    
+    console.log('Sending cancel request for run:', runId);
+    
+    fetch('/modules/addons/cloudstorage/api/cloudbackup_cancel_run.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({ run_id: runId })
     })
-    .then(r => r.json())
+    .then(r => {
+        console.log('Cancel response status:', r.status);
+        return r.json();
+    })
     .then(data => {
+        console.log('Cancel response data:', data);
+        closeCancelModal();
+        
         if (data.status === 'success') {
-            if (window.toast) toast.success('Cancellation requested');
+            // Show success notification
+            showNotification('success', 'Cancellation Requested', 'The backup will stop shortly.');
             clearIntervals();
-            updateProgress(); // refresh state
+            // Update UI to show cancelling state
+            const statusBadge = document.getElementById('statusBadge');
+            if (statusBadge) {
+                const textEl = statusBadge.querySelector('span.text-sm');
+                if (textEl) textEl.textContent = 'Cancelling...';
+            }
+            // Refresh state after a short delay
+            setTimeout(updateProgress, 1000);
         } else {
-            if (window.toast) toast.error(data.message || 'Failed to cancel run');
+            showNotification('error', 'Cancel Failed', data.message || 'Failed to cancel the backup.');
         }
     })
     .catch(err => {
-        if (window.toast) toast.error('Error cancelling run');
+        console.error('Cancel request error:', err);
+        closeCancelModal();
+        showNotification('error', 'Error', 'Failed to communicate with server.');
     });
 }
 
+function showNotification(type, title, message) {
+    const colors = {
+        success: { bg: 'bg-emerald-500/15', border: 'border-emerald-500/40', text: 'text-emerald-300', icon: 'text-emerald-400' },
+        error: { bg: 'bg-rose-500/15', border: 'border-rose-500/40', text: 'text-rose-300', icon: 'text-rose-400' },
+        warning: { bg: 'bg-amber-500/15', border: 'border-amber-500/40', text: 'text-amber-300', icon: 'text-amber-400' }
+    };
+    const c = colors[type] || colors.warning;
+    
+    const notification = document.createElement('div');
+    {literal}
+    notification.className = `fixed top-4 right-4 z-50 max-w-sm rounded-xl border ${c.border} ${c.bg} px-4 py-3 shadow-lg transform transition-all duration-300 translate-x-full opacity-0`;
+    notification.innerHTML = `
+        <div class="flex items-start gap-3">
+            <div class="${c.icon}">
+                ${type === 'success' ? '<svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>' : 
+                  type === 'error' ? '<svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>' :
+                  '<svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01" /></svg>'}
+            </div>
+            <div>
+                <p class="font-medium ${c.text}">${title}</p>
+                <p class="text-sm text-slate-400 mt-0.5">${message}</p>
+            </div>
+        </div>
+    `;
+    {/literal}
+    
+    document.body.appendChild(notification);
+    
+    // Animate in
+    requestAnimationFrame(() => {
+        notification.classList.remove('translate-x-full', 'opacity-0');
+        notification.classList.add('translate-x-0', 'opacity-100');
+    });
+    
+    // Auto dismiss after 5 seconds
+    setTimeout(() => {
+        notification.classList.remove('translate-x-0', 'opacity-100');
+        notification.classList.add('translate-x-full', 'opacity-0');
+        setTimeout(() => notification.remove(), 300);
+    }, 5000);
+}
+
 function clearIntervals() {
-    if (progressInterval) clearInterval(progressInterval);
-    if (logsInterval) clearInterval(logsInterval);
-    if (eventsInterval) clearInterval(eventsInterval);
+    if (progressInterval) { clearInterval(progressInterval); progressInterval = null; }
+    if (logsInterval) { clearInterval(logsInterval); logsInterval = null; }
+    if (eventsInterval) { clearInterval(eventsInterval); eventsInterval = null; }
+}
+
+// Ensure polling intervals are started (idempotent - won't create duplicates)
+function ensurePollingStarted() {
+    if (!progressInterval) {
+        progressInterval = setInterval(updateProgress, 2500);
+    }
+    if (!logsInterval) {
+        logsInterval = setInterval(updateLiveLogs, 4000);
+    }
+    if (!eventsInterval) {
+        eventsInterval = setInterval(updateEventLogs, 3200);
+    }
 }
 
 function escapeHtml(str) {
@@ -821,14 +1004,27 @@ function formatEta(seconds) {
     return parts.join(' ');
 }
 
+// Smooth update helper: fades value transitions for a flicker-free experience
+function smoothUpdate(el, newValue) {
+    if (!el) return;
+    if (el.textContent === newValue) return; // No change, skip animation
+    el.style.transition = 'opacity 150ms ease-in-out';
+    el.style.opacity = '0.5';
+    setTimeout(() => {
+        el.textContent = newValue;
+        el.style.opacity = '1';
+    }, 100);
+}
+
 // Initialize polling
 document.addEventListener('DOMContentLoaded', () => {
+    // Initial fetch
     updateProgress();
     updateEventLogs();
+    
     if (isRunning) {
-        progressInterval = setInterval(updateProgress, 2500);
-        logsInterval = setInterval(updateLiveLogs, 4000);
-        eventsInterval = setInterval(updateEventLogs, 3200);
+        // Start polling intervals for active runs
+        ensurePollingStarted();
     } else {
         // Still fetch logs/events once for terminal runs
         updateLiveLogs();

@@ -42,15 +42,38 @@
         {* Restore metadata info box *}
         {if $is_restore && $restore_metadata}
         <div class="mb-6 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-100 flex items-start gap-2">
+            {if $is_hyperv_restore}
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mt-[2px]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2"/>
+            </svg>
+            {else}
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mt-[2px]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
             </svg>
-            <div>
-                <p class="font-semibold text-emerald-100 text-[0.75rem] uppercase tracking-wide">Restore Operation</p>
-                <p class="mt-1 text-[0.75rem] leading-relaxed text-emerald-100/90">
-                    Restoring snapshot <code class="bg-emerald-900/50 px-1 rounded">{$restore_metadata.manifest_id|truncate:16:'...'}</code> 
-                    to <code class="bg-emerald-900/50 px-1 rounded">{$restore_metadata.target_path}</code>
-                </p>
+            {/if}
+            <div class="flex-1">
+                {if $is_hyperv_restore}
+                    <p class="font-semibold text-emerald-100 text-[0.75rem] uppercase tracking-wide">Hyper-V Disk Restore</p>
+                    <p class="mt-1 text-[0.75rem] leading-relaxed text-emerald-100/90">
+                        Restoring VM <code class="bg-emerald-900/50 px-1 rounded">{$restore_metadata.vm_name}</code>
+                        ({$restore_metadata.disk_count} disk{if $restore_metadata.disk_count > 1}s{/if})
+                        to <code class="bg-emerald-900/50 px-1 rounded">{$restore_metadata.target_path}</code>
+                    </p>
+                    {if $restore_metadata.backup_type}
+                    <p class="mt-1 text-[0.75rem] leading-relaxed text-emerald-100/70">
+                        Backup Type: <span class="font-medium">{$restore_metadata.backup_type}</span>
+                        {if $restore_metadata.restore_chain_length > 1}
+                        (Chain: {$restore_metadata.restore_chain_length} backups)
+                        {/if}
+                    </p>
+                    {/if}
+                {else}
+                    <p class="font-semibold text-emerald-100 text-[0.75rem] uppercase tracking-wide">Restore Operation</p>
+                    <p class="mt-1 text-[0.75rem] leading-relaxed text-emerald-100/90">
+                        Restoring snapshot <code class="bg-emerald-900/50 px-1 rounded">{$restore_metadata.manifest_id|truncate:16:'...'}</code> 
+                        to <code class="bg-emerald-900/50 px-1 rounded">{$restore_metadata.target_path}</code>
+                    </p>
+                {/if}
             </div>
         </div>
         {/if}

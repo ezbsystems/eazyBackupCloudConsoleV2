@@ -119,6 +119,22 @@ class Builder
 		if ($productName === '') { $productName = trim((string)($brandForName['BrandName'] ?? '')); }
 		if ($productName === '') { $productName = $fqdn . ' Plan'; }
 		$newPid = ($tplPid > 0 && $targetGroupId > 0) ? $ops->cloneProduct($tplPid, $targetGroupId, $productName) : 0;
+		// Attach required configurable options (devices/storage/guests/etc.) to the new white-label product
+		// by linking their config groups (tblproductconfiglinks). Idempotent and safe to re-run.
+		if ($newPid > 0) {
+			$reqCids = [67, 88, 91, 97, 99, 102];
+			$attach = $ops->attachConfigOptionsToProductByCid($newPid, $reqCids);
+			try {
+				logModuleCall('eazybackup', 'whitelabel_product_attach_configoptions', [
+					'tenant_id' => (int)$tenantId,
+					'product_id' => (int)$newPid,
+					'cids' => $reqCids,
+					'linked_gids' => $attach['linked_gids'] ?? [],
+					'missing_cids' => $attach['missing_cids'] ?? [],
+					'ok' => (bool)($attach['ok'] ?? false),
+				], '');
+			} catch (\Throwable $__) {}
+		}
 		Capsule::table('eb_whitelabel_tenants')->where('id',$tenantId)->update([
 			'server_id' => (int)$srv['server_id'], 'servergroup_id' => (int)$srv['servergroup_id'], 'product_id' => (int)$newPid
 		]);

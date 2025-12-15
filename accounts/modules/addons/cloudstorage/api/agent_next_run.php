@@ -134,6 +134,7 @@ try {
 
         // Attempt to reclaim an in-progress run for this agent
         $run = null;
+        $hasRunTypeColumnReclaim = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_type');
         if (!empty($timing['reclaim_enabled'])) {
             $reclaimQuery = Capsule::table('s3_cloudbackup_runs as r')
                 ->join('s3_cloudbackup_jobs as j', 'j.id', '=', 'r.job_id')
@@ -143,6 +144,14 @@ try {
                 ->whereIn('r.status', ['starting', 'running'])
                 ->whereNull('r.finished_at')
                 ->where('r.cancel_requested', 0);
+            
+            // Exclude restore runs from reclaim - these are handled by poll_pending_commands
+            if ($hasRunTypeColumnReclaim) {
+                $reclaimQuery->where(function ($q) {
+                    $q->whereNull('r.run_type')
+                      ->orWhereNotIn('r.run_type', ['restore', 'hyperv_restore']);
+                });
+            }
 
             if ($hasAgentIdRuns) {
                 $reclaimQuery->where('r.agent_id', $agent->id);
@@ -176,6 +185,15 @@ try {
             ->where('j.status', 'active')
             ->where('r.status', 'queued')
             ->where('r.cancel_requested', 0);
+        
+        // Exclude restore runs - these are handled by poll_pending_commands
+        $hasRunTypeColumn = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_type');
+        if ($hasRunTypeColumn) {
+            $base->where(function ($q) {
+                $q->whereNull('r.run_type')
+                  ->orWhereNotIn('r.run_type', ['restore', 'hyperv_restore']);
+            });
+        }
 
         $debugInfo['has_agent_id_runs'] = $hasAgentIdRuns;
         $debugInfo['has_agent_id_jobs'] = $hasAgentIdJobs;
@@ -449,6 +467,36 @@ try {
             } catch (\Throwable $e) {
                 // Tables may not exist yet, log but continue
                 logModuleCall('cloudstorage', 'agent_next_run_hyperv', ['job_id' => $job->id], $e->getMessage());
+            }
+            
+            // Fallback: if no VMs found in s3_hyperv_vms, try to extract from source_path
+            // (for jobs created before VM registration was added)
+            if (empty($hypervVMs) && !empty($job->source_path)) {
+                $sourcePathStr = $job->source_path;
+                // source_path may contain comma-separated GUIDs or "Hyper-V VMs (N)" format
+                if (strpos($sourcePathStr, 'Hyper-V VMs') === false) {
+                    // Looks like GUIDs - parse them
+                    $guids = array_filter(array_map('trim', explode(',', $sourcePathStr)));
+                    $guidPattern = '/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i';
+                    foreach ($guids as $guid) {
+                        if (preg_match($guidPattern, $guid)) {
+                            $hypervVMs[] = [
+                                'vm_id' => 0, // No DB record
+                                'vm_name' => $guid, // Agent will resolve to real name
+                                'vm_guid' => $guid,
+                                'last_checkpoint_id' => null,
+                                'last_rct_ids' => new \stdClass(),
+                            ];
+                        }
+                    }
+                    if (!empty($hypervVMs)) {
+                        logModuleCall('cloudstorage', 'agent_next_run_hyperv_fallback', [
+                            'job_id' => $job->id,
+                            'source_path' => $sourcePathStr,
+                            'vm_count' => count($hypervVMs),
+                        ], 'Used source_path fallback for VM discovery');
+                    }
+                }
             }
             
             $runData['hyperv_vms'] = $hypervVMs;

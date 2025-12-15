@@ -44,6 +44,7 @@ Provisioning runs as a sequence of idempotent steps (logged in DB), with a frien
 
 9) WHMCS wiring — “Finalizing your product…”
 - Insert server + group; clone template product; set module server group and defaults.
+ - Ensure the required WHMCS configurable option groups are attached to the new product (devices/storage/guests/etc.).
 
 10) Verify —
 - Health checks (HTTPS, Comet login URL, storage test) and mark tenant `active`.
@@ -226,6 +227,31 @@ All steps are idempotent and safe to re‑run individually in DEV.
 3) Admin monitors tenants in the **White‑Label** tab (search/sort/paginate).
 4) (Optional) Customer attaches a custom domain from the Branding page.
 5) Download flyout automatically adopts branding and uses tenant/custome domain base for downloads.
+
+## Backfill: attach required configurable options to existing white-label products
+
+If you created white-label tenants before the “attach config option groups” step was added, you can backfill the missing product links using:
+
+Run a dry-run first:
+
+```bash
+cd /var/www/eazybackup.ca/accounts/modules/addons/eazybackup/bin
+php whitelabel_backfill_configoptions.php --dry-run
+```
+
+Apply:
+
+```bash
+cd /var/www/eazybackup.ca/accounts/modules/addons/eazybackup/bin
+php whitelabel_backfill_configoptions.php
+```
+
+Scope to a specific tenant or product:
+
+```bash
+php whitelabel_backfill_configoptions.php --tenant-id=17 --dry-run
+php whitelabel_backfill_configoptions.php --product-id=100
+```
 
 ## Roadmap
 

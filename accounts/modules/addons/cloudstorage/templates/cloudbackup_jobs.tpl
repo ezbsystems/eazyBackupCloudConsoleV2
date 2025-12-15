@@ -426,7 +426,7 @@
                               
                                 </button>
                                 <button
-                                    onclick="openRestoreModal({$job.id})"
+                                    onclick="{if $job.engine eq 'hyperv'}window.location.href='index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_hyperv&job_id={$job.id}'{else}openRestoreModal({$job.id}){/if}"
                                     class="icon-btn"
                                     title="Restore"
                                 >

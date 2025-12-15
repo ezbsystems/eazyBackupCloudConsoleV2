@@ -506,8 +506,8 @@ class CloudBackupController {
                     }
                 }
                 if (empty($job['agent_id'])) {
-                    logModuleCall(self::$module, 'startRun', ['job_id' => $jobId, 'client_id' => $clientId], 'Kopia job missing agent assignment');
-                    return ['status' => 'fail', 'message' => 'Kopia jobs require a Local Agent. Please assign an agent before starting the run.'];
+                    logModuleCall(self::$module, 'startRun', ['job_id' => $jobId, 'client_id' => $clientId], 'Archive job missing agent assignment');
+                    return ['status' => 'fail', 'message' => 'eazyBackup jobs require a Local Agent. Please assign an agent before starting the run.'];
                 }
             }
 
@@ -619,13 +619,25 @@ class CloudBackupController {
         try {
             // Verify run ownership
             $run = self::getRun($runId, $clientId);
+            
+            logModuleCall(self::$module, 'cancelRun_lookup', [
+                'run_id_input' => $runId,
+                'client_id' => $clientId,
+                'run_found' => $run ? 'yes' : 'no',
+                'run_data' => $run ? ['id' => $run['id'], 'status' => $run['status'], 'job_id' => $run['job_id']] : null,
+            ], 'Looking up run for cancellation');
+            
             if (!$run) {
                 return ['status' => 'fail', 'message' => 'Run not found or access denied'];
             }
 
             // Only allow cancellation of queued, starting, or running runs
             if (!in_array($run['status'], ['queued', 'starting', 'running'])) {
-                return ['status' => 'fail', 'message' => 'Run cannot be cancelled in current status'];
+                logModuleCall(self::$module, 'cancelRun_status_check', [
+                    'run_id' => $run['id'],
+                    'current_status' => $run['status'],
+                ], 'Run not in cancellable status');
+                return ['status' => 'fail', 'message' => 'Run cannot be cancelled in current status: ' . $run['status']];
             }
 
             $update = ['cancel_requested' => 1];
@@ -639,11 +651,17 @@ class CloudBackupController {
             // Note: Don't set status to 'cancelled' for running jobs - let the agent do that
             // so it can properly clean up (e.g., merge Hyper-V checkpoints)
 
-            Capsule::table('s3_cloudbackup_runs')
+            $affected = Capsule::table('s3_cloudbackup_runs')
                 ->where('id', $run['id'])
                 ->update($update);
 
-            return ['status' => 'success', 'message' => 'Cancellation requested'];
+            logModuleCall(self::$module, 'cancelRun_update', [
+                'run_id' => $run['id'],
+                'affected_rows' => $affected,
+                'update_data' => $update,
+            ], 'Updated cancel_requested flag');
+
+            return ['status' => 'success', 'message' => 'Cancellation requested', 'run_id' => $run['id']];
         } catch (\Exception $e) {
             logModuleCall(self::$module, 'cancelRun', ['run_id' => $runId, 'client_id' => $clientId], $e->getMessage());
             return ['status' => 'fail', 'message' => 'Failed to cancel run. Please try again later.'];

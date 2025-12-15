@@ -1191,6 +1191,160 @@ function cloudstorage_activate() {
             logModuleCall('cloudstorage', 'activate', [], 'Created cloudstorage_trial_selection table', [], []);
         }
 
+        // -----------------------------
+        // Hyper-V Backup Engine tables
+        // -----------------------------
+
+        // Add hyperv_enabled and hyperv_config columns to jobs table if missing
+        if (Capsule::schema()->hasTable('s3_cloudbackup_jobs')) {
+            if (!Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'hyperv_enabled')) {
+                Capsule::schema()->table('s3_cloudbackup_jobs', function ($table) {
+                    $table->boolean('hyperv_enabled')->default(false)->after('compression');
+                    $table->json('hyperv_config')->nullable()->after('hyperv_enabled');
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Added hyperv_enabled and hyperv_config to s3_cloudbackup_jobs', [], []);
+            }
+        }
+
+        // Add disk_manifests_json column to runs table if missing
+        if (Capsule::schema()->hasTable('s3_cloudbackup_runs')) {
+            if (!Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'disk_manifests_json')) {
+                Capsule::schema()->table('s3_cloudbackup_runs', function ($table) {
+                    $table->json('disk_manifests_json')->nullable()->after('log_ref');
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Added disk_manifests_json to s3_cloudbackup_runs', [], []);
+            }
+        }
+
+        // Hyper-V VM Registry: tracks VMs configured for backup
+        if (!Capsule::schema()->hasTable('s3_hyperv_vms')) {
+            Capsule::schema()->create('s3_hyperv_vms', function ($table) {
+                $table->increments('id');
+                $table->unsignedInteger('job_id');
+                $table->string('vm_name', 255);
+                $table->string('vm_guid', 64)->nullable();
+                $table->tinyInteger('generation')->default(2);
+                $table->boolean('is_linux')->default(false);
+                $table->boolean('integration_services')->default(true);
+                $table->boolean('rct_enabled')->default(false);
+                $table->boolean('backup_enabled')->default(true);
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('updated_at')->useCurrent();
+
+                $table->unique(['job_id', 'vm_guid'], 'uk_job_vm');
+                $table->index(['job_id', 'backup_enabled'], 'idx_job_enabled');
+                $table->foreign('job_id')->references('id')->on('s3_cloudbackup_jobs')->onDelete('cascade');
+            });
+            logModuleCall('cloudstorage', 'activate', [], 'Created s3_hyperv_vms table', [], []);
+        }
+
+        // Hyper-V Checkpoints: tracks backup reference points for RCT
+        if (!Capsule::schema()->hasTable('s3_hyperv_checkpoints')) {
+            Capsule::schema()->create('s3_hyperv_checkpoints', function ($table) {
+                $table->increments('id');
+                $table->unsignedInteger('vm_id');
+                $table->unsignedBigInteger('run_id')->nullable();
+                $table->string('checkpoint_id', 64);
+                $table->string('checkpoint_name', 255)->nullable();
+                $table->enum('checkpoint_type', ['Production', 'Standard', 'Reference'])->default('Production');
+                $table->json('rct_ids')->nullable();
+                $table->boolean('is_active')->default(true);
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('merged_at')->nullable();
+
+                $table->index(['vm_id', 'is_active'], 'idx_vm_active');
+                $table->index('run_id', 'idx_run_id');
+                $table->foreign('vm_id')->references('id')->on('s3_hyperv_vms')->onDelete('cascade');
+            });
+            logModuleCall('cloudstorage', 'activate', [], 'Created s3_hyperv_checkpoints table', [], []);
+        }
+
+        // Hyper-V Backup Points: tracks backup metadata for restore
+        if (!Capsule::schema()->hasTable('s3_hyperv_backup_points')) {
+            Capsule::schema()->create('s3_hyperv_backup_points', function ($table) {
+                $table->increments('id');
+                $table->unsignedInteger('vm_id');
+                $table->unsignedBigInteger('run_id');
+                $table->enum('backup_type', ['Full', 'Incremental']);
+                $table->string('manifest_id', 128);
+                $table->unsignedInteger('parent_backup_id')->nullable();
+                $table->json('vm_config_json')->nullable();
+                $table->json('disk_manifests')->nullable();
+                $table->unsignedBigInteger('total_size_bytes')->nullable();
+                $table->unsignedBigInteger('changed_size_bytes')->nullable();
+                $table->unsignedInteger('duration_seconds')->nullable();
+                $table->enum('consistency_level', ['Crash', 'Application', 'CrashNoCheckpoint'])->default('Application');
+                $table->json('warnings_json')->nullable();
+                $table->string('warning_code', 64)->nullable();
+                $table->boolean('has_warnings')->default(false);
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('expires_at')->nullable();
+
+                $table->index(['vm_id', 'created_at'], 'idx_vm_created');
+                $table->index('manifest_id', 'idx_manifest');
+                $table->index('run_id', 'idx_bp_run_id');
+                $table->index('has_warnings', 'idx_has_warnings');
+                $table->foreign('vm_id')->references('id')->on('s3_hyperv_vms')->onDelete('cascade');
+                $table->foreign('run_id')->references('id')->on('s3_cloudbackup_runs')->onDelete('cascade');
+            });
+            logModuleCall('cloudstorage', 'activate', [], 'Created s3_hyperv_backup_points table', [], []);
+        }
+
+        // Add missing columns to s3_hyperv_backup_points if they don't exist
+        if (Capsule::schema()->hasTable('s3_hyperv_backup_points')) {
+            if (!Capsule::schema()->hasColumn('s3_hyperv_backup_points', 'warnings_json')) {
+                Capsule::schema()->table('s3_hyperv_backup_points', function ($table) {
+                    $table->json('warnings_json')->nullable()->after('consistency_level');
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Added warnings_json to s3_hyperv_backup_points', [], []);
+            }
+            if (!Capsule::schema()->hasColumn('s3_hyperv_backup_points', 'warning_code')) {
+                Capsule::schema()->table('s3_hyperv_backup_points', function ($table) {
+                    $table->string('warning_code', 64)->nullable()->after('warnings_json');
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Added warning_code to s3_hyperv_backup_points', [], []);
+            }
+            if (!Capsule::schema()->hasColumn('s3_hyperv_backup_points', 'has_warnings')) {
+                Capsule::schema()->table('s3_hyperv_backup_points', function ($table) {
+                    $table->boolean('has_warnings')->default(false)->after('warning_code');
+                    $table->index('has_warnings', 'idx_has_warnings');
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Added has_warnings to s3_hyperv_backup_points', [], []);
+            }
+        }
+
+        // Extend engine enum to include disk_image and hyperv if the column exists
+        if (Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'engine')) {
+            try {
+                // Check current enum values by querying column type
+                $colType = Capsule::select("SHOW COLUMNS FROM s3_cloudbackup_jobs WHERE Field = 'engine'");
+                if (!empty($colType) && isset($colType[0]->Type)) {
+                    $typeStr = $colType[0]->Type;
+                    // If hyperv is not in the enum, alter the column to add it
+                    if (strpos($typeStr, 'hyperv') === false || strpos($typeStr, 'disk_image') === false) {
+                        Capsule::statement("ALTER TABLE s3_cloudbackup_jobs MODIFY COLUMN engine ENUM('sync', 'kopia', 'disk_image', 'hyperv') NOT NULL DEFAULT 'sync'");
+                        logModuleCall('cloudstorage', 'activate', [], 'Extended engine enum in s3_cloudbackup_jobs to include disk_image and hyperv', [], []);
+                    }
+                }
+            } catch (\Throwable $e) {
+                logModuleCall('cloudstorage', 'activate_engine_enum_jobs', [], $e->getMessage(), [], []);
+            }
+        }
+        if (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'engine')) {
+            try {
+                $colType = Capsule::select("SHOW COLUMNS FROM s3_cloudbackup_runs WHERE Field = 'engine'");
+                if (!empty($colType) && isset($colType[0]->Type)) {
+                    $typeStr = $colType[0]->Type;
+                    if (strpos($typeStr, 'hyperv') === false || strpos($typeStr, 'disk_image') === false) {
+                        Capsule::statement("ALTER TABLE s3_cloudbackup_runs MODIFY COLUMN engine ENUM('sync', 'kopia', 'disk_image', 'hyperv') NOT NULL DEFAULT 'sync'");
+                        logModuleCall('cloudstorage', 'activate', [], 'Extended engine enum in s3_cloudbackup_runs to include disk_image and hyperv', [], []);
+                    }
+                }
+            } catch (\Throwable $e) {
+                logModuleCall('cloudstorage', 'activate_engine_enum_runs', [], $e->getMessage(), [], []);
+            }
+        }
+
         // Create Tenant Portal Email Templates if they don't exist
         cloudstorage_create_email_templates();
 
@@ -1614,6 +1768,18 @@ function cloudstorage_upgrade($vars) {
                     logModuleCall('cloudstorage', 'upgrade_add_bytes_processed_error', [], $e->getMessage(), [], []);
                 }
             }
+            
+            // Add run_type column to distinguish backup vs restore runs
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_type')) {
+                try {
+                    \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_runs', function ($table) {
+                        $table->string('run_type', 32)->nullable()->after('status');
+                    });
+                    logModuleCall('cloudstorage', 'upgrade_add_run_type', [], 'run_type column added');
+                } catch (\Exception $e) {
+                    logModuleCall('cloudstorage', 'upgrade_add_run_type_error', [], $e->getMessage(), [], []);
+                }
+            }
         }
 
         // Create run logs table if missing on upgrade
@@ -1898,6 +2064,16 @@ function cloudstorage_clientarea($vars) {
                     $templatefile = 'templates/e3backup_tenant_users';
                     $viewVars = require 'pages/e3backup_tenant_users.php';
                     break;
+                case 'hyperv':
+                    $pagetitle = 'e3 Cloud Backup - Hyper-V';
+                    $templatefile = 'templates/e3backup_hyperv';
+                    $viewVars = require 'pages/e3backup_hyperv.php';
+                    break;
+                case 'hyperv_restore':
+                    $pagetitle = 'e3 Cloud Backup - Hyper-V Restore';
+                    $templatefile = 'templates/e3backup_hyperv_restore';
+                    $viewVars = require 'pages/e3backup_hyperv_restore.php';
+                    break;
                 case 'dashboard':
                 default:
                     $pagetitle = 'e3 Cloud Backup';
@@ -1975,6 +2151,20 @@ function cloudstorage_clientarea($vars) {
                     $templatefile = 'templates/cloudbackup_settings';
                     $viewVars = require 'pages/cloudbackup_settings.php';
                     break;
+                case 'cloudbackup_hyperv':
+                    // Redirect to e3backup hyperv page
+                    $jobId = isset($_GET['job_id']) ? (int)$_GET['job_id'] : '';
+                    $redirectUrl = 'index.php?m=cloudstorage&page=e3backup&view=hyperv';
+                    if ($jobId) $redirectUrl .= '&job_id=' . $jobId;
+                    header('Location: ' . $redirectUrl);
+                    exit;
+                case 'cloudbackup_hyperv_restore':
+                    // Redirect to e3backup hyperv restore page
+                    $vmId = isset($_GET['vm_id']) ? (int)$_GET['vm_id'] : '';
+                    $redirectUrl = 'index.php?m=cloudstorage&page=e3backup&view=hyperv_restore';
+                    if ($vmId) $redirectUrl .= '&vm_id=' . $vmId;
+                    header('Location: ' . $redirectUrl);
+                    exit;
                 case 'cloudbackup_jobs':
                 default:
                     $pagetitle = 'Cloud Backup Jobs';

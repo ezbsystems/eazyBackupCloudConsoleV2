@@ -2,7 +2,13 @@
 
 use WHMCS\Database\Capsule;
 
-function createConfigOptionsDiscountTable()
+/**
+ * Ensure the discounts table exists.
+ *
+ * IMPORTANT: Do not run schema migrations (ALTER/RENAME) during page render.
+ * Those operations can acquire metadata locks and intermittently stall admin pages.
+ */
+function ensureConfigOptionsDiscountTableExists()
 {
     // Create table for storing recurring discounts on configurable options
     if (!Capsule::Schema()->hasTable('mod_rd_discountConfigOptions')) {
@@ -15,23 +21,20 @@ function createConfigOptionsDiscountTable()
             $table->timestamp('created_at')->default(Capsule::raw("CURRENT_TIMESTAMP"));
             $table->timestamp('updated_at')->default(Capsule::raw("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"));
         });
-    } else {
-        // If table already exists, modify the column
-        Capsule::schema()->table('mod_rd_discountConfigOptions', function ($table) {
-            if (Capsule::Schema()->hasColumn('mod_rd_discountConfigOptions', 'discount_per')) {
-                $table->renameColumn('discount_per', 'discount_price');
-                $table->double('discount_price', 8, 2)->change();
-            }
-        });
     }
 }
 
 add_hook('AdminAreaHeadOutput', 112223, function ($vars) {
     if ($vars["filename"] == "clientsservices") {
         global $whmcs;
-        createConfigOptionsDiscountTable(); // Ensure the table exists and is updated
         $return = "";
         $userid = $whmcs->get_req_var('userid');
+        if (empty($userid)) {
+            return $return;
+        }
+
+        // Ensure the table exists (create only; no ALTERs during request)
+        ensureConfigOptionsDiscountTableExists();
         $service_id = null;
 
         if (empty($whmcs->get_req_var('id'))) {
@@ -42,7 +45,11 @@ add_hook('AdminAreaHeadOutput', 112223, function ($vars) {
 
         if (empty($whmcs->get_req_var('id')) && empty($whmcs->get_req_var('productselect'))) {
             $service = Capsule::table('tblhosting')->select('id')->where('userid', $userid)->first();
-            $service_id = $service->id;
+            $service_id = $service ? $service->id : null;
+        }
+
+        if (empty($service_id)) {
+            return $return;
         }
 
         $service = Capsule::table('tblhosting')->find($service_id);
@@ -58,19 +65,26 @@ add_hook('AdminAreaHeadOutput', 112223, function ($vars) {
             ->select('tblhostingconfigoptions.id as optionid', 'tblhostingconfigoptions.qty', 'tblproductconfigoptions.optionname as configname', 'tblproductconfigoptions.id as configid')
             ->get();
 
+        // Prefetch existing discounts in one query (avoid N+1 queries in loop)
+        $existingDiscounts = Capsule::table('mod_rd_discountConfigOptions')
+            ->where('serviceid', $service_id)
+            ->pluck('discount_price', 'configoptionid');
+
         // Prepare jQuery script to add recurring discount fields
         $script = '<script type="text/javascript">
             jQuery(document).ready(function() {';
 
         foreach ($configOptions as $configOption) {
-            $configName = addslashes($configOption->configname);
-            $oldConfigDiscount = Capsule::table('mod_rd_discountConfigOptions')->where('serviceid', $service_id)->where('configoptionid', $configOption->configid)->first();
-            $oldConfigDiscountValue = $oldConfigDiscount ? $oldConfigDiscount->discount_price : '';
-            $discountBadge = $oldConfigDiscount ? '<label class="label label-success" style="margin: 2px 0 0 0;"><span>Discount Price: $' . $oldConfigDiscount->discount_price . ' each</label>' : '';
-            $removeButton = $oldConfigDiscount ? '<button type="button" class="button btn btn-sm btn-danger remove-config-discount" data-configoptionid="' . $configOption->configid . '" style="margin-left: 5px;">Remove</button>' : '';
+            $oldConfigDiscountValue = $existingDiscounts->get($configOption->configid, '');
+            $hasDiscount = ($oldConfigDiscountValue !== '' && $oldConfigDiscountValue !== null);
+            $discountBadge = $hasDiscount ? '<label class="label label-success" style="margin: 2px 0 0 0;"><span>Discount Price: $' . $oldConfigDiscountValue . ' each</label>' : '';
+            $removeButton = $hasDiscount ? '<button type="button" class="button btn btn-sm btn-danger remove-config-discount" data-configoptionid="' . $configOption->configid . '" style="margin-left: 5px;">Remove</button>' : '';
 
             $script .= '
-            $("td.fieldarea:has(input[name=\'configoption[' . $configOption->configid . ']\'])").append(`
+            (function(){
+                var $opt = $(\'[name="configoption[' . $configOption->configid . ']"]\');
+                if (!$opt.length) return;
+                $opt.closest("td.fieldarea").append(`
                 <div style="margin-top: 5px;">
                     <p style="margin: 10px 0 5px 0">Discount Price</p>
                     <div style="display: flex; align-items: center; position: relative;">
@@ -87,7 +101,8 @@ add_hook('AdminAreaHeadOutput', 112223, function ($vars) {
                     </div>
                     ' . $discountBadge . '
                 </div>
-            `);';
+            `);
+            })();';
     }
         $script .= '
             });
@@ -176,8 +191,14 @@ add_hook('AdminAreaHeadOutput', 112223, function ($vars) {
             // Inject our actions row adjacent to the Recurring Amount row (robust selector)
             (function injectActionsRow() {
                 if (document.getElementById("eb-discount-actions-row")) return;
-                var $anchor = $(\'#inputAmount\').closest(\'tr\');
-                if (!$anchor.length) { setTimeout(injectActionsRow, 250); return; }
+                window.__ebDiscountInjectTries = (window.__ebDiscountInjectTries || 0) + 1;
+                // Prefer name="amount" (more stable), fall back to #inputAmount
+                var $anchor = $(\'input[name="amount"], #inputAmount\').first().closest(\'tr\');
+                if (!$anchor.length) {
+                    // Avoid infinite timers if the expected DOM never appears on some page states
+                    if (window.__ebDiscountInjectTries < 40) { setTimeout(injectActionsRow, 250); }
+                    return;
+                }
                 var rowHtml = \'<tr id="eb-discount-actions-row" style="display: table-row;"><td class="fieldlabel" width="20%"></td><td class="fieldarea" width="30%"></td><td class="fieldlabel" width="20%">Config Options Discounts</td><td class="fieldarea" width="30%"><div class="service-field-inline"><button type="button" class="button btn btn-sm" id="eb-recalc-now">Recalculate (discounts)</button> <button type="button" class="button btn btn-sm btn-primary" id="eb-save-with-discounts">Save with discounts</button></div></td></tr>\';
                 $anchor.after(rowHtml);
             })();
@@ -189,6 +210,15 @@ add_hook('AdminAreaHeadOutput', 112223, function ($vars) {
                 if ($form.data(\'ebRecalcDone\') === 1) {
                     return;
                 }
+
+                // If there are no discounts entered, do NOT interfere with WHMCS native save/recalc.
+                // Interfering here causes "double save" behaviour because our recalculation happens
+                // before WHMCS persists the updated config option values.
+                var discounts = ebCollectDiscounts();
+                if (!discounts || discounts.length === 0) {
+                    return;
+                }
+
                 // Robustly detect any autorecalc controls (name or id match, including bootstrap switch backing input), and only enabled elements
                 var $autoCandidates = $form.find("input,select,textarea").filter(function(){
                     var n = (this.name || "") + " " + (this.id || "");
@@ -203,40 +233,70 @@ add_hook('AdminAreaHeadOutput', 112223, function ($vars) {
                 });
                 if (needRecalc) {
                     e.preventDefault();
+
+                    // 1) Save discounts first (so calculation uses latest values)
                     $.ajax({
                         type: "POST",
                         url: "/includes/hooks/configOptionsDiscount_ajax.php",
                         dataType: "json",
-                        data: { ajax_action: "recalc_service_amount", service_id: ' . $service_id . ' },
-                        success: function (res) {
-                            var response;
-                            try { response = (typeof res === \'string\') ? JSON.parse(res) : res; } catch (e) { response = { status:false, message: \'Invalid JSON\' }; }
-                            if (response.status && response.data && response.data.amount) {
-                                $form.find(\'input[name="amount"]\').val(response.data.amount);
-                                // Prevent WHMCS from doing its own recalc (we already set amount):
-                                // uncheck/disable/rename all autorecalc-like inputs
-                                $autoCandidates.each(function(){
-                                    var $el = $(this);
-                                    if ($el.prop("type") === "checkbox") { $el.prop("checked", false); }
-                                    $el.prop("disabled", true);
-                                    var oldName = $el.attr("name");
-                                    if (oldName) { $el.attr("name", oldName + "_disabled"); }
-                                });
-                                // ensure a false value is submitted to the server
-                                if (!$form.find(\'input[name="autorecalc"]\').length) {
-                                    $form.append(\'<input type="hidden" name="autorecalc" value="0">\');
-                                } else {
-                                    $form.find(\'input[name="autorecalc"]\').val("0");
-                                }
-                                // Mark this submit as finalized to avoid re-interception loop
-                                $form.data(\'ebRecalcDone\', 1);
-                                $form.trigger("submit");
-                            } else {
-                                alert(response.message || "Recalculation failed");
+                        data: {
+                            ajax_action: "save_discounts",
+                            service_id: ' . $service_id . ',
+                            discounts: discounts
+                        },
+                        success: function (saveRes) {
+                            try { if (typeof saveRes === "string") saveRes = JSON.parse(saveRes); } catch (e) { saveRes = { status:false, message:"Invalid JSON" }; }
+                            if (!saveRes || !saveRes.status) {
+                                alert((saveRes && saveRes.message) ? saveRes.message : "Failed to save discounts");
+                                return;
                             }
+
+                            // 2) Calculate using *live* form selections/qtys (no reliance on DB snapshot)
+                            $.ajax({
+                                type: "POST",
+                                url: "/includes/hooks/configOptionsDiscount_ajax.php",
+                                dataType: "json",
+                                data: {
+                                    ajax_action: "calculate_amount",
+                                    service_id: ' . $service_id . ',
+                                    options: JSON.stringify(ebCollectOptions())
+                                },
+                                success: function (res) {
+                                    var response;
+                                    try { response = (typeof res === \'string\') ? JSON.parse(res) : res; } catch (e) { response = { status:false, message: \'Invalid JSON\' }; }
+                                    if (response && response.status && response.data && response.data.amount) {
+                                        $form.find(\'input[name="amount"]\').val(response.data.amount);
+
+                                        // Prevent WHMCS from doing its own recalc (we already set amount):
+                                        // uncheck/disable/rename all autorecalc-like inputs
+                                        $autoCandidates.each(function(){
+                                            var $el = $(this);
+                                            if ($el.prop("type") === "checkbox") { $el.prop("checked", false); }
+                                            $el.prop("disabled", true);
+                                            var oldName = $el.attr("name");
+                                            if (oldName) { $el.attr("name", oldName + "_disabled"); }
+                                        });
+                                        // ensure a false value is submitted to the server
+                                        if (!$form.find(\'input[name="autorecalc"]\').length) {
+                                            $form.append(\'<input type="hidden" name="autorecalc" value="0">\');
+                                        } else {
+                                            $form.find(\'input[name="autorecalc"]\').val("0");
+                                        }
+
+                                        // Submit the form for real (jQuery trigger only fires events and can require a 2nd click)
+                                        $form.data(\'ebRecalcDone\', 1);
+                                        $form.get(0).submit();
+                                    } else {
+                                        alert((response && response.message) ? response.message : "Recalculation failed");
+                                    }
+                                },
+                                error: function () {
+                                    alert("Network error during recalculation");
+                                }
+                            });
                         },
                         error: function () {
-                            alert("Network error during recalculation");
+                            alert("Network error while saving discounts");
                         }
                     });
                 }
