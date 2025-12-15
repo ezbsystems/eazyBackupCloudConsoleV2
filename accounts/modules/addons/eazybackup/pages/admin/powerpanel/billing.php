@@ -83,7 +83,12 @@ return (function () {
 		) d ON BINARY d.username = u.username
 		LEFT JOIN (
 			SELECT username,
-			       SUM(CASE WHEN type='engine1/windisk'         THEN 1 ELSE 0 END) AS di_count,
+			       -- Disk Image is billed per device (not per protected item). Count distinct devices that have >=1 windisk item.
+			       COUNT(DISTINCT CASE
+			           WHEN type='engine1/windisk'
+			             THEN COALESCE(NULLIF(comet_device_id,''), NULLIF(owner_device,''))
+			           ELSE NULL
+			       END) AS di_count,
 			       SUM(CASE WHEN type='engine1/winmsofficemail' 
 			                THEN COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(content,'$.Statistics.LastBackupJob.TotalAccountsCount')) AS UNSIGNED),0)
 			                ELSE 0 END) AS m365_count
@@ -326,7 +331,9 @@ $productRows = DB::select($productsSql, $baseParams);
 			$devGraceDaysLeft = 0;
 		}
 
-		$diUsed = (int)$r->di_count;
+		// Disk Image add-on is billed per device, and should never exceed the number of active devices.
+		// (Some accounts can have multiple windisk protected items on a single device.)
+		$diUsed = min((int)$r->di_count, $devUsed);
 		$diBilled = (int)$r->di_units;
 		$diDelta = max(0, $diUsed - $diBilled);
 		$diGraceActive = (int)($r->di_grace_active ?? 0);
@@ -373,7 +380,8 @@ $productRows = DB::select($productsSql, $baseParams);
 			'total_bytes_hr' => $humanBytes($r->total_bytes),
 			'device_count'   => (int)$r->device_count,
 			'hv_count'       => (int)$r->hv_count,
-			'di_count'       => (int)$r->di_count,
+			// Expose the billing-relevant Disk Image usage (capped by device count) so UI badges don't mislead.
+			'di_count'       => (int)$diUsed,
 			'm365_count'     => (int)$r->m365_count,
 			'vmw_count'      => (int)$r->vmw_count,
 			'pmx_count'      => (int)($r->pmx_count ?? 0),
