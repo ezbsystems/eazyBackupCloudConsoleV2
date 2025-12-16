@@ -216,6 +216,7 @@ foreach ($buckets as $bucket) {
         'user_id' => $userId,
         'attempt' => $newAttemptCount,
         'blocked' => $isBlocked,
+        'response' => $response,
     ], $errorMsg);
 
     if ($hasStatusColumn) {

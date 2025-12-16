@@ -310,7 +310,14 @@ function cloudstorage_reconcile_scan($vars, array $request): array
     // WHMCS services with no buckets in RGW (optional helpful list)
     $rgwOwnerBases = [];
     foreach ($ownerAgg as $o) {
-        $rgwOwnerBases[strtolower($o['owner_base'])] = true;
+        $ownerBase = strtolower($o['owner_base'] ?? '');
+        if ($ownerBase !== '') {
+            $rgwOwnerBases[$ownerBase] = true;
+        }
+        $mappedPrimary = strtolower($o['mapped_primary'] ?? '');
+        if ($mappedPrimary !== '') {
+            $rgwOwnerBases[$mappedPrimary] = true;
+        }
     }
     $servicesNoBuckets = [];
     foreach ($serviceMap as $uname => $svc) {
