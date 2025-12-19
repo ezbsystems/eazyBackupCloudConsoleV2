@@ -103,6 +103,34 @@ class Provisioner
         if (($accept['result'] ?? '') !== 'success') {
             throw new \Exception('AcceptOrder failed: ' . ($accept['message'] ?? 'unknown'));
         }
+
+        $serviceId = (int) ($accept['serviceid'] ?? 0);
+        if ($serviceId <= 0 && !empty($order['orderid'])) {
+            try {
+                $serviceId = (int) Capsule::table('tblhosting')
+                    ->where('orderid', (int) $order['orderid'])
+                    ->orderBy('id', 'desc')
+                    ->value('id');
+            } catch (\Throwable $e) {
+                try { logModuleCall('cloudstorage', 'provision_cloud_backup_service_lookup_fail', ['orderid' => $order['orderid']], $e->getMessage()); } catch (\Throwable $_) {}
+            }
+        }
+        if ($serviceId > 0) {
+            try {
+                $tz = new \DateTimeZone('America/Toronto');
+                $nextDue = new \DateTime('now', $tz);
+                $nextDue->add(new \DateInterval('P14D'));
+                $formattedDue = $nextDue->format('Y-m-d');
+                Capsule::table('tblhosting')
+                    ->where('id', $serviceId)
+                    ->update([
+                        'nextduedate'    => $formattedDue,
+                        'nextinvoicedate' => $formattedDue,
+                    ]);
+            } catch (\Throwable $e) {
+                try { logModuleCall('cloudstorage', 'provision_cloud_backup_next_due_fail', ['serviceid' => $serviceId], $e->getMessage()); } catch (\Throwable $_) {}
+            }
+        }
         // Redirect to onboarding download page for first-time signup
         return 'index.php?m=eazybackup&a=eazybackup-download';
     }

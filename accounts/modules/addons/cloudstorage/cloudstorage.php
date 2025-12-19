@@ -651,6 +651,13 @@ function cloudstorage_activate() {
                 $table->enum('status', ['queued', 'running', 'blocked', 'failed', 'success'])->default('queued');
                 $table->tinyInteger('attempt_count')->default(0);
                 $table->text('error')->nullable();
+                // Progress / observability (incremental delete)
+                $table->integer('last_seen_num_objects')->nullable();
+                $table->bigInteger('last_seen_size_actual')->nullable();
+                $table->timestamp('last_seen_at')->nullable();
+                $table->timestamp('last_progress_at')->nullable();
+                $table->tinyInteger('no_progress_runs')->default(0);
+                $table->text('metrics')->nullable();
                 $table->timestamp('created_at')->useCurrent();
                 $table->timestamp('started_at')->nullable();
                 $table->timestamp('completed_at')->nullable();
@@ -2015,6 +2022,29 @@ function cloudstorage_upgrade($vars) {
                     logModuleCall('cloudstorage', 'upgrade_add_s3_delete_buckets_status', [], $e->getMessage(), [], []);
                 }
             }
+
+            // Add incremental deletion progress columns (defensive per-column upgrades)
+            $progressCols = [
+                'last_seen_num_objects' => function ($table) { $table->integer('last_seen_num_objects')->nullable()->after('error'); },
+                'last_seen_size_actual' => function ($table) { $table->bigInteger('last_seen_size_actual')->nullable()->after('last_seen_num_objects'); },
+                'last_seen_at' => function ($table) { $table->timestamp('last_seen_at')->nullable()->after('last_seen_size_actual'); },
+                'last_progress_at' => function ($table) { $table->timestamp('last_progress_at')->nullable()->after('last_seen_at'); },
+                'no_progress_runs' => function ($table) { $table->tinyInteger('no_progress_runs')->default(0)->after('last_progress_at'); },
+                'metrics' => function ($table) { $table->text('metrics')->nullable()->after('no_progress_runs'); },
+            ];
+
+            foreach ($progressCols as $col => $adder) {
+                if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_delete_buckets', $col)) {
+                    try {
+                        \WHMCS\Database\Capsule::schema()->table('s3_delete_buckets', function ($table) use ($adder) {
+                            $adder($table);
+                        });
+                        logModuleCall('cloudstorage', 'upgrade', [], "Added {$col} to s3_delete_buckets", [], []);
+                    } catch (\Exception $e) {
+                        logModuleCall('cloudstorage', "upgrade_add_s3_delete_buckets_{$col}", [], $e->getMessage(), [], []);
+                    }
+                }
+            }
         }
 
         return ['status' => 'success'];
@@ -2094,6 +2124,16 @@ function cloudstorage_clientarea($vars) {
             $templatefile = 'templates/welcome';
             // Initially no special vars; template will fetch any needed session/user context
             $viewVars = [];
+            $clientArea = new \WHMCS\ClientArea();
+            if (!$clientArea->isLoggedIn()) {
+                $redirectUrl = cloudstorage_get_welcome_sso_redirect();
+                if ($redirectUrl) {
+                    header("Location: {$redirectUrl}");
+                    exit;
+                }
+                header('Location: clientarea.php');
+                exit;
+            }
             break;
 
         case 'test':
@@ -2390,5 +2430,121 @@ function cloudstorage_sidebar($vars)
     </div>';
     
     return $sidebar;
+}
+
+/**
+ * Return how many seconds trial SSO sessions should remain valid.
+ *
+ * @return int
+ */
+function cloudstorage_trial_sso_duration(): int
+{
+    return 7200;
+}
+
+/**
+ * Persist trial SSO metadata so we can re-issue login tokens for the welcome page.
+ *
+ * @param int $clientId
+ *
+ * @return void
+ */
+function cloudstorage_set_trial_sso_session(int $clientId): void
+{
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
+    $_SESSION['cloudstorage_trial_sso'] = [
+        'client_id'  => $clientId,
+        'expires_at' => time() + cloudstorage_trial_sso_duration(),
+    ];
+}
+
+/**
+ * Read the persisted trial SSO metadata if it is still fresh.
+ *
+ * @return array|null
+ */
+function cloudstorage_get_trial_sso_session(): ?array
+{
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
+    $data = $_SESSION['cloudstorage_trial_sso'] ?? null;
+    if (!is_array($data)) {
+        return null;
+    }
+    $clientId = (int) ($data['client_id'] ?? 0);
+    $expiresAt = (int) ($data['expires_at'] ?? 0);
+    if ($clientId <= 0 || $expiresAt < time()) {
+        cloudstorage_clear_trial_sso_session();
+        return null;
+    }
+    return [
+        'client_id'  => $clientId,
+        'expires_at' => $expiresAt,
+    ];
+}
+
+/**
+ * Update the TTL for the persisted trial SSO session.
+ *
+ * @return void
+ */
+function cloudstorage_refresh_trial_sso_session(): void
+{
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
+    if (isset($_SESSION['cloudstorage_trial_sso']['client_id'])) {
+        $_SESSION['cloudstorage_trial_sso']['expires_at'] = time() + cloudstorage_trial_sso_duration();
+    }
+}
+
+/**
+ * Remove any cached trial SSO metadata.
+ *
+ * @return void
+ */
+function cloudstorage_clear_trial_sso_session(): void
+{
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
+    unset($_SESSION['cloudstorage_trial_sso']);
+}
+
+/**
+ * Attempt to rebuild a brief SSO session for the welcome page.
+ *
+ * @return string|null
+ */
+function cloudstorage_get_welcome_sso_redirect(): ?string
+{
+    $session = cloudstorage_get_trial_sso_session();
+    if (!$session) {
+        return null;
+    }
+    $adminUser = 'API';
+    try {
+        $ssoResult = localAPI('CreateSsoToken', [
+            'client_id'         => $session['client_id'],
+            'destination'       => 'sso:custom_redirect',
+            'sso_redirect_path' => 'index.php?m=cloudstorage&page=welcome',
+        ], $adminUser);
+        if (($ssoResult['result'] ?? '') === 'success' && !empty($ssoResult['redirect_url'])) {
+            cloudstorage_refresh_trial_sso_session();
+            return $ssoResult['redirect_url'];
+        }
+        try {
+            logModuleCall('cloudstorage', 'welcome_sso_redirect_failed', ['session' => $session], $ssoResult);
+        } catch (\Throwable $_) {}
+    } catch (\Throwable $e) {
+        try {
+            logModuleCall('cloudstorage', 'welcome_sso_exception', ['session' => $session], $e->getMessage());
+        } catch (\Throwable $_) {}
+    }
+    cloudstorage_clear_trial_sso_session();
+    return null;
 }
 

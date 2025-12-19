@@ -6,7 +6,7 @@ namespace WHMCS\Module\Addon\CloudStorage\Client;
 use Aws\S3\S3Client;
 use Aws\S3\Exception\S3Exception;
 use DateTime;
-use GuzzleHttp\Promise;
+// NOTE: Previously used for async deletes; deletion is now streamed/bounded.
 use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Admin\AdminOps;
 use WHMCS\Module\Addon\CloudStorage\Client\HelperController;
@@ -1397,6 +1397,144 @@ class BucketController {
     }
 
     /**
+     * Incremental bucket deletion using admin credentials.
+     *
+     * This is intended for background cron usage where we must avoid one large bucket
+     * monopolizing the cron. Work is bounded by a deadline; when the deadline is reached
+     * this returns status=in_progress rather than failing.
+     *
+     * Return shape:
+     * - status: success | in_progress | fail
+     * - blocked: bool (Object Lock / retention)
+     * - message: string
+     * - metrics: array (deleted/aborted counts + elapsed)
+     *
+     * @param int $userId
+     * @param string $bucketName
+     * @param array $opts ['deadline_ts' => int, 'use_admin_creds' => bool]
+     * @return array
+     */
+    public function deleteBucketAsAdminIncremental(int $userId, string $bucketName, array $opts = []): array
+    {
+        $deadlineTs = isset($opts['deadline_ts']) ? (int) $opts['deadline_ts'] : (time() + 60);
+        $useAdminCreds = array_key_exists('use_admin_creds', $opts) ? (bool) $opts['use_admin_creds'] : true;
+
+        $metrics = [
+            'deleted_current_objects' => 0,
+            'deleted_versions' => 0,
+            'deleted_delete_markers' => 0,
+            'aborted_multipart_uploads' => 0,
+            'errors' => [],
+            'started_at' => time(),
+            'deadline_ts' => $deadlineTs,
+        ];
+
+        // Protected bucket names (base bucket only; callers should normalize if needed)
+        if (in_array($bucketName, $this->protectedBucketNames, true)) {
+            return [
+                'status' => 'fail',
+                'blocked' => true,
+                'message' => "Bucket '{$bucketName}' is protected and cannot be deleted.",
+                'metrics' => $metrics,
+            ];
+        }
+
+        // Connect as admin
+        if ($useAdminCreds) {
+            $connResult = $this->connectS3ClientAsAdmin();
+            if (($connResult['status'] ?? 'fail') !== 'success') {
+                return [
+                    'status' => 'fail',
+                    'blocked' => false,
+                    'message' => $connResult['message'] ?? 'Admin connection failure.',
+                    'metrics' => $metrics,
+                ];
+            }
+        }
+
+        // Helper to finalize metrics
+        $finalize = function (string $status, string $message, bool $blocked = false) use (&$metrics) {
+            $metrics['elapsed_seconds'] = max(0, time() - (int) ($metrics['started_at'] ?? time()));
+            return [
+                'status' => $status,
+                'blocked' => $blocked,
+                'message' => $message,
+                'metrics' => $metrics,
+            ];
+        };
+
+        // Work slices: current objects, versions/markers, multipart uploads
+        try {
+            $r1 = $this->deleteBucketContentsPaged($bucketName, $deadlineTs);
+            $metrics['deleted_current_objects'] += (int) ($r1['deleted'] ?? 0);
+            if (($r1['status'] ?? 'fail') === 'blocked') {
+                return $finalize('fail', $r1['message'] ?? 'Deletion blocked by Object Lock retention.', true);
+            }
+            if (($r1['status'] ?? 'fail') === 'in_progress') {
+                return $finalize('in_progress', 'Deletion in progress (objects).', false);
+            }
+            if (($r1['status'] ?? 'fail') === 'fail') {
+                return $finalize('fail', $r1['message'] ?? 'Failed deleting bucket contents.', false);
+            }
+
+            $r2 = $this->deleteBucketVersionsAndMarkersPaged($bucketName, $deadlineTs);
+            $metrics['deleted_versions'] += (int) ($r2['deleted_versions'] ?? 0);
+            $metrics['deleted_delete_markers'] += (int) ($r2['deleted_delete_markers'] ?? 0);
+            if (($r2['status'] ?? 'fail') === 'blocked') {
+                return $finalize('fail', $r2['message'] ?? 'Deletion blocked by Object Lock retention.', true);
+            }
+            if (($r2['status'] ?? 'fail') === 'in_progress') {
+                return $finalize('in_progress', 'Deletion in progress (versions/markers).', false);
+            }
+            if (($r2['status'] ?? 'fail') === 'fail') {
+                return $finalize('fail', $r2['message'] ?? 'Failed deleting bucket versions/markers.', false);
+            }
+
+            $r3 = $this->abortMultipartUploadsPaged($bucketName, $deadlineTs);
+            $metrics['aborted_multipart_uploads'] += (int) ($r3['aborted'] ?? 0);
+            if (($r3['status'] ?? 'fail') === 'in_progress') {
+                return $finalize('in_progress', 'Deletion in progress (multipart uploads).', false);
+            }
+            if (($r3['status'] ?? 'fail') === 'fail') {
+                // Multipart abort failures are treated as failure (may indicate permissions / transient issues)
+                return $finalize('fail', $r3['message'] ?? 'Failed aborting multipart uploads.', false);
+            }
+        } catch (S3Exception $e) {
+            if ($this->isRetentionError($e->getMessage())) {
+                return $finalize('fail', 'Object Lock retention prevents deletion: ' . $e->getMessage(), true);
+            }
+            logModuleCall($this->module, __FUNCTION__, [$userId, $bucketName], $e->getMessage());
+            return $finalize('fail', 'Deletion failed: ' . $e->getMessage(), false);
+        } catch (\Throwable $e) {
+            logModuleCall($this->module, __FUNCTION__, [$userId, $bucketName], $e->getMessage());
+            return $finalize('fail', 'Deletion failed: ' . $e->getMessage(), false);
+        }
+
+        // If we hit the deadline, don't attempt bucket delete; requeue
+        if (time() >= $deadlineTs) {
+            return $finalize('in_progress', 'Deletion in progress (time budget reached).', false);
+        }
+
+        // Attempt to delete the bucket itself; if still not empty, return in_progress
+        try {
+            $this->s3Client->deleteBucket(['Bucket' => $bucketName]);
+            $this->s3Client->waitUntil('BucketNotExists', ['Bucket' => $bucketName]);
+            return $finalize('success', 'Bucket deleted successfully.', false);
+        } catch (S3Exception $e) {
+            $msg = $e->getMessage();
+            if ($this->isRetentionError($msg)) {
+                return $finalize('fail', 'Cannot delete bucket due to Object Lock retention.', true);
+            }
+            // Common eventual condition: bucket still not empty
+            $awsCode = method_exists($e, 'getAwsErrorCode') ? (string) $e->getAwsErrorCode() : '';
+            if ($awsCode === 'BucketNotEmpty' || stripos($msg, 'BucketNotEmpty') !== false) {
+                return $finalize('in_progress', 'Bucket still not empty; will continue next run.', false);
+            }
+            return $finalize('fail', 'Failed to delete bucket: ' . $msg, false);
+        }
+    }
+
+    /**
      * Check if an error message indicates Object Lock retention.
      *
      * @param string $message The error message
@@ -2314,41 +2452,15 @@ class BucketController {
      */
     private function deleteBucketContents($bucketName)
     {
-        try {
-            $deletePromises = [];
-
-            do {
-                $objects = $this->s3Client->listObjectsV2([
-                    'Bucket' => $bucketName,
-                ]);
-
-                if (!empty($objects['Contents'])) {
-                    $keys = array_map(function ($object) {
-                        return ['Key' => $object['Key']];
-                    }, $objects['Contents']);
-
-                    $deletePromises[] = $this->s3Client->deleteObjectsAsync([
-                        'Bucket' => $bucketName,
-                        'Delete' => ['Objects' => $keys],
-                    ]);
-                }
-            } while (isset($objects['IsTruncated']) && $objects['IsTruncated']);
-
-            // Wait for all delete promises to complete
-            Promise\all($deletePromises)->wait();
-
-            return [
-                'status' => 'success',
-                'message' => 'Deleted all contents.',
-            ];
-        } catch (S3Exception $e) {
-            logModuleCall($this->module, __FUNCTION__, $bucketName, $e->getMessage());
-
-            return [
-                'status' => 'fail',
-                'message' => 'Delete bucket contenat failed. Please try again or contact support.',
-            ];
+        // Backwards-compatible wrapper: delete all contents with no time budget.
+        $res = $this->deleteBucketContentsPaged($bucketName, PHP_INT_MAX);
+        if (($res['status'] ?? 'fail') === 'success') {
+            return ['status' => 'success', 'message' => 'Deleted all contents.'];
         }
+        if (($res['status'] ?? 'fail') === 'blocked') {
+            return ['status' => 'fail', 'message' => $res['message'] ?? 'Deletion blocked.'];
+        }
+        return ['status' => 'fail', 'message' => $res['message'] ?? 'Delete bucket contents failed. Please try again or contact support.'];
     }
 
     /**
@@ -2360,61 +2472,15 @@ class BucketController {
      */
     private function deleteBucketVersionsAndMarkers($bucketName)
     {
-        try {
-            $deletePromises = [];
-
-            do {
-                $versions = $this->s3Client->listObjectVersions([
-                    'Bucket' => $bucketName,
-                ]);
-
-                $objectsToDelete = [];
-
-                if (!empty($versions['Versions'])) {
-                    foreach ($versions['Versions'] as $version) {
-                        $objectsToDelete[] = [
-                            'Key'       => $version['Key'],
-                            'VersionId' => $version['VersionId'],
-                        ];
-                    }
-                }
-
-                if (!empty($versions['DeleteMarkers'])) {
-                    foreach ($versions['DeleteMarkers'] as $marker) {
-                        $objectsToDelete[] = [
-                            'Key'       => $marker['Key'],
-                            'VersionId' => $marker['VersionId'],
-                        ];
-                    }
-                }
-
-                if (!empty($objectsToDelete)) {
-                    $chunks = array_chunk($objectsToDelete, 1000);
-
-                    foreach ($chunks as $chunk) {
-                        $deletePromises[] = $this->s3Client->deleteObjectsAsync([
-                            'Bucket' => $bucketName,
-                            'Delete' => ['Objects' => $chunk],
-                        ]);
-                    }
-                }
-            } while (isset($versions['IsTruncated']) && $versions['IsTruncated']);
-
-            // Wait for all delete promises to complete
-            Promise\all($deletePromises)->wait();
-
-            return [
-                'status' => 'success',
-                'message' => 'Deleted all versions and markers.',
-            ];
-        } catch (S3Exception $e) {
-            logModuleCall($this->module, __FUNCTION__, $bucketName, $e->getMessage());
-
-            return [
-                'status' => 'fail',
-                'message' => 'Delete bucket versions and markers failed. Please try again or contact support.',
-            ];
+        // Backwards-compatible wrapper: delete all versions/markers with no time budget.
+        $res = $this->deleteBucketVersionsAndMarkersPaged($bucketName, PHP_INT_MAX);
+        if (($res['status'] ?? 'fail') === 'success') {
+            return ['status' => 'success', 'message' => 'Deleted all versions and markers.'];
         }
+        if (($res['status'] ?? 'fail') === 'blocked') {
+            return ['status' => 'fail', 'message' => $res['message'] ?? 'Deletion blocked.'];
+        }
+        return ['status' => 'fail', 'message' => $res['message'] ?? 'Delete bucket versions and markers failed. Please try again or contact support.'];
     }
 
     /**
@@ -2426,39 +2492,316 @@ class BucketController {
      */
     private function handleIncompleteMultipartUploads($bucketName)
     {
-        try {
-            $deletePromises = [];
-            // Abort all incomplete multipart uploads
-            do {
-                $uploads = $this->s3Client->listMultipartUploads([
-                    'Bucket' => $bucketName,
-                ]);
+        // Backwards-compatible wrapper: abort all uploads with no time budget.
+        $res = $this->abortMultipartUploadsPaged($bucketName, PHP_INT_MAX);
+        if (($res['status'] ?? 'fail') === 'success') {
+            return ['status' => 'success', 'message' => 'Deleted all versions and markers.'];
+        }
+        return ['status' => 'fail', 'message' => $res['message'] ?? 'Handle incomplete uploads failed. Please try again or contact support.'];
+    }
 
-                if (!empty($uploads['Uploads'])) {
-                    foreach ($uploads['Uploads'] as $upload) {
-                        $deletePromises[] = $this->s3Client->abortMultipartUploadAsync([
-                            'Bucket'   => $bucketName,
-                            'Key'      => $upload['Key'],
-                            'UploadId' => $upload['UploadId'],
-                        ]);
+    /**
+     * Paged deletion of current objects with a deadline.
+     *
+     * @param string $bucketName
+     * @param int $deadlineTs
+     * @return array ['status' => success|in_progress|fail|blocked, 'deleted' => int, 'message' => string]
+     */
+    private function deleteBucketContentsPaged(string $bucketName, int $deadlineTs): array
+    {
+        $deleted = 0;
+        $continuationToken = null;
+
+        try {
+            while (true) {
+                if (time() >= $deadlineTs) {
+                    return ['status' => 'in_progress', 'deleted' => $deleted, 'message' => 'Time budget reached while deleting objects.'];
+                }
+
+                $params = [
+                    'Bucket' => $bucketName,
+                    'MaxKeys' => 1000,
+                ];
+                if (!empty($continuationToken)) {
+                    $params['ContinuationToken'] = $continuationToken;
+                }
+
+                $objects = $this->s3Client->listObjectsV2($params);
+                $keys = [];
+                if (!empty($objects['Contents'])) {
+                    foreach ($objects['Contents'] as $obj) {
+                        if (!empty($obj['Key'])) {
+                            $keys[] = ['Key' => $obj['Key']];
+                        }
                     }
                 }
-            } while (isset($uploads['IsTruncated']) && $uploads['IsTruncated']);
 
-            // Wait for all delete promises to complete
-            Promise\all($deletePromises)->wait();
+                if (count($keys) > 0) {
+                    $res = $this->s3Client->deleteObjects([
+                        'Bucket' => $bucketName,
+                        'Delete' => ['Objects' => $keys, 'Quiet' => true],
+                    ]);
+                    if (!empty($res['Deleted']) && is_array($res['Deleted'])) {
+                        $deleted += count($res['Deleted']);
+                    } else {
+                        // Fallback: assume attempted keys were deleted if API doesn't return Deleted list
+                        $deleted += count($keys);
+                    }
+
+                    // Per-object errors (often where retention appears)
+                    if (!empty($res['Errors']) && is_array($res['Errors'])) {
+                        foreach ($res['Errors'] as $err) {
+                            $msg = (string) ($err['Message'] ?? ($err['Code'] ?? 'Delete error'));
+                            if ($this->isRetentionError($msg)) {
+                                return ['status' => 'blocked', 'deleted' => $deleted, 'message' => 'Object Lock retention prevents deletion of objects.'];
+                            }
+                        }
+                    }
+                }
+
+                $isTruncated = isset($objects['IsTruncated']) ? (bool) $objects['IsTruncated'] : false;
+                if ($isTruncated && !empty($objects['NextContinuationToken'])) {
+                    $continuationToken = $objects['NextContinuationToken'];
+                    continue;
+                }
+                break;
+            }
+
+            return ['status' => 'success', 'deleted' => $deleted, 'message' => 'Deleted current objects.'];
+        } catch (S3Exception $e) {
+            if ($this->isRetentionError($e->getMessage())) {
+                return ['status' => 'blocked', 'deleted' => $deleted, 'message' => 'Object Lock retention prevents deletion: ' . $e->getMessage()];
+            }
+            logModuleCall($this->module, __FUNCTION__, $bucketName, $e->getMessage());
+            return ['status' => 'fail', 'deleted' => $deleted, 'message' => 'Delete bucket contents failed. Please try again or contact support.'];
+        }
+    }
+
+    /**
+     * Paged deletion of versions and delete markers with a deadline.
+     *
+     * @param string $bucketName
+     * @param int $deadlineTs
+     * @return array ['status' => success|in_progress|fail|blocked, 'deleted_versions' => int, 'deleted_delete_markers' => int, 'message' => string]
+     */
+    private function deleteBucketVersionsAndMarkersPaged(string $bucketName, int $deadlineTs): array
+    {
+        $deletedVersions = 0;
+        $deletedMarkers = 0;
+        $keyMarker = null;
+        $versionIdMarker = null;
+
+        try {
+            while (true) {
+                if (time() >= $deadlineTs) {
+                    return [
+                        'status' => 'in_progress',
+                        'deleted_versions' => $deletedVersions,
+                        'deleted_delete_markers' => $deletedMarkers,
+                        'message' => 'Time budget reached while deleting versions/markers.',
+                    ];
+                }
+
+                $params = [
+                    'Bucket' => $bucketName,
+                    'MaxKeys' => 1000,
+                ];
+                if (!empty($keyMarker)) {
+                    $params['KeyMarker'] = $keyMarker;
+                }
+                if (!empty($versionIdMarker)) {
+                    $params['VersionIdMarker'] = $versionIdMarker;
+                }
+
+                $versions = $this->s3Client->listObjectVersions($params);
+
+                $versionObjs = [];
+                $markerObjs = [];
+
+                if (!empty($versions['Versions'])) {
+                    foreach ($versions['Versions'] as $v) {
+                        if (!empty($v['Key']) && isset($v['VersionId'])) {
+                            $versionObjs[] = ['Key' => $v['Key'], 'VersionId' => $v['VersionId']];
+                        }
+                    }
+                }
+                if (!empty($versions['DeleteMarkers'])) {
+                    foreach ($versions['DeleteMarkers'] as $m) {
+                        if (!empty($m['Key']) && isset($m['VersionId'])) {
+                            $markerObjs[] = ['Key' => $m['Key'], 'VersionId' => $m['VersionId']];
+                        }
+                    }
+                }
+
+                $processChunks = function (array $objs, string $type) use ($bucketName, $deadlineTs, &$deletedVersions, &$deletedMarkers) {
+                    if (!count($objs)) {
+                        return ['status' => 'success'];
+                    }
+                    $chunks = array_chunk($objs, 1000);
+                    foreach ($chunks as $chunk) {
+                        if (time() >= $deadlineTs) {
+                            return ['status' => 'in_progress'];
+                        }
+                        $res = $this->s3Client->deleteObjects([
+                            'Bucket' => $bucketName,
+                            'Delete' => ['Objects' => $chunk, 'Quiet' => true],
+                        ]);
+
+                        // Count successful deletes from response (fallback to attempted count)
+                        $deletedCount = (!empty($res['Deleted']) && is_array($res['Deleted'])) ? count($res['Deleted']) : count($chunk);
+                        if ($type === 'versions') {
+                            $deletedVersions += $deletedCount;
+                        } else {
+                            $deletedMarkers += $deletedCount;
+                        }
+
+                        // Per-object errors (often where retention appears)
+                        if (!empty($res['Errors']) && is_array($res['Errors'])) {
+                            foreach ($res['Errors'] as $err) {
+                                $msg = (string) ($err['Message'] ?? ($err['Code'] ?? 'Delete error'));
+                                if ($this->isRetentionError($msg)) {
+                                    return ['status' => 'blocked', 'message' => 'Object Lock retention prevents deletion of versions/markers.'];
+                                }
+                            }
+                        }
+                    }
+                    return ['status' => 'success'];
+                };
+
+                $p1 = $processChunks($versionObjs, 'versions');
+                if (($p1['status'] ?? '') === 'blocked') {
+                    return [
+                        'status' => 'blocked',
+                        'deleted_versions' => $deletedVersions,
+                        'deleted_delete_markers' => $deletedMarkers,
+                        'message' => $p1['message'] ?? 'Object Lock retention prevents deletion of versions/markers.',
+                    ];
+                }
+                if (($p1['status'] ?? '') === 'in_progress') {
+                    return [
+                        'status' => 'in_progress',
+                        'deleted_versions' => $deletedVersions,
+                        'deleted_delete_markers' => $deletedMarkers,
+                        'message' => 'Time budget reached while deleting versions/markers.',
+                    ];
+                }
+
+                $p2 = $processChunks($markerObjs, 'markers');
+                if (($p2['status'] ?? '') === 'blocked') {
+                    return [
+                        'status' => 'blocked',
+                        'deleted_versions' => $deletedVersions,
+                        'deleted_delete_markers' => $deletedMarkers,
+                        'message' => $p2['message'] ?? 'Object Lock retention prevents deletion of versions/markers.',
+                    ];
+                }
+                if (($p2['status'] ?? '') === 'in_progress') {
+                    return [
+                        'status' => 'in_progress',
+                        'deleted_versions' => $deletedVersions,
+                        'deleted_delete_markers' => $deletedMarkers,
+                        'message' => 'Time budget reached while deleting versions/markers.',
+                    ];
+                }
+
+                $isTruncated = isset($versions['IsTruncated']) ? (bool) $versions['IsTruncated'] : false;
+                if ($isTruncated) {
+                    $keyMarker = $versions['NextKeyMarker'] ?? null;
+                    $versionIdMarker = $versions['NextVersionIdMarker'] ?? null;
+                    if (!empty($keyMarker) || !empty($versionIdMarker)) {
+                        continue;
+                    }
+                }
+                break;
+            }
 
             return [
                 'status' => 'success',
-                'message' => 'Deleted all versions and markers.'
+                'deleted_versions' => $deletedVersions,
+                'deleted_delete_markers' => $deletedMarkers,
+                'message' => 'Deleted versions and markers.',
             ];
         } catch (S3Exception $e) {
+            if ($this->isRetentionError($e->getMessage())) {
+                return [
+                    'status' => 'blocked',
+                    'deleted_versions' => $deletedVersions,
+                    'deleted_delete_markers' => $deletedMarkers,
+                    'message' => 'Object Lock retention prevents version deletion: ' . $e->getMessage(),
+                ];
+            }
             logModuleCall($this->module, __FUNCTION__, $bucketName, $e->getMessage());
-
             return [
                 'status' => 'fail',
-                'message' => 'Handle incomplete uploads failed. Please try again or contact support.'
+                'deleted_versions' => $deletedVersions,
+                'deleted_delete_markers' => $deletedMarkers,
+                'message' => 'Delete bucket versions and markers failed. Please try again or contact support.',
             ];
+        }
+    }
+
+    /**
+     * Paged abort of multipart uploads with a deadline.
+     *
+     * @param string $bucketName
+     * @param int $deadlineTs
+     * @return array ['status' => success|in_progress|fail, 'aborted' => int, 'message' => string]
+     */
+    private function abortMultipartUploadsPaged(string $bucketName, int $deadlineTs): array
+    {
+        $aborted = 0;
+        $keyMarker = null;
+        $uploadIdMarker = null;
+
+        try {
+            while (true) {
+                if (time() >= $deadlineTs) {
+                    return ['status' => 'in_progress', 'aborted' => $aborted, 'message' => 'Time budget reached while aborting multipart uploads.'];
+                }
+
+                $params = [
+                    'Bucket' => $bucketName,
+                    'MaxUploads' => 1000,
+                ];
+                if (!empty($keyMarker)) {
+                    $params['KeyMarker'] = $keyMarker;
+                }
+                if (!empty($uploadIdMarker)) {
+                    $params['UploadIdMarker'] = $uploadIdMarker;
+                }
+
+                $uploads = $this->s3Client->listMultipartUploads($params);
+                if (!empty($uploads['Uploads'])) {
+                    foreach ($uploads['Uploads'] as $u) {
+                        if (time() >= $deadlineTs) {
+                            return ['status' => 'in_progress', 'aborted' => $aborted, 'message' => 'Time budget reached while aborting multipart uploads.'];
+                        }
+                        if (!empty($u['Key']) && !empty($u['UploadId'])) {
+                            $this->s3Client->abortMultipartUpload([
+                                'Bucket' => $bucketName,
+                                'Key' => $u['Key'],
+                                'UploadId' => $u['UploadId'],
+                            ]);
+                            $aborted++;
+                        }
+                    }
+                }
+
+                $isTruncated = isset($uploads['IsTruncated']) ? (bool) $uploads['IsTruncated'] : false;
+                if ($isTruncated) {
+                    $keyMarker = $uploads['NextKeyMarker'] ?? null;
+                    $uploadIdMarker = $uploads['NextUploadIdMarker'] ?? null;
+                    if (!empty($keyMarker) || !empty($uploadIdMarker)) {
+                        continue;
+                    }
+                }
+                break;
+            }
+
+            return ['status' => 'success', 'aborted' => $aborted, 'message' => 'Aborted multipart uploads.'];
+        } catch (S3Exception $e) {
+            logModuleCall($this->module, __FUNCTION__, $bucketName, $e->getMessage());
+            return ['status' => 'fail', 'aborted' => $aborted, 'message' => 'Handle incomplete uploads failed. Please try again or contact support.'];
         }
     }
 
