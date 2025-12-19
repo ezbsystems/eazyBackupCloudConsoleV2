@@ -24,16 +24,41 @@ use WHMCS\Module\Addon\CloudStorage\Admin\DeprovisionHelper;
 // Max attempts before marking as failed (not blocked)
 const MAX_ATTEMPTS = 5;
 
+// Cron safety budgets (cron expected every ~5 minutes)
+const JOB_TIME_BUDGET_SECONDS = 60;     // Per bucket job slice
+const CRON_TIME_BUDGET_SECONDS = 240;   // Total cron runtime cap
+const NO_PROGRESS_MAX_RUNS = 3;         // Fail if no progress across N runs
+
 // Check if new status column exists
 $hasStatusColumn = Capsule::schema()->hasColumn('s3_delete_buckets', 'status');
+
+// Progress columns (optional; older installs may not have them yet)
+$hasProgressCols = false;
+$hasLastSeenNumObjects = false;
+$hasLastSeenSizeActual = false;
+$hasLastSeenAt = false;
+$hasLastProgressAt = false;
+$hasNoProgressRuns = false;
+try {
+    $hasProgressCols = Capsule::schema()->hasColumn('s3_delete_buckets', 'metrics');
+    $hasLastSeenNumObjects = Capsule::schema()->hasColumn('s3_delete_buckets', 'last_seen_num_objects');
+    $hasLastSeenSizeActual = Capsule::schema()->hasColumn('s3_delete_buckets', 'last_seen_size_actual');
+    $hasLastSeenAt = Capsule::schema()->hasColumn('s3_delete_buckets', 'last_seen_at');
+    $hasLastProgressAt = Capsule::schema()->hasColumn('s3_delete_buckets', 'last_progress_at');
+    $hasNoProgressRuns = Capsule::schema()->hasColumn('s3_delete_buckets', 'no_progress_runs');
+} catch (\Throwable $e) {
+    // Leave all as false
+}
+
+$cronStart = microtime(true);
 
 // Build query based on schema version
 if ($hasStatusColumn) {
     $buckets = Capsule::table('s3_delete_buckets')
-        ->whereIn('status', ['queued', 'running'])
+        ->where('status', 'queued')
         ->where('attempt_count', '<', MAX_ATTEMPTS)
         ->orderBy('created_at', 'asc')
-        ->limit(20)  // Process in batches
+        ->limit(10)  // Process in batches
         ->get();
 } else {
     // Legacy query for old schema
@@ -43,6 +68,7 @@ if ($hasStatusColumn) {
 }
 
 if (count($buckets) === 0) {
+    logModuleCall('cloudstorage', 's3deletebucket_cron', [], 'No bucket delete jobs to process.');
     exit(0);
 }
 
@@ -75,22 +101,40 @@ if (empty($s3Endpoint) || empty($cephAdminAccessKey) || empty($cephAdminSecretKe
 $bucketController = new BucketController($s3Endpoint, $cephAdminUser, $cephAdminAccessKey, $cephAdminSecretKey, $s3Region);
 
 foreach ($buckets as $bucket) {
+    // Global runtime cap so we don't overlap the next cron cycle
+    if ((microtime(true) - $cronStart) >= CRON_TIME_BUDGET_SECONDS) {
+        logModuleCall('cloudstorage', 's3deletebucket_cron', ['processed' => count($buckets)], 'Cron time budget reached; stopping early.');
+        break;
+    }
+
     $bucketId = $bucket->id;
     $userId = $bucket->user_id;
     $bucketName = $bucket->bucket_name;
 
-    // Mark as running
+    // Claim the job (atomic: only claim if currently queued)
     if ($hasStatusColumn) {
-        Capsule::table('s3_delete_buckets')
+        $claimUpdate = [
+            'status' => 'running',
+        ];
+        if (empty($bucket->started_at)) {
+            $claimUpdate['started_at'] = date('Y-m-d H:i:s');
+        }
+        $claimed = Capsule::table('s3_delete_buckets')
             ->where('id', $bucketId)
-            ->update([
-                'status' => 'running',
-                'started_at' => date('Y-m-d H:i:s'),
-            ]);
+            ->where('status', 'queued')
+            ->update($claimUpdate);
+        if ((int) $claimed === 0) {
+            continue;
+        }
     }
 
-    // Check protected bucket
-    if (DeprovisionHelper::isProtectedBucket($bucketName)) {
+    $bucketBaseForProtection = $bucketName;
+    if (($pos = strrpos($bucketBaseForProtection, '/')) !== false) {
+        $bucketBaseForProtection = substr($bucketBaseForProtection, $pos + 1);
+    }
+
+    // Check protected bucket (including tenant-qualified paths)
+    if (DeprovisionHelper::isProtectedBucket($bucketBaseForProtection)) {
         $errorMsg = "Bucket '{$bucketName}' is protected and cannot be deleted.";
         logModuleCall('cloudstorage', 's3deletebucket_cron', ['bucket' => $bucketName], $errorMsg);
 
@@ -130,14 +174,16 @@ foreach ($buckets as $bucket) {
         continue;
     }
 
-    // Build bucket path for AdminOps check
-    $bucketPath = $bucketName;
-    if (!empty($user->tenant_id)) {
-        $bucketPath = $user->tenant_id . '/' . $bucketName;
-    }
+    $tenantId = trim((string) ($user->tenant_id ?? ''));
+    $cephUid = DeprovisionHelper::computeCephUid($user);
+    $adminOpsParams = [
+        'bucket' => $bucketName,
+        'uid' => $cephUid,
+        'stats' => true,
+    ];
 
     // Check if bucket exists on server via AdminOps
-    $bucketInfo = AdminOps::getBucketInfo($s3Endpoint, $cephAdminAccessKey, $cephAdminSecretKey, ['bucket' => $bucketPath]);
+    $bucketInfo = AdminOps::getBucketInfo($s3Endpoint, $cephAdminAccessKey, $cephAdminSecretKey, $adminOpsParams);
     $bucketGone = false;
 
     if ($bucketInfo['status'] != 'success' && isset($bucketInfo['error'])) {
@@ -157,52 +203,185 @@ foreach ($buckets as $bucket) {
                 ->where('id', $bucketId)
                 ->update([
                     'status' => 'success',
+                    'error' => null,
                     'completed_at' => date('Y-m-d H:i:s'),
                 ]);
         } else {
             DBController::deleteRecord('s3_delete_buckets', [['id', '=', $bucketId]]);
         }
 
-        // Clean up s3_buckets record
-        DBController::deleteRecord('s3_buckets', [
-            ['name', '=', $bucketName],
-            ['user_id', '=', $userId]
-        ]);
-
-        // Also update s3_buckets.deleted_at if column exists
-        if (Capsule::schema()->hasColumn('s3_buckets', 'deleted_at')) {
-            Capsule::table('s3_buckets')
-                ->where('name', $bucketName)
-                ->where('user_id', $userId)
-                ->update(['deleted_at' => date('Y-m-d H:i:s')]);
+        // Soft-delete s3_buckets record for audit (keep row)
+        try {
+            if (Capsule::schema()->hasColumn('s3_buckets', 'deleted_at')) {
+                Capsule::table('s3_buckets')
+                    ->where('name', $bucketName)
+                    ->where('user_id', $userId)
+                    ->update([
+                        'is_active' => 0,
+                        'deleted_at' => date('Y-m-d H:i:s'),
+                    ]);
+            } else {
+                Capsule::table('s3_buckets')
+                    ->where('name', $bucketName)
+                    ->where('user_id', $userId)
+                    ->update(['is_active' => 0]);
+            }
+        } catch (\Throwable $e) {
+            // Non-fatal: don't block cron completion
         }
 
         continue;
     }
 
-    // Attempt to delete bucket using admin credentials
-    $response = $bucketController->deleteBucketAsAdmin($userId, $bucketName, true);
+    // Persist last-seen stats (optional)
+    if ($hasStatusColumn && ($hasLastSeenAt || $hasLastSeenNumObjects || $hasLastSeenSizeActual) && isset($bucketInfo['status']) && $bucketInfo['status'] === 'success' && isset($bucketInfo['data'])) {
+        $statsRow = null;
+        $data = $bucketInfo['data'];
+        if (is_array($data) && isset($data['usage'])) {
+            $statsRow = $data;
+        } elseif (is_array($data)) {
+            foreach ($data as $row) {
+                if (is_array($row) && ($row['bucket'] ?? null) === $bucketName) {
+                    $statsRow = $row;
+                    break;
+                }
+            }
+        }
+        if (is_array($statsRow)) {
+            $usage = $statsRow['usage']['rgw.main'] ?? null;
+            if (is_array($usage)) {
+                $update = [];
+                if ($hasLastSeenAt) {
+                    $update['last_seen_at'] = date('Y-m-d H:i:s');
+                }
+                if ($hasLastSeenNumObjects && array_key_exists('num_objects', $usage)) {
+                    $update['last_seen_num_objects'] = (int) $usage['num_objects'];
+                }
+                if ($hasLastSeenSizeActual && array_key_exists('size_actual', $usage)) {
+                    $update['last_seen_size_actual'] = (int) $usage['size_actual'];
+                }
+                if (!empty($update)) {
+                    Capsule::table('s3_delete_buckets')->where('id', $bucketId)->update($update);
+                }
+            }
+        }
+    }
 
-    if ($response['status'] === 'success') {
+    // Attempt to delete bucket using admin credentials, bounded by a time budget
+    $deadlineTs = time() + JOB_TIME_BUDGET_SECONDS;
+    $response = $bucketController->deleteBucketAsAdminIncremental((int) $userId, (string) $bucketName, [
+        'deadline_ts' => $deadlineTs,
+        'use_admin_creds' => true,
+    ]);
+
+    $respStatus = $response['status'] ?? 'fail';
+
+    if ($respStatus === 'success') {
         logModuleCall('cloudstorage', 's3deletebucket_cron', ['bucket' => $bucketName], 'Bucket deleted successfully.');
 
         if ($hasStatusColumn) {
-            Capsule::table('s3_delete_buckets')
-                ->where('id', $bucketId)
-                ->update([
-                    'status' => 'success',
-                    'completed_at' => date('Y-m-d H:i:s'),
-                ]);
+            $update = [
+                'status' => 'success',
+                'error' => null,
+                'completed_at' => date('Y-m-d H:i:s'),
+            ];
+            if ($hasProgressCols) {
+                $update['metrics'] = json_encode($response['metrics'] ?? []);
+            }
+            if ($hasLastProgressAt) {
+                $update['last_progress_at'] = date('Y-m-d H:i:s');
+            }
+            if ($hasNoProgressRuns) {
+                $update['no_progress_runs'] = 0;
+            }
+            Capsule::table('s3_delete_buckets')->where('id', $bucketId)->update($update);
         } else {
             DBController::deleteRecord('s3_delete_buckets', [['id', '=', $bucketId]]);
         }
 
-        // Clean up s3_buckets record
-        DBController::deleteRecord('s3_buckets', [
-            ['name', '=', $bucketName],
-            ['user_id', '=', $userId]
-        ]);
+        // Soft-delete bucket record for audit (keep row)
+        try {
+            if (Capsule::schema()->hasColumn('s3_buckets', 'deleted_at')) {
+                Capsule::table('s3_buckets')
+                    ->where('name', $bucketName)
+                    ->where('user_id', $userId)
+                    ->update([
+                        'is_active' => 0,
+                        'deleted_at' => date('Y-m-d H:i:s'),
+                    ]);
+            } else {
+                Capsule::table('s3_buckets')
+                    ->where('name', $bucketName)
+                    ->where('user_id', $userId)
+                    ->update(['is_active' => 0]);
+            }
+        } catch (\Throwable $e) {
+            // Non-fatal
+        }
 
+        continue;
+    }
+
+    // In-progress slice: requeue without incrementing attempts
+    if ($hasStatusColumn && $respStatus === 'in_progress') {
+        $metrics = $response['metrics'] ?? [];
+        $deletedTotal =
+            (int) ($metrics['deleted_current_objects'] ?? 0) +
+            (int) ($metrics['deleted_versions'] ?? 0) +
+            (int) ($metrics['deleted_delete_markers'] ?? 0) +
+            (int) ($metrics['aborted_multipart_uploads'] ?? 0);
+        $madeProgress = $deletedTotal > 0;
+
+        $noProgressRuns = (int) ($bucket->no_progress_runs ?? 0);
+        if ($hasNoProgressRuns) {
+            if ($madeProgress) {
+                $noProgressRuns = 0;
+            } else {
+                $noProgressRuns += 1;
+            }
+        }
+
+        // If we are repeatedly making no progress, fail with a meaningful message
+        if ($hasNoProgressRuns && $noProgressRuns >= NO_PROGRESS_MAX_RUNS) {
+            $errorMsg = 'No progress deleting this bucket across ' . NO_PROGRESS_MAX_RUNS . ' runs. This may indicate permissions issues or Object Lock retention.';
+            $failUpdate = [
+                'status' => 'failed',
+                'error' => $errorMsg,
+                'attempt_count' => ($bucket->attempt_count ?? 0) + 1,
+                'completed_at' => date('Y-m-d H:i:s'),
+            ];
+            if ($hasProgressCols) {
+                $failUpdate['metrics'] = json_encode($metrics);
+            }
+            if ($hasNoProgressRuns) {
+                $failUpdate['no_progress_runs'] = $noProgressRuns;
+            }
+            Capsule::table('s3_delete_buckets')->where('id', $bucketId)->update($failUpdate);
+            logModuleCall('cloudstorage', 's3deletebucket_cron', ['bucket' => $bucketName, 'user_id' => $userId], $errorMsg);
+            continue;
+        }
+
+        $update = [
+            'status' => 'queued',
+            'error' => null,
+            'completed_at' => null,
+        ];
+        if ($hasProgressCols) {
+            $update['metrics'] = json_encode($metrics);
+        }
+        if ($hasNoProgressRuns) {
+            $update['no_progress_runs'] = $noProgressRuns;
+        }
+        if ($hasLastProgressAt && $madeProgress) {
+            $update['last_progress_at'] = date('Y-m-d H:i:s');
+        }
+        Capsule::table('s3_delete_buckets')->where('id', $bucketId)->update($update);
+        continue;
+    }
+
+    // Legacy schema: in-progress slice should not count as a failure
+    if (!$hasStatusColumn && $respStatus === 'in_progress') {
+        logModuleCall('cloudstorage', 's3deletebucket_cron', ['bucket' => $bucketName, 'user_id' => $userId], 'Deletion in progress (legacy schema).');
         continue;
     }
 
@@ -227,14 +406,16 @@ foreach ($buckets as $bucket) {
             $newStatus = 'failed';  // Max attempts reached
         }
 
-        Capsule::table('s3_delete_buckets')
-            ->where('id', $bucketId)
-            ->update([
-                'status' => $newStatus,
-                'error' => $errorMsg,
-                'attempt_count' => $newAttemptCount,
-                'completed_at' => ($newStatus !== 'queued') ? date('Y-m-d H:i:s') : null,
-            ]);
+        $update = [
+            'status' => $newStatus,
+            'error' => $errorMsg,
+            'attempt_count' => $newAttemptCount,
+            'completed_at' => ($newStatus !== 'queued') ? date('Y-m-d H:i:s') : null,
+        ];
+        if ($hasProgressCols) {
+            $update['metrics'] = json_encode($response['metrics'] ?? []);
+        }
+        Capsule::table('s3_delete_buckets')->where('id', $bucketId)->update($update);
     } else {
         // Legacy: just increment attempt count
         DBController::updateRecord('s3_delete_buckets', [

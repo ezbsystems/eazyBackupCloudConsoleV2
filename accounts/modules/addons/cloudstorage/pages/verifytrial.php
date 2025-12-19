@@ -80,6 +80,7 @@ try {
     $debugInfo['ssoResult'] = $ssoResult;
 
     if ($ssoResult['result'] === 'success') {
+        cloudstorage_set_trial_sso_session($clientId);
         $_SESSION['message'] = "Email verified! Welcome.";
         header("Location: {$ssoResult['redirect_url']}");
         exit;
