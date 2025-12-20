@@ -668,6 +668,63 @@ function cloudstorage_activate() {
             logModuleCall('cloudstorage', 'activate', [], 'Created s3_delete_buckets table', [], []);
         }
 
+        // If the table already exists (common on deactivate/activate), ensure newer columns exist.
+        // WHMCS deactivation typically does not drop tables, so create() will be skipped.
+        if (Capsule::schema()->hasTable('s3_delete_buckets')) {
+            // Ensure status/error/timestamps/index exist for older installs that predate deprovision changes
+            $ensureBaseCols = [
+                'status' => function ($table) { $table->enum('status', ['queued', 'running', 'blocked', 'failed', 'success'])->default('queued')->after('bucket_name'); },
+                'error' => function ($table) { $table->text('error')->nullable()->after('attempt_count'); },
+                'started_at' => function ($table) { $table->timestamp('started_at')->nullable()->after('created_at'); },
+                'completed_at' => function ($table) { $table->timestamp('completed_at')->nullable()->after('started_at'); },
+            ];
+
+            foreach ($ensureBaseCols as $col => $adder) {
+                if (!Capsule::schema()->hasColumn('s3_delete_buckets', $col)) {
+                    try {
+                        Capsule::schema()->table('s3_delete_buckets', function ($table) use ($adder) {
+                            $adder($table);
+                        });
+                        logModuleCall('cloudstorage', 'activate', [], "Ensured {$col} on s3_delete_buckets", [], []);
+                    } catch (\Throwable $e) {
+                        logModuleCall('cloudstorage', "activate_ensure_s3_delete_buckets_{$col}", [], $e->getMessage(), [], []);
+                    }
+                }
+            }
+
+            // Ensure incremental deletion progress columns
+            $progressCols = [
+                'last_seen_num_objects' => function ($table) { $table->integer('last_seen_num_objects')->nullable()->after('error'); },
+                'last_seen_size_actual' => function ($table) { $table->bigInteger('last_seen_size_actual')->nullable()->after('last_seen_num_objects'); },
+                'last_seen_at' => function ($table) { $table->timestamp('last_seen_at')->nullable()->after('last_seen_size_actual'); },
+                'last_progress_at' => function ($table) { $table->timestamp('last_progress_at')->nullable()->after('last_seen_at'); },
+                'no_progress_runs' => function ($table) { $table->tinyInteger('no_progress_runs')->default(0)->after('last_progress_at'); },
+                'metrics' => function ($table) { $table->text('metrics')->nullable()->after('no_progress_runs'); },
+            ];
+
+            foreach ($progressCols as $col => $adder) {
+                if (!Capsule::schema()->hasColumn('s3_delete_buckets', $col)) {
+                    try {
+                        Capsule::schema()->table('s3_delete_buckets', function ($table) use ($adder) {
+                            $adder($table);
+                        });
+                        logModuleCall('cloudstorage', 'activate', [], "Ensured {$col} on s3_delete_buckets", [], []);
+                    } catch (\Throwable $e) {
+                        logModuleCall('cloudstorage', "activate_add_s3_delete_buckets_{$col}", [], $e->getMessage(), [], []);
+                    }
+                }
+            }
+
+            // Ensure helpful index exists (ignore errors if it already exists under a different name)
+            try {
+                Capsule::schema()->table('s3_delete_buckets', function ($table) {
+                    $table->index(['status', 'created_at']);
+                });
+            } catch (\Throwable $e) {
+                // Best-effort
+            }
+        }
+
         // Deprovision job queue for user deletion
         if (!Capsule::schema()->hasTable('s3_delete_users')) {
             Capsule::schema()->create('s3_delete_users', function ($table) {
