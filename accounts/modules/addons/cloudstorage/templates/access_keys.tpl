@@ -60,7 +60,7 @@
                         <thead class="">
                             <tr>
                                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">Owner</th>
-                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">Account Id</th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">Account ID</th>
                                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">Access Key</th>
                                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">Secret Key</th>
                                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">Date Created</th>
@@ -347,12 +347,7 @@
             jQuery('#alertMessage').text('').addClass('hidden');
             jQuery('#action').val('decryptkeys');
             jQuery('#password').val('');
-            const passwordModalOpened = localStorage.getItem('passwordModalOpened')
-            if (!passwordModalOpened) {
-                openDecryptSlideover();
-            } else {
-                decryptKeys();
-            }
+            openDecryptSlideover();
         });
 
         // decrypt api call
@@ -366,7 +361,6 @@
                         window.toast.error(response.message || 'Failed to decrypt keys.');
                         return;
                     }
-                    localStorage.setItem('passwordModalOpened', 'true');
                     window.toast.success(response.message || 'Keys decrypted.');
                     jQuery('#accessKey').val(response.keys.access_key);
                     jQuery('#secretKey').val(response.keys.secret_key);
@@ -420,12 +414,7 @@
             jQuery('#alertMessage').text('').addClass('hidden');
             jQuery('#passwordErrorMessage').text('').addClass('hidden');
             jQuery('#password').val('');
-            const passwordModalOpened = localStorage.getItem('passwordModalOpened')
-            if (!passwordModalOpened) {
-                openDecryptSlideover();
-            } else {
-                rollKeys();
-            }
+            openDecryptSlideover();
         });
 
         // roll keys api
@@ -439,7 +428,6 @@
                         window.toast.error(response.message || 'Failed to roll keys.');
                         return;
                     }
-                    localStorage.setItem('passwordModalOpened', 'true');
                     window.toast.success(response.message || 'Access keys rolled.');
                     // Hide the icons and mask the fields
                     jQuery('#copyIconAccessKey').addClass('hidden');

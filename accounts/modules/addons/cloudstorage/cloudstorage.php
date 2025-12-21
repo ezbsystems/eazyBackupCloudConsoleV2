@@ -14,7 +14,7 @@ function cloudstorage_config()
         'description' => 'This module show the usage of your buckets.',
         'author' => 'eazybackup',
         'language' => 'english',
-        'version' => '2.0.0',
+        'version' => '2.0.1',
         'fields' => [
             's3_region' => [
                 'FriendlyName' => 'S3 Region',
@@ -530,7 +530,9 @@ function cloudstorage_activate() {
                 $table->string('name');
                 $table->string('username');
                 $table->unsignedInteger('parent_id')->nullable();
-                $table->unsignedInteger('tenant_id')->nullable();
+                // NOTE: tenant_id values are 12-digit numeric strings (e.g. 100000000000..999999999999)
+                // which do NOT fit in INT UNSIGNED. Use BIGINT UNSIGNED.
+                $table->unsignedBigInteger('tenant_id')->nullable();
                 $table->tinyInteger('is_active')->default(1);
                 $table->timestamp('created_at')->useCurrent();
                 $table->timestamp('deleted_at')->nullable();
@@ -1605,6 +1607,55 @@ function cloudstorage_restore_settings() {
  */
 function cloudstorage_upgrade($vars) {
     try {
+        // Widen s3_users.tenant_id to BIGINT UNSIGNED to safely store 12-digit RGW tenant IDs.
+        // This is a non-destructive widening change, but if values were previously inserted into an INT column,
+        // MySQL may have clamped them (e.g. to 4294967295). This migration won't "fix" already-clamped values;
+        // it prevents further truncation going forward.
+        if (\WHMCS\Database\Capsule::schema()->hasTable('s3_users') && \WHMCS\Database\Capsule::schema()->hasColumn('s3_users', 'tenant_id')) {
+            try {
+                $databaseName = \WHMCS\Database\Capsule::connection()->getDatabaseName();
+                $col = \WHMCS\Database\Capsule::table('information_schema.COLUMNS')
+                    ->select(['DATA_TYPE', 'COLUMN_TYPE', 'IS_NULLABLE'])
+                    ->where('TABLE_SCHEMA', $databaseName)
+                    ->where('TABLE_NAME', 's3_users')
+                    ->where('COLUMN_NAME', 'tenant_id')
+                    ->first();
+
+                $dataType = strtolower((string) ($col->DATA_TYPE ?? ''));
+                $columnType = strtolower((string) ($col->COLUMN_TYPE ?? ''));
+                $isUnsigned = ($columnType !== '' && strpos($columnType, 'unsigned') !== false);
+
+                $needsWiden = in_array($dataType, ['tinyint', 'smallint', 'mediumint', 'int', 'integer'], true);
+                $needsUnsignedFix = ($dataType === 'bigint' && !$isUnsigned);
+                // If it's a string type, leave it as-is (some installs may have already migrated manually).
+                $isStringType = in_array($dataType, ['varchar', 'char', 'text', 'longtext', 'mediumtext'], true);
+
+                if (!$isStringType && ($needsWiden || $needsUnsignedFix)) {
+                    \WHMCS\Database\Capsule::statement("ALTER TABLE `s3_users` MODIFY COLUMN `tenant_id` BIGINT UNSIGNED NULL");
+                    logModuleCall('cloudstorage', 'upgrade_s3_users_tenant_id_bigint', [
+                        'from_data_type' => $dataType,
+                        'from_column_type' => $columnType,
+                    ], 'Altered s3_users.tenant_id to BIGINT UNSIGNED NULL', [], []);
+                }
+
+                // Optional visibility: if we detect clamped INT UNSIGNED max value, log it.
+                // (This does not change data; it helps diagnose whether a manual remediation is needed.)
+                try {
+                    $clampedCount = (int) \WHMCS\Database\Capsule::table('s3_users')->where('tenant_id', 4294967295)->count();
+                    if ($clampedCount > 0) {
+                        logModuleCall('cloudstorage', 'upgrade_s3_users_tenant_id_clamped_detected', [
+                            'clamped_value' => 4294967295,
+                            'count' => $clampedCount,
+                        ], 'Detected potential clamped tenant_id values from previous INT schema', [], []);
+                    }
+                } catch (\Throwable $e) {
+                    // ignore
+                }
+            } catch (\Throwable $e) {
+                logModuleCall('cloudstorage', 'upgrade_s3_users_tenant_id_bigint_fail', [], $e->getMessage(), [], []);
+            }
+        }
+
         // Add logging columns to s3_buckets if missing
         if (\WHMCS\Database\Capsule::schema()->hasTable('s3_buckets')) {
             if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_buckets', 'logging_enabled')) {

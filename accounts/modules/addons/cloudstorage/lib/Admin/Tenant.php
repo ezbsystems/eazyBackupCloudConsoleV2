@@ -31,6 +31,16 @@ class Tenant {
     public static function decryptTenantKey($request, $parentUserId)
     {
         try {
+            // Require recent password verification (defense-in-depth)
+            $verifiedAt = isset($_SESSION['cloudstorage_pw_verified_at']) ? (int) $_SESSION['cloudstorage_pw_verified_at'] : 0;
+            $freshWindow = 15 * 60; // 15 minutes
+            if ($verifiedAt <= 0 || (time() - $verifiedAt) > $freshWindow) {
+                return [
+                    'status' => 'fail',
+                    'message' => 'Please verify your password to view access keys.'
+                ];
+            }
+
             $id = $request['id'];
             $username = $request['username'];
 
@@ -102,6 +112,16 @@ class Tenant {
     public static function decryptSubuserKey($request, $parentUserId)
     {
         try {
+            // Require recent password verification (defense-in-depth)
+            $verifiedAt = isset($_SESSION['cloudstorage_pw_verified_at']) ? (int) $_SESSION['cloudstorage_pw_verified_at'] : 0;
+            $freshWindow = 15 * 60; // 15 minutes
+            if ($verifiedAt <= 0 || (time() - $verifiedAt) > $freshWindow) {
+                return [
+                    'status' => 'fail',
+                    'message' => 'Please verify your password to view access keys.'
+                ];
+            }
+
             $id = $request['id'];
             $username = $request['username'];
 
@@ -253,6 +273,9 @@ class Tenant {
                 'message' => 'User has been added successfully.',
                 'data' => [
                     'username' => $username,
+                    // For RGW tenants, all sub-users live under the parent's tenant namespace.
+                    // Returning it allows the UI to show it immediately without requiring a refresh.
+                    'tenant_id' => $newTenantId,
                     'key_id' => $keyId
                 ]
             ];

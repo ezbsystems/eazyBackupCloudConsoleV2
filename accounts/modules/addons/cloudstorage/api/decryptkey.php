@@ -26,6 +26,20 @@
 
     $packageId = ProductConfig::$E3_PRODUCT_ID;
     $loggedInUserId = $ca->getUserID();
+
+    // Require recent password verification (defense-in-depth)
+    $verifiedAt = isset($_SESSION['cloudstorage_pw_verified_at']) ? (int)$_SESSION['cloudstorage_pw_verified_at'] : 0;
+    $freshWindow = 15 * 60; // 15 minutes
+    if ($verifiedAt <= 0 || (time() - $verifiedAt) > $freshWindow) {
+        $jsonData = [
+            'status' => 'fail',
+            'message' => 'Please verify your password to view access keys.'
+        ];
+        $response = new JsonResponse($jsonData, 200);
+        $response->send();
+        exit();
+    }
+
     $product = DBController::getProduct($loggedInUserId, $packageId);
 
     if (is_null($product) || is_null($product->username)) {
