@@ -635,7 +635,7 @@
 
 		<!-- Create Subuser Modal -->
 		<div x-show="modals.createSubuser" x-cloak
-			class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50">
+			class="fixed inset-0 bg-black/75 flex items-center justify-center z-50">
 			<div class="bg-gray-800 rounded-lg shadow-lg w-full max-w-lg p-6" @click.away="modals.createSubuser = false">
 				<div class="flex justify-between items-center mb-6">
 					<h2 class="text-xl font-semibold text-white">Create Subuser</h2>
@@ -682,7 +682,7 @@
 
 		<!-- Password Modal -->
 		<div x-show="modals.password" x-cloak
-			class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50">
+			class="fixed inset-0 bg-black/75 flex items-center justify-center z-50">
 			<div class="bg-gray-800 rounded-lg shadow-lg w-full max-w-lg p-6" @click.away="modals.password = false">
 				<div class="flex justify-between items-center mb-6">
 					<h2 class="text-xl font-semibold text-white">Verify Password</h2>
@@ -719,7 +719,7 @@
 
 		<!-- Confirmation Modal -->
 		<div x-show="modals.confirm" x-cloak
-			class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50">
+			class="fixed inset-0 bg-black/75 flex items-center justify-center z-50">
 			<div class="bg-gray-800 rounded-lg shadow-lg w-full max-w-md p-6" @click.away="modals.confirm = false">
 				<div class="flex items-center mb-4">
 					<svg class="w-6 h-6 text-yellow-500 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
