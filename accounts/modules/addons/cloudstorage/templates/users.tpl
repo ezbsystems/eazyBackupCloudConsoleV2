@@ -278,8 +278,23 @@
 											</svg>
 										</div>
 										<div>
-											<div class="text-sm font-medium text-white" x-text="user.username"></div>
-											<div class="text-sm text-slate-400">User</div>
+											<div class="text-sm font-medium text-white">
+												<span class="text-slate-500 font-normal">Username:</span>
+												<span x-text="user.username"></span>
+											</div>
+											<div class="mt-1 flex items-center gap-2 text-xs text-slate-400" @click.stop>
+												<span class="text-slate-500">Account ID</span>
+												<span class="font-mono text-slate-300" x-text="user.tenant_id ? String(user.tenant_id) : '—'"></span>
+												<button
+													x-show="user.tenant_id"
+													@click.stop="copyToClipboard(String(user.tenant_id))"
+													class="text-slate-400 hover:text-slate-200 p-1 bg-slate-800 hover:bg-slate-700 rounded"
+													title="Copy Account ID">
+													<svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+														<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M16 3h2a2 2 0 012 2v10a2 2 0 01-2 2H10a2 2 0 01-2-2V5a2 2 0 012-2h2" />
+													</svg>
+												</button>
+											</div>
 										</div>
 									</div>
 								</td>
@@ -319,6 +334,21 @@
 							<!-- Expanded Row - Appears directly under main row -->
 							<tr x-show="expandedRows.includes(user.username)" x-cloak class="expanded-row">
 								<td colspan="7" class="px-6 py-4">
+									<div class="mb-4 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs">
+										<div class="flex items-center gap-2">
+											<span class="text-slate-500">Account ID</span>
+											<span class="font-mono text-slate-200" x-text="user.tenant_id ? String(user.tenant_id) : '—'"></span>
+											<button
+												x-show="user.tenant_id"
+												@click.stop="copyToClipboard(String(user.tenant_id))"
+												class="text-slate-400 hover:text-slate-200 p-1 bg-slate-800 hover:bg-slate-700 rounded"
+												title="Copy Account ID">
+												<svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M16 3h2a2 2 0 012 2v10a2 2 0 01-2 2H10a2 2 0 01-2-2V5a2 2 0 012-2h2" />
+												</svg>
+											</button>
+										</div>
+									</div>
 									<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
 										<!-- API Keys Section -->
 										<div>
@@ -964,6 +994,7 @@ function usersManager() {
                     // Add the new user to the list
                     var newUser = {
                         username: response.data.username,
+                        tenant_id: response.data.tenant_id || null,
                         total_buckets: 0,
                         total_storage: '0 B',
                         keys: response.data.key_id ? [{ key_id: response.data.key_id }] : [],
@@ -1177,22 +1208,16 @@ function usersManager() {
         },
 
         viewKey: function(keyId, keyType, username) {
-            // Check if password authentication is cached
-            var passwordCached = localStorage.getItem('passwordModalOpened');
-            
-            if (!passwordCached) {
-                this.passwordForm = {
-                    password: '',
-                    action: 'viewkey',
-                    keyId: keyId,
-                    keyType: keyType,
-                    username: username
-                };
-                this.modalError.message = '';
-                this.modals.password = true;
-            } else {
-                this.executeViewKey(keyId, keyType, username);
-            }
+            // Always require password verification for viewing keys (do not rely on localStorage)
+            this.passwordForm = {
+                password: '',
+                action: 'viewkey',
+                keyId: keyId,
+                keyType: keyType,
+                username: username
+            };
+            this.modalError.message = '';
+            this.modals.password = true;
         },
 
         executeViewKey: function(keyId, keyType, username) {
@@ -1346,7 +1371,6 @@ function usersManager() {
                 password: this.passwordForm.password
             }).then(function(response) {
                 if (response.status === 'success') {
-                    localStorage.setItem('passwordModalOpened', 'true');
                     self.modals.password = false;
                     
                     if (self.passwordForm.action === 'viewkey') {

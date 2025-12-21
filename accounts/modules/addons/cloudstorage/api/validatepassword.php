@@ -322,42 +322,6 @@
         }
 
         if (!$probeSuccess) {
-            // As a last resort: if there are no linked Users and the client has no password
-            // but clearly owns the storage product and has an active session, permit a session-based bypass.
-            // This handles legacy/misaligned accounts where ValidateLogin is impossible.
-            $ownsE3 = false;
-            try {
-                $pkg = (int) (ProductConfig::$E3_PRODUCT_ID ?? 0);
-                if ($pkg > 0) {
-                    $cnt = Capsule::table('tblhosting')
-                        ->where('userid', $clientId)
-                        ->where('packageid', $pkg)
-                        ->count();
-                    $ownsE3 = ($cnt > 0);
-                }
-            } catch (\Throwable $__) { $ownsE3 = false; }
-
-            if ($ownsE3) {
-                logModuleCall(
-                    'cloudstorage',
-                    'ValidatePasswordSessionBypass',
-                    [
-                        'clientId' => $clientId,
-                        'attemptEmail' => $email,
-                        'reason' => 'no_linked_users_and_no_client_password',
-                    ],
-                    'accepted'
-                );
-                $_SESSION['cloudstorage_pw_verified_at'] = time();
-                $jsonData = [
-                    'status' => 'success',
-                    'message' => 'Session verified.'
-                ];
-                $response = new JsonResponse($jsonData, 200);
-                $response->send();
-                exit();
-            }
-
             $jsonData = [
                 'status' => 'fail',
                 'message' => 'Password is incorrect.'
