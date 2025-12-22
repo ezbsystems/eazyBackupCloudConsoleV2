@@ -40,6 +40,22 @@
         exit();
     }
 
+    // Optional hard-disable: only allow decrypt if explicitly enabled in addon settings.
+    $allowDecrypt = DBController::getRow('tbladdonmodules', [
+        ['module', '=', 'cloudstorage'],
+        ['setting', '=', 'allow_key_decrypt']
+    ]);
+    $allowVal = is_object($allowDecrypt) ? (string)($allowDecrypt->value ?? '') : '';
+    if (!in_array(strtolower($allowVal), ['on', '1', 'true', 'yes'], true)) {
+        $jsonData = [
+            'status' => 'fail',
+            'message' => 'Key decryption is disabled for security. Create a new key instead.'
+        ];
+        $response = new JsonResponse($jsonData, 200);
+        $response->send();
+        exit();
+    }
+
     $product = DBController::getProduct($loggedInUserId, $packageId);
 
     if (is_null($product) || is_null($product->username)) {

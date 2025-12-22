@@ -77,30 +77,16 @@
                                         <span class="text-sm text-white">{$user->tenant_id}</span>
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap relative">
-                                        <input type="password" value="{$accessKey->access_key}" class="w-full rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500" id="accessKey" readonly>
-                                        <button
-                                            class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-300 hidden"
-                                            id="copyIconAccessKey"
-                                            onclick="copyToClipboard('accessKey', 'copyIconAccessKey')"
-                                            title="Copy Access Key"
-                                        >
-                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
-                                                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 0 0-3.375-3.375h-1.5a1.125 1.125 0 0 1-1.125-1.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H9.75" />
-                                            </svg>
-                                        </button>
+                                        <input type="text"
+                                               value="{if !empty($accessKey->access_key_hint)}{$accessKey->access_key_hint}{else}Hidden{/if}"
+                                               class="w-full rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500 font-mono"
+                                               id="accessKey" readonly>
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap relative">
-                                        <input type="password" value="{$accessKey->secret_key}" class="w-full rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500" id="secretKey" readonly>
-                                        <button
-                                            class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-300 hidden"
-                                            id="copyIconSecretKey"
-                                            onclick="copyToClipboard('secretKey', 'copyIconSecretKey')"
-                                            title="Copy Secret Key"
-                                        >
-                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
-                                                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 0 0-3.375-3.375h-1.5a1.125 1.125 0 0 1-1.125-1.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H9.75" />
-                                            </svg>
-                                        </button>
+                                        <input type="text"
+                                               value="Hidden"
+                                               class="w-full rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500 font-mono"
+                                               id="secretKey" readonly>
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap">
                                         <span class="text-sm text-gray-400" title="Creation Date">{$accessKey->created_at|date_format:"%d %b %Y %I:%M %p"}</span>
@@ -109,19 +95,10 @@
                                         <div class="flex space-x-2">
                                             <button
                                                 type="button"
-                                                class="btn-accent"
-                                            id="decryptKeys"
-                                            onclick="openDecryptSlideover()"
-                                                title="Decrypt Keys"
-                                            >
-                                                Decrypt Keys
-                                            </button>
-                                            <button
-                                                type="button"
                                                 class="text-white hover:text-gray-300 px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-400"
                                                 onclick="openModal('updateKeysModal')"
                                             >
-                                                Roll Keys
+                                                Create new key
                                             </button>
                                         </div>
                                     </td>
@@ -182,11 +159,11 @@
 
 
 
-        <!-- Update Keys Modal -->
-        <div class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 hidden" id="updateKeysModal">
+        <!-- Create New Key Modal -->
+        <div class="fixed inset-0 bg-black/75 flex items-center justify-center z-50 hidden" id="updateKeysModal">
             <div class="bg-gray-800 rounded-lg shadow-lg w-full max-w-md p-6">
                 <div class="flex justify-between items-center mb-4">
-                    <h5 class="text-xl font-semibold text-yellow-300">Roll Access Keys</h5>
+                    <h5 class="text-xl font-semibold text-yellow-300">Create new access key</h5>
                     <button type="button" onclick="closeModal('updateKeysModal')" class="text-gray-400 hover:text-white focus:outline-none">
                         <!-- Close Icon SVG -->
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -196,7 +173,7 @@
                 </div>
                 <div>
                     <p class="mb-4">
-                        Rolling your access keys revokes the current keys and generates new ones. This action cannot be undone. Do you want to proceed?
+                        Creating a new key revokes the current key and generates a new one. You will be shown the secret key only once.
                     </p>
                 </div>
                 <div class="flex justify-end space-x-2">
@@ -214,6 +191,36 @@
                     >
                         Confirm
                     </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- One-time new key modal -->
+        <div class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 hidden" id="newKeysModal">
+            <div class="bg-gray-800 rounded-lg shadow-lg w-full max-w-xl p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h5 class="text-xl font-semibold text-green-300">Save your new key</h5>
+                    <button type="button" onclick="closeModal('newKeysModal')" class="text-gray-400 hover:text-white focus:outline-none">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+                <div class="mb-4 rounded-md bg-yellow-900/20 border border-yellow-700/40 p-3 text-yellow-200 text-sm">
+                    This is the <strong>only</strong> time you can view the secret key. Store it securely.
+                </div>
+                <div class="space-y-3">
+                    <div>
+                        <label class="block text-xs text-gray-400 mb-1">Access key</label>
+                        <input type="text" id="newAccessKey" class="w-full rounded-md bg-slate-900/70 border border-slate-700 px-3 py-2 text-sm text-slate-200 font-mono" readonly>
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-400 mb-1">Secret key</label>
+                        <input type="text" id="newSecretKey" class="w-full rounded-md bg-slate-900/70 border border-slate-700 px-3 py-2 text-sm text-slate-200 font-mono" readonly>
+                    </div>
+                </div>
+                <div class="flex justify-end mt-6">
+                    <button type="button" class="bg-sky-600 hover:bg-sky-700 text-white px-4 py-2 rounded-md" onclick="closeModal('newKeysModal')">Done</button>
                 </div>
             </div>
         </div>
@@ -248,8 +255,8 @@
                 <div class="p-4">
                     <div id="passwordErrorMessage" class="bg-red-600 text-white px-4 py-2 rounded-md mb-4 hidden" role="alert"></div>
                     <div class="mb-4">
-                        <input type="hidden" id="action" value="decryptkeys">
-                        <label for="password" class="mb-1 block text-sm font-medium text-gray-400">Enter your account password to decrypt the keys</label>
+                        <input type="hidden" id="action" value="rollkeys">
+                        <label for="password" class="mb-1 block text-sm font-medium text-gray-400">Enter your account password to continue</label>
                         <input
                             type="password"
                             class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-gray-700 rounded focus:outline-none focus:ring-0 focus:border-sky-600"
@@ -342,43 +349,12 @@
             try { window.dispatchEvent(new CustomEvent('close-decrypt-slideover')); } catch(_) {}
         }
 
-        jQuery('#decryptKeys').click(function() {
-            jQuery('#passwordErrorMessage').text('').addClass('hidden');
-            jQuery('#alertMessage').text('').addClass('hidden');
-            jQuery('#action').val('decryptkeys');
-            jQuery('#password').val('');
-            openDecryptSlideover();
-        });
-
-        // decrypt api call
-        function decryptKeys() {
-            jQuery.ajax({
-                url: 'modules/addons/cloudstorage/api/decryptkey.php',
-                method: 'POST',
-                dataType: 'json',
-                success: function(response) {
-                    if (response.status === 'fail') {
-                        window.toast.error(response.message || 'Failed to decrypt keys.');
-                        return;
-                    }
-                    window.toast.success(response.message || 'Keys decrypted.');
-                    jQuery('#accessKey').val(response.keys.access_key);
-                    jQuery('#secretKey').val(response.keys.secret_key);
-                    jQuery('#copyIconAccessKey').removeClass('hidden');
-                    jQuery('#copyIconSecretKey').removeClass('hidden');
-                },
-                error: function(xhr, status, error) {
-                    window.toast.error(error || 'Request failed.');
-                }
-            });
-        }
-
         // validate password
         jQuery('#submitPassword').click(function() {
             jQuery(this).prop('disabled', true).addClass('opacity-50 cursor-not-allowed');
             const action = jQuery('#action').val();
 
-            if (action == 'decryptkeys' || action == 'rollkeys') {
+            if (action == 'rollkeys') {
                 jQuery.ajax({
                     url: 'modules/addons/cloudstorage/api/validatepassword.php',
                     method: 'POST',
@@ -387,11 +363,7 @@
                     success: function(response) {
                         if (response.status === 'success') {
                             closeDecryptSlideover()
-                            if (action == 'decryptkeys') {
-                                decryptKeys();
-                            } else {
-                                rollKeys();
-                            }
+                            rollKeys();
                         } else {
                             window.toast.error(response.message || 'Password verification failed.');
                         }
@@ -429,11 +401,18 @@
                         return;
                     }
                     window.toast.success(response.message || 'Access keys rolled.');
-                    // Hide the icons and mask the fields
-                    jQuery('#copyIconAccessKey').addClass('hidden');
-                    jQuery('#copyIconSecretKey').addClass('hidden');
-                    jQuery('#accessKey').val('********');
-                    jQuery('#secretKey').val('********');
+                    // Update UI hint and show one-time secrets in a modal
+                    try {
+                        if (response.data && response.data.access_key_hint) {
+                            jQuery('#accessKey').val(response.data.access_key_hint);
+                        }
+                        jQuery('#secretKey').val('Hidden');
+                        if (response.data && response.data.access_key && response.data.secret_key) {
+                            jQuery('#newAccessKey').val(response.data.access_key);
+                            jQuery('#newSecretKey').val(response.data.secret_key);
+                            openModal('newKeysModal');
+                        }
+                    } catch (e) {}
                 },
                 error: function(xhr, status, error) {
                     window.toast.error(error || 'Request failed.');

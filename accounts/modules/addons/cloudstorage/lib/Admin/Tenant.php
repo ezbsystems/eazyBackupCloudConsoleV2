@@ -41,6 +41,25 @@ class Tenant {
                 ];
             }
 
+            // Optional hard-disable: only allow decrypt if explicitly enabled in addon settings.
+            try {
+                $allowVal = (string) Capsule::table('tbladdonmodules')
+                    ->where('module', 'cloudstorage')
+                    ->where('setting', 'allow_key_decrypt')
+                    ->value('value');
+                if (!in_array(strtolower($allowVal), ['on', '1', 'true', 'yes'], true)) {
+                    return [
+                        'status' => 'fail',
+                        'message' => 'Key decryption is disabled for security. Create a new key instead.'
+                    ];
+                }
+            } catch (\Throwable $__) {
+                return [
+                    'status' => 'fail',
+                    'message' => 'Key decryption is disabled for security. Create a new key instead.'
+                ];
+            }
+
             $id = $request['id'];
             $username = $request['username'];
 
@@ -119,6 +138,25 @@ class Tenant {
                 return [
                     'status' => 'fail',
                     'message' => 'Please verify your password to view access keys.'
+                ];
+            }
+
+            // Optional hard-disable: only allow decrypt if explicitly enabled in addon settings.
+            try {
+                $allowVal = (string) Capsule::table('tbladdonmodules')
+                    ->where('module', 'cloudstorage')
+                    ->where('setting', 'allow_key_decrypt')
+                    ->value('value');
+                if (!in_array(strtolower($allowVal), ['on', '1', 'true', 'yes'], true)) {
+                    return [
+                        'status' => 'fail',
+                        'message' => 'Key decryption is disabled for security. Create a new key instead.'
+                    ];
+                }
+            } catch (\Throwable $__) {
+                return [
+                    'status' => 'fail',
+                    'message' => 'Key decryption is disabled for security. Create a new key instead.'
                 ];
             }
 
@@ -252,8 +290,11 @@ class Tenant {
                 ];
             }
 
-            $accessKey = HelperController::encryptKey($tenant['data']['keys'][0]['access_key'], $encryptionKey);
-            $secretKey = HelperController::encryptKey($tenant['data']['keys'][0]['secret_key'], $encryptionKey);
+            $accessKeyPlain = (string)($tenant['data']['keys'][0]['access_key'] ?? '');
+            $secretKeyPlain = (string)($tenant['data']['keys'][0]['secret_key'] ?? '');
+            $accessKeyHint = (strlen($accessKeyPlain) <= 8) ? $accessKeyPlain : (substr($accessKeyPlain, 0, 4) . '…' . substr($accessKeyPlain, -4));
+            $accessKey = HelperController::encryptKey($accessKeyPlain, $encryptionKey);
+            $secretKey = HelperController::encryptKey($secretKeyPlain, $encryptionKey);
 
             $tenantId = DBController::insertGetId('s3_users', [
                 'name' => $name,
@@ -265,7 +306,8 @@ class Tenant {
             $keyId = DBController::insertGetId('s3_user_access_keys', [
                 'user_id' => $tenantId,
                 'access_key' => $accessKey,
-                'secret_key' => $secretKey
+                'secret_key' => $secretKey,
+                'access_key_hint' => $accessKeyHint
             ]);
 
             return [
@@ -383,12 +425,15 @@ class Tenant {
                 ];
             }
 
-            $accessKey = HelperController::encryptKey($accessKey, $encryptionKey);
-            $secretKey = HelperController::encryptKey($secretKey, $encryptionKey);
+            $accessKeyPlain = (string) $accessKey;
+            $accessKeyHint = (strlen($accessKeyPlain) <= 8) ? $accessKeyPlain : (substr($accessKeyPlain, 0, 4) . '…' . substr($accessKeyPlain, -4));
+            $accessKey = HelperController::encryptKey($accessKeyPlain, $encryptionKey);
+            $secretKey = HelperController::encryptKey((string)$secretKey, $encryptionKey);
             $keyId = DBController::insertGetId('s3_user_access_keys', [
                 'user_id' => $tenant->id,
                 'access_key' => $accessKey,
-                'secret_key' => $secretKey
+                'secret_key' => $secretKey,
+                'access_key_hint' => $accessKeyHint
             ]);
 
             return [
@@ -868,5 +913,262 @@ class Tenant {
                 'message' => 'Something went wrong. Please contact technical support for assistance.'
             ];
         }
+    }
+
+    /**
+     * Access Keys v2 (Client-facing): create an access key for a tenant user.
+     * Implemented using the existing subuser mechanism under the hood.
+     *
+     * Request expects:
+     * - username (tenant username)
+     * - permission (read|write|readwrite|full)
+     * - description (optional string)
+     *
+     * Returns one-time plaintext access_key + secret_key in the response.
+     */
+    public static function createTenantAccessKey(array $request, $parentUser): array
+    {
+        try {
+            $gate = self::requireFreshPasswordGate();
+            if ($gate !== null) {
+                return $gate;
+            }
+
+            $username = trim((string)($request['username'] ?? ''));
+            $permission = trim((string)($request['permission'] ?? ''));
+            $description = trim((string)($request['description'] ?? ''));
+
+            if ($username === '' || !in_array($permission, ['read', 'write', 'readwrite', 'full'], true)) {
+                return ['status' => 'fail', 'message' => 'Invalid request.'];
+            }
+            if (strlen($description) > 255) {
+                $description = substr($description, 0, 255);
+            }
+
+            $tenant = DBController::getRow('s3_users', [
+                ['username', '=', $username],
+                ['parent_id', '=', (int)$parentUser->id],
+            ]);
+            if (is_null($tenant)) {
+                return ['status' => 'fail', 'message' => 'User not found.'];
+            }
+
+            $module = DBController::getResult('tbladdonmodules', [
+                ['module', '=', 'cloudstorage']
+            ]);
+            if (count($module) == 0) {
+                return ['status' => 'fail', 'message' => 'Service error. Please contact support.'];
+            }
+
+            $s3Endpoint = $module->where('setting', 's3_endpoint')->pluck('value')->first();
+            $cephAdminAccessKey = $module->where('setting', 'ceph_access_key')->pluck('value')->first();
+            $cephAdminSecretKey = $module->where('setting', 'ceph_secret_key')->pluck('value')->first();
+            $encryptionKey = $module->where('setting', 'encryption_key')->pluck('value')->first();
+
+            if (empty($s3Endpoint) || empty($cephAdminAccessKey) || empty($cephAdminSecretKey) || empty($encryptionKey)) {
+                return ['status' => 'fail', 'message' => 'Service is not configured. Please contact support.'];
+            }
+
+            $tenantUsername = !(empty($tenant->tenant_id)) ? $tenant->tenant_id . '$' . $username : $username;
+
+            // Generate a unique internal subuser name (not shown to customer).
+            $subusername = '';
+            for ($i = 0; $i < 8; $i++) {
+                $candidate = 'ak' . bin2hex(random_bytes(4)); // ak + 8 hex
+                $exists = Capsule::table('s3_subusers')
+                    ->where('user_id', (int)$tenant->id)
+                    ->where('subuser', $candidate)
+                    ->exists();
+                if (!$exists) {
+                    $subusername = $candidate;
+                    break;
+                }
+            }
+            if ($subusername === '') {
+                return ['status' => 'fail', 'message' => 'Unable to generate key. Please try again.'];
+            }
+
+            $params = [
+                'uid' => $tenantUsername,
+                'subuser' => $subusername,
+                'access' => $permission,
+            ];
+            $subuserResp = AdminOps::createSubUser($s3Endpoint, $cephAdminAccessKey, $cephAdminSecretKey, $params);
+            if (!is_array($subuserResp) || ($subuserResp['status'] ?? '') !== 'success') {
+                return [
+                    'status' => 'fail',
+                    'message' => is_array($subuserResp) ? ($subuserResp['message'] ?? 'Unable to create access key.') : 'Unable to create access key.'
+                ];
+            }
+
+            // Retrieve plaintext keys once (do not store plaintext).
+            $userinfo = AdminOps::getUserInfo($s3Endpoint, $cephAdminAccessKey, $cephAdminSecretKey, $tenantUsername);
+            if (!is_array($userinfo) || ($userinfo['status'] ?? '') !== 'success') {
+                return ['status' => 'fail', 'message' => 'Unable to retrieve access key. Please try again.'];
+            }
+
+            $accessKey = '';
+            $secretKey = '';
+            $keys = $userinfo['data']['keys'] ?? [];
+            $searchUser = $tenantUsername . ':' . $subusername;
+            if (is_array($keys)) {
+                foreach ($keys as $item) {
+                    if (($item['user'] ?? '') === $searchUser) {
+                        $accessKey = (string)($item['access_key'] ?? '');
+                        $secretKey = (string)($item['secret_key'] ?? '');
+                        break;
+                    }
+                }
+            }
+            if ($accessKey === '' || $secretKey === '') {
+                return ['status' => 'fail', 'message' => 'Unable to retrieve access key. Please try again.'];
+            }
+
+            $hint = self::buildAccessKeyHint($accessKey);
+            $createdAt = date('Y-m-d H:i:s');
+
+            $subuserId = DBController::insertGetId('s3_subusers', [
+                'user_id' => (int)$tenant->id,
+                'subuser' => $subusername,
+                'permission' => $permission,
+                'description' => $description ?: null,
+                'created_at' => $createdAt,
+            ]);
+
+            $accessKeyEnc = HelperController::encryptKey($accessKey, $encryptionKey);
+            $secretKeyEnc = HelperController::encryptKey($secretKey, $encryptionKey);
+
+            // Insert into s3_subusers_keys with whichever FK column exists (subuser_id preferred).
+            $schema = Capsule::schema();
+            $fkCol = $schema->hasColumn('s3_subusers_keys', 'subuser_id') ? 'subuser_id' : 'sub_user_id';
+            $keyId = DBController::insertGetId('s3_subusers_keys', array_merge([
+                $fkCol => (int)$subuserId,
+                'access_key' => $accessKeyEnc,
+                'secret_key' => $secretKeyEnc,
+                'access_key_hint' => $hint,
+                'created_at' => $createdAt,
+            ]));
+
+            return [
+                'status' => 'success',
+                'message' => 'Access key created successfully.',
+                'data' => [
+                    'key_id' => (int)$keyId,
+                    'access_key_hint' => $hint,
+                    'description' => $description,
+                    'permission' => $permission,
+                    'created_at' => $createdAt,
+                    // One-time secrets (show once in UI)
+                    'access_key' => $accessKey,
+                    'secret_key' => $secretKey,
+                ],
+            ];
+        } catch (\Throwable $e) {
+            logModuleCall(self::$module, __FUNCTION__, ['username' => $request['username'] ?? null], $e->getMessage());
+            return ['status' => 'fail', 'message' => 'Something went wrong. Please contact support.'];
+        }
+    }
+
+    /**
+     * Access Keys v2 (Client-facing): delete an access key for a tenant user.
+     *
+     * Request expects:
+     * - username (tenant username)
+     * - key_id (s3_subusers_keys.id)
+     */
+    public static function deleteTenantAccessKey(array $request, int $parentUserId): array
+    {
+        try {
+            $gate = self::requireFreshPasswordGate();
+            if ($gate !== null) {
+                return $gate;
+            }
+
+            $username = trim((string)($request['username'] ?? ''));
+            $keyId = (int)($request['key_id'] ?? 0);
+            if ($username === '' || $keyId <= 0) {
+                return ['status' => 'fail', 'message' => 'Invalid request.'];
+            }
+
+            $tenant = DBController::getRow('s3_users', [
+                ['username', '=', $username],
+                ['parent_id', '=', $parentUserId],
+            ]);
+            if (is_null($tenant)) {
+                return ['status' => 'fail', 'message' => 'User not found.'];
+            }
+
+            $schema = Capsule::schema();
+            $fkCol = $schema->hasColumn('s3_subusers_keys', 'subuser_id') ? 'subuser_id' : ($schema->hasColumn('s3_subusers_keys', 'sub_user_id') ? 'sub_user_id' : null);
+            if ($fkCol === null) {
+                return ['status' => 'fail', 'message' => 'Service error. Please contact support.'];
+            }
+
+            $keyRow = Capsule::table('s3_subusers_keys')->where('id', $keyId)->first();
+            if (!$keyRow || !isset($keyRow->{$fkCol})) {
+                return ['status' => 'fail', 'message' => 'Key not found.'];
+            }
+            $subuserId = (int) $keyRow->{$fkCol};
+            if ($subuserId <= 0) {
+                return ['status' => 'fail', 'message' => 'Key not found.'];
+            }
+
+            $subuser = Capsule::table('s3_subusers')
+                ->where('id', $subuserId)
+                ->where('user_id', (int)$tenant->id)
+                ->first();
+            if (!$subuser || empty($subuser->subuser)) {
+                return ['status' => 'fail', 'message' => 'Key not found.'];
+            }
+
+            $module = DBController::getResult('tbladdonmodules', [
+                ['module', '=', 'cloudstorage']
+            ]);
+            if (count($module) == 0) {
+                return ['status' => 'fail', 'message' => 'Service error. Please contact support.'];
+            }
+            $s3Endpoint = $module->where('setting', 's3_endpoint')->pluck('value')->first();
+            $cephAdminAccessKey = $module->where('setting', 'ceph_access_key')->pluck('value')->first();
+            $cephAdminSecretKey = $module->where('setting', 'ceph_secret_key')->pluck('value')->first();
+            if (empty($s3Endpoint) || empty($cephAdminAccessKey) || empty($cephAdminSecretKey)) {
+                return ['status' => 'fail', 'message' => 'Service is not configured. Please contact support.'];
+            }
+
+            $tenantUsername = !(empty($tenant->tenant_id)) ? $tenant->tenant_id . '$' . $username : $username;
+            $delete = AdminOps::removeSubUser($s3Endpoint, $cephAdminAccessKey, $cephAdminSecretKey, [
+                'uid' => $tenantUsername,
+                'subuser' => (string)$subuser->subuser,
+            ]);
+            if (!is_array($delete) || ($delete['status'] ?? '') !== 'success') {
+                return ['status' => 'fail', 'message' => is_array($delete) ? ($delete['message'] ?? 'Unable to delete key.') : 'Unable to delete key.'];
+            }
+
+            // DB cleanup
+            Capsule::table('s3_subusers_keys')->where('id', $keyId)->delete();
+            Capsule::table('s3_subusers')->where('id', $subuserId)->delete();
+
+            return ['status' => 'success', 'message' => 'Access key deleted successfully.'];
+        } catch (\Throwable $e) {
+            logModuleCall(self::$module, __FUNCTION__, ['username' => $request['username'] ?? null, 'key_id' => $request['key_id'] ?? null], $e->getMessage());
+            return ['status' => 'fail', 'message' => 'Something went wrong. Please contact support.'];
+        }
+    }
+
+    private static function requireFreshPasswordGate(): ?array
+    {
+        $verifiedAt = isset($_SESSION['cloudstorage_pw_verified_at']) ? (int)$_SESSION['cloudstorage_pw_verified_at'] : 0;
+        $freshWindow = 15 * 60;
+        if ($verifiedAt <= 0 || (time() - $verifiedAt) > $freshWindow) {
+            return ['status' => 'fail', 'message' => 'Please verify your password to manage access keys.'];
+        }
+        return null;
+    }
+
+    private static function buildAccessKeyHint(string $accessKey): string
+    {
+        $ak = trim($accessKey);
+        if ($ak === '') return '';
+        if (strlen($ak) <= 8) return $ak;
+        return substr($ak, 0, 4) . '…' . substr($ak, -4);
     }
 }

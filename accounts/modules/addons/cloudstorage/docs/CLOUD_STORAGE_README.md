@@ -52,6 +52,70 @@ Defined in `cloudstorage.php` activation:
 - `s3_bucket_sizes_history` — collected size/object history for analytics
 - `s3_historical_stats` — per-user daily historical aggregates
 
+## Recent updates: Users & Access Keys (Client Area UX + security)
+
+This update refines the customer-facing Users/Keys experience and hardens key handling:
+
+### Templates: `users.tpl` (legacy Users UI)
+- **Terminology cleanup**:
+  - Removed any customer-facing mention of backend implementation terms (e.g., “RGW”, “Ceph”).
+  - Renamed “Tenant ID” → **Account ID**.
+- **Account ID display**:
+  - Added a clear **Account ID** value with a copy affordance.
+  - Removed display of implementation-specific “`<tenant>$<username>`” style identifiers from the UI.
+- **Username consistency**:
+  - Updated the Manage Users table to show **`Username:`** label for consistency with the Account ID label.
+- **Client-side security cleanup**:
+  - Removed the `localStorage.passwordModalOpened` bypass pattern used to “remember” that a password modal was opened.
+
+> Note: the primary Users route now renders `templates/users_v2.tpl` (AWS-inspired layout). `users.tpl` remains as the legacy template.
+
+### Templates: `access_keys.tpl`
+- **Terminology cleanup**:
+  - Renamed “Tenant Id” → **Account ID** for consistent customer terminology.
+- **Client-side security cleanup**:
+  - Removed `localStorage.passwordModalOpened` usage.
+- **Secret key exposure model**:
+  - Updated UX to align with “**show secret only once**” on create/rotate (no “decrypt existing secret” workflow in the UI).
+
+### Backend/API: “show secret once” model + password-gated operations
+- **Password verification**:
+  - Password verification is enforced server-side (session freshness window) before sensitive operations.
+  - Removed insecure “session verified” fallback behavior from password validation.
+- **No decrypting existing secrets**:
+  - Decrypt endpoints remain present for compatibility but are gated/disabled so customers cannot retrieve existing secret keys from the UI.
+  - Keys remain stored (encrypted at rest) in the database to support backend operations without a major refactor.
+- **New access key management contract**:
+  - Added a dedicated Client Area endpoint: `api/tenant_access_keys.php` (create/list/delete for a selected storage user).
+  - Access key **descriptions** are supported and returned with list responses.
+  - Only a **hint** of the access key is shown in lists (not full credentials).
+
+### Database changes
+
+#### 1) Widen `s3_users.tenant_id` to prevent truncation
+- **Change**: `s3_users.tenant_id` migrated to `BIGINT UNSIGNED NULL`.
+- **Why**: Account IDs can exceed 32-bit integer range; widening prevents clamping/truncation.
+- **Behavior**:
+  - Upgrade logic checks the existing column type and widens it when needed.
+  - Upgrade also logs warnings if evidence of historical clamping is detected.
+- **New installs**: activation schema creates `tenant_id` as `unsignedBigInteger`.
+
+#### 2) Add metadata + lifecycle fields to key tables
+To support a cleaner access-key UX and avoid showing full keys in tables:
+
+- **`s3_user_access_keys`** additions:
+  - `description` (string, nullable)
+  - `key_hint` (string(16), nullable) — non-sensitive “hint” for UI display
+  - `is_active` (tinyint, default 1)
+- **`s3_subusers_keys`** additions:
+  - `description` (string, nullable)
+  - `key_hint`/`access_key_hint` (string(16), nullable; used for UI hint display)
+  - `is_active` (tinyint, default 1)
+
+#### 3) Compatibility: subuser key foreign key column naming
+- Some older schemas used `sub_user_id` while newer code expects `subuser_id`.
+- Migrations and inserts are tolerant to **either** column name to avoid breaking upgrades.
+
 ## Recent updates: Bucket delete process
 
 ### 1) Object-locked buckets (strict)

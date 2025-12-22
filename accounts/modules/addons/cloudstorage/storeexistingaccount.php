@@ -57,7 +57,9 @@ foreach ($products as $product) {
             'username' => $username,
         ]);
 
-        $accessKey = HelperController::encryptKey($accessKey ,$encryptionKey);
+        $accessKeyPlain = $accessKey;
+        $hint = (strlen($accessKeyPlain) <= 8) ? $accessKeyPlain : (substr($accessKeyPlain, 0, 4) . '…' . substr($accessKeyPlain, -4));
+        $accessKey = HelperController::encryptKey($accessKeyPlain ,$encryptionKey);
         $secretKey = HelperController::encryptKey($secretKey ,$encryptionKey);
 
         // insert record into s3_subuser_keys
@@ -65,6 +67,7 @@ foreach ($products as $product) {
             'user_id' => $userId,
             'access_key' => $accessKey,
             'secret_key' => $secretKey,
+            'access_key_hint' => $hint,
         ]);
         $newUsers[] = $username;
     } else {
