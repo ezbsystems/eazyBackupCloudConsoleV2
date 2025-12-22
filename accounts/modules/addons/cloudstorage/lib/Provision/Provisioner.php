@@ -279,10 +279,12 @@ class Provisioner
                                 if ($ak && $sk && $encKey) {
                                     $akEnc = \WHMCS\Module\Addon\CloudStorage\Client\HelperController::encryptKey($ak, $encKey);
                                     $skEnc = \WHMCS\Module\Addon\CloudStorage\Client\HelperController::encryptKey($sk, $encKey);
+                                    $hint = (strlen($ak) <= 8) ? $ak : (substr($ak, 0, 4) . '…' . substr($ak, -4));
                                     \WHMCS\Module\Addon\CloudStorage\Client\DBController::insertRecord('s3_user_access_keys', [
                                         'user_id'    => $s3UserId,
                                         'access_key' => $akEnc,
                                         'secret_key' => $skEnc,
+                                        'access_key_hint' => $hint,
                                     ]);
                                     try { logModuleCall('cloudstorage', 'provision_storage_keys_saved', ['u' => $serviceUsername, 's3_user_id' => $s3UserId], ['ak_len' => strlen($akEnc), 'sk_len' => strlen($skEnc)]); } catch (\Throwable $e) {}
                                 }

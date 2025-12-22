@@ -727,6 +727,7 @@ class BucketController {
         }
         $accessKey = $result['data'][0]['access_key'];
         $secretKey = $result['data'][0]['secret_key'];
+        $hint = (strlen($accessKey) <= 8) ? $accessKey : (substr($accessKey, 0, 4) . '…' . substr($accessKey, -4));
         $accessKeyEncrypted = HelperController::encryptKey($accessKey, $encryptionKey);
         $secretKeyEncrypted = HelperController::encryptKey($secretKey, $encryptionKey);
 
@@ -737,13 +738,20 @@ class BucketController {
         DBController::insertRecord('s3_user_access_keys', [
             'user_id' => $userId,
             'access_key' => $accessKeyEncrypted,
-            'secret_key' => $secretKeyEncrypted
+            'secret_key' => $secretKeyEncrypted,
+            'access_key_hint' => $hint
         ]);
 
 
         return [
             'status' => 'success',
-            'message' => 'Access keys updated successfully.'
+            'message' => 'Access keys updated successfully.',
+            // One-time secrets returned for immediate display (do not store plaintext)
+            'data' => [
+                'access_key' => $accessKey,
+                'secret_key' => $secretKey,
+                'access_key_hint' => $hint
+            ]
         ];
     }
 

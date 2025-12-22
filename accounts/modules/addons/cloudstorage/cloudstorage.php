@@ -14,7 +14,7 @@ function cloudstorage_config()
         'description' => 'This module show the usage of your buckets.',
         'author' => 'eazybackup',
         'language' => 'english',
-        'version' => '2.0.1',
+        'version' => '2.1.0',
         'fields' => [
             's3_region' => [
                 'FriendlyName' => 'S3 Region',
@@ -87,6 +87,11 @@ function cloudstorage_config()
                 'Type' => 'dropdown',
                 'Options' => cloudstorage_get_email_templates(),
                 'Description' => 'Select the WHMCS email template from the General category to use for e3 trial email verification.',
+            ],
+            'allow_key_decrypt' => [
+                'FriendlyName' => 'Allow Key Decrypt (Client Area)',
+                'Type' => 'yesno',
+                'Description' => 'If enabled, the Client Area can decrypt and display existing secret keys. Recommended OFF for security.',
             ],
             'pid_cloud_backup' => [
                 'FriendlyName' => 'Cloud Backup Product (PID)',
@@ -559,6 +564,8 @@ function cloudstorage_activate() {
             $table->unsignedInteger('user_id');
             $table->string('access_key', 255)->nullable();
             $table->string('secret_key')->nullable();
+            // Non-secret UI hint (e.g., "ABCD…WXYZ") so we can display without decrypting.
+            $table->string('access_key_hint', 32)->nullable();
             $table->timestamp('created_at')->useCurrent();
 
             $table->foreign('user_id')->references('id')->on('s3_users')->onDelete('cascade');
@@ -774,6 +781,7 @@ function cloudstorage_activate() {
             $table->unsignedInteger('user_id');
             $table->string('subuser');
             $table->enum('permission', ['read', 'write', 'readwrite', 'full'])->nullable();
+            $table->string('description', 255)->nullable();
             $table->timestamp('created_at')->useCurrent();
 
             $table->foreign('user_id')->references('id')->on('s3_users')->onDelete('cascade');
@@ -783,12 +791,17 @@ function cloudstorage_activate() {
         if (!Capsule::schema()->hasTable('s3_subusers_keys')) {
             Capsule::schema()->create('s3_subusers_keys', function ($table) {
             $table->increments('id');
-            $table->unsignedInteger('sub_user_id');
+            // NOTE: historically some installs used sub_user_id; code uses subuser_id.
+            // Prefer subuser_id going forward; upgrade will backfill/alias as needed.
+            $table->unsignedInteger('subuser_id');
             $table->string('access_key');
             $table->string('secret_key');
+            // Non-secret identifier used for UI display (e.g., "ABCD…WXYZ")
+            $table->string('access_key_hint', 32)->nullable();
             $table->timestamp('created_at')->useCurrent();
 
-            $table->foreign('sub_user_id')->references('id')->on('s3_subusers')->onDelete('cascade');
+            $table->index('subuser_id');
+            $table->foreign('subuser_id')->references('id')->on('s3_subusers')->onDelete('cascade');
             });
         }
 
@@ -1656,6 +1669,152 @@ function cloudstorage_upgrade($vars) {
             }
         }
 
+        // Access Keys v2 (client-facing): store description + non-secret key hint for subuser-backed access keys.
+        // Also normalize historical column mismatch: s3_subusers_keys.sub_user_id vs subuser_id.
+        try {
+            $schema = \WHMCS\Database\Capsule::schema();
+
+            if ($schema->hasTable('s3_subusers')) {
+                if (!$schema->hasColumn('s3_subusers', 'description')) {
+                    $schema->table('s3_subusers', function ($table) {
+                        $table->string('description', 255)->nullable()->after('permission');
+                    });
+                    logModuleCall('cloudstorage', 'upgrade_s3_subusers_add_description', [], 'Added description to s3_subusers', [], []);
+                }
+            }
+
+            if ($schema->hasTable('s3_subusers_keys')) {
+                $hasSubUserId = $schema->hasColumn('s3_subusers_keys', 'sub_user_id');
+                $hasSubuserId = $schema->hasColumn('s3_subusers_keys', 'subuser_id');
+
+                if ($hasSubUserId && !$hasSubuserId) {
+                    // Add the canonical column name used by app code.
+                    $schema->table('s3_subusers_keys', function ($table) {
+                        $table->unsignedInteger('subuser_id')->nullable()->after('id');
+                        $table->index('subuser_id');
+                    });
+                    // Backfill from historical column
+                    try {
+                        \WHMCS\Database\Capsule::statement("UPDATE `s3_subusers_keys` SET `subuser_id` = `sub_user_id` WHERE `subuser_id` IS NULL");
+                    } catch (\Throwable $__) {}
+                    logModuleCall('cloudstorage', 'upgrade_s3_subusers_keys_add_subuser_id', [], 'Added subuser_id to s3_subusers_keys and backfilled', [], []);
+                }
+
+                if (!$schema->hasColumn('s3_subusers_keys', 'access_key_hint')) {
+                    $schema->table('s3_subusers_keys', function ($table) {
+                        $table->string('access_key_hint', 32)->nullable()->after('secret_key');
+                        $table->index('access_key_hint');
+                    });
+                    logModuleCall('cloudstorage', 'upgrade_s3_subusers_keys_add_hint', [], 'Added access_key_hint to s3_subusers_keys', [], []);
+                }
+
+                // Backfill access_key_hint for existing rows (non-secret), using encryption key if available.
+                try {
+                    $encKey = (string) \WHMCS\Database\Capsule::table('tbladdonmodules')
+                        ->where('module', 'cloudstorage')
+                        ->where('setting', 'encryption_key')
+                        ->value('value');
+                    if ($encKey !== '' && $schema->hasColumn('s3_subusers_keys', 'access_key_hint')) {
+                        $query = \WHMCS\Database\Capsule::table('s3_subusers_keys')
+                            ->select(['id', 'access_key', 'access_key_hint'])
+                            ->where(function ($q) {
+                                $q->whereNull('access_key_hint')->orWhere('access_key_hint', '=', '');
+                            })
+                            ->orderBy('id', 'asc');
+
+                        // Chunk by id to avoid memory issues on large installs
+                        $lastId = 0;
+                        $chunkSize = 250;
+                        while (true) {
+                            $rows = (clone $query)->where('id', '>', $lastId)->limit($chunkSize)->get();
+                            if (!$rows || count($rows) === 0) {
+                                break;
+                            }
+                            foreach ($rows as $r) {
+                                $lastId = (int) $r->id;
+                                $akEnc = (string) ($r->access_key ?? '');
+                                if ($akEnc === '') {
+                                    continue;
+                                }
+                                $ak = '';
+                                try {
+                                    $ak = (string) \WHMCS\Module\Addon\CloudStorage\Client\HelperController::decryptKey($akEnc, $encKey);
+                                } catch (\Throwable $__) {
+                                    $ak = '';
+                                }
+                                $ak = trim($ak);
+                                if ($ak === '') {
+                                    continue;
+                                }
+                                $hint = (strlen($ak) <= 8)
+                                    ? $ak
+                                    : (substr($ak, 0, 4) . '…' . substr($ak, -4));
+                                try {
+                                    \WHMCS\Database\Capsule::table('s3_subusers_keys')
+                                        ->where('id', (int) $r->id)
+                                        ->update(['access_key_hint' => $hint]);
+                                } catch (\Throwable $__) {}
+                            }
+                        }
+                        logModuleCall('cloudstorage', 'upgrade_s3_subusers_keys_hint_backfill', [], 'Backfilled access_key_hint where possible', [], []);
+                    }
+                } catch (\Throwable $__) {
+                    // ignore
+                }
+            }
+
+            // Primary user key hint (s3_user_access_keys)
+            if ($schema->hasTable('s3_user_access_keys')) {
+                if (!$schema->hasColumn('s3_user_access_keys', 'access_key_hint')) {
+                    $schema->table('s3_user_access_keys', function ($table) {
+                        $table->string('access_key_hint', 32)->nullable()->after('secret_key');
+                        $table->index('access_key_hint');
+                    });
+                    logModuleCall('cloudstorage', 'upgrade_s3_user_access_keys_add_hint', [], 'Added access_key_hint to s3_user_access_keys', [], []);
+                }
+
+                // Backfill hints for existing rows (best-effort)
+                try {
+                    $encKey = (string) \WHMCS\Database\Capsule::table('tbladdonmodules')
+                        ->where('module', 'cloudstorage')
+                        ->where('setting', 'encryption_key')
+                        ->value('value');
+                    if ($encKey !== '' && $schema->hasColumn('s3_user_access_keys', 'access_key_hint')) {
+                        $q = \WHMCS\Database\Capsule::table('s3_user_access_keys')
+                            ->select(['id', 'access_key', 'access_key_hint'])
+                            ->where(function ($q2) {
+                                $q2->whereNull('access_key_hint')->orWhere('access_key_hint', '=', '');
+                            })
+                            ->orderBy('id', 'asc');
+                        $lastId = 0;
+                        $chunkSize = 250;
+                        while (true) {
+                            $rows = (clone $q)->where('id', '>', $lastId)->limit($chunkSize)->get();
+                            if (!$rows || count($rows) === 0) break;
+                            foreach ($rows as $r) {
+                                $lastId = (int) $r->id;
+                                $akEnc = (string) ($r->access_key ?? '');
+                                if ($akEnc === '') continue;
+                                $ak = '';
+                                try {
+                                    $ak = (string) \WHMCS\Module\Addon\CloudStorage\Client\HelperController::decryptKey($akEnc, $encKey);
+                                } catch (\Throwable $__) { $ak = ''; }
+                                $ak = trim($ak);
+                                if ($ak === '') continue;
+                                $hint = (strlen($ak) <= 8) ? $ak : (substr($ak, 0, 4) . '…' . substr($ak, -4));
+                                try {
+                                    \WHMCS\Database\Capsule::table('s3_user_access_keys')->where('id', (int)$r->id)->update(['access_key_hint' => $hint]);
+                                } catch (\Throwable $__) {}
+                            }
+                        }
+                        logModuleCall('cloudstorage', 'upgrade_s3_user_access_keys_hint_backfill', [], 'Backfilled s3_user_access_keys.access_key_hint where possible', [], []);
+                    }
+                } catch (\Throwable $__) {}
+            }
+        } catch (\Throwable $e) {
+            logModuleCall('cloudstorage', 'upgrade_access_keys_v2_fail', [], $e->getMessage(), [], []);
+        }
+
         // Add logging columns to s3_buckets if missing
         if (\WHMCS\Database\Capsule::schema()->hasTable('s3_buckets')) {
             if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_buckets', 'logging_enabled')) {
@@ -2348,7 +2507,7 @@ function cloudstorage_clientarea($vars) {
 
         case 'users':
             $pagetitle = "Users";
-            $templatefile = 'templates/users';
+            $templatefile = 'templates/users_v2';
             $viewVars = require 'pages/users.php';
             break;
 

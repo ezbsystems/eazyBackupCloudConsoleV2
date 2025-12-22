@@ -122,37 +122,37 @@
 
 <!-- Tenant slide-over panel -->
 <div id="tenant-slide-panel" class="fixed inset-y-0 right-0 z-50 w-full max-w-xl transform translate-x-full transition-transform duration-200 ease-out">
-  <div class="h-full bg-slate-900 border-l border-slate-700 shadow-xl flex flex-col">
-    <div class="flex items-center justify-between px-4 py-3 border-b border-slate-700">
+  <div class="h-full bg-slate-950/95 border-l border-slate-800 shadow-[0_25px_60px_rgba(2,6,23,0.85)] flex flex-col">
+    <div class="flex items-start justify-between px-5 py-4 border-b border-slate-800">
       <div>
-        <h3 id="tenant-panel-title" class="text-slate-200 text-lg font-semibold">Manage Tenant</h3>
-        <div class="text-slate-400 text-sm">FQDN: <span id="tenant-panel-fqdn" class="text-slate-300 font-mono"></span></div>
-        <div class="text-slate-400 text-xs">Custom Domain: <span id="tenant-panel-custom" class="text-slate-300 font-mono"></span></div>
+        <h3 id="tenant-panel-title" class="text-slate-100 text-lg font-semibold leading-tight">Manage Tenant</h3>
+        <div class="text-slate-400 text-xs">FQDN: <span id="tenant-panel-fqdn" class="text-slate-200 font-mono"></span></div>
+        <div class="text-slate-400 text-xs mt-0.5">Custom Domain: <span id="tenant-panel-custom" class="text-slate-200 font-mono"></span></div>
       </div>
-      <button id="tenant-panel-close" class="text-slate-400 hover:text-slate-200" aria-label="Close">
+      <button id="tenant-panel-close" class="text-slate-500 hover:text-slate-200" aria-label="Close">
         <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
       </button>
     </div>
-    <div class="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+    <div class="flex-1 overflow-y-auto px-5 py-5 space-y-4">
       <div class="grid grid-cols-1 gap-3">
         <a id="btn-tenant-create-order" href="{$modulelink}&a=createorder"
-           class="btn btn-primary w-full">
+           class="rounded-xl border border-cyan-500/40 bg-cyan-600 text-white text-sm font-semibold px-4 py-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-400 transition hover:bg-cyan-500/90">
           Create Backup Account
         </a>
         <a id="btn-tenant-branding" href="#"
-           class="btn btn-surface w-full">
+           class="rounded-xl border border-slate-800 bg-slate-900/70 text-slate-100 text-sm font-semibold px-4 py-3 hover:border-slate-600 hover:bg-slate-900/90 transition">
           Manage Branding
-        </a>        
+        </a>
         <a id="btn-tenant-signup-settings" href="#"
-           class="btn btn-surface w-full">
+           class="rounded-xl border border-slate-800 bg-slate-900/70 text-slate-100 text-sm font-semibold px-4 py-3 hover:border-slate-600 hover:bg-slate-900/90 transition">
           Registration Page
-        </a>        
+        </a>
         <a id="btn-tenant-email-templates" href="#"
-           class="btn btn-surface w-full">
+           class="rounded-xl border border-slate-800 bg-slate-900/70 text-slate-100 text-sm font-semibold px-4 py-3 hover:border-slate-600 hover:bg-slate-900/90 transition">
           Email Templates
         </a>
       </div>
-      <div class="text-xs text-slate-400">Choose which area to manage for this tenant.</div>
+      <div class="text-xs text-slate-500">Choose which area to manage for this tenant.</div>
     </div>
   </div>
   <script>

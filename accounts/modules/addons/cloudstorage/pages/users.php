@@ -36,9 +36,9 @@
         ->get();
 
     foreach ($tenants as $tenant) {
-        // get the tenant user keys
+        // Legacy fields for backward compatibility with older templates (no secrets included)
         $keys = Capsule::table('s3_user_access_keys')
-            ->select('id as key_id', 'access_key', 'secret_key')
+            ->select('id as key_id')
             ->where('user_id', $tenant->id)
             ->orderBy('id', 'DESC')
             ->get();
@@ -61,10 +61,25 @@
                 ->sum('size');
         }
 
-        // get the subusers with their keys
+        // Access Keys v2 (client-facing): subuser-backed keys with description + non-secret hint
+        $fkCol = Capsule::schema()->hasColumn('s3_subusers_keys', 'subuser_id') ? 'subuser_id' : 'sub_user_id';
+        $accessKeys = Capsule::table('s3_subusers')
+            ->select(
+                's3_subusers_keys.id as key_id',
+                's3_subusers_keys.access_key_hint',
+                's3_subusers.permission',
+                's3_subusers.description',
+                's3_subusers_keys.created_at'
+            )
+            ->join('s3_subusers_keys', 's3_subusers.id', '=', 's3_subusers_keys.' . $fkCol)
+            ->where('s3_subusers.user_id', $tenant->id)
+            ->orderBy('s3_subusers_keys.id', 'DESC')
+            ->get();
+
+        // Legacy "subusers" for older templates (no secrets included)
         $subusers = Capsule::table('s3_subusers')
-            ->select('s3_subusers.subuser', 's3_subusers.permission', 's3_subusers_keys.id as key_id', 's3_subusers_keys.access_key', 's3_subusers_keys.secret_key')
-            ->join('s3_subusers_keys', 's3_subusers.id', '=', 's3_subusers_keys.subuser_id')
+            ->select('s3_subusers.subuser', 's3_subusers.permission', 's3_subusers_keys.id as key_id')
+            ->join('s3_subusers_keys', 's3_subusers.id', '=', 's3_subusers_keys.' . $fkCol)
             ->where('s3_subusers.user_id', $tenant->id)
             ->orderBy('s3_subusers.id', 'DESC')
             ->get();
@@ -73,6 +88,7 @@
         $tenant->total_buckets = $totalBucket;
         $tenant->keys = $keys;
         $tenant->subusers = $subusers;
+        $tenant->access_keys = $accessKeys;
     }
 
     return [

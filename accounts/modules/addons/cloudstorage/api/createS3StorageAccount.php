@@ -155,10 +155,16 @@ try {
     $accessKey = HelperController::encryptKey($user['data']['keys'][0]['access_key'], $encryptionKey);
     $secretKey = HelperController::encryptKey($user['data']['keys'][0]['secret_key'], $encryptionKey);
 
+    // Store non-secret hint for UI display without requiring decrypt
+    $akPlain = $user['data']['keys'][0]['access_key'] ?? '';
+    $hint = (is_string($akPlain) && strlen($akPlain) > 0)
+        ? ((strlen($akPlain) <= 8) ? $akPlain : (substr($akPlain, 0, 4) . '…' . substr($akPlain, -4)))
+        : null;
     DBController::insertRecord('s3_user_access_keys', [
         'user_id' => $s3UserId,
         'access_key' => $accessKey,
-        'secret_key' => $secretKey
+        'secret_key' => $secretKey,
+        'access_key_hint' => $hint
     ]);
     try { logModuleCall('cloudstorage', 'adminops_create_keys_store', ['s3_user_id' => $s3UserId], ['access_key_len' => strlen($accessKey), 'secret_key_len' => strlen($secretKey)]); } catch (\Throwable $e) {}
 
