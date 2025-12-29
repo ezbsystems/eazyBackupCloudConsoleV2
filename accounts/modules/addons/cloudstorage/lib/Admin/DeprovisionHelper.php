@@ -3,6 +3,7 @@
 namespace WHMCS\Module\Addon\CloudStorage\Admin;
 
 use WHMCS\Database\Capsule;
+use WHMCS\Module\Addon\CloudStorage\Client\BucketController;
 
 /**
  * Helper utilities for Cloud Storage customer deprovision operations.
@@ -229,9 +230,11 @@ class DeprovisionHelper
      * @param int $primaryUserId The primary s3_users.id
      * @param int|null $adminId The WHMCS admin ID requesting the deprovision
      * @param array $planSnapshot The deprovision plan snapshot for audit
+     * @param array $opts Options:
+     *   - confirm_bypass_governance: bool (allow governance retention bypass for applicable buckets)
      * @return array Result with status and message
      */
-    public static function queueDeprovision(int $primaryUserId, ?int $adminId = null, array $planSnapshot = []): array
+    public static function queueDeprovision(int $primaryUserId, ?int $adminId = null, array $planSnapshot = [], array $opts = []): array
     {
         try {
             // Build and validate plan
@@ -242,6 +245,53 @@ class DeprovisionHelper
                     'status' => 'fail',
                     'message' => 'Cannot proceed: ' . implode(' ', $plan['protected_warnings']),
                 ];
+            }
+
+            // Optional: determine Object Lock modes for buckets so we can:
+            // - set force_bypass_governance on bucket delete jobs (for governance)
+            // - revoke access immediately for compliance (non-empty) buckets
+            $confirmBypassGovernance = !empty($opts['confirm_bypass_governance']);
+            $ola = null;
+            $olaSummary = [
+                'non_empty_compliance_buckets' => [],
+                'non_empty_governance_buckets' => [],
+                'non_empty_unknown_mode_buckets' => [],
+            ];
+            $olaBuckets = [];
+            try {
+                $bucketNames = [];
+                foreach (($plan['buckets'] ?? []) as $b) {
+                    if (!empty($b->name)) {
+                        $bucketNames[] = (string) $b->name;
+                    }
+                }
+                $ola = self::buildObjectLockAssessmentForBuckets($bucketNames);
+                if (is_array($ola) && ($ola['status'] ?? 'fail') === 'success') {
+                    $olaSummary = $ola['summary'] ?? $olaSummary;
+                    $olaBuckets = $ola['buckets'] ?? [];
+                }
+            } catch (\Throwable $e) {
+                $ola = null;
+            }
+
+            $hasComplianceNonEmpty = count(($olaSummary['non_empty_compliance_buckets'] ?? [])) > 0;
+            $forceBypassByBucketName = [];
+            if ($confirmBypassGovernance && !$hasComplianceNonEmpty) {
+                foreach ($plan['buckets'] as $b) {
+                    $bn = (string) ($b->name ?? '');
+                    if ($bn === '') {
+                        continue;
+                    }
+                    $a = $olaBuckets[$bn] ?? null;
+                    if (is_array($a)) {
+                        $mode = strtoupper((string) ($a['default_mode'] ?? ''));
+                        $isNonEmpty = array_key_exists('empty', $a) ? ($a['empty'] === false) : false;
+                        $isLocked = !empty($a['object_lock_enabled']);
+                        if ($isLocked && $isNonEmpty && $mode === 'GOVERNANCE') {
+                            $forceBypassByBucketName[$bn] = true;
+                        }
+                    }
+                }
             }
 
             // Check if already queued
@@ -263,6 +313,7 @@ class DeprovisionHelper
             $hasUsersIsActive = false;
             $hasBucketsIsActive = false;
             $hasDeleteBucketsStatus = false;
+            $hasDeleteBucketsForceBypass = false;
             try {
                 $hasUsersIsActive = Capsule::schema()->hasColumn('s3_users', 'is_active');
             } catch (\Throwable $e) {}
@@ -271,6 +322,9 @@ class DeprovisionHelper
             } catch (\Throwable $e) {}
             try {
                 $hasDeleteBucketsStatus = Capsule::schema()->hasColumn('s3_delete_buckets', 'status');
+            } catch (\Throwable $e) {}
+            try {
+                $hasDeleteBucketsForceBypass = Capsule::schema()->hasColumn('s3_delete_buckets', 'force_bypass_governance');
             } catch (\Throwable $e) {}
 
             // Use WHMCS Capsule connection transaction API (Capsule::beginTransaction is not available)
@@ -284,6 +338,8 @@ class DeprovisionHelper
                 $hasUsersIsActive,
                 $hasBucketsIsActive,
                 $hasDeleteBucketsStatus,
+                $hasDeleteBucketsForceBypass,
+                $forceBypassByBucketName,
                 &$jobId
             ) {
                 // Insert deprovision job
@@ -312,6 +368,8 @@ class DeprovisionHelper
 
                 // Queue bucket deletions (dedupe)
                 foreach ($plan['buckets'] as $bucket) {
+                    $bucketName = (string) $bucket->name;
+                    $shouldBypass = !empty($forceBypassByBucketName[$bucketName]);
                     $q = Capsule::table('s3_delete_buckets')
                         ->where('user_id', $bucket->user_id)
                         ->where('bucket_name', $bucket->name);
@@ -333,7 +391,22 @@ class DeprovisionHelper
                         if ($hasDeleteBucketsStatus) {
                             $row['status'] = 'queued';
                         }
+                        if ($hasDeleteBucketsForceBypass) {
+                            $row['force_bypass_governance'] = $shouldBypass ? 1 : 0;
+                        }
                         Capsule::table('s3_delete_buckets')->insert($row);
+                    } else {
+                        // If an existing queued/running job exists and this deprovision requires governance bypass,
+                        // upgrade the job to allow bypass (best-effort).
+                        if ($hasDeleteBucketsForceBypass && $shouldBypass) {
+                            try {
+                                Capsule::table('s3_delete_buckets')
+                                    ->where('id', $existingBucket->id)
+                                    ->update(['force_bypass_governance' => 1]);
+                            } catch (\Throwable $e) {
+                                // Best-effort
+                            }
+                        }
                     }
                 }
             });
@@ -341,11 +414,125 @@ class DeprovisionHelper
             logModuleCall(self::$module, 'queueDeprovision', [
                 'primary_user_id' => $primaryUserId,
                 'admin_id' => $adminId,
+                'confirm_bypass_governance' => $confirmBypassGovernance ? 1 : 0,
             ], [
                 'job_id' => $jobId,
                 'users_deactivated' => count($allUserIds),
                 'buckets_queued' => count($plan['buckets']),
             ]);
+
+            // Compliance retention: revoke access immediately (best-effort), but allow deletion to block on retention.
+            // We only attempt revocation when Compliance Object Lock buckets are detected as non-empty.
+            if ($hasComplianceNonEmpty) {
+                try {
+                    // Load module settings needed for AdminOps
+                    $module = Capsule::table('tbladdonmodules')
+                        ->where('module', 'cloudstorage')
+                        ->get(['setting', 'value']);
+
+                    $endpoint = $module->where('setting', 's3_endpoint')->pluck('value')->first();
+                    $adminAccessKey = $module->where('setting', 'ceph_access_key')->pluck('value')->first();
+                    $adminSecretKey = $module->where('setting', 'ceph_secret_key')->pluck('value')->first();
+
+                    $revokeMetrics = [
+                        'revoked_keys' => 0,
+                        'revoked_subusers' => 0,
+                        'errors' => [],
+                    ];
+
+                    if (!empty($endpoint) && !empty($adminAccessKey) && !empty($adminSecretKey)) {
+                        // Resolve users to revoke: sub-tenants first, then primary
+                        $subTenants = Capsule::table('s3_users')->where('parent_id', $primaryUserId)->get();
+                        $primaryUser = Capsule::table('s3_users')->where('id', $primaryUserId)->first();
+                        $users = array_merge($subTenants ? $subTenants->all() : [], $primaryUser ? [$primaryUser] : []);
+
+                        foreach ($users as $u) {
+                            if (!$u || empty($u->username)) {
+                                continue;
+                            }
+                            $cephUid = self::computeCephUid($u);
+                            $info = AdminOps::getUserInfo($endpoint, $adminAccessKey, $adminSecretKey, $cephUid);
+                            if (($info['status'] ?? 'fail') !== 'success') {
+                                $revokeMetrics['errors'][] = "Failed to get user info for {$cephUid}";
+                                continue;
+                            }
+                            $data = $info['data'] ?? [];
+
+                            // Remove access keys
+                            $keys = $data['keys'] ?? [];
+                            if (is_array($keys)) {
+                                foreach ($keys as $k) {
+                                    if (!is_array($k)) {
+                                        continue;
+                                    }
+                                    $accessKey = $k['access_key'] ?? $k['access_key_id'] ?? null;
+                                    if (!$accessKey) {
+                                        continue;
+                                    }
+                                    $res = AdminOps::removeKey($endpoint, $adminAccessKey, $adminSecretKey, $accessKey, $cephUid);
+                                    if (($res['status'] ?? 'fail') === 'success') {
+                                        $revokeMetrics['revoked_keys'] += 1;
+                                    } else {
+                                        $revokeMetrics['errors'][] = "Failed to remove key {$accessKey} for {$cephUid}";
+                                    }
+                                }
+                            }
+
+                            // Remove subusers (purge-keys=true)
+                            $subusers = $data['subusers'] ?? [];
+                            if (is_array($subusers)) {
+                                foreach ($subusers as $s) {
+                                    if (!is_array($s)) {
+                                        continue;
+                                    }
+                                    $sid = $s['id'] ?? $s['name'] ?? null;
+                                    if (!$sid) {
+                                        continue;
+                                    }
+                                    // Ceph returns subuser id as "uid:subuser"; AdminOps expects subuser name (after colon)
+                                    $subName = (string) $sid;
+                                    if (strpos($subName, ':') !== false) {
+                                        $parts = explode(':', $subName);
+                                        $subName = end($parts);
+                                    }
+                                    $subName = trim($subName);
+                                    if ($subName === '') {
+                                        continue;
+                                    }
+                                    $res = AdminOps::removeSubUser($endpoint, $adminAccessKey, $adminSecretKey, [
+                                        'uid' => $cephUid,
+                                        'subuser' => $subName,
+                                    ]);
+                                    if (($res['status'] ?? 'fail') === 'success') {
+                                        $revokeMetrics['revoked_subusers'] += 1;
+                                    } else {
+                                        $revokeMetrics['errors'][] = "Failed to remove subuser {$subName} for {$cephUid}";
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        $revokeMetrics['errors'][] = 'Missing S3/Ceph admin configuration for access revocation.';
+                    }
+
+                    // Remove DB-stored access keys immediately as well (best-effort)
+                    try {
+                        Capsule::table('s3_user_access_keys')->whereIn('user_id', $allUserIds)->delete();
+                    } catch (\Throwable $e) {
+                        // ignore
+                    }
+
+                    logModuleCall(self::$module, 'deprovision_revoke_access', [
+                        'job_id' => $jobId,
+                        'primary_user_id' => $primaryUserId,
+                    ], $revokeMetrics);
+                } catch (\Throwable $e) {
+                    logModuleCall(self::$module, 'deprovision_revoke_access_exception', [
+                        'job_id' => $jobId,
+                        'primary_user_id' => $primaryUserId,
+                    ], $e->getMessage());
+                }
+            }
 
             return [
                 'status' => 'success',
@@ -359,6 +546,7 @@ class DeprovisionHelper
             logModuleCall(self::$module, 'queueDeprovision', [
                 'primary_user_id' => $primaryUserId,
                 'admin_id' => $adminId,
+                'confirm_bypass_governance' => !empty($opts['confirm_bypass_governance']) ? 1 : 0,
             ], $e->getMessage());
 
             return [
@@ -394,6 +582,129 @@ class DeprovisionHelper
             ->where('id', $clientId)
             ->select('id', 'firstname', 'lastname', 'companyname', 'email', 'status')
             ->first();
+    }
+
+    /**
+     * Build a lightweight Object Lock + emptiness assessment for a list of buckets.
+     *
+     * Notes:
+     * - Uses admin S3 credentials (does not enumerate entire buckets).
+     * - Emptiness is checked using MaxKeys=1 list calls via BucketController::isBucketCompletelyEmpty().
+     * - Object Lock policy is checked via BucketController::getBucketObjectLockPolicy().
+     *
+     * @param array $bucketNames
+     * @return array
+     */
+    public static function buildObjectLockAssessmentForBuckets(array $bucketNames): array
+    {
+        $bucketNames = array_values(array_unique(array_filter(array_map(function ($n) {
+            $n = trim((string) $n);
+            return $n !== '' ? $n : null;
+        }, $bucketNames))));
+
+        $assessment = [
+            'status' => 'success',
+            'message' => null,
+            'buckets' => [], // keyed by bucket name
+            'summary' => [
+                'non_empty_compliance_buckets' => [],
+                'non_empty_governance_buckets' => [],
+                'non_empty_unknown_mode_buckets' => [],
+            ],
+        ];
+
+        if (empty($bucketNames)) {
+            return $assessment;
+        }
+
+        // Load module settings
+        $module = Capsule::table('tbladdonmodules')
+            ->where('module', 'cloudstorage')
+            ->get(['setting', 'value']);
+
+        if (!$module || count($module) === 0) {
+            return [
+                'status' => 'fail',
+                'message' => 'Cloud Storage module is not configured (missing addon settings).',
+            ];
+        }
+
+        $endpoint = $module->where('setting', 's3_endpoint')->pluck('value')->first();
+        $adminUser = $module->where('setting', 'ceph_admin_user')->pluck('value')->first();
+        $adminAccessKey = $module->where('setting', 'ceph_access_key')->pluck('value')->first();
+        $adminSecretKey = $module->where('setting', 'ceph_secret_key')->pluck('value')->first();
+        $s3Region = $module->where('setting', 's3_region')->pluck('value')->first() ?: 'us-east-1';
+
+        if (empty($endpoint) || empty($adminAccessKey) || empty($adminSecretKey)) {
+            return [
+                'status' => 'fail',
+                'message' => 'Missing S3/Ceph admin configuration (endpoint/access/secret).',
+            ];
+        }
+
+        $bucketController = new BucketController($endpoint, $adminUser, $adminAccessKey, $adminSecretKey, $s3Region);
+        $conn = $bucketController->connectS3ClientAsAdmin();
+        if (($conn['status'] ?? 'fail') !== 'success') {
+            return [
+                'status' => 'fail',
+                'message' => $conn['message'] ?? 'Unable to connect to S3 as admin for assessment.',
+            ];
+        }
+
+        foreach ($bucketNames as $bucketName) {
+            $row = [
+                'bucket_name' => $bucketName,
+                'empty' => null,
+                'object_lock_enabled' => false,
+                'default_mode' => null,
+                'default_retention_days' => null,
+                'default_retention_years' => null,
+                'notes' => [],
+            ];
+
+            try {
+                $emptyRes = $bucketController->isBucketCompletelyEmpty($bucketName);
+                if (($emptyRes['status'] ?? 'fail') === 'success') {
+                    $row['empty'] = (bool) ($emptyRes['empty'] ?? false);
+                } else {
+                    $row['empty'] = null;
+                    $row['notes'][] = $emptyRes['message'] ?? 'Unable to verify emptiness.';
+                }
+            } catch (\Throwable $e) {
+                $row['empty'] = null;
+                $row['notes'][] = 'Unable to verify emptiness.';
+            }
+
+            try {
+                $pol = $bucketController->getBucketObjectLockPolicy($bucketName);
+                if (($pol['status'] ?? 'fail') === 'success') {
+                    $row['object_lock_enabled'] = (bool) ($pol['enabled'] ?? false);
+                    $row['default_mode'] = $pol['default_mode'] ?? null;
+                    $row['default_retention_days'] = $pol['default_retention_days'] ?? null;
+                    $row['default_retention_years'] = $pol['default_retention_years'] ?? null;
+                } else {
+                    $row['notes'][] = $pol['message'] ?? 'Unable to read Object Lock configuration.';
+                }
+            } catch (\Throwable $e) {
+                $row['notes'][] = 'Unable to read Object Lock configuration.';
+            }
+
+            $assessment['buckets'][$bucketName] = $row;
+
+            // Summaries: only care about non-empty buckets, because empty buckets can be deleted safely.
+            if ($row['empty'] === false && $row['object_lock_enabled']) {
+                $mode = strtoupper((string) ($row['default_mode'] ?? ''));
+                if ($mode === 'COMPLIANCE') {
+                    $assessment['summary']['non_empty_compliance_buckets'][] = $bucketName;
+                } elseif ($mode === 'GOVERNANCE') {
+                    $assessment['summary']['non_empty_governance_buckets'][] = $bucketName;
+                } else {
+                    $assessment['summary']['non_empty_unknown_mode_buckets'][] = $bucketName;
+                }
+            }
+        }
+
+        return $assessment;
     }
 }
 

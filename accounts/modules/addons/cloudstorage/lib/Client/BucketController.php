@@ -1426,6 +1426,7 @@ class BucketController {
     {
         $deadlineTs = isset($opts['deadline_ts']) ? (int) $opts['deadline_ts'] : (time() + 60);
         $useAdminCreds = array_key_exists('use_admin_creds', $opts) ? (bool) $opts['use_admin_creds'] : true;
+        $bypassGovernanceRetention = !empty($opts['bypass_governance_retention']);
 
         $metrics = [
             'deleted_current_objects' => 0,
@@ -1473,7 +1474,7 @@ class BucketController {
 
         // Work slices: current objects, versions/markers, multipart uploads
         try {
-            $r1 = $this->deleteBucketContentsPaged($bucketName, $deadlineTs);
+            $r1 = $this->deleteBucketContentsPaged($bucketName, $deadlineTs, $bypassGovernanceRetention);
             $metrics['deleted_current_objects'] += (int) ($r1['deleted'] ?? 0);
             if (($r1['status'] ?? 'fail') === 'blocked') {
                 return $finalize('fail', $r1['message'] ?? 'Deletion blocked by Object Lock retention.', true);
@@ -1485,7 +1486,7 @@ class BucketController {
                 return $finalize('fail', $r1['message'] ?? 'Failed deleting bucket contents.', false);
             }
 
-            $r2 = $this->deleteBucketVersionsAndMarkersPaged($bucketName, $deadlineTs);
+            $r2 = $this->deleteBucketVersionsAndMarkersPaged($bucketName, $deadlineTs, $bypassGovernanceRetention);
             $metrics['deleted_versions'] += (int) ($r2['deleted_versions'] ?? 0);
             $metrics['deleted_delete_markers'] += (int) ($r2['deleted_delete_markers'] ?? 0);
             if (($r2['status'] ?? 'fail') === 'blocked') {
@@ -2239,6 +2240,77 @@ class BucketController {
     }
 
     /**
+     * Get bucket Object Lock policy details (enabled + default retention policy).
+     *
+     * This is intentionally lightweight and does not enumerate objects/versions.
+     *
+     * @param string $bucketName
+     * @return array
+     *   - status: success|fail
+     *   - enabled: bool
+     *   - default_mode: string|null (COMPLIANCE|GOVERNANCE)
+     *   - default_retention_days: int|null
+     *   - default_retention_years: int|null
+     *   - message: string|null
+     */
+    public function getBucketObjectLockPolicy(string $bucketName): array
+    {
+        try {
+            $olc = $this->s3Client->getObjectLockConfiguration(['Bucket' => $bucketName]);
+            $enabled =
+                isset($olc['ObjectLockConfiguration']['ObjectLockEnabled']) &&
+                $olc['ObjectLockConfiguration']['ObjectLockEnabled'] === 'Enabled';
+
+            $mode = null;
+            $days = null;
+            $years = null;
+
+            $default = $olc['ObjectLockConfiguration']['Rule']['DefaultRetention'] ?? null;
+            if (is_array($default)) {
+                if (!empty($default['Mode'])) {
+                    $mode = strtoupper((string) $default['Mode']);
+                }
+                if (isset($default['Days']) && is_numeric($default['Days'])) {
+                    $days = (int) $default['Days'];
+                }
+                if (isset($default['Years']) && is_numeric($default['Years'])) {
+                    $years = (int) $default['Years'];
+                }
+            }
+
+            return [
+                'status' => 'success',
+                'enabled' => (bool) $enabled,
+                'default_mode' => $mode,
+                'default_retention_days' => $days,
+                'default_retention_years' => $years,
+                'message' => null,
+            ];
+        } catch (S3Exception $e) {
+            // Most S3 implementations throw when Object Lock is not enabled/configured on the bucket.
+            // Treat that case as "disabled" rather than failing the caller.
+            return [
+                'status' => 'success',
+                'enabled' => false,
+                'default_mode' => null,
+                'default_retention_days' => null,
+                'default_retention_years' => null,
+                'message' => null,
+            ];
+        } catch (\Throwable $e) {
+            logModuleCall($this->module, __FUNCTION__, ['bucket' => $bucketName], $e->getMessage());
+            return [
+                'status' => 'fail',
+                'enabled' => false,
+                'default_mode' => null,
+                'default_retention_days' => null,
+                'default_retention_years' => null,
+                'message' => 'Unable to read bucket Object Lock configuration.',
+            ];
+        }
+    }
+
+    /**
      * Get the bucket objects
      *
      * @param array $options
@@ -2515,7 +2587,7 @@ class BucketController {
      * @param int $deadlineTs
      * @return array ['status' => success|in_progress|fail|blocked, 'deleted' => int, 'message' => string]
      */
-    private function deleteBucketContentsPaged(string $bucketName, int $deadlineTs): array
+    private function deleteBucketContentsPaged(string $bucketName, int $deadlineTs, bool $bypassGovernanceRetention = false): array
     {
         $deleted = 0;
         $continuationToken = null;
@@ -2545,10 +2617,14 @@ class BucketController {
                 }
 
                 if (count($keys) > 0) {
-                    $res = $this->s3Client->deleteObjects([
+                    $deleteParams = [
                         'Bucket' => $bucketName,
                         'Delete' => ['Objects' => $keys, 'Quiet' => true],
-                    ]);
+                    ];
+                    if ($bypassGovernanceRetention) {
+                        $deleteParams['BypassGovernanceRetention'] = true;
+                    }
+                    $res = $this->s3Client->deleteObjects($deleteParams);
                     if (!empty($res['Deleted']) && is_array($res['Deleted'])) {
                         $deleted += count($res['Deleted']);
                     } else {
@@ -2592,7 +2668,7 @@ class BucketController {
      * @param int $deadlineTs
      * @return array ['status' => success|in_progress|fail|blocked, 'deleted_versions' => int, 'deleted_delete_markers' => int, 'message' => string]
      */
-    private function deleteBucketVersionsAndMarkersPaged(string $bucketName, int $deadlineTs): array
+    private function deleteBucketVersionsAndMarkersPaged(string $bucketName, int $deadlineTs, bool $bypassGovernanceRetention = false): array
     {
         $deletedVersions = 0;
         $deletedMarkers = 0;
@@ -2641,7 +2717,7 @@ class BucketController {
                     }
                 }
 
-                $processChunks = function (array $objs, string $type) use ($bucketName, $deadlineTs, &$deletedVersions, &$deletedMarkers) {
+                $processChunks = function (array $objs, string $type) use ($bucketName, $deadlineTs, $bypassGovernanceRetention, &$deletedVersions, &$deletedMarkers) {
                     if (!count($objs)) {
                         return ['status' => 'success'];
                     }
@@ -2650,10 +2726,14 @@ class BucketController {
                         if (time() >= $deadlineTs) {
                             return ['status' => 'in_progress'];
                         }
-                        $res = $this->s3Client->deleteObjects([
+                        $deleteParams = [
                             'Bucket' => $bucketName,
                             'Delete' => ['Objects' => $chunk, 'Quiet' => true],
-                        ]);
+                        ];
+                        if ($bypassGovernanceRetention) {
+                            $deleteParams['BypassGovernanceRetention'] = true;
+                        }
+                        $res = $this->s3Client->deleteObjects($deleteParams);
 
                         // Count successful deletes from response (fallback to attempted count)
                         $deletedCount = (!empty($res['Deleted']) && is_array($res['Deleted'])) ? count($res['Deleted']) : count($chunk);

@@ -31,6 +31,13 @@ const NO_PROGRESS_MAX_RUNS = 3;         // Fail if no progress across N runs
 
 // Check if new status column exists
 $hasStatusColumn = Capsule::schema()->hasColumn('s3_delete_buckets', 'status');
+// Optional governance bypass flag (only present on newer schema)
+$hasForceBypassGovernance = false;
+try {
+    $hasForceBypassGovernance = Capsule::schema()->hasColumn('s3_delete_buckets', 'force_bypass_governance');
+} catch (\Throwable $e) {
+    $hasForceBypassGovernance = false;
+}
 
 // Progress columns (optional; older installs may not have them yet)
 $hasProgressCols = false;
@@ -110,6 +117,10 @@ foreach ($buckets as $bucket) {
     $bucketId = $bucket->id;
     $userId = $bucket->user_id;
     $bucketName = $bucket->bucket_name;
+    $forceBypassGovernance = false;
+    if ($hasForceBypassGovernance) {
+        $forceBypassGovernance = !empty($bucket->force_bypass_governance);
+    }
 
     // Claim the job (atomic: only claim if currently queued)
     if ($hasStatusColumn) {
@@ -272,6 +283,7 @@ foreach ($buckets as $bucket) {
     $response = $bucketController->deleteBucketAsAdminIncremental((int) $userId, (string) $bucketName, [
         'deadline_ts' => $deadlineTs,
         'use_admin_creds' => true,
+        'bypass_governance_retention' => $forceBypassGovernance,
     ]);
 
     $respStatus = $response['status'] ?? 'fail';

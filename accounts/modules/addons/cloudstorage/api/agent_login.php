@@ -20,6 +20,9 @@ function respond(array $data, int $httpCode = 200): void
 $email = trim($_POST['email'] ?? '');
 $password = $_POST['password'] ?? '';
 $hostname = trim($_POST['hostname'] ?? '');
+$deviceId = trim($_POST['device_id'] ?? '');
+$installId = trim($_POST['install_id'] ?? '');
+$deviceName = trim($_POST['device_name'] ?? '');
 
 if ($email === '' || $password === '' || $hostname === '') {
     respond(['status' => 'fail', 'message' => 'Missing email, password, or hostname'], 400);
@@ -64,25 +67,64 @@ if (is_null($product) || is_null($product->username)) {
 }
 
 try {
-    $agentToken = bin2hex(random_bytes(20)); // 40 hex chars
-    $agentId = Capsule::table('s3_cloudbackup_agents')->insertGetId([
-        'client_id' => $clientId,
-        'tenant_id' => null,
-        'hostname' => $hostname,
-        'agent_type' => 'workstation',
-        'status' => 'active',
-        'agent_token' => $agentToken,
-        'created_at' => Capsule::raw('NOW()'),
-        'updated_at' => Capsule::raw('NOW()'),
-    ]);
+    $result = Capsule::connection()->transaction(function () use ($clientId, $hostname, $deviceId, $installId, $deviceName) {
+        $agentToken = bin2hex(random_bytes(20)); // 40 hex chars
+
+        // If device_id is provided, attempt to reuse/rekey an existing agent for this client.
+        $agentId = null;
+        if ($deviceId !== '') {
+            $existing = Capsule::table('s3_cloudbackup_agents')
+                ->where('client_id', $clientId)
+                ->whereNull('tenant_id')
+                ->where('device_id', $deviceId)
+                ->lockForUpdate()
+                ->first();
+
+            if ($existing) {
+                Capsule::table('s3_cloudbackup_agents')
+                    ->where('id', $existing->id)
+                    ->update([
+                        'agent_token' => $agentToken,
+                        'hostname' => $hostname,
+                        'device_name' => $deviceName !== '' ? $deviceName : ($existing->device_name ?? null),
+                        'install_id' => $installId !== '' ? $installId : ($existing->install_id ?? null),
+                        'status' => 'active',
+                        'last_seen_at' => Capsule::raw('NOW()'),
+                        'updated_at' => Capsule::raw('NOW()'),
+                    ]);
+                $agentId = (int)$existing->id;
+            }
+        }
+
+        if (!$agentId) {
+            $agentId = Capsule::table('s3_cloudbackup_agents')->insertGetId([
+                'client_id' => $clientId,
+                'tenant_id' => null,
+                'hostname' => $hostname,
+                'device_id' => $deviceId !== '' ? $deviceId : null,
+                'install_id' => $installId !== '' ? $installId : null,
+                'device_name' => $deviceName !== '' ? $deviceName : null,
+                'agent_type' => 'workstation',
+                'status' => 'active',
+                'agent_token' => $agentToken,
+                'created_at' => Capsule::raw('NOW()'),
+                'updated_at' => Capsule::raw('NOW()'),
+            ]);
+        }
+
+        return [
+            'agent_id' => (string) $agentId,
+            'agent_token' => $agentToken,
+        ];
+    });
 
     $systemUrl = rtrim(\WHMCS\Config\Setting::getValue('SystemURL'), '/');
 
     respond([
         'status' => 'success',
-        'agent_id' => (string) $agentId,
+        'agent_id' => $result['agent_id'],
         'client_id' => (string) $clientId,
-        'agent_token' => $agentToken,
+        'agent_token' => $result['agent_token'],
         'api_base_url' => $systemUrl . '/modules/addons/cloudstorage/api',
         'message' => 'Agent enrolled successfully',
     ], 200);
