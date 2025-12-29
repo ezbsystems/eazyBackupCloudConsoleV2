@@ -76,6 +76,11 @@ function handleLookup($request)
         return ['status' => 'fail', 'message' => 'Please provide a Service ID or Username.'];
     }
 
+    // Release session lock before any potentially slow downstream calls (e.g., S3 status checks)
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        @session_write_close();
+    }
+
     // Resolve primary user
     $primaryUser = DeprovisionHelper::resolvePrimaryUser(
         $serviceId > 0 ? $serviceId : null,
@@ -113,7 +118,24 @@ function handleLookup($request)
         'client' => null,
         'protected_warnings' => $plan['protected_warnings'],
         'can_proceed' => $plan['can_proceed'],
+        'object_lock_assessment' => null,
     ];
+
+    // Object Lock assessment (emptiness + default retention mode)
+    try {
+        $bucketNames = [];
+        foreach ($plan['buckets'] as $b) {
+            if (!empty($b->name)) {
+                $bucketNames[] = (string) $b->name;
+            }
+        }
+        $response['object_lock_assessment'] = DeprovisionHelper::buildObjectLockAssessmentForBuckets($bucketNames);
+    } catch (\Throwable $e) {
+        $response['object_lock_assessment'] = [
+            'status' => 'fail',
+            'message' => 'Unable to evaluate bucket Object Lock status at this time.',
+        ];
+    }
 
     // Add sub-tenants
     foreach ($plan['sub_tenants'] as $tenant) {
@@ -192,6 +214,7 @@ function handleQueueDeprovision($request)
 
     $primaryUserId = isset($request['primary_user_id']) ? (int) $request['primary_user_id'] : 0;
     $confirmPhrase = trim($request['confirm_phrase'] ?? '');
+    $confirmBypassGovernance = !empty($request['confirm_bypass_governance']);
 
     if ($primaryUserId <= 0) {
         return ['status' => 'fail', 'message' => 'Invalid primary user ID.'];
@@ -218,8 +241,36 @@ function handleQueueDeprovision($request)
     // Build plan for snapshot
     $plan = DeprovisionHelper::buildDeprovisionPlan($primaryUserId);
 
+    // Enforce extra confirmation when Governance (or unknown) Object Lock buckets are non-empty and no Compliance is present.
+    try {
+        $bucketNames = [];
+        foreach (($plan['buckets'] ?? []) as $b) {
+            if (!empty($b->name)) {
+                $bucketNames[] = (string) $b->name;
+            }
+        }
+        $ola = DeprovisionHelper::buildObjectLockAssessmentForBuckets($bucketNames);
+        if (($ola['status'] ?? 'fail') === 'success') {
+            $summary = $ola['summary'] ?? [];
+            $comp = $summary['non_empty_compliance_buckets'] ?? [];
+            $gov = $summary['non_empty_governance_buckets'] ?? [];
+            $unk = $summary['non_empty_unknown_mode_buckets'] ?? [];
+            $requiresGovConfirm = (count($comp) === 0) && (count($gov) > 0 || count($unk) > 0);
+            if ($requiresGovConfirm && !$confirmBypassGovernance) {
+                return [
+                    'status' => 'fail',
+                    'message' => 'Governance/unknown Object Lock buckets are not empty. You must confirm governance bypass before queueing deprovision.',
+                ];
+            }
+        }
+    } catch (\Throwable $e) {
+        // If assessment fails, do not hard-block queueing here; cron-side deletion rules still apply.
+    }
+
     // Queue the deprovision
-    $result = DeprovisionHelper::queueDeprovision($primaryUserId, $adminId, $plan);
+    $result = DeprovisionHelper::queueDeprovision($primaryUserId, $adminId, $plan, [
+        'confirm_bypass_governance' => $confirmBypassGovernance,
+    ]);
 
     return $result;
 }
@@ -321,6 +372,9 @@ function generateDeprovisionHTML($csrfToken, $queuedJobs)
                     <!-- Protected Warnings -->
                     <div id="protectedWarnings" class="mb-4"></div>
 
+                    <!-- Object Lock Assessment Warnings -->
+                    <div id="objectLockWarnings" class="mb-4"></div>
+
                     <!-- Preview Content -->
                     <div class="row">
                         <div class="col-md-6">
@@ -343,6 +397,13 @@ function generateDeprovisionHTML($csrfToken, $queuedJobs)
                                 <input class="form-check-input" type="checkbox" id="confirmCheck">
                                 <label class="form-check-label" for="confirmCheck">
                                     I understand this will permanently delete all buckets, objects, and user accounts shown above.
+                                </label>
+                            </div>
+
+                            <div class="form-check mb-3" id="govBypassCheckWrap" style="display:none;">
+                                <input class="form-check-input" type="checkbox" id="confirmBypassGov">
+                                <label class="form-check-label" for="confirmBypassGov">
+                                    I understand this may bypass <strong>GOVERNANCE</strong> retention for Object Lock buckets and permanently delete retained objects.
                                 </label>
                             </div>
 
@@ -408,6 +469,7 @@ function generateDeprovisionHTML($csrfToken, $queuedJobs)
     var moduleUrl = '{$moduleUrl}';
     var queuedJobs = {$jobsJson};
     var currentPlan = null;
+    var requiresGovBypassConfirm = false;
 
     document.addEventListener('DOMContentLoaded', function() {
         renderJobsTable();
@@ -430,6 +492,7 @@ function setupEventListeners() {
     // Confirmation checkbox and phrase
     document.getElementById('confirmCheck').addEventListener('change', validateConfirmation);
     document.getElementById('confirmPhrase').addEventListener('input', validateConfirmation);
+    document.getElementById('confirmBypassGov').addEventListener('change', validateConfirmation);
 
     // Queue button
     document.getElementById('queueBtn').addEventListener('click', queueDeprovision);
@@ -505,6 +568,71 @@ function renderPreview(data) {
     }
     document.getElementById('protectedWarnings').innerHTML = warningsHtml;
 
+    // Object Lock Assessment Warnings
+    let olHtml = '';
+    requiresGovBypassConfirm = false;
+    try {
+        const ola = data.object_lock_assessment || null;
+        if (ola && ola.status === 'success') {
+            const summary = ola.summary || {};
+            const comp = summary.non_empty_compliance_buckets || [];
+            const gov = summary.non_empty_governance_buckets || [];
+            const unk = summary.non_empty_unknown_mode_buckets || [];
+            requiresGovBypassConfirm = (comp.length === 0) && (gov.length > 0 || unk.length > 0);
+
+            if (comp.length > 0) {
+                olHtml += '<div class="alert alert-danger">';
+                olHtml += '<h6><i class="fas fa-lock"></i> Compliance Object Lock detected</h6>';
+                olHtml += '<p class="mb-2">One or more buckets have <strong>COMPLIANCE</strong> retention and are not empty. Deprovision can proceed, but deletion will remain blocked until retention allows removal. Access will be revoked.</p>';
+                olHtml += '<ul class="mb-0">';
+                comp.forEach(name => {
+                    const b = (ola.buckets || {})[name] || {};
+                    const days = b.default_retention_days;
+                    const years = b.default_retention_years;
+                    let r = '';
+                    if (Number.isInteger(days) && days > 0) r = days + ' days';
+                    else if (Number.isInteger(years) && years > 0) r = years + ' years';
+                    else r = 'not configured';
+                    olHtml += '<li><strong>' + escapeHtml(name) + '</strong> — default retention: ' + escapeHtml(r) + '</li>';
+                });
+                olHtml += '</ul>';
+                olHtml += '</div>';
+            } else if (gov.length > 0) {
+                olHtml += '<div class="alert alert-warning">';
+                olHtml += '<h6><i class="fas fa-lock"></i> Governance Object Lock detected</h6>';
+                olHtml += '<p class="mb-2">One or more buckets have <strong>GOVERNANCE</strong> retention and are not empty. This may require an extra confirmation to bypass governance retention during deprovision.</p>';
+                olHtml += '<ul class="mb-0">';
+                gov.forEach(name => {
+                    const b = (ola.buckets || {})[name] || {};
+                    const days = b.default_retention_days;
+                    const years = b.default_retention_years;
+                    let r = '';
+                    if (Number.isInteger(days) && days > 0) r = days + ' days';
+                    else if (Number.isInteger(years) && years > 0) r = years + ' years';
+                    else r = 'not configured';
+                    olHtml += '<li><strong>' + escapeHtml(name) + '</strong> — default retention: ' + escapeHtml(r) + '</li>';
+                });
+                olHtml += '</ul>';
+                olHtml += '</div>';
+            } else if (unk.length > 0) {
+                olHtml += '<div class="alert alert-warning">';
+                olHtml += '<h6><i class="fas fa-lock"></i> Object Lock enabled (mode unknown)</h6>';
+                olHtml += '<p class="mb-2">Some non-empty buckets have Object Lock enabled but no DefaultRetention mode was detected. Treat this as high risk.</p>';
+                olHtml += '<ul class="mb-0">';
+                unk.forEach(name => {
+                    olHtml += '<li><strong>' + escapeHtml(name) + '</strong></li>';
+                });
+                olHtml += '</ul>';
+                olHtml += '</div>';
+            }
+        } else if (ola && ola.status === 'fail') {
+            olHtml = '<div class="alert alert-secondary"><strong>Object Lock status:</strong> ' + escapeHtml(ola.message || 'Unavailable') + '</div>';
+        }
+    } catch (e) {
+        // ignore rendering errors
+    }
+    document.getElementById('objectLockWarnings').innerHTML = olHtml;
+
     // Users List
     let usersHtml = '';
     usersHtml += '<div class="card user-card mb-2">';
@@ -543,6 +671,28 @@ function renderPreview(data) {
             if (bucket.object_lock_enabled) {
                 bucketsHtml += ' <span class="badge bg-danger"><i class="fas fa-lock"></i> Object Lock</span>';
             }
+            // Object Lock assessment badges (if available)
+            try {
+                const ola = data.object_lock_assessment && data.object_lock_assessment.status === 'success' ? data.object_lock_assessment : null;
+                const a = ola && ola.buckets ? ola.buckets[bucket.name] : null;
+                if (a) {
+                    if (a.object_lock_enabled) {
+                        const mode = (a.default_mode || '').toUpperCase();
+                        if (mode === 'COMPLIANCE') {
+                            bucketsHtml += ' <span class="badge bg-dark">Compliance</span>';
+                        } else if (mode === 'GOVERNANCE') {
+                            bucketsHtml += ' <span class="badge bg-secondary">Governance</span>';
+                        } else {
+                            bucketsHtml += ' <span class="badge bg-secondary">Mode: Unknown</span>';
+                        }
+                    }
+                    if (a.empty === true) {
+                        bucketsHtml += ' <span class="badge bg-success">Empty</span>';
+                    } else if (a.empty === false) {
+                        bucketsHtml += ' <span class="badge bg-danger">Not empty</span>';
+                    }
+                }
+            } catch (e) {}
             if (!bucket.is_active) {
                 bucketsHtml += ' <span class="badge bg-secondary">Inactive</span>';
             }
@@ -561,6 +711,8 @@ function renderPreview(data) {
         document.getElementById('expectedPhrase').textContent = 'DEPROVISION ' + data.primary.username.toUpperCase();
         document.getElementById('confirmPhrase').value = '';
         document.getElementById('confirmCheck').checked = false;
+        document.getElementById('confirmBypassGov').checked = false;
+        document.getElementById('govBypassCheckWrap').style.display = requiresGovBypassConfirm ? 'block' : 'none';
         document.getElementById('queueBtn').disabled = true;
     } else {
         document.getElementById('confirmationSection').style.display = 'none';
@@ -578,8 +730,9 @@ function validateConfirmation() {
     const checked = document.getElementById('confirmCheck').checked;
     const phrase = document.getElementById('confirmPhrase').value.trim().toUpperCase();
     const expected = 'DEPROVISION ' + currentPlan.primary.username.toUpperCase();
+    const govOk = !requiresGovBypassConfirm || document.getElementById('confirmBypassGov').checked;
 
-    document.getElementById('queueBtn').disabled = !(checked && phrase === expected);
+    document.getElementById('queueBtn').disabled = !(checked && govOk && phrase === expected);
 }
 
 function queueDeprovision() {
@@ -594,6 +747,7 @@ function queueDeprovision() {
     params.append('token', deprovisionToken);
     params.append('primary_user_id', currentPlan.primary.id);
     params.append('confirm_phrase', document.getElementById('confirmPhrase').value);
+    params.append('confirm_bypass_governance', (requiresGovBypassConfirm && document.getElementById('confirmBypassGov').checked) ? '1' : '0');
 
     fetch(moduleUrl, {
         method: 'POST',

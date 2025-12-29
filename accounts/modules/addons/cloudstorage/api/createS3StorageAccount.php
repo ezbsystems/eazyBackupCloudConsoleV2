@@ -139,7 +139,8 @@ try {
         'server' => $serverId,
         'username' => $username,
         'regdate' => date('Y-m-d'),
-        'nextduedate' => date('Y-m-d', strtotime('+1 month')),
+        // 30-day trial window (invoice should not generate until day 31)
+        'nextduedate' => date('Y-m-d', strtotime('+30 days')),
         'billingcycle' => $billingCycle,
         'domainstatus' => 'Active',
         'created_at' => date('Y-m-d H:i:s'),

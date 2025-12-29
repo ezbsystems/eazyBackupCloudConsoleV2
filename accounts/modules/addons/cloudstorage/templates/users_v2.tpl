@@ -430,9 +430,7 @@
         Delete <span class="text-slate-100 font-semibold" x-text="selectedUsernames.length"></span> selected users?
         This cannot be undone.
       </div>
-      <div class="mt-3 text-xs text-slate-400">
-        Only users with <span class="text-slate-200 font-semibold">0 buckets</span> can be deleted.
-      </div>
+      
       <div class="flex justify-end gap-2 mt-5">
         <button class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-md" @click="modals.confirmDeleteUsers = false">Cancel</button>
         <button class="bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 rounded-md" @click="requestDeleteSelectedUsers()">Delete</button>

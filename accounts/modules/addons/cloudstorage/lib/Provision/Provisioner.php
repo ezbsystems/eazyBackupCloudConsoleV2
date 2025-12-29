@@ -252,6 +252,46 @@ class Provisioner
             'serviceusername' => $serviceUsername,
         ], $adminUser);
         try { logModuleCall('cloudstorage', 'provision_storage_accept', ['orderid' => $order['orderid'] ?? null], $accept); } catch (\Throwable $e) {}
+        if (($accept['result'] ?? '') !== 'success') {
+            // If WHMCS couldn't accept/provision the order, do not proceed with date overrides or AdminOps calls.
+            try { logModuleCall('cloudstorage', 'provision_storage_accept_fail', ['orderid' => $order['orderid'] ?? null, 'clientId' => $clientId, 'pid' => $pid], $accept); } catch (\Throwable $e) {}
+            return 'index.php?m=cloudstorage&page=dashboard';
+        }
+
+        // Enforce a 30-day free trial window by pushing next due/invoice date 30 days out.
+        // This keeps WHMCS automation from generating an invoice until day 31.
+        $serviceId = (int) ($accept['serviceid'] ?? 0);
+        if ($serviceId <= 0) {
+            try {
+                $serviceId = (int) Capsule::table('tblhosting')
+                    ->where('orderid', (int)($order['orderid'] ?? 0))
+                    ->where('userid', $clientId)
+                    ->where('packageid', $pid)
+                    ->orderBy('id', 'desc')
+                    ->value('id');
+            } catch (\Throwable $e) {
+                try { logModuleCall('cloudstorage', 'provision_storage_service_lookup_fail', ['orderid' => $order['orderid'] ?? null, 'clientId' => $clientId, 'pid' => $pid], $e->getMessage()); } catch (\Throwable $_) {}
+            }
+        }
+        if ($serviceId > 0) {
+            try {
+                $tz = new \DateTimeZone('America/Toronto');
+                $nextDue = new \DateTime('now', $tz);
+                $nextDue->add(new \DateInterval('P30D'));
+                $formattedDue = $nextDue->format('Y-m-d');
+                Capsule::table('tblhosting')
+                    ->where('id', $serviceId)
+                    ->update([
+                        'nextduedate'     => $formattedDue,
+                        'nextinvoicedate' => $formattedDue,
+                    ]);
+            } catch (\Throwable $e) {
+                try { logModuleCall('cloudstorage', 'provision_storage_next_due_fail', ['serviceid' => $serviceId, 'clientId' => $clientId, 'pid' => $pid], $e->getMessage()); } catch (\Throwable $_) {}
+            }
+        } else {
+            try { logModuleCall('cloudstorage', 'provision_storage_service_missing_for_next_due', ['orderid' => $order['orderid'] ?? null, 'clientId' => $clientId, 'pid' => $pid], ''); } catch (\Throwable $e) {}
+        }
+
         // If module create didn't also create Ceph user, create via AdminOps now
         try {
             $endpoint   = (string) self::getSetting('s3_endpoint', '');

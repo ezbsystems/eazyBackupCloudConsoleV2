@@ -566,6 +566,7 @@ The bucket delete queue now has richer status tracking:
 
 - New columns:
   - `status` enum (`queued`,`running`,`blocked`,`failed`,`success`) — per-bucket lifecycle
+  - `force_bypass_governance TINYINT(1) DEFAULT 0` — when set, bucket deletion will attempt to bypass **GOVERNANCE** retention (admin deprovision only)
   - `error` (TEXT) — reason for failure or Object Lock blockage
   - `started_at`, `completed_at` (timestamps)
   - Index on (`status`, `created_at`)
@@ -606,6 +607,11 @@ The admin page provides:
   - Uses `DeprovisionHelper::resolvePrimaryUser()` to locate the primary `s3_users` row:
     - First, a row with `username = <storageUsername>` and `parent_id IS NULL`.
     - If not found, treats the username as a tenant and resolves its parent.
+- **Object Lock assessment (lookup-time)**:
+  - Uses admin S3 credentials to perform a **lightweight emptiness check** (no full enumeration) and read the bucket’s Object Lock default retention policy.
+  - Surfaces:
+    - Whether each bucket is empty (current objects, versions/delete markers, multipart uploads).
+    - Object Lock default mode chip (Compliance/Governance) and default retention (Days/Years) when configured.
 - **Preview**:
   - Primary user: username, Ceph UID, tenant_id, active status.
   - Sub‑tenants: each `s3_users` row where `parent_id = primary.id`.
@@ -620,6 +626,7 @@ The admin page provides:
   - “Danger Zone” confirmation box:
     - Checkbox acknowledging permanent deletion.
     - Typed phrase `DEPROVISION <USERNAME>` (uppercased) required.
+    - If non-empty Object Lock buckets are detected and **Compliance is not present**, an additional checkbox is required to confirm potential **Governance retention bypass**.
   - Only when the plan is `can_proceed = true`.
 
 #### Queueing a deprovision job
@@ -635,6 +642,8 @@ When an admin confirms:
      - Sets `s3_users.is_active = 0` (if column present) for primary + sub‑tenants.
      - Sets `s3_buckets.is_active = 0` (if column present) for all buckets belonging to those users.
      - Queues each bucket into `s3_delete_buckets` (deduped; respects presence/absence of `status` column).
+       - If the admin confirmed governance bypass and eligible buckets are detected, `force_bypass_governance=1` is set for those bucket jobs.
+   - If non-empty **Compliance** buckets are detected, the module will **revoke access keys/subusers immediately** (best-effort) using Admin Ops, while allowing bucket deletion to remain blocked until retention expires.
 
 The page then shows a “Recent Deprovision Jobs” table populated from `s3_delete_users` joined to `s3_users` (primary username).
 
@@ -712,16 +721,20 @@ The cron is defensive: any thrown exception is caught and logged, and the job is
 
 ### Object Lock Behavior in Deprovision
 
-Object‑locked buckets are **never forcibly purged** by deprovision:
+Object Lock behavior differs by mode:
 
-- Bucket deletion cron attempts to delete contents and the bucket using admin credentials.
-- If RGW returns errors indicating Object Lock/retention (Compliance or Governance), those jobs are marked:
-  - `status='blocked'` in `s3_delete_buckets` with the full error in `error`.
-- User deletion cron:
-  - Sees blocked buckets and marks the `s3_delete_users` job as `blocked`.
-  - Does **not** attempt to delete RGW users while locked data still exists.
+- **Compliance**:
+  - Buckets are **never forcibly purged**.
+  - Deprovision can proceed to **revoke access** (keys/subusers) and queue deletion attempts.
+  - Bucket deletion will remain `blocked` until retention permits removal.
+- **Governance**:
+  - If the admin explicitly confirms governance bypass, the queued bucket job sets `force_bypass_governance=1`.
+  - Bucket deletion cron will attempt deletion with Governance bypass enabled (S3 `BypassGovernanceRetention`).
+  - If bypass is not confirmed (or not possible), retention errors will still cause the bucket job to be marked `blocked`.
 
-This ensures the system respects regulatory/retention guarantees and surfaces a clear “cannot fully deprovision” state to admins instead of repeatedly failing or silently skipping locked data.
+In all cases, the user deletion cron will not delete RGW users while bucket deletion jobs remain pending/active/blocked for that customer.
+
+This surfaces a clear “cannot fully deprovision until retention expires” state for Compliance while still allowing non-paying customers to be cut off (access revoked), and allows Governance-only customers to be purged after explicit admin confirmation.
 
 ### Deprovision Testing Checklist
 
@@ -731,9 +744,15 @@ This ensures the system respects regulatory/retention guarantees and surfaces a 
   - [ ] `s3deletebucket.php` cron drains those rows and removes buckets from RGW + DB.
   - [ ] `s3deleteuser.php` cron deletes RGW users and marks `s3_delete_users.status=success`, `completed_at` set.
 - [ ] Queue deprovision for a customer with Object‑Locked bucket(s):
-  - [ ] Bucket delete jobs for locked buckets are marked `status=blocked` with retention errors.
-  - [ ] User deprovision job transitions to `status=blocked` with a clear message.
-  - [ ] RGW users for **unlocked** buckets are handled correctly (if design allows partial deprovision in future).
+  - [ ] **Compliance** non-empty bucket(s):
+    - [ ] Admin UI shows Compliance buckets + default retention policy.
+    - [ ] Queue deprovision succeeds and access keys/subusers are revoked (best-effort).
+    - [ ] Bucket delete jobs are marked `status=blocked` with retention errors.
+    - [ ] User deprovision job transitions to `status=blocked` with a clear message.
+  - [ ] **Governance** non-empty bucket(s):
+    - [ ] Admin UI requires the extra governance bypass checkbox before queueing.
+    - [ ] Bucket delete jobs are queued with `force_bypass_governance=1`.
+    - [ ] Bucket deletion cron attempts deletes with Governance bypass enabled.
 - [ ] Queue deprovision for a customer whose RGW user was manually removed:
   - [ ] Deprovision cron treats `NoSuchUser` as success and still marks the job `success`.
 - [ ] Attempt to queue deprovision for a protected user/bucket:

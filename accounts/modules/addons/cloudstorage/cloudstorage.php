@@ -14,7 +14,7 @@ function cloudstorage_config()
         'description' => 'This module show the usage of your buckets.',
         'author' => 'eazybackup',
         'language' => 'english',
-        'version' => '2.1.0',
+        'version' => '2.1.1',
         'fields' => [
             's3_region' => [
                 'FriendlyName' => 'S3 Region',
@@ -657,6 +657,8 @@ function cloudstorage_activate() {
                 $table->increments('id');
                 $table->unsignedInteger('user_id');
                 $table->string('bucket_name');
+                // Only set for admin deprovision jobs where governance retention bypass is explicitly confirmed.
+                $table->tinyInteger('force_bypass_governance')->default(0);
                 $table->enum('status', ['queued', 'running', 'blocked', 'failed', 'success'])->default('queued');
                 $table->tinyInteger('attempt_count')->default(0);
                 $table->text('error')->nullable();
@@ -682,6 +684,7 @@ function cloudstorage_activate() {
         if (Capsule::schema()->hasTable('s3_delete_buckets')) {
             // Ensure status/error/timestamps/index exist for older installs that predate deprovision changes
             $ensureBaseCols = [
+                'force_bypass_governance' => function ($table) { $table->tinyInteger('force_bypass_governance')->default(0)->after('bucket_name'); },
                 'status' => function ($table) { $table->enum('status', ['queued', 'running', 'blocked', 'failed', 'success'])->default('queued')->after('bucket_name'); },
                 'error' => function ($table) { $table->text('error')->nullable()->after('attempt_count'); },
                 'started_at' => function ($table) { $table->timestamp('started_at')->nullable()->after('created_at'); },
@@ -843,9 +846,17 @@ function cloudstorage_activate() {
             Capsule::schema()->create('s3_cloudbackup_agents', function ($table) {
                 $table->bigIncrements('id');
                 $table->unsignedInteger('client_id');
+                $table->unsignedInteger('tenant_id')->nullable();
+                $table->unsignedInteger('tenant_user_id')->nullable();
                 $table->string('agent_token', 191);
+                $table->unsignedInteger('enrollment_token_id')->nullable();
                 $table->string('hostname', 191)->nullable();
+                // Stable device identity for re-enroll/rekey/reuse
+                $table->string('device_id', 64)->nullable();
+                $table->string('install_id', 64)->nullable();
+                $table->string('device_name', 191)->nullable();
                 $table->enum('status', ['active', 'disabled'])->default('active');
+                $table->enum('agent_type', ['workstation', 'server', 'hypervisor'])->default('workstation');
                 $table->dateTime('last_seen_at')->nullable();
                 $table->text('volumes_json')->nullable();
                 $table->dateTime('volumes_updated_at')->nullable();
@@ -854,6 +865,9 @@ function cloudstorage_activate() {
 
                 $table->unique('agent_token');
                 $table->index('client_id');
+                $table->index('tenant_id');
+                $table->index('tenant_user_id');
+                $table->index(['client_id', 'tenant_id', 'device_id'], 'idx_agent_device_identity');
             });
         }
 
@@ -1150,6 +1164,27 @@ function cloudstorage_activate() {
                     $table->unsignedInteger('enrollment_token_id')->nullable()->after('agent_token');
                 });
                 logModuleCall('cloudstorage', 'activate', [], 'Added enrollment_token_id to s3_cloudbackup_agents', [], []);
+            }
+
+            // Device identity fields (for re-enroll/rekey/reuse)
+            if (!Capsule::schema()->hasColumn('s3_cloudbackup_agents', 'device_id')) {
+                Capsule::schema()->table('s3_cloudbackup_agents', function ($table) {
+                    $table->string('device_id', 64)->nullable()->after('hostname');
+                    $table->index(['client_id', 'tenant_id', 'device_id'], 'idx_agent_device_identity');
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Added device_id + idx_agent_device_identity to s3_cloudbackup_agents', [], []);
+            }
+            if (!Capsule::schema()->hasColumn('s3_cloudbackup_agents', 'install_id')) {
+                Capsule::schema()->table('s3_cloudbackup_agents', function ($table) {
+                    $table->string('install_id', 64)->nullable()->after('device_id');
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Added install_id to s3_cloudbackup_agents', [], []);
+            }
+            if (!Capsule::schema()->hasColumn('s3_cloudbackup_agents', 'device_name')) {
+                Capsule::schema()->table('s3_cloudbackup_agents', function ($table) {
+                    $table->string('device_name', 191)->nullable()->after('install_id');
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Added device_name to s3_cloudbackup_agents', [], []);
             }
         }
 
@@ -2287,6 +2322,18 @@ function cloudstorage_upgrade($vars) {
                     logModuleCall('cloudstorage', 'upgrade', [], 'Added status/error columns to s3_delete_buckets', [], []);
                 } catch (\Exception $e) {
                     logModuleCall('cloudstorage', 'upgrade_add_s3_delete_buckets_status', [], $e->getMessage(), [], []);
+                }
+            }
+
+            // Ensure governance bypass flag exists (used only by admin deprovision flow)
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_delete_buckets', 'force_bypass_governance')) {
+                try {
+                    \WHMCS\Database\Capsule::schema()->table('s3_delete_buckets', function ($table) {
+                        $table->tinyInteger('force_bypass_governance')->default(0)->after('bucket_name');
+                    });
+                    logModuleCall('cloudstorage', 'upgrade', [], 'Added force_bypass_governance to s3_delete_buckets', [], []);
+                } catch (\Exception $e) {
+                    logModuleCall('cloudstorage', 'upgrade_add_s3_delete_buckets_force_bypass_governance', [], $e->getMessage(), [], []);
                 }
             }
 
