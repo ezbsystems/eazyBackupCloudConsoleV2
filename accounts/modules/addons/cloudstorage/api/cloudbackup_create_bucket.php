@@ -22,8 +22,22 @@ if (!$ca->isLoggedIn()) {
 
 $packageId = ProductConfig::$E3_PRODUCT_ID;
 $loggedInUserId = $ca->getUserID();
+// Resolve client ID (WHMCS v8 user->client mapping)
+$clientId = 0;
+try {
+	$link = Capsule::table('tblusers_clients')->where('userid', (int)$loggedInUserId)->orderBy('owner', 'desc')->first();
+	if ($link && isset($link->clientid)) {
+		$clientId = (int)$link->clientid;
+	}
+} catch (\Throwable $e) {}
+if ($clientId <= 0 && isset($_SESSION['uid'])) {
+	$clientId = (int)$_SESSION['uid'];
+}
+if ($clientId <= 0) {
+	$clientId = (int)$loggedInUserId; // legacy fallback
+}
 
-$product = DBController::getProduct($loggedInUserId, $packageId);
+$product = DBController::getProduct($clientId, $packageId);
 if (is_null($product) || empty($product->username)) {
 	$response = new JsonResponse(['status' => 'fail', 'message' => 'Product not found.'], 200);
 	$response->send();
@@ -120,16 +134,9 @@ if (empty($endpoint) || empty($adminAccessKey) || empty($adminSecretKey) || empt
 
 // Connect S3 client
 $bc = new BucketController($endpoint, $adminUser, $adminAccessKey, $adminSecretKey, $region);
-// Try to connect S3 client for follow-up ops (versioning); do not block creation if this fails
-$conn = $bc->connectS3Client($user->id, $encryptionKey);
-if (!is_array($conn) || ($conn['status'] ?? 'fail') !== 'success') {
-	$response = new JsonResponse(['status' => 'fail', 'message' => ($conn['message'] ?? 'Storage connection not established.')], 200);
-	$response->send();
-	exit();
-}
 
 // Create bucket
-$create = $bc->createBucket($user, $bucketName, $versioningEnabled, false, 'GOVERNANCE', max(1, $retentionDays ?: 1), false);
+$create = $bc->createBucketAsAdmin($user, $bucketName, $versioningEnabled, false, 'GOVERNANCE', max(1, $retentionDays ?: 1), false);
 if (($create['status'] ?? 'fail') !== 'success') {
 	$response = new JsonResponse(['status' => 'fail', 'message' => $create['message'] ?? 'Bucket creation failed.'], 200);
 	$response->send();

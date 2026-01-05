@@ -5,6 +5,7 @@
     use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
     use WHMCS\Module\Addon\CloudStorage\Client\DBController;
     use WHMCS\Module\Addon\CloudStorage\Client\BucketController;
+    use WHMCS\Database\Capsule;
 
     if (empty($_GET['bucket']) || empty($_GET['username'])) {
         $_SESSION['message'] = "Invalid request.";
@@ -14,8 +15,28 @@
 
     $packageId = ProductConfig::$E3_PRODUCT_ID;
     $ca = new ClientArea();
-    $loggedInUserId = $ca->getUserID();
-    $product = DBController::getProduct($loggedInUserId, $packageId);
+    if (!$ca->isLoggedIn()) {
+        header('Location: clientarea.php');
+        exit();
+    }
+
+    // Resolve client ID (WHMCS v8 user->client mapping)
+    $loggedInUserId = (int) $ca->getUserID();
+    $clientId = 0;
+    try {
+        $link = Capsule::table('tblusers_clients')->where('userid', $loggedInUserId)->orderBy('owner', 'desc')->first();
+        if ($link && isset($link->clientid)) {
+            $clientId = (int) $link->clientid;
+        }
+    } catch (\Throwable $e) {}
+    if ($clientId <= 0 && isset($_SESSION['uid'])) {
+        $clientId = (int) $_SESSION['uid'];
+    }
+    if ($clientId <= 0) {
+        $clientId = $loggedInUserId; // legacy fallback
+    }
+
+    $product = DBController::getProduct($clientId, $packageId);
     if (is_null($product) || is_null($product->username)) {
         header('Location: index.php?m=cloudstorage&page=s3storage');
         exit();
@@ -46,6 +67,22 @@
         $username = $browseUser;
         $userId = $tenant->id;
         $user = $tenant;
+    }
+
+    // Option B / data-plane guard: browsing requires a key for the selected storage user.
+    try {
+        $k = Capsule::table('s3_user_access_keys')->where('user_id', (int)$userId)->first();
+        if (!$k) {
+            $_SESSION['message'] = 'Create an access key before browsing buckets.';
+            if ($browseUser === $product->username) {
+                header('Location: index.php?m=cloudstorage&page=access_keys');
+            } else {
+                header('Location: index.php?m=cloudstorage&page=users');
+            }
+            exit();
+        }
+    } catch (\Throwable $e) {
+        // If key check fails, proceed; API endpoints may still enforce key presence.
     }
 
     $bucketName = $_GET['bucket'];

@@ -70,6 +70,20 @@
             </div>
         {/if}
 
+        {if isset($HAS_PRIMARY_KEY) && !$HAS_PRIMARY_KEY}
+            <div class="mb-6 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-amber-200 text-sm">
+                <div class="flex items-start justify-between gap-4">
+                    <div>
+                        <div class="font-semibold text-amber-100">Access keys required for browsing and uploads</div>
+                        <div class="mt-1 text-amber-200/90">
+                            Create your first access key to browse buckets and use S3 tools.
+                        </div>
+                    </div>
+                    <a href="index.php?m=cloudstorage&page=access_keys" class="btn-accent whitespace-nowrap">Create access key</a>
+                </div>
+            </div>
+        {/if}
+
         <!-- Bucket Manager Row -->
         <div class="flex justify-between items-center mb-6">
             <div class="flex items-center">
@@ -134,13 +148,27 @@
                         </div>
                         <div class="flex items-center gap-2">
                             <!-- Browse Button -->
-                            <a href="index.php?m=cloudstorage&page=browse&bucket={$bucket->name}&username={$usernames[$bucket->user_id]}" class="btn-accent cursor-pointer" title="Browse">
-                                <div class="flex items-center gap-2">
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
-                                    </svg>                               
-                                </div>
-                            </a>
+                            {assign var=canBrowse value=true}
+                            {if isset($HAS_KEYS_BY_USER_ID) && isset($HAS_KEYS_BY_USER_ID[$bucket->user_id])}
+                                {assign var=canBrowse value=$HAS_KEYS_BY_USER_ID[$bucket->user_id]}
+                            {/if}
+                            {if $canBrowse}
+                                <a href="index.php?m=cloudstorage&page=browse&bucket={$bucket->name}&username={$usernames[$bucket->user_id]}" class="btn-accent cursor-pointer" title="Browse">
+                                    <div class="flex items-center gap-2">
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
+                                        </svg>
+                                    </div>
+                                </a>
+                            {else}
+                                <button type="button" class="btn-accent opacity-50 cursor-not-allowed" title="Create an access key to browse this bucket" disabled>
+                                    <div class="flex items-center gap-2">
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
+                                        </svg>
+                                    </div>
+                                </button>
+                            {/if}
                             {* <button
                               class="icon-btn cursor-pointer manage-logging"
                               type="button"

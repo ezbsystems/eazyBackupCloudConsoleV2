@@ -1,15 +1,35 @@
 <?php
 
     use WHMCS\ClientArea;
+    use WHMCS\Database\Capsule;
     use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
     use WHMCS\Module\Addon\CloudStorage\Client\BucketController;
     use WHMCS\Module\Addon\CloudStorage\Client\DBController;
     use WHMCS\Module\Addon\CloudStorage\Client\HelperController;
 
     $ca = new ClientArea();
-    $loggedInUserId = $ca->getUserID();
+    if (!$ca->isLoggedIn()) {
+        header('Location: clientarea.php');
+        exit;
+    }
+    // Resolve client ID (WHMCS v8 user->client mapping)
+    $userId = (int) $ca->getUserID();
+    $clientId = 0;
+    try {
+        $link = Capsule::table('tblusers_clients')->where('userid', $userId)->orderBy('owner', 'desc')->first();
+        if ($link && isset($link->clientid)) {
+            $clientId = (int) $link->clientid;
+        }
+    } catch (\Throwable $e) {}
+    if ($clientId <= 0 && isset($_SESSION['uid'])) {
+        $clientId = (int) $_SESSION['uid'];
+    }
+    if ($clientId <= 0) {
+        $clientId = $userId; // legacy fallback
+    }
+
     $packageId = ProductConfig::$E3_PRODUCT_ID;
-    $product = DBController::getProduct($loggedInUserId, $packageId);
+    $product = DBController::getProduct($clientId, $packageId);
 
     if (is_null($product) || is_null($product->username)) {
         $_SESSION['message'] = 'Account not exist.';
@@ -92,12 +112,7 @@
     }
 
     $bucketObject = new BucketController($s3Endpoint, $cephAdminUser, $cephAdminAccessKey, $cephAdminSecretKey, $s3Region);
-    $s3Connection = $bucketObject->connectS3Client($userId, $encryptionKey);
-    if ($s3Connection['status'] == 'fail') {
-        $_SESSION['message'] = $s3Connection['message'];
-        header('location: index.php?m=cloudstorage&page=buckets');
-        exit();
-    }
+    // Option B / control-plane: create bucket using admin credentials (customer keys may not exist yet).
     
     // Log the form processing start
     logModuleCall('cloudstorage', 'savebucket_form_processing', [
@@ -116,7 +131,7 @@
     $enableObjectLocking = !empty($_POST['enableObjectLocking']) ? true : false;
     $retentionMode = !empty($_POST['objectLockMode']) && in_array($_POST['objectLockMode'], ['GOVERNANCE', 'COMPLIANCE']) ? $_POST['objectLockMode'] : 'GOVERNANCE';
     $retentionDays = !empty($_POST['objectLockDays']) ? $_POST['objectLockDays'] : 1;
-    $response = $bucketObject->createBucket($user, $bucketName, $enableVersioning, $enableObjectLocking, $retentionMode, $retentionDays, $setDefaultRetention);
+    $response = $bucketObject->createBucketAsAdmin($user, $bucketName, $enableVersioning, $enableObjectLocking, $retentionMode, $retentionDays, $setDefaultRetention);
     $_SESSION['message'] = $response['message'];
     header("location: index.php?m=cloudstorage&page=buckets&status={$response['status']}");
     exit();

@@ -68,42 +68,46 @@
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-800">
-                            {if $accessKey !== null}
-                                <tr>
-                                    <td class="px-6 py-4 whitespace-nowrap">
-                                        <span class="text-sm text-white">{$username}</span>
-                                    </td>
-                                    <td class="px-6 py-4 whitespace-nowrap">
-                                        <span class="text-sm text-white">{$user->tenant_id}</span>
-                                    </td>
-                                    <td class="px-6 py-4 whitespace-nowrap relative">
-                                        <input type="text"
-                                               value="{if !empty($accessKey->access_key_hint)}{$accessKey->access_key_hint}{else}Hidden{/if}"
-                                               class="w-full rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500 font-mono"
-                                               id="accessKey" readonly>
-                                    </td>
-                                    <td class="px-6 py-4 whitespace-nowrap relative">
-                                        <input type="text"
-                                               value="Hidden"
-                                               class="w-full rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500 font-mono"
-                                               id="secretKey" readonly>
-                                    </td>
-                                    <td class="px-6 py-4 whitespace-nowrap">
+                            <tr>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <span class="text-sm text-white">{$username}</span>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <span class="text-sm text-white">{$user->tenant_id}</span>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap relative">
+                                    <input type="text"
+                                           value="{if $HAS_PRIMARY_KEY && !empty($accessKey->access_key_hint)}{$accessKey->access_key_hint}{/if}"
+                                           placeholder="—"
+                                           class="w-full rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500 font-mono"
+                                           id="accessKey" readonly>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap relative">
+                                    <input type="text"
+                                           value="{if $HAS_PRIMARY_KEY}Hidden{/if}"
+                                           placeholder="—"
+                                           class="w-full rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500 font-mono"
+                                           id="secretKey" readonly>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    {if $HAS_PRIMARY_KEY}
                                         <span class="text-sm text-gray-400" title="Creation Date">{$accessKey->created_at|date_format:"%d %b %Y %I:%M %p"}</span>
-                                    </td>
-                                    <td class="px-6 py-4 whitespace-nowrap">
-                                        <div class="flex space-x-2">
-                                            <button
-                                                type="button"
-                                                class="text-white hover:text-gray-300 px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-400"
-                                                onclick="openModal('updateKeysModal')"
-                                            >
-                                                Create new key
-                                            </button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            {/if}
+                                    {else}
+                                        <span class="text-sm text-gray-500">—</span>
+                                    {/if}
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <div class="flex space-x-2">
+                                        <button
+                                            type="button"
+                                            class="text-white hover:text-gray-300 px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-400"
+                                            onclick="openModal('updateKeysModal')"
+                                        >
+                                            {if $HAS_PRIMARY_KEY}Create new key{else}Create your first key{/if}
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
                         </tbody>
                     </table>
                 </div>
@@ -111,7 +115,7 @@
         </div>
 
         <!-- Loading Overlay -->
-        <div id="loading-overlay" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50">
+        <div id="loading-overlay" class="fixed inset-0 bg-gray-900/75 flex items-center justify-center z-50">
             <div class="flex items-center">
                 <div class="text-gray-300 text-lg">Loading...</div>
                 <svg class="animate-spin h-8 w-8 text-gray-300 ml-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -163,7 +167,7 @@
         <div class="fixed inset-0 bg-black/75 flex items-center justify-center z-50 hidden" id="updateKeysModal">
             <div class="bg-gray-800 rounded-lg shadow-lg w-full max-w-md p-6">
                 <div class="flex justify-between items-center mb-4">
-                    <h5 class="text-xl font-semibold text-yellow-300">Create new access key</h5>
+                    <h5 class="text-xl font-semibold text-yellow-300">{if $HAS_PRIMARY_KEY}Create new access key{else}Create your first access key{/if}</h5>
                     <button type="button" onclick="closeModal('updateKeysModal')" class="text-gray-400 hover:text-white focus:outline-none">
                         <!-- Close Icon SVG -->
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -173,7 +177,12 @@
                 </div>
                 <div>
                     <p class="mb-4">
-                        Creating a new key revokes the current key and generates a new one. You will be shown the secret key only once.
+                        {if $HAS_PRIMARY_KEY}
+                            Creating a new key revokes the current key and generates a new one.
+                        {else}
+                            Create your access key to start using S3 tools.
+                        {/if}
+                        You will be shown the secret key only once.
                     </p>
                 </div>
                 <div class="flex justify-end space-x-2">
@@ -196,7 +205,7 @@
         </div>
 
         <!-- One-time new key modal -->
-        <div class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 hidden" id="newKeysModal">
+        <div class="fixed inset-0 bg-black/75 flex items-center justify-center z-50 hidden" id="newKeysModal">
             <div class="bg-gray-800 rounded-lg shadow-lg w-full max-w-xl p-6">
                 <div class="flex justify-between items-center mb-4">
                     <h5 class="text-xl font-semibold text-green-300">Save your new key</h5>
@@ -212,11 +221,41 @@
                 <div class="space-y-3">
                     <div>
                         <label class="block text-xs text-gray-400 mb-1">Access key</label>
-                        <input type="text" id="newAccessKey" class="w-full rounded-md bg-slate-900/70 border border-slate-700 px-3 py-2 text-sm text-slate-200 font-mono" readonly>
+                        <div class="flex items-center gap-2">
+                            <input type="text" id="newAccessKey" class="w-full rounded-md bg-slate-900/70 border border-slate-700 px-3 py-2 text-sm text-slate-200 font-mono" readonly>
+                            <button
+                                type="button"
+                                class="shrink-0 rounded-md bg-slate-900/70 border border-slate-700 p-2 text-slate-200 hover:text-white hover:border-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-600"
+                                onclick="copyToClipboard('newAccessKey', 'copyIconNewAccessKey')"
+                                aria-label="Copy access key"
+                                title="Copy access key"
+                            >
+                                <span id="copyIconNewAccessKey" class="inline-flex">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
+                                      <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 0 0-3.375-3.375h-1.5a1.125 1.125 0 0 1-1.125-1.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H9.75" />
+                                    </svg>
+                                </span>
+                            </button>
+                        </div>
                     </div>
                     <div>
                         <label class="block text-xs text-gray-400 mb-1">Secret key</label>
-                        <input type="text" id="newSecretKey" class="w-full rounded-md bg-slate-900/70 border border-slate-700 px-3 py-2 text-sm text-slate-200 font-mono" readonly>
+                        <div class="flex items-center gap-2">
+                            <input type="text" id="newSecretKey" class="w-full rounded-md bg-slate-900/70 border border-slate-700 px-3 py-2 text-sm text-slate-200 font-mono" readonly>
+                            <button
+                                type="button"
+                                class="shrink-0 rounded-md bg-slate-900/70 border border-slate-700 p-2 text-slate-200 hover:text-white hover:border-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-600"
+                                onclick="copyToClipboard('newSecretKey', 'copyIconNewSecretKey')"
+                                aria-label="Copy secret key"
+                                title="Copy secret key"
+                            >
+                                <span id="copyIconNewSecretKey" class="inline-flex">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
+                                      <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 0 0-3.375-3.375h-1.5a1.125 1.125 0 0 1-1.125-1.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H9.75" />
+                                    </svg>
+                                </span>
+                            </button>
+                        </div>
                     </div>
                 </div>
                 <div class="flex justify-end mt-6">
