@@ -116,6 +116,56 @@ To support a cleaner access-key UX and avoid showing full keys in tables:
 - Some older schemas used `sub_user_id` while newer code expects `subuser_id`.
 - Migrations and inserts are tolerant to **either** column name to avoid breaking upgrades.
 
+## Recent updates: Option B Access Keys + Control Plane bucket creation
+
+This update aligns the service with common industry patterns:
+
+- **Option B (no “ghost keys”)**: new customers do **not** get a persistent API keypair silently created for them.
+- **Control plane vs data plane separation**:
+  - **Control plane (our UI)** uses **admin credentials** for management operations that must work even before a customer creates keys.
+  - **Data plane** (customer tools + object operations) uses **customer keys**, and is disabled until a key exists.
+
+### 1) Access key lifecycle (Option B)
+
+#### Provisioning behavior
+- On Cloud Storage provisioning (`lib/Provision/Provisioner.php`), we create the RGW user but **do not persist** any initial auto-generated keypair into `s3_user_access_keys`.
+- If RGW returns an initial keypair on user creation, the module **revokes it immediately** (best-effort) so there is no unseen credential.
+- After provisioning, the customer is redirected to `page=access_keys` to create their first key.
+
+#### Customer UX
+- `templates/access_keys.tpl` supports an **empty state**:
+  - Access key and secret key are blank (`—`) until the customer generates their first key.
+  - Creating/rotating keys remains **password-gated**, and the secret is shown **only once**.
+  - The “Save your new key” modal includes one-click copy buttons for both access and secret.
+
+### 2) Bucket creation (control plane) without customer keys
+
+Historically, bucket creation used customer keys (S3 `createBucket`) which is incompatible with Option B because new users have no keys yet.
+
+#### New mechanism: temporary key + create-as-user
+Bucket creation now uses a safe “create as user without persisting keys” approach:
+
+1. **Admin Ops**: create a **temporary** access key for the target storage user (`AdminOps::createKey`).
+2. **S3 (as that user)**: create the bucket (and apply Versioning/Object Lock config) using the temporary key so **bucket ownership is correct**.
+3. **Admin Ops**: delete the temporary key immediately (`AdminOps::removeKey`) so customers still have **no stored keys** unless they explicitly create them.
+
+Implementation:
+- `lib/Client/BucketController.php`: `BucketController::createBucketAsAdmin()` performs the flow above.
+- `pages/savebucket.php` and `api/cloudbackup_create_bucket.php` now call `createBucketAsAdmin()` instead of requiring `connectS3Client()` with customer keys.
+
+### 3) Bucket delete / Object Lock checks without customer keys
+- Bucket deletion is queued (cron drains `s3_delete_buckets`) and uses admin credentials.
+- Live Object Lock / emptiness checks in:
+  - `api/objectlockstatus.php`
+  - `api/deletebucket.php`
+  are performed with **admin S3 credentials** so they work even if customer keys are not yet created.
+
+### 4) Data-plane gating (browse/object operations)
+- Browsing and object operations still use customer keys (`connectS3Client()`), so the UI now guides users to create a key first:
+  - `pages/buckets.php` exposes key presence flags per user.
+  - `templates/buckets.tpl` disables Browse buttons when keys are missing and shows a CTA to create keys.
+  - `pages/browse.php` redirects to Access Keys (or Users for tenant browsing) if no keys exist.
+
 ## Recent updates: Bucket delete process
 
 ### 1) Object-locked buckets (strict)

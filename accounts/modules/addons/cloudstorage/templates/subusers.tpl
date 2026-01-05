@@ -74,7 +74,7 @@
         </div>
 
         <!-- Loading Overlay -->
-        <div id="loading-overlay" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50">
+        <div id="loading-overlay" class="fixed inset-0 bg-black/75 flex items-center justify-center z-50">
             <div class="flex items-center">
                 <div class="text-gray-300 text-lg">Loading...</div>
                 <svg class="animate-spin h-8 w-8 text-gray-300 ml-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -166,7 +166,7 @@
         </div>
 
         <!-- Update Keys Modal -->
-        <div class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 hidden" id="updateKeysModal">
+        <div class="fixed inset-0 bg-black/75 flex items-center justify-center z-50 hidden" id="updateKeysModal">
             <div class="bg-gray-800 rounded-lg shadow-lg w-full max-w-md p-6">
                 <div class="flex justify-between items-center mb-4">
                     <h5 class="text-xl font-semibold text-yellow-300">Roll Access Keys</h5>
@@ -202,7 +202,7 @@
         </div>
 
         {* Password Modal *}
-        <div class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 hidden" id="passwordModal">
+        <div class="fixed inset-0 bg-black/75 flex items-center justify-center z-50 hidden" id="passwordModal">
             <div class="bg-gray-800 rounded-lg shadow-lg w-full max-w-lg p-6">
                 <div class="flex justify-between items-center mb-4">
                     <div class="flex items-center">

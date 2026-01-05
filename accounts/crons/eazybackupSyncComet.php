@@ -178,15 +178,17 @@ logModuleCall(
     'Collected active device statuses'
 );
 
-// // Process jobs in batches to reduce API calls (disabled for testing)
-$allJobs = [];
+// Process jobs and upsert into comet_jobs (nightly safety net)
+// NOTE: We upsert per-server to avoid keeping a massive $allJobs array in memory.
+$jobsUpsertedTotal = 0;
 foreach ($serverClients as $packageId => $serverClient) {
     try {
         $endTimestamp = time();
         // $startTimestamp = strtotime('-5 minutes');
         $startTimestamp = strtotime('-14 days');
         $jobs = $serverClient->AdminGetJobsForDateRange($startTimestamp, $endTimestamp);
-        $allJobs = array_merge($allJobs, $jobs);
+        $jobCount = is_array($jobs) ? count($jobs) : 0;
+
         logModuleCall(
             'eazybackup',
             'cron JobsFetched',
@@ -194,11 +196,17 @@ foreach ($serverClients as $packageId => $serverClient) {
                 'package_id' => $packageId,
                 'start' => $startTimestamp,
                 'end' => $endTimestamp,
-                'jobs_count' => is_array($jobs) ? count($jobs) : 0,
+                'jobs_count' => $jobCount,
             ],
             'Fetched jobs for date range'
         );
-    } catch (\Exception $e) {
+
+        if ($jobCount > 0) {
+            // upsertJobs() is internally defensive; it will skip unknown usernames.
+            $cometObject->upsertJobs($jobs);
+            $jobsUpsertedTotal += $jobCount;
+        }
+    } catch (\Throwable $e) {
         logModuleCall(
             'eazybackup',
             'cron AdminGetJobsForDateRange error',
@@ -208,23 +216,12 @@ foreach ($serverClients as $packageId => $serverClient) {
     }
 }
 
-// // Batch process all jobs at once (disabled for testing)
-// if (!empty($allJobs)) {
-//     $cometObject->upsertJobs($allJobs);
-//     logModuleCall(
-//         'eazybackup',
-//         'cron JobsUpserted',
-//         ['total_jobs' => count($allJobs)],
-//         'Upserted jobs'
-//     );
-// } else {
-//     logModuleCall(
-//         'eazybackup',
-//         'cron JobsUpserted',
-//         ['total_jobs' => 0],
-//         'No jobs found to upsert'
-//     );
-// }
+logModuleCall(
+    'eazybackup',
+    'cron JobsUpserted',
+    ['total_jobs' => (int)$jobsUpsertedTotal],
+    'Upserted jobs'
+);
 
 // // Prune old job logs (disabled for testing)
 // try {

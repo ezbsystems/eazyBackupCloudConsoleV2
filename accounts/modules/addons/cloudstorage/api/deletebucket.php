@@ -8,14 +8,36 @@
 
     use Symfony\Component\HttpFoundation\JsonResponse;
     use WHMCS\ClientArea;
+    use WHMCS\Database\Capsule;
     use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
     use WHMCS\Module\Addon\CloudStorage\Client\DBController;
     use WHMCS\Module\Addon\CloudStorage\Client\BucketController;
 
     $ca = new ClientArea();
-    $loggedInUserId = $ca->getUserID();
+    if (!$ca->isLoggedIn()) {
+        $response = new JsonResponse(['status' => 'fail', 'message' => 'Session timeout.'], 200);
+        $response->send();
+        exit();
+    }
+
+    // Resolve client ID (WHMCS v8 user->client mapping)
+    $loggedInUserId = (int) $ca->getUserID();
+    $clientId = 0;
+    try {
+        $link = Capsule::table('tblusers_clients')->where('userid', $loggedInUserId)->orderBy('owner', 'desc')->first();
+        if ($link && isset($link->clientid)) {
+            $clientId = (int) $link->clientid;
+        }
+    } catch (\Throwable $e) {}
+    if ($clientId <= 0 && isset($_SESSION['uid'])) {
+        $clientId = (int) $_SESSION['uid'];
+    }
+    if ($clientId <= 0) {
+        $clientId = $loggedInUserId; // legacy fallback
+    }
+
     $packageId = ProductConfig::$E3_PRODUCT_ID;
-    $product = DBController::getProduct($loggedInUserId, $packageId);
+    $product = DBController::getProduct($clientId, $packageId);
     if (is_null($product) || is_null($product->username)) {
         $jsonData = [
             'status' => 'fail',
@@ -99,10 +121,9 @@
         $encryptionKey = $module->where('setting', 'encryption_key')->pluck('value')->first();
         $s3Region = $module->where('setting', 's3_region')->pluck('value')->first() ?: 'us-east-1';
         
-        // Initialize bucket controller and S3 client connection
+        // Initialize bucket controller and S3 client connection (admin creds; Option B does not require user keys)
         $bucketController = new BucketController($endpoint, $adminUser, $adminAccessKey, $adminSecretKey, $s3Region);
-        $bucketOwner = \WHMCS\Database\Capsule::table('s3_users')->where('id', $bucket->user_id)->first();
-        $connectionResult = $bucketController->connectS3Client($bucketOwner->id, $encryptionKey);
+        $connectionResult = $bucketController->connectS3ClientAsAdmin();
         
         if ($connectionResult['status'] != 'success') {
             $jsonData = [

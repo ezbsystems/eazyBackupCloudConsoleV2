@@ -487,6 +487,273 @@ class BucketController {
     }
 
     /**
+     * Create bucket using admin credentials (control plane).
+     *
+     * Option B support: bucket creation must work even when the user has not generated keys yet.
+     * Strategy:
+     *  - Create bucket using admin S3 credentials.
+     *  - Link bucket ownership to target user via Admin Ops.
+     *  - Apply versioning / object lock config via admin S3.
+     *  - Verify via Admin Ops and write DB record.
+     *
+     * @param object $user s3_users row (must include id, username, tenant_id)
+     */
+    public function createBucketAsAdmin($user, $bucketName, $enableVersioning = false, $enableObjectLocking = false, $retentionMode = 'GOVERNANCE', $retentionDays = 1, $setDefaultRetention = false)
+    {
+        logModuleCall($this->module, __FUNCTION__ . '_START', [
+            'user_id' => $user->id ?? null,
+            'username' => $user->username ?? null,
+            'tenant_id' => $user->tenant_id ?? null,
+            'bucket_name' => $bucketName,
+            'enable_versioning' => $enableVersioning,
+            'enable_object_locking' => $enableObjectLocking,
+            'set_default_retention' => $setDefaultRetention,
+        ], 'Starting admin bucket creation');
+
+        if (in_array($bucketName, $this->protectedBucketNames)) {
+            return ['status' => 'fail', 'message' => "The bucket name is invalid and cannot be used."];
+        }
+
+        $bucket = DBController::getRow('s3_buckets', [
+            ['name', '=', $bucketName]
+        ]);
+        if (!is_null($bucket)) {
+            return ['status' => 'fail', 'message' => "Bucket name unavailable: Bucket names must be unique globally. Please choose a unique name for your bucket to proceed."];
+        }
+
+        try {
+            // IMPORTANT: RGW Admin Ops /admin/bucket?op=link is not supported on some deployments and can 404.
+            // To ensure correct ownership (and keep Option B: no persisted user keys), we:
+            //  - create a temporary user key via AdminOps
+            //  - create the bucket using that temporary user key (bucket owner becomes the user)
+            //  - delete the temporary key immediately
+
+            $targetUsername = (string)($user->username ?? '');
+            $tenantId = (string)($user->tenant_id ?? '');
+            $cephUid = ($tenantId !== '') ? ($tenantId . '$' . $targetUsername) : $targetUsername;
+            if ($cephUid === '' || $targetUsername === '') {
+                return ['status' => 'fail', 'message' => 'Unable to resolve storage username for bucket ownership.'];
+            }
+
+            // Create temporary user key
+            $tempAccessKey = '';
+            $tempSecretKey = '';
+            $keys = AdminOps::createKey($this->endpoint, $this->adminAccessKey, $this->adminSecretKey, $cephUid);
+            if (!is_array($keys) || ($keys['status'] ?? '') !== 'success') {
+                logModuleCall($this->module, __FUNCTION__ . '_TEMPKEY_CREATE_FAILED', ['uid' => $cephUid], $keys);
+                return ['status' => 'fail', 'message' => 'Unable to create temporary access key for bucket creation. Please contact support.'];
+            }
+            $records = $keys['data'] ?? [];
+            if (is_array($records) && count($records) > 0) {
+                // Prefer exact user match when present
+                foreach ($records as $r) {
+                    if (is_array($r) && isset($r['user']) && (string)$r['user'] === (string)$cephUid) {
+                        $tempAccessKey = (string)($r['access_key'] ?? '');
+                        $tempSecretKey = (string)($r['secret_key'] ?? '');
+                        break;
+                    }
+                }
+                if ($tempAccessKey === '' || $tempSecretKey === '') {
+                    $r0 = $records[0];
+                    if (is_array($r0)) {
+                        $tempAccessKey = (string)($r0['access_key'] ?? '');
+                        $tempSecretKey = (string)($r0['secret_key'] ?? '');
+                    }
+                }
+            }
+            if ($tempAccessKey === '' || $tempSecretKey === '') {
+                logModuleCall($this->module, __FUNCTION__ . '_TEMPKEY_PARSE_FAILED', ['uid' => $cephUid], $keys);
+                return ['status' => 'fail', 'message' => 'Unable to use temporary access key for bucket creation. Please contact support.'];
+            }
+
+            // Build user-scoped S3 client (bucket owner = user)
+            $effectiveRegion = $this->region;
+            try {
+                $host = parse_url((string)$this->endpoint, PHP_URL_HOST) ?: '';
+                $isAws = is_string($host) && stripos($host, 'amazonaws.com') !== false;
+                if (!$isAws) {
+                    $effectiveRegion = 'us-east-1';
+                }
+            } catch (\Throwable $e) {
+                // keep configured region
+            }
+
+            $userS3 = new S3Client([
+                'version' => 'latest',
+                'region' => $effectiveRegion,
+                'endpoint' => $this->endpoint,
+                'credentials' => [
+                    'key' => $tempAccessKey,
+                    'secret' => $tempSecretKey,
+                ],
+                'use_path_style_endpoint' => true,
+                'signature_version' => 'v4',
+                'http' => [
+                    'connect_timeout' => 10.0,
+                    'timeout' => 30.0,
+                    'read_timeout' => 30.0,
+                ],
+            ]);
+
+            try {
+                // Ensure bucket doesn't already exist
+                try {
+                    $userS3->headBucket(['Bucket' => $bucketName]);
+                    return ['status' => 'fail', 'message' => 'Bucket name unavailable: Bucket names must be unique globally. Please choose a unique name for your bucket to proceed.'];
+                } catch (S3Exception $e) {
+                    // expected when not found
+                }
+
+                $bucketOptions = ['Bucket' => $bucketName];
+                if ($enableObjectLocking) {
+                    $bucketOptions['ObjectLockEnabledForBucket'] = true;
+                }
+                // LocationConstraint only for AWS endpoints and non-us-east-1
+                $endpointHost = '';
+                try { $endpointHost = parse_url((string)$this->endpoint, PHP_URL_HOST) ?: ''; } catch (\Throwable $e) { $endpointHost = ''; }
+                $isAwsEndpoint = is_string($endpointHost) && stripos($endpointHost, 'amazonaws.com') !== false;
+                if ($isAwsEndpoint && !empty($this->region) && strtolower($this->region) !== 'us-east-1') {
+                    $bucketOptions['CreateBucketConfiguration'] = [
+                        'LocationConstraint' => $this->region,
+                    ];
+                }
+
+                $userS3->createBucket($bucketOptions);
+                logModuleCall($this->module, __FUNCTION__ . '_BUCKET_CREATED', [
+                    'bucket_name' => $bucketName,
+                    'object_lock_enabled' => $enableObjectLocking,
+                    'uid' => $cephUid,
+                ], 'Bucket created via temporary user key');
+
+                // Wait until bucket exists
+                $maxHeadTries = 10;
+                $delaySeconds = 0.1;
+                for ($i = 0; $i < $maxHeadTries; $i++) {
+                    try {
+                        $userS3->headBucket(['Bucket' => $bucketName]);
+                        break;
+                    } catch (S3Exception $e) {
+                        usleep((int)($delaySeconds * 1_000_000));
+                        $delaySeconds = min($delaySeconds * 2, 2.0);
+                    }
+                }
+
+                // If object locking is enabled, enforce versioning as safety net
+                if ($enableObjectLocking && !$enableVersioning) {
+                    $enableVersioning = true;
+                }
+                if ($enableVersioning) {
+                    try {
+                        $userS3->putBucketVersioning([
+                            'Bucket' => $bucketName,
+                            'VersioningConfiguration' => [ 'Status' => 'Enabled' ],
+                        ]);
+                    } catch (S3Exception $e) {
+                        logModuleCall($this->module, __FUNCTION__ . '_VERSIONING_FAILED_USER', [
+                            'bucket_name' => $bucketName,
+                            'uid' => $cephUid,
+                            'aws_error_code' => $e->getAwsErrorCode(),
+                        ], 'Versioning enable failed via temporary user key: ' . $e->getMessage());
+                        $enableVersioning = false;
+                    }
+                }
+
+                if ($enableObjectLocking && $setDefaultRetention) {
+                    usleep(500_000);
+                    try {
+                        $userS3->putObjectLockConfiguration([
+                            'Bucket' => $bucketName,
+                            'ObjectLockConfiguration' => [
+                                'ObjectLockEnabled' => 'Enabled',
+                                'Rule' => [
+                                    'DefaultRetention' => [
+                                        'Mode' => $retentionMode,
+                                        'Days' => $retentionDays
+                                    ],
+                                ],
+                            ],
+                        ]);
+                    } catch (S3Exception $e) {
+                        logModuleCall($this->module, __FUNCTION__ . '_RETENTION_FAILED_USER', [
+                            'bucket_name' => $bucketName,
+                            'uid' => $cephUid,
+                            'aws_error_code' => $e->getAwsErrorCode(),
+                        ], 'Object lock configuration failed via temporary user key: ' . $e->getMessage());
+                        return ['status' => 'fail', 'message' => 'Failed to configure object lock.'];
+                    }
+                }
+            } finally {
+                // Always try to delete temporary key (Option B: no persisted keys)
+                try {
+                    $rm = AdminOps::removeKey($this->endpoint, $this->adminAccessKey, $this->adminSecretKey, $tempAccessKey, $cephUid);
+                    logModuleCall($this->module, __FUNCTION__ . '_TEMPKEY_REMOVED', ['uid' => $cephUid], $rm);
+                } catch (\Throwable $e) {
+                    logModuleCall($this->module, __FUNCTION__ . '_TEMPKEY_REMOVE_EXCEPTION', ['uid' => $cephUid], $e->getMessage());
+                }
+            }
+
+            // If object locking is enabled, enforce versioning as safety net
+            if ($enableObjectLocking && !$enableVersioning) {
+                $enableVersioning = true;
+            }
+
+            // Verify using Admin Ops and persist to DB
+            $params = [
+                'bucket' => $bucketName,
+                'stats' => true
+            ];
+            if (!empty($tenantId)) {
+                $params['bucket'] = $tenantId . '/' . $bucketName;
+            }
+            $maxRetries = 10;
+            $bucketInfo = null;
+            for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
+                $bucketInfoResponse = AdminOps::getBucketInfo($this->endpoint, $this->adminAccessKey, $this->adminSecretKey, $params);
+                if (($bucketInfoResponse['status'] ?? '') !== 'success') {
+                    if ($attempt < $maxRetries) {
+                        usleep(min($attempt * 200_000, 2_000_000));
+                        continue;
+                    }
+                    break;
+                }
+                if ($this->isValidBucketInfo($bucketInfoResponse['data'], $bucketName)) {
+                    $bucketInfo = $bucketInfoResponse['data'];
+                    break;
+                }
+                usleep(min($attempt * 200_000, 2_000_000));
+            }
+            if (is_null($bucketInfo)) {
+                return [
+                    'status' => 'fail',
+                    'message' => 'Bucket creation could not be verified. The bucket may still be propagating through the storage cluster. Please wait a moment and refresh the page.'
+                ];
+            }
+
+            $creationDateTime = new DateTime($bucketInfo['creation_time']);
+            $creationTime = $creationDateTime->format('Y-m-d H:i:s');
+            $dbData = [
+                'user_id'             => (int)($user->id ?? 0),
+                'name'                => $bucketName,
+                's3_id'               => $bucketInfo['id'],
+                'versioning'          => $enableVersioning ? 'enabled' : 'off',
+                'object_lock_enabled' => $enableObjectLocking ? '1' : '0',
+                'is_active'           => 1,
+                'created_at'          => $creationTime
+            ];
+            DBController::saveBucket($dbData);
+
+            return ['status' => 'success', 'message' => 'Bucket has been created successfully.'];
+        } catch (S3Exception $e) {
+            logModuleCall($this->module, __FUNCTION__ . '_GENERAL_EXCEPTION', [
+                'bucket_name' => $bucketName,
+                'aws_error_code' => $e->getAwsErrorCode(),
+                'aws_error_message' => $e->getAwsErrorMessage()
+            ], 'General exception during admin bucket creation: ' . $e->getMessage());
+            return ['status' => 'fail', 'message' => 'Bucket creation failed. Please try again later.'];
+        }
+    }
+
+    /**
      * Set lifecycle to expire noncurrent versions after N days.
      *
      * @param string $bucketName

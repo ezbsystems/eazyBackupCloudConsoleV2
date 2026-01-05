@@ -292,7 +292,8 @@ class Provisioner
             try { logModuleCall('cloudstorage', 'provision_storage_service_missing_for_next_due', ['orderid' => $order['orderid'] ?? null, 'clientId' => $clientId, 'pid' => $pid], ''); } catch (\Throwable $e) {}
         }
 
-        // If module create didn't also create Ceph user, create via AdminOps now
+        // If module create didn't also create Ceph user, create via AdminOps now.
+        // Option B: do NOT persist initial auto-generated keys; user must explicitly create their first key.
         try {
             $endpoint   = (string) self::getSetting('s3_endpoint', '');
             $accessKey  = (string) self::getSetting('ceph_access_key', '');
@@ -312,23 +313,24 @@ class Provisioner
                                 'username'  => $serviceUsername,
                                 'tenant_id' => $tenantId,
                             ]);
+                            // Option B: revoke the auto-generated initial key(s) so there are no unseen/ghost credentials.
+                            // The user will create their first keypair explicitly from the Access Keys page.
                             $keys = $create['data']['keys'] ?? [];
                             if (is_array($keys) && count($keys) > 0) {
-                                $ak = $keys[0]['access_key'] ?? '';
-                                $sk = $keys[0]['secret_key'] ?? '';
-                                if ($ak && $sk && $encKey) {
-                                    $akEnc = \WHMCS\Module\Addon\CloudStorage\Client\HelperController::encryptKey($ak, $encKey);
-                                    $skEnc = \WHMCS\Module\Addon\CloudStorage\Client\HelperController::encryptKey($sk, $encKey);
-                                    $hint = (strlen($ak) <= 8) ? $ak : (substr($ak, 0, 4) . '…' . substr($ak, -4));
-                                    \WHMCS\Module\Addon\CloudStorage\Client\DBController::insertRecord('s3_user_access_keys', [
-                                        'user_id'    => $s3UserId,
-                                        'access_key' => $akEnc,
-                                        'secret_key' => $skEnc,
-                                        'access_key_hint' => $hint,
-                                    ]);
-                                    try { logModuleCall('cloudstorage', 'provision_storage_keys_saved', ['u' => $serviceUsername, 's3_user_id' => $s3UserId], ['ak_len' => strlen($akEnc), 'sk_len' => strlen($skEnc)]); } catch (\Throwable $e) {}
+                                $cephUid = $tenantId ? ($tenantId . '$' . $serviceUsername) : $serviceUsername;
+                                foreach ($keys as $k) {
+                                    $ak = is_array($k) ? ($k['access_key'] ?? '') : '';
+                                    if (!empty($ak)) {
+                                        try {
+                                            $rm = \WHMCS\Module\Addon\CloudStorage\Admin\AdminOps::removeKey($endpoint, $accessKey, $secretKey, $ak, $cephUid);
+                                            try { logModuleCall('cloudstorage', 'provision_storage_remove_autokey', ['u' => $serviceUsername, 'cephUid' => $cephUid], $rm); } catch (\Throwable $_) {}
+                                        } catch (\Throwable $e) {
+                                            try { logModuleCall('cloudstorage', 'provision_storage_remove_autokey_exception', ['u' => $serviceUsername, 'cephUid' => $cephUid], $e->getMessage()); } catch (\Throwable $_) {}
+                                        }
+                                    }
                                 }
                             }
+                            try { logModuleCall('cloudstorage', 'provision_storage_option_b_keys_skipped', ['u' => $serviceUsername, 's3_user_id' => $s3UserId], 'No initial keys persisted (Option B)'); } catch (\Throwable $e) {}
                         } catch (\Throwable $e) {
                             try { logModuleCall('cloudstorage', 'provision_storage_db_save_fail', ['u' => $serviceUsername], $e->getMessage()); } catch (\Throwable $_) {}
                         }
@@ -340,7 +342,8 @@ class Provisioner
         } catch (\Throwable $e) {
             try { logModuleCall('cloudstorage', 'provision_storage_adminops_exception', ['u' => $serviceUsername], $e->getMessage()); } catch (\Throwable $_) {}
         }
-        return 'index.php?m=cloudstorage&page=dashboard';
+        // Option B onboarding: direct the user to create their first access key.
+        return 'index.php?m=cloudstorage&page=access_keys';
     }
 
     public static function provisionCloudToCloud(int $clientId): string

@@ -12,8 +12,23 @@
         exit;
     }
 
-    $loggedInUserId = $ca->getUserID();
-    $product = DBController::getProduct($loggedInUserId, $packageId);
+    // Resolve client ID (WHMCS v8 user->client mapping)
+    $userId = (int) $ca->getUserID();
+    $clientId = 0;
+    try {
+        $link = Capsule::table('tblusers_clients')->where('userid', $userId)->orderBy('owner', 'desc')->first();
+        if ($link && isset($link->clientid)) {
+            $clientId = (int) $link->clientid;
+        }
+    } catch (\Throwable $e) {}
+    if ($clientId <= 0 && isset($_SESSION['uid'])) {
+        $clientId = (int) $_SESSION['uid'];
+    }
+    if ($clientId <= 0) {
+        $clientId = $userId; // legacy fallback
+    }
+
+    $product = DBController::getProduct($clientId, $packageId);
     if (is_null($product) || is_null($product->username)) {
         header('Location: index.php?m=cloudstorage&page=s3storage');
         exit;
@@ -50,6 +65,24 @@
             ->toArray();
     }
 
+    // Determine which users have usable access keys (Option B: may be empty for new customers)
+    $hasKeysByUserId = [];
+    try {
+        $keyUserIds = Capsule::table('s3_user_access_keys')
+            ->whereIn('user_id', $bucketUserIds)
+            ->pluck('user_id')
+            ->toArray();
+        foreach ($bucketUserIds as $uid) {
+            $hasKeysByUserId[(int)$uid] = in_array((int)$uid, array_map('intval', $keyUserIds), true);
+        }
+    } catch (\Throwable $e) {
+        // Best-effort: default to true so we don't hide functionality on DB issues
+        foreach ($bucketUserIds as $uid) {
+            $hasKeysByUserId[(int)$uid] = true;
+        }
+    }
+    $hasPrimaryKey = (bool)($hasKeysByUserId[(int)$user->id] ?? false);
+
     // Expose region and optional lifecycle storage classes to template
     $s3Region = 'ca-central-1';
     $lifecycleClasses = [];
@@ -78,6 +111,8 @@
         'buckets' => $buckets,
         'usernames' => $tenants,
         'stats' => $stats,
+        'HAS_PRIMARY_KEY' => $hasPrimaryKey,
+        'HAS_KEYS_BY_USER_ID' => $hasKeysByUserId,
         'S3_REGION' => $s3Region,
         'LIFECYCLE_CLASSES' => $lifecycleClasses
     ];

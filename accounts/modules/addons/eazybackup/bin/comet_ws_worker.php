@@ -1,6 +1,20 @@
 <?php
 declare(strict_types=1);
 
+/**
+ * This worker is a long-running CLI process (systemd). Some environments (or WHMCS bootstrap)
+ * set max_execution_time=300, which will kill the worker with "Maximum execution time exceeded".
+ * Enforce "no time limit" early and again after WHMCS bootstrap.
+ */
+function eb_disable_time_limit(): void {
+    // ini_set can be disabled; ignore failures
+    try { @ini_set('max_execution_time', '0'); } catch (\Throwable $e) { /* ignore */ }
+    try { @ini_set('default_socket_timeout', '0'); } catch (\Throwable $e) { /* ignore */ }
+    // set_time_limit is a no-op in some SAPIs; ignore failures
+    try { @set_time_limit(0); } catch (\Throwable $e) { /* ignore */ }
+}
+eb_disable_time_limit();
+
 
 // Load ONLY the addon vendor autoloader and pin it to the front of SPL stack.
 $loader = require __DIR__ . '/../vendor/autoload.php';
@@ -20,6 +34,8 @@ if (!defined('WHMCS')) {
             $loader->unregister();
             $loader->register(true);
         }
+        // WHMCS bootstrap may enforce max_execution_time; disable again.
+        eb_disable_time_limit();
     } else {
         fwrite(STDERR, "[ws-worker] WHMCS init.php not found at {$whmcsInit}\n");
     }
