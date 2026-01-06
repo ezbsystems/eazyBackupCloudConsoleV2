@@ -11,6 +11,7 @@
     use WHMCS\Module\Addon\CloudStorage\Admin\AdminOps;
     use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
     use WHMCS\Module\Addon\CloudStorage\Client\DBController;
+use WHMCS\Module\Addon\CloudStorage\Client\HelperController;
 
     $ca = new ClientArea();
     if (!$ca->isLoggedIn()) {
@@ -98,8 +99,10 @@
     $s3Endpoint = $module->where('setting', 's3_endpoint')->pluck('value')->first();
     $cephAdminAccessKey = $module->where('setting', 'ceph_access_key')->pluck('value')->first();
     $cephAdminSecretKey = $module->where('setting', 'ceph_secret_key')->pluck('value')->first();
+    $cephUid = HelperController::resolveCephQualifiedUid($user);
+    if (empty($cephUid)) { $cephUid = $username; } // legacy fallback
     $params = [
-        'uid' => $username,
+        'uid' => $cephUid,
         'subuser' => $subuser->subuser
     ];
     $result = AdminOps::removeSubUser($s3Endpoint, $cephAdminAccessKey, $cephAdminSecretKey, $params);

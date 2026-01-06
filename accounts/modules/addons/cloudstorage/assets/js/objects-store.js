@@ -97,6 +97,10 @@ export function createObjectsStore(options) {
         body,
       });
       const data = await resp.json();
+      if (data && data.redirect) {
+        try { window.location.href = data.redirect; } catch (e) {}
+        return;
+      }
       console.log('Objects store: API response', { status: data?.status, message: data?.message, dataLength: Array.isArray(data?.data) ? data.data.length : undefined, data: data });
       if (!data || data.status === 'fail') {
         throw new Error((data && data.message) || 'Failed to load objects');

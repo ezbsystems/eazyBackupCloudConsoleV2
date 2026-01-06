@@ -62,7 +62,6 @@ $endpoint = $moduleRows->where('setting', 's3_endpoint')->pluck('value')->first(
 $adminUser = $moduleRows->where('setting', 'ceph_admin_user')->pluck('value')->first();
 $adminAccessKey = $moduleRows->where('setting', 'ceph_access_key')->pluck('value')->first();
 $adminSecretKey = $moduleRows->where('setting', 'ceph_secret_key')->pluck('value')->first();
-$encryptionKey = $moduleRows->where('setting', 'encryption_key')->pluck('value')->first();
 $s3Region = $moduleRows->where('setting', 's3_region')->pluck('value')->first() ?: 'us-east-1';
 
 // Optionally enforce default target when disallowing custom choice
@@ -75,13 +74,8 @@ if (!$allowChoice) {
 $targetRecord = Capsule::table('s3_buckets')->where('name', $targetBucket)->first();
 if (!$targetRecord && $createTarget) {
     $bc = new BucketController($endpoint, $adminUser, $adminAccessKey, $adminSecretKey, $s3Region);
-    $conn = $bc->connectS3Client($ownerUserId, $encryptionKey);
-    if (($conn['status'] ?? 'fail') !== 'success') {
-        (new JsonResponse(['status' => 'fail', 'message' => 'Unable to connect to storage to create target bucket.'], 200))->send();
-        exit;
-    }
     $ownerObj = Capsule::table('s3_users')->where('id', $ownerUserId)->first();
-    $create = $bc->createBucket($ownerObj, $targetBucket, false, false);
+    $create = $bc->createBucketAsAdmin($ownerObj, $targetBucket, false, false);
     if (($create['status'] ?? 'fail') !== 'success') {
         (new JsonResponse(['status' => 'fail', 'message' => $create['message'] ?? 'Failed to create target bucket.'], 200))->send();
         exit;
@@ -99,7 +93,7 @@ if ((int)$targetRecord->user_id !== $ownerUserId) {
 }
 
 $service = new BucketLoggingService($endpoint, $s3Region);
-$res = $service->enableLogging($bucketName, $targetBucket, (string)$prefix, $ownerUserId, $encryptionKey);
+$res = $service->enableLoggingWithTempKey($bucketName, $targetBucket, (string)$prefix, $owner, (string)$adminAccessKey, (string)$adminSecretKey);
 
 if (($res['status'] ?? 'fail') !== 'success') {
     (new JsonResponse(['status' => 'fail', 'message' => $res['message'] ?? 'Failed to enable logging.'], 200))->send();

@@ -297,7 +297,7 @@
                         class="text-md font-medium text-slate-300 bucket-logging-status"
                         data-bucket-name="{$bucket->name}"
                         id="loggingStatus-{$bucket->id}"
-                        title="Server access logging status"
+                        title="Access logging status"
                       >Checking…</span>
                     </div>
 
@@ -336,7 +336,7 @@
                     <!-- Logging management -->
                     <div class="mb-4">
                       <div class="flex items-center justify-between">
-                        <div class="text-slate-300 font-medium">Server access logging</div>
+                        <div class="text-slate-300 font-medium">Access logging</div>
                         <button
                           type="button"
                           class="icon-btn manage-logging"
@@ -578,7 +578,7 @@
                         <input type="hidden" id="loggingBucketName" value="">
                         <div class="mb-4 flex items-center">
                             <input type="checkbox" id="loggingEnabledToggle" class="h-4 w-4 text-sky-600 bg-gray-700 border-gray-600 rounded focus:ring-sky-500">
-                            <label for="loggingEnabledToggle" class="ml-2 block text-sm text-slate-300">Enable server access logging</label>
+                            <label for="loggingEnabledToggle" class="ml-2 block text-sm text-slate-300">Enable access logging</label>
                         </div>
                         <div id="loggingConfigSection" class="mb-4 ml-6 hidden">
                             <div class="mb-3">
@@ -680,7 +680,7 @@
                         </div>
                         <div class="mb-3">
                             <label class="inline-flex items-center text-sm"><input type="checkbox" id="lcExpireCurrent" class="mr-2">Expire current versions</label>
-                            <div class="mt-2"><input type="number" id="lcExpireCurrentDays" min="0" class="w-full bg-gray-700 text-gray-200 border border-gray-600 rounded-md px-3 py-2" placeholder="Days"></div>
+                            <div class="mt-2"><input type="number" id="lcExpireCurrentDays" min="1" class="w-full bg-gray-700 text-gray-200 border border-gray-600 rounded-md px-3 py-2" placeholder="Days"></div>
                         </div>
                         <div class="mb-3">
                             <label class="inline-flex items-center text-sm"><input type="checkbox" id="lcDeleteExpiredMarkers" class="mr-2">Delete expired object delete markers</label>
@@ -777,16 +777,14 @@
                         <li>Delete <span class="font-semibold">all object versions and delete markers</span>.</li>
                         <li>Abort any <span class="font-semibold">in-progress multipart uploads</span>.</li>
                         <li>Click <span class="font-semibold">Check status</span> again. When everything is zero, the Delete button unlocks.</li>
-                        </ol>
-
-                        <p class="mt-2 text-xs text-slate-400">Note: We don't delete objects or versions on your behalf.</p>
+                        </ol>                        
 
                         <!-- Recommended tools -->
                         <div class="border border-slate-700 rounded p-3">
                         <p class="text-slate-200 font-medium mb-2">Recommended tools</p>
                         <ul class="list-disc list-inside space-y-1">
-                            <li><span class="font-semibold">GUI:</span> Cyberduck, Mountain Duck, S3 Browser (Windows), Transmit (macOS). Good for visual cleanup of versions and delete markers.</li>
-                            <li><span class="font-semibold">Command-line (faster for large buckets):</span> AWS Command Line Interface (awscli), <code>s5cmd</code>, <code>rclone</code>.</li>
+                            <li><span class="font-semibold">GUI:</span> Cyberduck, Mountain Duck, S3 Browser (Windows), Transmit (macOS).</li>
+                            <li><span class="font-semibold">Command-line:</span> AWS CLI, <code>s5cmd</code>, <code>rclone</code>.</li>
                         </ul>                        
                         </div>
 
@@ -794,78 +792,58 @@
                         <div class="border border-slate-700 rounded p-3">
                         <p class="text-slate-200 font-medium mb-2">Amazon Web Services Command Line Interface quick commands</p>
                         <div class="grid gap-2">
-                            
-
                             <div class="bg-slate-900/60 rounded p-2 text-xs leading-5 overflow-x-auto">
-                            <div class="text-slate-400 mb-1">List versions &amp; delete markersaa:</div>
-                    <pre>aws s3api list-object-versions --bucket &lt;bucket&gt; --max-items 20
-                    </pre>
+                                <div class="text-slate-400 mb-1">List versions &amp; delete markers:</div>
+                                <pre>aws s3api list-object-versions --bucket &lt;bucket&gt; --max-items 20</pre>
                             </div>
 
                             <div class="bg-slate-900/60 rounded p-2 text-xs leading-5 overflow-x-auto">
-                            <div class="text-slate-400 mb-1">Check Legal Hold / Retention on a specific version:</div>
-                    <pre>aws s3api get-object-legal-hold --bucket &lt;bucket&gt; --key &lt;key&gt; --version-id &lt;vid&gt;
-                    aws s3api get-object-retention --bucket &lt;bucket&gt; --key &lt;key&gt; --version-id &lt;vid&gt;
-                    </pre>
+                                <div class="text-slate-400 mb-1">Check Legal Hold / Retention on a specific version:</div>
+                                <pre>aws s3api get-object-legal-hold --bucket &lt;bucket&gt; --key &lt;key&gt; --version-id &lt;vid&gt;
+aws s3api get-object-retention --bucket &lt;bucket&gt; --key &lt;key&gt; --version-id &lt;vid&gt;</pre>
                             </div>
 
                             <div class="bg-slate-900/60 rounded p-2 text-xs leading-5 overflow-x-auto">
-                            <div class="text-slate-400 mb-1">Delete a specific version (once eligible):</div>
-                    <pre># Compliance mode: only after retain-until passes
-                    aws s3api delete-object --bucket &lt;bucket&gt; --key &lt;key&gt; --version-id &lt;vid&gt;
+                                <div class="text-slate-400 mb-1">Delete a specific version (once eligible):</div>
+                                <pre># Compliance mode:
+aws s3api delete-object --bucket &lt;bucket&gt; --key &lt;key&gt; --version-id &lt;vid&gt;
 
-                    # Governance mode (if your IAM user is allowed to bypass):
-                    aws s3api delete-object --bucket &lt;bucket&gt; --key &lt;key&gt; --version-id &lt;vid&gt; \
-                    --bypass-governance-retention
-                    </pre>
+# Governance mode:
+aws s3api delete-object --bucket &lt;bucket&gt; --key &lt;key&gt; --version-id &lt;vid&gt; --bypass-governance-retention</pre>
                             </div>
 
                             <div class="bg-slate-900/60 rounded p-2 text-xs leading-5 overflow-x-auto">
-                            <div class="text-slate-400 mb-1">Abort in-progress multipart uploads:</div>
-                    <pre>aws s3api list-multipart-uploads --bucket &lt;bucket&gt;
-                    aws s3api abort-multipart-upload --bucket &lt;bucket&gt; --key &lt;key&gt; --upload-id &lt;uploadId&gt;
-                    </pre>
+                                <div class="text-slate-400 mb-1">Abort in-progress multipart uploads:</div>
+                                <pre>aws s3api list-multipart-uploads --bucket &lt;bucket&gt;
+aws s3api abort-multipart-upload --bucket &lt;bucket&gt; --key &lt;key&gt; --upload-id &lt;uploadId&gt;</pre>
+                            </div>
                         </div>
-                    </div>
                         </div>
 
                         <!-- Copy/paste: s5cmd (super fast for huge buckets) -->
                         <div class="border border-slate-700 rounded p-3">
-                        <p class="text-slate-200 font-medium mb-2">s5cmd quick commands (very fast for bulk work)</p>
+                        <p class="text-slate-200 font-medium mb-2">s5cmd</p>
                         <div class="bg-slate-900/60 rounded p-2 text-xs leading-5 overflow-x-auto">
-                    <pre># List all versions (JSON output to inspect)
-                    s5cmd --endpoint-url https://s3.your-endpoint.example ls --all-versions s3://&lt;bucket&gt;/**
+<pre># List all versions (JSON output to inspect)
+s5cmd --endpoint-url https://s3.your-endpoint.example ls --all-versions s3://&lt;bucket&gt;/**
 
-                    # Delete all delete markers under a prefix (dangerous: ensure you intend this)
-                    s5cmd --endpoint-url https://s3.your-endpoint.example rm --all-versions s3://&lt;bucket&gt;/path/**
+# Delete all delete markers under a prefix (dangerous: ensure you intend this)
+s5cmd --endpoint-url https://s3.your-endpoint.example rm --all-versions s3://&lt;bucket&gt;/path/**
 
-                    # Note: s5cmd cannot override Object Lock; versions must be eligible (no Legal Hold, retention met)
-                    </pre>
+# Note: s5cmd cannot override Object Lock; versions must be eligible (no Legal Hold, retention met)</pre>
                         </div>
                         </div>
 
                         <!-- Copy/paste: rclone (good balance of speed + features) -->
                         <div class="border border-slate-700 rounded p-3">
-                        <p class="text-slate-2 00 font-medium mb-2">rclone quick commands</p>
+                        <p class="text-slate-200 font-medium mb-2">rclone quick commands</p>
                         <div class="bg-slate-900/60 rounded p-2 text-xs leading-5 overflow-x-auto">
-                    <pre># Example remote called "ceph": configure with your endpoint and provider = Ceph
-                    rclone lsf ceph:&lt;bucket&gt; --format "p"             # list prefixes
-                    rclone lsf ceph:&lt;bucket&gt; --format "spt" --recursive # quick scan items
-                    # rclone respects Object Lock; protected versions will not be removed
-                    </pre>
+<pre># Example remote called "e3": configure with your endpoint and provider = e3
+rclone lsf e3:&lt;bucket&gt; --format "p"                 # list prefixes
+rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
+# rclone respects Object Lock; protected versions will not be removed</pre>
                         </div>
-                        </div>
-
-                        <!-- Troubleshooting tips -->
-                        <div class="border border-slate-700 rounded p-3">
-                        <p class="text-slate-200 font-medium mb-2">Common issues &amp; fixes</p>
-                        <ul class="list-disc list-inside space-y-1">
-                            <li><span class="font-semibold">"It says empty in my app, but delete still fails"</span>: check for <em>delete markers</em> and <em>non-current versions</em> with <code>list-object-versions</code>.</li>
-                            <li><span class="font-semibold">"Lifecycle rules should have cleared this"</span>: lifecycle is eventual. If versions still list, they are not gone yet.</li>
-                            <li><span class="font-semibold">"Access denied deleting a version"</span>: verify you own that version or have permission; remove Legal Hold and ensure retain-until passed (Compliance) or use governance bypass (Governance) with the correct identity.</li>
-                            <li><span class="font-semibold">"Still blocked"</span>: check <em>multipart uploads</em> and abort them.</li>
-                        </ul>
-                        </div>
+                        </div>                        
 
                     </div>
                     </div>
@@ -1475,8 +1453,13 @@
                     StorageClass: jQuery('#lcTransitionNoncurrentClass').val()||''
                 };
             }
-            if (jQuery('#lcExpireCurrent').is(':checked')) {
-                rule.Expiration = { Days: parseInt(jQuery('#lcExpireCurrentDays').val()||'0', 10) };
+                            if (jQuery('#lcExpireCurrent').is(':checked')) {
+                var expDays = parseInt(jQuery('#lcExpireCurrentDays').val()||'0', 10);
+                if (!expDays || expDays < 1) {
+                    showModalMessage('Enter expiration days (minimum 1).', 'lifecycleFormMessage', 'error');
+                    return;
+                }
+                rule.Expiration = { Days: expDays };
             } else if (jQuery('#lcDeleteExpiredMarkers').is(':checked')) {
                 rule.Expiration = { ExpiredObjectDeleteMarker: true };
             }
@@ -1580,8 +1563,8 @@
                         return;
                     }
                     
-                    // Show success message in global container
-                    showGlobalMessage(response.message, 'success');
+                    // Show success toast
+                    pushToast(response.message || 'Bucket queued for deletion.', 'success');
                     
                     // Remove the bucket row from the display
                     jQuery('#bucketRow' + bucketId).remove();
@@ -2124,8 +2107,8 @@
                                         return;
                                     }
 
-                                    // Show success message in global container
-                                    showGlobalMessage(response.message, 'success');
+                                    // Show success toast
+                                    pushToast(response.message || 'Bucket queued for deletion.', 'success');
 
                                     // Remove the bucket row from the display
                                     jQuery('#bucketRow' + jQuery('#bucketId').val()).remove();

@@ -14,7 +14,7 @@ function cloudstorage_config()
         'description' => 'This module show the usage of your buckets.',
         'author' => 'eazybackup',
         'language' => 'english',
-        'version' => '2.1.1',
+        'version' => '2.1.2',
         'fields' => [
             's3_region' => [
                 'FriendlyName' => 'S3 Region',
@@ -534,6 +534,7 @@ function cloudstorage_activate() {
                 $table->increments('id');
                 $table->string('name');
                 $table->string('username');
+                $table->string('ceph_uid', 191)->nullable(); // RGW-safe user id (no email chars)
                 $table->unsignedInteger('parent_id')->nullable();
                 // NOTE: tenant_id values are 12-digit numeric strings (e.g. 100000000000..999999999999)
                 // which do NOT fit in INT UNSIGNED. Use BIGINT UNSIGNED.
@@ -543,6 +544,7 @@ function cloudstorage_activate() {
                 $table->timestamp('deleted_at')->nullable();
 
                 $table->index('is_active');
+                $table->index('ceph_uid');
             });
             logModuleCall('cloudstorage', 'activate', [], 'Created s3_users table', [], []);
         }
@@ -2258,6 +2260,18 @@ function cloudstorage_upgrade($vars) {
         // Cloud Storage Deprovision: s3_users status columns
         // ---------------------------------------------------
         if (\WHMCS\Database\Capsule::schema()->hasTable('s3_users')) {
+            // Add ceph_uid for RGW-safe user IDs (email usernames can be rejected by RGW dashboard UI)
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_users', 'ceph_uid')) {
+                try {
+                    \WHMCS\Database\Capsule::schema()->table('s3_users', function ($table) {
+                        $table->string('ceph_uid', 191)->nullable()->after('username');
+                        $table->index('ceph_uid');
+                    });
+                    logModuleCall('cloudstorage', 'upgrade', [], 'Added ceph_uid column to s3_users', [], []);
+                } catch (\Exception $e) {
+                    logModuleCall('cloudstorage', 'upgrade_add_s3_users_ceph_uid', [], $e->getMessage(), [], []);
+                }
+            }
             if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_users', 'is_active')) {
                 try {
                     \WHMCS\Database\Capsule::schema()->table('s3_users', function ($table) {

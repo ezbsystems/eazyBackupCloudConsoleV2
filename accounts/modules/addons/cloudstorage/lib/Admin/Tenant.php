@@ -367,7 +367,9 @@ class Tenant {
                     'message' => 'Cloud Storage service error. Please contact technical support for assistance.'
                 ];
             }
-            $tenantUsername = !(empty($tenant->tenant_id)) ? $tenant->tenant_id . '$' . $username : $username;
+            $baseUid = \WHMCS\Module\Addon\CloudStorage\Client\HelperController::resolveCephBaseUid($tenant);
+            if (empty($baseUid)) { $baseUid = $username; } // legacy fallback
+            $tenantUsername = !(empty($tenant->tenant_id)) ? $tenant->tenant_id . '$' . $baseUid : $baseUid;
             $s3Endpoint = $module->where('setting', 's3_endpoint')->pluck('value')->first();
             $cephAdminAccessKey = $module->where('setting', 'ceph_access_key')->pluck('value')->first();
             $cephAdminSecretKey = $module->where('setting', 'ceph_secret_key')->pluck('value')->first();
@@ -480,7 +482,9 @@ class Tenant {
                     'message' => 'Tenant ' . $username . ' not found.'
                 ];
             }
-            $tenantUsername = !(empty($tenant->tenant_id)) ? $tenant->tenant_id . '$' . $username : $username;
+            $baseUid = \WHMCS\Module\Addon\CloudStorage\Client\HelperController::resolveCephBaseUid($tenant);
+            if (empty($baseUid)) { $baseUid = $username; } // legacy fallback
+            $tenantUsername = !(empty($tenant->tenant_id)) ? $tenant->tenant_id . '$' . $baseUid : $baseUid;
 
             $module = DBController::getResult('tbladdonmodules', [
                 ['module', '=', 'cloudstorage']
@@ -643,7 +647,9 @@ class Tenant {
             $accessKey = HelperController::decryptKey($dbKey->access_key, $encryptionKey);
             
             // Construct the full Ceph username with tenant prefix
-            $tenantUsername = !(empty($tenant->tenant_id)) ? $tenant->tenant_id . '$' . $username : $username;
+            $baseUid = \WHMCS\Module\Addon\CloudStorage\Client\HelperController::resolveCephBaseUid($tenant);
+            if (empty($baseUid)) { $baseUid = $username; } // legacy fallback
+            $tenantUsername = !(empty($tenant->tenant_id)) ? $tenant->tenant_id . '$' . $baseUid : $baseUid;
             $deleteKey = AdminOps::removeKey($s3Endpoint, $cephAdminAccessKey, $cephAdminSecretKey, $accessKey, $tenantUsername);
             if ($deleteKey['status'] != 'success') {
                 return [
@@ -743,7 +749,9 @@ class Tenant {
             $s3Endpoint = $module->where('setting', 's3_endpoint')->pluck('value')->first();
             $cephAdminAccessKey = $module->where('setting', 'ceph_access_key')->pluck('value')->first();
             $cephAdminSecretKey = $module->where('setting', 'ceph_secret_key')->pluck('value')->first();
-            $tenantUsername = !(empty($tenant->tenant_id)) ? $tenant->tenant_id . '$' . $username : $username;
+            $baseUid = \WHMCS\Module\Addon\CloudStorage\Client\HelperController::resolveCephBaseUid($tenant);
+            if (empty($baseUid)) { $baseUid = $username; } // legacy fallback
+            $tenantUsername = !(empty($tenant->tenant_id)) ? $tenant->tenant_id . '$' . $baseUid : $baseUid;
             $params = [
                 'uid' => $tenantUsername,
                 'subuser' => $subuser->subuser
@@ -835,7 +843,9 @@ class Tenant {
                 ];
             }
             // check if the tenant has tenant group
-            $apiUsername = !empty($tenant->tenant_id) ? $tenant->tenant_id . '$' . $username : $username;
+            $baseUid = \WHMCS\Module\Addon\CloudStorage\Client\HelperController::resolveCephBaseUid($tenant);
+            if (empty($baseUid)) { $baseUid = $username; } // legacy fallback
+            $apiUsername = !empty($tenant->tenant_id) ? $tenant->tenant_id . '$' . $baseUid : $baseUid;
 
             $adminOpsResponse = AdminOps::getBucketInfo($s3Endpoint, $cephAdminAccessKey, $cephAdminSecretKey, ['uid' => $apiUsername]);
 
@@ -969,7 +979,9 @@ class Tenant {
                 return ['status' => 'fail', 'message' => 'Service is not configured. Please contact support.'];
             }
 
-            $tenantUsername = !(empty($tenant->tenant_id)) ? $tenant->tenant_id . '$' . $username : $username;
+            $baseUid = \WHMCS\Module\Addon\CloudStorage\Client\HelperController::resolveCephBaseUid($tenant);
+            if (empty($baseUid)) { $baseUid = $username; } // legacy fallback
+            $tenantUsername = !(empty($tenant->tenant_id)) ? $tenant->tenant_id . '$' . $baseUid : $baseUid;
 
             // Generate a unique internal subuser name (not shown to customer).
             $subusername = '';
@@ -1134,7 +1146,9 @@ class Tenant {
                 return ['status' => 'fail', 'message' => 'Service is not configured. Please contact support.'];
             }
 
-            $tenantUsername = !(empty($tenant->tenant_id)) ? $tenant->tenant_id . '$' . $username : $username;
+            $baseUid = \WHMCS\Module\Addon\CloudStorage\Client\HelperController::resolveCephBaseUid($tenant);
+            if (empty($baseUid)) { $baseUid = $username; } // legacy fallback
+            $tenantUsername = !(empty($tenant->tenant_id)) ? $tenant->tenant_id . '$' . $baseUid : $baseUid;
             $delete = AdminOps::removeSubUser($s3Endpoint, $cephAdminAccessKey, $cephAdminSecretKey, [
                 'uid' => $tenantUsername,
                 'subuser' => (string)$subuser->subuser,

@@ -54,11 +54,12 @@ if (count($moduleRows) == 0) {
 }
 $endpoint = $moduleRows->where('setting', 's3_endpoint')->pluck('value')->first();
 $s3Region = $moduleRows->where('setting', 's3_region')->pluck('value')->first() ?: 'us-east-1';
-$encryptionKey = $moduleRows->where('setting', 'encryption_key')->pluck('value')->first();
+$adminAccessKey = $moduleRows->where('setting', 'ceph_access_key')->pluck('value')->first();
+$adminSecretKey = $moduleRows->where('setting', 'ceph_secret_key')->pluck('value')->first();
 
 $service = new BucketLifecycleService($endpoint, $s3Region);
 $owner = Capsule::table('s3_users')->where('id', $bucket->user_id)->first();
-$res = $service->delete($bucketName, (int)$owner->id, $encryptionKey);
+$res = $service->deleteWithTempKey($bucketName, $owner, (string)$adminAccessKey, (string)$adminSecretKey);
 
 if (($res['status'] ?? 'fail') !== 'success') {
 	(new JsonResponse(['status' => 'fail', 'message' => $res['message'] ?? 'Unable to remove lifecycle configuration. Please try again later.'], 200))->send();

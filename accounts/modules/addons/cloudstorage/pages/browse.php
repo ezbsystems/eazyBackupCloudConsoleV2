@@ -101,13 +101,12 @@
         exit();
     }
 
+    $baseUid = \WHMCS\Module\Addon\CloudStorage\Client\HelperController::resolveCephBaseUid($user);
+    if (empty($baseUid)) { $baseUid = $username; } // legacy fallback
     $params = [
-        'uid' => $username,
+        'uid' => (!empty($user->tenant_id) ? ($user->tenant_id . '$' . $baseUid) : $baseUid),
         'bucket' => $bucketName,
     ];
-    if (!empty($user->tenant_id)) {
-        $params['uid'] = $user->tenant_id . '$' . $username;
-    }
     // check bucket exist on server
     $bucketInfo = AdminOps::getBucketInfo($s3Endpoint, $cephAdminAccessKey, $cephAdminSecretKey, $params);
 

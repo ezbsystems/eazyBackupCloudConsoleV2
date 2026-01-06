@@ -63,6 +63,32 @@
         </div>
     </div>
 
+    <!-- Delete Selected Items Modal -->
+    <div id="deleteSelectedModal" class="fixed inset-0 hidden z-50 flex items-center justify-center bg-black/75 p-4" role="dialog" aria-modal="true" aria-labelledby="deleteSelectedTitle">
+        <div class="absolute inset-0" onclick="toggleDeleteSelectedModal(false)"></div>
+        <div class="relative w-full max-w-lg rounded-lg border border-slate-700 bg-slate-900 shadow-lg">
+                <div class="flex justify-between items-center px-6 py-4 border-b border-slate-700">
+                    <h5 id="deleteSelectedTitle" class="text-lg font-semibold text-white">Delete selected items?</h5>
+                    <button type="button" class="text-slate-400 hover:text-slate-300 focus:outline-none" onclick="toggleDeleteSelectedModal(false)" aria-label="Close">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+                <div class="px-6 py-4 space-y-2">
+                    <p class="text-sm text-slate-300">
+                        This will permanently delete <span id="deleteSelectedCount" class="font-semibold text-slate-100">0</span>
+                        selected item(s). This action cannot be undone.
+                    </p>
+                    <p class="text-xs text-slate-400">Tip: folders are deleted by prefix and may take a moment to propagate.</p>
+                </div>
+                <div class="px-6 py-4 flex justify-end gap-2">
+                    <button type="button" class="bg-gray-700 hover:bg-gray-600 text-gray-200 px-4 py-2 rounded-md" onclick="toggleDeleteSelectedModal(false)">Cancel</button>
+                    <button type="button" id="confirmDeleteSelectedBtn" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500" onclick="confirmDeleteSelected()">Delete</button>
+                </div>
+        </div>
+    </div>
+
     <!-- Main Content -->
     <div class="container mx-auto flex-1 flex flex-col pb-10">
         <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-4 py-6 flex-1">
@@ -369,23 +395,39 @@
                     </div>
                     <!-- Table content with fixed height and scrollable area -->
                     <div class="p-4">
+                        <style>
+                            /* DataTables can override header typography inconsistently (e.g., sorting columns).
+                               Force a consistent header look across all columns. */
+                            #bucketContents thead th,
+                            #bucketContents thead th.sorting,
+                            #bucketContents thead th.sorting_asc,
+                            #bucketContents thead th.sorting_desc,
+                            #bucketContents thead th.sorting_asc_disabled,
+                            #bucketContents thead th.sorting_desc_disabled {
+                                font-size: 14px !important;
+                                font-weight: 600 !important;
+                                color: rgb(148 163 184) !important; /* slate-400 */
+                                text-transform: none !important;
+                                letter-spacing: normal !important;
+                            }
+                        </style>
                         <div class="table-scroll-container overflow-auto" style="max-height: 520px;">
                             <table id="bucketContents" class="table-auto w-full text-sm text-slate-200">
-                                <thead class="bg-slate-900/90 border-b border-slate-800 text-xs uppercase tracking-wide text-slate-400 sticky top-0 z-10">
+                                <thead class="bg-slate-900/90 border-b border-slate-800 text-[11px] tracking-normal text-slate-400 sticky top-0 z-10">
                                 <tr>
                                     <!-- Checkbox for selecting all files -->
-                                        <th class="px-4 py-3 text-left font-semibold w-10">
+                                        <th class="px-4 py-2 text-left font-normal !font-normal !text-slate-400 !text-[11px] w-10">
                                             <input type="checkbox" id="selectAllFiles" class="rounded border-slate-600 bg-slate-800 text-sky-500 focus:ring-sky-500 focus:ring-offset-0" />
                                     </th>
-                                        <th class="px-4 py-3 text-left font-semibold w-8"></th>
-                                        <th class="px-4 py-3 text-left font-semibold">Name</th>
-                                        <th class="px-4 py-3 text-left font-semibold whitespace-nowrap">Size</th>
-                                        <th class="px-4 py-3 text-left font-semibold whitespace-nowrap">Last Modified</th>
-                                        <th class="px-4 py-3 text-left font-semibold">ETag</th>
-                                        <th class="px-4 py-3 text-left font-semibold whitespace-nowrap">Storage Class</th>
-                                        <th class="px-4 py-3 text-left font-semibold">Owner</th>
-                                        <th class="px-4 py-3 text-left font-semibold whitespace-nowrap">Version Id</th>
-                                        <th class="px-4 py-3 text-left font-semibold w-10"></th>
+                                        <th class="px-4 py-2 text-left font-normal !font-normal !text-slate-400 !text-[11px] w-8"></th>
+                                        <th class="px-4 py-2 text-left font-normal !font-normal !text-slate-400 !text-[11px]">Name</th>
+                                        <th class="px-4 py-2 text-left font-normal !font-normal !text-slate-400 !text-[11px] whitespace-nowrap">Size</th>
+                                        <th class="px-4 py-2 text-left font-normal !font-normal !text-slate-400 !text-[11px] whitespace-nowrap">Last Modified</th>
+                                        <th class="px-4 py-2 text-left font-normal !font-normal !text-slate-400 !text-[11px]">ETag</th>
+                                        <th class="px-4 py-2 text-left font-normal !font-normal !text-slate-400 !text-[11px] whitespace-nowrap">Storage Class</th>
+                                        <th class="px-4 py-2 text-left font-normal !font-normal !text-slate-400 !text-[11px]">Owner</th>
+                                        <th class="px-4 py-2 text-left font-normal !font-normal !text-slate-400 !text-[11px] whitespace-nowrap">Version Id</th>
+                                        <th class="px-4 py-2 text-left font-normal !font-normal !text-slate-400 !text-[11px] w-10"></th>
                                 </tr>
                             </thead>
                                 <tbody class="bg-slate-900/60 divide-y divide-slate-800 text-slate-300">
@@ -552,6 +594,11 @@
                 if (!m) return;
                 if (show) m.classList.remove('hidden'); else m.classList.add('hidden');
             }
+            function toggleDeleteSelectedModal(show) {
+                const m = document.getElementById('deleteSelectedModal');
+                if (!m) return;
+                if (show) m.classList.remove('hidden'); else m.classList.add('hidden');
+            }
             function showLoaderAndRefresh() {
                 // Show the loader overlay
                 const loadingOverlay = document.getElementById('loading-overlay');
@@ -640,6 +687,11 @@
                     ajax: {
                         url: normalUrl,
                         data: function(d) {
+                            // One-shot cache bypass (use after delete/rename/etc so the UI reflects reality immediately)
+                            if (window.__ebNoCacheOnce) {
+                                d.nocache = 1;
+                                window.__ebNoCacheOnce = false;
+                            }
                             if (showVersions) {
                                 d.username = username;
                                 d.bucket = bucketName;
@@ -693,6 +745,9 @@
                         },
                         dataSrc: function(response) {
                             if (response.status === 'fail') {
+                                if (response.redirect) {
+                                    try { window.location.href = response.redirect; } catch (e) {}
+                                }
                                 showMessage(response.message, 'alertMessage', 'fail');
                                 return [];
                             }
@@ -717,9 +772,11 @@
                         if (showVersions) {
                             // Only allow select on child rows (non-parent)
                             if (row.is_parent) return '';
-                            return `<input type="checkbox" class="fileCheckbox" data-file="${row.key}" data-version="${row.version_id ? row.version_id : ''}" data-is-child="1" data-type="file">`;
+                            const kEnc = encodeURIComponent(String(row.key || ''));
+                            return `<input type="checkbox" class="fileCheckbox" data-file-enc="${kEnc}" data-file="${row.key}" data-version="${row.version_id ? row.version_id : ''}" data-is-child="1" data-type="file">`;
                         }
-                                return `<input type="checkbox" class="fileCheckbox" data-file="${row.name}" data-type="${row.type ? row.type : ''}">`;
+                                const kEnc = encodeURIComponent(String(row.name || ''));
+                                return `<input type="checkbox" class="fileCheckbox" data-file-enc="${kEnc}" data-file="${row.name}" data-type="${row.type ? row.type : ''}">`;
                             },
                             orderable: false
                         },
@@ -1631,6 +1688,22 @@
                 deleteFiles([fileKey]);
             });
 
+            // Decode a URL-encoded key safely (we store keys encoded in data-* attrs),
+            // and also normalize HTML entities (e.g. &#039;) which can appear via DOM/templating.
+            function decodeKeyMaybe(s) {
+                let out = String(s || '');
+                try { out = decodeURIComponent(out); } catch (e) {}
+                // Convert HTML entities back to characters if present (&#039; -> ')
+                if (out.indexOf('&') !== -1) {
+                    try {
+                        const ta = document.createElement('textarea');
+                        ta.innerHTML = out;
+                        out = ta.value;
+                    } catch (e) {}
+                }
+                return out;
+            }
+
             function deleteFiles(fileObjects) {
                 jQuery.ajax({
                     url: '/modules/addons/cloudstorage/api/deletefile.php',
@@ -1639,7 +1712,8 @@
                     data: {
                         username: username,
                         bucket: bucketName,
-                        files: fileObjects
+                        // Ensure keys are raw (not HTML-escaped) before sending to backend
+                        files: Array.isArray(fileObjects) ? fileObjects.map(decodeKeyMaybe) : fileObjects
                     },
                     dataType: 'json',
                     success: function(resp) {
@@ -1674,6 +1748,8 @@
                         } else {
                             showMessage('Your file has been queued for deletion', 'alertMessage', 'success');
                         }
+                        // Force next listing request to bypass server-side cache (30s TTL)
+                        window.__ebNoCacheOnce = true;
                     }
                 });
             }
@@ -2228,7 +2304,9 @@
             function collectSelection() {
                 const list = [];
                 jQuery('.fileCheckbox:checked').each(function(){
-                    const key = String(jQuery(this).data('file') || '');
+                    // Keys can contain quotes/apostrophes; read URL-encoded attribute to avoid HTML entity transforms.
+                    const keyEnc = jQuery(this).attr('data-file-enc') || jQuery(this).data('file') || '';
+                    const key = decodeKeyMaybe(keyEnc);
                     const type = String(jQuery(this).data('type') || '').toLowerCase();
                     list.push({ key, type, isFolder: (type === 'folder') });
                 });
@@ -2342,19 +2420,42 @@
                 const items = collectSelection();
                 if (!items.length) return;
                 if (bucketLock.enabled || showVersions) return;
-                if (!confirm('This will delete the selected items. Continue?')) return;
+                // Use custom modal instead of browser confirm
+                try {
+                    const cnt = document.getElementById('deleteSelectedCount');
+                    if (cnt) cnt.textContent = String(items.length);
+                } catch (e) {}
+                window.__deleteSelectedItems = items;
+                toggleDeleteSelectedModal(true);
+                return;
+            }
+
+            function confirmDeleteSelected() {
+                const items = (window.__deleteSelectedItems && Array.isArray(window.__deleteSelectedItems))
+                    ? window.__deleteSelectedItems
+                    : collectSelection();
+                window.__deleteSelectedItems = null;
+                toggleDeleteSelectedModal(false);
+                if (!items.length) return;
                 const files = items.filter(i => !i.isFolder).map(i => i.key);
                 const prefixes = items.filter(i => i.isFolder).map(i => {
                     return (i.key.endsWith('/') ? i.key : i.key + '/');
                 });
                 const doFiles = () => {
                     if (!files.length) return Promise.resolve(null);
-                    return jQuery.ajax({
-                        url: '/modules/addons/cloudstorage/api/deletefile.php',
-                        method: 'POST',
-                        dataType: 'json',
-                        data: { username: username, bucket: bucketName, files: files }
-                    }).then(resp => resp || null);
+                    // jQuery.ajax returns a Deferred (no .catch in older jQuery). Wrap into a native Promise.
+                    return new Promise(function(resolve, reject){
+                        jQuery.ajax({
+                            url: '/modules/addons/cloudstorage/api/deletefile.php',
+                            method: 'POST',
+                            dataType: 'json',
+                            data: { username: username, bucket: bucketName, files: files }
+                        }).done(function(resp){
+                            resolve(resp || null);
+                        }).fail(function(xhr, status, error){
+                            reject({ xhr: xhr, status: status, error: error });
+                        });
+                    });
                 };
                 const doPrefixes = () => {
                     if (!prefixes.length) return Promise.resolve([]);
@@ -2380,6 +2481,8 @@
                         }
                     }
                     if (showVersions) { window.__allowNextIndexReload = true; }
+                    // Force next listing request to bypass server-side cache (30s TTL)
+                    window.__ebNoCacheOnce = true;
                     jQuery('#bucketContents').DataTable().ajax.reload();
                     jQuery('#selectAllFiles').prop('checked', false);
                     onSelectionChanged();
@@ -2387,6 +2490,16 @@
                     if (window.toast) window.toast.error('Could not delete some items');
                 });
             }
+
+            // Close delete modal on Escape
+            window.addEventListener('keydown', function(e){
+                if (e.key === 'Escape') {
+                    const m = document.getElementById('deleteSelectedModal');
+                    if (m && !m.classList.contains('hidden')) {
+                        toggleDeleteSelectedModal(false);
+                    }
+                }
+            });
 
             // Breadcrumbs rendering
             function renderBreadcrumbs() {

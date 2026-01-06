@@ -36,6 +36,7 @@ class BucketSizeMonitor {
                 ->select([
                     's3_buckets.name as bucket_name',
                     's3_users.username as owner_username',
+                    's3_users.ceph_uid as owner_ceph_uid',
                     's3_users.tenant_id',
                     's3_buckets.is_active'
                 ])
@@ -51,6 +52,7 @@ class BucketSizeMonitor {
                 }
                 $whmcsMapping[$bucketName][] = [
                     'owner' => $bucket->owner_username,
+                    'ceph_uid' => $bucket->owner_ceph_uid,
                     'tenant_id' => $bucket->tenant_id
                 ];
             }
@@ -101,12 +103,12 @@ class BucketSizeMonitor {
                         // Try to find matching owner based on tenant system
                         $ownerFound = false;
                         foreach ($whmcsMapping[$bucketName] as $whmcsOwner) {
-                            $expectedCephOwner = $whmcsOwner['owner'];
+                            $expectedCephOwner = !empty($whmcsOwner['ceph_uid']) ? $whmcsOwner['ceph_uid'] : $whmcsOwner['owner'];
                             $tenantId = $whmcsOwner['tenant_id'];
                             
                             // Build expected Ceph owner format
                             if (!empty($tenantId)) {
-                                $expectedCephOwner = $tenantId . '$' . $whmcsOwner['owner'];
+                                $expectedCephOwner = $tenantId . '$' . $expectedCephOwner;
                             }
                             
                             // Check if this matches the Ceph owner

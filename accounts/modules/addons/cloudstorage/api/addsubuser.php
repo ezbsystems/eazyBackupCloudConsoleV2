@@ -95,8 +95,12 @@
     $subuser = $_POST['subuser'];
     $access = $_POST['permission'];
 
+    // Ceph RGW uid (prefer RGW-safe ceph_uid + tenant qualification)
+    $cephUid = \WHMCS\Module\Addon\CloudStorage\Client\HelperController::resolveCephQualifiedUid($user);
+    if (empty($cephUid)) { $cephUid = $username; } // legacy fallback
+
     $params = [
-        'uid' => $username,
+        'uid' => $cephUid,
         'subuser' => $subuser,
         'access' => $access
     ];
@@ -110,11 +114,11 @@
         ]);
 
         // get the userinfo to retrieve the subuser keys
-        $userinfo = AdminOps::getUserInfo($s3Endpoint, $cephAdminAccessKey, $cephAdminSecretKey, $username);
+        $userinfo = AdminOps::getUserInfo($s3Endpoint, $cephAdminAccessKey, $cephAdminSecretKey, $cephUid);
         $accessKey = $secretKey = '';
         if ($userinfo['status'] == 'success') {
             $keys = $userinfo['data']['keys'];
-            $searchUser = $username.':'.$subuser;
+            $searchUser = $cephUid . ':' . $subuser;
             $userData = null;
 
             foreach ($keys as $item) {

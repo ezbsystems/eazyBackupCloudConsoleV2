@@ -20,7 +20,7 @@ class AdminOps {
      *
      * @return array
      */
-    public static function removeKey($endpoint, $adminAccessKey, $adminSecretKey, $accessKey, $username = null)
+    public static function removeKey($endpoint, $adminAccessKey, $adminSecretKey, $accessKey, $username = null, $tenant = null)
     {
         try {
             $client = new Client();
@@ -34,6 +34,10 @@ class AdminOps {
             // Add uid parameter if username is provided (required for Ceph RGW)
             if (!empty($username)) {
                 $query['uid'] = $username;
+            }
+            // Tenant support (RGW multisite/multitenant)
+            if (!empty($tenant)) {
+                $query['tenant'] = $tenant;
             }
 
             $stringToSign = "DELETE\n\n\n{$date}\n/admin/user";
@@ -53,6 +57,38 @@ class AdminOps {
                 'data' => json_decode($response->getBody()->getContents(), true),
             ];
         } catch (RequestException $e) {
+            // Some RGW builds do NOT accept tenant as a separate query param for key ops.
+            // Fallback: if tenant is provided and RGW returns NoSuchUser, retry using uid="tenant$uid" without tenant param.
+            if (!empty($tenant) && !empty($username) && $e->hasResponse()) {
+                try {
+                    $status = $e->getResponse()->getStatusCode();
+                    $body = (string)$e->getResponse()->getBody();
+                    if ($status === 404 && (stripos($body, 'NoSuchUser') !== false || stripos($body, '"Code":"NoSuchUser"') !== false)) {
+                        $altUid = (strpos((string)$username, '$') !== false) ? (string)$username : ((string)$tenant . '$' . (string)$username);
+                        $retryQuery = [
+                            'access-key' => $accessKey,
+                            'key' => '',
+                            'uid' => $altUid,
+                        ];
+                        $stringToSign = "DELETE\n\n\n{$date}\n/admin/user";
+                        $signature = base64_encode(hash_hmac('sha1', $stringToSign, $adminSecretKey, true));
+                        $authHeader = "AWS {$adminAccessKey}:{$signature}";
+                        $retry = $client->delete($url, [
+                            'headers' => [
+                                'Authorization' => $authHeader,
+                                'Date' => $date,
+                            ],
+                            'query' => $retryQuery,
+                        ]);
+                        return [
+                            'status' => 'success',
+                            'data' => json_decode($retry->getBody()->getContents(), true),
+                        ];
+                    }
+                } catch (\Throwable $ignore) {
+                    // fall through to generic fail
+                }
+            }
             $response = ['status' => 'fail', 'message' => 'Remove key failed. Please try again or contact support.'];
             logModuleCall(self::$module, __FUNCTION__, ['access_key' => $accessKey, 'username' => $username], $e->getMessage());
 
@@ -70,7 +106,7 @@ class AdminOps {
      *
      * @return array
      */
-    public static function createKey($endpoint, $adminAccessKey, $adminSecretKey, $username)
+    public static function createKey($endpoint, $adminAccessKey, $adminSecretKey, $username, $tenant = null)
     {
         try {
             $client = new Client();
@@ -80,6 +116,10 @@ class AdminOps {
                 'uid' => $username,
                 'key' => ''
             ];
+            // Optional tenant (RGW multitenant)
+            if (!empty($tenant)) {
+                $query['tenant'] = $tenant;
+            }
 
             $stringToSign = "PUT\n\n\n{$date}\n/admin/user";
             $signature = base64_encode(hash_hmac('sha1', $stringToSign, $adminSecretKey, true));
@@ -100,6 +140,38 @@ class AdminOps {
                 'data' => $keys,
             ];
         } catch (RequestException $e) {
+            // Some RGW builds do NOT accept tenant as a separate query param for key ops.
+            // Fallback: if tenant is provided and RGW returns NoSuchUser, retry using uid="tenant$uid" without tenant param.
+            if (!empty($tenant) && !empty($username) && $e->hasResponse()) {
+                try {
+                    $status = $e->getResponse()->getStatusCode();
+                    $body = (string)$e->getResponse()->getBody();
+                    if ($status === 404 && (stripos($body, 'NoSuchUser') !== false || stripos($body, '"Code":"NoSuchUser"') !== false)) {
+                        $altUid = (strpos((string)$username, '$') !== false) ? (string)$username : ((string)$tenant . '$' . (string)$username);
+                        $retryQuery = [
+                            'uid' => $altUid,
+                            'key' => ''
+                        ];
+                        $stringToSign = "PUT\n\n\n{$date}\n/admin/user";
+                        $signature = base64_encode(hash_hmac('sha1', $stringToSign, $adminSecretKey, true));
+                        $authHeader = "AWS {$adminAccessKey}:{$signature}";
+                        $retry = $client->put($url, [
+                            'headers' => [
+                                'Authorization' => $authHeader,
+                                'Date' => $date,
+                            ],
+                            'query' => $retryQuery,
+                        ]);
+                        $keys = json_decode($retry->getBody()->getContents(), true);
+                        return [
+                            'status' => 'success',
+                            'data' => $keys,
+                        ];
+                    }
+                } catch (\Throwable $ignore) {
+                    // fall through to generic fail
+                }
+            }
             $response = ['status' => 'fail', 'message' => 'Create key failed. Please try again or contact support.'];
             logModuleCall(self::$module, __FUNCTION__, $username, $e->getMessage());
 
@@ -357,7 +429,7 @@ class AdminOps {
      *
      * @return array
      */
-    public static function getUserInfo($endpoint, $adminAccessKey, $adminSecretKey, $username)
+    public static function getUserInfo($endpoint, $adminAccessKey, $adminSecretKey, $username, $tenant = null)
     {
         try {
             $client = new Client();
@@ -366,6 +438,9 @@ class AdminOps {
             $query = [
                 'uid' => $username
             ];
+            if (!empty($tenant)) {
+                $query['tenant'] = $tenant;
+            }
 
             $stringToSign = "GET\n\n\n{$date}\n/admin/user";
             $signature = base64_encode(hash_hmac('sha1', $stringToSign, $adminSecretKey, true));
@@ -384,6 +459,33 @@ class AdminOps {
                 'data' => json_decode($response->getBody()->getContents(), true),
             ];
         } catch (RequestException $e) {
+            // Fallback for RGW builds that don't accept tenant param for user lookup.
+            if (!empty($tenant) && !empty($username) && $e->hasResponse()) {
+                try {
+                    $status = $e->getResponse()->getStatusCode();
+                    $body = (string)$e->getResponse()->getBody();
+                    if ($status === 404 && (stripos($body, 'NoSuchUser') !== false || stripos($body, '"Code":"NoSuchUser"') !== false)) {
+                        $altUid = (strpos((string)$username, '$') !== false) ? (string)$username : ((string)$tenant . '$' . (string)$username);
+                        $retryQuery = [ 'uid' => $altUid ];
+                        $stringToSign = "GET\n\n\n{$date}\n/admin/user";
+                        $signature = base64_encode(hash_hmac('sha1', $stringToSign, $adminSecretKey, true));
+                        $authHeader = "AWS {$adminAccessKey}:{$signature}";
+                        $retry = $client->get($url, [
+                            'headers' => [
+                                'Authorization' => $authHeader,
+                                'Date' => $date,
+                            ],
+                            'query' => $retryQuery,
+                        ]);
+                        return [
+                            'status' => 'success',
+                            'data' => json_decode($retry->getBody()->getContents(), true),
+                        ];
+                    }
+                } catch (\Throwable $ignore) {
+                    // fall through
+                }
+            }
             $response = ['status' => 'fail', 'message' => 'Get user info failed. Please try again or contact support.'];
             logModuleCall(self::$module, __FUNCTION__, $username, $e->getMessage());
 

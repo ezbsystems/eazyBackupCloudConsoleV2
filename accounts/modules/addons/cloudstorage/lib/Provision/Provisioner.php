@@ -300,30 +300,65 @@ class Provisioner
             $secretKey  = (string) self::getSetting('ceph_secret_key', '');
             $encKey     = (string) self::getSetting('encryption_key', '');
             if ($endpoint && $accessKey && $secretKey) {
-                $info = \WHMCS\Module\Addon\CloudStorage\Admin\AdminOps::getUserInfo($endpoint, $accessKey, $secretKey, $serviceUsername);
-                try { logModuleCall('cloudstorage', 'provision_storage_adminops_get_user', ['u' => $serviceUsername], $info); } catch (\Throwable $e) {}
-                if (!is_array($info) || ($info['status'] ?? '') !== 'success') {
+                // Idempotency: if we already have an s3_users row, reuse its tenant_id / ceph_uid.
+                $existingUser = null;
+                try {
+                    $existingUser = \WHMCS\Module\Addon\CloudStorage\Client\DBController::getUser($serviceUsername);
+                } catch (\Throwable $e) {}
+
+                $tenantId = '';
+                $cephBaseUid = '';
+                if ($existingUser && !empty($existingUser->tenant_id)) {
+                    $tenantId = (string) $existingUser->tenant_id;
+                    $cephBaseUid = (string) (\WHMCS\Module\Addon\CloudStorage\Client\HelperController::resolveCephBaseUid($existingUser));
+                }
+                if ($tenantId === '') {
                     $tenantId = \WHMCS\Module\Addon\CloudStorage\Client\HelperController::getUniqueTenantId();
-                    $params = ['uid' => $serviceUsername, 'name' => $serviceUsername, 'tenant' => $tenantId];
+                }
+                if ($cephBaseUid === '') {
+                    // New scheme: RGW-safe uid (avoid email-as-uid which some RGW dashboards reject)
+                    $cephBaseUid = \WHMCS\Module\Addon\CloudStorage\Client\HelperController::generateCephUserId($serviceUsername, $tenantId);
+                }
+
+                // Check for existing RGW user (try new uid first, then legacy email uid)
+                $info = \WHMCS\Module\Addon\CloudStorage\Admin\AdminOps::getUserInfo($endpoint, $accessKey, $secretKey, $cephBaseUid, $tenantId ?: null);
+                try { logModuleCall('cloudstorage', 'provision_storage_adminops_get_user', ['u' => $serviceUsername, 'ceph_uid' => $cephBaseUid, 'tenant' => $tenantId], $info); } catch (\Throwable $e) {}
+                if (!is_array($info) || ($info['status'] ?? '') !== 'success') {
+                    $legacyInfo = \WHMCS\Module\Addon\CloudStorage\Admin\AdminOps::getUserInfo($endpoint, $accessKey, $secretKey, $serviceUsername, $tenantId ?: null);
+                    try { logModuleCall('cloudstorage', 'provision_storage_adminops_get_user_legacy', ['u' => $serviceUsername, 'tenant' => $tenantId], $legacyInfo); } catch (\Throwable $e) {}
+                    if (is_array($legacyInfo) && ($legacyInfo['status'] ?? '') === 'success') {
+                        // Legacy RGW uid is the email itself; keep cephBaseUid as email for subsequent operations.
+                        $cephBaseUid = $serviceUsername;
+                    }
+                }
+
+                if (!is_array($info) || ($info['status'] ?? '') !== 'success') {
+                    $params = [
+                        'uid' => $cephBaseUid,
+                        'name' => $serviceUsername,
+                        'email' => $serviceUsername,
+                        'tenant' => $tenantId
+                    ];
                     $create = \WHMCS\Module\Addon\CloudStorage\Admin\AdminOps::createUser($endpoint, $accessKey, $secretKey, $params);
                     try { logModuleCall('cloudstorage', 'provision_storage_adminops_create_user', $params, $create); } catch (\Throwable $e) {}
                     if (is_array($create) && ($create['status'] ?? '') === 'success') {
                         try {
                             $s3UserId = \WHMCS\Module\Addon\CloudStorage\Client\DBController::saveUser([
                                 'username'  => $serviceUsername,
+                                'ceph_uid'  => $cephBaseUid,
                                 'tenant_id' => $tenantId,
                             ]);
                             // Option B: revoke the auto-generated initial key(s) so there are no unseen/ghost credentials.
                             // The user will create their first keypair explicitly from the Access Keys page.
                             $keys = $create['data']['keys'] ?? [];
                             if (is_array($keys) && count($keys) > 0) {
-                                $cephUid = $tenantId ? ($tenantId . '$' . $serviceUsername) : $serviceUsername;
+                                $cephUid = $tenantId ? ($tenantId . '$' . $cephBaseUid) : $cephBaseUid;
                                 foreach ($keys as $k) {
                                     $ak = is_array($k) ? ($k['access_key'] ?? '') : '';
                                     if (!empty($ak)) {
                                         try {
                                             $rm = \WHMCS\Module\Addon\CloudStorage\Admin\AdminOps::removeKey($endpoint, $accessKey, $secretKey, $ak, $cephUid);
-                                            try { logModuleCall('cloudstorage', 'provision_storage_remove_autokey', ['u' => $serviceUsername, 'cephUid' => $cephUid], $rm); } catch (\Throwable $_) {}
+                                            try { logModuleCall('cloudstorage', 'provision_storage_remove_autokey', ['u' => $serviceUsername, 'cephUid' => $cephUid, 'ceph_uid' => $cephBaseUid, 'tenant' => $tenantId], $rm); } catch (\Throwable $_) {}
                                         } catch (\Throwable $e) {
                                             try { logModuleCall('cloudstorage', 'provision_storage_remove_autokey_exception', ['u' => $serviceUsername, 'cephUid' => $cephUid], $e->getMessage()); } catch (\Throwable $_) {}
                                         }

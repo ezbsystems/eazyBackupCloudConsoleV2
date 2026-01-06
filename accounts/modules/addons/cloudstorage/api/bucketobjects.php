@@ -20,6 +20,7 @@
     use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
     use WHMCS\Module\Addon\CloudStorage\Client\DBController;
     use WHMCS\Module\Addon\CloudStorage\Client\BucketController;
+    use WHMCS\Database\Capsule;
 
     if (!isset($_POST['bucket']) || empty($_POST['bucket'])) {
         $jsonData = [
@@ -34,8 +35,23 @@
 
     $packageId = ProductConfig::$E3_PRODUCT_ID;
     $ca = new ClientArea();
-    $loggedInUserId = $ca->getUserID();
-    $product = DBController::getProduct($loggedInUserId, $packageId);
+    // Resolve client ID (WHMCS v8 user->client mapping)
+    $loggedInUserId = (int) $ca->getUserID();
+    $clientId = 0;
+    try {
+        $link = Capsule::table('tblusers_clients')->where('userid', $loggedInUserId)->orderBy('owner', 'desc')->first();
+        if ($link && isset($link->clientid)) {
+            $clientId = (int) $link->clientid;
+        }
+    } catch (\Throwable $e) {}
+    if ($clientId <= 0 && isset($_SESSION['uid'])) {
+        $clientId = (int) $_SESSION['uid'];
+    }
+    if ($clientId <= 0) {
+        $clientId = $loggedInUserId; // legacy fallback
+    }
+
+    $product = DBController::getProduct($clientId, $packageId);
     if (is_null($product) || is_null($product->username)) {
         $jsonData = [
             'status' => 'fail',
@@ -48,6 +64,7 @@
     }
 
     $username = $product->username;
+    $productUsername = $product->username;
     // Allow missing or empty username to mean "current product user" (align with objectversions.php)
     $browseUser = (isset($_POST['username']) && $_POST['username'] !== '')
         ? $_POST['username']
@@ -131,9 +148,17 @@
     $s3Connection = $bucketObject->connectS3Client($userId, $encryptionKey);
 
     if ($s3Connection['status'] == 'fail') {
+        // If keys are missing/invalid, instruct UI to redirect to key creation.
+        $redirect = null;
+        if (stripos((string)$s3Connection['message'], 'Access keys') !== false) {
+            $redirect = ($browseUser !== $productUsername)
+                ? '/index.php?m=cloudstorage&page=users'
+                : '/index.php?m=cloudstorage&page=access_keys';
+        }
         $jsonData = [
             'status' => 'fail',
-            'message' => $s3Connection['message']
+            'message' => $s3Connection['message'],
+            'redirect' => $redirect,
         ];
 
         $response = new JsonResponse($jsonData, 200);
@@ -171,8 +196,11 @@
     $cacheFile = $cacheDir . '/' . $cacheKey . '.json';
     $contents = null;
 
+    // Allow caller to bypass cache (e.g., immediately after a delete)
+    $noCache = isset($_POST['nocache']) && (string)$_POST['nocache'] === '1';
+
     // Try to read from cache
-    if (file_exists($cacheFile)) {
+    if (!$noCache && file_exists($cacheFile)) {
         $cacheData = @file_get_contents($cacheFile);
         if ($cacheData !== false) {
             $cached = @json_decode($cacheData, true);
@@ -185,6 +213,16 @@
     // If not cached or expired, fetch from S3
     if ($contents === null) {
         $contents = $bucketObject->listBucketContents($options, $action);
+
+        // If auth failed, include a redirect for the UI.
+        if (isset($contents['status']) && $contents['status'] === 'fail') {
+            $msg = (string)($contents['message'] ?? '');
+            if (stripos($msg, 'Access keys are missing or invalid') !== false || stripos($msg, 'Access keys missing') !== false) {
+                $contents['redirect'] = ($browseUser !== $productUsername)
+                    ? '/index.php?m=cloudstorage&page=users'
+                    : '/index.php?m=cloudstorage&page=access_keys';
+            }
+        }
         
         // Cache successful responses
         if (isset($contents['status']) && $contents['status'] === 'success') {
@@ -204,7 +242,8 @@
         'count' => $contents['count'],
         'data' => $contents['data'],
         'message' => $contents['message'],
-        'status' => $contents['status']
+        'status' => $contents['status'],
+        'redirect' => $contents['redirect'] ?? null,
     ];
 
     $response = new JsonResponse($jsonData, 200);

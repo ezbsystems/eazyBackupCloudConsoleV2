@@ -77,25 +77,16 @@ $cephAdminUser = $module->where('setting', 'ceph_admin_user')->pluck('value')->f
 $cephAdminAccessKey = $module->where('setting', 'ceph_access_key')->pluck('value')->first();
 $cephAdminSecretKey = $module->where('setting', 'ceph_secret_key')->pluck('value')->first();
 $encryptionKey = $module->where('setting', 'encryption_key')->pluck('value')->first();
-$result = AdminOps::getUserInfo($s3Endpoint, $cephAdminAccessKey, $cephAdminSecretKey, $username);
-try { logModuleCall('cloudstorage', 'adminops_get_user_info', ['username' => $username], $result); } catch (\Throwable $e) {}
-
-if ($result['status'] == 'success') {
-    $jsonData = [
-        'message' => 'The username already exists in the Ceph RGW. Please choose a different username.',
-        'status' => 'fail',
-    ];
-
-    $response = new JsonResponse($jsonData, 200);
-    $response->send();
-    exit();
-}
+// NOTE: We store the customer-visible username/email in s3_users.username,
+// but we use a RGW-safe uid (no '@') for Ceph Admin Ops.
 
 try {
     $tenantId = HelperController::getUniqueTenantId();
+    $cephUid = HelperController::generateCephUserId($username, $tenantId);
     $params = [
-        'uid'  => $username,
+        'uid'  => $cephUid,
         'name' => $username,
+        'email' => $username,
         'tenant' => $tenantId
     ];
 
@@ -150,6 +141,7 @@ try {
 
     $s3UserId = DBController::saveUser([
         'username' => $username,
+        'ceph_uid' => $cephUid,
         'tenant_id' => $tenantId
     ]);
 
