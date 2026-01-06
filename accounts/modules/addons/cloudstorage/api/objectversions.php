@@ -18,6 +18,7 @@ use WHMCS\ClientArea;
 use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\BucketController;
+use WHMCS\Database\Capsule;
 
 $bucketName = $_POST['bucket'] ?? '';
 $key = $_POST['key'] ?? '';
@@ -51,8 +52,23 @@ if (empty($bucketName)) {
 
 $packageId = ProductConfig::$E3_PRODUCT_ID;
 $ca = new ClientArea();
-$loggedInUserId = $ca->getUserID();
-$product = DBController::getProduct($loggedInUserId, $packageId);
+// Resolve client ID (WHMCS v8 user->client mapping)
+$loggedInUserId = (int) $ca->getUserID();
+$clientId = 0;
+try {
+    $link = Capsule::table('tblusers_clients')->where('userid', $loggedInUserId)->orderBy('owner', 'desc')->first();
+    if ($link && isset($link->clientid)) {
+        $clientId = (int) $link->clientid;
+    }
+} catch (\Throwable $e) {}
+if ($clientId <= 0 && isset($_SESSION['uid'])) {
+    $clientId = (int) $_SESSION['uid'];
+}
+if ($clientId <= 0) {
+    $clientId = $loggedInUserId; // legacy fallback
+}
+
+$product = DBController::getProduct($clientId, $packageId);
 if (is_null($product) || is_null($product->username)) {
     $response = new JsonResponse(['status' => 'fail', 'message' => 'User not exist.'], 200);
     $response->send();
@@ -61,6 +77,7 @@ if (is_null($product) || is_null($product->username)) {
 
 $browseUser = $_POST['username'] ?? $product->username;
 $username = $product->username;
+$productUsername = $product->username;
 $user = DBController::getUser($username);
 if (is_null($user)) {
     $response = new JsonResponse(['status' => 'fail', 'message' => 'Your account has been suspended. Please contact support.'], 200);
@@ -113,7 +130,14 @@ $s3Region = $module->where('setting', 's3_region')->pluck('value')->first() ?: '
 $bucketController = new BucketController($s3Endpoint, $cephAdminUser, $cephAdminAccessKey, $cephAdminSecretKey, $s3Region);
 $conn = $bucketController->connectS3Client($userId, $encryptionKey);
 if ($conn['status'] !== 'success') {
-    $response = new JsonResponse(['status' => 'fail', 'message' => $conn['message']], 200);
+    // If keys are missing/invalid, instruct UI to redirect to key creation.
+    $redirect = null;
+    if (stripos((string)$conn['message'], 'Access keys') !== false) {
+        $redirect = ($browseUser !== $productUsername)
+            ? '/index.php?m=cloudstorage&page=users'
+            : '/index.php?m=cloudstorage&page=access_keys';
+    }
+    $response = new JsonResponse(['status' => 'fail', 'message' => $conn['message'], 'redirect' => $redirect], 200);
     $response->send();
     exit();
 }

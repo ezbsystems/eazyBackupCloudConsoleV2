@@ -68,10 +68,19 @@ class DeprovisionHelper
      */
     public static function computeCephUid($user): string
     {
-        if (!empty($user->tenant_id)) {
-            return $user->tenant_id . '$' . $user->username;
+        $base = '';
+        if (is_object($user)) {
+            $base = (string)($user->ceph_uid ?? '');
+            if ($base === '') {
+                $base = (string)($user->username ?? '');
+            }
+            $tenantId = (string)($user->tenant_id ?? '');
+            if ($tenantId !== '') {
+                return $tenantId . '$' . $base;
+            }
+            return $base;
         }
-        return $user->username;
+        return '';
     }
 
     /**

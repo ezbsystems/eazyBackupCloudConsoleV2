@@ -232,4 +232,75 @@ class HelperController {
 
         return $tenantId;
     }
+
+    /**
+     * Generate a Ceph RGW-safe user id (uid) for Admin Ops.
+     *
+     * Notes:
+     * - The RGW dashboard UI often rejects emails like "name@example.com" as an invalid uid.
+     * - We keep customer-facing username/email in s3_users.username, but use this uid for RGW.
+     * - The returned value is lowercase and restricted to [a-z0-9-] for broad compatibility.
+     */
+    public static function generateCephUserId(string $customerUsernameOrEmail, ?string $tenantId = null): string
+    {
+        $base = strtolower(trim($customerUsernameOrEmail));
+        // Replace common separators and remove everything except a-z, 0-9, and dash.
+        $base = str_replace(['@', '.', '+', '_', ' '], '-', $base);
+        $base = preg_replace('/[^a-z0-9-]/', '-', $base);
+        $base = preg_replace('/-+/', '-', $base);
+        $base = trim($base, '-');
+        if ($base === '') {
+            $base = 'user';
+        }
+
+        // Add a short deterministic suffix so two users with similar emails don't collide.
+        $suffix = substr(sha1(strtolower(trim($customerUsernameOrEmail)) . '|' . (string)$tenantId), 0, 8);
+        $prefix = 'cs';
+        if (!empty($tenantId)) {
+            // Keep tenant in the uid for easier debugging/admin UX; still safe chars.
+            $t = preg_replace('/[^0-9]/', '', (string)$tenantId);
+            if ($t !== '') {
+                $prefix .= '-' . $t;
+            }
+        }
+        return $prefix . '-' . $suffix;
+    }
+
+    /**
+     * Resolve the base RGW uid for an s3_users row.
+     * Prefer s3_users.ceph_uid when present, otherwise fall back to s3_users.username (legacy).
+     */
+    public static function resolveCephBaseUid($user): string
+    {
+        if (is_object($user)) {
+            $ceph = (string)($user->ceph_uid ?? '');
+            if ($ceph !== '') return $ceph;
+            return (string)($user->username ?? '');
+        }
+        if (is_array($user)) {
+            $ceph = (string)($user['ceph_uid'] ?? '');
+            if ($ceph !== '') return $ceph;
+            return (string)($user['username'] ?? '');
+        }
+        return '';
+    }
+
+    /**
+     * Resolve the tenant-qualified RGW uid (tenant$uid) for an s3_users row.
+     */
+    public static function resolveCephQualifiedUid($user): string
+    {
+        $base = self::resolveCephBaseUid($user);
+        if ($base === '') return '';
+        $tenantId = '';
+        if (is_object($user)) {
+            $tenantId = (string)($user->tenant_id ?? '');
+        } elseif (is_array($user)) {
+            $tenantId = (string)($user['tenant_id'] ?? '');
+        }
+        if ($tenantId !== '') {
+            return $tenantId . '$' . $base;
+        }
+        return $base;
+    }
 }

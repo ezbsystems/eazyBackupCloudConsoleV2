@@ -44,7 +44,22 @@
     $client = DBController::getRow('tblclients', [
         ['id', '=', $clientId]
     ]);
+    // Option B: treat missing OR invalid/un-decryptable keys as "no keys"
     $hasPrimaryKey = !is_null($accessKey);
+    if (!is_null($accessKey)) {
+        try {
+            $module = DBController::getResult('tbladdonmodules', [['module', '=', 'cloudstorage']]);
+            $encKey = $module->where('setting', 'encryption_key')->pluck('value')->first();
+            $ak = isset($accessKey->access_key) ? HelperController::decryptKey($accessKey->access_key, $encKey) : '';
+            $sk = isset($accessKey->secret_key) ? HelperController::decryptKey($accessKey->secret_key, $encKey) : '';
+            if (empty($ak) || empty($sk)) {
+                $hasPrimaryKey = false;
+                $accessKey = null; // show empty state and force user to create a new keypair
+            }
+        } catch (\Throwable $e) {
+            // If we can't validate, fall back to legacy behavior
+        }
+    }
 
     return [
         'firstname' => $client->firstname,

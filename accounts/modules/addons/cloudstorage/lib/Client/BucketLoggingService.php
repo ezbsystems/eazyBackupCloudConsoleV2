@@ -5,6 +5,7 @@ namespace WHMCS\Module\Addon\CloudStorage\Client;
 use Aws\S3\Exception\S3Exception;
 use Aws\S3\S3Client;
 use WHMCS\Database\Capsule;
+use WHMCS\Module\Addon\CloudStorage\Admin\AdminOps;
 use WHMCS\Module\Addon\CloudStorage\Request\S3ClientFactory;
 
 class BucketLoggingService
@@ -64,6 +65,267 @@ class BucketLoggingService
                 ]
             ]
         ];
+    }
+
+    /**
+     * Control-plane logging operations: mint a temporary key for the bucket owner via Admin Ops,
+     * perform the S3 API call as the owner, then revoke the key.
+     *
+     * Supports Option B (no persistent keys in DB).
+     *
+     * @param object $owner s3_users row (must include username and optional tenant_id)
+     */
+    private function withTemporaryOwnerClient($owner, string $adminAccessKey, string $adminSecretKey, callable $fn): array
+    {
+        $ownerUsername = (string)\WHMCS\Module\Addon\CloudStorage\Client\HelperController::resolveCephBaseUid($owner);
+        $tenantId = (string)($owner->tenant_id ?? '');
+        $cephUid = ($tenantId !== '') ? ($tenantId . '$' . $ownerUsername) : $ownerUsername;
+        if ($cephUid === '' || $ownerUsername === '') {
+            return ['status' => 'fail', 'message' => 'Unable to connect to storage.'];
+        }
+
+        $tempAccessKey = '';
+        try {
+            // Capture existing access keys so we can identify the newly-created temp key reliably.
+            $beforeKeys = [];
+            try {
+                $info = AdminOps::getUserInfo($this->endpoint, $adminAccessKey, $adminSecretKey, $ownerUsername, $tenantId ?: null);
+                $data = is_array($info) ? ($info['data'] ?? null) : null;
+                if (is_array($data) && isset($data['keys']) && is_array($data['keys'])) {
+                    foreach ($data['keys'] as $k) {
+                        if (is_array($k) && !empty($k['access_key'])) {
+                            $beforeKeys[(string)$k['access_key']] = true;
+                        }
+                    }
+                }
+            } catch (\Throwable $e) {}
+
+            $keys = AdminOps::createKey($this->endpoint, $adminAccessKey, $adminSecretKey, $ownerUsername, $tenantId ?: null);
+            if (!is_array($keys) || ($keys['status'] ?? '') !== 'success') {
+                logModuleCall($this->module, __FUNCTION__ . '_TEMPKEY_CREATE_FAILED', ['uid' => $cephUid], $keys);
+                return ['status' => 'fail', 'message' => 'Unable to connect to storage.'];
+            }
+
+            $raw = $keys['data'] ?? [];
+            // createKey can return either a list of key records or a user-info object with "keys"
+            $records = [];
+            if (is_array($raw) && isset($raw['keys']) && is_array($raw['keys'])) {
+                $records = $raw['keys'];
+            } elseif (is_array($raw)) {
+                $records = $raw;
+            }
+            $tempSecretKey = '';
+            $newAccessKey = '';
+            if (is_array($records) && count($records) > 0) {
+                // Prefer a key that did not exist before (newly created)
+                foreach ($records as $r) {
+                    if (!is_array($r)) { continue; }
+                    $ak = (string)($r['access_key'] ?? '');
+                    if ($ak !== '' && !isset($beforeKeys[$ak])) {
+                        $newAccessKey = $ak;
+                    }
+                }
+                if ($newAccessKey === '') {
+                    // Fallback: use last record (many RGW builds append new keys)
+                    $last = end($records);
+                    if (is_array($last)) {
+                        $newAccessKey = (string)($last['access_key'] ?? '');
+                    }
+                    reset($records);
+                }
+
+                foreach ($records as $r) {
+                    if (!is_array($r)) { continue; }
+                    if ((string)($r['access_key'] ?? '') === $newAccessKey) {
+                        $tempAccessKey = (string)($r['access_key'] ?? '');
+                        $tempSecretKey = (string)($r['secret_key'] ?? '');
+                        break;
+                    }
+                }
+            }
+            if ($tempAccessKey === '' || $tempSecretKey === '') {
+                logModuleCall($this->module, __FUNCTION__ . '_TEMPKEY_PARSE_FAILED', ['uid' => $cephUid], $keys);
+                return ['status' => 'fail', 'message' => 'Unable to connect to storage.'];
+            }
+
+            // For non-AWS S3-compatible endpoints, force us-east-1
+            $effectiveRegion = $this->region;
+            try {
+                $host = parse_url((string)$this->endpoint, PHP_URL_HOST) ?: '';
+                $isAws = is_string($host) && stripos($host, 'amazonaws.com') !== false;
+                if (!$isAws) {
+                    $effectiveRegion = 'us-east-1';
+                }
+            } catch (\Throwable $e) {}
+
+            $client = new S3Client([
+                'version' => 'latest',
+                'region' => $effectiveRegion ?: 'us-east-1',
+                'endpoint' => $this->endpoint,
+                'credentials' => [
+                    'key' => $tempAccessKey,
+                    'secret' => $tempSecretKey,
+                ],
+                'use_path_style_endpoint' => true,
+                'signature_version' => 'v4',
+                'http' => [
+                    'connect_timeout' => 5.0,
+                    'timeout' => 12.0,
+                    'read_timeout' => 12.0,
+                ],
+            ]);
+
+            return $fn($client, $cephUid);
+        } catch (\Throwable $e) {
+            logModuleCall($this->module, __FUNCTION__ . '_EXCEPTION', ['uid' => $cephUid], $e->getMessage());
+            return ['status' => 'fail', 'message' => 'Unable to connect to storage.'];
+        } finally {
+            if ($tempAccessKey !== '') {
+                try {
+                    $rm = AdminOps::removeKey($this->endpoint, $adminAccessKey, $adminSecretKey, $tempAccessKey, $ownerUsername, $tenantId ?: null);
+                    logModuleCall($this->module, __FUNCTION__ . '_TEMPKEY_REMOVED', ['uid' => $cephUid], $rm);
+                } catch (\Throwable $e) {
+                    logModuleCall($this->module, __FUNCTION__ . '_TEMPKEY_REMOVE_EXCEPTION', ['uid' => $cephUid], $e->getMessage());
+                }
+            }
+        }
+    }
+
+    /**
+     * Control-plane: fetch logging status without requiring stored user keys.
+     */
+    public function getLoggingWithTempKey(string $bucketName, $owner, string $adminAccessKey, string $adminSecretKey): array
+    {
+        return $this->withTemporaryOwnerClient($owner, $adminAccessKey, $adminSecretKey, function(S3Client $client, string $cephUid) use ($bucketName){
+            try {
+                $res = $client->getBucketLogging(['Bucket' => $bucketName]);
+            } catch (S3Exception $e) {
+                $code = $e->getStatusCode();
+                if ($code === 501) {
+                    return ['status' => 'fail', 'message' => 'Bucket logging is not supported by the storage cluster.'];
+                }
+                logModuleCall($this->module, 'getLoggingWithTempKey', ['bucket' => $bucketName, 'uid' => $cephUid], $e->getMessage());
+                return ['status' => 'fail', 'message' => 'Unable to fetch logging status.'];
+            }
+
+            $enabled = isset($res['LoggingEnabled']);
+            $targetBucket = $enabled ? ($res['LoggingEnabled']['TargetBucket'] ?? null) : null;
+            $targetPrefix = $enabled ? ($res['LoggingEnabled']['TargetPrefix'] ?? null) : null;
+
+            $db = Capsule::table('s3_buckets')->where('name', $bucketName)->first();
+            $dbFlag = $db ? (bool)$db->logging_enabled : false;
+            $dbTarget = $db ? ($db->logging_target_bucket ?? null) : null;
+            $dbPrefix = $db ? ($db->logging_target_prefix ?? null) : null;
+
+            return [
+                'status' => 'success',
+                'data' => [
+                    'enabled' => $enabled,
+                    'target_bucket' => $targetBucket,
+                    'target_prefix' => $targetPrefix,
+                    'db' => [
+                        'enabled' => $dbFlag,
+                        'target_bucket' => $dbTarget,
+                        'target_prefix' => $dbPrefix,
+                    ]
+                ]
+            ];
+        });
+    }
+
+    /**
+     * Control-plane: enable logging without requiring stored user keys.
+     */
+    public function enableLoggingWithTempKey(string $sourceBucket, string $targetBucket, string $prefix, $owner, string $adminAccessKey, string $adminSecretKey): array
+    {
+        $ownerUserId = (int)($owner->id ?? 0);
+        return $this->withTemporaryOwnerClient($owner, $adminAccessKey, $adminSecretKey, function(S3Client $client, string $cephUid) use ($sourceBucket, $targetBucket, $prefix, $ownerUserId){
+            $targetRecord = Capsule::table('s3_buckets')->where('name', $targetBucket)->first();
+            if (!$targetRecord || (int)$targetRecord->user_id !== (int)$ownerUserId) {
+                return ['status' => 'fail', 'message' => 'Target log bucket must exist and be owned by you.'];
+            }
+
+            $aclOk = $this->ensureLogDeliveryAcl($client, $targetBucket);
+            $aclWarning = !$aclOk;
+
+            $prefix = rtrim($prefix ?? '', '/');
+            if ($prefix !== '') {
+                $prefix .= '/';
+            }
+            try {
+                $client->putBucketLogging([
+                    'Bucket' => $sourceBucket,
+                    'BucketLoggingStatus' => [
+                        'LoggingEnabled' => [
+                            'TargetBucket' => $targetBucket,
+                            'TargetPrefix' => $prefix,
+                            'TargetGrants' => [
+                                [
+                                    'Grantee' => [
+                                        'Type' => 'Group',
+                                        'URI' => 'http://acs.amazonaws.com/groups/s3/LogDelivery'
+                                    ],
+                                    'Permission' => 'WRITE'
+                                ],
+                                [
+                                    'Grantee' => [
+                                        'Type' => 'Group',
+                                        'URI' => 'http://acs.amazonaws.com/groups/s3/LogDelivery'
+                                    ],
+                                    'Permission' => 'READ_ACP'
+                                ],
+                            ],
+                        ],
+                    ],
+                ]);
+            } catch (S3Exception $e) {
+                logModuleCall($this->module, 'enableLoggingWithTempKey', [$sourceBucket, $targetBucket, $prefix, $cephUid], $e->getMessage());
+                return ['status' => 'fail', 'message' => 'Failed to enable logging.'];
+            }
+
+            Capsule::table('s3_buckets')
+                ->where('name', $sourceBucket)
+                ->update([
+                    'logging_enabled' => 1,
+                    'logging_target_bucket' => $targetBucket,
+                    'logging_target_prefix' => $prefix,
+                    'logging_last_synced_at' => date('Y-m-d H:i:s'),
+                ]);
+
+            $msg = $aclWarning
+                ? 'Bucket logging enabled. Note: target ACL could not be confirmed; delivery may take longer or require admin intervention.'
+                : 'Bucket logging enabled.';
+            return ['status' => 'success', 'message' => $msg];
+        });
+    }
+
+    /**
+     * Control-plane: disable logging without requiring stored user keys.
+     */
+    public function disableLoggingWithTempKey(string $sourceBucket, $owner, string $adminAccessKey, string $adminSecretKey): array
+    {
+        return $this->withTemporaryOwnerClient($owner, $adminAccessKey, $adminSecretKey, function(S3Client $client, string $cephUid) use ($sourceBucket){
+            try {
+                $client->putBucketLogging([
+                    'Bucket' => $sourceBucket,
+                    'BucketLoggingStatus' => new \stdClass(), // empty structure clears logging
+                ]);
+            } catch (S3Exception $e) {
+                logModuleCall($this->module, 'disableLoggingWithTempKey', [$sourceBucket, $cephUid], $e->getMessage());
+                return ['status' => 'fail', 'message' => 'Failed to disable logging.'];
+            }
+
+            Capsule::table('s3_buckets')
+                ->where('name', $sourceBucket)
+                ->update([
+                    'logging_enabled' => 0,
+                    'logging_target_bucket' => null,
+                    'logging_target_prefix' => null,
+                    'logging_last_synced_at' => date('Y-m-d H:i:s'),
+                ]);
+
+            return ['status' => 'success', 'message' => 'Bucket logging disabled.'];
+        });
     }
 
     /**

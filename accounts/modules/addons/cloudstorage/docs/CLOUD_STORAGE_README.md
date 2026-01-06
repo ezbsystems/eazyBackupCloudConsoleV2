@@ -125,6 +125,20 @@ This update aligns the service with common industry patterns:
   - **Control plane (our UI)** uses **admin credentials** for management operations that must work even before a customer creates keys.
   - **Data plane** (customer tools + object operations) uses **customer keys**, and is disabled until a key exists.
 
+### 0) RGW-safe User IDs (avoid email-as-uid)
+
+Some Ceph RGW deployments (notably the Dashboard UI) reject email-style usernames like `name@example.com` as an invalid RGW **user id** (`uid`).
+
+To avoid this while still letting customers use their email for login/identification in WHMCS, the module now separates:
+
+- **Customer username (WHMCS/UI)**: stored in `s3_users.username` (can be an email)
+- **Ceph RGW uid (Admin Ops / internal)**: stored in `s3_users.ceph_uid` (RGW-safe; no `@`)
+
+Behavior:
+- New user provisioning generates a safe `ceph_uid` (see `HelperController::generateCephUserId()`).
+- All Admin Ops calls that operate on a user now prefer `ceph_uid` and fall back to `username` for legacy installs.
+- Tenant-qualified RGW identities are formed as: `<tenant_id>$<ceph_uid>` (legacy fallback: `<tenant_id>$<username>`).
+
 ### 1) Access key lifecycle (Option B)
 
 #### Provisioning behavior
@@ -751,8 +765,8 @@ Responsibilities:
      - Builds a list of users to delete: all sub‑tenants first, then primary.
      - For each:
        - Compute Ceph UID via `DeprovisionHelper::computeCephUid()`:
-         - If `tenant_id` exists: `<tenant_id>$<username>`.
-         - Else: `<username>`.
+         - If `tenant_id` exists: `<tenant_id>$<ceph_uid>` (legacy fallback: `<tenant_id>$<username>`).
+         - Else: `<ceph_uid>` (legacy fallback: `<username>`).
        - Call `AdminOps::removeUser($endpoint, $adminAccessKey, $adminSecretKey, $cephUid)`.
        - Treats `NoSuchUser` as success (user already gone).
        - Updates `s3_users` (if columns exist):

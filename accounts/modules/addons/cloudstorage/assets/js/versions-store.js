@@ -58,6 +58,10 @@ export function createVersionsStore(options) {
         body,
       });
       const data = await resp.json();
+      if (data && data.redirect) {
+        try { window.location.href = data.redirect; } catch (e) {}
+        return;
+      }
       if (!data || data.status === 'fail') {
         throw new Error((data && data.message) || 'Failed to load versions');
       }

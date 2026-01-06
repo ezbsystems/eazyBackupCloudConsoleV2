@@ -54,13 +54,12 @@ class S3Billing {
                 logModuleCall(self::$module, __FUNCTION__, $product->userid, 'User not found in db.');
                 continue;
             }
-            $params = [
-                'uid' => $username,
-                'stats' => true
-            ];
-            if (!empty($user->tenant_id)) {
-                $params['uid'] = $user->tenant_id . '$' . $username;
-            }
+                $baseUid = \WHMCS\Module\Addon\CloudStorage\Client\HelperController::resolveCephBaseUid($user);
+                if (empty($baseUid)) { $baseUid = $username; } // legacy fallback
+                $params = [
+                    'uid' => (!empty($user->tenant_id) ? ($user->tenant_id . '$' . $baseUid) : $baseUid),
+                    'stats' => true
+                ];
             $bucketStatsData = AdminOps::getBucketInfo($s3Endpoint, $cephAdminAccessKey, $cephAdminSecretKey, $params);
             if ($bucketStatsData['status'] == 'fail' || count($bucketStatsData['data']) == 0) {
                 if ($bucketStatsData['status'] == 'fail') {
@@ -417,18 +416,20 @@ class S3Billing {
         $totalBucketSize = 0;
         try {
             $tenants = Capsule::table('s3_users')
-                ->select('id', 'username', 'tenant_id')
+                ->select('id', 'username', 'ceph_uid', 'tenant_id')
                 ->where('parent_id', $parentUserId)
                 ->get();
 
             foreach($tenants as $tenant) {
                 $username = $tenant->username;
+                $baseUid = \WHMCS\Module\Addon\CloudStorage\Client\HelperController::resolveCephBaseUid($tenant);
+                if (empty($baseUid)) { $baseUid = $username; } // legacy fallback
                 $params = [
-                    'uid' => $username,
+                    'uid' => $baseUid,
                     'stats' => true
                 ];
                 if (!empty($tenant->tenant_id)) {
-                    $params['uid'] = $tenant->tenant_id . '$' . $username;
+                    $params['uid'] = $tenant->tenant_id . '$' . $baseUid;
                 }
                 $bucketStatsData = AdminOps::getBucketInfo($moduleSettings['s3Endpoint'], $moduleSettings['cephAdminAccessKey'], $moduleSettings['cephAdminSecretKey'], $params);
                 if ($bucketStatsData['status'] == 'fail' || count($bucketStatsData['data']) == 0) {

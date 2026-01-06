@@ -528,36 +528,66 @@ class BucketController {
             //  - create the bucket using that temporary user key (bucket owner becomes the user)
             //  - delete the temporary key immediately
 
-            $targetUsername = (string)($user->username ?? '');
+            // RGW uid: prefer s3_users.ceph_uid for new users; fall back to email username for legacy.
+            $targetUsername = (string)\WHMCS\Module\Addon\CloudStorage\Client\HelperController::resolveCephBaseUid($user);
             $tenantId = (string)($user->tenant_id ?? '');
             $cephUid = ($tenantId !== '') ? ($tenantId . '$' . $targetUsername) : $targetUsername;
             if ($cephUid === '' || $targetUsername === '') {
                 return ['status' => 'fail', 'message' => 'Unable to resolve storage username for bucket ownership.'];
             }
 
-            // Create temporary user key
+            // Create temporary user key (IMPORTANT: do not delete the customer's real key)
+            // Some RGW builds return ALL keys on createKey; we must identify the newly-created key reliably.
             $tempAccessKey = '';
             $tempSecretKey = '';
-            $keys = AdminOps::createKey($this->endpoint, $this->adminAccessKey, $this->adminSecretKey, $cephUid);
+
+            $beforeKeys = [];
+            try {
+                $info = AdminOps::getUserInfo($this->endpoint, $this->adminAccessKey, $this->adminSecretKey, $targetUsername, $tenantId ?: null);
+                $data = is_array($info) ? ($info['data'] ?? null) : null;
+                if (is_array($data) && isset($data['keys']) && is_array($data['keys'])) {
+                    foreach ($data['keys'] as $k) {
+                        if (is_array($k) && !empty($k['access_key'])) {
+                            $beforeKeys[(string)$k['access_key']] = true;
+                        }
+                    }
+                }
+            } catch (\Throwable $e) {}
+
+            $keys = AdminOps::createKey($this->endpoint, $this->adminAccessKey, $this->adminSecretKey, $targetUsername, $tenantId ?: null);
             if (!is_array($keys) || ($keys['status'] ?? '') !== 'success') {
                 logModuleCall($this->module, __FUNCTION__ . '_TEMPKEY_CREATE_FAILED', ['uid' => $cephUid], $keys);
                 return ['status' => 'fail', 'message' => 'Unable to create temporary access key for bucket creation. Please contact support.'];
             }
-            $records = $keys['data'] ?? [];
+            $raw = $keys['data'] ?? [];
+            $records = [];
+            if (is_array($raw) && isset($raw['keys']) && is_array($raw['keys'])) {
+                $records = $raw['keys'];
+            } elseif (is_array($raw)) {
+                $records = $raw;
+            }
+            $newAccessKey = '';
             if (is_array($records) && count($records) > 0) {
-                // Prefer exact user match when present
                 foreach ($records as $r) {
-                    if (is_array($r) && isset($r['user']) && (string)$r['user'] === (string)$cephUid) {
+                    if (!is_array($r)) { continue; }
+                    $ak = (string)($r['access_key'] ?? '');
+                    if ($ak !== '' && !isset($beforeKeys[$ak])) {
+                        $newAccessKey = $ak;
+                    }
+                }
+                if ($newAccessKey === '') {
+                    $last = end($records);
+                    if (is_array($last)) {
+                        $newAccessKey = (string)($last['access_key'] ?? '');
+                    }
+                    reset($records);
+                }
+                foreach ($records as $r) {
+                    if (!is_array($r)) { continue; }
+                    if ((string)($r['access_key'] ?? '') === $newAccessKey) {
                         $tempAccessKey = (string)($r['access_key'] ?? '');
                         $tempSecretKey = (string)($r['secret_key'] ?? '');
                         break;
-                    }
-                }
-                if ($tempAccessKey === '' || $tempSecretKey === '') {
-                    $r0 = $records[0];
-                    if (is_array($r0)) {
-                        $tempAccessKey = (string)($r0['access_key'] ?? '');
-                        $tempSecretKey = (string)($r0['secret_key'] ?? '');
                     }
                 }
             }
@@ -685,7 +715,7 @@ class BucketController {
             } finally {
                 // Always try to delete temporary key (Option B: no persisted keys)
                 try {
-                    $rm = AdminOps::removeKey($this->endpoint, $this->adminAccessKey, $this->adminSecretKey, $tempAccessKey, $cephUid);
+                    $rm = AdminOps::removeKey($this->endpoint, $this->adminAccessKey, $this->adminSecretKey, $tempAccessKey, $targetUsername, $tenantId ?: null);
                     logModuleCall($this->module, __FUNCTION__ . '_TEMPKEY_REMOVED', ['uid' => $cephUid], $rm);
                 } catch (\Throwable $e) {
                     logModuleCall($this->module, __FUNCTION__ . '_TEMPKEY_REMOVE_EXCEPTION', ['uid' => $cephUid], $e->getMessage());
@@ -976,24 +1006,173 @@ class BucketController {
      */
     public function updateUserAccessKey($username, $userId, $encryptionKey)
     {
+        // Support tenant$uid format (Ceph RGW).
+        // IMPORTANT: Different RGW builds accept either:
+        // - uid=<uid>&tenant=<tenant>
+        // - uid=<tenant>$<uid> (without tenant param)
+        // We resolve the correct identity by probing getUserInfo first and then reusing the working form.
+        $rawUsername = (string)$username;
+        $identityCandidates = [];
+        if (is_string($username) && strpos($username, '$') !== false) {
+            // Prefer full uid first (most consistent with our RGW logs / temp-key flows)
+            $identityCandidates[] = ['uid' => $rawUsername, 'tenant' => null, 'label' => 'full'];
+            $parts = explode('$', $rawUsername, 2);
+            if (count($parts) === 2) {
+                $t = $parts[0] !== '' ? $parts[0] : null;
+                $u = $parts[1];
+                $identityCandidates[] = ['uid' => $u, 'tenant' => $t, 'label' => 'split'];
+            }
+        } else {
+            $identityCandidates[] = ['uid' => $rawUsername, 'tenant' => null, 'label' => 'plain'];
+        }
+
+        $chosen = null;
+        $beforeInfo = null;
+        foreach ($identityCandidates as $cand) {
+            try {
+                $info = AdminOps::getUserInfo($this->endpoint, $this->adminAccessKey, $this->adminSecretKey, $cand['uid'], $cand['tenant']);
+                if (is_array($info) && ($info['status'] ?? '') === 'success') {
+                    $chosen = $cand;
+                    $beforeInfo = $info;
+                    break;
+                }
+            } catch (\Throwable $e) {}
+        }
+        if ($chosen === null) {
+            // Fall back to the first candidate; createKey may still succeed even if getUserInfo is blocked/misconfigured.
+            $chosen = $identityCandidates[0];
+        }
+
+        // Capture existing keys so we can reliably pick the newly-created one (RGW may return all keys).
+        $beforeKeys = [];
+        try {
+            $info = $beforeInfo;
+            if (!$info) {
+                $info = AdminOps::getUserInfo($this->endpoint, $this->adminAccessKey, $this->adminSecretKey, $chosen['uid'], $chosen['tenant']);
+            }
+            if (is_array($info) && ($info['status'] ?? '') === 'success') {
+                $data = $info['data'] ?? null;
+                if (is_array($data) && isset($data['keys']) && is_array($data['keys'])) {
+                    foreach ($data['keys'] as $k) {
+                        if (is_array($k) && !empty($k['access_key'])) {
+                            $beforeKeys[(string)$k['access_key']] = true;
+                        }
+                    }
+                }
+            }
+        } catch (\Throwable $e) {}
+
         $userAccessKey = DBController::getRow('s3_user_access_keys', [
             ['user_id', '=', $userId]
         ], ['access_key', 'secret_key']);
         if (!is_null($userAccessKey)) {
+            // Best-effort: attempt to revoke previous key if it can be decrypted.
+            // Do NOT block key rotation if the previous key is already invalid/revoked.
             $accessKey = HelperController::decryptKey($userAccessKey->access_key, $encryptionKey);
-            $result = AdminOps::removeKey($this->endpoint, $this->adminAccessKey, $this->adminSecretKey, $accessKey);
-
-            if ($result['status'] != 'success') {
-                return $result;
+            if (!empty($accessKey)) {
+                $rm = AdminOps::removeKey($this->endpoint, $this->adminAccessKey, $this->adminSecretKey, $accessKey, $chosen['uid'], $chosen['tenant']);
+                if (($rm['status'] ?? '') !== 'success') {
+                    // Log and proceed
+                    logModuleCall($this->module, __FUNCTION__ . '_REMOVE_OLDKEY_FAILED', ['user_id' => $userId, 'uid' => $username], $rm);
+                }
             }
         }
 
-        $result = AdminOps::createKey($this->endpoint, $this->adminAccessKey, $this->adminSecretKey, $username);
+        $result = AdminOps::createKey($this->endpoint, $this->adminAccessKey, $this->adminSecretKey, $chosen['uid'], $chosen['tenant']);
         if ($result['status'] != 'success') {
             return $result;
         }
-        $accessKey = $result['data'][0]['access_key'];
-        $secretKey = $result['data'][0]['secret_key'];
+        $raw = $result['data'] ?? [];
+        $records = [];
+        if (is_array($raw) && isset($raw['keys']) && is_array($raw['keys'])) {
+            $records = $raw['keys'];
+        } elseif (is_array($raw)) {
+            $records = $raw;
+        }
+
+        $accessKey = '';
+        $secretKey = '';
+        $newAccessKey = '';
+        if (is_array($records) && count($records) > 0) {
+            // Prefer the truly new key (diff) that also includes a secret_key (RGW typically only returns secret for a fresh key).
+            $preferred = null;
+            foreach ($records as $r) {
+                if (!is_array($r)) { continue; }
+                $ak = (string)($r['access_key'] ?? '');
+                $sk = (string)($r['secret_key'] ?? '');
+                if ($ak !== '' && !isset($beforeKeys[$ak])) {
+                    $newAccessKey = $ak;
+                    if ($sk !== '') {
+                        $preferred = $r;
+                    }
+                }
+            }
+            if ($preferred !== null) {
+                $accessKey = (string)($preferred['access_key'] ?? '');
+                $secretKey = (string)($preferred['secret_key'] ?? '');
+            } elseif ($newAccessKey === '') {
+                $last = end($records);
+                if (is_array($last)) {
+                    $newAccessKey = (string)($last['access_key'] ?? '');
+                }
+                reset($records);
+            }
+            if ($accessKey === '' || $secretKey === '') {
+                foreach ($records as $r) {
+                    if (!is_array($r)) { continue; }
+                    if ((string)($r['access_key'] ?? '') === $newAccessKey) {
+                        $accessKey = (string)($r['access_key'] ?? '');
+                        $secretKey = (string)($r['secret_key'] ?? '');
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Last-resort: re-fetch user info and diff again
+        if ($accessKey === '' || $secretKey === '') {
+            try {
+                $after = AdminOps::getUserInfo($this->endpoint, $this->adminAccessKey, $this->adminSecretKey, $chosen['uid'], $chosen['tenant']);
+                $data = is_array($after) ? ($after['data'] ?? null) : null;
+                if (is_array($data) && isset($data['keys']) && is_array($data['keys'])) {
+                    foreach ($data['keys'] as $k) {
+                        if (!is_array($k)) { continue; }
+                        $ak = (string)($k['access_key'] ?? '');
+                        $sk = (string)($k['secret_key'] ?? '');
+                        if ($ak !== '' && !isset($beforeKeys[$ak]) && $sk !== '') {
+                            $accessKey = $ak;
+                            $secretKey = $sk;
+                        }
+                    }
+                }
+            } catch (\Throwable $e) {}
+        }
+
+        if ($accessKey === '' || $secretKey === '') {
+            return ['status' => 'fail', 'message' => 'Create key failed. Please try again or contact support.'];
+        }
+
+        // Verify the newly created key actually exists on RGW for this user before storing/returning it.
+        // This prevents us from returning a keypair that doesn't match RGW due to identity/response quirks.
+        $verifiedExists = false;
+        try {
+            $after = AdminOps::getUserInfo($this->endpoint, $this->adminAccessKey, $this->adminSecretKey, $chosen['uid'], $chosen['tenant']);
+            $data = is_array($after) ? ($after['data'] ?? null) : null;
+            if (is_array($data) && isset($data['keys']) && is_array($data['keys'])) {
+                foreach ($data['keys'] as $k) {
+                    if (!is_array($k)) { continue; }
+                    if ((string)($k['access_key'] ?? '') === $accessKey) {
+                        $verifiedExists = true;
+                        break;
+                    }
+                }
+            }
+        } catch (\Throwable $e) {}
+        if (!$verifiedExists) {
+            $hintFail = (strlen($accessKey) <= 8) ? $accessKey : (substr($accessKey, 0, 4) . '…' . substr($accessKey, -4));
+            logModuleCall($this->module, __FUNCTION__ . '_VERIFY_FAILED', ['user_id' => $userId, 'uid' => $rawUsername, 'identity' => $chosen['label'] ?? '', 'access_key_hint' => $hintFail], 'Key returned by createKey was not found in getUserInfo after creation');
+            return ['status' => 'fail', 'message' => 'Key creation could not be verified on storage. Please try again.'];
+        }
         $hint = (strlen($accessKey) <= 8) ? $accessKey : (substr($accessKey, 0, 4) . '…' . substr($accessKey, -4));
         $accessKeyEncrypted = HelperController::encryptKey($accessKey, $encryptionKey);
         $secretKeyEncrypted = HelperController::encryptKey($secretKey, $encryptionKey);
@@ -1460,6 +1639,13 @@ class BucketController {
 
             $this->accessKey = HelperController::decryptKey($userAccessKey->access_key, $encryptionKey);
             $this->secretKey = HelperController::decryptKey($userAccessKey->secret_key, $encryptionKey);
+            // If decrypt fails or settings changed, fail fast with actionable guidance
+            if (empty($this->accessKey) || empty($this->secretKey)) {
+                return [
+                    'status' => 'fail',
+                    'message' => 'Access keys are missing or invalid. Please create a new access key pair from the Access Keys page.'
+                ];
+            }
             // For non-AWS S3-compatible endpoints (e.g., Ceph/MinIO), force us-east-1 for SigV4 and bucket creation compatibility.
             $effectiveRegion = $this->region;
             try {
@@ -2648,6 +2834,12 @@ class BucketController {
         } catch (S3Exception $e) {
             $status = 'fail';
             $message = 'Something went wrong. Please try again later or contact support.';
+            try {
+                $awsCode = $e->getAwsErrorCode();
+                if ($awsCode === 'InvalidAccessKeyId' || $awsCode === 'SignatureDoesNotMatch') {
+                    $message = 'Access keys are missing or invalid. Please create a new access key pair from the Access Keys page.';
+                }
+            } catch (\Throwable $ignore) {}
 
             logModuleCall($this->module, __FUNCTION__, $options, $e->getMessage());
         }
@@ -3645,10 +3837,12 @@ class BucketController {
         } else {
             // Fallback: Get fresh data from Ceph RGW and calculate increments
             
-            // Build UID parameter (handle tenant users)
-            $uid = $username;
+            // Build UID parameter (handle tenant users, prefer RGW-safe ceph_uid)
+            $baseUid = \WHMCS\Module\Addon\CloudStorage\Client\HelperController::resolveCephBaseUid($user);
+            if (empty($baseUid)) { $baseUid = $username; } // legacy fallback
+            $uid = $baseUid;
             if (!empty($user->tenant_id)) {
-                $uid = $user->tenant_id . '$' . $username;
+                $uid = $user->tenant_id . '$' . $baseUid;
             }
 
             // Get current storage usage from Ceph RGW

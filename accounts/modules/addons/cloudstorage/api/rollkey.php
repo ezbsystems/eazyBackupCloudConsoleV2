@@ -26,7 +26,21 @@
     }
 
     $packageId = ProductConfig::$E3_PRODUCT_ID;
-    $loggedInUserId = $ca->getUserID();
+    // Resolve client ID (WHMCS v8 user->client mapping)
+    $loggedInUserId = (int) $ca->getUserID();
+    $clientId = 0;
+    try {
+        $link = Capsule::table('tblusers_clients')->where('userid', $loggedInUserId)->orderBy('owner', 'desc')->first();
+        if ($link && isset($link->clientid)) {
+            $clientId = (int) $link->clientid;
+        }
+    } catch (\Throwable $e) {}
+    if ($clientId <= 0 && isset($_SESSION['uid'])) {
+        $clientId = (int) $_SESSION['uid'];
+    }
+    if ($clientId <= 0) {
+        $clientId = $loggedInUserId; // legacy fallback
+    }
 
     // Require recent password verification (defense-in-depth)
     $verifiedAt = isset($_SESSION['cloudstorage_pw_verified_at']) ? (int)$_SESSION['cloudstorage_pw_verified_at'] : 0;
@@ -35,7 +49,7 @@
         // Optional context: confirm the client does own the product before prompting
         $ownsE3 = false;
         try {
-            $ownsE3 = Capsule::table('tblhosting')->where('userid', $loggedInUserId)->where('packageid', $packageId)->count() > 0;
+            $ownsE3 = Capsule::table('tblhosting')->where('userid', $clientId)->where('packageid', $packageId)->count() > 0;
         } catch (\Throwable $__) {}
         $jsonData = [
             'status' => 'fail',
@@ -46,7 +60,7 @@
         $response->send();
         exit();
     }
-    $product = DBController::getProduct($loggedInUserId, $packageId);
+    $product = DBController::getProduct($clientId, $packageId);
 
     if (is_null($product) || empty($product->username)) {
         $jsonData = [
@@ -74,8 +88,12 @@
         exit();
     }
     
-    // Construct the full Ceph username with tenant prefix
-    $cephUsername = $user->tenant_id . '$' . $username;
+    // Construct the full Ceph username with tenant prefix (prefer RGW-safe ceph_uid)
+    $baseUid = \WHMCS\Module\Addon\CloudStorage\Client\HelperController::resolveCephBaseUid($user);
+    if (empty($baseUid)) {
+        $baseUid = $username; // legacy fallback
+    }
+    $cephUsername = $user->tenant_id . '$' . $baseUid;
     
     $module = DBController::getResult('tbladdonmodules', [
         ['module', '=', 'cloudstorage']

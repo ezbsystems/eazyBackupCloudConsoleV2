@@ -65,7 +65,8 @@ if (count($moduleRows) == 0) {
 }
 $endpoint = $moduleRows->where('setting', 's3_endpoint')->pluck('value')->first();
 $s3Region = $moduleRows->where('setting', 's3_region')->pluck('value')->first() ?: 'ca-central-1';
-$encryptionKey = $moduleRows->where('setting', 'encryption_key')->pluck('value')->first();
+$adminAccessKey = $moduleRows->where('setting', 'ceph_access_key')->pluck('value')->first();
+$adminSecretKey = $moduleRows->where('setting', 'ceph_secret_key')->pluck('value')->first();
 // Optional allowed storage classes (CSV)
 $allowedClassesCsv = (string)($moduleRows->where('setting', 'lifecycle_storage_classes')->pluck('value')->first() ?? '');
 $allowedClasses = array_values(array_filter(array_map('trim', explode(',', $allowedClassesCsv))));
@@ -91,7 +92,7 @@ try {
 
 // Start from current rules if we need to merge by ID
 if ($incomingRule && !isset($incomingRules)) {
-	$cur = $service->get($bucketName, (int)$owner->id, $encryptionKey);
+	$cur = $service->getWithTempKey($bucketName, $owner, (string)$adminAccessKey, (string)$adminSecretKey);
 	if (($cur['status'] ?? 'fail') !== 'success') {
 		logModuleCall('cloudstorage', 'lifecycle_merge_get_failed', ['bucket' => $bucketName], 'Failed fetching current rules during merge');
 		(new JsonResponse(['status' => 'fail', 'message' => 'Unable to save lifecycle rule. Please try again later.'], 200))->send();
@@ -151,6 +152,29 @@ $validate = function(array $rules, $bucketRow, array $allowedClasses) {
 		}
 		$status = isset($r['Status']) ? (string)$r['Status'] : 'Enabled';
 		if ($status !== 'Enabled' && $status !== 'Disabled') { $logReasons[] = "Invalid Status for $id"; }
+
+		// Expiration/Retention numeric validators
+		if (isset($r['Expiration']) && is_array($r['Expiration'])) {
+			if (isset($r['Expiration']['Days'])) {
+				if (!is_numeric($r['Expiration']['Days']) || (int)$r['Expiration']['Days'] < 1) {
+					$logReasons[] = "Expiration.Days must be >= 1 for $id";
+				}
+			}
+		}
+		if (isset($r['NoncurrentVersionExpiration']) && is_array($r['NoncurrentVersionExpiration'])) {
+			if (isset($r['NoncurrentVersionExpiration']['NoncurrentDays'])) {
+				if (!is_numeric($r['NoncurrentVersionExpiration']['NoncurrentDays']) || (int)$r['NoncurrentVersionExpiration']['NoncurrentDays'] < 1) {
+					$logReasons[] = "NoncurrentVersionExpiration.NoncurrentDays must be >= 1 for $id";
+				}
+			}
+		}
+		if (isset($r['AbortIncompleteMultipartUpload']) && is_array($r['AbortIncompleteMultipartUpload'])) {
+			if (isset($r['AbortIncompleteMultipartUpload']['DaysAfterInitiation'])) {
+				if (!is_numeric($r['AbortIncompleteMultipartUpload']['DaysAfterInitiation']) || (int)$r['AbortIncompleteMultipartUpload']['DaysAfterInitiation'] < 1) {
+					$logReasons[] = "AbortIncompleteMultipartUpload.DaysAfterInitiation must be >= 1 for $id";
+				}
+			}
+		}
 
 		// Check transitions against allowed classes
 		if (empty($allowedClasses)) {
@@ -248,6 +272,14 @@ foreach ($incomingRules as &$r) {
 			$r['Filter']['And']['ObjectSizeLessThan'] = (int)$and['ObjectSizeLessThan'];
 		}
 	}
+
+	// RGW compatibility: some clusters reject rules without an explicit Filter/Prefix.
+	// Use an empty prefix filter to mean "whole bucket".
+	if (!isset($r['Filter']) && !isset($r['Prefix'])) {
+		$r['Filter'] = ['Prefix' => ''];
+	} elseif (isset($r['Filter']) && is_array($r['Filter']) && count($r['Filter']) === 0) {
+		$r['Filter'] = ['Prefix' => ''];
+	}
 }
 unset($r);
 
@@ -260,7 +292,7 @@ try {
 	], 'Rules normalized prior to put');
 } catch (\Throwable $e) {}
 
-$res = $service->put($bucketName, $incomingRules, (int)$owner->id, $encryptionKey);
+$res = $service->putWithTempKey($bucketName, $incomingRules, $owner, (string)$adminAccessKey, (string)$adminSecretKey);
 if (($res['status'] ?? 'fail') !== 'success') {
 	(new JsonResponse(['status' => 'fail', 'message' => $res['message'] ?? 'Unable to save lifecycle rule. Please try again later.'], 200))->send();
 	exit;
