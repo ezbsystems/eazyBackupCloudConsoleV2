@@ -27,6 +27,8 @@ Cloud Storage is a WHMCS addon module that manages S3-compatible storage on a Ce
 
 - Admin Ops integration
   - `accounts/modules/addons/cloudstorage/lib/Admin/AdminOps.php` — Thin wrapper around Ceph Admin Ops endpoints (user, bucket, usage, keys) using AWS-style signing.
+  - `accounts/modules/addons/cloudstorage/lib/Admin/CephPoolMonitor.php` — Collects Ceph pool usage (Prometheus/CLI), stores time-series, and computes forecast + “ETA to 80%”.
+  - `accounts/modules/addons/cloudstorage/lib/Admin/BucketSizeMonitor.php` — Collects bucket sizes into history and powers the Admin “Cloud Storage Bucket Monitor”.
 
 - Client Area pages and templates
   - Pages: `accounts/modules/addons/cloudstorage/pages/*.php` (e.g., `pages/buckets.php` builds list + latest DB snapshot for sizes/objects)
@@ -38,7 +40,13 @@ Cloud Storage is a WHMCS addon module that manages S3-compatible storage on a Ce
   - `accounts/modules/addons/cloudstorage/api/livebucketstats.php` — Live per-uid Admin Ops aggregation (30s cache) for usage/object counts.
   - `accounts/modules/addons/cloudstorage/api/emptybucket.php` — Queue “empty bucket” background job (non-object-locked buckets) via `s3_delete_buckets`.
 
+- Admin pages (WHMCS Admin Area)
+  - `accounts/modules/addons/cloudstorage/pages/admin/bucket_monitor.php` — “Cloud Storage Bucket Monitor” UI (bucket list + historical chart + pool forecast).
+  - `accounts/modules/addons/cloudstorage/ajax.php` — AJAX handler for the Admin Bucket Monitor (chart data + pool forecast).
+
 - Background / crons
+  - `accounts/crons/admin_bucket_monitor.php` — Collects bucket sizes from RGW into `s3_bucket_sizes_history` for the Admin Bucket Monitor.
+  - `accounts/crons/ceph_pool_monitor.php` — Collects Ceph pool usage into `ceph_pool_usage_history` and enables capacity forecasting.
   - `accounts/crons/s3deletebucket.php` — Processes `s3_delete_buckets` queue (deletes contents and/or buckets in background).
 
 ## Database schema (created on activation)
@@ -51,6 +59,147 @@ Defined in `cloudstorage.php` activation:
 - `s3_subusers`, `s3_subusers_keys` — subuser access
 - `s3_bucket_sizes_history` — collected size/object history for analytics
 - `s3_historical_stats` — per-user daily historical aggregates
+- `ceph_pool_usage_history` — Ceph pool usage time-series used to forecast when the pool reaches an % threshold (e.g., 80% full)
+
+## Admin: Cloud Storage Bucket Monitor (usage charts + forecasting)
+
+The WHMCS Admin Area includes **Cloud Storage Bucket Monitor** (module route: `addonmodules.php?module=cloudstorage&action=bucket_monitor`).
+
+It provides two independent views:
+
+### 1) Bucket usage chart (“Storage Usage Over Time”)
+
+- **What it shows**: total bucket usage over time, computed from **historical snapshots** stored in `s3_bucket_sizes_history`.
+- **Data source**: collected by `BucketSizeMonitor::collectAllBucketSizes()` (RGW Admin Ops bucket listing with stats).
+- **Why it can show “No storage data available”**:
+  - `s3_bucket_sizes_history` is empty or stale (no recent collections).
+  - The admin cron isn’t running, or failed.
+- **How the chart is built**:
+  - The backend aggregates to **one point per day per bucket** (daily MAX) to avoid over-counting when multiple samples exist in a day.
+  - Those per-bucket daily max values are summed across buckets to produce the daily total time-series.
+
+### 2) Pool forecast chart (“Ceph Pool Forecast (80% threshold)”)
+
+- **What it shows**: actual Ceph pool used bytes + a forecast forward in time + the **80% threshold** line.
+- **What it answers**: “When will `default.rgw.buckets.data` reach 80% full?”
+- **Data source**: time-series stored in `ceph_pool_usage_history`, collected by `accounts/crons/ceph_pool_monitor.php`.
+- **Why this is better than summing bucket sizes**:
+  - Pool fullness is a **Ceph capacity** question (includes EC overhead/behaviour and cluster-wide constraints).
+  - The forecast uses the pool’s **used_bytes** and **max_avail_bytes** as reported by Ceph metrics.
+
+## Pool usage collection sources (CLI vs Prometheus)
+
+The pool monitor supports multiple sources (configured in WHMCS addon settings):
+
+- **CLI (local)**: runs `ceph df detail -f json` on the WHMCS host. Requires Ceph CLI + config/keyring locally.
+- **Prometheus (recommended)**: queries the Prometheus HTTP API (`/api/v1/query` and `/api/v1/query_range`).
+
+> Important: the “Prometheus Base URL” must point to the **Prometheus server API** (often `:9090` or your Ceph-managed `:9095`), not a `ceph-exporter` `:9283/metrics` endpoint.
+
+## Forecast / prediction model (how “ETA to 80%” is computed)
+
+The goal is to estimate the date \(t\) when the monitored pool crosses a target percent (default **80%**).
+
+### Inputs
+
+For each collection point we store:
+- **used_bytes**
+- **max_avail_bytes**
+- **capacity_bytes** = used_bytes + max_avail_bytes
+
+The **80% threshold** is computed from the latest capacity snapshot:
+- **threshold_bytes** = 0.8 × capacity_bytes
+
+### Preprocessing
+
+To reduce noise, forecasting operates on **daily maxima**:
+- For each day, take the **MAX(used_bytes)** observed that day.
+
+### Trend fit (robust)
+
+We estimate a growth rate using a robust linear trend on daily points:
+- **Theil–Sen** slope (median slope across point pairs), which is resistant to outliers/spikes.
+
+This yields:
+- \(m\) = slope in bytes/day
+- \(b\) = intercept in bytes
+
+### ETA computation
+
+If \(m \le 0\), we do not report an ETA (pool is stable or shrinking).
+
+Otherwise, solve for the day index when predicted used bytes crosses the threshold:
+- \(m \cdot d + b = \text{threshold\_bytes}\)
+
+The UI shows:
+- forecast line (dashed)
+- “ETA to 80%” as a date and “(Nd)” days away
+
+## Required crons (recommended schedules + examples)
+
+These are independent from WHMCS’ own automation cron. You should schedule them at the OS level.
+
+### 1) Bucket history collection (Admin Bucket Monitor)
+
+Script: `accounts/crons/admin_bucket_monitor.php`
+
+- **Recommended**: every 30 minutes (captures intra-day growth)
+
+Example crontab entry:
+
+```bash
+0,30 * * * * /usr/bin/php -q /var/www/eazybackup.ca/accounts/crons/admin_bucket_monitor.php >/dev/null 2>&1
+```
+
+### 2) Ceph pool usage collection (Forecast)
+
+Script: `accounts/crons/ceph_pool_monitor.php`
+
+- **Recommended**: hourly (sufficient for forecasting; daily max aggregation is used for the model)
+
+Example crontab entry (hourly):
+
+```bash
+0 * * * * /usr/bin/php -q /var/www/eazybackup.ca/accounts/crons/ceph_pool_monitor.php >/dev/null 2>&1
+```
+
+Optional (higher frequency): every 30 minutes:
+
+```bash
+0,30 * * * * /usr/bin/php -q /var/www/eazybackup.ca/accounts/crons/ceph_pool_monitor.php >/dev/null 2>&1
+```
+
+### How to install the cron line (hourly example)
+
+1. Edit crontab for the desired user (commonly root):
+
+```bash
+crontab -e
+```
+
+2. Add the hourly line:
+
+```bash
+0 * * * * /usr/bin/php -q /var/www/eazybackup.ca/accounts/crons/ceph_pool_monitor.php >/dev/null 2>&1
+```
+
+3. Verify it’s installed:
+
+```bash
+crontab -l | grep ceph_pool_monitor.php
+```
+
+### Troubleshooting (fast checks)
+
+- **Bucket chart shows no data**:
+  - Check `s3_bucket_sizes_history` recent rows (or click “Collect Now” in Admin UI).
+  - Run the cron manually:
+    - `php /var/www/eazybackup.ca/accounts/crons/admin_bucket_monitor.php`
+- **Pool cron fails with 404 for /api/v1/query_range**:
+  - Your “Prometheus Base URL” is not a Prometheus API (likely points to an exporter `/metrics`).
+- **Pool cron says “No data returned”**:
+  - Your PromQL label key may be different. Some Ceph deployments key pool metrics by `pool_id`.
+  - The implementation includes a fallback join via `ceph_pool_metadata{name="..."}` for common Ceph exporter layouts.
 
 ## Recent updates: Users & Access Keys (Client Area UX + security)
 
@@ -77,6 +226,7 @@ This update refines the customer-facing Users/Keys experience and hardens key ha
   - Removed `localStorage.passwordModalOpened` usage.
 - **Secret key exposure model**:
   - Updated UX to align with “**show secret only once**” on create/rotate (no “decrypt existing secret” workflow in the UI).
+  - The Access Keys table no longer displays a “Secret Key” column; secrets are shown only in the one-time “Save your new key” modal.
 
 ### Backend/API: “show secret once” model + password-gated operations
 - **Password verification**:
@@ -159,7 +309,7 @@ Historically, bucket creation used customer keys (S3 `createBucket`) which is in
 #### New mechanism: temporary key + create-as-user
 Bucket creation now uses a safe “create as user without persisting keys” approach:
 
-1. **Admin Ops**: create a **temporary** access key for the target storage user (`AdminOps::createKey`).
+1. **Admin Ops**: create a **temporary** access key for the target storage user (see `AdminOps::createTempKey()`; older flows used `AdminOps::createKey` directly).
 2. **S3 (as that user)**: create the bucket (and apply Versioning/Object Lock config) using the temporary key so **bucket ownership is correct**.
 3. **Admin Ops**: delete the temporary key immediately (`AdminOps::removeKey`) so customers still have **no stored keys** unless they explicitly create them.
 
@@ -168,11 +318,14 @@ Implementation:
 - `pages/savebucket.php` and `api/cloudbackup_create_bucket.php` now call `createBucketAsAdmin()` instead of requiring `connectS3Client()` with customer keys.
 
 ### 3) Bucket delete / Object Lock checks without customer keys
-- Bucket deletion is queued (cron drains `s3_delete_buckets`) and uses admin credentials.
+- Bucket deletion is queued (cron drains `s3_delete_buckets`).
+- **Multi-tenant note**: on this deployment, AdminOps credentials can query metadata but typically cannot perform S3 data-plane operations on tenant buckets. For deletion and Object Lock checks we therefore mint **short‑lived owner keys** via AdminOps and revoke them immediately after use.
 - Live Object Lock / emptiness checks in:
   - `api/objectlockstatus.php`
   - `api/deletebucket.php`
-  are performed with **admin S3 credentials** so they work even if customer keys are not yet created.
+  are performed using either:
+  - the customer’s stored key (validated via `HeadBucket`), or
+  - a temporary owner key created via `AdminOps::createTempKey()` (fallback).
 
 ### 4) Data-plane gating (browse/object operations)
 - Browsing and object operations still use customer keys (`connectS3Client()`), so the UI now guides users to create a key first:
@@ -183,7 +336,7 @@ Implementation:
 ## Recent updates: Bucket delete process
 
 ### 1) Object-locked buckets (strict)
-- The application will not attempt to delete an object-locked bucket unless it is totally empty.
+- The application supports **requesting deletion** of an object‑locked bucket, but actual deletion only completes when eligible under Object Lock rules.
 - Emptiness check validates ALL of the following are clear:
   - Current objects
   - Object versions (including all non-current versions)
@@ -196,9 +349,19 @@ Implementation:
   - Live “Empty Check” panel with a “Check status” button, and human-readable blockers with examples.
   - Guidance section (accordion) on how to empty the bucket.
   - Destructive confirmation requires typing: `DELETE BUCKET <bucket-name>`.
+  - Buckets remain visible while a delete job is pending, with a “Pending deletion” badge showing the blocker reason and **Earliest possible deletion: YYYY-MM-DD**.
+  - Data-plane actions (Browse/Upload/etc.) are disabled while a bucket is pending deletion.
 - Server logic:
   - `api/objectlockstatus.php` calls `BucketController::getObjectLockEmptyStatus()` to compute precise status using S3 APIs.
-  - `api/deletebucket.php` rejects deletion of locked buckets unless the bucket is fully empty.
+  - `api/deletebucket.php` queues deletion and, when retention/holds block it, records a blocked job with `retry_after` scheduling instead of hammering S3.
+  - `api/force_deletebucket.php` supports Governance bypass with explicit acknowledgement, typed phrase, password freshness, 2FA re-check, and audit/email notifications.
+  - `api/cancelbucketdelete.php` allows cancelling queued/blocked delete jobs.
+
+### 1.1) Retry scheduling (retention blocks)
+- When deletion is blocked by Legal Hold or retention, jobs are marked `status=blocked` and are retried on a schedule:
+  - **Legal Hold**: periodic re-check (daily)
+  - **Compliance/Governance retention**: retry at `earliest_retain_until_ts` when available, otherwise a conservative backoff
+- This prevents “endless 403 storms” and keeps module logs quieter.
 
 ### 2) Non-object-locked buckets (customer-driven empty + background job)
 - Delete modal now also shows the same live Empty Check for non-locked buckets.
@@ -224,6 +387,18 @@ Implementation:
 - Delete modal constrained height with internal scroll (`max-h-[85vh] overflow-y-auto`).
 - Guidance section is now an accordion (collapsed by default).
 - Destructive flows require typed phrases; success toasts show in the page chrome, and modals close promptly to surface the toast.
+- Force delete additionally requires password verification and 2FA (when enabled).
+
+## Recent updates: Bucket properties (Locking details)
+
+The Buckets “Properties” tab now shows Object Lock policy details when available:
+
+- **Locking**
+  - Enabled: Yes/No
+  - Mode: COMPLIANCE / GOVERNANCE
+  - Days: default retention days (or years when configured)
+
+These are populated from `api/livebucketsettings.php` (which now returns an `object_lock` block per bucket).
 
 ## Recent updates: Trial signup Turnstile (Cloudflare)
 

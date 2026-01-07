@@ -129,7 +129,27 @@
         <!-- Buckets Container -->
         <div class="buckets-container grid grid-cols-1 gap-6">
             {foreach from=$buckets item=bucket}
-                <div class="bucket-row group relative overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-900/70 p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-400/60 hover:shadow-lg hover:shadow-emerald-500/15" id="bucketRow{$bucket->id}" data-bucket-name="{$bucket->name}" data-versioning="{$bucket->versioning}">
+                {assign var=deleteJob value=null}
+                {if isset($DELETE_JOBS_BY_BUCKET_NAME) && isset($DELETE_JOBS_BY_BUCKET_NAME[$bucket->name])}
+                    {assign var=deleteJob value=$DELETE_JOBS_BY_BUCKET_NAME[$bucket->name]}
+                {/if}
+                {assign var=isPendingDelete value=false}
+                {if $deleteJob && isset($deleteJob->status) && ($deleteJob->status == 'queued' || $deleteJob->status == 'running' || $deleteJob->status == 'blocked')}
+                    {assign var=isPendingDelete value=true}
+                {/if}
+
+                <div
+                    class="bucket-row group relative overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-900/70 p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-400/60 hover:shadow-lg hover:shadow-emerald-500/15"
+                    id="bucketRow{$bucket->id}"
+                    data-bucket-name="{$bucket->name}"
+                    data-versioning="{$bucket->versioning}"
+                    data-delete-status="{if $deleteJob && isset($deleteJob->status)}{$deleteJob->status}{else}{/if}"
+                    data-delete-blocked-reason="{if $deleteJob && isset($deleteJob->blocked_reason)}{$deleteJob->blocked_reason}{else}{/if}"
+                    data-delete-retry-after="{if $deleteJob && isset($deleteJob->retry_after)}{$deleteJob->retry_after}{else}{/if}"
+                    data-delete-job-id="{if $deleteJob && isset($deleteJob->id)}{$deleteJob->id}{else}{/if}"
+                    data-delete-requested-action="{if $deleteJob && isset($deleteJob->requested_action)}{$deleteJob->requested_action}{else}{/if}"
+                    data-delete-force-bypass="{if $deleteJob && isset($deleteJob->force_bypass_governance) && $deleteJob->force_bypass_governance}1{else}0{/if}"
+                >
                     <div class="flex items-center justify-between gap-4 mb-3">
                         <div class="flex items-center gap-3">
                             <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-800/90 group-hover:bg-slate-700">
@@ -143,6 +163,24 @@
                                     <span class="bucket-owner inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium bg-slate-500/15 text-slate-300">
                                         Owner: {$usernames[$bucket->user_id]}
                                     </span>
+                                    {if $isPendingDelete}
+                                        <span id="pendingDeleteBadge{$bucket->id}" class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium bg-amber-500/15 text-amber-200 border border-amber-500/30" title="This bucket is pending deletion">
+                                            Pending deletion
+                                            {if $deleteJob && isset($deleteJob->status) && $deleteJob->status == 'blocked'}
+                                                {if $deleteJob && isset($deleteJob->blocked_reason) && $deleteJob->blocked_reason == 'legal_hold'}
+                                                    (Legal Hold)
+                                                {elseif $deleteJob && isset($deleteJob->blocked_reason) && $deleteJob->blocked_reason == 'compliance_retention'}
+                                                    (Compliance retention)
+                                                {elseif $deleteJob && isset($deleteJob->blocked_reason) && $deleteJob->blocked_reason == 'governance_retention'}
+                                                    (Governance retention)
+                                                {else}
+                                                    (Blocked)
+                                                {/if}
+                                            {/if}
+                                        </span>
+                                    {else}
+                                        <span id="pendingDeleteBadge{$bucket->id}" class="!hidden inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium bg-amber-500/15 text-amber-200 border border-amber-500/30" title="This bucket is pending deletion">Pending deletion</span>
+                                    {/if}
                                 </div>
                             </div>
                         </div>
@@ -152,7 +190,15 @@
                             {if isset($HAS_KEYS_BY_USER_ID) && isset($HAS_KEYS_BY_USER_ID[$bucket->user_id])}
                                 {assign var=canBrowse value=$HAS_KEYS_BY_USER_ID[$bucket->user_id]}
                             {/if}
-                            {if $canBrowse}
+                            {if $isPendingDelete}
+                                <button type="button" class="btn-accent opacity-50 cursor-not-allowed" title="Pending deletion — browsing disabled" disabled>
+                                    <div class="flex items-center gap-2">
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
+                                        </svg>
+                                    </div>
+                                </button>
+                            {elseif $canBrowse}
                                 <a href="index.php?m=cloudstorage&page=browse&bucket={$bucket->name}&username={$usernames[$bucket->user_id]}" class="btn-accent cursor-pointer" title="Browse">
                                     <div class="flex items-center gap-2">
                                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4">
@@ -188,7 +234,7 @@
                               data-bucket-name="{$bucket->name}"
                               data-bucket-id="{$bucket->id}"
                               data-object-lock="{$bucket->object_lock_enabled}"
-                              title="{if $bucket->object_lock_enabled}Delete Object-Locked Bucket (requires empty bucket){else}Delete Bucket{/if}"
+                              title="{if $isPendingDelete}Manage deletion request{elseif $bucket->object_lock_enabled}Request deletion (Object Lock enabled){else}Request deletion{/if}"
                               onclick="openModal('deleteBucketModal')"
                             >
                               <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -321,8 +367,23 @@
                         <div class="text-slate-200">{if $bucket->versioning ne 'off'}Enabled{else}Disabled{/if}</div>
                       </div>
                       <div>
-                        <div class="text-slate-400 text-xs">Object Lock</div>
-                        <div class="text-slate-200">{if $bucket->object_lock_enabled}Enabled{else}Disabled{/if}</div>
+                        <div class="text-slate-400 text-xs mb-1">Locking</div>
+                        <div class="rounded-md border border-slate-800 bg-slate-900/40 px-3 py-2">
+                          <div class="flex justify-between gap-3">
+                            <span class="text-slate-400 text-xs">Enabled</span>
+                            <span class="text-slate-200 text-xs font-medium" id="lockEnabled-{$bucket->id}">
+                              {if $bucket->object_lock_enabled}Yes{else}No{/if}
+                            </span>
+                          </div>
+                          <div class="flex justify-between gap-3 mt-1">
+                            <span class="text-slate-400 text-xs">Mode</span>
+                            <span class="text-slate-200 text-xs font-medium" id="lockMode-{$bucket->id}">—</span>
+                          </div>
+                          <div class="flex justify-between gap-3 mt-1">
+                            <span class="text-slate-400 text-xs">Days</span>
+                            <span class="text-slate-200 text-xs font-medium" id="lockDays-{$bucket->id}">—</span>
+                          </div>
+                        </div>
                       </div>
                       <div>
                         <div class="text-slate-400 text-xs">Owner</div>
@@ -708,7 +769,7 @@
                 <div class="flex justify-between items-center mb-4">
                     <div class="flex items-center space-x-2">
                         <h2 class="text-xl font-semibold text-gray-300" id="deleteModalTitle">Warning: Permanent Bucket Deletion</h2>
-                        <span id="objectLockModeChip" class="hidden inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-slate-300"></span>
+                        <span id="objectLockModeChip" class="!hidden inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-slate-300"></span>
                     </div>
                     <button type="button" onclick="closeModal('deleteBucketModal')" class="text-slate-300 hover:text-white focus:outline-none">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -728,8 +789,16 @@
                             </svg>
                             <div>
                                 <p class="font-semibold">This bucket uses Object Lock.</p>
-                                <p class="text-sm">Buckets can only be deleted when they are empty — including all object versions and delete markers. We do not remove your data for you.</p>
+                                <p class="text-sm">We will attempt deletion in the background, but Retention and Legal Hold may block deletion until they are cleared or expire.</p>
                             </div>
+                        </div>
+                    </div>
+
+                    <!-- Pending deletion banner (when a job exists) -->
+                    <div id="pendingDeleteBanner" class="hidden bg-amber-600/20 border border-amber-600/40 text-amber-200 px-4 py-3 rounded-md mb-4" role="alert">
+                        <div class="text-sm">
+                            <div class="font-semibold mb-1">Pending deletion</div>
+                            <div id="pendingDeleteBannerText">—</div>
                         </div>
                     </div>
                     
@@ -740,10 +809,10 @@
                             <button type="button" id="checkStatusButton" class="bg-gray-700 hover:bg-gray-600 text-gray-200 px-3 py-1 rounded-md text-sm">Check status</button>
                         </div>
                         <div class="grid grid-cols-1 gap-2 text-sm">
-                            <div class="flex justify-between"><span>Current objects:</span><span><span class="text-cyan-300">0</span> / <span id="countObjects">0</span></span></div>
-                            <div class="flex justify-between"><span>Object versions (all):</span><span><span class="text-cyan-300">0</span> / <span id="countVersions">0</span></span></div>
-                            <div class="flex justify-between"><span>Delete markers:</span><span><span class="text-cyan-300">0</span> / <span id="countDeleteMarkers">0</span></span></div>
-                            <div class="flex justify-between"><span>Multipart uploads in progress:</span><span><span class="text-cyan-300">0</span> / <span id="countMultipart">0</span></span></div>
+                            <div class="flex justify-between"><span>Current objects:</span><span id="countObjects">—</span></div>
+                            <div class="flex justify-between"><span>Object versions (all):</span><span id="countVersions">—</span></div>
+                            <div class="flex justify-between"><span>Delete markers:</span><span id="countDeleteMarkers">—</span></div>
+                            <div class="flex justify-between"><span>Multipart uploads in progress:</span><span id="countMultipart">—</span></div>
                             <div class="flex justify-between"><span>Legal holds present:</span><span id="hasLegalHolds">No</span></div>
                             <div class="flex justify-between"><span>Earliest retain-until (if any):</span><span id="earliestRetainUntil">—</span></div>
                         </div>
@@ -871,10 +940,47 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
                             required
                         >
                     </div>
+
+                    <!-- Force delete section (Governance bypass) -->
+                    <div id="forceDeleteSection" class="hidden mt-4 border border-red-700/60 bg-red-900/30 rounded p-4">
+                        <div class="text-sm text-red-200 font-semibold mb-2">Force delete (bypass Governance retention)</div>
+                        <div class="text-xs text-red-200/90 mb-3">
+                            This requests deletion with Governance bypass enabled. If your account has WHMCS Two-Factor Authentication enabled, you must provide a valid 2FA code (or backup code).
+                        </div>
+                        <div class="mb-3">
+                            <label for="forceDeletePassword" class="block text-xs text-slate-300 mb-1">Account password (required)</label>
+                            <input type="password" id="forceDeletePassword" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-0" placeholder="Enter your WHMCS password">
+                            <div class="text-xs text-slate-400 mt-1">Used to verify a recent password check for this high-risk action. Not stored.</div>
+                        </div>
+                        <label class="inline-flex items-center text-sm text-red-100 mb-3">
+                            <input type="checkbox" id="ackBypassGovernance" class="mr-2">
+                            I understand this bypasses Governance retention and may permanently delete data earlier than retain-until.
+                        </label>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                            <div>
+                                <label for="twofaKey" class="block text-xs text-slate-300 mb-1">2FA code (if enabled)</label>
+                                <input type="text" id="twofaKey" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-0" placeholder="123456">
+                            </div>
+                            <div>
+                                <label for="twofaBackupCode" class="block text-xs text-slate-300 mb-1">Backup code (optional)</label>
+                                <input type="text" id="twofaBackupCode" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-0" placeholder="Backup code">
+                            </div>
+                        </div>
+                        <div class="text-xs text-slate-300 mb-2">Type the phrase to confirm:</div>
+                        <div class="mb-2"><code id="forceDeletePhrase" class="bg-slate-800 px-1 py-0.5 rounded text-xs">—</code></div>
+                        <input type="text" id="forceDeleteConfirmText" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-0" placeholder="Paste phrase here">
+                    </div>
                 </div>
                 <div class="flex flex-col sm:flex-row sm:justify-end sm:space-x-2 mt-4">
                     <div id="deleteHelperText" class="text-xs text-amber-400 mb-2 sm:mb-0 hidden"></div>
                     <div class="flex justify-end space-x-2">
+                        <button
+                            type="button"
+                            id="cancelDeleteRequestButton"
+                            class="hidden bg-amber-700 hover:bg-amber-600 text-white px-4 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-amber-500"
+                        >
+                            Cancel deletion request
+                        </button>
                         <button
                             type="button"
                             id="cancelDeleteButton"
@@ -888,7 +994,14 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
                             class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
                             id="confirmDeleteButton"
                         >
-                            Delete Bucket
+                            Schedule deletion
+                        </button>
+                        <button
+                            type="button"
+                            class="hidden bg-red-700 hover:bg-red-800 text-white px-4 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                            id="forceDeleteButton"
+                        >
+                            Force delete
                         </button>
                     </div>
                 </div>
@@ -1083,6 +1196,8 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
                 success: function(resp){
                     if (!resp || resp.status !== 'success' || !resp.data) return;
                     var data = resp.data;
+                    // Cache for tab lazy updates
+                    window.__bucketLiveSettings = data;
                     // Update versioning labels
                     jQuery('[id^="versioningStatus-"]').each(function(){
                         var el = jQuery(this);
@@ -1098,6 +1213,31 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
                             card.attr('data-versioning', 'off');
                         }
                     });
+
+                    // Update Locking fields in Properties tab if present
+                    try {
+                        jQuery('[id^="lockEnabled-"]').each(function(){
+                            var el = jQuery(this);
+                            var bucketId = (el.attr('id') || '').replace('lockEnabled-','');
+                            var card = jQuery('#bucketRow' + bucketId);
+                            var name = card.attr('data-bucket-name');
+                            if (!name || !data[name] || !data[name].object_lock) return;
+                            var ol = data[name].object_lock || {};
+                            var enabled = !!ol.enabled;
+                            jQuery('#lockEnabled-' + bucketId).text(enabled ? 'Yes' : 'No');
+                            jQuery('#lockMode-' + bucketId).text(enabled ? (ol.default_mode || '—') : '—');
+                            var days = (ol.default_retention_days !== null && ol.default_retention_days !== undefined) ? ol.default_retention_days : null;
+                            var years = (ol.default_retention_years !== null && ol.default_retention_years !== undefined) ? ol.default_retention_years : null;
+                            if (enabled && days !== null && String(days) !== '') {
+                                jQuery('#lockDays-' + bucketId).text(String(days));
+                            } else if (enabled && years !== null && String(years) !== '') {
+                                // Keep the label as "Days" per UX request; show years when that's what the bucket uses.
+                                jQuery('#lockDays-' + bucketId).text(String(years) + ' year(s)');
+                            } else {
+                                jQuery('#lockDays-' + bucketId).text('—');
+                            }
+                        });
+                    } catch (e) {}
                 },
                 error: function(){ /* ignore */ }
             });
@@ -1142,6 +1282,29 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
                     var bucketName = jQuery('#bucketRow' + bucketId).attr('data-bucket-name');
                     if (bucketName) {
                         loadLifecycleRules(bucketName, bucketId);
+                    }
+                } catch (e) {}
+            }
+
+            // Lazy-apply cached locking details when switching to Properties
+            if (tab === 'properties') {
+                try {
+                    var bucketName = jQuery('#bucketRow' + bucketId).attr('data-bucket-name');
+                    var data = window.__bucketLiveSettings || {};
+                    if (bucketName && data[bucketName] && data[bucketName].object_lock) {
+                        var ol = data[bucketName].object_lock || {};
+                        var enabled = !!ol.enabled;
+                        jQuery('#lockEnabled-' + bucketId).text(enabled ? 'Yes' : 'No');
+                        jQuery('#lockMode-' + bucketId).text(enabled ? (ol.default_mode || '—') : '—');
+                        var days = (ol.default_retention_days !== null && ol.default_retention_days !== undefined) ? ol.default_retention_days : null;
+                        var years = (ol.default_retention_years !== null && ol.default_retention_years !== undefined) ? ol.default_retention_years : null;
+                        if (enabled && days !== null && String(days) !== '') {
+                            jQuery('#lockDays-' + bucketId).text(String(days));
+                        } else if (enabled && years !== null && String(years) !== '') {
+                            jQuery('#lockDays-' + bucketId).text(String(years) + ' year(s)');
+                        } else {
+                            jQuery('#lockDays-' + bucketId).text('—');
+                        }
                     }
                 } catch (e) {}
             }
@@ -1525,65 +1688,248 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
             }
         });
 
-        // delete bucket
-        jQuery('#confirmDeleteButton').click(function() {
-            // Disable both buttons to prevent double-clicking
-            jQuery('#confirmDeleteButton').prop('disabled', true).addClass('opacity-50 cursor-not-allowed');
-            jQuery('#cancelDeleteButton').prop('disabled', true).addClass('opacity-50 cursor-not-allowed');
-
-            let bucketName = jQuery('#deletingBucketName').val();
-            let bucketId = jQuery('#bucketId').val();
-            let bucketNameConfirm = jQuery('#bucketNameConfirm').val();
-
-            if (bucketName.trim().toLowerCase() != bucketNameConfirm.trim().toLowerCase()) {
-                jQuery('#deleteBucketMessage').text("Bucket name does not match with your input.");
-                jQuery('#deleteBucketMessage').removeClass("hidden");
-
-                // Re-enable both buttons on validation error
-                jQuery('#confirmDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
-                jQuery('#cancelDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
-                return;
-            }
-
-            // hit the api to delete bucket
-            jQuery.ajax({
-                url: 'modules/addons/cloudstorage/api/deletebucket.php',
-                method: 'POST',
-                data: {'bucket_name': bucketName},
-                dataType: 'json',
-                success: function(response) {
-                    jQuery('#bucketNameConfirm').val('');
-                    
-                    // Re-enable both buttons
-                    jQuery('#confirmDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
-                    jQuery('#cancelDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
-                    
-                    if (response.status == 'fail') {
-                        showModalMessage(response.message, 'deleteBucketMessage', 'error');
-                        return;
-                    }
-                    
-                    // Show success toast
-                    pushToast(response.message || 'Bucket queued for deletion.', 'success');
-                    
-                    // Remove the bucket row from the display
-                    jQuery('#bucketRow' + bucketId).remove();
-                    
-                    // Close modal immediately on success
-                    closeModal('deleteBucketModal');
-                },
-                error: function(xhr, status, error) {
-                    showModalMessage(error, 'deleteBucketMessage', 'error');
-                    
-                    // Re-enable both buttons on error
-                    jQuery('#confirmDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
-                    jQuery('#cancelDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
-                }
-            });
+        // delete bucket (schedule deletion request)
+        jQuery('#confirmDeleteButton').off('click').on('click', function() {
+            scheduleDeletionFromModal();
         });
 
         jQuery(document).ready(function() {
             // Other event handlers...
+
+            function getPendingJobFromRow(bucketId) {
+                try {
+                    var row = jQuery('#bucketRow' + bucketId);
+                    if (!row.length) return null;
+                    var status = row.attr('data-delete-status') || '';
+                    if (!status) return null;
+                    return {
+                        id: row.attr('data-delete-job-id') || null,
+                        status: status,
+                        blocked_reason: row.attr('data-delete-blocked-reason') || null,
+                        retry_after: row.attr('data-delete-retry-after') || null,
+                        requested_action: row.attr('data-delete-requested-action') || null,
+                        force_bypass: row.attr('data-delete-force-bypass') || '0',
+                    };
+                } catch (e) {
+                    return null;
+                }
+            }
+
+            function applyPendingDeleteUI(bucketId, bucketName, job) {
+                try {
+                    var row = jQuery('#bucketRow' + bucketId);
+                    if (!row.length) return;
+                    row.attr('data-delete-status', job && job.status ? job.status : 'queued');
+                    if (job && job.blocked_reason) row.attr('data-delete-blocked-reason', job.blocked_reason);
+                    if (job && job.retry_after) row.attr('data-delete-retry-after', job.retry_after);
+                    if (job && job.id) row.attr('data-delete-job-id', job.id);
+                    if (job && job.requested_action) row.attr('data-delete-requested-action', job.requested_action);
+                    if (job && job.force_bypass_governance) row.attr('data-delete-force-bypass', job.force_bypass_governance ? '1' : '0');
+
+                    var badge = jQuery('#pendingDeleteBadge' + bucketId);
+                    if (badge.length) {
+                        badge.removeClass('hidden !hidden').text('Pending deletion');
+                    }
+                    // Disable browse button by a simple reload-safe approach: reload page to re-render controls.
+                } catch (e) {}
+            }
+
+            function clearPendingDeleteUI(bucketId) {
+                try {
+                    var row = jQuery('#bucketRow' + bucketId);
+                    if (!row.length) return;
+                    row.attr('data-delete-status', '');
+                    row.attr('data-delete-blocked-reason', '');
+                    row.attr('data-delete-retry-after', '');
+                    row.attr('data-delete-job-id', '');
+                    row.attr('data-delete-requested-action', '');
+                    row.attr('data-delete-force-bypass', '0');
+                    var badge = jQuery('#pendingDeleteBadge' + bucketId);
+                    if (badge.length) badge.addClass('!hidden');
+                } catch (e) {}
+            }
+
+            function updateModalForPendingJob(job) {
+                jQuery('#pendingDeleteBanner').addClass('hidden');
+                jQuery('#cancelDeleteRequestButton').addClass('hidden');
+                if (!job) return;
+                var msg = 'A deletion request is already pending for this bucket.';
+                if (job.status === 'running') {
+                    msg = 'Deletion is currently running.';
+                } else if (job.status === 'blocked') {
+                    if (job.blocked_reason === 'legal_hold') {
+                        msg = 'Deletion is blocked indefinitely by Legal Hold. Remove holds to proceed.';
+                    } else if (job.blocked_reason === 'compliance_retention') {
+                        msg = 'Deletion is blocked by Compliance retention. Earliest possible deletion is after retention expiry.';
+                    } else if (job.blocked_reason === 'governance_retention') {
+                        msg = 'Deletion is blocked by Governance retention. You can wait for expiry or request force delete.';
+                    } else {
+                        msg = 'Deletion is blocked. We will re-check later.';
+                    }
+                }
+                jQuery('#pendingDeleteBannerText').text(msg);
+                jQuery('#pendingDeleteBanner').removeClass('hidden');
+                if (job.status !== 'running') {
+                    jQuery('#cancelDeleteRequestButton').removeClass('hidden');
+                }
+            }
+
+            function scheduleDeletionFromModal() {
+                // Disable to prevent double clicks
+                jQuery('#confirmDeleteButton').prop('disabled', true).addClass('opacity-50 cursor-not-allowed');
+                jQuery('#cancelDeleteButton').prop('disabled', true).addClass('opacity-50 cursor-not-allowed');
+
+                var bucketName = jQuery('#deletingBucketName').val();
+                var bucketId = jQuery('#bucketId').val();
+                var phrase = 'DELETE BUCKET ' + bucketName;
+                var typed = jQuery('#bucketNameConfirm').val();
+                if (typed !== phrase) {
+                    showModalMessage('Confirmation text does not match. Paste: "' + phrase + '"', 'deleteBucketMessage', 'error');
+                    jQuery('#confirmDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
+                    jQuery('#cancelDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
+                    return;
+                }
+
+                jQuery.ajax({
+                    url: 'modules/addons/cloudstorage/api/deletebucket.php',
+                    method: 'POST',
+                    data: { bucket_name: bucketName },
+                    dataType: 'json',
+                    success: function(resp) {
+                        // Re-enable buttons
+                        jQuery('#confirmDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
+                        jQuery('#cancelDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
+                        if (!resp || resp.status !== 'success') {
+                            showModalMessage((resp && resp.message) ? resp.message : 'Unable to queue deletion.', 'deleteBucketMessage', 'error');
+                            return;
+                        }
+                        pushToast(resp.message || 'Deletion request saved.', 'success');
+                        // Mark bucket as pending deletion (keep row visible)
+                        applyPendingDeleteUI(bucketId, bucketName, (resp.delete_job || {}));
+                        closeModal('deleteBucketModal');
+                        // Simplest: reload to reflect disabled Browse button etc
+                        try { window.location.reload(); } catch (e) {}
+                    },
+                    error: function(xhr, status, error) {
+                        showModalMessage(error || 'Unable to queue deletion.', 'deleteBucketMessage', 'error');
+                        jQuery('#confirmDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
+                        jQuery('#cancelDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
+                    }
+                });
+            }
+
+            window.scheduleDeletionFromModal = scheduleDeletionFromModal;
+
+            function requestForceDeleteFromModal() {
+                jQuery('#forceDeleteButton').prop('disabled', true).addClass('opacity-50 cursor-not-allowed');
+                jQuery('#cancelDeleteButton').prop('disabled', true).addClass('opacity-50 cursor-not-allowed');
+
+                var bucketName = jQuery('#deletingBucketName').val();
+                var bucketId = jQuery('#bucketId').val();
+                var phrase = 'FORCE DELETE BUCKET ' + bucketName;
+                var typed = jQuery('#forceDeleteConfirmText').val();
+                var ack = jQuery('#ackBypassGovernance').is(':checked') ? 1 : 0;
+                var pw = jQuery('#forceDeletePassword').val();
+                var twofaKey = jQuery('#twofaKey').val();
+                var twofaBackup = jQuery('#twofaBackupCode').val();
+                if (!ack) {
+                    showModalMessage('Please acknowledge Governance bypass to continue.', 'deleteBucketMessage', 'error');
+                    jQuery('#forceDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
+                    jQuery('#cancelDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
+                    return;
+                }
+                if (!pw) {
+                    showModalMessage('Please enter your account password to continue.', 'deleteBucketMessage', 'error');
+                    jQuery('#forceDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
+                    jQuery('#cancelDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
+                    return;
+                }
+                if (typed !== phrase) {
+                    showModalMessage('Confirmation text does not match. Paste: "' + phrase + '"', 'deleteBucketMessage', 'error');
+                    jQuery('#forceDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
+                    jQuery('#cancelDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
+                    return;
+                }
+
+                // First: verify password to satisfy server-side "fresh password" requirement.
+                jQuery.ajax({
+                    url: 'modules/addons/cloudstorage/api/validatepassword.php',
+                    method: 'POST',
+                    data: { password: pw },
+                    dataType: 'json',
+                    success: function(vr) {
+                        if (!vr || vr.status !== 'success') {
+                            showModalMessage((vr && vr.message) ? vr.message : 'Password verification failed.', 'deleteBucketMessage', 'error');
+                            jQuery('#forceDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
+                            jQuery('#cancelDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
+                            return;
+                        }
+                        // Second: request force delete
+                        jQuery.ajax({
+                            url: 'modules/addons/cloudstorage/api/force_deletebucket.php',
+                            method: 'POST',
+                            data: {
+                                bucket_name: bucketName,
+                                ack_bypass_governance: ack,
+                                confirm_text: phrase,
+                                twofa_key: twofaKey || '',
+                                twofa_backup_code: twofaBackup || ''
+                            },
+                            dataType: 'json',
+                            success: function(resp) {
+                                jQuery('#forceDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
+                                jQuery('#cancelDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
+                                if (!resp || resp.status !== 'success') {
+                                    showModalMessage((resp && resp.message) ? resp.message : 'Unable to queue force delete.', 'deleteBucketMessage', 'error');
+                                    return;
+                                }
+                                pushToast(resp.message || 'Force delete queued.', 'success');
+                                applyPendingDeleteUI(bucketId, bucketName, (resp.delete_job || {}));
+                                closeModal('deleteBucketModal');
+                                try { window.location.reload(); } catch (e) {}
+                            },
+                            error: function(xhr, status, error) {
+                                showModalMessage(error || 'Unable to queue force delete.', 'deleteBucketMessage', 'error');
+                                jQuery('#forceDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
+                                jQuery('#cancelDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
+                            }
+                        });
+                    },
+                    error: function(xhr, status, error) {
+                        showModalMessage(error || 'Password verification failed.', 'deleteBucketMessage', 'error');
+                        jQuery('#forceDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
+                        jQuery('#cancelDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
+                    }
+                });
+            }
+
+            jQuery('#forceDeleteButton').off('click').on('click', function() {
+                requestForceDeleteFromModal();
+            });
+
+            jQuery('#cancelDeleteRequestButton').off('click').on('click', function() {
+                var bucketName = jQuery('#deletingBucketName').val();
+                var bucketId = jQuery('#bucketId').val();
+                jQuery.ajax({
+                    url: 'modules/addons/cloudstorage/api/cancelbucketdelete.php',
+                    method: 'POST',
+                    data: { bucket_name: bucketName },
+                    dataType: 'json',
+                    success: function(resp) {
+                        if (!resp || resp.status !== 'success') {
+                            showModalMessage((resp && resp.message) ? resp.message : 'Unable to cancel deletion.', 'deleteBucketMessage', 'error');
+                            return;
+                        }
+                        pushToast(resp.message || 'Deletion request cancelled.', 'success');
+                        clearPendingDeleteUI(bucketId);
+                        closeModal('deleteBucketModal');
+                        try { window.location.reload(); } catch (e) {}
+                    },
+                    error: function(xhr, status, error) {
+                        showModalMessage(error || 'Unable to cancel deletion.', 'deleteBucketMessage', 'error');
+                    }
+                });
+            });
 
             // Delete bucket: set hidden inputs, update modal display, and open the modal
             jQuery('.delete-bucket').click(function() {
@@ -1591,6 +1937,7 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
                 var bucketId = jQuery(this).attr('data-bucket-id');
                 var bucketName = jQuery(this).attr('data-bucket-name');
                 var objectLockEnabled = jQuery(this).attr('data-object-lock') == '1';
+                var pendingJob = getPendingJobFromRow(bucketId);
 
                 // Set hidden input values for form submission
                 jQuery('#bucketId').val(bucketId);
@@ -1601,39 +1948,60 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
                 jQuery('#bucketNameDisplay').text(bucketName);
 
                 // Reset mode chip and sections
-                jQuery('#objectLockModeChip').addClass('hidden').text('');
+                jQuery('#objectLockModeChip').addClass('!hidden').text('');
                 jQuery('#emptyCheckPanel').addClass('hidden');
                 jQuery('#guidanceSection').addClass('hidden');
                 jQuery('#blockersContainer').addClass('hidden');
                 jQuery('#blockersList').empty();
-                jQuery('#countObjects').text('0');
-                jQuery('#countVersions').text('0');
-                jQuery('#countDeleteMarkers').text('0');
-                jQuery('#countMultipart').text('0');
+                jQuery('#countObjects').text('—');
+                jQuery('#countVersions').text('—');
+                jQuery('#countDeleteMarkers').text('—');
+                jQuery('#countMultipart').text('—');
                 jQuery('#hasLegalHolds').text('No');
                 jQuery('#earliestRetainUntil').text('—');
                 jQuery('#typedPhraseWrapper').addClass('hidden');
                 jQuery('#typedPhraseHint').addClass('hidden');
                 jQuery('#typedPhraseExact').text('');
                 jQuery('#deleteHelperText').addClass('hidden').text('');
+                jQuery('#pendingDeleteBanner').addClass('hidden');
+                jQuery('#pendingDeleteBannerText').text('—');
+                jQuery('#cancelDeleteRequestButton').addClass('hidden');
+                jQuery('#forceDeleteSection').addClass('hidden');
+                jQuery('#forceDeleteButton').addClass('hidden');
+                jQuery('#ackBypassGovernance').prop('checked', false);
+                jQuery('#forceDeletePassword').val('');
+                jQuery('#twofaKey').val('');
+                jQuery('#twofaBackupCode').val('');
+                jQuery('#forceDeleteConfirmText').val('');
+                jQuery('#forceDeletePhrase').text('—');
 
                 // Show/hide object lock warning and update modal title
                 if (objectLockEnabled) {
                     jQuery('#objectLockWarning').removeClass('hidden');
-                    jQuery('#deleteModalTitle').text('Delete Bucket (Object Lock enabled)');
+                    jQuery('#deleteModalTitle').text('Request deletion (Object Lock enabled)');
                     jQuery('#emptyCheckPanel').removeClass('hidden');
                     jQuery('#guidanceSection').removeClass('hidden');
                     // Preload status immediately
                     fetchObjectLockStatus(bucketName);
                 } else {
                     jQuery('#objectLockWarning').addClass('hidden');
-                    jQuery('#deleteModalTitle').text('Warning: Permanent Bucket Deletion');
+                    jQuery('#deleteModalTitle').text('Request deletion');
                     // For non-OL buckets, also show empty check and guidance
                     jQuery('#emptyCheckPanel').removeClass('hidden');
                     jQuery('#guidanceSection').removeClass('hidden');
                     // Load status to decide actions (delete vs empty)
                     fetchObjectLockStatus(bucketName);
                 }
+
+                updateModalForPendingJob(pendingJob);
+
+                // Confirmation phrase always required for scheduling
+                const phrase = 'DELETE BUCKET ' + bucketName;
+                jQuery('#typedConfirmLabel').text('Type the phrase to confirm:');
+                jQuery('#typedPhraseWrapper').removeClass('hidden');
+                jQuery('#typedPhraseExact').text(phrase);
+                jQuery('#typedPhraseHint').removeClass('hidden');
+                jQuery('#bucketNameConfirm').val('');
 
                 // Reset modal state and open the delete bucket modal
                 jQuery('#bucketNameConfirm').val('');
@@ -1796,7 +2164,7 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
                     jQuery('#cancelDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
                     jQuery('#objectLockWarning').addClass('hidden');
                     jQuery('#deleteModalTitle').text('Warning: Permanent Bucket Deletion');
-                    jQuery('#objectLockModeChip').addClass('hidden').text('');
+                    jQuery('#objectLockModeChip').addClass('!hidden').text('');
                     jQuery('#emptyCheckPanel').addClass('hidden');
                     jQuery('#guidanceSection').addClass('hidden');
                     jQuery('#blockersContainer').addClass('hidden');
@@ -1984,7 +2352,7 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
         // Fetch object lock status and update UI
         function fetchObjectLockStatus(bucketName, manual = false) {
             // disable delete until checks complete
-            jQuery('#confirmDeleteButton').prop('disabled', true).addClass('opacity-50 cursor-not-allowed');
+            jQuery('#confirmDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
             jQuery.ajax({
                 url: 'modules/addons/cloudstorage/api/objectlockstatus.php',
                 method: 'POST',
@@ -2010,9 +2378,9 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
                     // Mode chip
                     const mode = (d.object_lock && d.object_lock.default_mode) ? d.object_lock.default_mode : null;
                     if (mode) {
-                        jQuery('#objectLockModeChip').removeClass('hidden').text(mode === 'COMPLIANCE' ? 'Compliance mode' : 'Governance mode');
+                        jQuery('#objectLockModeChip').removeClass('hidden !hidden').text(mode === 'COMPLIANCE' ? 'Compliance mode' : 'Governance mode');
                     } else {
-                        jQuery('#objectLockModeChip').addClass('hidden').text('');
+                        jQuery('#objectLockModeChip').addClass('!hidden').text('');
                     }
 
                     // Build blockers
@@ -2028,7 +2396,7 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
                     }
                     if ((counts.governance_retained || 0) > 0) {
                         const ex = (d.examples && d.examples.governance) ? d.examples.governance.slice(0,3) : [];
-                        blockers.push(counts.governance_retained + ' versions in Governance retention — delete after retain-until or use your own governance-bypass tools.' + exampleSuffix(ex, true));
+                        blockers.push(counts.governance_retained + ' versions in Governance retention — delete after retain-until, or request force delete (bypass governance).' + exampleSuffix(ex, true));
                     }
                     if ((counts.multipart_uploads || 0) > 0) {
                         const ex = (d.examples && d.examples.multipart) ? d.examples.multipart.slice(0,3) : [];
@@ -2066,80 +2434,15 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
                         jQuery('#blockersContainer').addClass('hidden');
                     }
 
-                    // Enable/disable delete and configure confirmation phrase
-                    if (d.empty === true) {
-                        // Enable delete and require typed phrase
-                        jQuery('#confirmDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
-                        const phrase = 'DELETE BUCKET ' + bucketName;
-                        jQuery('#typedConfirmLabel').text('Type the phrase to confirm:');
-                        jQuery('#typedPhraseWrapper').removeClass('hidden');
-                        jQuery('#typedPhraseExact').text(phrase);
-                        jQuery('#typedPhraseHint').removeClass('hidden');
-                        // Hide helper text when delete is enabled
-                        jQuery('#deleteHelperText').addClass('hidden').text('');
-
-                        // Validate input must match phrase exactly when deleting empty OL bucket
-                        jQuery('#confirmDeleteButton').off('click').on('click', function(){
-                            const input = jQuery('#bucketNameConfirm').val();
-                            if (input !== phrase) {
-                                showModalMessage('Confirmation text does not match. Paste: "' + phrase + '"', 'deleteBucketMessage', 'error');
-                                return;
-                            }
-                            // Disable buttons
-                            jQuery('#confirmDeleteButton').prop('disabled', true).addClass('opacity-50 cursor-not-allowed');
-                            jQuery('#cancelDeleteButton').prop('disabled', true).addClass('opacity-50 cursor-not-allowed');
-
-                            // Directly call delete API
-                            jQuery.ajax({
-                                url: 'modules/addons/cloudstorage/api/deletebucket.php',
-                                method: 'POST',
-                                data: { 'bucket_name': bucketName },
-                                dataType: 'json',
-                                success: function(response) {
-                                    jQuery('#bucketNameConfirm').val('');
-
-                                    // Re-enable buttons
-                                    jQuery('#confirmDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
-                                    jQuery('#cancelDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
-
-                                    if (response.status == 'fail') {
-                                        showModalMessage(response.message, 'deleteBucketMessage', 'error');
-                                        return;
-                                    }
-
-                                    // Show success toast
-                                    pushToast(response.message || 'Bucket queued for deletion.', 'success');
-
-                                    // Remove the bucket row from the display
-                                    jQuery('#bucketRow' + jQuery('#bucketId').val()).remove();
-
-                                    // Close modal immediately on success
-                                    closeModal('deleteBucketModal');
-                                },
-                                error: function(xhr, status, error) {
-                                    showModalMessage(error, 'deleteBucketMessage', 'error');
-
-                                    // Re-enable buttons
-                                    jQuery('#confirmDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
-                                    jQuery('#cancelDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
-                                }
-                            });
-                        });
+                    // Force delete is available when Governance retention is present (or default mode is Governance).
+                    // The backend will enforce holds/compliance restrictions and 2FA.
+                    if (((mode || '').toUpperCase() === 'GOVERNANCE') || ((counts.governance_retained || 0) > 0)) {
+                        jQuery('#forceDeleteSection').removeClass('hidden');
+                        jQuery('#forceDeleteButton').removeClass('hidden');
+                        jQuery('#forceDeletePhrase').text('FORCE DELETE BUCKET ' + bucketName);
                     } else {
-                        // Disabled delete with reason; offer Empty Bucket for non-OL buckets
-                        jQuery('#confirmDeleteButton').prop('disabled', true).addClass('opacity-50 cursor-not-allowed');
-                        jQuery('#deleteHelperText').removeClass('hidden').text('Disabled — bucket is not empty.');
-                        jQuery('#typedPhraseWrapper').addClass('hidden');
-                        jQuery('#typedPhraseHint').addClass('hidden');
-                        jQuery('#typedPhraseExact').text('');
-                        // Add or show Empty bucket button
-                        if (jQuery('#emptyBucketButton').length === 0) {
-                            jQuery('<button type="button" id="emptyBucketButton" class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-amber-500 ml-2">Empty bucket</button>')
-                                .insertBefore('#confirmDeleteButton')
-                                .on('click', function(){ showEmptyBucketConfirm(bucketName); });
-                        } else {
-                            jQuery('#emptyBucketButton').off('click').on('click', function(){ showEmptyBucketConfirm(bucketName); }).removeClass('hidden');
-                        }
+                        jQuery('#forceDeleteSection').addClass('hidden');
+                        jQuery('#forceDeleteButton').addClass('hidden');
                     }
                 },
                 error: function(xhr, status, error) {

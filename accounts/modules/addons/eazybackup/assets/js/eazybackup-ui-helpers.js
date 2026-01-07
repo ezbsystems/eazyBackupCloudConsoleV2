@@ -76,7 +76,9 @@
     Timeout: 'bg-amber-500',
     Warning: 'bg-amber-500',
     Error: 'bg-red-500',
-    Missed: 'bg-slate-400',
+    // Missed needs to be clearly visible on dark UI and distinct from Success.
+    // Use a hollow border (no fill). Border stays inside the element box (ring looks visually larger).
+    Missed: 'bg-transparent border-2 border-slate-300',
     Skipped: 'bg-violet-500',
     Cancelled: 'bg-red-500',
     Unknown: 'bg-gray-400'
@@ -120,7 +122,7 @@
       case 'Timeout':  return 'text-amber-500';
       case 'Warning':  return 'text-amber-500';
       case 'Error':    return 'text-red-500';
-      case 'Missed':   return 'text-amber-500';
+      case 'Missed':   return 'text-slate-300';
       case 'Skipped':  return 'text-gray-500';
       case 'Cancelled':return 'text-gray-500';
       default:         return 'text-gray-400';

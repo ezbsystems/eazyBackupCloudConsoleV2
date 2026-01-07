@@ -77,6 +77,45 @@ foreach ($names as $n) {
 		// Skip on error; do not leak details
 		continue;
 	}
+
+	// Object Lock policy (lightweight)
+	try {
+		$olc = $clientRes['client']->getObjectLockConfiguration(['Bucket' => $n]);
+		$enabled =
+			isset($olc['ObjectLockConfiguration']['ObjectLockEnabled']) &&
+			$olc['ObjectLockConfiguration']['ObjectLockEnabled'] === 'Enabled';
+
+		$mode = null;
+		$days = null;
+		$years = null;
+		$default = $olc['ObjectLockConfiguration']['Rule']['DefaultRetention'] ?? null;
+		if (is_array($default)) {
+			if (!empty($default['Mode'])) {
+				$mode = strtoupper((string)$default['Mode']);
+			}
+			if (isset($default['Days']) && is_numeric($default['Days'])) {
+				$days = (int)$default['Days'];
+			}
+			if (isset($default['Years']) && is_numeric($default['Years'])) {
+				$years = (int)$default['Years'];
+			}
+		}
+
+		$result[$n]['object_lock'] = [
+			'enabled' => (bool)$enabled,
+			'default_mode' => $mode,
+			'default_retention_days' => $days,
+			'default_retention_years' => $years,
+		];
+	} catch (\Throwable $e) {
+		// Not supported / not enabled / permission issue; treat as disabled.
+		$result[$n]['object_lock'] = [
+			'enabled' => false,
+			'default_mode' => null,
+			'default_retention_days' => null,
+			'default_retention_years' => null,
+		];
+	}
 }
 
 (new JsonResponse(['status' => 'success', 'data' => $result], 200))->send();

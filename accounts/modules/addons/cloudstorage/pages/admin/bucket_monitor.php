@@ -32,16 +32,7 @@ function cloudstorage_admin_bucket_monitor($vars)
     
     // Get initial data for page load
     $bucketData = BucketSizeMonitor::getCurrentBucketSizes();
-    $chartData = BucketSizeMonitor::getHistoricalBucketData(30);
     $collectionStats = BucketSizeMonitor::getCollectionStats();
-    
-    // Safety check: Limit chart data to prevent browser memory issues
-    $chartDataArray = $chartData['total_size_chart'] ?? [];
-    if (count($chartDataArray) > 90) {
-        // Keep only the last 90 days of data maximum
-        $chartDataArray = array_slice($chartDataArray, -90);
-        error_log("Chart data limited to prevent memory issues: " . count($chartDataArray) . " points");
-    }
     
     // Check if configuration is complete
     $configComplete = !empty($s3Endpoint) && !empty($cephAdminAccessKey) && !empty($cephAdminSecretKey);
@@ -56,8 +47,6 @@ function cloudstorage_admin_bucket_monitor($vars)
             'whmcs_buckets' => 0,
             'external_buckets' => 0
         ],
-        'chart_data' => json_encode($chartDataArray),
-        'individual_buckets' => json_encode($chartData['individual_buckets'] ?? []),
         'collection_stats' => $collectionStats['stats'] ?? [
             'total_records' => 0,
             'unique_buckets' => 0,
@@ -109,14 +98,16 @@ function generateAdminHTML($vars) {
         .metric-card {
             text-align: center;
             padding: 1.5rem;
+            background: #fff;
         }
         .metric-number {
             font-size: 2rem;
             font-weight: bold;
             margin-bottom: 0.5rem;
+            color: #212529;
         }
         .metric-label {
-            color: #6c757d;
+            color: #212529;
             font-size: 0.9rem;
         }
         .growth-cell {
@@ -144,6 +135,32 @@ function generateAdminHTML($vars) {
         }
         .btn-group input[type="radio"] {
             display: none;
+        }
+
+        /*
+         * WHMCS Admin sidebar compatibility (Bootstrap 3 markup).
+         * This page loads Bootstrap 5, which can change input-group rendering.
+         * In Firefox this may cause the sidebar "Advanced Search" submit button to escape the sidebar.
+         * Force BS3-style table layout inside the sidebar only.
+         */
+        #sidebar .input-group {
+            display: table;
+            width: 100%;
+        }
+        #sidebar .input-group > .form-control {
+            display: table-cell;
+            width: 100%;
+            float: none;
+        }
+        #sidebar .input-group-btn {
+            display: table-cell;
+            width: 1%;
+            white-space: nowrap;
+            vertical-align: middle;
+        }
+        #sidebar .input-group-btn > .btn,
+        #sidebar .input-group-btn > input.btn {
+            float: none;
         }
     </style>
 </head>
@@ -213,7 +230,7 @@ function generateAdminHTML($vars) {
     <!-- Summary Cards -->
     <div class="row mb-4">
         <div class="col-md-2">
-            <div class="card bg-primary text-white metric-card">
+            <div class="card metric-card">
                 <div class="card-body">
                     <div class="metric-number" id="totalBuckets">' . $vars['summary']['total_buckets'] . '</div>
                     <div class="metric-label">Total Buckets</div>
@@ -221,15 +238,15 @@ function generateAdminHTML($vars) {
             </div>
         </div>
         <div class="col-md-2">
-            <div class="card bg-success text-white metric-card">
+            <div class="card metric-card">
                 <div class="card-body">
                     <div class="metric-number" id="whmcsBuckets">' . ($vars['summary']['whmcs_buckets'] ?? 0) . '</div>
-                    <div class="metric-label">WHMCS Buckets</div>
+                    <div class="metric-label">e3 Buckets</div>
                 </div>
             </div>
         </div>
         <div class="col-md-2">
-            <div class="card bg-warning text-dark metric-card">
+            <div class="card metric-card">
                 <div class="card-body">
                     <div class="metric-number" id="externalBuckets">' . ($vars['summary']['external_buckets'] ?? 0) . '</div>
                     <div class="metric-label">External Buckets</div>
@@ -237,7 +254,7 @@ function generateAdminHTML($vars) {
             </div>
         </div>
         <div class="col-md-3">
-            <div class="card bg-info text-white metric-card">
+            <div class="card metric-card">
                 <div class="card-body">
                     <div class="metric-number" id="totalSize">' . $vars['summary']['total_size_formatted'] . '</div>
                     <div class="metric-label">Total Size</div>
@@ -245,7 +262,7 @@ function generateAdminHTML($vars) {
             </div>
         </div>
         <div class="col-md-3">
-            <div class="card bg-secondary text-white metric-card">
+            <div class="card metric-card">
                 <div class="card-body">
                     <div class="metric-number" id="totalObjects">' . number_format($vars['summary']['total_objects']) . '</div>
                     <div class="metric-label">Total Objects</div>
@@ -270,7 +287,7 @@ function generateAdminHTML($vars) {
                                 
                                 <input type="radio" class="btn-check" name="filterType" id="filterWhmcs" value="whmcs">
                                 <label class="btn btn-outline-success" for="filterWhmcs">
-                                    <i class="fas fa-users me-1"></i>WHMCS Only
+                                    <i class="fas fa-users me-1"></i>e3 Only
                                 </label>
                                 
                                 <input type="radio" class="btn-check" name="filterType" id="filterExternal" value="non-whmcs">
@@ -288,21 +305,58 @@ function generateAdminHTML($vars) {
         </div>
     </div>
 
-    <!-- Chart Section -->
+    <!-- Ceph Pool Forecast Section -->
     <div class="row mb-4">
         <div class="col">
             <div class="card">
                 <div class="card-body">
-                    <div class="d-flex justify-content-between align-items-center mb-3">
-                        <h5 class="card-title mb-0">Storage Usage Over Time</h5>
-                        <select id="chartDays" class="form-select" style="width: auto;">
-                            <option value="7">Last 7 Days</option>
-                            <option value="30" selected>Last 30 Days</option>
-                            <option value="60">Last 60 Days</option>
-                            <option value="90">Last 90 Days</option>
-                        </select>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h5 class="card-title mb-0">Ceph Pool Forecast (80% threshold)</h5>
+                        <div class="d-flex gap-2 align-items-center">
+                            <select id="poolHistoryDays" class="form-select" style="width: auto;">
+                                <option value="30">30 days</option>
+                                <option value="90" selected>90 days</option>
+                                <option value="180">180 days</option>
+                            </select>
+                            <select id="poolForecastDays" class="form-select" style="width: auto;">
+                                <option value="90">+90 days</option>
+                                <option value="180" selected>+180 days</option>
+                                <option value="365">+365 days</option>
+                            </select>
+                        </div>
                     </div>
-                    <div id="storageChart" style="height: 400px;"></div>
+
+                    <div class="row g-2 mb-3">
+                        <div class="col-md-3">
+                            <div class="border rounded p-2">
+                                <div class="text-muted small">Pool</div>
+                                <div><strong id="poolNameLabel">default.rgw.buckets.data</strong></div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="border rounded p-2">
+                                <div class="text-muted small">Used</div>
+                                <div><strong id="poolUsedLabel">—</strong></div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="border rounded p-2">
+                                <div class="text-muted small">Capacity (used + max_avail)</div>
+                                <div><strong id="poolCapacityLabel">—</strong></div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="border rounded p-2">
+                                <div class="text-muted small">ETA to 80%</div>
+                                <div><strong id="poolEtaLabel">—</strong></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="poolChart" style="height: 420px;"></div>
+                    <div class="text-muted mt-2">
+                        <small>This chart is based on the Ceph pool usage history collected by the cron. Forecast uses a robust trend (Theil–Sen) over daily max values.</small>
+                    </div>
                 </div>
             </div>
         </div>
@@ -393,12 +447,12 @@ function generateAdminHTML($vars) {
 let currentSearch = "";
 let currentSort = { column: "bucket_name", direction: "ASC" };
 let currentFilter = "all";
-let chart;
+let poolChart;
 
 // Initialize page
 document.addEventListener("DOMContentLoaded", function() {
     loadBucketData();
-    initializeChart();
+    initializePoolChart();
     setupEventListeners();
 });
 
@@ -444,7 +498,7 @@ function setupEventListeners() {
     // Refresh button
     document.getElementById("refreshBtn").addEventListener("click", function() {
         loadBucketData();
-        updateChart();
+        updatePoolChart();
     });';
 
     if ($vars['config_complete']) {
@@ -456,9 +510,12 @@ function setupEventListeners() {
     }
 
     echo '
-    // Chart period selector
-    document.getElementById("chartDays").addEventListener("change", function() {
-        updateChart();
+    // Pool forecast selectors
+    document.getElementById("poolHistoryDays").addEventListener("change", function() {
+        updatePoolChart();
+    });
+    document.getElementById("poolForecastDays").addEventListener("change", function() {
+        updatePoolChart();
     });
 }
 
@@ -526,7 +583,7 @@ function updateBucketTable(buckets) {
             </td>
             <td>
                 <span class="badge ${bucket.is_whmcs_bucket ? \'bg-success\' : \'bg-warning\'}">
-                    ${bucket.is_whmcs_bucket ? \'WHMCS Customer\' : \'External\'}
+                    ${bucket.is_whmcs_bucket ? \'e3 Bucket\' : \'External\'}
                 </span>
             </td>
             <td>${bucket.bucket_size_formatted}</td>
@@ -562,165 +619,7 @@ function updateSummaryCards(summary) {
     document.getElementById("totalSize").textContent = summary.total_size_formatted;
     document.getElementById("totalObjects").textContent = formatNumber(summary.total_objects);
 }
-
-// Initialize chart with safety checks
-function initializeChart() {
-    try {
-        const chartData = ' . $vars['chart_data'] . ';
-        
-        // Safety check: Limit data points to prevent memory issues
-        if (!Array.isArray(chartData)) {
-            console.warn("Chart data is not an array, using empty dataset");
-            initializeEmptyChart();
-            return;
-        }
-        
-        if (chartData.length > 365) {
-            console.warn("Too many data points (" + chartData.length + "), limiting to last 365 points");
-            chartData.splice(0, chartData.length - 365);
-        }
-        
-        console.log("Initializing chart with", chartData.length, "data points");
-        
-        const options = {
-            series: [{
-                name: "Total Storage Usage",
-                data: chartData
-            }],
-            chart: {
-                type: "area",
-                height: 400,
-                zoom: {
-                    enabled: true
-                },
-                animations: {
-                    enabled: false  // Disable animations to reduce memory usage
-                }
-            },
-            dataLabels: {
-                enabled: false
-            },
-            stroke: {
-                curve: "smooth",
-                width: 2
-            },
-            fill: {
-                type: "gradient",
-                gradient: {
-                    shadeIntensity: 1,
-                    opacityFrom: 0.7,
-                    opacityTo: 0.9,
-                    stops: [0, 90, 100]
-                }
-            },
-            xaxis: {
-                type: "datetime",
-                labels: {
-                    format: "MMM dd"
-                }
-            },
-            yaxis: {
-                labels: {
-                    formatter: function (val) {
-                        return formatBytes(val);
-                    }
-                }
-            },
-            tooltip: {
-                x: {
-                    format: "MMM dd, yyyy"
-                },
-                y: {
-                    formatter: function (val) {
-                        return formatBytes(val);
-                    }
-                }
-            },
-            noData: {
-                text: "No storage data available",
-                align: "center",
-                verticalAlign: "middle",
-                style: {
-                    fontSize: "16px"
-                }
-            }
-        };
-
-        chart = new ApexCharts(document.querySelector("#storageChart"), options);
-        chart.render();
-        
-    } catch (error) {
-        console.error("Chart initialization failed:", error);
-        initializeEmptyChart();
-    }
-}
-
-// Initialize empty chart as fallback
-function initializeEmptyChart() {
-    const options = {
-        series: [{
-            name: "Total Storage Usage",
-            data: []
-        }],
-        chart: {
-            type: "area",
-            height: 400
-        },
-        noData: {
-            text: "No storage data available",
-            align: "center",
-            verticalAlign: "middle"
-        }
-    };
-    
-    chart = new ApexCharts(document.querySelector("#storageChart"), options);
-    chart.render();
-}
-
-// Update chart with new data
-function updateChart() {
-    const days = document.getElementById("chartDays").value;
-    
-    fetch("' . $vars['module_url'] . '", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: new URLSearchParams({
-            action: "get_chart_data",
-            days: days
-        })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.status === "success") {
-            // Safety check for chart data
-            const chartData = data.total_size_chart || [];
-            
-            if (chartData.length > 365) {
-                console.warn("Limiting chart data to 365 points to prevent memory issues");
-                chartData.splice(0, chartData.length - 365);
-            }
-            
-            console.log("Updating chart with", chartData.length, "data points");
-            
-            if (data.data_points_limited) {
-                console.warn("Chart data was limited server-side to prevent memory issues");
-            }
-            
-            chart.updateSeries([{
-                name: "Total Storage Usage",
-                data: chartData
-            }]);
-        } else {
-            showError("Failed to get chart data: " + (data.message || "Unknown error"));
-        }
-    })
-    .catch(error => {
-        console.error("Chart update failed:", error);
-        showError("Failed to update chart: " + error.message);
-    });
-}';
+';
 
     if ($vars['config_complete']) {
         echo '
@@ -750,7 +649,7 @@ function collectDataNow() {
             showSuccess(data.message);
             setTimeout(() => {
                 loadBucketData();
-                updateChart();
+                updatePoolChart();
             }, 1000);
         } else {
             showError("Collection failed: " + (data.message || "Unknown error"));
@@ -768,6 +667,129 @@ function collectDataNow() {
 // Utility functions
 function showLoadingIndicator() {
     document.getElementById("loadingIndicator").classList.remove("d-none");
+}
+
+// Initialize pool chart (render empty chart first, then load data)
+function initializePoolChart() {
+    const options = {
+        series: [
+            { name: "Actual Used", data: [] },
+            { name: "Forecast Used", data: [] }
+        ],
+        chart: {
+            type: "line",
+            height: 420,
+            zoom: { enabled: true },
+            animations: { enabled: false }
+        },
+        stroke: {
+            curve: "smooth",
+            width: [2, 2],
+            dashArray: [0, 6]
+        },
+        dataLabels: { enabled: false },
+        xaxis: {
+            type: "datetime",
+            labels: { format: "MMM dd" }
+        },
+        yaxis: {
+            labels: {
+                formatter: function (val) { return formatBytes(val); }
+            }
+        },
+        tooltip: {
+            x: { format: "MMM dd, yyyy" },
+            y: { formatter: function (val) { return formatBytes(val); } }
+        },
+        annotations: {
+            yaxis: []
+        },
+        noData: {
+            text: "No pool usage data available",
+            align: "center",
+            verticalAlign: "middle"
+        }
+    };
+
+    poolChart = new ApexCharts(document.querySelector("#poolChart"), options);
+    poolChart.render();
+    updatePoolChart();
+}
+
+function updatePoolChart() {
+    const days = document.getElementById("poolHistoryDays").value;
+    const forecastDays = document.getElementById("poolForecastDays").value;
+
+    fetch("' . $vars['module_url'] . '", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+            action: "get_pool_forecast",
+            days: days,
+            forecast_days: forecastDays,
+            target_percent: "80"
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status !== "success") {
+            showError("Failed to get pool forecast: " + (data.message || "Unknown error"));
+            return;
+        }
+
+        const poolName = data.pool_name || "default.rgw.buckets.data";
+        document.getElementById("poolNameLabel").textContent = poolName;
+
+        const latest = data.latest || null;
+        if (latest) {
+            document.getElementById("poolUsedLabel").textContent = formatBytes(latest.used_bytes || 0);
+            document.getElementById("poolCapacityLabel").textContent = formatBytes(latest.capacity_bytes || 0);
+        } else {
+            document.getElementById("poolUsedLabel").textContent = "—";
+            document.getElementById("poolCapacityLabel").textContent = "—";
+        }
+
+        const eta = data.eta_to_target || null;
+        if (!eta) {
+            document.getElementById("poolEtaLabel").textContent = "—";
+        } else if (eta.status === "already_reached") {
+            document.getElementById("poolEtaLabel").textContent = "Already ≥ 80%";
+        } else {
+            document.getElementById("poolEtaLabel").textContent = (eta.date || "—") + (typeof eta.days === "number" ? (" (" + eta.days + "d)") : "");
+        }
+
+        const actual = data.used_bytes_series || [];
+        const forecast = data.forecast_series || [];
+
+        // Add/Update 80% threshold line
+        const thresholdBytes = data.threshold_bytes;
+        const annotations = [];
+        if (typeof thresholdBytes === "number" && thresholdBytes > 0) {
+            annotations.push({
+                y: thresholdBytes,
+                borderColor: "#dc3545",
+                label: {
+                    borderColor: "#dc3545",
+                    style: { color: "#fff", background: "#dc3545" },
+                    text: "80% threshold"
+                }
+            });
+        }
+
+        poolChart.updateOptions({
+            annotations: { yaxis: annotations }
+        }, false, false);
+
+        poolChart.updateSeries([
+            { name: "Actual Used", data: actual },
+            { name: "Forecast Used", data: forecast }
+        ]);
+    })
+    .catch(error => {
+        showError("Failed to update pool chart: " + error.message);
+    });
 }
 
 function hideLoadingIndicator() {

@@ -2,57 +2,63 @@
 use WHMCS\Database\Capsule;
 
 add_hook('ClientAreaPageViewInvoice', 1, function($vars) {
+    $invoiceId = (int)($vars['invoiceid'] ?? 0);
+    $invoiceUserId = 0;
+    if ($invoiceId > 0) {
+        try {
+            $invoiceUserId = (int) Capsule::table('tblinvoices')->where('id', $invoiceId)->value('userid');
+        } catch (\Throwable $e) {
+            $invoiceUserId = 0;
+        }
+    }
+
     if (isset($vars['invoiceitems']) && is_array($vars['invoiceitems'])) {
         // Log the start of hook execution for this invoice
-        if (isset($vars['invoiceid'])) {
-            logActivity("ServiceUsernameHook: Processing invoice ID " . $vars['invoiceid'], 0);
-        } else {
-            logActivity("ServiceUsernameHook: Processing invoice (ID not found in vars)", 0);
+        if ($invoiceId > 0) {
+            logActivity("ServiceUsernameHook: Processing invoice ID " . $invoiceId, 0);
         }
 
         foreach ($vars['invoiceitems'] as $key => $item) {
             $foundUsername = null;
-            $itemDescription = isset($item['description']) ? $item['description'] : 'N/A';
-            $itemType = isset($item['type']) ? $item['type'] : 'N/A'; // Get item type if available
-            $itemRelid = isset($item['relid']) ? $item['relid'] : 'N/A';
 
-            logActivity("ServiceUsernameHook: Item: '{$itemDescription}', Type: '{$itemType}', RelID: {$itemRelid}", 0);
+            $itemType = (string)($item['type'] ?? '');
+            $relidRaw = $item['relid'] ?? null;
+            $serviceId = null;
 
-            // Scenario 1: Item has a relid pointing directly to tblhosting
-            if (!empty($item['relid'])) {
-                $service = Capsule::table('tblhosting')
-                    ->where('id', $item['relid'])
-                    ->first();
-                if ($service && !empty($service->username)) {
-                    $foundUsername = $service->username;
-                    logActivity("ServiceUsernameHook: Found username '{$foundUsername}' via direct relid for item '{$itemDescription}'", 0);
+            // Only attempt to resolve usernames for Hosting/Upgrade items
+            if (is_scalar($relidRaw) && ctype_digit((string)$relidRaw)) {
+                $relidInt = (int)$relidRaw;
+
+                if ($itemType === 'Hosting') {
+                    $serviceId = $relidInt;
+                } elseif ($itemType === 'Upgrade') {
+                    // For Upgrade items, relid is tblupgrades.id; map to the underlying service id.
+                    $serviceRelid = Capsule::table('tblupgrades')
+                        ->where('id', $relidInt)
+                        ->where('type', 'configoptions')
+                        ->value('relid');
+                    if ($serviceRelid && ctype_digit((string)$serviceRelid)) {
+                        $serviceId = (int)$serviceRelid;
+                    }
                 }
             }
 
-            // Scenario 2: Item's relid might be an upgrade ID
-            if (!$foundUsername && !empty($item['relid'])) {
-                $upgradeRecord = Capsule::table('tblupgrades')
-                                    ->where('id', $item['relid'])
-                                    ->first();
-                if ($upgradeRecord && !empty($upgradeRecord->relid)) {
-                    $service = Capsule::table('tblhosting')
-                        ->where('id', $upgradeRecord->relid)
-                        ->first();
-                    if ($service && !empty($service->username)) {
-                        $foundUsername = $service->username;
-                        logActivity("ServiceUsernameHook: Found username '{$foundUsername}' via upgrade relid for item '{$itemDescription}'", 0);
-                    }
+            if ($serviceId) {
+                $q = Capsule::table('tblhosting')->where('id', $serviceId);
+                // Critical: enforce invoice owner match to prevent cross-client username leakage
+                if ($invoiceUserId > 0) {
+                    $q->where('userid', $invoiceUserId);
+                }
+                $foundUsername = (string)($q->value('username') ?? '');
+                if ($foundUsername === '') {
+                    $foundUsername = null;
                 }
             }
             
             if ($foundUsername) {
                 $vars['invoiceitems'][$key]['master_username'] = $foundUsername;
-            } else {
-                logActivity("ServiceUsernameHook: No username found for item '{$itemDescription}'", 0);
             }
         }
-    } else {
-        logActivity("ServiceUsernameHook: No invoice items found to process.", 0);
     }
     return $vars;
 });

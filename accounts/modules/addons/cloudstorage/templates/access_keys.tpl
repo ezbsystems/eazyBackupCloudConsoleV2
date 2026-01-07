@@ -62,7 +62,6 @@
                                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">Owner</th>
                                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">Account ID</th>
                                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">Access Key</th>
-                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">Secret Key</th>
                                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">Date Created</th>
                                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">Actions</th>
                             </tr>
@@ -81,13 +80,6 @@
                                            placeholder="—"
                                            class="w-full rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500 font-mono"
                                            id="accessKey" readonly>
-                                </td>
-                                <td class="px-6 py-4 whitespace-nowrap relative">
-                                    <input type="text"
-                                           value="{if $HAS_PRIMARY_KEY}Hidden{/if}"
-                                           placeholder="—"
-                                           class="w-full rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500 font-mono"
-                                           id="secretKey" readonly>
                                 </td>
                                 <td class="px-6 py-4 whitespace-nowrap">
                                     {if $HAS_PRIMARY_KEY}
@@ -167,7 +159,7 @@
         <div class="fixed inset-0 bg-black/75 flex items-center justify-center z-50 hidden" id="updateKeysModal">
             <div class="bg-gray-800 rounded-lg shadow-lg w-full max-w-md p-6">
                 <div class="flex justify-between items-center mb-4">
-                    <h5 class="text-xl font-semibold text-yellow-300">{if $HAS_PRIMARY_KEY}Create new access key{else}Create your first access key{/if}</h5>
+                    <h5 class="text-xl font-semibold text-white">{if $HAS_PRIMARY_KEY}Create new access key{else}Create your first access key{/if}</h5>
                     <button type="button" onclick="closeModal('updateKeysModal')" class="text-gray-400 hover:text-white focus:outline-none">
                         <!-- Close Icon SVG -->
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -176,7 +168,7 @@
                     </button>
                 </div>
                 <div>
-                    <p class="mb-4">
+                    <p class="text-sm mb-4">
                         {if $HAS_PRIMARY_KEY}
                             Creating a new key revokes the current key and generates a new one.
                         {else}
@@ -208,21 +200,21 @@
         <div class="fixed inset-0 bg-black/75 flex items-center justify-center z-50 hidden" id="newKeysModal">
             <div class="bg-gray-800 rounded-lg shadow-lg w-full max-w-xl p-6">
                 <div class="flex justify-between items-center mb-4">
-                    <h5 class="text-xl font-semibold text-green-300">Save your new key</h5>
+                    <h5 class="text-xl font-semibold text-white">Save your new key</h5>
                     <button type="button" onclick="closeModal('newKeysModal')" class="text-gray-400 hover:text-white focus:outline-none">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                         </svg>
                     </button>
                 </div>
-                <div class="mb-4 rounded-md bg-yellow-900/20 border border-yellow-700/40 p-3 text-yellow-200 text-sm">
+                <div class="mb-4 rounded-md py-3 text-white text-sm">
                     This is the <strong>only</strong> time you can view the secret key. Store it securely.
                 </div>
                 <div class="space-y-3">
                     <div>
                         <label class="block text-xs text-gray-400 mb-1">Access key</label>
                         <div class="flex items-center gap-2">
-                            <input type="text" id="newAccessKey" class="w-full rounded-md bg-slate-900/70 border border-slate-700 px-3 py-2 text-sm text-slate-200 font-mono" readonly>
+                            <input type="text" id="newAccessKey" class="w-full rounded-md bg-slate-900 border border-gray-600 rounded-md shadow-sm cursor-default px-3 py-2 focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500 text-sm text-slate-200 font-mono" readonly>
                             <button
                                 type="button"
                                 class="shrink-0 rounded-md bg-slate-900/70 border border-slate-700 p-2 text-slate-200 hover:text-white hover:border-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-600"
@@ -241,7 +233,7 @@
                     <div>
                         <label class="block text-xs text-gray-400 mb-1">Secret key</label>
                         <div class="flex items-center gap-2">
-                            <input type="text" id="newSecretKey" class="w-full rounded-md bg-slate-900/70 border border-slate-700 px-3 py-2 text-sm text-slate-200 font-mono" readonly>
+                            <input type="text" id="newSecretKey" class="w-full rounded-md bg-slate-900 border border-gray-600 rounded-md shadow-sm cursor-default px-3 py-2 focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500 text-sm text-slate-200 font-mono" readonly>
                             <button
                                 type="button"
                                 class="shrink-0 rounded-md bg-slate-900/70 border border-slate-700 p-2 text-slate-200 hover:text-white hover:border-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-600"
@@ -330,41 +322,48 @@
             hideLoader();
         });
 
-        // Modified copyToClipboard function to preserve the input's original type.
+        // Modified copyToClipboard function to preserve the input's original type
+        // and to restore the *original* icon markup after showing a temporary success state.
         function copyToClipboard(id, iconId) {
             var input = document.getElementById(id);
-            var icon = document.getElementById(iconId);
+            var icon = iconId ? document.getElementById(iconId) : null;
+            if (!input) return;
+
+            // Cache the original icon once so we always restore the exact SVG the template rendered.
+            if (icon && !icon.dataset.originalHtml) {
+                icon.dataset.originalHtml = icon.innerHTML;
+            }
+
             var originalType = input.type;
             // If it's a password field, reveal it temporarily.
-            if(originalType === 'password'){
+            if (originalType === 'password') {
                 input.type = 'text';
             }
+
             input.select();
             input.setSelectionRange(0, 99999);
 
             navigator.clipboard.writeText(input.value).then(function() {
                 if (icon) {
+                    // Success state icon (SVG, consistent sizing with the original icon).
                     icon.innerHTML = `
-                        <!-- Clipboard Check Icon SVG -->
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 text-green-400">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                         </svg>
                     `;
                 }
+
                 // Restore the original input type.
                 input.type = originalType;
+
                 setTimeout(function() {
-                    if (icon) {
-                        icon.innerHTML = `
-                            <!-- Clipboard Icon SVG -->
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h6a2 2 0 012 2v2" />
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 8v8M12 12h.01" />
-                            </svg>
-                        `;
+                    if (icon && icon.dataset.originalHtml) {
+                        icon.innerHTML = icon.dataset.originalHtml;
                     }
                 }, 2000);
             }).catch(function(err) {
+                // Restore the original input type even on failure.
+                input.type = originalType;
                 console.error('Could not copy text: ', err);
             });
         }

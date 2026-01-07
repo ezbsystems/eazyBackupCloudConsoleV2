@@ -43,60 +43,16 @@ class BucketLifecycleService
 
 		$tempAccessKey = '';
 		try {
-			// Capture existing access keys so we can identify the newly-created temp key reliably.
-			$beforeKeys = [];
-			try {
-				$info = AdminOps::getUserInfo($this->endpoint, $adminAccessKey, $adminSecretKey, $ownerUsername, $tenantId ?: null);
-				$data = is_array($info) ? ($info['data'] ?? null) : null;
-				if (is_array($data) && isset($data['keys']) && is_array($data['keys'])) {
-					foreach ($data['keys'] as $k) {
-						if (is_array($k) && !empty($k['access_key'])) {
-							$beforeKeys[(string)$k['access_key']] = true;
-						}
-					}
-				}
-			} catch (\Throwable $e) {}
-
-			$keys = AdminOps::createKey($this->endpoint, $adminAccessKey, $adminSecretKey, $ownerUsername, $tenantId ?: null);
-			if (!is_array($keys) || ($keys['status'] ?? '') !== 'success') {
-				logModuleCall($this->module, __FUNCTION__ . '_TEMPKEY_CREATE_FAILED', ['uid' => $cephUid], $keys);
+			// SAFETY: Always create/revoke temp keys using a tenant-qualified uid (tenant$uid) and WITHOUT tenant param.
+			$tmp = AdminOps::createTempKey($this->endpoint, $adminAccessKey, $adminSecretKey, $cephUid, null);
+			if (!is_array($tmp) || ($tmp['status'] ?? '') !== 'success') {
+				logModuleCall($this->module, __FUNCTION__ . '_TEMPKEY_CREATE_FAILED', ['uid' => $cephUid], $tmp);
 				return ['status' => 'fail', 'message' => 'Unable to perform lifecycle operation. Please try again later.'];
 			}
-			$raw = $keys['data'] ?? [];
-			$records = [];
-			if (is_array($raw) && isset($raw['keys']) && is_array($raw['keys'])) {
-				$records = $raw['keys'];
-			} elseif (is_array($raw)) {
-				$records = $raw;
-			}
-			$tempSecretKey = '';
-			$newAccessKey = '';
-			if (is_array($records) && count($records) > 0) {
-				foreach ($records as $r) {
-					if (!is_array($r)) { continue; }
-					$ak = (string)($r['access_key'] ?? '');
-					if ($ak !== '' && !isset($beforeKeys[$ak])) {
-						$newAccessKey = $ak;
-					}
-				}
-				if ($newAccessKey === '') {
-					$last = end($records);
-					if (is_array($last)) {
-						$newAccessKey = (string)($last['access_key'] ?? '');
-					}
-					reset($records);
-				}
-				foreach ($records as $r) {
-					if (!is_array($r)) { continue; }
-					if ((string)($r['access_key'] ?? '') === $newAccessKey) {
-						$tempAccessKey = (string)($r['access_key'] ?? '');
-						$tempSecretKey = (string)($r['secret_key'] ?? '');
-						break;
-					}
-				}
-			}
+			$tempAccessKey = (string)($tmp['access_key'] ?? '');
+			$tempSecretKey = (string)($tmp['secret_key'] ?? '');
 			if ($tempAccessKey === '' || $tempSecretKey === '') {
-				logModuleCall($this->module, __FUNCTION__ . '_TEMPKEY_PARSE_FAILED', ['uid' => $cephUid], $keys);
+				logModuleCall($this->module, __FUNCTION__ . '_TEMPKEY_PARSE_FAILED', ['uid' => $cephUid], $tmp);
 				return ['status' => 'fail', 'message' => 'Unable to perform lifecycle operation. Please try again later.'];
 			}
 
@@ -136,8 +92,11 @@ class BucketLifecycleService
 		} finally {
 			if ($tempAccessKey !== '') {
 				try {
-					$rm = AdminOps::removeKey($this->endpoint, $adminAccessKey, $adminSecretKey, $tempAccessKey, $ownerUsername, $tenantId ?: null);
-					logModuleCall($this->module, __FUNCTION__ . '_TEMPKEY_REMOVED', ['uid' => $cephUid], $rm);
+					$rm = AdminOps::removeKey($this->endpoint, $adminAccessKey, $adminSecretKey, $tempAccessKey, $cephUid, null);
+					logModuleCall($this->module, __FUNCTION__ . '_TEMPKEY_REMOVED', [
+						'uid' => $cephUid,
+						'access_key_hint' => substr($tempAccessKey, 0, 4) . '…' . substr($tempAccessKey, -4),
+					], $rm);
 				} catch (\Throwable $e) {
 					logModuleCall($this->module, __FUNCTION__ . '_TEMPKEY_REMOVE_EXCEPTION', ['uid' => $cephUid], $e->getMessage());
 				}

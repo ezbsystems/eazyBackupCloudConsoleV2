@@ -10,6 +10,130 @@ class AdminOps {
     private static $module = 'cloudstorage';
 
     /**
+     * Create a short-lived S3 key for an RGW user and return ONLY the newly created keypair.
+     *
+     * This is safety-critical: many RGW AdminOps responses include multiple keys (sometimes with secret_key fields),
+     * so callers MUST NOT "pick the first key" and later revoke it, or they may revoke the customer's real key.
+     *
+     * @param string $endpoint
+     * @param string $adminAccessKey
+     * @param string $adminSecretKey
+     * @param string $username RGW uid (prefer full tenant-qualified uid e.g. tenant$uid)
+     * @param string|null $tenant Optional tenant query param (some RGW builds don't support this; prefer null + full uid)
+     * @return array
+     *   - status: success|fail
+     *   - access_key, secret_key, uid, tenant
+     *   - message (on fail)
+     *   - debug (optional)
+     */
+    public static function createTempKey(string $endpoint, string $adminAccessKey, string $adminSecretKey, string $username, ?string $tenant = null): array
+    {
+        $username = trim((string)$username);
+        $tenant = $tenant !== null ? trim((string)$tenant) : null;
+        if ($username === '') {
+            return ['status' => 'fail', 'message' => 'Missing username for createTempKey.'];
+        }
+
+        // Capture existing access keys so we can reliably identify the newly-created key.
+        $beforeKeys = [];
+        try {
+            $info = self::getUserInfo($endpoint, $adminAccessKey, $adminSecretKey, $username, $tenant);
+            $data = is_array($info) ? ($info['data'] ?? null) : null;
+            if (is_array($data) && isset($data['keys']) && is_array($data['keys'])) {
+                foreach ($data['keys'] as $k) {
+                    if (is_array($k) && !empty($k['access_key'])) {
+                        $beforeKeys[(string)$k['access_key']] = true;
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            // If we cannot get beforeKeys, we can still proceed, but selection becomes less reliable.
+            // We'll still try to identify the new key from the createKey response.
+        }
+
+        $keys = self::createKey($endpoint, $adminAccessKey, $adminSecretKey, $username, $tenant);
+        if (!is_array($keys) || ($keys['status'] ?? '') !== 'success') {
+            logModuleCall(self::$module, __FUNCTION__ . '_CREATE_FAILED', ['uid' => $username, 'tenant' => $tenant], $keys);
+            return ['status' => 'fail', 'message' => 'Unable to create temporary key.'];
+        }
+
+        $raw = $keys['data'] ?? [];
+        // createKey can return either a list of key records or a user-info object with "keys"
+        $records = [];
+        if (is_array($raw) && isset($raw['keys']) && is_array($raw['keys'])) {
+            $records = $raw['keys'];
+        } elseif (is_array($raw)) {
+            $records = $raw;
+        }
+
+        $tempAccessKey = '';
+        $tempSecretKey = '';
+
+        if (is_array($records) && count($records) > 0) {
+            // Prefer the newly created key (not present in beforeKeys), and prefer one that includes secret_key.
+            foreach ($records as $r) {
+                if (!is_array($r)) { continue; }
+                $ak = (string)($r['access_key'] ?? '');
+                $sk = (string)($r['secret_key'] ?? '');
+                if ($ak === '') { continue; }
+                if (!isset($beforeKeys[$ak]) && $sk !== '') {
+                    $tempAccessKey = $ak;
+                    $tempSecretKey = $sk;
+                    break;
+                }
+            }
+
+            // If not found, pick any new access key then look up its secret_key in the response.
+            if ($tempAccessKey === '') {
+                $newAccessKey = '';
+                foreach ($records as $r) {
+                    if (!is_array($r)) { continue; }
+                    $ak = (string)($r['access_key'] ?? '');
+                    if ($ak !== '' && !isset($beforeKeys[$ak])) {
+                        $newAccessKey = $ak;
+                    }
+                }
+                if ($newAccessKey === '') {
+                    // Fallback: assume last is newest (common RGW behavior)
+                    $last = end($records);
+                    if (is_array($last)) {
+                        $newAccessKey = (string)($last['access_key'] ?? '');
+                    }
+                    reset($records);
+                }
+                if ($newAccessKey !== '') {
+                    foreach ($records as $r) {
+                        if (!is_array($r)) { continue; }
+                        if ((string)($r['access_key'] ?? '') === $newAccessKey) {
+                            $tempAccessKey = (string)($r['access_key'] ?? '');
+                            $tempSecretKey = (string)($r['secret_key'] ?? '');
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        if ($tempAccessKey === '' || $tempSecretKey === '') {
+            // Safety: don't guess; failing here is better than revoking the wrong key later.
+            logModuleCall(self::$module, __FUNCTION__ . '_PARSE_FAILED', [
+                'uid' => $username,
+                'tenant' => $tenant,
+                'before_key_count' => count($beforeKeys),
+            ], $keys);
+            return ['status' => 'fail', 'message' => 'Unable to determine newly created temporary key.'];
+        }
+
+        return [
+            'status' => 'success',
+            'access_key' => $tempAccessKey,
+            'secret_key' => $tempSecretKey,
+            'uid' => $username,
+            'tenant' => $tenant,
+        ];
+    }
+
+    /**
      * Remove Key
      *
      * @param string $endpoint

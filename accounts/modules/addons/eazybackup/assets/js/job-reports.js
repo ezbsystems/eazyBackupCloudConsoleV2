@@ -29,7 +29,7 @@
           statusEl.textContent = label;
           try {
             var cls = (window.EB && EB.statusText) ? EB.statusText(label) : '';
-            statusEl.classList.remove('text-slate-200','text-emerald-400','text-sky-400','text-amber-400','text-rose-400','text-gray-300','text-green-500','text-sky-500','text-amber-500','text-red-500','text-gray-500','text-gray-400');
+            statusEl.classList.remove('text-slate-200','text-emerald-400','text-sky-400','text-amber-400','text-rose-400','text-fuchsia-400','text-gray-300','text-green-500','text-sky-500','text-amber-500','text-red-500','text-gray-500','text-gray-400');
             if (cls) statusEl.classList.add(cls);
           } catch(_) {}
         }
@@ -158,6 +158,7 @@
             else if (dot.indexOf('sky')>=0) td.classList.add('text-sky-400');
             else if (dot.indexOf('amber')>=0) td.classList.add('text-amber-400');
             else if (dot.indexOf('red')>=0) td.classList.add('text-rose-400');
+            else if (label === 'Missed') td.classList.add('text-slate-300');
             else td.classList.add('text-gray-300');
           } else {
             td.classList.add('text-gray-300');

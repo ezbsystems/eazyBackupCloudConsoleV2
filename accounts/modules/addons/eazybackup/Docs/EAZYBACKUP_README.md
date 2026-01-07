@@ -729,18 +729,20 @@ Admin Dispatcher APIs require a live connection GUID (TargetID), not the device 
 
 ## Restore Backup Feature – Wizard (Client Area)
 
-This feature enables starting a restore from the WHMCS client area, modeled on Comet’s web UI. It currently supports selecting a Storage Vault, choosing a Protected Item and snapshot, and submitting a basic restore with initial engine-specific options.
+This feature enables starting a restore from the WHMCS client area, modeled on Comet’s web UI. It supports selecting a Storage Vault, choosing a Protected Item + snapshot, picking a restore method, and running either an **All items** restore or a **Select items** restore (for Files & Folders backups).
 
 ### Files involved
 - UI (client):
   - `templates/console/user-profile.tpl`
     - Contains the slide-over Manage panel and the Restore Wizard modal (`#restore-wizard`).
     - The Restore Step 1 vault selector is an Alpine.js dropdown (not a `<select>`).
+    - Contains the destination filesystem browser modal (`#fs-browser`) and the snapshot browser modal (`#snap-browser`).
   - `modules/addons/eazybackup/assets/js/device-actions.js`
-    - Wires the Manage panel actions and the Restore wizard steps (load items, load snapshots, method selection, submit restore).
+    - Wires the Manage panel actions and the Restore wizard steps (load items, load snapshots, method selection, scope selection, submit restore).
+    - Implements destination browsing (`browseFs`) and snapshot browsing (`browseSnapshot`).
 - Backend (AJAX endpoint):
   - `pages/console/device-actions.php`
-    - Actions: `listProtectedItems`, `vaultSnapshots`, `runRestore`.
+    - Actions: `listProtectedItems`, `vaultSnapshots`, `browseFs`, `browseSnapshot`, `runRestore`.
   - Router: `eazybackup.php` → `?a=device-actions`.
 
 ### Data sources & flow
@@ -763,10 +765,21 @@ This feature enables starting a restore from the WHMCS client area, modeled on C
      - Method: Files and Folders (restore disk image files). More modes to be added.
    - Microsoft Hyper‑V (`engine1/hyperv`):
      - Method: Files and Folders (restore VM files). Hypervisor/VM-targeted restore to be added.
-   - Common options scaffolded: destination path (text), overwrite policy (`none | ifNewer | ifDifferent | always`).
+   - Common options scaffolded:
+     - Destination path (required for all methods except Simulate)
+     - Overwrite policy (`none | ifNewer | ifDifferent | always`)
+   - Destination path can be entered manually or selected via the destination filesystem browser modal (`browseFs`).
 
-5) Submit:
+5) Step 4 – Restore scope:
+   - All items (default): restore everything from the chosen snapshot.
+   - Select items (Files & Folders only): browse the snapshot contents and select specific files/folders to restore.
+     - Snapshot browsing is lazy-loaded via `AdminDispatcherRequestStoredObjects(TargetID, VaultId, SnapshotId, TreeId)`
+     - Folder entries provide a `Subtree` token which is used as `TreeId` to browse deeper.
+
+6) Submit:
    - `runRestore` builds `RestoreJobAdvancedOptions` based on selection and calls `AdminDispatcherRunRestoreCustom(TargetID, ...)`.
+   - If scope is **Select items**, the UI passes `paths: string[]` and the backend forwards it to Comet as the `Paths` parameter.
+   - If `paths` is omitted/empty, Comet restores the full snapshot (all items).
 
 ### API methods used
 - Online mapping:
@@ -774,13 +787,18 @@ This feature enables starting a restore from the WHMCS client area, modeled on C
 - Enumerate:
   - `AdminGetUserProfileAndHash(Username)` → `Profile.Sources` (Protected Items)
   - `AdminDispatcherRequestVaultSnapshots(TargetID, DestinationGUID)` → `DispatcherVaultSnapshotsResponse`
+- Browse:
+  - Destination filesystem browser: `AdminDispatcherRequestFilesystemObjects(TargetID, Path)`
+  - Snapshot browser (stored objects): `AdminDispatcherRequestStoredObjects(TargetID, DestinationGUID, SnapshotID, TreeID)`
 - Execute:
-  - `AdminDispatcherRunRestoreCustom(TargetID, ...)` with `RestoreJobAdvancedOptions`
+  - `AdminDispatcherRunRestoreCustom(TargetID, ...)` with `RestoreJobAdvancedOptions` and optional `Paths[]`
 
 ### UX details
 - The Restore wizard opens from the Manage panel’s “Restore…” button.
 - Step 1 uses an Alpine.js dropdown for vault selection. The label updates to the chosen vault and the wizard moves to Step 2.
-- Step 2 shows a two-pane list: Protected Items and Snapshots. Selecting both enables method options and the “Start Restore” action.
+- Step 2 shows a two-pane list: Protected Items and Snapshots.
+- Step 3 selects restore method and destination settings.
+- Step 4 selects scope (All vs Select items) and shows the snapshot browser when needed.
 - Toasts (global `#toast-container`) provide success/error feedback for all actions.
 - Robustness: If the template markup is ever missing, the JS includes a fallback minimal wizard to keep the feature usable (primarily for development).
 
@@ -789,16 +807,20 @@ This feature enables starting a restore from the WHMCS client area, modeled on C
   - Modal markup integrated into `user-profile.tpl`.
   - Alpine-based vault dropdown in Step 1 with de-duplicated entries.
   - Load and filter Protected Items (by device) and list snapshots per item.
-  - Engine-aware method options (initial set) and basic restore submission.
+  - Engine-aware method options (initial set) and restore submission.
   - TargetID mapping and online checks for dispatcher calls.
+  - Destination filesystem browser for destination path selection (`browseFs`).
+  - Restore scope step (All items vs Select items).
+  - Snapshot browser for selecting items in a Files & Folders snapshot (`browseSnapshot`).
+  - Destination path validation (required except Simulate).
 
 - Remaining work (planned):
   - Engine-specific advanced options:
     - `engine1/hyperv`: direct restore to Hyper‑V (VM selection, storage path for VHDs).
     - `engine1/windisk`: physical restore mapper (source partitions → destination disks/partitions UI).
-  - Device-side file browser for selecting destination paths.
   - Persist and load recent choices in-session to streamline repeated restores.
   - Progress/telemetry surfacing (restore job listing and status after submission).
+  - Optional UX upgrade: expand/collapse tree view for snapshot browser (instead of directory navigation).
 
 ## Developer Notes – Password Reset (Client UI Actions)
 

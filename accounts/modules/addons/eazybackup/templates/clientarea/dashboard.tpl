@@ -117,6 +117,45 @@
                                 </div>
                             </div>
                         </div>
+
+                        <!-- Status legend (job statuses) -->
+                        <div class="px-2 mb-4">
+                            <div class="inline-flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-slate-800 bg-slate-900/40 px-3 py-2 text-xs text-slate-300">
+                                <span class="text-slate-400">Legend:</span>
+                                <span class="inline-flex items-center gap-2">
+                                    <span class="w-2.5 h-2.5 rounded-full bg-green-500 inline-block"></span>
+                                    <span>Success</span>
+                                </span>
+                                <span class="inline-flex items-center gap-2">
+                                    <span class="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block"></span>
+                                    <span>Warning</span>
+                                </span>
+                                <span class="inline-flex items-center gap-2">
+                                    <span class="w-2.5 h-2.5 rounded-full bg-red-500 inline-block"></span>
+                                    <span>Error</span>
+                                </span>
+                                <span class="inline-flex items-center gap-2">
+                                    <span class="w-2.5 h-2.5 rounded-full bg-transparent border-2 border-slate-300 inline-block"></span>
+                                    <span>Missed</span>
+                                </span>
+                                <span class="inline-flex items-center gap-2">
+                                    <span class="w-2.5 h-2.5 rounded-full bg-violet-500 inline-block"></span>
+                                    <span>Skipped</span>
+                                </span>
+                                <span class="inline-flex items-center gap-2">
+                                    <span class="w-2.5 h-2.5 rounded-full bg-sky-500 inline-block"></span>
+                                    <span>Running</span>
+                                </span>
+                                <span class="inline-flex items-center gap-2">
+                                    <span class="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block"></span>
+                                    <span>Timeout</span>
+                                </span>
+                                <span class="inline-flex items-center gap-2">
+                                    <span class="w-2.5 h-2.5 rounded-full bg-red-500 inline-block"></span>
+                                    <span>Cancelled</span>
+                                </span>
+                            </div>
+                        </div>
                         
                         <div x-data='deviceFilter( { devices: {$devices|json_encode|escape:"html"} } )'
                             @job-status-selected.window="jobStatusFilter = $event.detail"
