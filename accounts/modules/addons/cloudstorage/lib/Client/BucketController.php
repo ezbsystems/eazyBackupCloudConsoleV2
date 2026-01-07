@@ -536,63 +536,19 @@ class BucketController {
                 return ['status' => 'fail', 'message' => 'Unable to resolve storage username for bucket ownership.'];
             }
 
-            // Create temporary user key (IMPORTANT: do not delete the customer's real key)
-            // Some RGW builds return ALL keys on createKey; we must identify the newly-created key reliably.
+            // Create a short-lived owner key (Option B) safely.
+            // SAFETY: Always create/revoke temp keys using a tenant-qualified uid (tenant$uid) WITHOUT tenant param.
             $tempAccessKey = '';
             $tempSecretKey = '';
-
-            $beforeKeys = [];
-            try {
-                $info = AdminOps::getUserInfo($this->endpoint, $this->adminAccessKey, $this->adminSecretKey, $targetUsername, $tenantId ?: null);
-                $data = is_array($info) ? ($info['data'] ?? null) : null;
-                if (is_array($data) && isset($data['keys']) && is_array($data['keys'])) {
-                    foreach ($data['keys'] as $k) {
-                        if (is_array($k) && !empty($k['access_key'])) {
-                            $beforeKeys[(string)$k['access_key']] = true;
-                        }
-                    }
-                }
-            } catch (\Throwable $e) {}
-
-            $keys = AdminOps::createKey($this->endpoint, $this->adminAccessKey, $this->adminSecretKey, $targetUsername, $tenantId ?: null);
-            if (!is_array($keys) || ($keys['status'] ?? '') !== 'success') {
-                logModuleCall($this->module, __FUNCTION__ . '_TEMPKEY_CREATE_FAILED', ['uid' => $cephUid], $keys);
+            $tmp = AdminOps::createTempKey($this->endpoint, $this->adminAccessKey, $this->adminSecretKey, $cephUid, null);
+            if (!is_array($tmp) || ($tmp['status'] ?? '') !== 'success') {
+                logModuleCall($this->module, __FUNCTION__ . '_TEMPKEY_CREATE_FAILED', ['uid' => $cephUid], $tmp);
                 return ['status' => 'fail', 'message' => 'Unable to create temporary access key for bucket creation. Please contact support.'];
             }
-            $raw = $keys['data'] ?? [];
-            $records = [];
-            if (is_array($raw) && isset($raw['keys']) && is_array($raw['keys'])) {
-                $records = $raw['keys'];
-            } elseif (is_array($raw)) {
-                $records = $raw;
-            }
-            $newAccessKey = '';
-            if (is_array($records) && count($records) > 0) {
-                foreach ($records as $r) {
-                    if (!is_array($r)) { continue; }
-                    $ak = (string)($r['access_key'] ?? '');
-                    if ($ak !== '' && !isset($beforeKeys[$ak])) {
-                        $newAccessKey = $ak;
-                    }
-                }
-                if ($newAccessKey === '') {
-                    $last = end($records);
-                    if (is_array($last)) {
-                        $newAccessKey = (string)($last['access_key'] ?? '');
-                    }
-                    reset($records);
-                }
-                foreach ($records as $r) {
-                    if (!is_array($r)) { continue; }
-                    if ((string)($r['access_key'] ?? '') === $newAccessKey) {
-                        $tempAccessKey = (string)($r['access_key'] ?? '');
-                        $tempSecretKey = (string)($r['secret_key'] ?? '');
-                        break;
-                    }
-                }
-            }
+            $tempAccessKey = (string)($tmp['access_key'] ?? '');
+            $tempSecretKey = (string)($tmp['secret_key'] ?? '');
             if ($tempAccessKey === '' || $tempSecretKey === '') {
-                logModuleCall($this->module, __FUNCTION__ . '_TEMPKEY_PARSE_FAILED', ['uid' => $cephUid], $keys);
+                logModuleCall($this->module, __FUNCTION__ . '_TEMPKEY_PARSE_FAILED', ['uid' => $cephUid], $tmp);
                 return ['status' => 'fail', 'message' => 'Unable to use temporary access key for bucket creation. Please contact support.'];
             }
 
@@ -715,8 +671,11 @@ class BucketController {
             } finally {
                 // Always try to delete temporary key (Option B: no persisted keys)
                 try {
-                    $rm = AdminOps::removeKey($this->endpoint, $this->adminAccessKey, $this->adminSecretKey, $tempAccessKey, $targetUsername, $tenantId ?: null);
-                    logModuleCall($this->module, __FUNCTION__ . '_TEMPKEY_REMOVED', ['uid' => $cephUid], $rm);
+                    $rm = AdminOps::removeKey($this->endpoint, $this->adminAccessKey, $this->adminSecretKey, $tempAccessKey, $cephUid, null);
+                    logModuleCall($this->module, __FUNCTION__ . '_TEMPKEY_REMOVED', [
+                        'uid' => $cephUid,
+                        'access_key_hint' => substr($tempAccessKey, 0, 4) . '…' . substr($tempAccessKey, -4),
+                    ], $rm);
                 } catch (\Throwable $e) {
                     logModuleCall($this->module, __FUNCTION__ . '_TEMPKEY_REMOVE_EXCEPTION', ['uid' => $cephUid], $e->getMessage());
                 }
@@ -1754,6 +1713,81 @@ class BucketController {
     }
 
     /**
+     * Connect to S3 using explicit access/secret keys.
+     *
+     * This is used for background operations where AdminOps credentials are available
+     * but are not permitted for data-plane access (common in RGW multi-tenant setups).
+     *
+     * @param string $accessKey
+     * @param string $secretKey
+     * @param array $opts ['http' => ['connect_timeout'=>float,'timeout'=>float,'read_timeout'=>float]]
+     * @return array
+     */
+    public function connectS3ClientWithCredentials(string $accessKey, string $secretKey, array $opts = []): array
+    {
+        try {
+            $accessKey = trim($accessKey);
+            $secretKey = trim($secretKey);
+            if ($accessKey === '' || $secretKey === '') {
+                return ['status' => 'fail', 'message' => 'Missing S3 access credentials.'];
+            }
+
+            // For non-AWS S3-compatible endpoints, force us-east-1
+            $effectiveRegion = $this->region;
+            try {
+                $host = parse_url((string)$this->endpoint, PHP_URL_HOST) ?: '';
+                $isAws = is_string($host) && stripos($host, 'amazonaws.com') !== false;
+                if (!$isAws) {
+                    $effectiveRegion = 'us-east-1';
+                }
+            } catch (\Throwable $e) {
+                // Default to current region if parsing fails
+            }
+
+            $http = [
+                'connect_timeout' => 10.0,
+                'timeout' => 120.0,
+                'read_timeout' => 120.0,
+            ];
+            if (isset($opts['http']) && is_array($opts['http'])) {
+                foreach (['connect_timeout', 'timeout', 'read_timeout'] as $k) {
+                    if (array_key_exists($k, $opts['http'])) {
+                        $http[$k] = $opts['http'][$k];
+                    }
+                }
+            }
+
+            $s3ClientConfig = [
+                'version' => 'latest',
+                'region' => $effectiveRegion,
+                'endpoint' => $this->endpoint,
+                'credentials' => [
+                    'key' => $accessKey,
+                    'secret' => $secretKey,
+                ],
+                'use_path_style_endpoint' => true,
+                'signature_version' => 'v4',
+                'http' => $http,
+            ];
+
+            $this->s3Client = new S3Client($s3ClientConfig);
+            $this->accessKey = $accessKey;
+            $this->secretKey = $secretKey;
+
+            return [
+                'status' => 'success',
+                's3client' => $this->s3Client
+            ];
+        } catch (\Throwable $e) {
+            logModuleCall($this->module, __FUNCTION__, [], $e->getMessage());
+            return [
+                'status' => 'fail',
+                'message' => 'Connection failure. Please try again later or contact support.'
+            ];
+        }
+    }
+
+    /**
      * Delete a bucket using admin credentials (for deprovision).
      * Handles Object Lock buckets by detecting retention errors.
      *
@@ -1914,6 +1948,20 @@ class BucketController {
             }
         }
 
+        // Detect Object Lock enablement for better interpretation of delete failures.
+        $objectLockEnabled = false;
+        try {
+            $olc = $this->s3Client->getObjectLockConfiguration(['Bucket' => $bucketName]);
+            if (
+                isset($olc['ObjectLockConfiguration']['ObjectLockEnabled']) &&
+                $olc['ObjectLockConfiguration']['ObjectLockEnabled'] === 'Enabled'
+            ) {
+                $objectLockEnabled = true;
+            }
+        } catch (\Throwable $e) {
+            $objectLockEnabled = false;
+        }
+
         // Helper to finalize metrics
         $finalize = function (string $status, string $message, bool $blocked = false) use (&$metrics) {
             $metrics['elapsed_seconds'] = max(0, time() - (int) ($metrics['started_at'] ?? time()));
@@ -1925,9 +1973,23 @@ class BucketController {
             ];
         };
 
+        // If bucket is already gone, treat as success so the cron can clean up DB state.
+        try {
+            $this->s3Client->headBucket(['Bucket' => $bucketName]);
+        } catch (S3Exception $e) {
+            $awsCode = method_exists($e, 'getAwsErrorCode') ? (string) $e->getAwsErrorCode() : '';
+            $msg = $e->getMessage();
+            if ($awsCode === 'NoSuchBucket' || stripos($msg, 'NoSuchBucket') !== false) {
+                return $finalize('success', 'Bucket not found on storage; treating as already deleted.', false);
+            }
+            // Other headBucket errors should proceed to normal delete path (may be transient).
+        } catch (\Throwable $e) {
+            // ignore
+        }
+
         // Work slices: current objects, versions/markers, multipart uploads
         try {
-            $r1 = $this->deleteBucketContentsPaged($bucketName, $deadlineTs, $bypassGovernanceRetention);
+            $r1 = $this->deleteBucketContentsPaged($bucketName, $deadlineTs, $bypassGovernanceRetention, $objectLockEnabled);
             $metrics['deleted_current_objects'] += (int) ($r1['deleted'] ?? 0);
             if (($r1['status'] ?? 'fail') === 'blocked') {
                 return $finalize('fail', $r1['message'] ?? 'Deletion blocked by Object Lock retention.', true);
@@ -1939,7 +2001,7 @@ class BucketController {
                 return $finalize('fail', $r1['message'] ?? 'Failed deleting bucket contents.', false);
             }
 
-            $r2 = $this->deleteBucketVersionsAndMarkersPaged($bucketName, $deadlineTs, $bypassGovernanceRetention);
+            $r2 = $this->deleteBucketVersionsAndMarkersPaged($bucketName, $deadlineTs, $bypassGovernanceRetention, $objectLockEnabled);
             $metrics['deleted_versions'] += (int) ($r2['deleted_versions'] ?? 0);
             $metrics['deleted_delete_markers'] += (int) ($r2['deleted_delete_markers'] ?? 0);
             if (($r2['status'] ?? 'fail') === 'blocked') {
@@ -2004,22 +2066,49 @@ class BucketController {
      */
     private function isRetentionError(string $message): bool
     {
+        // IMPORTANT:
+        // - Do NOT treat generic AccessDenied as retention; that can hide misconfig/permission issues.
+        // - Retention/LegalHold errors usually include explicit keywords.
+        $messageLower = strtolower($message);
+
         $retentionIndicators = [
-            'ObjectLocked',
+            'objectlocked',
+            'object lock',
             'object is locked',
+            'legal hold',
             'retention',
+            'retainuntildate',
+            'bypassgovernanceretention',
             'governance',
             'compliance',
-            'legal hold',
-            'AccessDenied',  // Often returned for locked objects
-            'cannot be deleted',
+            'invalidrequest', // commonly returned for retention constraints
         ];
 
-        $messageLower = strtolower($message);
         foreach ($retentionIndicators as $indicator) {
-            if (strpos($messageLower, strtolower($indicator)) !== false) {
+            if (strpos($messageLower, $indicator) !== false) {
                 return true;
             }
+        }
+
+        return false;
+    }
+
+    /**
+     * In Object Lock-enabled buckets, DeleteObjects per-item failures are often just "AccessDenied".
+     * We treat that as a retention/hold block ONLY when we are operating in an Object Lock context.
+     */
+    private function isObjectLockAccessDeniedBlock(?string $code, ?string $message, bool $objectLockEnabled): bool
+    {
+        if (!$objectLockEnabled) {
+            return false;
+        }
+        $c = strtolower((string) ($code ?? ''));
+        $m = strtolower((string) ($message ?? ''));
+        if ($c === 'accessdenied') {
+            return true;
+        }
+        if ($this->isRetentionError($m)) {
+            return true;
         }
         return false;
     }
@@ -2992,7 +3081,7 @@ class BucketController {
     private function deleteBucketContents($bucketName)
     {
         // Backwards-compatible wrapper: delete all contents with no time budget.
-        $res = $this->deleteBucketContentsPaged($bucketName, PHP_INT_MAX);
+        $res = $this->deleteBucketContentsPaged($bucketName, PHP_INT_MAX, false, false);
         if (($res['status'] ?? 'fail') === 'success') {
             return ['status' => 'success', 'message' => 'Deleted all contents.'];
         }
@@ -3012,7 +3101,7 @@ class BucketController {
     private function deleteBucketVersionsAndMarkers($bucketName)
     {
         // Backwards-compatible wrapper: delete all versions/markers with no time budget.
-        $res = $this->deleteBucketVersionsAndMarkersPaged($bucketName, PHP_INT_MAX);
+        $res = $this->deleteBucketVersionsAndMarkersPaged($bucketName, PHP_INT_MAX, false, false);
         if (($res['status'] ?? 'fail') === 'success') {
             return ['status' => 'success', 'message' => 'Deleted all versions and markers.'];
         }
@@ -3046,7 +3135,7 @@ class BucketController {
      * @param int $deadlineTs
      * @return array ['status' => success|in_progress|fail|blocked, 'deleted' => int, 'message' => string]
      */
-    private function deleteBucketContentsPaged(string $bucketName, int $deadlineTs, bool $bypassGovernanceRetention = false): array
+    private function deleteBucketContentsPaged(string $bucketName, int $deadlineTs, bool $bypassGovernanceRetention = false, bool $objectLockEnabled = false): array
     {
         $deleted = 0;
         $continuationToken = null;
@@ -3094,8 +3183,9 @@ class BucketController {
                     // Per-object errors (often where retention appears)
                     if (!empty($res['Errors']) && is_array($res['Errors'])) {
                         foreach ($res['Errors'] as $err) {
-                            $msg = (string) ($err['Message'] ?? ($err['Code'] ?? 'Delete error'));
-                            if ($this->isRetentionError($msg)) {
+                            $code = isset($err['Code']) ? (string) $err['Code'] : null;
+                            $msg = isset($err['Message']) ? (string) $err['Message'] : null;
+                            if ($this->isObjectLockAccessDeniedBlock($code, $msg, $objectLockEnabled)) {
                                 return ['status' => 'blocked', 'deleted' => $deleted, 'message' => 'Object Lock retention prevents deletion of objects.'];
                             }
                         }
@@ -3127,7 +3217,7 @@ class BucketController {
      * @param int $deadlineTs
      * @return array ['status' => success|in_progress|fail|blocked, 'deleted_versions' => int, 'deleted_delete_markers' => int, 'message' => string]
      */
-    private function deleteBucketVersionsAndMarkersPaged(string $bucketName, int $deadlineTs, bool $bypassGovernanceRetention = false): array
+    private function deleteBucketVersionsAndMarkersPaged(string $bucketName, int $deadlineTs, bool $bypassGovernanceRetention = false, bool $objectLockEnabled = false): array
     {
         $deletedVersions = 0;
         $deletedMarkers = 0;
@@ -3176,7 +3266,7 @@ class BucketController {
                     }
                 }
 
-                $processChunks = function (array $objs, string $type) use ($bucketName, $deadlineTs, $bypassGovernanceRetention, &$deletedVersions, &$deletedMarkers) {
+                $processChunks = function (array $objs, string $type) use ($bucketName, $deadlineTs, $bypassGovernanceRetention, $objectLockEnabled, &$deletedVersions, &$deletedMarkers) {
                     if (!count($objs)) {
                         return ['status' => 'success'];
                     }
@@ -3205,8 +3295,9 @@ class BucketController {
                         // Per-object errors (often where retention appears)
                         if (!empty($res['Errors']) && is_array($res['Errors'])) {
                             foreach ($res['Errors'] as $err) {
-                                $msg = (string) ($err['Message'] ?? ($err['Code'] ?? 'Delete error'));
-                                if ($this->isRetentionError($msg)) {
+                                $code = isset($err['Code']) ? (string) $err['Code'] : null;
+                                $msg = isset($err['Message']) ? (string) $err['Message'] : null;
+                                if ($this->isObjectLockAccessDeniedBlock($code, $msg, $objectLockEnabled)) {
                                     return ['status' => 'blocked', 'message' => 'Object Lock retention prevents deletion of versions/markers.'];
                                 }
                             }
@@ -3533,6 +3624,7 @@ class BucketController {
                 'governance_retained' => 0,
             ],
             'earliest_retain_until' => null,
+            'earliest_retain_until_ts' => null,
             'examples' => [
                 'legal_holds' => [],
                 'compliance' => [],
@@ -3749,6 +3841,7 @@ class BucketController {
             // Earliest retain-until formatted
             if (!is_null($earliestTs)) {
                 $result['earliest_retain_until'] = gmdate('Y-m-d H:i', $earliestTs) . ' Coordinated Universal Time';
+                $result['earliest_retain_until_ts'] = (int) $earliestTs;
             }
 
             // Empty if everything is zero

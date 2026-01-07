@@ -240,6 +240,7 @@ document.addEventListener('DOMContentLoaded', function () {
   const rsItemList = document.getElementById('rs-item-list');
   const rsSnapshots = document.getElementById('rs-snapshots');
   const rsStep3 = document.getElementById('restore-step3');
+  const rsStep4 = document.getElementById('restore-step4');
   const rsSelectedVault = document.getElementById('rs-selected-vault');
   const rsVaultMenuBtn = document.getElementById('rs-vault-menu-btn');
   const rsVaultMenuList = document.getElementById('rs-vault-menu-list');
@@ -248,6 +249,14 @@ document.addEventListener('DOMContentLoaded', function () {
   const rsSelectedSnap = document.getElementById('rs-selected-snapshot');
   const rsEngine = document.getElementById('rs-selected-engine');
   const rsDev = document.getElementById('rs-device-id');
+  const rsScopeHidden = document.getElementById('rs-scope-hidden');
+  const rsPathsHidden = document.getElementById('rs-paths-hidden');
+  const rsScopeOptions = document.getElementById('rs-scope-options');
+  const rsScopeSelectWrap = document.getElementById('rs-scope-select-wrap');
+  const rsSelectedCount = document.getElementById('rs-selected-count');
+  const rsSelectedItems = document.getElementById('rs-selected-items');
+  const rsSelectedEmpty = document.getElementById('rs-selected-empty');
+  const rsSnapBrowse = document.getElementById('rs-snap-browse');
   const rsHint = document.getElementById('rs-engine-hint');
   const rsEngineFriendly = document.getElementById('rs-engine-friendly');
   const rsMethodTitle = document.getElementById('rs-method-title');
@@ -269,13 +278,115 @@ document.addEventListener('DOMContentLoaded', function () {
     'engine1/proxmox': 'Proxmox (PVE)'
   };
 
+  function rsCurrentStep(){
+    try {
+      if (rsStep4 && !rsStep4.classList.contains('hidden')) return 4;
+      if (rsStep3 && !rsStep3.classList.contains('hidden')) return 3;
+      if (rsStep2 && !rsStep2.classList.contains('hidden')) return 2;
+      return 1;
+    } catch (_) { return 1; }
+  }
+
   function rsShow(step) {
     try { rsStep1 && rsStep1.classList.toggle('hidden', step !== 1); } catch (_) {}
     try { rsStep2 && rsStep2.classList.toggle('hidden', step !== 2); } catch (_) {}
     try { rsStep3 && rsStep3.classList.toggle('hidden', step !== 3); } catch (_) {}
+    try { rsStep4 && rsStep4.classList.toggle('hidden', step !== 4); } catch (_) {}
     try { rsBack && rsBack.classList.toggle('hidden', step === 1); } catch (_) {}
-    try { rsNext && rsNext.classList.toggle('hidden', !(step === 1 || step === 2)); } catch (_) {}
-    try { rsStart && rsStart.classList.toggle('hidden', step !== 3); } catch (_) {}
+    try { rsNext && rsNext.classList.toggle('hidden', !(step === 1 || step === 2 || step === 3)); } catch (_) {}
+    try { rsStart && rsStart.classList.toggle('hidden', step !== 4); } catch (_) {}
+  }
+
+  // Selected paths for "Select items" flow
+  const rsSelectedPathsSet = new Set();
+  function rsSyncPathsHidden(){
+    try {
+      const arr = Array.from(rsSelectedPathsSet.values());
+      if (rsPathsHidden) rsPathsHidden.value = JSON.stringify(arr);
+    } catch (_) {}
+  }
+  function rsRenderSelectedItems(){
+    try {
+      const arr = Array.from(rsSelectedPathsSet.values());
+      if (rsSelectedCount) rsSelectedCount.textContent = String(arr.length);
+      if (rsSelectedEmpty) rsSelectedEmpty.classList.toggle('hidden', arr.length > 0);
+      if (rsSelectedItems) rsSelectedItems.innerHTML = '';
+      if (!rsSelectedItems) return;
+      arr.forEach(p => {
+        const row = document.createElement('div');
+        row.className = 'flex items-center gap-2 px-3 py-2';
+        row.innerHTML = `
+          <div class="flex-1 min-w-0 truncate text-slate-200">${escapeHtml(p)}</div>
+          <button type="button" class="text-xs text-slate-300 hover:text-white px-2 py-1 rounded bg-slate-800 hover:bg-slate-700" data-rs-remove="1">Remove</button>
+        `;
+        row.querySelector('[data-rs-remove="1"]')?.addEventListener('click', () => {
+          rsSelectedPathsSet.delete(p);
+          rsSyncPathsHidden();
+          rsRenderSelectedItems();
+          rsUpdateSnapSelectedCount();
+        });
+        rsSelectedItems.appendChild(row);
+      });
+    } catch (_) {}
+  }
+  function escapeHtml(s){
+    try { return String(s).replace(/[&<>"']/g, (c)=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); } catch (_) { return s; }
+  }
+
+  function rsBuildScopeOptions(){
+    try {
+      if (!rsScopeOptions) return;
+      const engine = (rsEngine?.value || '').toLowerCase();
+      const canSelect = (engine === 'engine1/file');
+      let selected = (rsScopeHidden?.value || 'all');
+      if (!canSelect && selected === 'select') selected = 'all';
+
+      rsScopeOptions.innerHTML = '';
+      const options = [
+        { v:'all', label:'All items', desc:'Restore everything from the selected snapshot.', icon:`<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-5 w-5 text-slate-200"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"/></svg>` },
+        { v:'select', label:'Select items', desc: canSelect ? 'Pick specific files and folders to restore.' : 'Not available for this backup type yet.', disabled: !canSelect, icon:`<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-5 w-5 text-slate-200"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 6.75h15M4.5 12h15m-15 5.25h15M3 6.75h.008v.008H3V6.75Zm0 5.25h.008v.008H3V12Zm0 5.25h.008v.008H3v-.008Z"/></svg>` }
+      ];
+
+      options.forEach(opt => {
+        const card = document.createElement('div');
+        card.className = 'group border border-slate-700 rounded p-3 hover:bg-slate-800/60 cursor-pointer';
+        if (opt.disabled) {
+          card.classList.add('opacity-60','cursor-not-allowed');
+        }
+        card.innerHTML = `
+          <div class="flex items-start gap-3">
+            <div class="mt-0.5">${opt.icon || ''}</div>
+            <div class="min-w-0">
+              <div class="text-slate-200 font-semibold">${opt.label}</div>
+              ${opt.desc ? `<div class="text-slate-400 text-xs mt-1">${escapeHtml(opt.desc)}</div>` : ''}
+            </div>
+          </div>
+        `;
+        card.addEventListener('click', () => {
+          if (opt.disabled) return;
+          selected = opt.v;
+          apply();
+        });
+        rsScopeOptions.appendChild(card);
+        opt._card = card;
+      });
+
+      function apply(){
+        try {
+          options.forEach(o => {
+            if (!o._card) return;
+            const isSel = (selected === o.v);
+            o._card.classList.toggle('border-emerald-500', isSel);
+            o._card.classList.toggle('bg-emerald-500/10', isSel);
+          });
+          if (rsScopeHidden) rsScopeHidden.value = selected;
+          if (rsScopeSelectWrap) rsScopeSelectWrap.classList.toggle('hidden', selected !== 'select');
+          rsSyncPathsHidden();
+          rsRenderSelectedItems();
+        } catch (_) {}
+      }
+      apply();
+    } catch (_) {}
   }
 
   if (restoreBtn && restoreModal) {
@@ -288,6 +399,10 @@ document.addEventListener('DOMContentLoaded', function () {
         if (rsSelectedSnap) rsSelectedSnap.value = '';
         if (rsEngine) rsEngine.value = '';
         if (rsDev) rsDev.value = currentDeviceId;
+        if (rsScopeHidden) rsScopeHidden.value = 'all';
+        rsSelectedPathsSet.clear();
+        rsSyncPathsHidden();
+        rsRenderSelectedItems();
         // Wire Alpine-style vault menu
         if (rsVaultMenuList) {
           const seen = new Set();
@@ -308,11 +423,15 @@ document.addEventListener('DOMContentLoaded', function () {
       restoreModal.classList.remove('hidden');
     });
     rsClose?.addEventListener('click', () => { restoreModal.classList.add('hidden'); });
-    rsBack?.addEventListener('click', () => { rsShow(1); });
+    rsBack?.addEventListener('click', () => {
+      const cur = rsCurrentStep();
+      rsShow(Math.max(1, cur - 1));
+    });
     function handleNext(){
       (async () => {
         const onStep1 = !rsStep1?.classList.contains('hidden');
         const onStep2 = !rsStep2?.classList.contains('hidden');
+        const onStep3 = !rsStep3?.classList.contains('hidden');
         if (onStep1) {
           if (!rsSelectedVault.value) { toast('Select a Storage Vault first.', 'warning'); return; }
           const modalCard = restoreModal.querySelector('.relative.mx-auto');
@@ -331,6 +450,23 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
           }
           toast('Select a protected item and snapshot to continue.', 'warning');
+          return;
+        }
+        if (onStep3) {
+          // Require destination path before proceeding (except simulate restore)
+          try {
+            const method = document.getElementById('rs-method-hidden')?.value || 'file';
+            const destPath = (document.getElementById('rs-dest')?.value || '').trim();
+            if (method !== 'simulate' && !destPath) {
+              toast('Enter a destination path to continue.', 'warning');
+              document.getElementById('rs-dest')?.focus();
+              return;
+            }
+          } catch (_) {}
+          // Scope selection step
+          rsBuildScopeOptions();
+          rsShow(4);
+          return;
         }
       })();
     }
@@ -560,7 +696,7 @@ document.addEventListener('DOMContentLoaded', function () {
     } catch (_) { return {}; }
   }
 
-  // Start restore (now Step 3)
+  // Start restore (Step 4)
   rsStart?.addEventListener('click', async () => {
     // For now, default to Files & Folders restore with minimal overwrite logic
     const engine = (rsEngine.value || '').toLowerCase();
@@ -574,6 +710,13 @@ document.addEventListener('DOMContentLoaded', function () {
     const overwrite = document.getElementById('rs-overwrite')?.value || 'none';
     // Read selection from hidden value managed by block cards
     const method = document.getElementById('rs-method-hidden')?.value || 'file';
+
+    // Safety: destination path required (except simulate restore)
+    if (method !== 'simulate' && !String(destPath).trim()) {
+      toast('Enter a destination path to continue.', 'warning');
+      document.getElementById('rs-dest')?.focus();
+      return;
+    }
 
     // If archive method, require archive filename and join
     if (method === 'archive') {
@@ -594,10 +737,20 @@ document.addEventListener('DOMContentLoaded', function () {
     if (method === 'simulate') { type = 1; } // RESTORETYPE_NULL (dry-run)
     // engine1/hyperv will get richer options in later step
 
+    // Scope (All vs Select items)
+    const scope = (rsScopeHidden?.value || 'all');
+    let paths = null;
+    if (scope === 'select') {
+      paths = Array.from(rsSelectedPathsSet.values());
+      if (!paths.length) { toast('Select at least one file or folder to restore.', 'warning'); return; }
+    }
+
     try {
       const modalCard = restoreModal.querySelector('.relative.mx-auto');
       window.ebShowLoader?.(modalCard, 'Submitting restore job…');
-      const res = await fetch(endpoint, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ action:'runRestore', serviceId, username, deviceId: currentDeviceId, sourceId, vaultId, snapshot, type, destPath, overwrite }) });
+      const payload = { action:'runRestore', serviceId, username, deviceId: currentDeviceId, sourceId, vaultId, snapshot, type, destPath, overwrite };
+      if (paths && paths.length) { payload.paths = paths; }
+      const res = await fetch(endpoint, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(payload) });
       const data = await res.json();
       toast(data.message || (data.status === 'success' ? 'Restore requested.' : 'Restore failed'), data.status === 'success' ? 'success' : 'error');
       if (data.status === 'success') { restoreModal.classList.add('hidden'); }
@@ -719,8 +872,12 @@ document.addEventListener('DOMContentLoaded', function () {
           const row = document.createElement('div');
           row.className = 'grid grid-cols-12 items-center px-3 py-2 hover:bg-slate-800 cursor-pointer';
           const icon = e.isDir
-            ? `<svg class="inline-flex align-middle mr-2 h-4 w-4 text-amber-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V6.75A2.25 2.25 0 014.5 4.5h3.879a2.25 2.25 0 011.59.659l1.06 1.06A2.25 2.25 0 0012.621 7.5H19.5a2.25 2.25 0 012.25 2.25v3"/></svg>`
-            : `<svg class="inline-flex align-middle mr-2 h-4 w-4 text-slate-300" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625A2.625 2.625 0 0016.875 9h-9.75A2.625 2.625 0 004.5 11.625V18a2.25 2.25 0 002.25 2.25H12"/></svg>`;
+            ? `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="inline-flex align-middle mr-2 size-5 text-amber-400">
+  <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
+</svg>`
+            : `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="inline-flex align-middle mr-2 size-5 text-slate-300">
+  <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+</svg>`;
           const typeLabel = e.isDir ? 'Folder' : 'File';
           const when = e.mtime ? new Date(e.mtime*1000).toLocaleString() : '';
           row.innerHTML = `
@@ -772,6 +929,197 @@ document.addEventListener('DOMContentLoaded', function () {
       if (val) destInput.value = val;
       closeModal();
     });
+  })();
+
+  function rsUpdateSnapSelectedCount(){
+    try {
+      const inp = document.getElementById('ssb-selected');
+      if (inp) inp.value = `${rsSelectedPathsSet.size} item(s) selected`;
+    } catch (_) {}
+  }
+
+  // Snapshot browser (for selecting items to restore from a snapshot)
+  (function wireSnapBrowser(){
+    const browseBtn = document.getElementById('rs-snap-browse');
+    const modal = document.getElementById('snap-browser');
+    if (!browseBtn || !modal) return;
+
+    const ssbClose = document.getElementById('ssb-close');
+    const ssbList = document.getElementById('ssb-list');
+    const ssbPath = document.getElementById('ssb-path');
+    const ssbUp = document.getElementById('ssb-up');
+    const ssbRefresh = document.getElementById('ssb-refresh');
+    const ssbSelected = document.getElementById('ssb-selected');
+    const ssbClear = document.getElementById('ssb-clear');
+    const ssbSelect = document.getElementById('ssb-select');
+
+    let stack = [{ treeId:'', path:'' }]; // treeId '' means root
+    let sep = '\\';
+    let sepGuessed = false;
+
+    function cur(){
+      return stack[stack.length - 1] || { treeId:'', path:'' };
+    }
+    function renderPath(){
+      const p = cur().path || 'Snapshot root';
+      if (ssbPath) ssbPath.textContent = p;
+    }
+    function joinPath(base, name){
+      if (!base) return name || '';
+      if (!name) return base;
+      if (sep === '\\') {
+        if (base.endsWith('\\')) return base + name;
+        if (base.endsWith(':')) return base + '\\' + name;
+        return base + '\\' + name;
+      }
+      // POSIX
+      const b = String(base);
+      if (b === '/') return '/' + name;
+      return b.replace(/\/+$/,'') + '/' + name;
+    }
+    function guessSepFrom(entries){
+      if (sepGuessed) return;
+      try {
+        const names = (entries || []).map(e => (e && (e.rawName || e.name)) ? String(e.rawName || e.name) : '');
+        if (names.some(n => n === '/' || n.startsWith('/'))) { sep = '/'; sepGuessed = true; return; }
+        if (names.some(n => n.includes(':'))) { sep = '\\'; sepGuessed = true; return; }
+        // default: Windows-style for safety with drive roots, but allow '/' if it looks posixy
+        sep = '\\';
+        sepGuessed = true;
+      } catch (_) {}
+    }
+
+    function openModal(){
+      const vaultId = rsSelectedVault?.value || '';
+      const snapshotId = rsSelectedSnap?.value || '';
+      const scope = (rsScopeHidden?.value || 'all');
+      if (scope !== 'select') {
+        try { rsScopeHidden.value = 'select'; } catch(_) {}
+        rsBuildScopeOptions();
+      }
+      if (!vaultId || !snapshotId) { toast('Select a vault and snapshot first.', 'warning'); return; }
+      stack = [{ treeId:'', path:'' }];
+      sep = '\\'; sepGuessed = false;
+      modal.classList.remove('hidden');
+      renderPath();
+      load('');
+      rsUpdateSnapSelectedCount();
+    }
+    function closeModal(){ modal.classList.add('hidden'); }
+
+    async function load(treeId){
+      try {
+        const vaultId = rsSelectedVault?.value || '';
+        const snapshotId = rsSelectedSnap?.value || '';
+        if (!vaultId || !snapshotId) { ssbList.innerHTML = '<div class="px-3 py-2 text-rose-400 text-sm">Missing vault or snapshot.</div>'; return; }
+        const card = modal.querySelector('.relative.mx-auto');
+        window.ebShowLoader?.(card, 'Loading snapshot index…');
+        const body = { action:'browseSnapshot', serviceId, username, deviceId: currentDeviceId, vaultId, snapshotId };
+        if (treeId) body.treeId = treeId;
+        const res = await fetch(endpoint, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) });
+        const data = await res.json();
+        if (!data || data.status !== 'success') { ssbList.innerHTML = '<div class="px-3 py-2 text-rose-400 text-sm">Failed to browse snapshot.</div>'; return; }
+        const entries = Array.isArray(data.entries) ? data.entries : [];
+        guessSepFrom(entries);
+        renderPath();
+        ssbList.innerHTML = '';
+        if (!entries.length) {
+          ssbList.innerHTML = '<div class="px-3 py-2 text-slate-400 text-sm">No entries.</div>';
+          return;
+        }
+        // folders first, then files
+        entries.sort((a,b) => {
+          const ad = !!a.isDir, bd = !!b.isDir;
+          if (ad !== bd) return ad ? -1 : 1;
+          return String(a.name||'').localeCompare(String(b.name||''));
+        });
+
+        entries.forEach(e => {
+          const fullPath = joinPath(cur().path, e.rawName || e.name);
+          const row = document.createElement('div');
+          row.className = 'grid grid-cols-12 items-center px-3 py-2 hover:bg-slate-800';
+          const icon = e.isDir
+            ? `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="inline-flex align-middle mr-2 size-5 text-amber-400">
+  <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
+</svg>`
+            : `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="inline-flex align-middle mr-2 size-5 text-slate-300">
+  <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+</svg>`;
+          const typeLabel = e.isDir ? 'Folder' : 'File';
+          const when = e.mtime ? new Date(e.mtime*1000).toLocaleString() : '';
+          const checked = rsSelectedPathsSet.has(fullPath);
+          const chevron = e.isDir
+            ? `<svg class="h-4 w-4 text-slate-400 group-hover:text-slate-200" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>`
+            : '';
+          row.innerHTML = `
+            <div class="col-span-1">
+              <input type="checkbox" class="h-4 w-4 rounded border-slate-600 bg-slate-800 text-sky-600 focus:ring-0 focus:outline-none" ${checked ? 'checked' : ''}>
+            </div>
+            <div class="col-span-7 truncate text-slate-200 leading-5 cursor-pointer flex items-center gap-1 min-w-0 group">${icon}<span class="truncate">${escapeHtml(e.name || e.rawName || '')}</span><span class="ml-auto shrink-0">${chevron}</span></div>
+            <div class="col-span-1 text-slate-400 text-xs">${typeLabel}</div>
+            <div class="col-span-3 text-slate-400 text-xs text-right">${when}</div>
+          `;
+          const chk = row.querySelector('input[type="checkbox"]');
+          chk?.addEventListener('change', () => {
+            if (chk.checked) rsSelectedPathsSet.add(fullPath);
+            else rsSelectedPathsSet.delete(fullPath);
+            rsSyncPathsHidden();
+            rsRenderSelectedItems();
+            rsUpdateSnapSelectedCount();
+          });
+          row.querySelector('.col-span-7')?.addEventListener('click', () => {
+            if (e.isDir && e.subtree) {
+              // enter folder
+              const nextPath = joinPath(cur().path, e.rawName || e.name);
+              stack.push({ treeId: e.subtree, path: nextPath });
+              renderPath();
+              load(e.subtree);
+            }
+          });
+          ssbList.appendChild(row);
+        });
+
+        rsUpdateSnapSelectedCount();
+      } catch (e) {
+        ssbList.innerHTML = '<div class="px-3 py-2 text-rose-400 text-sm">Failed to browse snapshot.</div>';
+      } finally {
+        window.ebHideLoader?.(modal.querySelector('.relative.mx-auto'));
+      }
+    }
+
+    function goUp(){
+      if (stack.length <= 1) {
+        stack = [{ treeId:'', path:'' }];
+        renderPath();
+        load('');
+        return;
+      }
+      stack.pop();
+      renderPath();
+      load(cur().treeId || '');
+    }
+
+    browseBtn.addEventListener('click', openModal);
+    ssbClose?.addEventListener('click', closeModal);
+    ssbRefresh?.addEventListener('click', () => load(cur().treeId || ''));
+    ssbUp?.addEventListener('click', goUp);
+    ssbClear?.addEventListener('click', () => {
+      rsSelectedPathsSet.clear();
+      rsSyncPathsHidden();
+      rsRenderSelectedItems();
+      rsUpdateSnapSelectedCount();
+      // refresh checkboxes in current view
+      load(cur().treeId || '');
+    });
+    ssbSelect?.addEventListener('click', () => {
+      rsSyncPathsHidden();
+      rsRenderSelectedItems();
+      rsUpdateSnapSelectedCount();
+      closeModal();
+    });
+
+    // initialize the selected count field
+    try { if (ssbSelected) ssbSelected.value = '0 item(s) selected'; } catch (_) {}
   })();
 });
 

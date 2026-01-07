@@ -235,6 +235,61 @@ try {
             echo json_encode(['status'=>'success','path'=>$path, 'entries'=>$entries]);
             break;
         }
+        case 'browseSnapshot': {
+            // Browse stored objects inside an existing backup snapshot (for "Select items" restore)
+            $deviceId   = (string)($post['deviceId'] ?? '');
+            $vaultId    = (string)($post['vaultId'] ?? '');
+            $snapshotId = (string)($post['snapshotId'] ?? '');
+            $treeId     = isset($post['treeId']) ? (string)$post['treeId'] : '';
+            if ($deviceId === '' || $vaultId === '' || $snapshotId === '') {
+                echo json_encode(['status'=>'error','message'=>'deviceId, vaultId and snapshotId are required']);
+                break;
+            }
+            $targetId = $findTarget($server, $username, $deviceId);
+            if (!$targetId) { echo json_encode(['status'=>'error','message'=>'Device is not online (no live connection)']); break; }
+
+            try {
+                $resp = $server->AdminDispatcherRequestStoredObjects(
+                    $targetId,
+                    $vaultId,
+                    $snapshotId,
+                    ($treeId !== '' ? $treeId : null),
+                    null
+                );
+            } catch (\Throwable $e) {
+                echo json_encode(['status'=>'error','message'=>$e->getMessage()]);
+                break;
+            }
+
+            $entries = [];
+            if ($resp && is_array($resp->StoredObjects)) {
+                foreach ($resp->StoredObjects as $obj) {
+                    $isDir = false;
+                    try {
+                        $isDir = (isset($obj->Subtree) && (string)$obj->Subtree !== '');
+                    } catch (\Throwable $e) { $isDir = false; }
+                    $entries[] = [
+                        'name' => (string)($obj->DisplayName ?: $obj->Name),
+                        'rawName' => (string)$obj->Name,
+                        'isDir' => $isDir,
+                        'subtree' => (string)($obj->Subtree ?: ''),
+                        'type' => (string)($obj->Type ?? ''),
+                        'size' => (int)($obj->Size ?? 0),
+                        'mtime' => (int)($obj->ModifyTime ?? 0),
+                        'recursiveKnown' => (bool)($obj->RecursiveCountKnown ?? false),
+                        'recursiveFiles' => (int)($obj->RecursiveFiles ?? 0),
+                        'recursiveBytes' => (int)($obj->RecursiveBytes ?? 0),
+                        'recursiveFolders' => (int)($obj->RecursiveFolders ?? 0),
+                    ];
+                }
+            }
+            echo json_encode([
+                'status'=>'success',
+                'treeId' => ($treeId !== '' ? $treeId : ''),
+                'entries'=>$entries
+            ]);
+            break;
+        }
         case 'updateSoftware': {
             $deviceId = (string)($post['deviceId'] ?? '');
             if ($deviceId === '') { echo json_encode(['status'=>'error','message'=>'deviceId required']); break; }
@@ -318,8 +373,19 @@ try {
                 $opt->OverwriteIfDifferentContent = false;
             }
 
-            // Paths (for now not selecting subpaths; pass null to restore all)
+            // Optional: restore selected sub-paths only. If omitted/empty -> restore all.
             $paths = null;
+            if (isset($post['paths'])) {
+                $incoming = $post['paths'];
+                if (is_array($incoming)) {
+                    $clean = [];
+                    foreach ($incoming as $p) {
+                        $p = trim((string)$p);
+                        if ($p !== '') { $clean[] = $p; }
+                    }
+                    if (!empty($clean)) { $paths = array_values(array_unique($clean)); }
+                }
+            }
 
             $resp = $server->AdminDispatcherRunRestoreCustom($targetId, $sourceId, $vaultId, $opt, ($snapshot !== '' ? $snapshot : null), $paths, null, null, null);
             echo json_encode(['status'=> ($resp->Status < 400 ? 'success' : 'error'), 'message'=>$resp->Message, 'code'=>$resp->Status]);

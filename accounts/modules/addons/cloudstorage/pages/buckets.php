@@ -83,6 +83,31 @@
     }
     $hasPrimaryKey = (bool)($hasKeysByUserId[(int)$user->id] ?? false);
 
+    // Pending delete jobs (queued/running/blocked) keyed by bucket name
+    $deleteJobsByBucketName = [];
+    try {
+        $bucketNames = $buckets->pluck('name')->toArray();
+        $hasDeleteStatus = Capsule::schema()->hasColumn('s3_delete_buckets', 'status');
+        if ($hasDeleteStatus && !empty($bucketNames)) {
+            $rows = Capsule::table('s3_delete_buckets')
+                ->whereIn('bucket_name', $bucketNames)
+                ->whereIn('status', ['queued', 'running', 'blocked'])
+                ->orderBy('id', 'desc')
+                ->get();
+            foreach ($rows as $r) {
+                $bn = (string) ($r->bucket_name ?? '');
+                if ($bn === '') {
+                    continue;
+                }
+                if (!array_key_exists($bn, $deleteJobsByBucketName)) {
+                    $deleteJobsByBucketName[$bn] = $r;
+                }
+            }
+        }
+    } catch (\Throwable $e) {
+        $deleteJobsByBucketName = [];
+    }
+
     // Expose region and optional lifecycle storage classes to template
     $s3Region = 'ca-central-1';
     $lifecycleClasses = [];
@@ -113,6 +138,7 @@
         'stats' => $stats,
         'HAS_PRIMARY_KEY' => $hasPrimaryKey,
         'HAS_KEYS_BY_USER_ID' => $hasKeysByUserId,
+        'DELETE_JOBS_BY_BUCKET_NAME' => $deleteJobsByBucketName,
         'S3_REGION' => $s3Region,
         'LIFECYCLE_CLASSES' => $lifecycleClasses
     ];

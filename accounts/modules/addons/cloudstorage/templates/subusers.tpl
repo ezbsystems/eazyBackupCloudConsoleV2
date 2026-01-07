@@ -250,41 +250,48 @@
             hideLoader();
         });
 
-        // Modified copyToClipboard function to preserve the input's original type.
+        // Modified copyToClipboard function to preserve the input's original type
+        // and to restore the *original* icon markup after showing a temporary success state.
         function copyToClipboard(id, iconId) {
             var input = document.getElementById(id);
-            var icon = document.getElementById(iconId);
+            var icon = iconId ? document.getElementById(iconId) : null;
+            if (!input) return;
+
+            // Cache the original icon once so we always restore the exact SVG the template rendered.
+            if (icon && !icon.dataset.originalHtml) {
+                icon.dataset.originalHtml = icon.innerHTML;
+            }
+
             var originalType = input.type;
             // If it's a password field, reveal it temporarily.
-            if(originalType === 'password'){
+            if (originalType === 'password') {
                 input.type = 'text';
             }
+
             input.select();
             input.setSelectionRange(0, 99999);
 
             navigator.clipboard.writeText(input.value).then(function() {
                 if (icon) {
+                    // Success state icon (SVG, consistent sizing with the original icon).
                     icon.innerHTML = `
-                        <!-- Clipboard Check Icon SVG -->
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 text-green-400">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                         </svg>
                     `;
                 }
+
                 // Restore the original input type.
                 input.type = originalType;
+
                 setTimeout(function() {
-                    if (icon) {
-                        icon.innerHTML = `
-                            <!-- Clipboard Icon SVG -->
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h6a2 2 0 012 2v2" />
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 8v8M12 12h.01" />
-                            </svg>
-                        `;
+                    if (icon && icon.dataset.originalHtml) {
+                        icon.innerHTML = icon.dataset.originalHtml;
                     }
                 }, 2000);
             }).catch(function(err) {
+                // Restore the original input type even on failure.
+                input.type = originalType;
                 console.error('Could not copy text: ', err);
             });
         }

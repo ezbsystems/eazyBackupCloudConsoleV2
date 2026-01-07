@@ -80,8 +80,25 @@
   jobReportModal.helpers = {
     formatTs: function(ts){ try { var d = new Date((Number(ts)||0)*1000); if (isNaN(d)) return ''; return d.toISOString().replace('T',' ').substring(0,19); } catch(_){ return ''; } },
     hBytes: function(b){ try { var v=Number(b)||0; var u=['B','KB','MB','GB','TB','PB']; var i=0; while(v>=1024&&i<u.length-1){v=v/1024;i++;} return (i===0? v : v.toFixed(2))+' '+u[i]; } catch(_){ return String(b); } },
-    statusText: function(code){ var s=Number(code)||0; if(s>=5000&&s<6000) return 'Success'; if(s===7001) return 'Warning'; if(s===7002||s===7003) return 'Error'; if(s===7004||s===7006) return 'Skipped'; if(s===7000) return 'Timeout'; if(s>=6000&&s<7000) return 'Running'; return 'Unknown'; },
-    statusClass: function(code){ var t=this.statusText(code); if(t==='Success') return 'bg-green-900/50 text-green-300'; if(t==='Warning') return 'bg-amber-900/40 text-amber-300'; if(t==='Error') return 'bg-rose-900/40 text-rose-300'; return 'bg-gray-700 text-gray-300'; },
+    statusText: function(code){
+      var s=Number(code)||0;
+      if(s>=5000&&s<6000) return 'Success';
+      if(s>=6000&&s<7000) return 'Running';
+      if(s===7000) return 'Timeout';
+      if(s===7001) return 'Warning';
+      if(s===7002||s===7003||s===7005) return 'Error';
+      if(s===7004) return 'Missed';
+      if(s===7006) return 'Skipped';
+      return 'Unknown';
+    },
+    statusClass: function(code){
+      var t=this.statusText(code);
+      if(t==='Success') return 'bg-green-900/50 text-green-300';
+      if(t==='Warning' || t==='Timeout') return 'bg-amber-900/40 text-amber-300';
+      if(t==='Error') return 'bg-rose-900/40 text-rose-300';
+      if(t==='Missed') return 'bg-slate-800/60 text-slate-200 border border-slate-500';
+      return 'bg-gray-700 text-gray-300';
+    },
     severityClass: function(s){ var L=String(s||'').charAt(0).toUpperCase(); if(L==='E') return 'text-rose-400'; if(L==='W') return 'text-amber-400'; return 'text-slate-300'; },
     typeText: function(p){ if (!p) return ''; if (typeof p.Classification==='number') return p.Classification===2?'Restore':'Backup'; var t=(p.Type||'').toString().toLowerCase(); return t==='restore'?'Restore':'Backup'; }
   };
@@ -214,8 +231,25 @@
       hBytes(b) {
         try { var v = Number(b)||0; var u=['B','KB','MB','GB','TB','PB']; var i=0; while(v>=1024&&i<u.length-1){v=v/1024;i++;} return (i===0? v : v.toFixed(2))+' '+u[i]; } catch(_){ return String(b); }
       },
-      statusText(code) { const s=Number(code)||0; if(s>=5000&&s<6000) return 'Success'; if(s===7001) return 'Warning'; if(s===7002||s===7003) return 'Error'; if(s===7004||s===7006) return 'Skipped'; if(s===7000) return 'Timeout'; if(s>=6000&&s<7000) return 'Running'; return 'Unknown'; },
-      statusClass(code) { const t=this.statusText(code); if(t==='Success') return 'bg-green-900/50 text-green-300'; if(t==='Warning') return 'bg-amber-900/40 text-amber-300'; if(t==='Error') return 'bg-rose-900/40 text-rose-300'; return 'bg-gray-700 text-gray-300'; },
+      statusText(code) {
+        const s=Number(code)||0;
+        if(s>=5000&&s<6000) return 'Success';
+        if(s>=6000&&s<7000) return 'Running';
+        if(s===7000) return 'Timeout';
+        if(s===7001) return 'Warning';
+        if(s===7002||s===7003||s===7005) return 'Error';
+        if(s===7004) return 'Missed';
+        if(s===7006) return 'Skipped';
+        return 'Unknown';
+      },
+      statusClass(code) {
+        const t=this.statusText(code);
+        if(t==='Success') return 'bg-green-900/50 text-green-300';
+        if(t==='Warning' || t==='Timeout') return 'bg-amber-900/40 text-amber-300';
+        if(t==='Error') return 'bg-rose-900/40 text-rose-300';
+        if(t==='Missed') return 'bg-slate-800/60 text-slate-200 border border-slate-500';
+        return 'bg-gray-700 text-gray-300';
+      },
       severityClass(s) { const L=String(s||'').charAt(0).toUpperCase(); if(L==='E') return 'text-rose-400'; if(L==='W') return 'text-amber-400'; return 'text-slate-300'; },
       typeText(p) { if (!p) return ''; if (typeof p.Classification==='number') return p.Classification===2?'Restore':'Backup'; const t=(p.Type||'').toString().toLowerCase(); return t==='restore'?'Restore':'Backup'; },
       deviceName(p){ return (p && (p.DeviceName||p.DeviceID)) || ''; },

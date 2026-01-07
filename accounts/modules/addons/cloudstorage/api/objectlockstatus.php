@@ -15,8 +15,11 @@
     use WHMCS\ClientArea;
     use WHMCS\Database\Capsule;
     use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
+    use WHMCS\Module\Addon\CloudStorage\Admin\AdminOps;
+    use WHMCS\Module\Addon\CloudStorage\Admin\DeprovisionHelper;
     use WHMCS\Module\Addon\CloudStorage\Client\DBController;
     use WHMCS\Module\Addon\CloudStorage\Client\BucketController;
+    use WHMCS\Module\Addon\CloudStorage\Client\HelperController;
 
     $ca = new ClientArea();
     if (!$ca->isLoggedIn()) {
@@ -107,21 +110,113 @@
     $encryptionKey = $module->where('setting', 'encryption_key')->pluck('value')->first();
     $s3Region = $module->where('setting', 's3_region')->pluck('value')->first() ?: 'us-east-1';
 
-    // Initialize bucket controller and S3 client connection (admin creds; Option B does not require user keys)
+    // IMPORTANT (multi-tenant RGW):
+    // AdminOps credentials can query metadata, but often cannot access tenant buckets over the S3 data-plane.
+    // For an accurate Object Lock / emptiness check we should prefer:
+    //  - the bucket owner's stored S3 keys (s3_user_access_keys), or
+    //  - a short-lived owner key created via AdminOps (fallback).
     $bucketController = new BucketController($endpoint, $adminUser, $adminAccessKey, $adminSecretKey, $s3Region);
-    $connectionResult = $bucketController->connectS3ClientAsAdmin();
 
-    if ($connectionResult['status'] != 'success') {
-        $response = new JsonResponse(['status' => 'fail', 'message' => 'Unable to connect to storage for status check.'], 200);
-        $response->send();
+    $ownerUserId = (int) $bucket->user_id;
+    $usedTempKey = false;
+    $tempAccessKey = '';
+    $tempSecretKey = '';
+    $tempKeyUid = '';
+
+    // Try the owner's stored S3 keypair (fast path), but validate it with headBucket.
+    // Some installs have stale keys in DB; those can misleadingly produce "empty" status due to swallowed errors.
+    $accessKeyPlain = '';
+    $secretKeyPlain = '';
+    $connectionResult = null;
+    try {
+        if (!empty($encryptionKey) && Capsule::schema()->hasTable('s3_user_access_keys')) {
+            $k = Capsule::table('s3_user_access_keys')->where('user_id', $ownerUserId)->first();
+            if ($k && !empty($k->access_key) && !empty($k->secret_key)) {
+                $accessKeyPlain = (string) HelperController::decryptKey($k->access_key, (string) $encryptionKey);
+                $secretKeyPlain = (string) HelperController::decryptKey($k->secret_key, (string) $encryptionKey);
+                if ($accessKeyPlain !== '' && $secretKeyPlain !== '') {
+                    $tmpConn = $bucketController->connectS3ClientWithCredentials($accessKeyPlain, $secretKeyPlain);
+                    if (($tmpConn['status'] ?? 'fail') === 'success' && !empty($tmpConn['s3client'])) {
+                        try {
+                            $tmpConn['s3client']->headBucket(['Bucket' => $bucketName]);
+                            $connectionResult = $tmpConn;
+                        } catch (\Throwable $e) {
+                            // invalid/stale key; fall back to temp key
+                            $accessKeyPlain = '';
+                            $secretKeyPlain = '';
+                        }
+                    } else {
+                        $accessKeyPlain = '';
+                        $secretKeyPlain = '';
+                    }
+                }
+            }
+        }
+    } catch (\Throwable $e) {
+        $accessKeyPlain = '';
+        $secretKeyPlain = '';
+        $connectionResult = null;
+    }
+
+    // Fallback: create a temporary owner key via AdminOps
+    if ($connectionResult === null) {
+        try {
+            $ownerRow = Capsule::table('s3_users')->where('id', $ownerUserId)->first();
+            $tempKeyUid = DeprovisionHelper::computeCephUid($ownerRow);
+            if ($tempKeyUid !== '' && !empty($adminAccessKey) && !empty($adminSecretKey)) {
+                $tmp = AdminOps::createTempKey($endpoint, $adminAccessKey, $adminSecretKey, (string)$tempKeyUid, null);
+                if (is_array($tmp) && ($tmp['status'] ?? '') === 'success') {
+                    $tempAccessKey = (string)($tmp['access_key'] ?? '');
+                    $tempSecretKey = (string)($tmp['secret_key'] ?? '');
+                    if ($tempAccessKey !== '' && $tempSecretKey !== '') {
+                        $usedTempKey = true;
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            $usedTempKey = false;
+            $tempAccessKey = '';
+            $tempSecretKey = '';
+            $tempKeyUid = '';
+        }
+        $accessKeyPlain = $tempAccessKey;
+        $secretKeyPlain = $tempSecretKey;
+    }
+
+    if ($connectionResult === null && ($accessKeyPlain === '' || $secretKeyPlain === '')) {
+        (new JsonResponse([
+            'status' => 'fail',
+            'message' => 'Unable to check bucket status at this time. Please try again later.'
+        ], 200))->send();
         exit();
+    }
+
+    if ($connectionResult === null) {
+        $connectionResult = $bucketController->connectS3ClientWithCredentials($accessKeyPlain, $secretKeyPlain);
+        if (($connectionResult['status'] ?? 'fail') !== 'success') {
+            // Best-effort cleanup if we created a temp key
+            if ($usedTempKey && $tempAccessKey !== '' && $tempKeyUid !== '') {
+                try { AdminOps::removeKey($endpoint, $adminAccessKey, $adminSecretKey, $tempAccessKey, $tempKeyUid, null); } catch (\Throwable $ignored) {}
+            }
+            (new JsonResponse(['status' => 'fail', 'message' => $connectionResult['message'] ?? 'Unable to connect to storage for status check.'], 200))->send();
+            exit();
+        }
     }
 
     $status = $bucketController->getObjectLockEmptyStatus($bucketName);
     if ($status['status'] !== 'success') {
+        // Best-effort cleanup if we created a temp key
+        if ($usedTempKey && $tempAccessKey !== '' && $tempKeyUid !== '') {
+            try { AdminOps::removeKey($endpoint, $adminAccessKey, $adminSecretKey, $tempAccessKey, $tempKeyUid, null); } catch (\Throwable $ignored) {}
+        }
         $response = new JsonResponse(['status' => 'fail', 'message' => $status['message'] ?? 'Status check failed.'], 200);
         $response->send();
         exit();
+    }
+
+    // Best-effort cleanup if we created a temp key
+    if ($usedTempKey && $tempAccessKey !== '' && $tempKeyUid !== '') {
+        try { AdminOps::removeKey($endpoint, $adminAccessKey, $adminSecretKey, $tempAccessKey, $tempKeyUid, null); } catch (\Throwable $ignored) {}
     }
 
     // Include DB-known object_lock flag for quick UX hints

@@ -39,6 +39,20 @@ try {
     $hasForceBypassGovernance = false;
 }
 
+// Scheduling / audit columns (optional; older installs may not have them yet)
+$hasRetryAfter = false;
+$hasBlockedReason = false;
+$hasEarliestRetainUntilTs = false;
+try {
+    $hasRetryAfter = Capsule::schema()->hasColumn('s3_delete_buckets', 'retry_after');
+    $hasBlockedReason = Capsule::schema()->hasColumn('s3_delete_buckets', 'blocked_reason');
+    $hasEarliestRetainUntilTs = Capsule::schema()->hasColumn('s3_delete_buckets', 'earliest_retain_until_ts');
+} catch (\Throwable $e) {
+    $hasRetryAfter = false;
+    $hasBlockedReason = false;
+    $hasEarliestRetainUntilTs = false;
+}
+
 // Progress columns (optional; older installs may not have them yet)
 $hasProgressCols = false;
 $hasLastSeenNumObjects = false;
@@ -61,12 +75,24 @@ $cronStart = microtime(true);
 
 // Build query based on schema version
 if ($hasStatusColumn) {
-    $buckets = Capsule::table('s3_delete_buckets')
-        ->where('status', 'queued')
+    $nowSql = date('Y-m-d H:i:s');
+    $q = Capsule::table('s3_delete_buckets')
         ->where('attempt_count', '<', MAX_ATTEMPTS)
+        ->where(function ($w) use ($hasRetryAfter, $nowSql) {
+            // Normal queued work
+            $w->where('status', 'queued');
+            // Scheduled retries for previously-blocked jobs
+            if ($hasRetryAfter) {
+                $w->orWhere(function ($w2) use ($nowSql) {
+                    $w2->where('status', 'blocked')
+                       ->whereNotNull('retry_after')
+                       ->where('retry_after', '<=', $nowSql);
+                });
+            }
+        })
         ->orderBy('created_at', 'asc')
-        ->limit(10)  // Process in batches
-        ->get();
+        ->limit(10);
+    $buckets = $q->get();
 } else {
     // Legacy query for old schema
     $buckets = DBController::getResult('s3_delete_buckets', [
@@ -122,18 +148,27 @@ foreach ($buckets as $bucket) {
         $forceBypassGovernance = !empty($bucket->force_bypass_governance);
     }
 
-    // Claim the job (atomic: only claim if currently queued)
+    // Claim the job (atomic: only claim if currently queued, or blocked and retry_after is due)
     if ($hasStatusColumn) {
+        $nowSql = date('Y-m-d H:i:s');
         $claimUpdate = [
             'status' => 'running',
         ];
         if (empty($bucket->started_at)) {
             $claimUpdate['started_at'] = date('Y-m-d H:i:s');
         }
-        $claimed = Capsule::table('s3_delete_buckets')
-            ->where('id', $bucketId)
-            ->where('status', 'queued')
-            ->update($claimUpdate);
+        $claimQuery = Capsule::table('s3_delete_buckets')->where('id', $bucketId);
+        $claimQuery->where(function ($w) use ($hasRetryAfter, $nowSql) {
+            $w->where('status', 'queued');
+            if ($hasRetryAfter) {
+                $w->orWhere(function ($w2) use ($nowSql) {
+                    $w2->where('status', 'blocked')
+                       ->whereNotNull('retry_after')
+                       ->where('retry_after', '<=', $nowSql);
+                });
+            }
+        });
+        $claimed = $claimQuery->update($claimUpdate);
         if ((int) $claimed === 0) {
             continue;
         }
@@ -278,13 +313,82 @@ foreach ($buckets as $bucket) {
         }
     }
 
-    // Attempt to delete bucket using admin credentials, bounded by a time budget
+    // IMPORTANT (multi-tenant RGW):
+    // - Ceph AdminOps credentials can query bucket metadata, but often cannot access the S3 data-plane for tenant buckets.
+    // - For actual object/version deletions we must use an S3 key that belongs to the bucket owner (tenant-scoped).
+    // We create a short-lived key for the owner, use it for deletion, then revoke it.
+
+    $tempAccessKey = '';
+    $tempSecretKey = '';
+    $tempKeyUid = $cephUid;     // tenant-qualified via DeprovisionHelper::computeCephUid()
+    $tempKeyTenant = null;      // safest: use full uid without tenant param
+    try {
+        $tmp = AdminOps::createTempKey($s3Endpoint, $cephAdminAccessKey, $cephAdminSecretKey, (string)$tempKeyUid, null);
+        if (is_array($tmp) && ($tmp['status'] ?? '') === 'success') {
+            $tempAccessKey = (string)($tmp['access_key'] ?? '');
+            $tempSecretKey = (string)($tmp['secret_key'] ?? '');
+        }
+    } catch (\Throwable $e) {
+        // handled below
+    }
+
+    if ($tempAccessKey === '' || $tempSecretKey === '') {
+        $errorMsg = "Unable to create temporary S3 credentials for bucket owner; cannot perform deletion on tenant buckets.";
+        logModuleCall('cloudstorage', 's3deletebucket_cron', ['bucket' => $bucketName, 'user_id' => $userId, 'uid' => $cephUid], $errorMsg);
+        if ($hasStatusColumn) {
+            Capsule::table('s3_delete_buckets')->where('id', $bucketId)->update([
+                'status' => 'failed',
+                'error' => $errorMsg,
+                'attempt_count' => ($bucket->attempt_count ?? 0) + 1,
+                'completed_at' => date('Y-m-d H:i:s'),
+            ]);
+        }
+        continue;
+    }
+
+    // Connect the bucket controller to S3 using the short-lived owner key
+    $conn = $bucketController->connectS3ClientWithCredentials($tempAccessKey, $tempSecretKey);
+    if (($conn['status'] ?? 'fail') !== 'success') {
+        $errorMsg = $conn['message'] ?? 'Unable to connect to S3 using temporary owner credentials.';
+        logModuleCall('cloudstorage', 's3deletebucket_cron', ['bucket' => $bucketName, 'user_id' => $userId, 'uid' => $cephUid], $errorMsg);
+        if ($hasStatusColumn) {
+            Capsule::table('s3_delete_buckets')->where('id', $bucketId)->update([
+                'status' => 'failed',
+                'error' => $errorMsg,
+                'attempt_count' => ($bucket->attempt_count ?? 0) + 1,
+                'completed_at' => date('Y-m-d H:i:s'),
+            ]);
+        }
+        // Best-effort revoke the temp key
+        try { AdminOps::removeKey($s3Endpoint, $cephAdminAccessKey, $cephAdminSecretKey, $tempAccessKey, $tempKeyUid, $tempKeyTenant); } catch (\Throwable $ignored) {}
+        continue;
+    }
+
+    // Attempt to delete bucket, bounded by a time budget
     $deadlineTs = time() + JOB_TIME_BUDGET_SECONDS;
     $response = $bucketController->deleteBucketAsAdminIncremental((int) $userId, (string) $bucketName, [
         'deadline_ts' => $deadlineTs,
-        'use_admin_creds' => true,
+        'use_admin_creds' => false,
         'bypass_governance_retention' => $forceBypassGovernance,
     ]);
+
+    // Always revoke the temp key after this run to avoid accumulating unused keys
+    try {
+        $rm = AdminOps::removeKey($s3Endpoint, $cephAdminAccessKey, $cephAdminSecretKey, $tempAccessKey, $tempKeyUid, $tempKeyTenant);
+        if (is_array($rm) && ($rm['status'] ?? '') !== 'success') {
+            logModuleCall('cloudstorage', 's3deletebucket_cron_tempkey_cleanup', [
+                'bucket' => $bucketName,
+                'uid' => $tempKeyUid,
+                'access_key' => substr($tempAccessKey, 0, 6) . '***',
+            ], $rm);
+        }
+    } catch (\Throwable $e) {
+        logModuleCall('cloudstorage', 's3deletebucket_cron_tempkey_cleanup', [
+            'bucket' => $bucketName,
+            'uid' => $tempKeyUid,
+            'access_key' => substr($tempAccessKey, 0, 6) . '***',
+        ], 'Temp key cleanup failed: ' . $e->getMessage());
+    }
 
     $respStatus = $response['status'] ?? 'fail';
 
@@ -297,6 +401,15 @@ foreach ($buckets as $bucket) {
                 'error' => null,
                 'completed_at' => date('Y-m-d H:i:s'),
             ];
+            if ($hasRetryAfter) {
+                $update['retry_after'] = null;
+            }
+            if ($hasBlockedReason) {
+                $update['blocked_reason'] = null;
+            }
+            if ($hasEarliestRetainUntilTs) {
+                $update['earliest_retain_until_ts'] = null;
+            }
             if ($hasProgressCols) {
                 $update['metrics'] = json_encode($response['metrics'] ?? []);
             }
@@ -378,6 +491,9 @@ foreach ($buckets as $bucket) {
             'error' => null,
             'completed_at' => null,
         ];
+        if ($hasRetryAfter) {
+            $update['retry_after'] = null;
+        }
         if ($hasProgressCols) {
             $update['metrics'] = json_encode($metrics);
         }
@@ -400,7 +516,8 @@ foreach ($buckets as $bucket) {
     // Handle failure
     $errorMsg = $response['message'] ?? 'Unknown error';
     $isBlocked = isset($response['blocked']) && $response['blocked'] === true;
-    $newAttemptCount = ($bucket->attempt_count ?? 0) + 1;
+    $currentAttemptCount = (int) ($bucket->attempt_count ?? 0);
+    $newAttemptCount = $isBlocked ? $currentAttemptCount : ($currentAttemptCount + 1);
 
     logModuleCall('cloudstorage', 's3deletebucket_cron', [
         'bucket' => $bucketName,
@@ -413,7 +530,7 @@ foreach ($buckets as $bucket) {
     if ($hasStatusColumn) {
         $newStatus = 'queued';  // Will retry
         if ($isBlocked) {
-            $newStatus = 'blocked';  // Object Lock retention - won't retry until manually reset
+            $newStatus = 'blocked';  // Scheduled retry (retry_after)
         } elseif ($newAttemptCount >= MAX_ATTEMPTS) {
             $newStatus = 'failed';  // Max attempts reached
         }
@@ -422,8 +539,40 @@ foreach ($buckets as $bucket) {
             'status' => $newStatus,
             'error' => $errorMsg,
             'attempt_count' => $newAttemptCount,
-            'completed_at' => ($newStatus !== 'queued') ? date('Y-m-d H:i:s') : null,
+            // For scheduled blocks, do NOT set completed_at (job is not finished).
+            'completed_at' => ($newStatus !== 'queued' && !$isBlocked) ? date('Y-m-d H:i:s') : null,
         ];
+        if ($isBlocked) {
+            // Compute next retry time:
+            // - prefer earliest_retain_until_ts if present and in the future
+            // - otherwise use a conservative backoff (6h/24h)
+            $now = time();
+            $nextRetryTs = $now + 21600; // default 6 hours
+            $reason = null;
+            if ($hasBlockedReason && !empty($bucket->blocked_reason)) {
+                $reason = (string) $bucket->blocked_reason;
+            }
+            if ($reason === 'legal_hold') {
+                $nextRetryTs = $now + 86400; // daily
+            } elseif ($reason === 'compliance_retention' || $reason === 'governance_retention') {
+                if ($hasEarliestRetainUntilTs) {
+                    $earliest = (int) ($bucket->earliest_retain_until_ts ?? 0);
+                    if ($earliest > $now) {
+                        $nextRetryTs = $earliest;
+                    } else {
+                        $nextRetryTs = $now + 86400; // daily after expected expiry
+                    }
+                } else {
+                    $nextRetryTs = $now + 86400;
+                }
+            }
+            if ($hasRetryAfter) {
+                $update['retry_after'] = date('Y-m-d H:i:s', $nextRetryTs);
+            }
+            if ($hasBlockedReason && empty($bucket->blocked_reason)) {
+                $update['blocked_reason'] = 'unknown';
+            }
+        }
         if ($hasProgressCols) {
             $update['metrics'] = json_encode($response['metrics'] ?? []);
         }

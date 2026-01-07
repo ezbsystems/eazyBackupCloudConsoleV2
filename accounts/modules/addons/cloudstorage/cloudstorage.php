@@ -14,7 +14,7 @@ function cloudstorage_config()
         'description' => 'This module show the usage of your buckets.',
         'author' => 'eazybackup',
         'language' => 'english',
-        'version' => '2.1.2',
+        'version' => '2.1.3',
         'fields' => [
             's3_region' => [
                 'FriendlyName' => 'S3 Region',
@@ -70,6 +70,99 @@ function cloudstorage_config()
                 'Size' => '100',
                 'Description' => 'Enter the Ceph secret key.'
             ],
+            // Ceph Pool Monitor (capacity forecasting)
+            'ceph_pool_monitor_enabled' => [
+                'FriendlyName' => 'Enable Ceph Pool Monitor',
+                'Type' => 'yesno',
+                'Description' => 'If enabled, a cron can collect Ceph pool usage for forecasting (recommended ON if this WHMCS host has access to Ceph CLI).',
+            ],
+            'ceph_pool_monitor_pool_name' => [
+                'FriendlyName' => 'Ceph Pool Name to Monitor',
+                'Type' => 'text',
+                'Size' => '191',
+                'Default' => 'default.rgw.buckets.data',
+                'Description' => 'Ceph pool name to track for capacity forecasting (e.g., default.rgw.buckets.data).',
+            ],
+            'ceph_cli_path' => [
+                'FriendlyName' => 'Ceph CLI Path',
+                'Type' => 'text',
+                'Size' => '191',
+                'Default' => '/usr/bin/ceph',
+                'Description' => 'Path to the ceph CLI binary on this server (used by the pool monitor cron).',
+            ],
+            'ceph_cli_args' => [
+                'FriendlyName' => 'Ceph CLI Extra Args',
+                'Type' => 'text',
+                'Size' => '191',
+                'Description' => 'Optional extra args for ceph CLI (space-separated). Example: --conf=/etc/ceph/ceph.conf --name=client.admin --keyring=/etc/ceph/ceph.client.admin.keyring',
+            ],
+            'ceph_pool_monitor_source' => [
+                'FriendlyName' => 'Ceph Pool Monitor Source',
+                'Type' => 'dropdown',
+                'Options' => [
+                    'cli' => 'Ceph CLI (local)',
+                    'prometheus' => 'Prometheus (Ceph metrics)',
+                ],
+                'Default' => 'cli',
+                'Description' => 'Select how pool usage should be collected. Prometheus is recommended when Ceph CLI is not available on this host.',
+            ],
+            'prometheus_base_url' => [
+                'FriendlyName' => 'Prometheus Base URL',
+                'Type' => 'text',
+                'Size' => '191',
+                'Description' => 'Base URL for the Prometheus *server API* (must support /api/v1/query and /api/v1/query_range). Example: https://prometheus.internal:9090. Do NOT use an exporter /metrics URL (like :9283).',
+            ],
+            'prometheus_bearer_token' => [
+                'FriendlyName' => 'Prometheus Bearer Token',
+                'Type' => 'password',
+                'Size' => '191',
+                'Description' => 'Optional bearer token for Prometheus API authentication.',
+            ],
+            'prometheus_basic_auth_user' => [
+                'FriendlyName' => 'Prometheus Basic Auth User',
+                'Type' => 'text',
+                'Size' => '191',
+                'Description' => 'Optional basic auth username for Prometheus.',
+            ],
+            'prometheus_basic_auth_pass' => [
+                'FriendlyName' => 'Prometheus Basic Auth Password',
+                'Type' => 'password',
+                'Size' => '191',
+                'Description' => 'Optional basic auth password for Prometheus.',
+            ],
+            'prometheus_verify_tls' => [
+                'FriendlyName' => 'Prometheus Verify TLS',
+                'Type' => 'yesno',
+                'Description' => 'If enabled, TLS certificates are verified for HTTPS Prometheus URLs. Disable only for internal/self-signed endpoints.',
+            ],
+            'prometheus_pool_used_query' => [
+                'FriendlyName' => 'Prometheus Pool Used Query',
+                'Type' => 'text',
+                'Size' => '191',
+                'Default' => 'ceph_pool_stored{pool="{{pool}}"}',
+                'Description' => 'PromQL returning pool used bytes. Use {{pool}} placeholder for pool name. If your exporter differs, adjust this.',
+            ],
+            'prometheus_pool_max_avail_query' => [
+                'FriendlyName' => 'Prometheus Pool Max Avail Query',
+                'Type' => 'text',
+                'Size' => '191',
+                'Default' => 'ceph_pool_max_avail{pool="{{pool}}"}',
+                'Description' => 'PromQL returning pool max available bytes. Use {{pool}} placeholder for pool name.',
+            ],
+            'prometheus_backfill_days' => [
+                'FriendlyName' => 'Prometheus Backfill Days',
+                'Type' => 'text',
+                'Size' => '10',
+                'Default' => '90',
+                'Description' => 'When the pool history table is empty, the cron will backfill this many days from Prometheus into ceph_pool_usage_history.',
+            ],
+            'prometheus_backfill_step_seconds' => [
+                'FriendlyName' => 'Prometheus Backfill Step (seconds)',
+                'Type' => 'text',
+                'Size' => '10',
+                'Default' => '3600',
+                'Description' => 'Prometheus query_range step size in seconds for backfill (e.g., 3600 = hourly).',
+            ],
             'turnstile_site_key' => [
                 'FriendlyName' => 'Turnstile Site Key',
                 'Type' => 'text',
@@ -87,6 +180,18 @@ function cloudstorage_config()
                 'Type' => 'dropdown',
                 'Options' => cloudstorage_get_email_templates(),
                 'Description' => 'Select the WHMCS email template from the General category to use for e3 trial email verification.',
+            ],
+            'object_lock_force_delete_email_template' => [
+                'FriendlyName' => 'Object Lock Force Delete Email Template',
+                'Type' => 'dropdown',
+                'Options' => cloudstorage_get_email_templates(),
+                'Description' => 'Select the WHMCS email template from the General category to notify customers when a Governance bypass (force delete) is requested.',
+            ],
+            'object_lock_force_delete_internal_email' => [
+                'FriendlyName' => 'Object Lock Force Delete Internal Email',
+                'Type' => 'text',
+                'Size' => '191',
+                'Description' => 'Optional internal notification recipient for force-delete requests (e.g., support@yourdomain.tld).',
             ],
             'allow_key_decrypt' => [
                 'FriendlyName' => 'Allow Key Decrypt (Client Area)',
@@ -659,6 +764,19 @@ function cloudstorage_activate() {
                 $table->increments('id');
                 $table->unsignedInteger('user_id');
                 $table->string('bucket_name');
+                // Request/audit metadata (client-initiated deletion UX)
+                $table->string('requested_action', 32)->default('delete'); // delete|force_delete|empty
+                $table->unsignedInteger('requested_by_client_id')->nullable();
+                $table->unsignedInteger('requested_by_user_id')->nullable();
+                $table->unsignedInteger('requested_by_contact_id')->nullable();
+                $table->timestamp('requested_at')->nullable();
+                $table->string('request_ip', 64)->nullable();
+                $table->text('request_ua')->nullable();
+                // Object Lock scheduling fields
+                $table->timestamp('retry_after')->nullable();
+                $table->string('blocked_reason', 64)->nullable(); // legal_hold|compliance_retention|governance_retention|unknown
+                $table->bigInteger('earliest_retain_until_ts')->nullable(); // epoch seconds
+                $table->text('audit_json')->nullable();
                 // Only set for admin deprovision jobs where governance retention bypass is explicitly confirmed.
                 $table->tinyInteger('force_bypass_governance')->default(0);
                 $table->enum('status', ['queued', 'running', 'blocked', 'failed', 'success'])->default('queued');
@@ -676,6 +794,7 @@ function cloudstorage_activate() {
                 $table->timestamp('completed_at')->nullable();
 
                 $table->index(['status', 'created_at']);
+                $table->index(['bucket_name', 'status']);
                 $table->foreign('user_id')->references('id')->on('s3_users')->onDelete('cascade');
             });
             logModuleCall('cloudstorage', 'activate', [], 'Created s3_delete_buckets table', [], []);
@@ -702,6 +821,33 @@ function cloudstorage_activate() {
                         logModuleCall('cloudstorage', 'activate', [], "Ensured {$col} on s3_delete_buckets", [], []);
                     } catch (\Throwable $e) {
                         logModuleCall('cloudstorage', "activate_ensure_s3_delete_buckets_{$col}", [], $e->getMessage(), [], []);
+                    }
+                }
+            }
+
+            // Ensure request/audit + scheduling columns for client-initiated delete UX
+            $deleteReqCols = [
+                'requested_action' => function ($table) { $table->string('requested_action', 32)->default('delete')->after('bucket_name'); },
+                'requested_by_client_id' => function ($table) { $table->unsignedInteger('requested_by_client_id')->nullable()->after('requested_action'); },
+                'requested_by_user_id' => function ($table) { $table->unsignedInteger('requested_by_user_id')->nullable()->after('requested_by_client_id'); },
+                'requested_by_contact_id' => function ($table) { $table->unsignedInteger('requested_by_contact_id')->nullable()->after('requested_by_user_id'); },
+                'requested_at' => function ($table) { $table->timestamp('requested_at')->nullable()->after('requested_by_contact_id'); },
+                'request_ip' => function ($table) { $table->string('request_ip', 64)->nullable()->after('requested_at'); },
+                'request_ua' => function ($table) { $table->text('request_ua')->nullable()->after('request_ip'); },
+                'retry_after' => function ($table) { $table->timestamp('retry_after')->nullable()->after('request_ua'); },
+                'blocked_reason' => function ($table) { $table->string('blocked_reason', 64)->nullable()->after('retry_after'); },
+                'earliest_retain_until_ts' => function ($table) { $table->bigInteger('earliest_retain_until_ts')->nullable()->after('blocked_reason'); },
+                'audit_json' => function ($table) { $table->text('audit_json')->nullable()->after('earliest_retain_until_ts'); },
+            ];
+            foreach ($deleteReqCols as $col => $adder) {
+                if (!Capsule::schema()->hasColumn('s3_delete_buckets', $col)) {
+                    try {
+                        Capsule::schema()->table('s3_delete_buckets', function ($table) use ($adder) {
+                            $adder($table);
+                        });
+                        logModuleCall('cloudstorage', 'activate', [], "Ensured {$col} on s3_delete_buckets", [], []);
+                    } catch (\Throwable $e) {
+                        logModuleCall('cloudstorage', "activate_add_s3_delete_buckets_{$col}", [], $e->getMessage(), [], []);
                     }
                 }
             }
@@ -733,6 +879,7 @@ function cloudstorage_activate() {
             try {
                 Capsule::schema()->table('s3_delete_buckets', function ($table) {
                     $table->index(['status', 'created_at']);
+                    $table->index(['bucket_name', 'status']);
                 });
             } catch (\Throwable $e) {
                 // Best-effort
@@ -822,6 +969,23 @@ function cloudstorage_activate() {
             
             $table->index(['bucket_name', 'collected_at']);
             $table->index(['bucket_owner', 'collected_at']);
+            });
+        }
+
+        // Ceph pool usage history (for capacity forecasting)
+        if (!Capsule::schema()->hasTable('ceph_pool_usage_history')) {
+            Capsule::schema()->create('ceph_pool_usage_history', function ($table) {
+                $table->bigIncrements('id');
+                $table->string('pool_name', 191);
+                $table->bigInteger('used_bytes')->default(0);
+                $table->bigInteger('max_avail_bytes')->default(0);
+                $table->bigInteger('capacity_bytes')->default(0);
+                $table->decimal('percent_used', 8, 4)->default(0);
+                $table->timestamp('collected_at')->useCurrent();
+                $table->timestamp('created_at')->useCurrent();
+
+                $table->index(['pool_name', 'collected_at']);
+                $table->index(['collected_at']);
             });
         }
 
@@ -2373,6 +2537,65 @@ function cloudstorage_upgrade($vars) {
                     }
                 }
             }
+
+            // Ensure request/audit + scheduling columns (defensive per-column upgrades)
+            $deleteReqCols = [
+                'requested_action' => function ($table) { $table->string('requested_action', 32)->default('delete')->after('bucket_name'); },
+                'requested_by_client_id' => function ($table) { $table->unsignedInteger('requested_by_client_id')->nullable()->after('requested_action'); },
+                'requested_by_user_id' => function ($table) { $table->unsignedInteger('requested_by_user_id')->nullable()->after('requested_by_client_id'); },
+                'requested_by_contact_id' => function ($table) { $table->unsignedInteger('requested_by_contact_id')->nullable()->after('requested_by_user_id'); },
+                'requested_at' => function ($table) { $table->timestamp('requested_at')->nullable()->after('requested_by_contact_id'); },
+                'request_ip' => function ($table) { $table->string('request_ip', 64)->nullable()->after('requested_at'); },
+                'request_ua' => function ($table) { $table->text('request_ua')->nullable()->after('request_ip'); },
+                'retry_after' => function ($table) { $table->timestamp('retry_after')->nullable()->after('request_ua'); },
+                'blocked_reason' => function ($table) { $table->string('blocked_reason', 64)->nullable()->after('retry_after'); },
+                'earliest_retain_until_ts' => function ($table) { $table->bigInteger('earliest_retain_until_ts')->nullable()->after('blocked_reason'); },
+                'audit_json' => function ($table) { $table->text('audit_json')->nullable()->after('earliest_retain_until_ts'); },
+            ];
+            foreach ($deleteReqCols as $col => $adder) {
+                if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_delete_buckets', $col)) {
+                    try {
+                        \WHMCS\Database\Capsule::schema()->table('s3_delete_buckets', function ($table) use ($adder) {
+                            $adder($table);
+                        });
+                        logModuleCall('cloudstorage', 'upgrade', [], "Added {$col} to s3_delete_buckets", [], []);
+                    } catch (\Exception $e) {
+                        logModuleCall('cloudstorage', "upgrade_add_s3_delete_buckets_{$col}", [], $e->getMessage(), [], []);
+                    }
+                }
+            }
+
+            // Ensure helpful index exists (ignore errors if it already exists under a different name)
+            try {
+                \WHMCS\Database\Capsule::schema()->table('s3_delete_buckets', function ($table) {
+                    $table->index(['bucket_name', 'status']);
+                });
+            } catch (\Throwable $e) {
+                // Best-effort
+            }
+        }
+
+        // Ceph pool usage history table (for capacity forecasting)
+        try {
+            $schema = \WHMCS\Database\Capsule::schema();
+            if (!$schema->hasTable('ceph_pool_usage_history')) {
+                $schema->create('ceph_pool_usage_history', function ($table) {
+                    $table->bigIncrements('id');
+                    $table->string('pool_name', 191);
+                    $table->bigInteger('used_bytes')->default(0);
+                    $table->bigInteger('max_avail_bytes')->default(0);
+                    $table->bigInteger('capacity_bytes')->default(0);
+                    $table->decimal('percent_used', 8, 4)->default(0);
+                    $table->timestamp('collected_at')->useCurrent();
+                    $table->timestamp('created_at')->useCurrent();
+
+                    $table->index(['pool_name', 'collected_at']);
+                    $table->index(['collected_at']);
+                });
+                logModuleCall('cloudstorage', 'upgrade', [], 'Created ceph_pool_usage_history table', [], []);
+            }
+        } catch (\Throwable $e) {
+            logModuleCall('cloudstorage', 'upgrade_ceph_pool_usage_history_fail', [], $e->getMessage(), [], []);
         }
 
         return ['status' => 'success'];

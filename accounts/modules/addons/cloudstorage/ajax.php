@@ -26,6 +26,7 @@ while (ob_get_level()) {
 header('Content-Type: application/json');
 
 use WHMCS\Module\Addon\CloudStorage\Admin\BucketSizeMonitor;
+use WHMCS\Module\Addon\CloudStorage\Admin\CephPoolMonitor;
 use WHMCS\Database\Capsule;
 
 try {
@@ -85,6 +86,23 @@ try {
                 error_log("AJAX Chart data limited to prevent memory issues: " . count($result['total_size_chart']) . " points");
             }
 
+            echo json_encode($result);
+            break;
+
+        case 'get_pool_forecast':
+            error_log("AJAX Debug: Processing get_pool_forecast request");
+
+            $poolName = trim((string)($_POST['pool_name'] ?? ''));
+            if ($poolName === '') {
+                // Fallback to addon setting
+                $poolName = trim((string)($config['ceph_pool_monitor_pool_name'] ?? 'default.rgw.buckets.data'));
+            }
+
+            $days = intval($_POST['days'] ?? 90);
+            $forecastDays = intval($_POST['forecast_days'] ?? 180);
+            $targetPercent = floatval($_POST['target_percent'] ?? 80);
+
+            $result = CephPoolMonitor::getForecast($poolName, $days, $forecastDays, $targetPercent);
             echo json_encode($result);
             break;
 

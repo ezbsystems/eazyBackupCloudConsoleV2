@@ -175,6 +175,16 @@ $tblhtml = '<table width="100%" bgcolor="#ccc" cellspacing="1" cellpadding="2" b
     </tr>';
 foreach ($invoiceitems as $item) {
 
+    // Clean up description like original logic (do BEFORE adding Username/usage)
+    if (isset($item['description']) && is_string($item['description'])) {
+        $text = preg_replace("/\:\s0\sx\s/","+",$item['description']);
+        $text = preg_replace("/.*\+/","+",$text);
+        $text = preg_replace("/\+.*(\n?)/","",$text);
+        $item['description'] = $text;
+    } else {
+        $item['description'] = strval(isset($item['description']) ? $item['description'] : '');
+    }
+
     // ---- eazyBackup: enrich invoice line with Username + usage ----
     $serviceIdInt = null;
     if (isset($item['type']) && $item['type'] === 'Upgrade' && isset($item['relid']) && ctype_digit((string)$item['relid'])) {
@@ -188,17 +198,23 @@ foreach ($invoiceitems as $item) {
     $resolvedUsername = null;
     $clientId = null;
     if ($serviceIdInt) {
-        $row = \WHMCS\Database\Capsule::table('tblhosting')->select(['username','userid'])->where('id', $serviceIdInt)->first();
+        // Optional guard: only read usernames for the invoice's client when available
+        $invoiceClientId = 0;
+        if (isset($clientsdetails) && is_array($clientsdetails)) {
+            $invoiceClientId = (int)($clientsdetails['userid'] ?? $clientsdetails['id'] ?? 0);
+        }
+        $q = \WHMCS\Database\Capsule::table('tblhosting')->select(['username','userid'])->where('id', $serviceIdInt);
+        if ($invoiceClientId > 0) {
+            $q->where('userid', $invoiceClientId);
+        }
+        $row = $q->first();
         if ($row) {
             $resolvedUsername = (string) $row->username;
             $clientId = (int) $row->userid;
         }
     }
 
-    if ($resolvedUsername) {
-        if (!isset($item['description']) || !is_string($item['description'])) {
-            $item['description'] = strval($item['description'] ?? '');
-        }
+    if (is_string($resolvedUsername) && $resolvedUsername !== '') {
         $item['description'] .= "\nUsername: " . $resolvedUsername;
 
         if (class_exists('EB_InvoiceUsage')) {
@@ -227,46 +243,6 @@ foreach ($invoiceitems as $item) {
         }
     }
     // ---- /enrichment ----
-
-    // Clean up description like original logic
-    if (isset($item['description']) && is_string($item['description'])) {
-        $text = preg_replace("/\:\s0\sx\s/","+",$item['description']);
-        $text = preg_replace("/.*\+/","+",$text);
-        $text = preg_replace("/\+.*(\n?)/","",$text);
-        $item['description'] = $text;
-    } else {
-        $item['description'] = strval(isset($item['description']) ? $item['description'] : '');
-    }
-
-    // Resolve a username/domain for this line item in a way that also works during cron email generation.
-    $resolvedUsername = null;
-
-    // 1) Direct service line with relid -> tblhosting.id
-    if (isset($item['relid']) && ctype_digit((string)$item['relid'])) {
-        $serviceIdInt = (int)$item['relid'];
-        $resolvedUsername = \WHMCS\Database\Capsule::table('tblhosting')->where('id', $serviceIdInt)->value('username');
-        if (!$resolvedUsername) {
-            $resolvedUsername = \WHMCS\Database\Capsule::table('tblhosting')->where('id', $serviceIdInt)->value('domain');
-        }
-    }
-
-    // 2) Upgrades referencing a service via tblupgrades.relid (type=configoptions)
-    if (!$resolvedUsername && isset($item['type']) && $item['type'] === 'Upgrade' && isset($item['relid']) && ctype_digit((string)$item['relid'])) {
-        $upgradeIdInt = (int)$item['relid'];
-        $serviceRelid = \WHMCS\Database\Capsule::table('tblupgrades')->where('id', $upgradeIdInt)->where('type', 'configoptions')->value('relid');
-        if ($serviceRelid) {
-            $serviceIdInt = (int)$serviceRelid;
-            $resolvedUsername = \WHMCS\Database\Capsule::table('tblhosting')->where('id', $serviceIdInt)->value('username');
-            if (!$resolvedUsername) {
-                $resolvedUsername = \WHMCS\Database\Capsule::table('tblhosting')->where('id', $serviceIdInt)->value('domain');
-            }
-        }
-    }
-
-    // 3) Append if we found one
-    if ($resolvedUsername) {
-        $item['description'] .= "\nUsername: " . $resolvedUsername;
-        }
 
     $tblhtml .= '
     <tr bgcolor="#fff">

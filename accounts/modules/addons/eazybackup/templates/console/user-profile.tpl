@@ -1692,7 +1692,7 @@ try {
 
 <!-- Restore Wizard Modal -->
 <div id="restore-wizard" class="fixed inset-0 z-50 hidden">
-  <div class="absolute inset-0 bg-black bg-opacity-60"></div>
+  <div class="absolute inset-0 bg-black/75"></div>
   <div class="relative mx-auto my-6 w-full max-w-4xl bg-slate-900 border border-slate-700 rounded-lg shadow-xl">
     <div class="flex items-center justify-between px-5 py-4 border-b border-slate-700">
       <h3 class="flex items-center gap-2 text-slate-200 text-lg font-semibold">
@@ -1779,6 +1779,29 @@ try {
           </div>
         </div>
       </div>
+
+      <div id="restore-step4" class="hidden">
+        <div class="space-y-3">
+          <div class="text-sm text-slate-300">Restore scope</div>
+          <div class="text-xs text-slate-400">Choose whether to restore everything from the snapshot, or pick specific files/folders.</div>
+          <div id="rs-scope-options" class="space-y-2 text-sm text-slate-200"></div>
+
+          <div id="rs-scope-select-wrap" class="hidden mt-3">
+            <div class="flex items-center justify-between gap-3">
+              <div class="text-sm text-slate-300">Select items from snapshot</div>
+              <button id="rs-snap-browse" type="button" class="px-3 py-2 rounded bg-slate-700 hover:bg-slate-600 text-white text-sm">Browse snapshot…</button>
+            </div>
+            <div class="mt-2 border border-slate-700 rounded bg-slate-900/40">
+              <div class="px-3 py-2 border-b border-slate-800 text-xs text-slate-400">
+                Selected items (<span id="rs-selected-count">0</span>)
+              </div>
+              <div id="rs-selected-items" class="max-h-48 overflow-y-auto divide-y divide-slate-800 text-sm text-slate-200"></div>
+              <div id="rs-selected-empty" class="px-3 py-3 text-sm text-slate-400">No items selected yet. Click “Browse snapshot…” to choose files and folders.</div>
+            </div>
+            <div class="text-xs text-slate-400">Tip: Selecting a folder restores the entire folder contents.</div>
+          </div>
+        </div>
+      </div>
       <div class="flex justify-between items-center mt-4 border-t border-slate-800 pt-3">
         <button id="restore-back" class="px-4 py-2 text-slate-300">Back</button>
         <div class="ml-auto space-x-2">
@@ -1793,6 +1816,8 @@ try {
   <input type="hidden" id="rs-selected-snapshot" value="" />
   <input type="hidden" id="rs-selected-engine" value="" />
   <input type="hidden" id="rs-device-id" value="" />
+  <input type="hidden" id="rs-scope-hidden" value="all" />
+  <input type="hidden" id="rs-paths-hidden" value="[]" />
 </div>
 
 <!-- Toast container -->
@@ -1827,6 +1852,46 @@ try {
         <button id="fsb-select" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded">Select</button>
       </div>
       <div class="text-xs text-slate-400 mt-2">Double-click folders to open. Click a folder, then Select to choose it.</div>
+    </div>
+  </div>
+</div>
+
+<!-- Snapshot Browser Modal (Select items to restore) -->
+<div id="snap-browser" class="fixed inset-0 z-50 hidden">
+  <div class="absolute inset-0 bg-black/60"></div>
+  <div class="relative mx-auto my-6 w-full max-w-4xl bg-slate-900 border border-slate-700 rounded-lg shadow-xl">
+    <div class="flex items-center justify-between px-5 py-3 border-b border-slate-700">
+      <h3 class="text-slate-200 text-lg font-semibold">Browse Snapshot</h3>
+      <button id="ssb-close" class="text-slate-400 hover:text-slate-200">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="px-5 py-4">
+      <div class="flex items-center gap-2 mb-3">
+        <button id="ssb-up" class="px-3 py-1.5 text-xs bg-sky-600 hover:bg-sky-700 text-white rounded inline-flex items-center gap-1">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19V7m0 0 4 4m-4-4-4 4" />
+          </svg>
+          Up
+        </button>
+        <div id="ssb-path" class="flex-1 text-xs px-2 py-1 rounded bg-slate-800 border border-slate-700 text-slate-300 overflow-x-auto"></div>
+        <button id="ssb-refresh" class="px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-white rounded">Refresh</button>
+      </div>
+      <div class="border border-slate-700 rounded overflow-hidden">
+        <div class="grid grid-cols-12 gap-0 bg-slate-800/60 px-3 py-2 text-xs text-slate-300">
+          <div class="col-span-1"></div>
+          <div class="col-span-7">Name</div>
+          <div class="col-span-1">Type</div>
+          <div class="col-span-3 text-right">Modified</div>
+        </div>
+        <div id="ssb-list" class="max-h-80 overflow-y-auto divide-y divide-slate-800"></div>
+      </div>
+      <div class="mt-3 flex items-center gap-2">
+        <input id="ssb-selected" type="text" class="flex-1 px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200" placeholder="Selected items" readonly>
+        <button id="ssb-clear" class="px-3 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded">Clear</button>
+        <button id="ssb-select" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded">Select</button>
+      </div>
+      <div class="text-xs text-slate-400 mt-2">Click folders to open. Use checkboxes to select files and folders, then click Select.</div>
     </div>
   </div>
 </div>

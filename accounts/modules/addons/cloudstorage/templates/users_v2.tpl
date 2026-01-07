@@ -259,7 +259,7 @@
   </div>
 
   <!-- Create Access Key modal -->
-  <div x-show="modals.createKey" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/75">
+  <div x-show="modals.createKey" x-cloak class="fixed inset-0 z-50 flex items-center justify-center">
     <div class="w-full max-w-xl rounded-2xl border border-slate-800 bg-slate-950 p-6" @click.away="modals.createKey = false">
       <div class="flex items-center justify-between mb-4">
         <h3 class="text-lg font-semibold text-white">Create access key</h3>
@@ -353,7 +353,7 @@
           <label class="block text-xs text-slate-400 mb-1">Access key</label>
           <div class="flex gap-2">
             <input type="text" readonly :value="newKey.access_key"
-                   class="flex-1 bg-slate-900 border border-slate-700 text-slate-200 rounded-md px-3 py-2 font-mono text-sm select-all">
+                   class="w-full rounded-md bg-slate-900 border border-gray-600 rounded-md shadow-sm cursor-default px-3 py-2 focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500 text-sm text-slate-200 font-mono">
             <button class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-2 rounded-md text-sm"
                     @click="copyText(newKey.access_key)">Copy</button>
           </div>
@@ -362,7 +362,7 @@
           <label class="block text-xs text-slate-400 mb-1">Secret key</label>
           <div class="flex gap-2">
             <input type="text" readonly :value="newKey.secret_key"
-                   class="flex-1 bg-slate-900 border border-slate-700 text-slate-200 rounded-md px-3 py-2 font-mono text-sm select-all">
+                   class="w-full rounded-md bg-slate-900 border border-gray-600 rounded-md shadow-sm cursor-default px-3 py-2 focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500 text-sm text-slate-200 font-mono">
             <button class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-2 rounded-md text-sm"
                     @click="copyText(newKey.secret_key)">Copy</button>
           </div>

@@ -16,10 +16,20 @@ use WHMCS\Database\Capsule;
 
 try {
 	// Read required settings from addon configuration
-	$settings = Capsule::table('tbladdonmodules')->where('module','cloudstorage');
-	$endpoint       = (string)$settings->clone()->where('setting','s3_endpoint')->value('value');
-	$adminAccessKey = (string)$settings->clone()->where('setting','ceph_access_key')->value('value');
-	$adminSecretKey = (string)$settings->clone()->where('setting','ceph_secret_key')->value('value');
+	// NOTE: Illuminate/WHMCS query builder does not implement ->clone().
+	// Fetch all settings once and map by key for reliability in cron/CLI.
+	$configRows = Capsule::table('tbladdonmodules')
+		->where('module', 'cloudstorage')
+		->get(['setting', 'value']);
+
+	$config = [];
+	foreach ($configRows as $row) {
+		$config[(string)$row->setting] = (string)$row->value;
+	}
+
+	$endpoint       = $config['s3_endpoint'] ?? '';
+	$adminAccessKey = $config['ceph_access_key'] ?? '';
+	$adminSecretKey = $config['ceph_secret_key'] ?? '';
 
 	if ($endpoint === '' || $adminAccessKey === '' || $adminSecretKey === '') {
 		throw new \RuntimeException('Missing cloudstorage addon settings (s3_endpoint / ceph_access_key / ceph_secret_key)');
@@ -44,5 +54,9 @@ try {
 } catch (Exception $e) {
 	$message = '[Bucket Size History Cron] Exception: ' . $e->getMessage();
 	error_log($message);
+	// Helpful when executed manually via CLI (cron output redirection, ad-hoc debugging)
+	if (PHP_SAPI === 'cli') {
+		fwrite(STDERR, $message . PHP_EOL);
+	}
 	exit(1);
 }
