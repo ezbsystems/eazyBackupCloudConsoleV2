@@ -244,6 +244,275 @@ Modals (overlay + card)
   </div>
 </div>
 
+---
+
+## Slide Drawers & Modals with Transitions
+
+Use these standardized patterns for all slide-out drawers and modal overlays to ensure consistent animations and styling across the application.
+
+### Color Tokens (Drawers & Modals)
+
+| Element | Classes |
+|---------|---------|
+| Drawer background | `bg-slate-950/95` |
+| Drawer border | `border-l border-slate-800` |
+| Drawer shadow | `shadow-2xl` |
+| Modal background | `bg-slate-900/95` or `bg-slate-900` |
+| Modal border | `border border-slate-700` |
+| Modal shadow | `shadow-2xl` or `shadow-xl shadow-black/30` |
+| Backdrop | `bg-black/50` (drawers) or `bg-black/60` (modals) |
+| Header border | `border-b border-slate-800` |
+| Footer border | `border-t border-slate-800` |
+| Section dividers | `border-slate-700` or `border-slate-800` |
+
+### Text Colors
+
+| Element | Classes |
+|---------|---------|
+| Title | `text-slate-100` or `text-lg font-semibold text-slate-100` |
+| Subtitle/helper | `text-xs text-slate-400` |
+| Body text | `text-sm text-slate-300` |
+| Accent text (links, usernames) | `text-sky-400` |
+| Muted text | `text-slate-500` |
+
+### Slide Drawer (Right Panel)
+
+Standard drawer that slides in from the right edge. Use `z-[10060]` for proper stacking above other content.
+
+```html
+{* Drawer Container *}
+<div x-data="myDrawer()" 
+     @my-event.window="openDrawer($event.detail)"
+     class="fixed inset-0 z-[10060] pointer-events-none">
+  
+  {* Backdrop overlay *}
+  <div x-show="open"
+       x-transition:enter="transition ease-out duration-200"
+       x-transition:enter-start="opacity-0"
+       x-transition:enter-end="opacity-100"
+       x-transition:leave="transition ease-in duration-150"
+       x-transition:leave-start="opacity-100"
+       x-transition:leave-end="opacity-0"
+       @click="closeDrawer()"
+       class="absolute inset-0 bg-black/50 pointer-events-auto"></div>
+  
+  {* Drawer Panel *}
+  <div x-show="open"
+       x-transition:enter="transition ease-out duration-200"
+       x-transition:enter-start="translate-x-full opacity-0"
+       x-transition:enter-end="translate-x-0 opacity-100"
+       x-transition:leave="transition ease-in duration-200"
+       x-transition:leave-start="translate-x-0 opacity-100"
+       x-transition:leave-end="translate-x-full opacity-80"
+       class="fixed inset-y-0 right-0 z-[10060] w-full sm:max-w-[440px] bg-slate-950/95 border-l border-slate-800 shadow-2xl pointer-events-auto">
+    
+    <div class="h-full flex flex-col">
+      {* Header with staggered fade-in *}
+      <div class="px-5 py-4 border-b border-slate-800"
+           x-show="open"
+           x-transition:enter="transition ease-out duration-300 delay-100"
+           x-transition:enter-start="opacity-0 -translate-y-2"
+           x-transition:enter-end="opacity-100 translate-y-0"
+           x-transition:leave="transition ease-in duration-150"
+           x-transition:leave-start="opacity-100"
+           x-transition:leave-end="opacity-0">
+        <!-- header content -->
+      </div>
+      
+      {* Content with staggered fade-in *}
+      <div class="flex-1 overflow-y-auto px-5 py-5">
+        <div x-show="open"
+             x-transition:enter="transition ease-out duration-300 delay-150"
+             x-transition:enter-start="opacity-0 translate-y-3"
+             x-transition:enter-end="opacity-100 translate-y-0"
+             x-transition:leave="transition ease-in duration-100"
+             x-transition:leave-start="opacity-100"
+             x-transition:leave-end="opacity-0">
+          <!-- main content -->
+        </div>
+      </div>
+      
+      {* Footer with staggered fade-in *}
+      <div class="px-5 py-4 border-t border-slate-800"
+           x-show="open"
+           x-transition:enter="transition ease-out duration-300 delay-[350ms]"
+           x-transition:enter-start="opacity-0 translate-y-2"
+           x-transition:enter-end="opacity-100 translate-y-0"
+           x-transition:leave="transition ease-in duration-100"
+           x-transition:leave-start="opacity-100"
+           x-transition:leave-end="opacity-0">
+        <!-- footer buttons -->
+      </div>
+    </div>
+  </div>
+</div>
+```
+
+### Transition Timing Reference
+
+| Element | Enter Duration | Enter Delay | Leave Duration |
+|---------|---------------|-------------|----------------|
+| Backdrop | 200ms | 0 | 150ms |
+| Drawer panel | 200ms | 0 | 200ms |
+| Header | 300ms | 100ms | 150ms |
+| Content | 300ms | 150ms | 100ms |
+| Form fields (staggered) | 300ms | 200ms, 250ms, 300ms... | 100ms |
+| Footer | 300ms | 350ms | 100ms |
+
+### Staggered Content Animation
+
+For form fields or content items that should appear one after another, increment the delay:
+
+```html
+{* First field *}
+<div x-show="open"
+     x-transition:enter="transition ease-out duration-300 delay-200"
+     x-transition:enter-start="opacity-0 translate-y-2"
+     x-transition:enter-end="opacity-100 translate-y-0">
+  <!-- field 1 -->
+</div>
+
+{* Second field *}
+<div x-show="open"
+     x-transition:enter="transition ease-out duration-300 delay-[250ms]"
+     x-transition:enter-start="opacity-0 translate-y-2"
+     x-transition:enter-end="opacity-100 translate-y-0">
+  <!-- field 2 -->
+</div>
+
+{* Third field *}
+<div x-show="open"
+     x-transition:enter="transition ease-out duration-300 delay-300"
+     x-transition:enter-start="opacity-0 translate-y-2"
+     x-transition:enter-end="opacity-100 translate-y-0">
+  <!-- field 3 -->
+</div>
+```
+
+### Drawer Close Button
+
+Standard close button for drawer headers:
+
+```html
+<button type="button"
+        class="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-slate-800 bg-slate-900/40 text-slate-300 hover:bg-slate-900/70 hover:text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50"
+        @click="closeDrawer()"
+        aria-label="Close">
+  <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/>
+  </svg>
+</button>
+```
+
+### Modal with Transitions
+
+Centered modal overlay with fade and scale animation:
+
+```html
+<div x-show="open" class="fixed inset-0 z-[10070] flex items-center justify-center">
+  {* Backdrop *}
+  <div x-show="open"
+       x-transition:enter="transition ease-out duration-200"
+       x-transition:enter-start="opacity-0"
+       x-transition:enter-end="opacity-100"
+       x-transition:leave="transition ease-in duration-150"
+       x-transition:leave-start="opacity-100"
+       x-transition:leave-end="opacity-0"
+       class="absolute inset-0 bg-black/60"></div>
+  
+  {* Modal Panel *}
+  <div x-show="open"
+       x-transition:enter="transition ease-out duration-200"
+       x-transition:enter-start="opacity-0 scale-95"
+       x-transition:enter-end="opacity-100 scale-100"
+       x-transition:leave="transition ease-in duration-150"
+       x-transition:leave-start="opacity-100 scale-100"
+       x-transition:leave-end="opacity-0 scale-95"
+       class="relative w-full max-w-md mx-4 bg-slate-900/95 border border-slate-700 rounded-xl shadow-2xl">
+    
+    {* Header *}
+    <div class="px-5 py-4 border-b border-slate-700 flex items-center justify-between">
+      <h3 class="text-slate-100 text-lg font-semibold">Modal Title</h3>
+      <button class="text-slate-400 hover:text-slate-200" @click="open=false">
+        <svg class="h-5 w-5" ...></svg>
+      </button>
+    </div>
+    
+    {* Content *}
+    <div class="px-5 py-5">
+      <!-- content -->
+    </div>
+    
+    {* Footer *}
+    <div class="px-5 py-4 border-t border-slate-700 flex justify-end gap-3">
+      <button class="px-4 py-2.5 rounded-lg border border-slate-800 bg-transparent hover:bg-slate-900/60 text-slate-200 text-sm">Cancel</button>
+      <button class="px-5 py-2.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium">Confirm</button>
+    </div>
+  </div>
+</div>
+```
+
+### Primary Action Button (Gradient)
+
+For primary actions in drawers/modals, use this gradient button:
+
+```html
+<button type="button"
+        class="inline-flex items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold shadow-sm ring-1 ring-sky-500/40 bg-gradient-to-r from-sky-500 to-sky-400 text-white transition hover:from-sky-600 hover:to-sky-500 disabled:opacity-50 disabled:cursor-not-allowed"
+        :disabled="saving"
+        @click="submit()">
+  <svg x-show="saving" class="animate-spin h-4 w-4" ...></svg>
+  <span x-text="saving ? 'Saving…' : 'Save'"></span>
+</button>
+```
+
+### Secondary/Cancel Button
+
+```html
+<button type="button"
+        class="px-4 py-2.5 rounded-lg border border-slate-800 bg-transparent hover:bg-slate-900/60 text-slate-200 text-sm transition"
+        @click="closeDrawer()">
+  Cancel
+</button>
+```
+
+### Success/Confirmation Callout (inside modals)
+
+```html
+<div class="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
+  <div class="text-xs uppercase tracking-wide text-emerald-400 mb-2">Success Title</div>
+  <div class="text-slate-100 font-mono text-lg">Content here</div>
+</div>
+```
+
+### Warning Callout (inside modals)
+
+```html
+<div class="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+  <div class="flex items-start gap-3">
+    <svg class="h-5 w-5 shrink-0 text-amber-400 mt-0.5" ...></svg>
+    <div>
+      <div class="font-medium text-amber-300">Warning Title</div>
+      <p class="mt-1 text-sm text-slate-300">Warning message...</p>
+    </div>
+  </div>
+</div>
+```
+
+### Z-Index Stacking Reference
+
+| Element | Z-Index |
+|---------|---------|
+| Page content | default |
+| Dropdowns/popovers | `z-10` |
+| Fixed headers | `z-40` |
+| Standard modals | `z-50` |
+| Slide drawers | `z-[10060]` |
+| Overlay modals (above drawers) | `z-[10070]` |
+| Toast notifications | `z-[10080]` |
+
+---
+
 4) Layout patterns
 Two-column form
 <div class="grid grid-cols-1 md:grid-cols-12 gap-6">

@@ -1,3 +1,28 @@
+{literal}
+<style>
+/* Dark slim scrollbar for vaults table */
+.overflow-x-auto::-webkit-scrollbar {
+    height: 6px;
+}
+.overflow-x-auto::-webkit-scrollbar-track {
+    background: rgba(30, 41, 59, 0.5);
+    border-radius: 3px;
+}
+.overflow-x-auto::-webkit-scrollbar-thumb {
+    background: rgba(71, 85, 105, 0.8);
+    border-radius: 3px;
+}
+.overflow-x-auto::-webkit-scrollbar-thumb:hover {
+    background: rgba(100, 116, 139, 0.9);
+}
+/* Firefox */
+.overflow-x-auto {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(71, 85, 105, 0.8) rgba(30, 41, 59, 0.5);
+}
+</style>
+{/literal}
+
 <div class="min-h-screen bg-slate-950 text-gray-300">
     <!-- Global nebula background -->
     <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
@@ -186,7 +211,8 @@
 
                     {assign var=tbBytes value=1099511627776}
 
-                    <div class="bg-gray-900/50 rounded-lg overflow-visible"
+                    <div class="bg-gray-900/50 rounded-lg overflow-x-auto"
+                         data-vaults-loader-host
                          x-data="{
                             open:false,
                             search:'',
@@ -223,8 +249,8 @@
                         </div>
 
                         <table id="vaults-table" class="min-w-full divide-y divide-gray-700" x-init="
-                          (()=>{ try{ document.addEventListener('vaults:hydrate-start', ()=> window.ebShowLoader && window.ebShowLoader($el.closest('.bg-gray-900/50')) ); }catch(_){ }
-                                 try{ document.addEventListener('vaults:hydrate-end',   ()=> window.ebHideLoader && window.ebHideLoader($el.closest('.bg-gray-900/50')) ); }catch(_){ }
+                          (()=>{ try{ document.addEventListener('vaults:hydrate-start', ()=> window.ebShowLoader && window.ebShowLoader($el.closest('[data-vaults-loader-host]')) ); }catch(_){ }
+                                 try{ document.addEventListener('vaults:hydrate-end',   ()=> window.ebHideLoader && window.ebHideLoader($el.closest('[data-vaults-loader-host]')) ); }catch(_){ }
                           })()
                         ">
                             <thead class="bg-gray-800/50">
@@ -260,10 +286,6 @@
                                                         </svg>
                                                         <span class="text-white font-semibold">{$acctName}</span>
                                                         <span class="acct-count-badge inline-flex items-center px-2 py-0.5 rounded-full bg-slate-700 text-slate-200 text-xs">{$acctTotals.count|default:0} vault{if $acctTotals.count|default:0 != 1}s{/if}</span>
-                                                    </div>
-                                                    <div class="flex flex-wrap items-center gap-4 text-sm text-slate-300">
-                                                        <span class="acct-total-quota">Total Quota: {\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($acctTotals.quota, 2)}</span>
-                                                        <span class="acct-billable text-emerald-400 font-semibold">Billable: {if $billableTB>0}{$billableTB} TB{else}—{/if}</span>
                                                     </div>
                                                 </div>
                                             </td>
@@ -401,69 +423,116 @@
     </div>
 </div>
 
-<!-- Shared slide-over and storage stats modal reused from user-profile -->
-<div id="vault-slide-panel-container" class="fixed inset-0 z-50 pointer-events-none">
-  <div id="vault-panel-backdrop" class="absolute inset-0 bg-black/50 opacity-0 transition-opacity duration-200 pointer-events-none"></div>
-  <div id="vault-slide-panel" class="absolute inset-y-0 right-0 w-full max-w-2xl transform translate-x-full transition-transform duration-200 ease-out pointer-events-auto">
-  <div class="h-full bg-slate-900 border-l border-slate-700 shadow-xl flex flex-col" data-modulelink="{$modulelink}">
-    <div class="flex items-center justify-between px-4 py-3 border-b border-slate-700">
+{* Vault slide-over panel with Alpine.js transitions *}
+<div id="vault-slide-panel-container" 
+     x-data="{ open: false }"
+     @vault-panel:open.window="open = true"
+     @vault-panel:close.window="open = false"
+     class="fixed inset-0 z-[10060] pointer-events-none">
+  
+  {* Backdrop overlay *}
+  <div id="vault-panel-backdrop" 
+       x-show="open"
+       x-transition:enter="transition ease-out duration-200"
+       x-transition:enter-start="opacity-0"
+       x-transition:enter-end="opacity-100"
+       x-transition:leave="transition ease-in duration-150"
+       x-transition:leave-start="opacity-100"
+       x-transition:leave-end="opacity-0"
+       @click="open = false; window.dispatchEvent(new CustomEvent('vault-panel:closed'))"
+       class="absolute inset-0 bg-black/50 pointer-events-auto"></div>
+  
+  {* Panel *}
+  <div id="vault-slide-panel" 
+       x-show="open"
+       x-transition:enter="transition ease-out duration-200"
+       x-transition:enter-start="translate-x-full opacity-0"
+       x-transition:enter-end="translate-x-0 opacity-100"
+       x-transition:leave="transition ease-in duration-200"
+       x-transition:leave-start="translate-x-0 opacity-100"
+       x-transition:leave-end="translate-x-full opacity-80"
+       class="fixed inset-y-0 right-0 w-full max-w-2xl bg-slate-950/95 border-l border-slate-800 shadow-2xl pointer-events-auto">
+    <div class="h-full flex flex-col" data-modulelink="{$modulelink}">
+    
+    {* Header with staggered fade-in *}
+    <div class="flex items-center justify-between px-5 py-4 border-b border-slate-800"
+         x-show="open"
+         x-transition:enter="transition ease-out duration-300 delay-100"
+         x-transition:enter-start="opacity-0 -translate-y-2"
+         x-transition:enter-end="opacity-100 translate-y-0"
+         x-transition:leave="transition ease-in duration-150"
+         x-transition:leave-start="opacity-100"
+         x-transition:leave-end="opacity-0">
       <div>
-        <h3 class="text-slate-200 text-lg font-semibold">Manage Storage Vault</h3>
-        <div class="text-slate-400 text-sm">Vault: <span id="vault-panel-name" class="text-slate-300 font-mono"></span></div>
+        <h3 class="text-slate-100 text-lg font-semibold">Manage Storage Vault</h3>
+        <div class="text-xs text-slate-400 mt-0.5">Vault: <span id="vault-panel-name" class="text-sky-400 font-mono"></span></div>
       </div>
-      <button id="vault-panel-close" class="text-slate-400 hover:text-slate-200">
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      <button id="vault-panel-close" 
+              @click="open = false; window.dispatchEvent(new CustomEvent('vault-panel:closed'))"
+              class="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-slate-800 bg-slate-900/40 text-slate-300 hover:bg-slate-900/70 hover:text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50"
+              aria-label="Close">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/>
+        </svg>
       </button>
     </div>
     <input type="hidden" id="vault-mgr-id" value="" />
 
+    {* Content with staggered fade-in *}
     <div class="flex-1 overflow-y-auto" x-data="{ tab: 'general' }">
-      <div class="px-4 pt-3 border-b border-slate-800">
+      <div class="px-5 pt-3 border-b border-slate-800"
+           x-show="open"
+           x-transition:enter="transition ease-out duration-300 delay-150"
+           x-transition:enter-start="opacity-0 translate-y-2"
+           x-transition:enter-end="opacity-100 translate-y-0"
+           x-transition:leave="transition ease-in duration-100"
+           x-transition:leave-start="opacity-100"
+           x-transition:leave-end="opacity-0">
         <nav class="flex space-x-4" aria-label="Tabs">
-          <a href="#" @click.prevent="tab='general'" :class="tab==='general' ? 'text-sky-400 border-sky-500' : 'text-slate-300 border-transparent hover:text-slate-100'" class="px-1 pb-2 border-b-2 text-sm font-medium">General</a>
-          <a href="#" @click.prevent="tab='retention'" :class="tab==='retention' ? 'text-sky-400 border-sky-500' : 'text-slate-300 border-transparent hover:text-slate-100'" class="px-1 pb-2 border-b-2 text-sm font-medium">Retention</a>
-          <a href="#" @click.prevent="tab='danger'" :class="tab==='danger' ? 'text-rose-400 border-rose-500' : 'text-slate-300 border-transparent hover:text-slate-100'" class="px-1 pb-2 border-b-2 text-sm font-medium">Danger zone</a>
+          <a href="#" @click.prevent="tab='general'" :class="tab==='general' ? 'text-sky-400 border-sky-500' : 'text-slate-300 border-transparent hover:text-slate-100'" class="px-1 pb-2 border-b-2 text-sm font-medium transition">General</a>
+          <a href="#" @click.prevent="tab='retention'" :class="tab==='retention' ? 'text-sky-400 border-sky-500' : 'text-slate-300 border-transparent hover:text-slate-100'" class="px-1 pb-2 border-b-2 text-sm font-medium transition">Retention</a>
+          <a href="#" @click.prevent="tab='danger'" :class="tab==='danger' ? 'text-rose-400 border-rose-500' : 'text-slate-300 border-transparent hover:text-slate-100'" class="px-1 pb-2 border-b-2 text-sm font-medium transition">Danger zone</a>
         </nav>
       </div>
 
-      <div x-show="tab==='general'" class="px-4 py-4 space-y-6">
+      <div x-show="tab==='general'" x-transition class="px-5 py-5 space-y-6">
         <div>
           <label class="block text-sm text-slate-300 mb-1">Vault name</label>
-          <input id="vault-mgr-name" type="text" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm" placeholder="Vault name" />
+          <input id="vault-mgr-name" type="text" class="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-900/60 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/40 focus:border-sky-600 placeholder:text-slate-500 transition" placeholder="Vault name" />
         </div>
-        <div class="space-y-2">
+        <div class="space-y-3">
           <label class="block text-sm text-slate-300">Quota</label>
           <div class="flex items-center gap-2">
-            <input id="vault-quota-unlimited2" type="checkbox" class="h-4 w-4 rounded border-slate-500 bg-slate-600 text-sky-600">
+            <input id="vault-quota-unlimited2" type="checkbox" class="h-4 w-4 rounded border-slate-600 bg-slate-800 text-sky-600 focus:ring-sky-500/40 focus:ring-offset-0">
             <span class="text-slate-300 text-sm">Unlimited</span>
           </div>
           <div class="flex items-center gap-2">
-            <input id="vault-quota-size2" type="number" class="w-40 px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm" placeholder="0" />
+            <input id="vault-quota-size2" type="number" class="w-40 px-3 py-2 rounded-lg border border-slate-700 bg-slate-900/60 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/40 focus:border-sky-600 placeholder:text-slate-500 transition" placeholder="0" />
             <div class="relative" x-data="{ open:false, unit:'GB' }" @click.away="open=false">
               <input type="hidden" id="vault-quota-unit2" :value="unit">
-              <button type="button" @click="open=!open" class="w-28 text-left px-3 py-2 bg-slate-800 border border-slate-600 rounded text-slate-200 text-sm pr-8">
+              <button type="button" @click="open=!open" class="w-28 text-left px-3 py-2 bg-slate-900/60 border border-slate-700 rounded-lg text-slate-200 text-sm pr-8 hover:bg-slate-900/80 transition">
                 <span x-text="unit"></span>
                 <span class="pointer-events-none absolute inset-y-0 right-2 flex items-center text-slate-400">
                   <svg class="h-4 w-4 ml-2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.24 4.5a.75.75 0 01-1.08 0l-4.24-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg>
                 </span>
               </button>
-              <div x-show="open" x-transition class="absolute z-10 mt-1 w-full bg-slate-800 border border-slate-700 rounded shadow-lg">
+              <div x-show="open" x-transition class="absolute z-10 mt-1 w-full bg-slate-900 border border-slate-700 rounded-lg shadow-lg">
                 <ul class="py-1 text-sm text-slate-200">
-                  <li><a href="#" class="block px-3 py-2 hover:bg-slate-700" @click.prevent="unit='GB'; open=false">GB</a></li>
-                  <li><a href="#" class="block px-3 py-2 hover:bg-slate-700" @click.prevent="unit='TB'; open=false">TB</a></li>
+                  <li><a href="#" class="block px-3 py-2 hover:bg-slate-800 transition" @click.prevent="unit='GB'; open=false">GB</a></li>
+                  <li><a href="#" class="block px-3 py-2 hover:bg-slate-800 transition" @click.prevent="unit='TB'; open=false">TB</a></li>
                 </ul>
               </div>
             </div>
           </div>
-          <div class="text-xs text-slate-400">Changes apply to this vault only.</div>
+          <div class="text-xs text-slate-500">Changes apply to this vault only.</div>
         </div>
-        <div class="pt-2 border-t border-slate-800 flex justify-end">
-          <button id="vault-save-all" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-sm">Save</button>
+        <div class="pt-4 border-t border-slate-800 flex justify-end">
+          <button id="vault-save-all" class="inline-flex items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold shadow-sm ring-1 ring-emerald-500/40 bg-gradient-to-r from-emerald-600 to-emerald-500 text-white transition hover:from-emerald-700 hover:to-emerald-600">Save</button>
         </div>
       </div>
 
-      <div x-show="tab==='retention'" id="vault-retention-tab" class="px-4 py-4" x-data="retention()" @retention:update.window="state.override=$event.detail.override; state.mode=$event.detail.mode; state.ranges=$event.detail.ranges; state.defaultMode=$event.detail.defaultMode; state.defaultRanges=$event.detail.defaultRanges">
-        <h4 class="text-slate-200 font-semibold mb-2">Retention</h4>
+      <div x-show="tab==='retention'" x-transition id="vault-retention-tab" class="px-5 py-5" x-data="retention()" @retention:update.window="state.override=$event.detail.override; state.mode=$event.detail.mode; state.ranges=$event.detail.ranges; state.defaultMode=$event.detail.defaultMode; state.defaultRanges=$event.detail.defaultRanges">
+        <h4 class="text-slate-100 font-semibold mb-3">Retention</h4>
         <div class="mb-3">
           <div x-show="!state.override" class="inline-flex items-center gap-2 rounded-full bg-slate-700/70 text-slate-100 px-3 py-1.5 text-sm" title="This vault follows the account's default retention policy.">
             <svg class="size-4 opacity-80" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
@@ -475,7 +544,7 @@
           </div>
         </div>
         <div class="flex items-center gap-2 mb-3">
-          <input id="ret-override" type="checkbox" class="h-4 w-4 rounded border-slate-500 bg-slate-600 text-sky-600" x-model="state.override">
+          <input id="ret-override" type="checkbox" class="h-4 w-4 rounded border-slate-600 bg-slate-800 text-sky-600 focus:ring-sky-500/40 focus:ring-offset-0" x-model="state.override">
           <label for="ret-override" class="text-sm text-slate-300">Override account retention for this vault</label>
         </div>
         <template x-if="!state.override">
@@ -485,25 +554,35 @@
           <p class="text-slate-300 font-medium mb-1">Effective policy:</p>
           <ul class="list-disc pl-5 text-slate-200 text-sm space-y-1" x-html="formattedEffectivePolicyLines().join('')"></ul>
         </div>
-        <div class="mt-3 flex justify-end">
-          <button id="vault-retention-save" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-sm">Save</button>
+        <div class="mt-4 flex justify-end">
+          <button id="vault-retention-save" class="inline-flex items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold shadow-sm ring-1 ring-emerald-500/40 bg-gradient-to-r from-emerald-600 to-emerald-500 text-white transition hover:from-emerald-700 hover:to-emerald-600">Save</button>
         </div>
       </div>
 
-      <div x-show="tab==='danger'" class="px-4 py-4 space-y-3">
+      <div x-show="tab==='danger'" x-transition class="px-5 py-5 space-y-4">
         <h4 class="text-rose-400 font-semibold">Danger zone</h4>
-        <div class="text-sm text-slate-300">Deleting a vault cannot be undone.</div>
-        <button id="vault-delete" class="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded text-sm">Delete</button>
-        <div id="vault-delete-confirm" class="hidden border border-slate-700 rounded p-3 bg-slate-900/60">
-          <div class="text-slate-200 text-sm font-semibold mb-1">Confirm your account password</div>
-          <div class="text-slate-400 text-xs mb-2">This is the password you use to sign in to your eazyBackup Client Area.</div>
-          <input id="vault-delete-password" type="password" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm mb-2" placeholder="Account password" />
-          <div class="flex justify-end gap-2">
-            <button id="vault-delete-cancel" class="px-3 py-2 text-slate-300 hover:text-white text-sm">Cancel</button>
-            <button id="vault-delete-confirm-btn" class="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded text-sm">Confirm delete</button>
+        <div class="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4">
+          <div class="flex items-start gap-3">
+            <svg class="h-5 w-5 shrink-0 text-rose-400 mt-0.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+            </svg>
+            <div>
+              <div class="font-medium text-rose-300">Delete this vault</div>
+              <p class="mt-1 text-sm text-slate-300">Deleting a vault cannot be undone. All data will be permanently lost.</p>
             </div>
           </div>
         </div>
+        <button id="vault-delete" class="inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold shadow-sm ring-1 ring-rose-500/40 bg-gradient-to-r from-rose-600 to-rose-500 text-white transition hover:from-rose-700 hover:to-rose-600">Delete Vault</button>
+        <div id="vault-delete-confirm" class="hidden rounded-xl border border-slate-700 p-4 bg-slate-900/60 space-y-3">
+          <div class="text-slate-100 text-sm font-semibold">Confirm your account password</div>
+          <div class="text-slate-400 text-xs">This is the password you use to sign in to your eazyBackup Client Area.</div>
+          <input id="vault-delete-password" type="password" class="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-900/60 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500/40 focus:border-rose-600 placeholder:text-slate-500 transition" placeholder="Account password" />
+          <div class="flex justify-end gap-3 pt-2">
+            <button id="vault-delete-cancel" class="px-4 py-2.5 rounded-lg border border-slate-800 bg-transparent hover:bg-slate-900/60 text-slate-200 text-sm transition">Cancel</button>
+            <button id="vault-delete-confirm-btn" class="inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold shadow-sm ring-1 ring-rose-500/40 bg-gradient-to-r from-rose-600 to-rose-500 text-white transition hover:from-rose-700 hover:to-rose-600">Confirm delete</button>
+          </div>
+        </div>
+      </div>
       </div>
     </div>
   </div>

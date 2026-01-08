@@ -274,24 +274,13 @@ document.addEventListener('DOMContentLoaded', function(){
     const delConfirm = document.getElementById('vault-delete-confirm-btn');
     const delPwd = document.getElementById('vault-delete-password');
 
-    // Helper to show backdrop
-    function showBackdrop() {
-      if (vbackdrop) {
-        vbackdrop.classList.remove('opacity-0', 'pointer-events-none');
-        vbackdrop.classList.add('opacity-100', 'pointer-events-auto');
-      }
-    }
-    // Helper to hide backdrop
-    function hideBackdrop() {
-      if (vbackdrop) {
-        vbackdrop.classList.remove('opacity-100', 'pointer-events-auto');
-        vbackdrop.classList.add('opacity-0', 'pointer-events-none');
-      }
-    }
-    // Close panel function
+    // Close panel function - uses Alpine.js events
     function closeVaultPanel() {
-      vpanel.classList.add('translate-x-full');
-      hideBackdrop();
+      window.dispatchEvent(new CustomEvent('vault-panel:close'));
+    }
+    // Open panel function - uses Alpine.js events
+    function openVaultPanelView() {
+      window.dispatchEvent(new CustomEvent('vault-panel:open'));
     }
 
     function openVaultPanel(btn){
@@ -360,14 +349,11 @@ document.addEventListener('DOMContentLoaded', function(){
           }
         } catch(_){}
       }
-      vpanel.classList.remove('translate-x-full');
-      showBackdrop();
+      // Use Alpine.js event to open the panel
+      openVaultPanelView();
       try { document.dispatchEvent(new CustomEvent('vault:open', { detail: { id, name } })); } catch(_) {}
     }
-    // Close panel when clicking close button
-    vclose && vclose.addEventListener('click', closeVaultPanel);
-    // Close panel when clicking backdrop (outside the panel)
-    vbackdrop && vbackdrop.addEventListener('click', closeVaultPanel);
+    // Note: Close button and backdrop clicks are now handled by Alpine.js in the template
     unlimitedEl && unlimitedEl.addEventListener('change', ()=>{
       if (sizeEl && unitEl) {
         const on = !!unlimitedEl.checked;
