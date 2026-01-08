@@ -46,7 +46,7 @@
                         name="subject"
                         id="inputSubject"
                         value="{$subject}"
-                        class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600"
+                        class="block w-full px-3 py-2 border border-gray-600 text-white bg-slate-900/50 rounded focus:outline-none focus:ring-0 focus:border-sky-600"
                     />
                 </div>
 
@@ -79,7 +79,7 @@
                     <textarea
                         name="message"
                         rows="12"
-                        class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600"
+                        class="block w-full px-3 py-2 border border-gray-600 text-white bg-slate-900/50 rounded focus:outline-none focus:ring-0 focus:border-sky-600"
                         placeholder="How can we help?"
                         ></textarea>
                 </div>
@@ -128,16 +128,16 @@
                 </div>
 
                 <!-- Submit & Cancel -->
-                <div class="flex items-center justify-center space-x-4 mt-4">
+                <div class="flex items-center justify-end gap-4 mt-4">
+                    <a href="supporttickets.php" class="text-sm font-medium text-slate-400 cursor-pointer hover:text-slate-200 transition">
+                        {$LANG.cancel}
+                    </a>
                     <input
                         type="submit"
                         id="openTicketSubmit"
                         value="{$LANG.supportticketsticketsubmit}"
-                        class="inline-flex items-center px-4 py-2 cursor-pointer border border-sky-500/70 shadow-sm text-sm font-medium rounded-full text-sky-50 bg-sky-600 hover:bg-sky-500 hover:border-sky-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 focus:ring-offset-slate-900 disable-on-click{$captcha->getButtonClass($captchaForm)}"
+                        class="inline-flex items-center px-5 py-2 shadow-sm text-sm font-medium rounded-full text-white bg-emerald-600 hover:bg-emerald-500 cursor-pointer focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 focus:ring-offset-slate-900 transition disable-on-click{$captcha->getButtonClass($captchaForm)}"
                     />
-                    <a href="supporttickets.php" class="text-sm/6 font-semibold text-slate-300 cursor-pointer hover:text-slate-100">
-                        {$LANG.cancel}
-                    </a>
                 </div>
             </form>
 

@@ -60,10 +60,10 @@
             <!-- Ticket Details -->
             {if !$invalidTicketId}
             <div class="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 mb-4">
-                <h2 class="text-lg font-medium text-white mb-2">
+                <h2 class="text-lg font-medium text-white mb-3">
                     Ticket #{$tid}: {$subject}
                 </h2>
-                <div class="flex justify-between items-center text-sm text-gray-300">
+                <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between text-sm text-gray-300">
                     <p class="text-sm">
                         Submitted by: 
                         {if $adminLoggedIn && $adminMasqueradingAsClient}
@@ -73,36 +73,41 @@
                             <span class="font-semibold">{$clientsdetails.fullname}</span>
                         {/if}
                     </p>
-                    <p class="text-sm">
-                        Status: 
-                        <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-slate-800/80 text-{$statusColor}">
-                            {$status}
-                        </span>
-                    </p>
+                    <div class="flex flex-wrap items-center gap-3">
+                        <p class="text-sm">
+                            Status: 
+                            <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-slate-800/80 text-{$statusColor}">
+                                {$status}
+                            </span>
+                        </p>
 
-                    <!-- Buttons -->
-                    <div class="flex space-x-2">
-                    <button id="ticketReply" type="button" class="inline-flex items-center px-4 py-2 cursor-pointer border border-sky-500/70 shadow-sm text-sm font-medium rounded-full text-sky-50 bg-sky-600 hover:bg-sky-500 hover:border-sky-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 focus:ring-offset-slate-900" onclick="smoothScroll('#ticketReplyContainer')">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-4 mr-1">
+                        <!-- Buttons -->
+                        <div class="flex flex-shrink-0 space-x-2">
+                    <button id="ticketReply" type="button" class="inline-flex items-center whitespace-nowrap px-4 py-2 cursor-pointer border border-sky-500/70 shadow-sm text-sm font-medium rounded-full text-sky-50 bg-sky-600 hover:bg-sky-500 hover:border-sky-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 focus:ring-offset-slate-900" onclick="smoothScroll('#ticketReplyContainer')">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 mr-1.5 flex-shrink-0">
                             <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Zm0 0L19.5 7.125" />
                         </svg>
                     {lang key='supportticketsreply'}
                     </button>
                     {if $showCloseButton}
                         {if $closedticket}
-                            <button class="text-xs px-3 py-1.5 bg-slate-800 text-slate-400 rounded-full cursor-not-allowed border border-slate-700">
-                                <i class="fas fa-times fa-fw"></i> {lang key='supportticketsstatusclosed'}
-                            </button>
-                        {else}
-                            <button class="text-xs px-3 py-1.5 bg-slate-800 text-slate-400 rounded-full cursor-not-allowed border border-slate-700" onclick="window.location='?tid={$tid}&amp;c={$c}&amp;closeticket=true'">
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-5">
+                            <button class="inline-flex items-center whitespace-nowrap text-sm px-4 py-2 bg-slate-800 text-slate-400 rounded-full cursor-not-allowed border border-slate-700">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 mr-1.5 flex-shrink-0">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
                                 </svg>
-                        {lang key='supportticketsclose'}
+                                {lang key='supportticketsstatusclosed'}
+                            </button>
+                        {else}
+                            <button class="inline-flex items-center whitespace-nowrap text-sm px-4 py-2 bg-slate-800 text-slate-300 rounded-full cursor-pointer border border-slate-700 hover:bg-slate-700 hover:text-slate-100 transition" onclick="window.location='?tid={$tid}&amp;c={$c}&amp;closeticket=true'">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 mr-1.5 flex-shrink-0">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                                </svg>
+                                {lang key='supportticketsclose'}
                             </button>
                         {/if}
                     {/if}
-                </div>
+                    </div>
+                    </div>
                 </div>
                 </div>
             
@@ -187,11 +192,11 @@
                             </p>
                         </div>
                     </div>
-                    <div class="mt-4 flex justify-end space-x-4">
-                        <button type="reset" class="text-sm/6 font-semibold text-slate-300 cursor-pointer hover:text-slate-100">
+                    <div class="mt-4 flex items-center justify-end gap-4">
+                        <button type="reset" class="text-sm font-medium text-slate-400 cursor-pointer hover:text-slate-200 transition">
                             {lang key='cancel'}
                         </button>
-                        <button type="submit" class="btn">
+                        <button type="submit" class="inline-flex items-center px-5 py-2 shadow-sm text-sm font-medium rounded-full text-white bg-emerald-600 hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 focus:ring-offset-slate-900 transition">
                             {lang key='supportticketsticketsubmit'}
                         </button>
                     </div>

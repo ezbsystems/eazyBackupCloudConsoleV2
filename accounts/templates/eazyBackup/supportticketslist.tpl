@@ -28,10 +28,11 @@
                 <!-- Create Ticket Button -->
                 <div class="flex mb-4 mt-2 py-3">
                     <a href="submitticket.php?step=2&deptid=1" 
-                    class="inline-flex items-center px-4 py-2 border border-sky-500/70 shadow-sm text-sm font-medium rounded-full text-sky-50 bg-sky-600 hover:bg-sky-500 hover:border-sky-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 focus:ring-offset-slate-900"
-                    >
-                        <span class="mr-1">＋ {$LANG.supportticketsopenticket}</span>
-                        
+                       class="inline-flex items-center px-5 py-2 shadow-sm text-sm font-medium rounded-full text-white bg-emerald-600 hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 focus:ring-offset-slate-900 transition">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4 mr-1.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                        </svg>
+                        Create Ticket
                     </a>
                 </div>
 
