@@ -46,7 +46,7 @@ $freshWindow = 15 * 60; // 15 minutes
 if ($verifiedAt <= 0 || (time() - $verifiedAt) > $freshWindow) {
     (new JsonResponse([
         'status' => 'fail',
-        'message' => 'Please verify your password to force delete this bucket.'
+        'message' => 'Please verify your account password to delete this bucket.'
     ], 200))->send();
     exit();
 }
@@ -121,19 +121,14 @@ if ($bucketName === '') {
     exit();
 }
 
-// Optional explicit acknowledgement + typed confirmation
-$ack = ($_POST['ack_bypass_governance'] ?? '0') === '1';
-$typed = $_POST['confirm_text'] ?? '';
-$typed = is_string($typed) ? trim($typed) : '';
-$requiredPhrase = 'FORCE DELETE BUCKET ' . $bucketName;
-if (!$ack) {
-    (new JsonResponse(['status' => 'fail', 'message' => 'Please acknowledge Governance retention bypass to continue.'], 200))->send();
-    exit();
-}
-if ($typed !== $requiredPhrase) {
-    (new JsonResponse(['status' => 'fail', 'message' => 'Confirmation text does not match. Paste: "' . $requiredPhrase . '"'], 200))->send();
-    exit();
-}
+    // Typed confirmation (single phrase used across delete flows)
+    $typed = $_POST['confirm_text'] ?? '';
+    $typed = is_string($typed) ? trim($typed) : '';
+    $requiredPhrase = 'DELETE BUCKET ' . $bucketName;
+    if ($typed !== $requiredPhrase) {
+        (new JsonResponse(['status' => 'fail', 'message' => 'Confirmation text does not match. Paste: "' . $requiredPhrase . '"'], 200))->send();
+        exit();
+    }
 
 // Validate client owns the product
 $packageId = ProductConfig::$E3_PRODUCT_ID;
@@ -318,7 +313,7 @@ if ($complianceRetained > 0) {
 }
 // Force delete applies when Governance retention is present, or the bucket default mode is Governance.
 if ($governanceRetained <= 0 && $mode !== 'GOVERNANCE') {
-    (new JsonResponse(['status' => 'fail', 'message' => 'Force delete (bypass governance) is only available when Governance retention is in effect.'], 200))->send();
+    (new JsonResponse(['status' => 'fail', 'message' => 'Governance bypass delete is only available for Governance mode buckets.'], 200))->send();
     exit();
 }
 
@@ -360,8 +355,7 @@ if (isset($_SESSION['contactid']) && (int)$_SESSION['contactid'] > 0) {
 }
 
 $audit = [
-    'source' => 'client_force_deletebucket',
-    'ack_bypass_governance' => 1,
+    'source' => 'client_governance_bypass_deletebucket',
     'confirm_phrase' => $requiredPhrase,
     'governance_retained_count' => $governanceRetained,
     'ip' => $_SERVER['REMOTE_ADDR'] ?? null,
