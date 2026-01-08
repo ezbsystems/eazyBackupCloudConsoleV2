@@ -134,7 +134,7 @@
                 error:(m)=>show(m,'error'),
                 info:(m)=>show(m,'info')
              }"
-             class="fixed top-4 right-4 z-50">
+             class="fixed top-4 right-4 z-[60]">
             <div x-show="visible" x-transition
                  class="rounded-md px-4 py-3 text-white shadow-lg min-w-[260px]"
                  :class="{

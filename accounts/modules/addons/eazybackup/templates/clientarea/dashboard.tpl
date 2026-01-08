@@ -5,28 +5,35 @@
     .status-glow {
         box-shadow: 0 0 8px rgba(59, 130, 246, 0.9);
     }
+    /* Override inherited text-gray-300 for specific elements */
+    .eb-text-white {
+        color: #ffffff !important;
+    }
+    .eb-text-muted {
+        color: #cbd5e1 !important; /* slate-300 */
+    }
 </style>
 {/literal}
 
 <div x-data="dashboardTabs('{$modulelink}', 'dashboard', '{$initialTab|escape:"html"}')" class="min-h-screen bg-slate-950 text-gray-300">
-    <!-- Global nebula background -->
-    <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
+    <!-- Global nebula background - z-0 to stay behind content -->
+    <div class="pointer-events-none fixed inset-0 z-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
 
-    <div class="container mx-auto px-4 py-8">
+    <div class="container mx-auto px-4 py-8 relative z-10">
         <!-- Glass panel container -->
         <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
             <!-- Header & Tabs -->
             <div class="flex flex-col mb-4 px-2 space-y-3">
                 <nav aria-label="breadcrumb">
                     <ol class="flex space-x-2">
-                        <li class="flex items-center">
+                        <li class="flex items-center eb-text-white">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
                                 stroke="currentColor" class="size-6 mr-2">
                                 <path stroke-linecap="round" stroke-linejoin="round"
                                     d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" />
                             </svg>
-                            <h2 class="text-2xl font-semibold text-white mr-2">Dashboard</h2>
-                            <h2 class="text-md font-medium text-white">
+                            <h2 class="text-2xl font-semibold mr-2">Dashboard</h2>
+                            <h2 class="text-md font-medium">
                                 / <span x-text="activeTab==='users' ? 'Users' : 'Backup Status'"></span>
                             </h2>
                         </li>
@@ -72,30 +79,30 @@
             <!-- Tabs Content -->
             <div class="mt-4">
                 <div x-show="activeTab === 'dashboard'" x-transition x-cloak>
-                    <h2 class="text-md font-medium text-white mb-4 px-2">Account summary</h2>
+                    <h2 class="text-md font-medium eb-text-white mb-4 px-2">Account summary</h2>
                     <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                        <div class="bg-slate-900 p-4 rounded-lg shadow">
-                            <h5 class="text-2xl font-bold text-white">
-                                <span class="text-2xl font-bold text-white">{$totalAccounts}</span>
-                                <span class="text-lg font-semibold text-gray-200">Users</span>
+                        <div class="bg-slate-900 p-4 rounded-lg shadow eb-text-white">
+                            <h5 class="text-2xl font-bold">
+                                <span class="text-2xl font-bold">{$totalAccounts}</span>
+                                <span class="text-lg font-semibold eb-text-muted">Users</span>
                             </h5>
                         </div>
-                        <div class="bg-slate-900 p-4 rounded-lg shadow">
-                            <h5 class="text-2xl font-bold text-white">
-                                <span class="text-2xl font-bold text-white">{$totalDevices}</span>
-                                <span class="text-lg font-semibold text-gray-200">Devices</span>
+                        <div class="bg-slate-900 p-4 rounded-lg shadow eb-text-white">
+                            <h5 class="text-2xl font-bold">
+                                <span class="text-2xl font-bold">{$totalDevices}</span>
+                                <span class="text-lg font-semibold eb-text-muted">Devices</span>
                             </h5>
                         </div>
-                        <div class="bg-slate-900 p-4 rounded-lg shadow">
-                            <h5 class="text-2xl font-bold text-white">
-                                <span class="text-2xl font-bold text-white">{$totalProtectedItems}</span>
-                                <span class="text-lg font-semibold text-gray-200">Protected Items</span>
+                        <div class="bg-slate-900 p-4 rounded-lg shadow eb-text-white">
+                            <h5 class="text-2xl font-bold">
+                                <span class="text-2xl font-bold">{$totalProtectedItems}</span>
+                                <span class="text-lg font-semibold eb-text-muted">Protected Items</span>
                             </h5>
                         </div>
-                        <div class="bg-slate-900 p-4 rounded-lg shadow">
-                            <h5 class="text-2xl font-bold text-white">
-                                <span class="text-2xl font-bold text-white">{$totalStorageUsed}</span>
-                                <span class="text-lg font-semibold text-gray-200">Storage</span>
+                        <div class="bg-slate-900 p-4 rounded-lg shadow eb-text-white">
+                            <h5 class="text-2xl font-bold">
+                                <span class="text-2xl font-bold">{$totalStorageUsed}</span>
+                                <span class="text-lg font-semibold eb-text-muted">Storage</span>
                             </h5>
                         </div>
                     </div>                   
@@ -292,26 +299,45 @@
                                             <div class="relative" x-data="{ open:false }" @click.away="open=false">
                                                 <button type="button"
                                                         class="inline-flex items-center gap-2 rounded-full border border-slate-700/80 bg-slate-950/30 px-3 py-1.5 text-sm text-slate-200 hover:bg-slate-900/60 transition"
-                                                        @click="open=!open">
+                                                        @click="open=!open; if(open && $store.ebDeviceGroups) $store.ebDeviceGroups.load();">
                                                     Assign to group…
                                                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                                         <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
                                                     </svg>
                                                 </button>
-                                                <div x-show="open" x-cloak x-transition class="absolute right-0 mt-2 w-64 rounded-xl border border-slate-800 bg-slate-950 shadow-2xl overflow-hidden z-50">
-                                                    <div class="max-h-64 overflow-y-auto">
-                                                        <template x-for="g in ($store.ebDeviceGroups ? $store.ebDeviceGroups.sortedGroups() : [])" :key="g.id">
-                                                            <button type="button"
-                                                                    class="w-full text-left px-3 py-2 text-sm text-slate-200 hover:bg-slate-900/60"
-                                                                    @click="open=false; bulkAssignToGroup(g.id)">
-                                                                <span x-text="g.name"></span>
-                                                            </button>
-                                                        </template>
-                                                        <template x-if="!$store.ebDeviceGroups || ($store.ebDeviceGroups.sortedGroups()||[]).length===0">
-                                                            <div class="px-3 py-2 text-sm text-slate-500">No groups yet. Create one in Manage Groups.</div>
-                                                        </template>
+                                                <!-- Use x-if to re-create DOM each time, ensuring fresh group data -->
+                                                <template x-if="open">
+                                                    <div x-transition class="absolute right-0 mt-2 w-64 rounded-xl border border-slate-800 bg-slate-950 shadow-2xl overflow-hidden z-50">
+                                                        <div class="max-h-64 overflow-y-auto">
+                                                            <!-- Loading state -->
+                                                            <template x-if="$store.ebDeviceGroups && $store.ebDeviceGroups.loading">
+                                                                <div class="px-3 py-3 text-sm text-slate-400 flex items-center gap-2">
+                                                                    <svg class="animate-spin h-4 w-4 text-slate-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                                    </svg>
+                                                                    Loading groups…
+                                                                </div>
+                                                            </template>
+                                                            <!-- Groups list -->
+                                                            <template x-for="g in ($store.ebDeviceGroups ? $store.ebDeviceGroups.sortedGroups() : [])" :key="g.id">
+                                                                <button type="button"
+                                                                        class="w-full text-left px-3 py-2 text-sm text-slate-200 hover:bg-slate-900/60"
+                                                                        @click="open=false; bulkAssignToGroup(g.id)">
+                                                                    <span x-text="g.name"></span>
+                                                                </button>
+                                                            </template>
+                                                            <!-- No groups message (only when not loading) -->
+                                                            <template x-if="$store.ebDeviceGroups && !$store.ebDeviceGroups.loading && ($store.ebDeviceGroups.sortedGroups()||[]).length===0">
+                                                                <div class="px-3 py-2 text-sm text-slate-500">No groups yet. Create one in Manage Groups.</div>
+                                                            </template>
+                                                            <!-- Fallback when store not available -->
+                                                            <template x-if="!$store.ebDeviceGroups">
+                                                                <div class="px-3 py-2 text-sm text-slate-500">No groups yet. Create one in Manage Groups.</div>
+                                                            </template>
+                                                        </div>
                                                     </div>
-                                                </div>
+                                                </template>
                                             </div>
 
                                             <button type="button"
@@ -535,7 +561,7 @@
                                     </div>
 
                                     <!-- Right Column: Timeline & History -->
-                                    <div class="flex flex-col space-y-3 w-full lg:w-auto lg:min-w-[280px] lg:max-w-[400px]">
+                                    <div class="flex flex-col space-y-3 w-full lg:w-auto lg:min-w-[520px]">
                                         <!-- Today's 24-Hour Timeline Bar (server-driven, single load on page) -->
                                         <div class="w-full">
                                             <div class="text-xs text-gray-400 mb-1 text-right">Last 24 hours</div>
@@ -1609,7 +1635,7 @@ try {
 <script>
   // Centralized tab state helper
   window.dashboardTabs = function (moduleLink, currentAction, serverInitialTab) {
-    const activeClass = 'inline-flex items-center px-4 py-1.5 rounded-full bg-slate-800 text-slate-50 shadow-sm';
+    const activeClass = 'inline-flex items-center px-4 py-1.5 rounded-full bg-slate-800 eb-text-white shadow-sm';
     const inactiveClass = 'inline-flex items-center px-4 py-1.5 rounded-full text-slate-400 hover:text-slate-200 transition';
 
     // Single source of truth: start from server-provided initial tab (already whitelisted)
