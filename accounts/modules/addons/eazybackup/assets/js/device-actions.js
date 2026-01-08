@@ -43,11 +43,15 @@ document.addEventListener('DOMContentLoaded', function () {
     currentDeviceName = deviceName;
     if (titleEl) titleEl.textContent = 'Manage Device';
     if (deviceNameEl) deviceNameEl.textContent = deviceName || '';
-    panel.classList.remove('translate-x-full');
+    // Use Alpine.js event to open the panel
+    window.dispatchEvent(new CustomEvent('device-panel:open'));
     // Load protected items for this device
     loadProtectedItems();
   }
-  function closePanel() { panel.classList.add('translate-x-full'); }
+  function closePanel() { 
+    // Use Alpine.js event to close the panel
+    window.dispatchEvent(new CustomEvent('device-panel:close'));
+  }
 
   document.querySelectorAll('[data-action="open-device-panel"]').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -55,7 +59,7 @@ document.addEventListener('DOMContentLoaded', function () {
       openPanel(btn.getAttribute('data-device-id'), btn.getAttribute('data-device-name'));
     });
   });
-  closeBtn && closeBtn.addEventListener('click', closePanel);
+  // Note: Close button is now handled by Alpine.js in the template
 
   // Vault menu interactions
   if (vaultMenuBtn && vaultMenu) {
