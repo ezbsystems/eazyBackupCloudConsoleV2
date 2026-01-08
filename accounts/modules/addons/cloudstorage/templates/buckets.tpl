@@ -941,22 +941,14 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
                         >
                     </div>
 
-                    <!-- Force delete section (Governance bypass) -->
-                    <div id="forceDeleteSection" class="hidden mt-4 border border-red-700/60 bg-red-900/30 rounded p-4">
-                        <div class="text-sm text-red-200 font-semibold mb-2">Force delete (bypass Governance retention)</div>
-                        <div class="text-xs text-red-200/90 mb-3">
-                            This requests deletion with Governance bypass enabled. If your account has WHMCS Two-Factor Authentication enabled, you must provide a valid 2FA code (or backup code).
-                        </div>
+                    <!-- Governance auth section (password + 2FA). Shown only when Governance bypass is required. -->
+                    <div id="forceDeleteSection" class="hidden mt-4 border border-slate-700 bg-slate-900/30 rounded p-4">
+                        <div class="text-sm text-slate-200 font-semibold mb-2">Verify account password</div>
                         <div class="mb-3">
-                            <label for="forceDeletePassword" class="block text-xs text-slate-300 mb-1">Account password (required)</label>
-                            <input type="password" id="forceDeletePassword" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-0" placeholder="Enter your WHMCS password">
-                            <div class="text-xs text-slate-400 mt-1">Used to verify a recent password check for this high-risk action. Not stored.</div>
+                            <label for="forceDeletePassword" class="block text-xs text-slate-300 mb-1">Verify account password</label>
+                            <input type="password" id="forceDeletePassword" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-0" placeholder="Enter password">
                         </div>
-                        <label class="inline-flex items-center text-sm text-red-100 mb-3">
-                            <input type="checkbox" id="ackBypassGovernance" class="mr-2">
-                            I understand this bypasses Governance retention and may permanently delete data earlier than retain-until.
-                        </label>
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div>
                                 <label for="twofaKey" class="block text-xs text-slate-300 mb-1">2FA code (if enabled)</label>
                                 <input type="text" id="twofaKey" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-0" placeholder="123456">
@@ -966,9 +958,6 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
                                 <input type="text" id="twofaBackupCode" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-0" placeholder="Backup code">
                             </div>
                         </div>
-                        <div class="text-xs text-slate-300 mb-2">Type the phrase to confirm:</div>
-                        <div class="mb-2"><code id="forceDeletePhrase" class="bg-slate-800 px-1 py-0.5 rounded text-xs">—</code></div>
-                        <input type="text" id="forceDeleteConfirmText" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-0" placeholder="Paste phrase here">
                     </div>
                 </div>
                 <div class="flex flex-col sm:flex-row sm:justify-end sm:space-x-2 mt-4">
@@ -994,14 +983,7 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
                             class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
                             id="confirmDeleteButton"
                         >
-                            Schedule deletion
-                        </button>
-                        <button
-                            type="button"
-                            class="hidden bg-red-700 hover:bg-red-800 text-white px-4 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-                            id="forceDeleteButton"
-                        >
-                            Force delete
+                            Delete bucket
                         </button>
                     </div>
                 </div>
@@ -1790,6 +1772,72 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
                     return;
                 }
 
+                // Governance buckets: default to bypass governance retention (force delete).
+                // Other buckets: normal schedule deletion endpoint.
+                var doGovernanceBypass = !!window.__deleteModalGovernanceBypass;
+                if (doGovernanceBypass) {
+                    var pw = jQuery('#forceDeletePassword').val();
+                    var twofaKey = jQuery('#twofaKey').val();
+                    var twofaBackup = jQuery('#twofaBackupCode').val();
+                    if (!pw) {
+                        showModalMessage('Please verify your account password to continue.', 'deleteBucketMessage', 'error');
+                        jQuery('#confirmDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
+                        jQuery('#cancelDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
+                        return;
+                    }
+                    // 1) password freshness
+                    jQuery.ajax({
+                        url: 'modules/addons/cloudstorage/api/validatepassword.php',
+                        method: 'POST',
+                        data: { password: pw },
+                        dataType: 'json',
+                        success: function(vr) {
+                            if (!vr || vr.status !== 'success') {
+                                showModalMessage((vr && vr.message) ? vr.message : 'Password verification failed.', 'deleteBucketMessage', 'error');
+                                jQuery('#confirmDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
+                                jQuery('#cancelDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
+                                return;
+                            }
+                            // 2) force-delete endpoint (server enforces governance eligibility + 2FA)
+                            jQuery.ajax({
+                                url: 'modules/addons/cloudstorage/api/force_deletebucket.php',
+                                method: 'POST',
+                                data: {
+                                    bucket_name: bucketName,
+                                    confirm_text: phrase,
+                                    twofa_key: twofaKey || '',
+                                    twofa_backup_code: twofaBackup || ''
+                                },
+                                dataType: 'json',
+                                success: function(resp) {
+                                    jQuery('#confirmDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
+                                    jQuery('#cancelDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
+                                    if (!resp || resp.status !== 'success') {
+                                        showModalMessage((resp && resp.message) ? resp.message : 'Unable to queue deletion.', 'deleteBucketMessage', 'error');
+                                        return;
+                                    }
+                                    pushToast(resp.message || 'Deletion queued.', 'success');
+                                    applyPendingDeleteUI(bucketId, bucketName, (resp.delete_job || {}));
+                                    closeModal('deleteBucketModal');
+                                    try { window.location.reload(); } catch (e) {}
+                                },
+                                error: function(xhr, status, error) {
+                                    showModalMessage(error || 'Unable to queue deletion.', 'deleteBucketMessage', 'error');
+                                    jQuery('#confirmDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
+                                    jQuery('#cancelDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
+                                }
+                            });
+                        },
+                        error: function(xhr, status, error) {
+                            showModalMessage(error || 'Password verification failed.', 'deleteBucketMessage', 'error');
+                            jQuery('#confirmDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
+                            jQuery('#cancelDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
+                        }
+                    });
+                    return;
+                }
+
+                // Normal scheduling path
                 jQuery.ajax({
                     url: 'modules/addons/cloudstorage/api/deletebucket.php',
                     method: 'POST',
@@ -1820,92 +1868,7 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
 
             window.scheduleDeletionFromModal = scheduleDeletionFromModal;
 
-            function requestForceDeleteFromModal() {
-                jQuery('#forceDeleteButton').prop('disabled', true).addClass('opacity-50 cursor-not-allowed');
-                jQuery('#cancelDeleteButton').prop('disabled', true).addClass('opacity-50 cursor-not-allowed');
-
-                var bucketName = jQuery('#deletingBucketName').val();
-                var bucketId = jQuery('#bucketId').val();
-                var phrase = 'FORCE DELETE BUCKET ' + bucketName;
-                var typed = jQuery('#forceDeleteConfirmText').val();
-                var ack = jQuery('#ackBypassGovernance').is(':checked') ? 1 : 0;
-                var pw = jQuery('#forceDeletePassword').val();
-                var twofaKey = jQuery('#twofaKey').val();
-                var twofaBackup = jQuery('#twofaBackupCode').val();
-                if (!ack) {
-                    showModalMessage('Please acknowledge Governance bypass to continue.', 'deleteBucketMessage', 'error');
-                    jQuery('#forceDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
-                    jQuery('#cancelDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
-                    return;
-                }
-                if (!pw) {
-                    showModalMessage('Please enter your account password to continue.', 'deleteBucketMessage', 'error');
-                    jQuery('#forceDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
-                    jQuery('#cancelDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
-                    return;
-                }
-                if (typed !== phrase) {
-                    showModalMessage('Confirmation text does not match. Paste: "' + phrase + '"', 'deleteBucketMessage', 'error');
-                    jQuery('#forceDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
-                    jQuery('#cancelDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
-                    return;
-                }
-
-                // First: verify password to satisfy server-side "fresh password" requirement.
-                jQuery.ajax({
-                    url: 'modules/addons/cloudstorage/api/validatepassword.php',
-                    method: 'POST',
-                    data: { password: pw },
-                    dataType: 'json',
-                    success: function(vr) {
-                        if (!vr || vr.status !== 'success') {
-                            showModalMessage((vr && vr.message) ? vr.message : 'Password verification failed.', 'deleteBucketMessage', 'error');
-                            jQuery('#forceDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
-                            jQuery('#cancelDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
-                            return;
-                        }
-                        // Second: request force delete
-                        jQuery.ajax({
-                            url: 'modules/addons/cloudstorage/api/force_deletebucket.php',
-                            method: 'POST',
-                            data: {
-                                bucket_name: bucketName,
-                                ack_bypass_governance: ack,
-                                confirm_text: phrase,
-                                twofa_key: twofaKey || '',
-                                twofa_backup_code: twofaBackup || ''
-                            },
-                            dataType: 'json',
-                            success: function(resp) {
-                                jQuery('#forceDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
-                                jQuery('#cancelDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
-                                if (!resp || resp.status !== 'success') {
-                                    showModalMessage((resp && resp.message) ? resp.message : 'Unable to queue force delete.', 'deleteBucketMessage', 'error');
-                                    return;
-                                }
-                                pushToast(resp.message || 'Force delete queued.', 'success');
-                                applyPendingDeleteUI(bucketId, bucketName, (resp.delete_job || {}));
-                                closeModal('deleteBucketModal');
-                                try { window.location.reload(); } catch (e) {}
-                            },
-                            error: function(xhr, status, error) {
-                                showModalMessage(error || 'Unable to queue force delete.', 'deleteBucketMessage', 'error');
-                                jQuery('#forceDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
-                                jQuery('#cancelDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
-                            }
-                        });
-                    },
-                    error: function(xhr, status, error) {
-                        showModalMessage(error || 'Password verification failed.', 'deleteBucketMessage', 'error');
-                        jQuery('#forceDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
-                        jQuery('#cancelDeleteButton').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
-                    }
-                });
-            }
-
-            jQuery('#forceDeleteButton').off('click').on('click', function() {
-                requestForceDeleteFromModal();
-            });
+            // Force delete button removed; governance bypass is handled by the main Delete button.
 
             jQuery('#cancelDeleteRequestButton').off('click').on('click', function() {
                 var bucketName = jQuery('#deletingBucketName').val();
@@ -1967,13 +1930,11 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
                 jQuery('#pendingDeleteBannerText').text('—');
                 jQuery('#cancelDeleteRequestButton').addClass('hidden');
                 jQuery('#forceDeleteSection').addClass('hidden');
-                jQuery('#forceDeleteButton').addClass('hidden');
-                jQuery('#ackBypassGovernance').prop('checked', false);
                 jQuery('#forceDeletePassword').val('');
                 jQuery('#twofaKey').val('');
                 jQuery('#twofaBackupCode').val('');
-                jQuery('#forceDeleteConfirmText').val('');
-                jQuery('#forceDeletePhrase').text('—');
+                // Used to decide which endpoint to call when clicking Delete
+                window.__deleteModalGovernanceBypass = false;
 
                 // Show/hide object lock warning and update modal title
                 if (objectLockEnabled) {
@@ -2434,15 +2395,13 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
                         jQuery('#blockersContainer').addClass('hidden');
                     }
 
-                    // Force delete is available when Governance retention is present (or default mode is Governance).
-                    // The backend will enforce holds/compliance restrictions and 2FA.
-                    if (((mode || '').toUpperCase() === 'GOVERNANCE') || ((counts.governance_retained || 0) > 0)) {
+                    // Governance buckets: require password/2FA and default to bypass governance retention.
+                    var isGovernance = ((mode || '').toUpperCase() === 'GOVERNANCE') || ((counts.governance_retained || 0) > 0);
+                    window.__deleteModalGovernanceBypass = !!isGovernance;
+                    if (isGovernance) {
                         jQuery('#forceDeleteSection').removeClass('hidden');
-                        jQuery('#forceDeleteButton').removeClass('hidden');
-                        jQuery('#forceDeletePhrase').text('FORCE DELETE BUCKET ' + bucketName);
                     } else {
                         jQuery('#forceDeleteSection').addClass('hidden');
-                        jQuery('#forceDeleteButton').addClass('hidden');
                     }
                 },
                 error: function(xhr, status, error) {

@@ -1,5 +1,6 @@
 {* Upcoming Charges panel (uses eb_notifications_sent recent rows for this service) *}
-{if isset($upcomingCharges) && $upcomingCharges}
+{* Only show when there are actual upcoming charges *}
+{if isset($upcomingCharges) && $upcomingCharges|@count > 0}
 <div id="eb-upcoming-charges-panel" class="bg-[#11182759] p-4 rounded-lg shadow mb-6" data-dismiss-url="{$upcomingDismissUrl|escape:'html'}" data-token="{$upcomingChargesToken|escape:'html'}">
   <div class="flex items-center justify-between mb-3">
     <h3 class="text-md font-medium text-gray-300">Upcoming Charges</h3>
@@ -39,9 +40,6 @@
       </div>
     {/foreach}
   </div>
-  {if $upcomingCharges|@count == 0}
-    <div class="text-slate-400 text-sm">No recent changes.</div>
-  {/if}
  </div>
  <script>
  document.addEventListener('DOMContentLoaded', function () {
@@ -65,19 +63,14 @@
      })
        .then(function (resp) { return resp.json().catch(function () { return {}; }); })
        .then(function (data) {
-         if (data && data.ok) {
-           var row = btn.closest('[data-eb-row]');
-           if (row) { row.remove(); }
-           if (!panel.querySelector('[data-eb-row]')) {
-             var container = panel.querySelector('.space-y-2');
-             if (container) {
-               var empty = document.createElement('div');
-               empty.className = 'text-slate-400 text-sm';
-               empty.textContent = 'No recent changes.';
-               container.appendChild(empty);
-             }
-           }
-         } else {
+        if (data && data.ok) {
+          var row = btn.closest('[data-eb-row]');
+          if (row) { row.remove(); }
+          // Hide entire panel when all charges are dismissed
+          if (!panel.querySelector('[data-eb-row]')) {
+            panel.style.display = 'none';
+          }
+        } else {
            btn.disabled = false;
            alert((data && data.message) ? data.message : 'Unable to dismiss notification.');
          }

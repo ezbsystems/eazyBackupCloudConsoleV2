@@ -198,6 +198,37 @@ function eazybackup_activate()
     // Billing rollups: protected item mix snapshot
     Capsule::statement("CREATE TABLE IF NOT EXISTS eb_items_daily (\n  d           DATE PRIMARY KEY,\n  di_devices  INT NOT NULL,\n  hv_vms      INT NOT NULL,\n  vw_vms      INT NOT NULL,\n  m365_users  INT NOT NULL,\n  ff_items    INT NOT NULL,\n  created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
 
+    // Device grouping (Phase 1): client-scoped groups + per-device single assignment (Ungrouped is implicit)
+    try {
+        if (!Capsule::schema()->hasTable('eb_device_groups')) {
+            Capsule::schema()->create('eb_device_groups', function ($table) {
+                $table->bigIncrements('id');
+                $table->integer('client_id')->index();
+                $table->string('name', 191);
+                $table->string('name_norm', 191);
+                $table->string('color', 32)->nullable();
+                $table->string('icon', 32)->nullable();
+                $table->integer('sort_order')->default(0)->index();
+                $table->timestamp('created_at')->nullable();
+                $table->timestamp('updated_at')->useCurrent()->useCurrentOnUpdate();
+                $table->unique(['client_id', 'name_norm'], 'uniq_client_group_name');
+            });
+        }
+    } catch (\Throwable $e) { /* ignore */ }
+
+    try {
+        if (!Capsule::schema()->hasTable('eb_device_group_assignments')) {
+            Capsule::schema()->create('eb_device_group_assignments', function ($table) {
+                $table->integer('client_id')->index();
+                $table->string('device_id', 255);
+                $table->unsignedBigInteger('group_id')->nullable()->index();
+                $table->timestamp('updated_at')->useCurrent()->useCurrentOnUpdate();
+                $table->primary(['client_id', 'device_id'], 'pk_client_device');
+                $table->index(['client_id', 'group_id'], 'idx_client_group');
+            });
+        }
+    } catch (\Throwable $e) { /* ignore */ }
+
         // Create announcement dismissals table for client/user scoped dismissals
         try {
         Capsule::statement("CREATE TABLE IF NOT EXISTS mod_eazybackup_dismissals (\n  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,\n  user_id INT UNSIGNED NULL,\n  client_id INT UNSIGNED NULL,\n  announcement_key VARCHAR(191) NOT NULL,\n  dismissed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,\n  UNIQUE KEY uniq_user_announcement (user_id, announcement_key),\n  UNIQUE KEY uniq_client_announcement (client_id, announcement_key),\n  KEY idx_announcement_key (announcement_key)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
@@ -333,6 +364,37 @@ function eb_add_index_if_missing(string $table, string $indexSql): void {
 /** Create or patch all addon tables */
 function eazybackup_migrate_schema(): void {
     $schema = Capsule::schema();
+
+    // --- Device grouping (Phase 1) ---
+    try {
+        if (!$schema->hasTable('eb_device_groups')) {
+            $schema->create('eb_device_groups', function (Blueprint $t) {
+                $t->bigIncrements('id');
+                $t->integer('client_id')->index();
+                $t->string('name', 191);
+                $t->string('name_norm', 191);
+                $t->string('color', 32)->nullable();
+                $t->string('icon', 32)->nullable();
+                $t->integer('sort_order')->default(0)->index();
+                $t->timestamp('created_at')->nullable();
+                $t->timestamp('updated_at')->useCurrent()->useCurrentOnUpdate();
+                $t->unique(['client_id', 'name_norm'], 'uniq_client_group_name');
+            });
+        }
+    } catch (\Throwable $e) { /* ignore */ }
+
+    try {
+        if (!$schema->hasTable('eb_device_group_assignments')) {
+            $schema->create('eb_device_group_assignments', function (Blueprint $t) {
+                $t->integer('client_id')->index();
+                $t->string('device_id', 255);
+                $t->unsignedBigInteger('group_id')->nullable()->index();
+                $t->timestamp('updated_at')->useCurrent()->useCurrentOnUpdate();
+                $t->primary(['client_id', 'device_id'], 'pk_client_device');
+                $t->index(['client_id', 'group_id'], 'idx_client_group');
+            });
+        }
+    } catch (\Throwable $e) { /* ignore */ }
 
     // --- comet_devices ---
     if (!$schema->hasTable('comet_devices')) {
@@ -2783,6 +2845,11 @@ function eazybackup_clientarea(array $vars)
         // JSON: per-user storage history (daily maxima)
         require_once __DIR__ . "/pages/console/storage_history.php";
         eb_storage_history();
+        exit;
+    } else if ($_REQUEST["a"] == "device-groups") {
+        // JSON: client-scoped device grouping (Phase 1)
+        require_once __DIR__ . "/pages/console/device_groups.php";
+        eb_device_groups();
         exit;
     } else if ($_REQUEST["a"] == "dashboard") {
         // Load the dashboard backend logic.

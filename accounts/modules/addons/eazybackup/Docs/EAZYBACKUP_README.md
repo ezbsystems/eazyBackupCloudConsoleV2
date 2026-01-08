@@ -34,7 +34,9 @@ We have several custom database table that have been added to the WHMCS database
   table eb_event_cursor
   table eb_items_daily
   table eb_jobs_live
-  table eb_jobs_recent_24h 
+  table eb_jobs_recent_24h
+  table eb_device_groups           # Device grouping: group definitions (Phase 1)
+  table eb_device_group_assignments # Device grouping: device-to-group assignments 
 
 
 ## File Layout
@@ -951,6 +953,288 @@ Troubleshooting
 - Ensure SSE isn’t buffered by reverse proxies (we send `X-Accel-Buffering: no`; disable compression for the route).
 - Verify the dashboard is visible so Alpine refreshes in view.
 - Network tab should show periodic `data:` SSE events every second.
+
+## Developer Notes – Issues Summary Strip (Dashboard → Backup Status)
+
+Overview
+- A compact “status toolbar” shown above the device list on the Dashboard → Backup Status view.
+- Purpose: quick at-a-glance operational summary for the last 24 hours, and fast filtering of the device list.
+
+UI + Interaction
+- Chips for: `Error`, `Missed`, `Warning`, `Timeout`, `Cancelled`, `Running`, `Skipped`, `Success`.
+- Chips are multi-select (OR semantics). Clicking an active chip toggles it off.
+- “Issues only” toggle filters to: `Error`, `Missed`, `Warning`, `Timeout`, `Cancelled` (Skipped is excluded from issues-only semantics).
+- “Clear” resets chip selections and issues-only mode.
+- Zero-count chips are muted/disabled and show a tooltip (“No devices currently in this state”).
+
+Status semantics (Last 24 hours)
+- Each device is assigned a **single** status for counting/filtering: the **most recent** job event in the last 24 hours.
+  - “Most recent” is chosen by `ended_at` when present, otherwise `started_at`.
+  - Running jobs are included live via the dashboard timeline store (`__EB_TIMELINE`) and count as `Running`.
+
+Counts behavior
+- Counts reflect the current scope (last 24h) and the current device search query, so the strip stays truthful when the list is narrowed by search.
+
+Implementation notes
+- Implemented in `templates/clientarea/dashboard.tpl` by extending the existing Alpine `deviceFilter()` component:
+  - state: `selectedStatuses[]`, `issuesOnly`, `countsCache`
+  - derived: per-device `latestStatus24h(device)` (includes `__EB_TIMELINE` running jobs)
+  - reactivity: listens to `eb:timeline-changed` to update when live running jobs start/end
+
+## Developer Notes – Device Grouping (Phase 1) (Dashboard → Backup Status)
+
+### Overview
+- **Goal**: Help MSPs organize large fleets (50+ devices) into manual Client/Company groups for faster triage and operational clarity.
+- **Rule**: **Single group per device** (Option A). Each device can belong to exactly one group at a time.
+- **Ungrouped**: Devices without a group assignment appear under a system-managed "Ungrouped" section (not a real group object in the database).
+- **Scope**: Groups are **per WHMCS client account** (`tblclients.id`) across all active services/usernames shown on the dashboard.
+
+### Files Involved
+
+**Backend:**
+- `eazybackup.php` — Main module file; routes `?a=device-groups` to the controller; includes schema creation in `eazybackup_activate()` and `eazybackup_migrate_schema()`.
+- `pages/console/device_groups.php` — JSON API controller for all group management actions. Includes `ebdg_ensure_schema()` for on-demand table creation.
+
+**Frontend (Templates):**
+- `templates/clientarea/dashboard.tpl` — Main dashboard template; contains:
+  - Toolbar with "Group by" selector, "Manage Groups" button, and "Select" bulk-mode toggle.
+  - Grouped device list rendering (collapsible headers, inline group pills, bulk action bar).
+  - Alpine.js `deviceFilter()` extension for grouping state and interactions.
+- `templates/clientarea/partials/device-groups-drawer.tpl` — Slide-over drawer for "Manage Groups" UI (create, rename, delete, reorder groups).
+
+**Frontend (JavaScript):**
+- `assets/js/device-groups.js` — Alpine store `ebDeviceGroups` managing:
+  - Groups list and device-to-group assignments
+  - Drawer open/close state
+  - Create, rename, delete, reorder flows
+  - Bulk selection state
+  - Collapsed groups (persisted to `localStorage`)
+  - Drag-and-drop state
+  - API calls with optimistic UI updates and error handling
+- `assets/js/ui.js` — Shared helpers: `window.showToast()`, `window.ebShowLoader()`, `window.ebHideLoader()`.
+
+### Database Schema
+
+**Table: `eb_device_groups`**
+- Client-scoped group definitions with ordering support.
+
+```sql
+CREATE TABLE IF NOT EXISTS eb_device_groups (
+  id           INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  client_id    INT UNSIGNED NOT NULL,
+  name         VARCHAR(100) NOT NULL,
+  name_norm    VARCHAR(100) NOT NULL,  -- lowercase for uniqueness check
+  color        VARCHAR(20) DEFAULT NULL,
+  icon         VARCHAR(50) DEFAULT NULL,
+  sort_order   INT UNSIGNED NOT NULL DEFAULT 0,
+  created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY idx_client_name (client_id, name_norm),
+  KEY idx_client_order (client_id, sort_order)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+```
+
+**Table: `eb_device_group_assignments`**
+- Single assignment per device; deleting the row = Ungrouped.
+
+```sql
+CREATE TABLE IF NOT EXISTS eb_device_group_assignments (
+  client_id    INT UNSIGNED NOT NULL,
+  device_id    VARCHAR(128) NOT NULL,  -- matches comet_devices.id
+  group_id     INT UNSIGNED NOT NULL,
+  created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (client_id, device_id),
+  KEY idx_group (group_id),
+  CONSTRAINT fk_ebdga_group FOREIGN KEY (group_id)
+    REFERENCES eb_device_groups(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+```
+
+**Schema creation:**
+- Tables are created during module activation (`eazybackup_activate()`).
+- On-demand creation via `ebdg_ensure_schema()` in `device_groups.php` ensures tables exist even if activation was skipped (e.g., dev environments).
+
+### API Endpoint
+
+**Route:** `?m=eazybackup&a=device-groups` (client-area, JSON POST)
+
+**Controller:** `pages/console/device_groups.php`
+
+**Actions:**
+
+| Action | Payload | Response | Description |
+|--------|---------|----------|-------------|
+| `list` | — | `{ groups: [...], assignments: { device_id: group_id } }` | Fetch all groups and current assignments for the client. |
+| `createGroup` | `{ name, color?, icon? }` | `{ status, group }` | Create a new group. Name must be unique (case-insensitive). |
+| `renameGroup` | `{ id, name }` | `{ status }` | Rename an existing group. |
+| `deleteGroup` | `{ id }` | `{ status }` | Delete a group. Devices in this group become Ungrouped (assignments deleted). |
+| `reorderGroups` | `{ order: [id1, id2, ...] }` | `{ status }` | Update `sort_order` for all groups based on the provided ID array. |
+| `assignDevice` | `{ device_id, group_id }` | `{ status }` | Assign a device to a group. If `group_id` is `null` or `0`, the device becomes Ungrouped. |
+| `bulkAssign` | `{ device_ids: [...], group_id }` | `{ status }` | Bulk assign multiple devices to a group (or Ungrouped if `group_id` is `null`). |
+
+**Security:** All actions verify the logged-in WHMCS client and scope queries to `client_id`.
+
+### Dashboard UX
+
+**Toolbar Additions:**
+1. **"Group by" selector** — Toggle between:
+   - `None` (flat device list, current behavior)
+   - `Client/Company Groups` (grouped view with collapsible sections)
+   - Selection is persisted in `localStorage`.
+
+2. **"Manage Groups" button** — Opens the slide-over drawer for group management.
+
+3. **"Select" toggle button** — Enables bulk selection mode with checkboxes on device rows.
+
+**Grouped View:**
+- **Collapsible group headers** showing:
+  - Group name (or "Ungrouped")
+  - Device count in parentheses
+  - Mini issue badges (Error/Missed/Warning counts based on each device's latest 24h status)
+- **Collapse state** is persisted per user in `localStorage`.
+- **Empty groups** are shown when no filters are active to support drag-to-empty-group workflows.
+- **Drag-and-drop** assignment: drag a device row onto a group header to reassign.
+
+**Device Assignment Workflows:**
+
+1. **Inline assignment (per device row):**
+   - Each device row shows a small group pill displaying the current group name or "Ungrouped".
+   - Clicking the pill opens a popover with:
+     - Search input for filtering groups
+     - List of existing groups
+     - "Move to Ungrouped" option
+     - "+ Create new group" quick action
+   - Selecting a group immediately reassigns the device (optimistic UI).
+
+2. **Bulk assignment (multi-select):**
+   - Enable via the "Select" toolbar button.
+   - Checkboxes appear on device rows.
+   - When devices are selected, a sticky bulk action bar appears with:
+     - "Assign to Group…" button (opens group selector)
+     - "Move to Ungrouped" button
+     - "Clear selection" button
+   - Bulk operations update all selected devices in one API call.
+
+3. **Drag-and-drop assignment (grouped view only):**
+   - Devices can be dragged from one group section to another group header.
+   - Drop targets highlight on hover (ring indicator).
+   - Dropping on "Ungrouped" removes the group assignment.
+   - Toast notification confirms the move.
+
+**Filtering Integration:**
+- Existing search and status filters work in grouped mode.
+- Filters apply across all groups; empty groups are hidden when filters are active.
+- The Issues Summary Strip counts reflect the current filter state.
+
+### Manage Groups Slide-Over Drawer
+
+**Entry point:** "Manage Groups" button in the toolbar.
+
+**Layout:**
+- **Header:** Title, subtitle, help tooltip, close button.
+- **Primary actions:** "New Group" button, optional search input.
+- **Group list:** Scrollable list of groups with:
+  - Drag handle for reordering
+  - Group name (double-click or kebab menu to rename)
+  - Device count
+  - Kebab menu (Rename, Delete)
+- **Footer:** Note about Ungrouped devices.
+
+**Interactions:**
+
+1. **Create group:**
+   - Click "New Group" → inline form appears.
+   - Enter name (required, unique case-insensitive).
+   - Press Enter or click "Create" to save.
+   - Toast: "Group created"
+
+2. **Rename group:**
+   - Trigger via kebab menu → "Rename" or double-click the name.
+   - Inline input replaces the name text.
+   - Enter to save, Escape to cancel.
+
+3. **Delete group:**
+   - Trigger via kebab menu → "Delete".
+   - Confirmation modal appears (inside drawer).
+   - States consequence: "Devices in this group will be moved to Ungrouped."
+   - If group has devices, shows count warning.
+   - Toast: "Group deleted. X devices moved to Ungrouped."
+
+4. **Reorder groups:**
+   - Drag handle on each row.
+   - Drag-and-drop to reorder.
+   - Order is persisted via `reorderGroups` API call.
+
+### Alpine.js State (Store: `ebDeviceGroups`)
+
+```javascript
+Alpine.store('ebDeviceGroups', {
+  // Data
+  groups: [],                    // Array of group objects
+  assignments: {},               // { device_id: group_id }
+  
+  // Drawer state
+  drawerOpen: false,
+  loading: false,
+  search: '',
+  
+  // Create flow
+  creating: false,
+  newName: '',
+  savingCreate: false,
+  
+  // Rename flow
+  renameId: null,
+  renameValue: '',
+  savingRename: false,
+  
+  // Delete flow
+  deleteId: null,
+  deleteName: '',
+  deleteCount: 0,
+  deleting: false,
+  
+  // Reorder
+  dragId: null,
+  
+  // Selection (for bulk assignment popover)
+  activePopover: null,
+  
+  // Collapsed groups (persisted)
+  collapsedGroups: {},
+  
+  // Methods (API calls with optimistic updates)
+  openDrawer(), closeDrawer(),
+  list(), createGroup(), renameGroup(), deleteGroup(),
+  reorderGroups(), assignDevice(), bulkAssign(),
+  // ... helpers
+});
+```
+
+### Responsive Design
+
+**Mobile (< 640px):**
+- Toolbar buttons show icons only; text labels hidden.
+- 13-day historical status dots hidden.
+- Full-width search input on separate row.
+
+**Tablet/Desktop (≥ 640px):**
+- Full button labels shown.
+- Two-column device row layout.
+- All status indicators visible.
+
+### Error Handling & Loading States
+
+- **Optimistic UI:** Assignments update immediately; revert on API failure with error toast.
+- **Loading states:** Skeleton rows in drawer while fetching groups.
+- **Error toasts:** "Couldn't rename group. Please try again." etc.
+- **Form validation:** Name required, uniqueness checked client-side and server-side.
+
+### localStorage Keys
+
+- `eb_groupMode` — Current group-by selection (`none` | `groups`)
+- `eb_collapsedGroups` — JSON object of collapsed group states
+- `eb_bulkSelectMode` — Whether bulk selection is enabled
 
 ## Trial Signup & Email Verification (eazyBackup)
 

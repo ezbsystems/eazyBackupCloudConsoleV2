@@ -67,7 +67,7 @@
 				<div id="modalAjax" class="modal system-modal fade fixed inset-0 z-50 hidden" tabindex="-1" role="dialog"
 					aria-hidden="true">
 
-					<div class="absolute inset-0 bg-black bg-opacity-50"></div>
+					<div class="absolute inset-0 bg-black/75"></div>
 					
 					<div class="modal-dialog relative rounded max-w-lg w-full mx-auto mt-10 border-gray-800">        
 						<div class="modal-content border-gray-800">

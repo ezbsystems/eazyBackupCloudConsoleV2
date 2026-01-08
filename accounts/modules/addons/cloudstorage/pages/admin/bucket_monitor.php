@@ -694,12 +694,12 @@ function initializePoolChart() {
         },
         yaxis: {
             labels: {
-                formatter: function (val) { return formatBytes(val); }
+                formatter: function (val) { return formatBytesTB(val); }
             }
         },
         tooltip: {
             x: { format: "MMM dd, yyyy" },
-            y: { formatter: function (val) { return formatBytes(val); } }
+            y: { formatter: function (val) { return formatBytesTB(val); } }
         },
         annotations: {
             yaxis: []
@@ -819,6 +819,14 @@ function formatBytes(bytes) {
     const sizes = ["B", "KB", "MB", "GB", "TB", "PB"];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+}
+
+// Pool chart formatter: always show TB to avoid auto-scaling to PB on large pools
+function formatBytesTB(bytes) {
+    const b = Number(bytes || 0);
+    if (!isFinite(b) || b <= 0) return "0 TB";
+    const tb = b / Math.pow(1024, 4);
+    return tb.toFixed(2) + " TB";
 }
 
 function formatNumber(num) {
