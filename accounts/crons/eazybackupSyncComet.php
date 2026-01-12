@@ -178,6 +178,34 @@ logModuleCall(
     'Collected active device statuses'
 );
 
+// ✨ OPTIMIZATION: Fetch ALL user profiles in bulk using AdminListUsersFull()
+// This replaces ~1,475 individual AdminGetUserProfile() calls with ~3 bulk calls
+$allUserProfiles = []; // Map: gid => [username => UserProfileConfig]
+foreach ($serverClients as $gid => $serverClient) {
+    try {
+        $profiles = $serverClient->AdminListUsersFull();
+        $allUserProfiles[$gid] = $profiles;
+        $profileCount = is_array($profiles) ? count($profiles) : 0;
+        logModuleCall(
+            'eazybackup',
+            'cron AdminListUsersFull',
+            [
+                'group_id' => $gid,
+                'profiles_fetched' => $profileCount,
+            ],
+            'Fetched all user profiles in bulk'
+        );
+    } catch (\Throwable $e) {
+        $allUserProfiles[$gid] = [];
+        logModuleCall(
+            'eazybackup',
+            'cron AdminListUsersFull error',
+            ['group_id' => $gid, 'trace' => $e->getTraceAsString()],
+            $e->getMessage()
+        );
+    }
+}
+
 // Process jobs and upsert into comet_jobs (nightly safety net)
 // NOTE: We upsert per-server to avoid keeping a massive $allJobs array in memory.
 $jobsUpsertedTotal = 0;
@@ -266,61 +294,65 @@ logModuleCall(
     'Selected active hostings for processing'
 );
 
-// Process hostings in batches for better performance
-$batchSize = 50;
-$totalHostings = count($hostingsArray);
+// Process hostings using pre-fetched profiles (no more N+1 API calls)
+$processedCount = 0;
+$skippedCount = 0;
 
-for ($i = 0; $i < $totalHostings; $i += $batchSize) {
-    $batch = array_slice($hostingsArray, $i, $batchSize);
+foreach ($hostingsArray as $hosting) {
+    $packageId = $hosting->packageid;
+    $gid = $productServerGroupMap[$packageId] ?? null;
+
+    // Check if a client exists for this group to avoid errors
+    if (!$gid || !isset($serverClients[$gid])) {
+        $skippedCount++;
+        continue;
+    }
+
+    // ✨ OPTIMIZATION: Look up profile from pre-fetched bulk data instead of API call
+    $profilesForGroup = $allUserProfiles[$gid] ?? [];
+    $userProfile = $profilesForGroup[$hosting->username] ?? null;
+
+    if ($userProfile === null) {
+        // User not found on Comet server (may have been deleted or never existed)
+        $skippedCount++;
+        continue;
+    }
     
-    foreach ($batch as $hosting) {
-        $packageId = $hosting->packageid;
-        $gid = $productServerGroupMap[$packageId];
-
-        // Check if a client exists for this group to avoid errors
-        if (!isset($serverClients[$gid])) {
-            continue;
+    try {
+        $server = $serverClients[$gid];
+        
+        // upsert devices
+        $deviceStatusesForGid = $deviceStatuses[$gid] ?? [];
+        $cometObject->upsertDevices($userProfile, $hosting, $deviceStatusesForGid);
+        
+        // upsert protected items
+        $cometObject->upsertItems($userProfile, $hosting);
+        
+        // upsert vaults
+        $serverUrl = $serverBaseUrls[$gid] ?? '';
+        $vaultStats = $cometObject->upsertVaults($userProfile, $hosting, $serverUrl, $server);
+        if ((getenv('EB_VAULT_LOG') === '1') && is_array($vaultStats)) {
+            logModuleCall('eazybackup','cron upsertVaultsSummary',[ 'username'=>$hosting->username, 'server'=>$serverUrl ], $vaultStats);
+        }
+        if (is_array($vaultStats)) {
+            foreach ($__vaultAgg as $k=>$_) { $__vaultAgg[$k] += (int)($vaultStats[$k] ?? 0); }
         }
         
-        try {
-            // ✨ OPTIMIZATION: Reuse the existing Server client instead of creating a new one
-            $server = $serverClients[$gid];
-            
-            // This is the "N+1" call that remains, as requested
-            $userProfile = $server->AdminGetUserProfile($hosting->username);
-            
-            // upsert devices
-            $deviceStatusesForGid = $deviceStatuses[$gid] ?? [];
-            $cometObject->upsertDevices($userProfile, $hosting, $deviceStatusesForGid);
-            
-            // upsert protected items
-            $cometObject->upsertItems($userProfile, $hosting);
-            
-            // upsert vaults
-            $serverUrl = $serverBaseUrls[$gid] ?? '';
-            $vaultStats = $cometObject->upsertVaults($userProfile, $hosting, $serverUrl, $server);
-            if ((getenv('EB_VAULT_LOG') === '1') && is_array($vaultStats)) {
-                logModuleCall('eazybackup','cron upsertVaultsSummary',[ 'username'=>$hosting->username, 'server'=>$serverUrl ], $vaultStats);
-            }
-            if (is_array($vaultStats)) {
-                foreach ($__vaultAgg as $k=>$_) { $__vaultAgg[$k] += (int)($vaultStats[$k] ?? 0); }
-            }
-            
-        } catch (\Exception $e) {
-            // If fetching a user profile fails, just skip to the next one
-            logModuleCall(
-                'eazybackup',
-                'cron UserProfile error',
-                [
-                    'hosting_id' => $hosting->id,
-                    'username' => $hosting->username,
-                    'gid' => $gid,
-                    'trace' => $e->getTraceAsString(),
-                ],
-                $e->getMessage()
-            );
-            continue;
-        }
+        $processedCount++;
+        
+    } catch (\Exception $e) {
+        logModuleCall(
+            'eazybackup',
+            'cron UserProfile error',
+            [
+                'hosting_id' => $hosting->id,
+                'username' => $hosting->username,
+                'gid' => $gid,
+                'trace' => $e->getTraceAsString(),
+            ],
+            $e->getMessage()
+        );
+        continue;
     }
 }
 
@@ -333,6 +365,9 @@ logModuleCall(
     [
         'end'              => date('Y-m-d H:i:s', $endTime),
         'duration_seconds' => $duration,
+        'hostings_total'   => count($hostingsArray),
+        'hostings_processed' => $processedCount,
+        'hostings_skipped' => $skippedCount,
         'vaults_seen'      => $__vaultAgg['seen'] ?? 0,
         'vaults_updated'   => $__vaultAgg['updated'] ?? 0,
         'vaults_skipped'   => $__vaultAgg['skipped'] ?? 0,

@@ -94,16 +94,18 @@ We only run accounts/crons/eazybackupSyncComet.php once daily as a safety net.
   - SEVT_DEVICE_REMOVED: mark device revoked/inactive.
 - Data extraction:
   - Actor → username
-  - ResourceID → Comet DeviceID hash (“device hash” we store as hash and also as id)
+  - ResourceID → Comet DeviceID hash (stored in `hash` column)
   - Data → FriendlyName, PlatformVersion.os, PlatformVersion.arch
 - Database (table comet_devices):
   - On SEVT_DEVICE_NEW:
-  - Upsert: id (device hash), hash, username, client_id (from tblhosting.username), content (raw JSON), name, platform_os, platform_arch, is_active=1, updated_at=NOW(), revoked_at=NULL (set created_at on first insert).
+  - Upsert: id = sha256(client_id + hash), hash (raw Comet DeviceID), username, client_id (from tblhosting.username), content (raw JSON), name, platform_os, platform_arch, is_active=1, updated_at=NOW(), revoked_at=NULL (set created_at on first insert).
 - On SEVT_DEVICE_REMOVED:
   - Update: is_active=0, revoked_at=NOW(), updated_at=NOW().
 - Notes:
   - client_id is resolved via tblhosting for the username.
+  - The `id` column is a computed hash: `sha256(client_id + device_hash)`. This ensures uniqueness when the same Comet device is used across multiple WHMCS clients.
   - All writes are idempotent; conflicts are handled via ON DUPLICATE KEY UPDATE.
+  - If client_id cannot be resolved (user not found in WHMCS), the device upsert is skipped to avoid creating orphaned records.
 
 **Protected item ingestion**
 - Event trigger: SEVT_ACCOUNT_UPDATED (we intentionally ignore SEVT_ACCOUNT_LOGIN to avoid noise).
@@ -141,6 +143,7 @@ We only run accounts/crons/eazybackupSyncComet.php once daily as a safety net.
     - Set EB_DB_DEBUG=1 to see DB write confirmations and prune counts.
 - Fallback daily cron (accounts/crons/eazybackupSyncComet.php):
   - Runs once per day to correct any missed events (rare), using bulk Admin API reads and the same upsert logic.
+  - See "Nightly Sync Cron Optimization" section below for performance details.
 
 **Schema highlights**
   - comet_devices:
@@ -149,6 +152,38 @@ We only run accounts/crons/eazybackupSyncComet.php once daily as a safety net.
     - id (UUID), client_id (INT), username (VARCHAR), content (JSON), owner_device (VARCHAR), comet_device_id (VARCHAR), name (VARCHAR), type (VARCHAR), total_bytes (BIGINT), total_files (BIGINT), total_directories (BIGINT), created_at (TIMESTAMP), updated_at (TIMESTAMP)
 
 This flow ensures the client dashboard reflects device and item changes quickly, with a simple daily safety pass to reconcile any gaps.
+
+### Device ID Generation Scheme (Important)
+
+Both `comet_ws_worker.php` and `lib/Comet.php` must use the same ID generation scheme for the `comet_devices.id` column:
+
+```php
+$id = hash('sha256', (string)$clientId . $deviceHash);
+```
+
+**Why this matters:**
+- The `comet_devices` table has `PRIMARY KEY (id)` and `UNIQUE (hash, client_id)`.
+- The same Comet device (identified by `hash`) can be used by different WHMCS clients.
+- Using `id = sha256(client_id + hash)` ensures each client's device record is unique.
+
+**Historical issue (fixed Jan 2026):**
+- The websocket worker previously used `id = hash` (raw device hash), while `lib/Comet.php` used `id = sha256(client_id + hash)`.
+- This mismatch caused duplicate entry errors when the worker tried to upsert devices.
+- The fix aligned the worker with `lib/Comet.php` and cleaned up legacy rows with `client_id = 0`.
+
+**Database cleanup required when deploying this fix:**
+```sql
+-- Delete legacy rows with no valid client
+DELETE FROM comet_devices WHERE client_id = 0;
+
+-- Update rows using old ID scheme to use correct scheme
+UPDATE comet_devices SET id = SHA2(CONCAT(client_id, hash), 256) 
+WHERE id = hash AND client_id > 0;
+
+-- Verify cleanup
+SELECT COUNT(*) FROM comet_devices WHERE client_id = 0;  -- Should be 0
+SELECT COUNT(*) FROM comet_devices WHERE id = hash;      -- Should be 0
+```
 
 **High-Level Flow**
 Comet Server (WebSocket /api/v1/events/stream)
@@ -421,6 +456,56 @@ Scoping: All queries must be constrained to the current WHMCS client context usi
 
 - rollup_devices_daily.php → writes eb_devices_daily using eb_devices_registry
 - rollup_items_daily.php → writes eb_items_daily using comet_items.content (exact JSON paths you provided)
+
+
+## Nightly Sync Cron Optimization (eazybackupSyncComet.php)
+
+**File:** `accounts/crons/eazybackupSyncComet.php`
+
+This cron runs once daily as a safety net to reconcile any events missed by the WebSocket worker.
+
+### Optimization: Bulk Profile Fetching (Jan 2026)
+
+**Problem:** The original implementation made one `AdminGetUserProfile()` API call per active WHMCS hosting record. With ~1,500 active hostings, this resulted in ~1,500 network round-trips, causing the cron to take hours to complete.
+
+**Solution:** Replaced N individual API calls with bulk fetching using `AdminListUsersFull()`:
+
+```php
+// Before: ~1,500 API calls (one per hosting)
+foreach ($hostingsArray as $hosting) {
+    $userProfile = $server->AdminGetUserProfile($hosting->username);  // N+1 problem!
+    // ... process
+}
+
+// After: ~3 API calls (one per server group)
+foreach ($serverClients as $gid => $serverClient) {
+    $allUserProfiles[$gid] = $serverClient->AdminListUsersFull();  // Bulk fetch
+}
+foreach ($hostingsArray as $hosting) {
+    $userProfile = $allUserProfiles[$gid][$hosting->username];  // Local lookup
+    // ... process
+}
+```
+
+**Performance improvement:**
+
+| Metric | Before | After |
+|--------|--------|-------|
+| API calls for profiles | ~1,500 | ~3 |
+| Network round-trips | ~1,500 | ~3 |
+| Estimated runtime reduction | - | 90%+ |
+
+**How it works:**
+1. For each server group, call `AdminListUsersFull()` once to get all user profiles
+2. Store results in a map: `$allUserProfiles[gid][username] => UserProfileConfig`
+3. When processing hostings, look up the profile from the pre-fetched map
+4. Users not found on the Comet server are silently skipped (logged in `hostings_skipped` count)
+
+**Logging:** The cron now logs:
+- `cron AdminListUsersFull` — Number of profiles fetched per server group
+- `hostings_processed` / `hostings_skipped` — Final counts in completion log
+
+**Trade-off:** The bulk response is held in memory briefly, but this is a worthwhile trade-off for the massive reduction in network calls.
 
 
 ## Comet Backup Engine → Friendly Type Mapping**
