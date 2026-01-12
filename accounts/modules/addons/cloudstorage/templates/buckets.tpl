@@ -49,6 +49,48 @@
         <!-- Alpine Toasts -->
         <!-- ebLoader -->
         <script src="{$WEB_ROOT}/modules/addons/eazybackup/templates/assets/js/ui.js"></script>
+        <!-- Alpine toast helper - must be defined before the x-data element -->
+        <script>
+        function toastCenter() {
+            return {
+                toasts: [],
+                init: function() {
+                    var self = this;
+                    window.addEventListener('toast', function(e){
+                        var d = e.detail || {};
+                        self.add(d.message || '', d.type || 'info', d.duration || 5000);
+                    });
+                },
+                add: function(message, type, duration) {
+                    if (this.toasts.length) {
+                        var last = this.toasts[this.toasts.length - 1];
+                        if (last && last.message === message && last.type === type && last.show) {
+                            return;
+                        }
+                    }
+                    var id = Date.now() + Math.random();
+                    this.toasts.push({ id: id, message: message, type: type, show: true });
+                    var self = this;
+                    setTimeout(function(){ self.remove(id); }, duration || 5000);
+                },
+                remove: function(id) {
+                    this.toasts = this.toasts.filter(function(t){ return t.id !== id; });
+                }
+            };
+        }
+        function pushToast(message, type) {
+            try {
+                var k = (type || 'info') + '|' + String(message || '');
+                var now = Date.now();
+                if (window.__lastToastKey === k && (now - (window.__lastToastAt || 0) < 1000)) {
+                    return;
+                }
+                window.__lastToastKey = k;
+                window.__lastToastAt = now;
+                window.dispatchEvent(new CustomEvent('toast', { detail: { message: message, type: type } }));
+            } catch(e) {}
+        }
+        </script>
         <div x-data="toastCenter()" x-init="init()" class="pointer-events-none fixed top-4 inset-x-0 z-[70] flex justify-center">
             <template x-for="t in toasts" :key="t.id">
                 <div
@@ -143,6 +185,7 @@
                     id="bucketRow{$bucket->id}"
                     data-bucket-name="{$bucket->name}"
                     data-versioning="{$bucket->versioning}"
+                    data-size-bytes="{if isset($stats[$bucket->id])}{$stats[$bucket->id]->size}{else}0{/if}"
                     data-delete-status="{if $deleteJob && isset($deleteJob->status)}{$deleteJob->status}{else}{/if}"
                     data-delete-blocked-reason="{if $deleteJob && isset($deleteJob->blocked_reason)}{$deleteJob->blocked_reason}{else}{/if}"
                     data-delete-retry-after="{if $deleteJob && isset($deleteJob->retry_after)}{$deleteJob->retry_after}{else}{/if}"
@@ -328,14 +371,6 @@
                         </span>
                     </div>
 
-                    <!-- Created -->
-                    <div>
-                      <h6 class="text-sm font-medium text-slate-400">Created</h6>
-                      <span class="text-md font-medium text-slate-300" title="Creation Date">
-                        {$bucket->created_at|date_format:"%d %b %Y"}
-                      </span>
-                    </div>
-
                     <!-- Logging -->
                     <div>
                       <h6 class="text-sm font-medium text-slate-400">Logging</h6>
@@ -345,6 +380,26 @@
                         id="loggingStatus-{$bucket->id}"
                         title="Access logging status"
                       >Checking…</span>
+                    </div>
+
+                    <!-- Quota (click to configure) -->
+                    <div>
+                      <button
+                        type="button"
+                        class="group/quota text-left cursor-pointer"
+                        title="Configure bucket quota"
+                        data-action="open-quota-management"
+                        data-bucket-id="{$bucket->id}"
+                        onmouseup="this.blur()"
+                      >
+                        <h6 class="text-sm font-medium text-slate-400 group-hover/quota:text-slate-300">Quota</h6>
+                        <div class="w-56" id="quotaOverview-{$bucket->id}" data-bucket-name="{$bucket->name}">
+                          <div class="h-2.5 w-full rounded bg-slate-800/70 overflow-hidden">
+                            <div class="h-full w-1/3 bg-gradient-to-r from-slate-600/40 via-slate-500/40 to-slate-600/40 animate-pulse"></div>
+                          </div>
+                          <div class="mt-1 text-xs text-slate-500">Loading quota…</div>
+                        </div>
+                      </button>
                     </div>
 
                     <!-- Actions column (moved to header action buttons) -->
@@ -413,6 +468,29 @@
                         </button>
                       </div>
                       <div class="text-slate-400 text-xs mt-1">Current status: <span class="bucket-logging-status" data-bucket-name="{$bucket->name}">Checking…</span></div>
+                    </div>
+
+                    <!-- Bucket quota management -->
+                    <div class="mb-4">
+                      <div class="flex items-center justify-between">
+                        <div class="text-slate-300 font-medium">Bucket quota</div>
+                        <button
+                          type="button"
+                          class="icon-btn manage-quota cursor-pointer"
+                          title="Configure bucket quota"
+                          data-bucket-name="{$bucket->name}"
+                          data-bucket-id="{$bucket->id}"
+                        >
+                          <!-- gear icon -->
+                          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="3"></circle>
+                            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c0 .66.26 1.3.73 1.77.47.47 1.11.73 1.77.73H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                          </svg>
+                        </button>
+                      </div>
+                      <div class="mt-2 rounded-md border border-slate-700 bg-slate-900/40 px-3 py-2" id="quotaCard-{$bucket->id}">
+                        <div class="text-slate-400 text-xs">Loading…</div>
+                      </div>
                     </div>
 
                     <!-- Lifecycle rules management -->
@@ -763,6 +841,247 @@
             </div>
         </div>
 
+        <!-- Bucket Quota Drawer (Right Panel) -->
+        <div
+            x-data="bucketQuotaDrawer()"
+            @bucket-quota-open.window="openDrawer($event.detail)"
+            @keydown.escape.window="closeDrawer()"
+            class="fixed inset-0 z-[10060] pointer-events-none"
+            aria-live="polite"
+        >
+            <!-- Hide native number spinners (Firefox/Chromium) so our stepper is the only control -->
+            <style>
+                input.no-spin[type=number] { appearance: textfield; -moz-appearance: textfield; }
+                input.no-spin[type=number]::-webkit-outer-spin-button,
+                input.no-spin[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+            </style>
+
+            <!-- Backdrop overlay -->
+            <div
+                x-show="open"
+                x-transition:enter="transition ease-out duration-200"
+                x-transition:enter-start="opacity-0"
+                x-transition:enter-end="opacity-100"
+                x-transition:leave="transition ease-in duration-150"
+                x-transition:leave-start="opacity-100"
+                x-transition:leave-end="opacity-0"
+                @click="closeDrawer()"
+                class="absolute inset-0 bg-black/50 pointer-events-auto"
+            ></div>
+
+            <!-- Drawer Panel -->
+            <div
+                x-show="open"
+                x-transition:enter="transition ease-out duration-200"
+                x-transition:enter-start="translate-x-full opacity-0"
+                x-transition:enter-end="translate-x-0 opacity-100"
+                x-transition:leave="transition ease-in duration-200"
+                x-transition:leave-start="translate-x-0 opacity-100"
+                x-transition:leave-end="translate-x-full opacity-80"
+                class="fixed inset-y-0 right-0 z-[10060] w-full sm:max-w-[440px] bg-slate-950/95 border-l border-slate-800 shadow-2xl pointer-events-auto"
+            >
+                <div class="h-full flex flex-col">
+                    <!-- Header -->
+                    <div
+                        class="px-5 py-4 border-b border-slate-800 flex items-center justify-between"
+                        x-show="open"
+                        x-transition:enter="transition ease-out duration-300 delay-100"
+                        x-transition:enter-start="opacity-0 -translate-y-2"
+                        x-transition:enter-end="opacity-100 translate-y-0"
+                        x-transition:leave="transition ease-in duration-150"
+                        x-transition:leave-start="opacity-100"
+                        x-transition:leave-end="opacity-0"
+                    >
+                        <div>
+                            <div class="text-slate-100 text-lg font-semibold">Bucket quota</div>
+                            <div class="text-xs text-slate-400">
+                                Bucket: <span class="text-sky-400" x-text="bucketName || '—'"></span>
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            class="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-slate-800 bg-slate-900/40 text-slate-300 hover:bg-slate-900/70 hover:text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50"
+                            @click="closeDrawer()"
+                            aria-label="Close"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/>
+                            </svg>
+                        </button>
+                    </div>
+
+                    <!-- Content -->
+                    <div class="flex-1 overflow-y-auto px-5 py-5">
+                        <div
+                            x-show="open"
+                            x-transition:enter="transition ease-out duration-300 delay-150"
+                            x-transition:enter-start="opacity-0 translate-y-3"
+                            x-transition:enter-end="opacity-100 translate-y-0"
+                            x-transition:leave="transition ease-in duration-100"
+                            x-transition:leave-start="opacity-100"
+                            x-transition:leave-end="opacity-0"
+                        >
+                            <div id="quotaDrawerMessage" class="hidden mb-3 text-sm px-3 py-2 rounded-md"></div>
+
+                            <!-- Enable -->
+                            <div class="mb-4">
+                                <label class="inline-flex items-center text-sm text-slate-300">
+                                    <input type="checkbox" class="mr-2 h-4 w-4 text-sky-600 bg-slate-900 border-slate-700 rounded focus:ring-sky-500" x-model="enabled">
+                                    Enable bucket quota
+                                </label>
+                                <div class="text-xs text-slate-400 mt-1">When enabled, uploads and writes will be rejected when limits are exceeded.</div>
+                            </div>
+
+                            <!-- Limits -->
+                            <div class="mb-4">
+                                <div class="text-sm text-slate-300 font-medium mb-2">Limits</div>
+
+                                <div class="grid grid-cols-3 gap-3 mb-3">
+                                    <div class="col-span-2">
+                                        <label class="block text-xs text-slate-400 mb-1">Max storage</label>
+                                        <!-- Stepper (modern UI) -->
+                                        <div
+                                            class="mt-1 w-full flex rounded-xl overflow-hidden ring-1 ring-white/10 bg-[rgb(var(--bg-input))] transition"
+                                            :class="enabled ? '' : 'opacity-50 cursor-not-allowed'"
+                                        >
+                                            <button
+                                                type="button"
+                                                class="shrink-0 px-3 py-2.5 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--accent))] disabled:opacity-60 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+                                                aria-label="Decrease"
+                                                @click="decMaxSize()"
+                                                :disabled="!enabled"
+                                            >−</button>
+                                            <input
+                                                type="number"
+                                                min="-1"
+                                                step="1"
+                                                class="no-spin min-w-0 flex-1 text-center bg-transparent text-white/90 placeholder-white/30 focus:outline-none focus:ring-0 px-3.5 py-2.5 disabled:text-white/40 disabled:placeholder-white/20 disabled:cursor-not-allowed"
+                                                placeholder="-1 for unlimited"
+                                                x-model.number="maxSizeValue"
+                                                :disabled="!enabled"
+                                            />
+                                            <button
+                                                type="button"
+                                                class="shrink-0 px-3 py-2.5 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--accent))] disabled:opacity-60 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+                                                aria-label="Increase"
+                                                @click="incMaxSize()"
+                                                :disabled="!enabled"
+                                            >+</button>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs text-slate-400 mb-1">Unit</label>
+                                        <select
+                                            class="w-full bg-slate-900/60 text-slate-200 border border-slate-800 rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-sky-500/50 disabled:opacity-50 disabled:text-slate-500 disabled:cursor-not-allowed"
+                                            x-model="maxSizeUnit"
+                                            :disabled="!enabled"
+                                        >
+                                            <option value="GB">GB</option>
+                                            <option value="TB">TB</option>
+                                            <option value="MB">MB</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="block text-xs text-slate-400 mb-1">Max objects</label>
+                                    <!-- Stepper (modern UI) -->
+                                    <div
+                                        class="mt-1 w-full flex rounded-xl overflow-hidden ring-1 ring-white/10 bg-[rgb(var(--bg-input))] transition"
+                                        :class="enabled ? '' : 'opacity-50 cursor-not-allowed'"
+                                    >
+                                        <button
+                                            type="button"
+                                            class="shrink-0 px-3 py-2.5 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--accent))] disabled:opacity-60 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+                                            aria-label="Decrease"
+                                            @click="decMaxObjects()"
+                                            :disabled="!enabled"
+                                        >−</button>
+                                        <input
+                                            type="number"
+                                            min="-1"
+                                            step="1"
+                                            class="no-spin min-w-0 flex-1 text-center bg-transparent text-white/90 placeholder-white/30 focus:outline-none focus:ring-0 px-3.5 py-2.5 disabled:text-white/40 disabled:placeholder-white/20 disabled:cursor-not-allowed"
+                                            placeholder="-1 for unlimited"
+                                            x-model.number="maxObjects"
+                                            :disabled="!enabled"
+                                        />
+                                        <button
+                                            type="button"
+                                            class="shrink-0 px-3 py-2.5 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--accent))] disabled:opacity-60 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+                                            aria-label="Increase"
+                                            @click="incMaxObjects()"
+                                            :disabled="!enabled"
+                                        >+</button>
+                                    </div>
+                                </div>
+
+                                <div class="text-xs text-slate-400">Use <span class="text-slate-200 font-medium">-1</span> for unlimited.</div>
+                            </div>
+
+                            <!-- Current usage (read-only, filled by JS) -->
+                            <div class="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
+                                <div class="text-xs uppercase tracking-wide text-slate-400 mb-2">Current usage</div>
+                                <div class="text-sm text-slate-300 space-y-1">
+                                    <div class="flex justify-between gap-3">
+                                        <span class="text-slate-400">Storage</span>
+                                        <span class="text-slate-200" x-text="usageSizeText || '—'"></span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Warning callout -->
+                            <div x-show="warningText" class="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+                                <div class="flex items-start gap-3">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0 text-amber-400 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                                    </svg>
+                                    <div>
+                                        <div class="font-medium text-amber-300" x-text="warningTitle || 'Warning'"></div>
+                                        <p class="mt-1 text-sm text-slate-300" x-text="warningText"></p>
+                                    </div>
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+
+                    <!-- Footer -->
+                    <div
+                        class="px-5 py-4 border-t border-slate-800 flex justify-end gap-3"
+                        x-show="open"
+                        x-transition:enter="transition ease-out duration-300 delay-[350ms]"
+                        x-transition:enter-start="opacity-0 translate-y-2"
+                        x-transition:enter-end="opacity-100 translate-y-0"
+                        x-transition:leave="transition ease-in duration-100"
+                        x-transition:leave-start="opacity-100"
+                        x-transition:leave-end="opacity-0"
+                    >
+                        <button
+                            type="button"
+                            class="px-4 py-2.5 rounded-lg border border-slate-800 bg-transparent hover:bg-slate-900/60 text-slate-200 text-sm transition"
+                            @click="closeDrawer()"
+                            :disabled="saving"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            class="inline-flex items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold shadow-sm ring-1 ring-sky-500/40 bg-gradient-to-r from-sky-500 to-sky-400 text-white transition hover:from-sky-600 hover:to-sky-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                            :disabled="saving"
+                            @click="submit()"
+                        >
+                            <svg x-show="saving" xmlns="http://www.w3.org/2000/svg" class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                            </svg>
+                            <span x-text="saving ? 'Saving…' : 'Save'"></span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Delete Bucket Modal -->
         <div class="fixed inset-0 bg-black/75 flex items-center justify-center z-50 hidden" id="deleteBucketModal">
             <div class="bg-gray-800 rounded-lg shadow-lg w-full max-w-xl p-6 max-h-[85vh] overflow-y-auto">
@@ -802,22 +1121,26 @@
                         </div>
                     </div>
                     
-                    <!-- Live Empty Check Panel -->
+                    <!-- Bucket Status Panel -->
                     <div id="emptyCheckPanel" class="hidden border border-slate-700 rounded-md p-4 mb-4 bg-slate-800">
                         <div class="flex items-center justify-between mb-3">
-                            <h3 class="text-sm font-semibold text-slate-200">Empty Check</h3>
-                            <button type="button" id="checkStatusButton" class="bg-gray-700 hover:bg-gray-600 text-gray-200 px-3 py-1 rounded-md text-sm">Check status</button>
+                            <h3 class="text-sm font-semibold text-slate-200">Bucket Status</h3>
+                            <button type="button" id="checkStatusButton" class="bg-gray-700 hover:bg-gray-600 text-gray-200 px-3 py-1 rounded-md text-sm">Refresh</button>
                         </div>
-                        <div class="grid grid-cols-1 gap-2 text-sm">
-                            <div class="flex justify-between"><span>Current objects:</span><span id="countObjects">—</span></div>
-                            <div class="flex justify-between"><span>Object versions (all):</span><span id="countVersions">—</span></div>
-                            <div class="flex justify-between"><span>Delete markers:</span><span id="countDeleteMarkers">—</span></div>
-                            <div class="flex justify-between"><span>Multipart uploads in progress:</span><span id="countMultipart">—</span></div>
-                            <div class="flex justify-between"><span>Legal holds present:</span><span id="hasLegalHolds">No</span></div>
-                            <div class="flex justify-between"><span>Earliest retain-until (if any):</span><span id="earliestRetainUntil">—</span></div>
+                        <!-- Simple status summary -->
+                        <div id="bucketStatusSummary" class="text-sm text-slate-300 mb-2">
+                            Checking bucket status...
                         </div>
+                        <!-- Hidden fields for JS access -->
+                        <span id="countObjects" class="hidden">—</span>
+                        <span id="countVersions" class="hidden">—</span>
+                        <span id="countDeleteMarkers" class="hidden">—</span>
+                        <span id="countMultipart" class="hidden">—</span>
+                        <span id="hasLegalHolds" class="hidden">No</span>
+                        <span id="earliestRetainUntil" class="hidden">—</span>
+                        <!-- Blockers only shown for Object Lock restrictions -->
                         <div id="blockersContainer" class="hidden mt-3">
-                            <div class="text-sm text-red-300 font-semibold mb-1">Blockers</div>
+                            <div class="text-sm text-amber-300 font-semibold mb-1">Action Required</div>
                             <ul id="blockersList" class="list-disc list-inside text-sm text-slate-300"></ul>
                         </div>
                     </div>
@@ -1139,6 +1462,18 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
                         var n = el.attr('data-bucket-name');
                         if (data[n]) {
                             el.text(formatBytesDynamic(data[n].size_bytes || 0));
+                            // Keep a numeric snapshot for quota calculations
+                            try {
+                                var row = jQuery('.bucket-row[data-bucket-name="'+n+'"]');
+                                row.attr('data-size-bytes', String(data[n].size_bytes || 0));
+                                // If quota cache exists, re-render the quota bar with the newer size
+                                try {
+                                    var bucketId = (row.attr('id') || '').replace('bucketRow','');
+                                    if (bucketId && window.__bucketQuotaCache && window.__bucketQuotaCache[n]) {
+                                        renderQuotaOverview(bucketId, window.__bucketQuotaCache[n]);
+                                    }
+                                } catch (e2) {}
+                            } catch (e) {}
                         }
                     });
                     jQuery('.bucket-objects').each(function(){
@@ -1159,6 +1494,8 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
         jQuery(document).ready(function(){
             refreshLiveBucketStats();
             refreshLiveBucketSettings();
+            // Quota bars on the Overview tab (loads quickly; server caches for 30s)
+            refreshQuotaOverviewAll();
         });
 
         // Live bucket settings: versioning
@@ -1263,6 +1600,8 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
                 try {
                     var bucketName = jQuery('#bucketRow' + bucketId).attr('data-bucket-name');
                     if (bucketName) {
+                        // Load quota card data
+                        loadBucketQuota(bucketName, bucketId);
                         loadLifecycleRules(bucketName, bucketId);
                     }
                 } catch (e) {}
@@ -1288,6 +1627,409 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
                             jQuery('#lockDays-' + bucketId).text('—');
                         }
                     }
+                } catch (e) {}
+            }
+        });
+
+        // Bucket quota: fetch and render quota + current usage
+        function formatInt(n) {
+            try {
+                return String(parseInt(n || 0, 10)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+            } catch (e) {
+                return String(n || '0');
+            }
+        }
+
+        function formatBytesHuman(bytes) {
+            var units = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB'];
+            var i = 0;
+            var b = parseFloat(bytes || 0);
+            if (!isFinite(b) || b < 0) b = 0;
+            while (b >= 1024 && i < units.length - 1) {
+                b = b / 1024;
+                i++;
+            }
+            var decimals = (i === 0) ? 0 : (b >= 10 ? 1 : 2);
+            return (Math.round(b * Math.pow(10, decimals)) / Math.pow(10, decimals)) + ' ' + units[i];
+        }
+
+        function quotaPct(used, max) {
+            var u = parseFloat(used || 0);
+            var m = parseFloat(max || 0);
+            if (!isFinite(u) || !isFinite(m)) return null;
+            if (m <= 0) return null;
+            return Math.max(0, Math.min(100, (u / m) * 100));
+        }
+
+        function quotaBarClass(pct) {
+            if (pct === null || typeof pct === 'undefined') return 'bg-slate-600';
+            if (pct >= 90) return 'bg-rose-500';
+            if (pct >= 70) return 'bg-amber-400';
+            return 'bg-emerald-400';
+        }
+
+        function renderQuotaCard(bucketId, d) {
+            var card = jQuery('#quotaCard-' + bucketId);
+            if (!card.length) return;
+            d = d || {};
+            var enabled = !!d.enabled;
+            var maxSize = (typeof d.max_size_bytes !== 'undefined' && d.max_size_bytes !== null) ? parseInt(d.max_size_bytes, 10) : -1;
+            var maxObjects = (typeof d.max_objects !== 'undefined' && d.max_objects !== null) ? parseInt(d.max_objects, 10) : -1;
+            // Use DB snapshot size embedded in the bucket row to avoid expensive live stats calls.
+            var row = jQuery('#bucketRow' + bucketId);
+            var curSize = row.length ? parseInt(row.attr('data-size-bytes') || '0', 10) : 0;
+
+            var statusBadge = enabled
+                ? '<span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-emerald-500/15 text-emerald-200 border border-emerald-500/30">Enabled</span>'
+                : '<span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-slate-500/15 text-slate-300 border border-slate-600/40">Disabled</span>';
+
+            function line(label, usedText, limitText, pct) {
+                var showBar = (pct !== null && isFinite(pct));
+                var bar = showBar
+                    ? ('<div class="mt-1 h-2 rounded bg-slate-800 overflow-hidden">'
+                        + '<div class="h-2 ' + quotaBarClass(pct) + '" style="width:' + Math.round(pct) + '%"></div>'
+                      + '</div>')
+                    : '';
+                return (
+                    '<div class="mb-3 last:mb-0">'
+                      + '<div class="flex items-center justify-between gap-3">'
+                        + '<div class="text-xs text-slate-400">' + label + '</div>'
+                        + '<div class="text-xs text-slate-300"><span class="text-slate-200 font-medium">' + usedText + '</span>'
+                          + (limitText ? (' <span class="text-slate-500">/</span> <span class="text-slate-300">' + limitText + '</span>') : '')
+                        + '</div>'
+                      + '</div>'
+                      + bar
+                    + '</div>'
+                );
+            }
+
+            var maxSizeText = (maxSize === -1 || maxSize === 0) ? 'Unlimited' : formatBytesHuman(maxSize);
+            var sizePct = (enabled && maxSize > 0) ? quotaPct(curSize, maxSize) : null;
+
+            var html =
+                '<div class="flex items-center justify-between mb-2">'
+                  + '<div class="text-xs text-slate-400">Status</div>'
+                  + statusBadge
+                + '</div>'
+                + line('Storage', formatBytesHuman(curSize), (enabled ? maxSizeText : ''), sizePct);
+
+            card.html(html);
+        }
+
+        function loadBucketQuota(bucketName, bucketId) {
+            if (!bucketName || !bucketId) return;
+            window.__bucketQuotaCache = window.__bucketQuotaCache || {};
+            // Keep UI responsive: show a subtle loading state when empty
+            var card = jQuery('#quotaCard-' + bucketId);
+            if (card.length && card.find('[data-q-loading]').length === 0) {
+                // Only show loader if card is still in initial state
+                // (avoid flicker when reloading quota)
+            }
+            return jQuery.post('modules/addons/cloudstorage/api/getbucketquota.php', { bucket_name: bucketName }, function(resp){
+                if (!resp || resp.status !== 'success' || !resp.data) {
+                    if (card.length) {
+                        card.html('<div class="text-slate-400 text-xs">Unable to load quota.</div>');
+                    }
+                    return;
+                }
+                window.__bucketQuotaCache[bucketName] = resp.data;
+                renderQuotaCard(bucketId, resp.data);
+                // Also update the Overview quota bar if present
+                try { renderQuotaOverview(bucketId, resp.data); } catch (e) {}
+            }, 'json').fail(function(){
+                if (card.length) {
+                    card.html('<div class="text-slate-400 text-xs">Unable to load quota.</div>');
+                }
+            });
+        }
+
+        // Overview quota bar (vault-style)
+        function renderQuotaOverview(bucketId, q) {
+            var box = jQuery('#quotaOverview-' + bucketId);
+            if (!box.length) return;
+            q = q || {};
+            var enabled = !!q.enabled;
+            var maxSize = (typeof q.max_size_bytes !== 'undefined' && q.max_size_bytes !== null) ? parseInt(q.max_size_bytes, 10) : -1;
+
+            // Use latest numeric size snapshot
+            var row = jQuery('#bucketRow' + bucketId);
+            var usedBytes = row.length ? parseInt(row.attr('data-size-bytes') || '0', 10) : 0;
+
+            // No quota configured or disabled -> match vault "Usage unavailable (no quota)"
+            if (!enabled || !isFinite(maxSize) || maxSize <= 0) {
+                box.html(
+                    '<div class="h-2.5 w-full rounded bg-slate-800/70 overflow-hidden">'
+                      + '<div class="h-full w-1/3 bg-gradient-to-r from-slate-600/40 via-slate-500/40 to-slate-600/40"></div>'
+                    + '</div>'
+                    + '<div class="mt-1 text-xs text-slate-500">Usage unavailable (no quota)</div>'
+                );
+                return;
+            }
+
+            var pct = quotaPct(usedBytes, maxSize);
+            var pctRounded = (pct === null) ? 0 : Math.round(pct);
+            var barClass = quotaBarClass(pct);
+            var usedText = formatBytesHuman(usedBytes);
+            var maxText = formatBytesHuman(maxSize);
+
+            box.html(
+                '<div class="h-2.5 w-full rounded bg-slate-800/70 overflow-hidden">'
+                  + '<div class="h-full ' + barClass + '" style="width:' + pctRounded + '%"></div>'
+                + '</div>'
+                + '<div class="mt-1 text-xs text-slate-500">' + usedText + ' / ' + maxText + ' (' + pctRounded + '%)</div>'
+            );
+        }
+
+        // Load quota for all buckets in the overview (at-a-glance)
+        function refreshQuotaOverviewAll() {
+            jQuery('[id^="quotaOverview-"]').each(function(){
+                var el = jQuery(this);
+                var bucketName = el.attr('data-bucket-name') || '';
+                var bucketId = (el.attr('id') || '').replace('quotaOverview-','');
+                if (!bucketName || !bucketId) return;
+                loadBucketQuota(bucketName, bucketId);
+            });
+        }
+
+        // Alpine drawer controller (stub; full save wiring added later)
+        function bucketQuotaDrawer() {
+            return {
+                open: false,
+                saving: false,
+                bucketName: '',
+                bucketId: '',
+                enabled: false,
+                maxSizeValue: -1,
+                maxSizeUnit: 'GB',
+                maxObjects: -1,
+                usageSizeText: '',
+                usageObjectsText: '',
+                warningTitle: '',
+                warningText: '',
+                // Stepper behavior:
+                // -1 means Unlimited. When user clicks + from -1, jump to a sane starting value.
+                incMaxSize() {
+                    if (!this.enabled) return;
+                    var v = Number(this.maxSizeValue);
+                    if (!isFinite(v) || v === -1) {
+                        this.maxSizeValue = 1;
+                        return;
+                    }
+                    v = v + 1;
+                    if (v <= 0) v = 1;
+                    // keep 2 decimals max (future-proof if we later allow fractional steps)
+                    this.maxSizeValue = Math.round(v * 100) / 100;
+                },
+                decMaxSize() {
+                    if (!this.enabled) return;
+                    var v = Number(this.maxSizeValue);
+                    if (!isFinite(v) || v === -1) {
+                        this.maxSizeValue = -1;
+                        return;
+                    }
+                    v = v - 1;
+                    if (v <= 0) {
+                        this.maxSizeValue = -1;
+                        return;
+                    }
+                    this.maxSizeValue = Math.round(v * 100) / 100;
+                },
+                incMaxObjects() {
+                    if (!this.enabled) return;
+                    var v = parseInt(this.maxObjects, 10);
+                    if (!isFinite(v) || v === -1) {
+                        this.maxObjects = 1000;
+                        return;
+                    }
+                    this.maxObjects = v + 1000;
+                },
+                decMaxObjects() {
+                    if (!this.enabled) return;
+                    var v = parseInt(this.maxObjects, 10);
+                    if (!isFinite(v) || v === -1) {
+                        this.maxObjects = -1;
+                        return;
+                    }
+                    v = v - 1000;
+                    if (v <= 0) {
+                        this.maxObjects = -1;
+                        return;
+                    }
+                    this.maxObjects = v;
+                },
+                openDrawer(detail) {
+                    detail = detail || {};
+                    this.bucketName = detail.bucketName || '';
+                    this.bucketId = detail.bucketId || '';
+                    this.warningTitle = '';
+                    this.warningText = '';
+                    // Prefill from cache if available
+                    try {
+                        var d = (window.__bucketQuotaCache && this.bucketName) ? window.__bucketQuotaCache[this.bucketName] : null;
+                        if (d) {
+                            this.enabled = !!d.enabled;
+                            this.maxObjects = (typeof d.max_objects !== 'undefined' && d.max_objects !== null) ? parseInt(d.max_objects, 10) : -1;
+                            var ms = (typeof d.max_size_bytes !== 'undefined' && d.max_size_bytes !== null) ? parseInt(d.max_size_bytes, 10) : -1;
+                            // Default to GB for display; JS save handler will convert units
+                            if (ms === -1 || ms === 0) {
+                                this.maxSizeValue = -1;
+                                this.maxSizeUnit = 'GB';
+                            } else {
+                                this.maxSizeValue = Math.round((ms / (1024 * 1024 * 1024)) * 100) / 100;
+                                this.maxSizeUnit = 'GB';
+                            }
+                            // Use DB snapshot size embedded in the bucket row
+                            try {
+                                var row = jQuery('#bucketRow' + this.bucketId);
+                                var s = row.length ? parseInt(row.attr('data-size-bytes') || '0', 10) : 0;
+                                this.usageSizeText = formatBytesHuman(s);
+                            } catch (e) {
+                                this.usageSizeText = '—';
+                            }
+                            this.usageObjectsText = '—';
+
+                            // Warning: approaching or exceeding quota
+                            try {
+                                if (this.enabled) {
+                                    var usedB = 0;
+                                    try {
+                                        var row2 = jQuery('#bucketRow' + this.bucketId);
+                                        usedB = row2.length ? parseInt(row2.attr('data-size-bytes') || '0', 10) : 0;
+                                    } catch (e) { usedB = 0; }
+                                    var maxB = parseInt(d.max_size_bytes || -1, 10);
+                                    var maxO = parseInt(d.max_objects || -1, 10);
+                                    var pSize = (maxB > 0) ? quotaPct(usedB, maxB) : null;
+                                    var worst = 0;
+                                    if (pSize !== null) worst = Math.max(worst, pSize);
+                                    // We intentionally don't compute object-based % in the UI (objects aren't displayed).
+                                    if (worst >= 100) {
+                                        this.warningTitle = 'Quota exceeded';
+                                        this.warningText = 'This bucket is at or above its configured quota. Writes may be rejected until you raise limits or reduce usage.';
+                                    } else if (worst >= 90) {
+                                        this.warningTitle = 'Approaching quota';
+                                        this.warningText = 'This bucket is above 90% of one or more configured limits. Consider increasing limits or cleaning up data.';
+                                    } else if (worst >= 70) {
+                                        this.warningTitle = 'Usage increasing';
+                                        this.warningText = 'This bucket is above 70% of one or more configured limits.';
+                                    }
+                                }
+                            } catch (e) {}
+                        } else {
+                            this.usageSizeText = '—';
+                            this.usageObjectsText = '—';
+                        }
+                    } catch (e) {}
+                    this.open = true;
+                },
+                closeDrawer() {
+                    this.open = false;
+                },
+                submit() {
+                    var self = this;
+                    if (!self.bucketName) {
+                        try { showMessage('Missing bucket name.', 'quotaDrawerMessage', 'error'); } catch (e) {}
+                        return;
+                    }
+
+                    // Normalize inputs
+                    var enabled = !!self.enabled;
+                    var maxObjects = parseInt(self.maxObjects, 10);
+                    if (!isFinite(maxObjects)) maxObjects = -1;
+
+                    var v = self.maxSizeValue;
+                    var maxSizeValueNum = (v === '' || v === null || typeof v === 'undefined') ? -1 : parseFloat(v);
+                    if (!isFinite(maxSizeValueNum)) maxSizeValueNum = -1;
+
+                    // Convert unit to GB for API contract
+                    var unit = String(self.maxSizeUnit || 'GB').toUpperCase();
+                    var maxSizeGb = maxSizeValueNum;
+                    if (maxSizeValueNum !== -1) {
+                        if (unit === 'TB') maxSizeGb = maxSizeValueNum * 1024;
+                        else if (unit === 'MB') maxSizeGb = maxSizeValueNum / 1024;
+                        else maxSizeGb = maxSizeValueNum;
+                    }
+
+                    // Validation (allow -1 unlimited)
+                    if (enabled) {
+                        if (maxSizeGb !== -1 && maxSizeGb <= 0) {
+                            try { showMessage('Max storage must be greater than 0 (or -1 for unlimited).', 'quotaDrawerMessage', 'error'); } catch (e) {}
+                            return;
+                        }
+                        if (maxObjects !== -1 && maxObjects <= 0) {
+                            try { showMessage('Max objects must be greater than 0 (or -1 for unlimited).', 'quotaDrawerMessage', 'error'); } catch (e) {}
+                            return;
+                        }
+                    }
+
+                    // Begin save
+                    self.saving = true;
+                    try { hideMessage('quotaDrawerMessage'); } catch (e) {}
+
+                    jQuery.ajax({
+                        url: 'modules/addons/cloudstorage/api/setbucketquota.php',
+                        method: 'POST',
+                        dataType: 'json',
+                        data: {
+                            bucket_name: self.bucketName,
+                            enabled: enabled ? 1 : 0,
+                            max_size_gb: (maxSizeGb === -1 ? -1 : maxSizeGb),
+                            max_objects: (maxObjects === -1 ? -1 : maxObjects),
+                        },
+                        success: function(resp) {
+                            self.saving = false;
+                            if (!resp || resp.status !== 'success') {
+                                try { showMessage((resp && resp.message) ? resp.message : 'Unable to save quota.', 'quotaDrawerMessage', 'error'); } catch (e) {}
+                                return;
+                            }
+                            try { pushToast(resp.message || 'Bucket quota updated.', 'success'); } catch (e) {}
+                            // Refresh quota card + cache
+                            try { loadBucketQuota(self.bucketName, self.bucketId); } catch (e) {}
+                            self.closeDrawer();
+                        },
+                        error: function(xhr, status, error) {
+                            self.saving = false;
+                            try { showMessage(error || 'Unable to save quota.', 'quotaDrawerMessage', 'error'); } catch (e) {}
+                        }
+                    });
+                }
+            };
+        }
+
+        // Open quota drawer from the gear button
+        function openQuotaDrawer(bucketName, bucketId) {
+            if (!bucketName || !bucketId) return;
+            // Ensure we have fresh data in cache for prefilling
+            var req = null;
+            try { req = loadBucketQuota(bucketName, bucketId); } catch (e) {}
+            var dispatch = function() {
+                try {
+                    window.dispatchEvent(new CustomEvent('bucket-quota-open', { detail: { bucketName: bucketName, bucketId: bucketId } }));
+                } catch (e) {}
+            };
+            if (req && typeof req.always === 'function') {
+                req.always(function(){ dispatch(); });
+            } else {
+                dispatch();
+            }
+        }
+
+        jQuery(document).on('click', '.manage-quota', function() {
+            var bucketName = jQuery(this).attr('data-bucket-name') || '';
+            var bucketId = jQuery(this).attr('data-bucket-id') || '';
+            openQuotaDrawer(bucketName, bucketId);
+        });
+
+        // Overview Quota column click -> open Management tab for that bucket (where quota is configurable)
+        jQuery(document).on('click', '[data-action="open-quota-management"]', function() {
+            var bucketId = jQuery(this).attr('data-bucket-id') || '';
+            if (!bucketId) return;
+            var btn = jQuery('.bucket-tab[data-bucket-id="' + bucketId + '"][data-tab="management"]');
+            if (btn.length) {
+                btn.trigger('click');
+                // Optional: scroll the card into view for clarity
+                try {
+                    var row = document.getElementById('bucketRow' + bucketId);
+                    if (row && row.scrollIntoView) row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
                 } catch (e) {}
             }
         });
@@ -1916,6 +2658,7 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
                 jQuery('#guidanceSection').addClass('hidden');
                 jQuery('#blockersContainer').addClass('hidden');
                 jQuery('#blockersList').empty();
+                jQuery('#bucketStatusSummary').html('Checking bucket status...');
                 jQuery('#countObjects').text('—');
                 jQuery('#countVersions').text('—');
                 jQuery('#countDeleteMarkers').text('—');
@@ -1939,18 +2682,19 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
                 // Show/hide object lock warning and update modal title
                 if (objectLockEnabled) {
                     jQuery('#objectLockWarning').removeClass('hidden');
-                    jQuery('#deleteModalTitle').text('Request deletion (Object Lock enabled)');
+                    jQuery('#deleteModalTitle').text('Delete bucket (Object Lock enabled)');
                     jQuery('#emptyCheckPanel').removeClass('hidden');
+                    // Show guidance only for Object Lock buckets where user may need to take action
                     jQuery('#guidanceSection').removeClass('hidden');
                     // Preload status immediately
                     fetchObjectLockStatus(bucketName);
                 } else {
                     jQuery('#objectLockWarning').addClass('hidden');
-                    jQuery('#deleteModalTitle').text('Request deletion');
-                    // For non-OL buckets, also show empty check and guidance
+                    jQuery('#deleteModalTitle').text('Delete bucket');
                     jQuery('#emptyCheckPanel').removeClass('hidden');
-                    jQuery('#guidanceSection').removeClass('hidden');
-                    // Load status to decide actions (delete vs empty)
+                    // Hide guidance for non-OL buckets - system handles emptying automatically
+                    jQuery('#guidanceSection').addClass('hidden');
+                    // Load status
                     fetchObjectLockStatus(bucketName);
                 }
 
@@ -2229,48 +2973,7 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
             showMessage(message, modalContainer, type);
         }
 
-        // Alpine toast helper
-        function toastCenter() {
-            return {
-                toasts: [],
-                init() {
-                    var self = this;
-                    window.addEventListener('toast', function(e){
-                        var d = e.detail || {};
-                        self.add(d.message || '', d.type || 'info', d.duration || 5000);
-                    });
-                },
-                add(message, type, duration) {
-                    // De-dupe identical adjacent toasts
-                    if (this.toasts.length) {
-                        var last = this.toasts[this.toasts.length - 1];
-                        if (last && last.message === message && last.type === type && last.show) {
-                            return;
-                        }
-                    }
-                    var id = Date.now() + Math.random();
-                    this.toasts.push({ id: id, message: message, type: type, show: true });
-                    var self = this;
-                    setTimeout(function(){ self.remove(id); }, duration || 5000);
-                },
-                remove(id) {
-                    this.toasts = this.toasts.filter(function(t){ return t.id !== id; });
-                }
-            };
-        }
-        function pushToast(message, type) {
-            try {
-                // Global de-dupe to avoid duplicate toasts from multiple listeners/components
-                var k = (type || 'info') + '|' + String(message || '');
-                var now = Date.now();
-                if (window.__lastToastKey === k && (now - (window.__lastToastAt || 0) < 1000)) {
-                    return;
-                }
-                window.__lastToastKey = k;
-                window.__lastToastAt = now;
-                window.dispatchEvent(new CustomEvent('toast', { detail: { message: message, type: type } }));
-            } catch(e) {}
-        }
+        // toastCenter and pushToast are defined earlier in the template (before the Alpine x-data element)
 
         function showMessage(message, containerId, type = 'info') {
             const container = jQuery('#' + containerId);
@@ -2329,12 +3032,35 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
 
                     const d = resp.data || {};
                     const counts = d.counts || {};
+                    const isObjectLocked = d.object_lock && d.object_lock.enabled;
+                    
+                    // Store counts in hidden fields for reference
                     jQuery('#countObjects').text(counts.current_objects || 0);
                     jQuery('#countVersions').text(counts.versions || 0);
                     jQuery('#countDeleteMarkers').text(counts.delete_markers || 0);
                     jQuery('#countMultipart').text(counts.multipart_uploads || 0);
                     jQuery('#hasLegalHolds').text((counts.legal_holds || 0) > 0 ? 'Yes' : 'No');
                     jQuery('#earliestRetainUntil').text(d.earliest_retain_until || '—');
+                    
+                    // Build a simple status summary
+                    var statusSummary = '';
+                    var totalItems = (counts.current_objects || 0) + (counts.versions || 0) + (counts.delete_markers || 0);
+                    
+                    if (d.empty) {
+                        statusSummary = '<span class="text-emerald-400">✓ Bucket is empty</span> — ready for deletion.';
+                    } else if (isObjectLocked) {
+                        var hasBlockers = (counts.legal_holds || 0) > 0 || (counts.compliance_retained || 0) > 0;
+                        if (hasBlockers) {
+                            statusSummary = '<span class="text-amber-400">Object Lock restrictions detected</span> — see details below.';
+                        } else if ((counts.governance_retained || 0) > 0) {
+                            statusSummary = '<span class="text-amber-400">Governance retention active</span> — verify password to bypass.';
+                        } else {
+                            statusSummary = 'Bucket contains ' + totalItems + ' items. We will empty it automatically before deletion.';
+                        }
+                    } else {
+                        statusSummary = 'Bucket contains ' + totalItems + ' items. We will empty it automatically before deletion.';
+                    }
+                    jQuery('#bucketStatusSummary').html(statusSummary);
 
                     // Mode chip
                     const mode = (d.object_lock && d.object_lock.default_mode) ? d.object_lock.default_mode : null;
@@ -2344,45 +3070,26 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
                         jQuery('#objectLockModeChip').addClass('!hidden').text('');
                     }
 
-                    // Build blockers
+                    // Build blockers - ONLY for actual Object Lock restrictions that block deletion
+                    // Objects, versions, delete markers, and multipart uploads are handled automatically by the system
                     const blockers = [];
-                    if ((counts.legal_holds || 0) > 0) {
-                        const ex = (d.examples && d.examples.legal_holds) ? d.examples.legal_holds.slice(0,3) : [];
-                        blockers.push(counts.legal_holds + ' versions under Legal Hold — remove legal holds before you can delete those versions.' + exampleSuffix(ex));
-                    }
-                    if ((counts.compliance_retained || 0) > 0) {
-                        const when = d.earliest_retain_until ? d.earliest_retain_until : 'future date';
-                        const ex = (d.examples && d.examples.compliance) ? d.examples.compliance.slice(0,3) : [];
-                        blockers.push(counts.compliance_retained + ' versions in Compliance retention — deletion allowed after ' + when + '.' + exampleSuffix(ex, true));
-                    }
-                    if ((counts.governance_retained || 0) > 0) {
-                        const ex = (d.examples && d.examples.governance) ? d.examples.governance.slice(0,3) : [];
-                        blockers.push(counts.governance_retained + ' versions in Governance retention — delete after retain-until, or request force delete (bypass governance).' + exampleSuffix(ex, true));
-                    }
-                    if ((counts.multipart_uploads || 0) > 0) {
-                        const ex = (d.examples && d.examples.multipart) ? d.examples.multipart.slice(0,3) : [];
-                        blockers.push(counts.multipart_uploads + ' multipart upload in progress — abort the upload, then try again.' + exampleSuffix(ex));
-                    }
-                    if ((counts.versions || 0) > 0 && (counts.versions - (counts.compliance_retained||0) - (counts.governance_retained||0) - (counts.legal_holds||0)) > 0) {
-                        blockers.push('There are object versions remaining — delete all versions.');
-                    }
-                    if ((counts.delete_markers || 0) > 0) {
-                        blockers.push('Delete markers present — remove all delete markers.');
-                    }
-                    if ((counts.current_objects || 0) > 0) {
-                        blockers.push('Current objects present — delete all objects.');
-                    }
-
-                    function exampleSuffix(examples, showDate) {
-                        if (!examples || examples.length === 0) return '';
-                        const parts = examples.map(function(e){
-                            let s = e.Key;
-                            if (showDate && e.RetainUntil) {
-                                s += ' (until ' + new Date(e.RetainUntil * 1000).toUTCString().replace(':00 GMT',' GMT') + ')';
-                            }
-                            return s;
-                        });
-                        return ' Examples: ' + parts.join(', ') + '.';
+                    
+                    if (isObjectLocked) {
+                        // Legal Hold - requires manual removal, cannot be bypassed
+                        if ((counts.legal_holds || 0) > 0) {
+                            blockers.push('Legal Hold is active on some versions — these must be removed before deletion can proceed.');
+                        }
+                        
+                        // Compliance retention - cannot be bypassed, must wait
+                        if ((counts.compliance_retained || 0) > 0) {
+                            const when = d.earliest_retain_until ? d.earliest_retain_until : 'a future date';
+                            blockers.push('Compliance retention is active — deletion will be possible after ' + when + '.');
+                        }
+                        
+                        // Governance retention - can be bypassed with password/2FA, so just informational
+                        if ((counts.governance_retained || 0) > 0 && (counts.compliance_retained || 0) === 0 && (counts.legal_holds || 0) === 0) {
+                            blockers.push('Governance retention is active — verify your password below to proceed.');
+                        }
                     }
 
                     if (blockers.length > 0) {

@@ -3603,11 +3603,19 @@ class BucketController {
      * Returns counts for objects, versions, delete markers, multipart uploads, legal holds,
      * counts of versions in COMPLIANCE/GOVERNANCE retention, earliest retain-until, and default mode.
      *
+     * PERFORMANCE OPTIMIZATION:
+     * - For Object Lock buckets: samples up to $maxVersionsToInspect versions for retention/hold checks
+     *   instead of checking every single version (which caused multi-minute delays).
+     * - For non-Object Lock buckets: skips retention/hold API calls entirely.
+     * - Uses a single page of listObjectsV2 to check if bucket has current objects (fast).
+     * - Provides accurate counts for versions/delete markers via pagination.
+     *
      * @param string $bucketName
-     * @param int $maxExamples
+     * @param int $maxExamples Number of example objects to return for each blocker type
+     * @param int $maxVersionsToInspect Max versions to check for retention/holds (sampling)
      * @return array
      */
-    public function getObjectLockEmptyStatus($bucketName, $maxExamples = 3)
+    public function getObjectLockEmptyStatus($bucketName, $maxExamples = 3, $maxVersionsToInspect = 50)
     {
         $result = [
             'object_lock' => [
@@ -3632,16 +3640,19 @@ class BucketController {
                 'multipart' => [],
             ],
             'empty' => false,
+            'sampled' => false, // Indicates if retention/hold counts are from sampling
         ];
 
         try {
             // Object lock configuration / default mode (if any)
+            $objectLockEnabled = false;
             try {
                 $olc = $this->s3Client->getObjectLockConfiguration(['Bucket' => $bucketName]);
                 if (
                     isset($olc['ObjectLockConfiguration']['ObjectLockEnabled']) &&
                     $olc['ObjectLockConfiguration']['ObjectLockEnabled'] === 'Enabled'
                 ) {
+                    $objectLockEnabled = true;
                     $result['object_lock']['enabled'] = true;
                     if (isset($olc['ObjectLockConfiguration']['Rule']['DefaultRetention']['Mode'])) {
                         $result['object_lock']['default_mode'] = $olc['ObjectLockConfiguration']['Rule']['DefaultRetention']['Mode'];
@@ -3651,27 +3662,27 @@ class BucketController {
                 // If getObjectLockConfiguration fails, treat as not enabled
             }
 
-            // Determine current object count from S3 in real-time to avoid stale DB stats
+            // Fast check for current objects using a single page (MaxKeys=1000)
+            // For delete modal we just need to know if objects exist, not an exact count for huge buckets
             try {
-                $isTruncated = false;
-                $continuationToken = null;
+                $objects = $this->s3Client->listObjectsV2([
+                    'Bucket' => $bucketName,
+                    'MaxKeys' => 1000
+                ]);
                 $currentCount = 0;
-                do {
-                    $params = [
-                        'Bucket' => $bucketName,
-                        'MaxKeys' => 1000
-                    ];
-                    if ($continuationToken) {
-                        $params['ContinuationToken'] = $continuationToken;
-                    }
-                    $objects = $this->s3Client->listObjectsV2($params);
-                    if (!empty($objects['Contents'])) {
-                        $currentCount += count($objects['Contents']);
-                    }
-                    $isTruncated = isset($objects['IsTruncated']) ? (bool)$objects['IsTruncated'] : false;
-                    $continuationToken = $objects['NextContinuationToken'] ?? null;
-                } while ($isTruncated);
-                $result['counts']['current_objects'] = $currentCount;
+                if (!empty($objects['Contents'])) {
+                    $currentCount = count($objects['Contents']);
+                }
+                // If there are more objects, indicate with a "+" suffix logic handled in result
+                $hasMoreObjects = isset($objects['IsTruncated']) && $objects['IsTruncated'];
+                if ($hasMoreObjects) {
+                    // For large buckets, we just need to know there are objects - no need to count all
+                    // The UI will show "1000+" which is sufficient for the delete modal
+                    $result['counts']['current_objects'] = $currentCount;
+                    $result['counts']['current_objects_truncated'] = true;
+                } else {
+                    $result['counts']['current_objects'] = $currentCount;
+                }
             } catch (S3Exception $e) {
                 // If S3 listing fails, fall back to last-known DB value (best-effort only)
                 try {
@@ -3690,49 +3701,48 @@ class BucketController {
                 }
             }
 
-            // Multipart uploads in progress (count and a few examples)
+            // Multipart uploads in progress - use a single page for speed
             try {
-                $isTruncated = false;
-                $keyMarker = null;
-                $uploadIdMarker = null;
-                do {
-                    $params = ['Bucket' => $bucketName];
-                    if ($keyMarker) {
-                        $params['KeyMarker'] = $keyMarker;
+                $uploads = $this->s3Client->listMultipartUploads([
+                    'Bucket' => $bucketName,
+                    'MaxUploads' => 100
+                ]);
+                if (!empty($uploads['Uploads'])) {
+                    $result['counts']['multipart_uploads'] = count($uploads['Uploads']);
+                    foreach (array_slice($uploads['Uploads'], 0, $maxExamples) as $u) {
+                        $result['examples']['multipart'][] = [
+                            'Key' => $u['Key'],
+                            'UploadId' => $u['UploadId']
+                        ];
                     }
-                    if ($uploadIdMarker) {
-                        $params['UploadIdMarker'] = $uploadIdMarker;
+                    // If truncated, there are more uploads
+                    if (!empty($uploads['IsTruncated'])) {
+                        $result['counts']['multipart_uploads_truncated'] = true;
                     }
-                    $uploads = $this->s3Client->listMultipartUploads($params);
-                    if (!empty($uploads['Uploads'])) {
-                        foreach ($uploads['Uploads'] as $u) {
-                            $result['counts']['multipart_uploads'] += 1;
-                            if (count($result['examples']['multipart']) < $maxExamples) {
-                                $result['examples']['multipart'][] = [
-                                    'Key' => $u['Key'],
-                                    'UploadId' => $u['UploadId']
-                                ];
-                            }
-                        }
-                    }
-                    $isTruncated = isset($uploads['IsTruncated']) ? (bool)$uploads['IsTruncated'] : false;
-                    $keyMarker = $uploads['NextKeyMarker'] ?? null;
-                    $uploadIdMarker = $uploads['NextUploadIdMarker'] ?? null;
-                } while ($isTruncated);
+                }
             } catch (S3Exception $e) {
                 // ignore upload listing errors
             }
 
-            // Versions and delete markers; also inspect legal holds and per-version retention
+            // Versions and delete markers
+            // We need accurate counts for these, so we paginate, but we only inspect
+            // retention/holds on a sample of versions (first N) to avoid thousands of API calls.
             $earliestTs = null;
             $complianceFound = false;
             $governanceFound = false;
+            $versionsInspected = 0;
+
             try {
                 $isTruncated = false;
                 $keyMarker = null;
                 $versionIdMarker = null;
+                $versionsList = []; // Collect versions for sampling
+                
                 do {
-                    $params = ['Bucket' => $bucketName];
+                    $params = [
+                        'Bucket' => $bucketName,
+                        'MaxKeys' => 1000
+                    ];
                     if ($keyMarker) {
                         $params['KeyMarker'] = $keyMarker;
                     }
@@ -3741,90 +3751,120 @@ class BucketController {
                     }
                     $versions = $this->s3Client->listObjectVersions($params);
 
+                    // Count versions
                     if (!empty($versions['Versions'])) {
-                        foreach ($versions['Versions'] as $v) {
-                            $result['counts']['versions'] += 1;
-
-                            // Inspect retention
-                            try {
-                                $ret = $this->s3Client->getObjectRetention([
-                                    'Bucket' => $bucketName,
-                                    'Key' => $v['Key'],
-                                    'VersionId' => $v['VersionId']
-                                ]);
-                                if (!empty($ret['Retention']['Mode'])) {
-                                    $mode = $ret['Retention']['Mode'];
-                                    $until = $ret['Retention']['RetainUntilDate'] ?? null;
-                                    $untilTs = null;
-                                    if ($until instanceof \DateTimeInterface) {
-                                        $untilTs = $until->getTimestamp();
-                                    } elseif (!empty($until)) {
-                                        $untilTs = strtotime((string)$until);
-                                    }
-                                    // Count only if retain-until is in the future
-                                    if ($untilTs && $untilTs > time()) {
-                                        if (strtoupper($mode) === 'COMPLIANCE') {
-                                            $result['counts']['compliance_retained'] += 1;
-                                            $complianceFound = true;
-                                            if (count($result['examples']['compliance']) < $maxExamples) {
-                                                $result['examples']['compliance'][] = [
-                                                    'Key' => $v['Key'],
-                                                    'VersionId' => $v['VersionId'],
-                                                    'RetainUntil' => $untilTs
-                                                ];
-                                            }
-                                        } elseif (strtoupper($mode) === 'GOVERNANCE') {
-                                            $result['counts']['governance_retained'] += 1;
-                                            $governanceFound = true;
-                                            if (count($result['examples']['governance']) < $maxExamples) {
-                                                $result['examples']['governance'][] = [
-                                                    'Key' => $v['Key'],
-                                                    'VersionId' => $v['VersionId'],
-                                                    'RetainUntil' => $untilTs
-                                                ];
-                                            }
-                                        }
-                                        if (is_null($earliestTs) || $untilTs < $earliestTs) {
-                                            $earliestTs = $untilTs;
-                                        }
-                                    }
-                                }
-                            } catch (S3Exception $e) {
-                                // No retention or not permitted; ignore
-                            }
-
-                            // Inspect legal hold
-                            try {
-                                $lh = $this->s3Client->getObjectLegalHold([
-                                    'Bucket' => $bucketName,
-                                    'Key' => $v['Key'],
-                                    'VersionId' => $v['VersionId']
-                                ]);
-                                if (!empty($lh['LegalHold']['Status']) && strtoupper($lh['LegalHold']['Status']) === 'ON') {
-                                    $result['counts']['legal_holds'] += 1;
-                                    if (count($result['examples']['legal_holds']) < $maxExamples) {
-                                        $result['examples']['legal_holds'][] = [
-                                            'Key' => $v['Key'],
-                                            'VersionId' => $v['VersionId']
-                                        ];
-                                    }
-                                }
-                            } catch (S3Exception $e) {
-                                // No legal hold or not permitted; ignore
-                            }
+                        $result['counts']['versions'] += count($versions['Versions']);
+                        
+                        // Collect versions for sampling (only if we haven't collected enough)
+                        if (count($versionsList) < $maxVersionsToInspect) {
+                            $remaining = $maxVersionsToInspect - count($versionsList);
+                            $versionsList = array_merge(
+                                $versionsList,
+                                array_slice($versions['Versions'], 0, $remaining)
+                            );
                         }
                     }
 
+                    // Count delete markers
                     if (!empty($versions['DeleteMarkers'])) {
-                        foreach ($versions['DeleteMarkers'] as $m) {
-                            $result['counts']['delete_markers'] += 1;
-                        }
+                        $result['counts']['delete_markers'] += count($versions['DeleteMarkers']);
                     }
 
                     $isTruncated = isset($versions['IsTruncated']) ? (bool)$versions['IsTruncated'] : false;
                     $keyMarker = $versions['NextKeyMarker'] ?? null;
                     $versionIdMarker = $versions['NextVersionIdMarker'] ?? null;
                 } while ($isTruncated);
+
+                // Now inspect retention/legal holds ONLY if Object Lock is enabled
+                // and only on the sampled versions (not all of them)
+                if ($objectLockEnabled && !empty($versionsList)) {
+                    $result['sampled'] = (count($versionsList) < $result['counts']['versions']);
+                    
+                    foreach ($versionsList as $v) {
+                        $versionsInspected++;
+                        
+                        // Check if we have enough examples - can exit early
+                        $hasEnoughExamples = (
+                            count($result['examples']['compliance']) >= $maxExamples &&
+                            count($result['examples']['governance']) >= $maxExamples &&
+                            count($result['examples']['legal_holds']) >= $maxExamples
+                        );
+                        
+                        // If we found blockers and have enough examples, we can stop
+                        // (we already know deletion will be blocked)
+                        if ($hasEnoughExamples && $versionsInspected > 10) {
+                            break;
+                        }
+
+                        // Inspect retention
+                        try {
+                            $ret = $this->s3Client->getObjectRetention([
+                                'Bucket' => $bucketName,
+                                'Key' => $v['Key'],
+                                'VersionId' => $v['VersionId']
+                            ]);
+                            if (!empty($ret['Retention']['Mode'])) {
+                                $mode = $ret['Retention']['Mode'];
+                                $until = $ret['Retention']['RetainUntilDate'] ?? null;
+                                $untilTs = null;
+                                if ($until instanceof \DateTimeInterface) {
+                                    $untilTs = $until->getTimestamp();
+                                } elseif (!empty($until)) {
+                                    $untilTs = strtotime((string)$until);
+                                }
+                                // Count only if retain-until is in the future
+                                if ($untilTs && $untilTs > time()) {
+                                    if (strtoupper($mode) === 'COMPLIANCE') {
+                                        $result['counts']['compliance_retained'] += 1;
+                                        $complianceFound = true;
+                                        if (count($result['examples']['compliance']) < $maxExamples) {
+                                            $result['examples']['compliance'][] = [
+                                                'Key' => $v['Key'],
+                                                'VersionId' => $v['VersionId'],
+                                                'RetainUntil' => $untilTs
+                                            ];
+                                        }
+                                    } elseif (strtoupper($mode) === 'GOVERNANCE') {
+                                        $result['counts']['governance_retained'] += 1;
+                                        $governanceFound = true;
+                                        if (count($result['examples']['governance']) < $maxExamples) {
+                                            $result['examples']['governance'][] = [
+                                                'Key' => $v['Key'],
+                                                'VersionId' => $v['VersionId'],
+                                                'RetainUntil' => $untilTs
+                                            ];
+                                        }
+                                    }
+                                    if (is_null($earliestTs) || $untilTs < $earliestTs) {
+                                        $earliestTs = $untilTs;
+                                    }
+                                }
+                            }
+                        } catch (S3Exception $e) {
+                            // No retention or not permitted; ignore
+                        }
+
+                        // Inspect legal hold
+                        try {
+                            $lh = $this->s3Client->getObjectLegalHold([
+                                'Bucket' => $bucketName,
+                                'Key' => $v['Key'],
+                                'VersionId' => $v['VersionId']
+                            ]);
+                            if (!empty($lh['LegalHold']['Status']) && strtoupper($lh['LegalHold']['Status']) === 'ON') {
+                                $result['counts']['legal_holds'] += 1;
+                                if (count($result['examples']['legal_holds']) < $maxExamples) {
+                                    $result['examples']['legal_holds'][] = [
+                                        'Key' => $v['Key'],
+                                        'VersionId' => $v['VersionId']
+                                    ];
+                                }
+                            }
+                        } catch (S3Exception $e) {
+                            // No legal hold or not permitted; ignore
+                        }
+                    }
+                }
             } catch (S3Exception $e) {
                 // ignore version listing errors
             }

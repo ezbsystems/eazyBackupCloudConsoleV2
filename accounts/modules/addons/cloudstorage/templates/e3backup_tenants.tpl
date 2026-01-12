@@ -189,7 +189,7 @@
                         Create portal admin user for this tenant
                     </label>
                     
-                    <div x-show="form.create_admin" x-collapse class="space-y-4 pl-6 border-l-2 border-violet-600/30">
+                    <div x-show="form.create_admin" x-collapse class="space-y-4 pl-6  border-violet-600/30">
                         <p class="text-xs text-slate-400">Create an admin user who can access the tenant portal to manage devices, view backups, and initiate restores.</p>
                         
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">

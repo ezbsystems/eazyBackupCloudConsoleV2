@@ -1,131 +1,121 @@
 {literal}
 <style>
-/* Dark slim scrollbar for vaults table */
-.overflow-x-auto::-webkit-scrollbar {
-    height: 6px;
-}
-.overflow-x-auto::-webkit-scrollbar-track {
-    background: rgba(30, 41, 59, 0.5);
-    border-radius: 3px;
-}
-.overflow-x-auto::-webkit-scrollbar-thumb {
-    background: rgba(71, 85, 105, 0.8);
-    border-radius: 3px;
-}
-.overflow-x-auto::-webkit-scrollbar-thumb:hover {
-    background: rgba(100, 116, 139, 0.9);
-}
-/* Firefox */
-.overflow-x-auto {
-    scrollbar-width: thin;
-    scrollbar-color: rgba(71, 85, 105, 0.8) rgba(30, 41, 59, 0.5);
-}
+    [x-cloak] { display: none !important; }
+    
+    /* Global dark slim scrollbar (Chrome/Edge/Safari) */
+    ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+        background: rgba(15, 23, 42, 0.6);
+    }
+    ::-webkit-scrollbar-thumb {
+        background: rgba(51, 65, 85, 0.8);
+        border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+        background: rgba(71, 85, 105, 0.9);
+    }
+    ::-webkit-scrollbar-corner {
+        background: rgba(15, 23, 42, 0.6);
+    }
+    
+    /* Firefox global scrollbar */
+    * {
+        scrollbar-width: thin;
+        scrollbar-color: rgba(51, 65, 85, 0.8) rgba(15, 23, 42, 0.6);
+    }
 </style>
 {/literal}
 
 <div class="min-h-screen bg-slate-950 text-gray-300">
     <!-- Global nebula background -->
     <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
-    <div class="relative container mx-auto px-4 pb-8">
-        <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
-        <!-- Header & Breadcrumb -->
-        <div class="flex flex-col mb-4 px-2 space-y-3">
-            <nav aria-label="breadcrumb">
-                <ol class="flex space-x-2 text-gray-300">
-                    <li class="flex items-center">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" />
-                        </svg> 
+
+    <div class="container mx-auto px-4 py-8">
+        <!-- App Shell with Sidebar -->
+        <div x-data="{ 
+            sidebarOpen: true,
+            sidebarCollapsed: localStorage.getItem('eb_sidebar_collapsed') === 'true' || window.innerWidth < 1360,
+            toggleCollapse() {
+                this.sidebarCollapsed = !this.sidebarCollapsed;
+                localStorage.setItem('eb_sidebar_collapsed', this.sidebarCollapsed);
+            },
+            handleResize() {
+                if (window.innerWidth < 1360 && !this.sidebarCollapsed) {
+                    this.sidebarCollapsed = true;
+                }
+            }
+        }" 
+        x-init="window.addEventListener('resize', () => handleResize())"
+        class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)]">
+          
+            <div class="flex">
+                <!-- Sidebar -->
+                <aside :class="sidebarCollapsed ? 'w-20' : 'w-64'" class="relative flex-shrink-0 border-r border-slate-800/80 bg-slate-900/50 rounded-tl-3xl rounded-bl-3xl transition-all duration-300 ease-in-out">
+                    <div class="flex flex-col h-full">
+                        <!-- Sidebar Header -->
+                        <div class="p-4 border-b border-slate-800/60">
+                            <div class="flex items-center gap-3" :class="sidebarCollapsed && 'justify-center'">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0 text-slate-400">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 14.25v2.25m3-4.5v4.5m3-6.75v6.75m3-9v9M6 20.25h12A2.25 2.25 0 0 0 20.25 18V6A2.25 2.25 0 0 0 18 3.75H6A2.25 2.25 0 0 0 3.75 6v12A2.25 2.25 0 0 0 6 20.25Z" />
+                                </svg>
+                                <span x-show="!sidebarCollapsed" x-transition.opacity class="font-semibold text-white text-sm">Backup Dashboard</span>
+                            </div>
+                        </div>
                         
-                        <h2 class="text-2xl font-semibold text-white mr-2">Dashboard</h2><h2 class="text-md font-medium text-white"> / Vaults</h2>
-                          
-                    </li>
-                </ol>
-            </nav>
-        </div>
-        <div class="">
-            <!-- Tabs Navigation -->
-            <div class="px-2">
-                <nav class="inline-flex space-x-1 rounded-full bg-slate-900/80 p-1 text-sm font-medium text-slate-400" role="tablist" aria-label="Vault navigation">
-                    <a href="{$modulelink}&a=dashboard&tab=dashboard"
-                       class="inline-flex items-center rounded-full px-3 py-1.5 text-slate-300 hover:text-slate-100 hover:bg-slate-800/60 transition"
-                       role="tab" aria-selected="false">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
-                             stroke="currentColor" class="w-5 h-5 mr-1">
-                            <path stroke-linecap="round" stroke-linejoin="round"
-                                  d="M7.5 14.25v2.25m3-4.5v4.5m3-6.75v6.75m3-9v9M6 20.25h12A2.25 2.25 0 0 0 20.25 18V6A2.25 2.25 0 0 0 18 3.75H6A2.25 2.25 0 0 0 3.75 6v12A2.25 2.25 0 0 0 6 20.25Z" />
-                        </svg>
-                        Backup Status
-                    </a>
-                    <a href="{$modulelink}&a=dashboard&tab=users"
-                       class="inline-flex items-center rounded-full px-3 py-1.5 text-slate-300 hover:text-slate-100 hover:bg-slate-800/60 transition"
-                       role="tab" aria-selected="false">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
-                             stroke="currentColor" class="w-5 h-5 mr-1">
-                            <path stroke-linecap="round" stroke-linejoin="round"
-                                  d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
-                        </svg>
-                        <i class="bi bi-person mr-1"></i> Users
-                    </a>
-                    <a href="{$modulelink}&a=vaults"
-                       class="inline-flex items-center rounded-full px-3 py-1.5 bg-slate-800 text-slate-50 shadow-sm"
-                       role="tab" aria-selected="true">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
-                             stroke="currentColor" class="w-5 h-5 mr-1">
-                            <path stroke-linecap="round" stroke-linejoin="round"
-                                  d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
-                        </svg>
-                        <i class="bi bi-box mr-1"></i> Vaults
-                    </a>
-                </nav>
-            </div>
-
-            <!-- Legacy hidden tabs (kept for compatibility) -->
-            <ul class="flex border-b border-gray-700 hidden" role="tablist">
-                <li class="mr-2 hidden" role="presentation">
-                    <a href="{$modulelink}&a=activedevices"
-                        class="flex items-center py-2 px-4 text-gray-300 hover:text-sky-400 border-b-2 border-transparent hover:border-gray-500 font-semibold"
-                        type="button" role="tab" aria-selected="false">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
-                            stroke="currentColor" class="w-5 h-5 mr-1">
-                            <path stroke-linecap="round" stroke-linejoin="round"
-                                d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 12V5.25" />
-                        </svg>
-                        <i class="bi bi-laptop mr-1"></i> Active Devices
-                    </a>
-                </li>
-                <li class="mr-2 hidden" role="presentation">
-                    <a href="{$modulelink}&a=devicehistory"
-                        class="flex items-center py-2 px-4 text-gray-600 text-gray-300 hover:text-sky-400 border-b-2 border-transparent hover:border-gray-500 font-semibold"
-                        type="button" role="tab" aria-selected="false">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
-                            stroke="currentColor" class="w-5 h-5 mr-1">
-                            <path stroke-linecap="round" stroke-linejoin="round"
-                                d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                        </svg>
-                        <i class="bi bi-clock-history mr-1"></i> Device History
-                    </a>
-                </li>
-                <li class="mr-2 hidden" role="presentation">
-                    <a href="{$modulelink}&a=logs"
-                        class="py-2 px-4  text-gray-300 hover:text-sky-400 border-b-2 border-transparent hover:border-gray-500 font-semibold"
-                        type="button" role="tab" aria-selected="false">
-                        <i class="bi bi-list-check mr-1"></i> Job Logs
-                    </a>
-                </li>
-                <li role="presentation" class="hidden">
-                    <a href="{$modulelink}&a=items"
-                        class="py-2 px-4 text-gray-300 hover:text-sky-400 border-b-2 border-transparent hover:border-gray-500 font-semibold"
-                        type="button" role="tab" aria-selected="false">
-                        <i class="bi bi-shield-lock mr-1"></i> Protected Items
-                    </a>
-                </li>
-            </ul>
-
-            <!-- Tabs Content -->
-            <div class="mt-4">
-                <!-- Vaults Tab Content -->
-                <div x-transition>                   
+                        <!-- Navigation -->
+                        <nav class="flex-1 p-3 space-y-1 overflow-y-auto">
+                            <!-- Backup Status -->
+                            <a href="{$modulelink}&a=dashboard&tab=dashboard" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 transition-all duration-200" :class="sidebarCollapsed && 'justify-center'" :title="sidebarCollapsed ? 'Backup Status' : ''">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 14.25v2.25m3-4.5v4.5m3-6.75v6.75m3-9v9M6 20.25h12A2.25 2.25 0 0 0 20.25 18V6A2.25 2.25 0 0 0 18 3.75H6A2.25 2.25 0 0 0 3.75 6v12A2.25 2.25 0 0 0 6 20.25Z" />
+                                </svg>
+                                <span x-show="!sidebarCollapsed" x-transition.opacity class="text-sm font-medium">Backup Status</span>
+                            </a>
+                            
+                            <!-- Users -->
+                            <a href="{$modulelink}&a=dashboard&tab=users" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 transition-all duration-200" :class="sidebarCollapsed && 'justify-center'" :title="sidebarCollapsed ? 'Users' : ''">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
+                                </svg>
+                                <span x-show="!sidebarCollapsed" x-transition.opacity class="text-sm font-medium">Users</span>
+                            </a>
+                            
+                            <!-- Vaults (Active) -->
+                            <a href="{$modulelink}&a=vaults" class="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-white/10 text-white ring-1 ring-white/20 transition-all duration-200" :class="sidebarCollapsed && 'justify-center'" :title="sidebarCollapsed ? 'Vaults' : ''">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
+                                </svg>
+                                <span x-show="!sidebarCollapsed" x-transition.opacity class="text-sm font-medium">Vaults</span>
+                            </a>
+                            
+                            <!-- Collapse toggle -->
+                            <button @click="toggleCollapse()" class="flex items-center gap-3 px-3 py-2.5 mt-2 rounded-lg text-slate-500 hover:text-slate-300 hover:bg-white/5 transition-all duration-200 w-full" :class="sidebarCollapsed && 'justify-center'" :title="sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0 transition-transform duration-300" :class="sidebarCollapsed && 'rotate-180'">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M18.75 19.5l-7.5-7.5 7.5-7.5m-6 15L5.25 12l7.5-7.5" />
+                                </svg>
+                                <span x-show="!sidebarCollapsed" x-transition.opacity class="text-sm font-medium">Collapse</span>
+                            </button>
+                        </nav>
+                    </div>
+                </aside>
+                
+                <!-- Main Content Area -->
+                <main class="flex-1 min-w-0 overflow-x-auto">
+                    <!-- Content Header -->
+                    <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800/60">
+                        <div class="flex items-center gap-3">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-slate-400">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
+                            </svg>
+                            <h1 class="text-xl font-semibold text-white">Storage Vaults</h1>
+                        </div>
+                    </div>
+                    
+                    <!-- Vaults Content -->
+                    <div class="p-6">                   
                     {* Preprocess vaults into per-account groups with totals *}
                     {assign var=accountGroups value=[]}
                                 {foreach from=$vaults item=vault}
@@ -417,7 +407,8 @@
                             </tbody>
                         </table>
                     </div>
-                </div>
+                    </div>
+                </main>
             </div>
         </div>
     </div>

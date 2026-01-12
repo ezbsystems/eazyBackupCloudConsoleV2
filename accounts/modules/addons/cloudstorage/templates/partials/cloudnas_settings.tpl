@@ -130,7 +130,7 @@
             </div>
             
             {* Bandwidth limits *}
-            <div x-show="settings.bandwidth_limit_enabled" x-transition class="pl-4 border-l-2 border-slate-700 space-y-4">
+            <div x-show="settings.bandwidth_limit_enabled" x-transition class="pl-4  border-slate-700 space-y-4">
                 <div>
                     <label class="text-sm text-slate-300 mb-2 block">Download Limit</label>
                     <div class="flex items-center gap-3">

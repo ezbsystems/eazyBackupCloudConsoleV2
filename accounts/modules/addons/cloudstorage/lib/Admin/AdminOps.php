@@ -421,6 +421,234 @@ class AdminOps {
         }
     }
 
+    /**
+     * Get Bucket Quota (RGW Admin Ops)
+     *
+     * Convenience wrapper around getBucketInfo(stats=true) that extracts the bucket_quota block.
+     *
+     * @param string $endpoint
+     * @param string $adminAccessKey
+     * @param string $adminSecretKey
+     * @param array $params ['bucket' => 'name', 'uid' => 'optional', 'tenant' => 'optional']
+     * @return array
+     */
+    public static function getBucketQuota($endpoint, $adminAccessKey, $adminSecretKey, $params)
+    {
+        $bucket = isset($params['bucket']) ? trim((string)$params['bucket']) : '';
+        if ($bucket === '') {
+            return ['status' => 'fail', 'message' => 'Missing bucket name.'];
+        }
+
+        $uid = isset($params['uid']) ? (string)$params['uid'] : '';
+        $tenant = isset($params['tenant']) && $params['tenant'] !== null ? (string)$params['tenant'] : '';
+
+        // Some RGW builds don't reliably support tenant as a separate query param; they expect uid="tenant$uid".
+        // We'll try both identity forms in order:
+        //  1) uid=<uid>, tenant=<tenant>
+        //  2) uid=<tenant>$<uid>, tenant omitted
+        $variants = [];
+        if ($uid !== '') {
+            $variants[] = ['uid' => $uid, 'tenant' => ($tenant !== '' ? $tenant : null)];
+            if ($tenant !== '' && strpos($uid, '$') === false) {
+                $variants[] = ['uid' => $tenant . '$' . $uid, 'tenant' => null];
+            }
+        }
+
+        $quota = null;
+        foreach ($variants as $v) {
+            $vUid = $v['uid'];
+            $vTenant = $v['tenant'];
+
+            // Prefer a lightweight request (no stats) since stats can be expensive on some RGW deployments.
+            $info = self::getBucketInfo($endpoint, $adminAccessKey, $adminSecretKey, [
+                'bucket' => $bucket,
+                'uid' => $vUid,
+                'tenant' => $vTenant,
+                'stats' => false,
+            ]);
+            if (is_array($info) && ($info['status'] ?? '') === 'success') {
+                $data = $info['data'] ?? null;
+                if (is_array($data) && isset($data['bucket_quota']) && is_array($data['bucket_quota'])) {
+                    $quota = $data['bucket_quota'];
+                    break;
+                }
+            }
+
+            // Fallback #1: stats=true for bucket-specific call (some RGW builds only include quota with stats)
+            $info2 = self::getBucketInfo($endpoint, $adminAccessKey, $adminSecretKey, [
+                'bucket' => $bucket,
+                'uid' => $vUid,
+                'tenant' => $vTenant,
+                'stats' => true,
+            ]);
+            if (is_array($info2) && ($info2['status'] ?? '') === 'success') {
+                $data2 = $info2['data'] ?? null;
+                if (is_array($data2) && isset($data2['bucket_quota']) && is_array($data2['bucket_quota'])) {
+                    $quota = $data2['bucket_quota'];
+                    break;
+                }
+            }
+
+            // Fallback #2: list all buckets for uid (often the most reliable place RGW includes bucket_quota)
+            $list = self::getBucketInfo($endpoint, $adminAccessKey, $adminSecretKey, [
+                'uid' => $vUid,
+                'tenant' => $vTenant,
+                'stats' => true,
+            ]);
+            if (is_array($list) && ($list['status'] ?? '') === 'success') {
+                $payload = $list['data'] ?? null;
+                $buckets = [];
+                if (is_array($payload)) {
+                    // Either list of buckets, or a single object with 'bucket'
+                    $buckets = (isset($payload['bucket']) && is_string($payload['bucket'])) ? [$payload] : $payload;
+                }
+                if (is_array($buckets)) {
+                    foreach ($buckets as $b) {
+                        if (!is_array($b)) { continue; }
+                        if (($b['bucket'] ?? '') === $bucket && isset($b['bucket_quota']) && is_array($b['bucket_quota'])) {
+                            $quota = $b['bucket_quota'];
+                            break 2;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!is_array($quota)) {
+            // Some RGW builds may omit bucket_quota; treat as empty quota rather than hard failure.
+            $quota = [];
+        }
+
+        return [
+            'status' => 'success',
+            'data' => $quota,
+        ];
+    }
+
+    /**
+     * Set Bucket Quota (RGW Admin Ops)
+     *
+     * RGW exposes quota controls on /admin/bucket. We use query params to avoid body-format drift across RGW versions.
+     *
+     * @param string $endpoint
+     * @param string $adminAccessKey
+     * @param string $adminSecretKey
+     * @param array $params
+     *   - bucket (string, required)
+     *   - uid (string|null, optional)
+     *   - tenant (string|null, optional)
+     *   - enabled (bool|int|string, optional)
+     *   - max_size_kb (int|null, optional)   (-1 means unlimited)
+     *   - max_objects (int|null, optional)   (-1 means unlimited)
+     * @return array
+     */
+    public static function setBucketQuota($endpoint, $adminAccessKey, $adminSecretKey, $params)
+    {
+        try {
+            $bucket = isset($params['bucket']) ? trim((string)$params['bucket']) : '';
+            if ($bucket === '') {
+                return ['status' => 'fail', 'message' => 'Missing bucket name.'];
+            }
+
+            $client = new Client();
+            $date = gmdate('D, d M Y H:i:s T');
+            $url = "{$endpoint}/admin/bucket";
+
+            $uid = isset($params['uid']) ? trim((string)$params['uid']) : '';
+            $tenant = isset($params['tenant']) && $params['tenant'] !== null ? trim((string)$params['tenant']) : '';
+
+            $makeQuery = function(string $useUid, ?string $useTenant) use ($bucket, $params) {
+                $q = [
+                    'bucket' => $bucket,
+                    // Signal quota operation. RGW treats presence of this parameter as a quota update request.
+                    'quota' => '',
+                    'format' => 'json',
+                    'uid' => $useUid,
+                ];
+                if (!empty($useTenant)) {
+                    $q['tenant'] = $useTenant;
+                }
+                if (array_key_exists('enabled', $params)) {
+                    $enabled = $params['enabled'];
+                    $boolEnabled = filter_var($enabled, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+                    if ($boolEnabled === null) {
+                        $boolEnabled = ((string)$enabled === '1');
+                    }
+                    $q['enabled'] = $boolEnabled ? 'true' : 'false';
+                }
+                if (array_key_exists('max_size_kb', $params) && $params['max_size_kb'] !== null && $params['max_size_kb'] !== '') {
+                    $q['max-size-kb'] = (int)$params['max_size_kb'];
+                }
+                if (array_key_exists('max_objects', $params) && $params['max_objects'] !== null && $params['max_objects'] !== '') {
+                    $q['max-objects'] = (int)$params['max_objects'];
+                }
+                return $q;
+            };
+
+            if ($uid === '') {
+                return ['status' => 'fail', 'message' => 'Missing uid for quota update.'];
+            }
+
+            // Try both identity forms (tenant param vs tenant-qualified uid)
+            $variants = [];
+            $variants[] = ['uid' => $uid, 'tenant' => ($tenant !== '' ? $tenant : null)];
+            if ($tenant !== '' && strpos($uid, '$') === false) {
+                $variants[] = ['uid' => $tenant . '$' . $uid, 'tenant' => null];
+            }
+
+            if (array_key_exists('enabled', $params)) {
+                $enabled = $params['enabled'];
+                $boolEnabled = filter_var($enabled, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+                if ($boolEnabled === null) {
+                    // accept 0/1 strings/ints
+                    $boolEnabled = ((string)$enabled === '1');
+                }
+            }
+
+            $stringToSign = "PUT\n\n\n{$date}\n/admin/bucket";
+            $signature = base64_encode(hash_hmac('sha1', $stringToSign, $adminSecretKey, true));
+            $authHeader = "AWS {$adminAccessKey}:{$signature}";
+
+            $lastError = null;
+            foreach ($variants as $v) {
+                try {
+                    $response = $client->put($url, [
+                        'headers' => [
+                            'Authorization' => $authHeader,
+                            'Date' => $date,
+                            'Accept' => 'application/json',
+                        ],
+                        'query' => $makeQuery($v['uid'], $v['tenant']),
+                        'timeout' => 8.0,
+                        'connect_timeout' => 4.0,
+                    ]);
+
+                    $body = (string)$response->getBody();
+                    $data = strlen($body) ? json_decode($body, true) : null;
+
+                    return [
+                        'status' => 'success',
+                        'data' => $data,
+                    ];
+                } catch (RequestException $e) {
+                    $lastError = $e;
+                    // Try next variant
+                    continue;
+                }
+            }
+
+            // If all variants failed, throw the last exception to be handled below
+            if ($lastError) {
+                throw $lastError;
+            }
+            return ['status' => 'fail', 'message' => 'Set bucket quota failed. Please try again or contact support.'];
+        } catch (RequestException $e) {
+            $response = ['status' => 'fail', 'message' => 'Set bucket quota failed. Please try again or contact support.'];
+            logModuleCall(self::$module, __FUNCTION__, $params, $e->getMessage());
+            return $response;
+        }
+    }
+
 	/**
 	 * Create Bucket (Ceph AdminOps)
 	 *
