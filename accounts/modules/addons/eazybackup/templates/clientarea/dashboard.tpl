@@ -12,72 +12,128 @@
     .eb-text-muted {
         color: #cbd5e1 !important; /* slate-300 */
     }
+    
+    /* Global dark slim scrollbar (Chrome/Edge/Safari) */
+    ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+        background: rgba(15, 23, 42, 0.6);
+    }
+    ::-webkit-scrollbar-thumb {
+        background: rgba(51, 65, 85, 0.8);
+        border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+        background: rgba(71, 85, 105, 0.9);
+    }
+    ::-webkit-scrollbar-corner {
+        background: rgba(15, 23, 42, 0.6);
+    }
+    
+    /* Firefox global scrollbar */
+    * {
+        scrollbar-width: thin;
+        scrollbar-color: rgba(51, 65, 85, 0.8) rgba(15, 23, 42, 0.6);
+    }
 </style>
 {/literal}
 
-<div x-data="dashboardTabs('{$modulelink}', 'dashboard', '{$initialTab|escape:"html"}')" class="min-h-screen bg-slate-950 text-gray-300">
-    <!-- Global nebula background - z-0 to stay behind content -->
-    <div class="pointer-events-none fixed inset-0 z-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
+<div class="min-h-screen bg-slate-950 text-gray-300">
+    <!-- Global nebula background -->
+    <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
 
-    <div class="container mx-auto px-4 py-8 relative z-10">
-        <!-- Glass panel container -->
-        <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
-            <!-- Header & Tabs -->
-            <div class="flex flex-col mb-4 px-2 space-y-3">
-                <nav aria-label="breadcrumb">
-                    <ol class="flex space-x-2">
-                        <li class="flex items-center eb-text-white">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
-                                stroke="currentColor" class="size-6 mr-2">
-                                <path stroke-linecap="round" stroke-linejoin="round"
-                                    d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" />
+    <div class="container mx-auto px-4 py-8">
+        <!-- App Shell with Sidebar -->
+        <div x-data="{ 
+            activeTab: '{$initialTab|escape:"javascript"|default:'dashboard'}',
+            sidebarOpen: true,
+            sidebarCollapsed: localStorage.getItem('eb_sidebar_collapsed') === 'true' || window.innerWidth < 1360,
+            toggleCollapse() {
+                this.sidebarCollapsed = !this.sidebarCollapsed;
+                localStorage.setItem('eb_sidebar_collapsed', this.sidebarCollapsed);
+            },
+            handleResize() {
+                if (window.innerWidth < 1360 && !this.sidebarCollapsed) {
+                    this.sidebarCollapsed = true;
+                }
+            },
+            switchTab(tab) {
+                this.activeTab = tab;
+                const url = new URL(window.location.href);
+                url.searchParams.set('tab', tab);
+                history.replaceState({}, '', url.toString());
+            }
+        }" 
+        x-init="window.addEventListener('resize', () => handleResize())"
+        class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)]">
+          
+            <div class="flex">
+                <!-- Sidebar -->
+                <aside :class="sidebarCollapsed ? 'w-20' : 'w-64'" class="relative flex-shrink-0 border-r border-slate-800/80 bg-slate-900/50 rounded-tl-3xl rounded-bl-3xl transition-all duration-300 ease-in-out">
+                    <div class="rounded-tl-3xl flex flex-col h-full">
+                        <!-- Sidebar Header -->
+                        <div class="rounded-tl-3xl p-4 border-b border-slate-800/60">
+                            <div class="flex items-center gap-3" :class="sidebarCollapsed && 'justify-center'">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0 text-slate-400">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 14.25v2.25m3-4.5v4.5m3-6.75v6.75m3-9v9M6 20.25h12A2.25 2.25 0 0 0 20.25 18V6A2.25 2.25 0 0 0 18 3.75H6A2.25 2.25 0 0 0 3.75 6v12A2.25 2.25 0 0 0 6 20.25Z" />
+                                </svg>
+                                <span x-show="!sidebarCollapsed" x-transition.opacity class="font-semibold text-white text-sm">Backup Dashboard</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Navigation -->
+                        <nav class="rounded-bl-3xl flex-1 p-3 space-y-1 overflow-y-auto">
+                            <!-- Backup Status -->
+                            <a href="#" @click.prevent="switchTab('dashboard')" class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200" :class="[activeTab === 'dashboard' ? 'bg-white/10 text-white ring-1 ring-white/20' : 'text-slate-400 hover:text-white hover:bg-white/5', sidebarCollapsed && 'justify-center']" :title="sidebarCollapsed ? 'Backup Status' : ''">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 14.25v2.25m3-4.5v4.5m3-6.75v6.75m3-9v9M6 20.25h12A2.25 2.25 0 0 0 20.25 18V6A2.25 2.25 0 0 0 18 3.75H6A2.25 2.25 0 0 0 3.75 6v12A2.25 2.25 0 0 0 6 20.25Z" />
+                                </svg>
+                                <span x-show="!sidebarCollapsed" x-transition.opacity class="text-sm font-medium">Backup Status</span>
+                            </a>
+                            
+                            <!-- Users -->
+                            <a href="#" @click.prevent="switchTab('users')" class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200" :class="[activeTab === 'users' ? 'bg-white/10 text-white ring-1 ring-white/20' : 'text-slate-400 hover:text-white hover:bg-white/5', sidebarCollapsed && 'justify-center']" :title="sidebarCollapsed ? 'Users' : ''">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
+                                </svg>
+                                <span x-show="!sidebarCollapsed" x-transition.opacity class="text-sm font-medium">Users</span>
+                            </a>
+                            
+                            <!-- Vaults -->
+                            <a href="{$modulelink}&a=vaults" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 transition-all duration-200" :class="sidebarCollapsed && 'justify-center'" :title="sidebarCollapsed ? 'Vaults' : ''">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
+                                </svg>
+                                <span x-show="!sidebarCollapsed" x-transition.opacity class="text-sm font-medium">Vaults</span>
+                            </a>
+                            
+                            <!-- Collapse toggle -->
+                            <button @click="toggleCollapse()" class="flex items-center gap-3 px-3 py-2.5 mt-2 rounded-lg text-slate-500 hover:text-slate-300 hover:bg-white/5 transition-all duration-200 w-full" :class="sidebarCollapsed && 'justify-center'" :title="sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0 transition-transform duration-300" :class="sidebarCollapsed && 'rotate-180'">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M18.75 19.5l-7.5-7.5 7.5-7.5m-6 15L5.25 12l7.5-7.5" />
+                                </svg>
+                                <span x-show="!sidebarCollapsed" x-transition.opacity class="text-sm font-medium">Collapse</span>
+                            </button>
+                        </nav>
+                    </div>
+                </aside>
+                
+                <!-- Main Content Area -->
+                <main class="flex-1 min-w-0 overflow-x-auto">
+                    <!-- Content Header -->
+                    <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800/60">
+                        <div class="flex items-center gap-3">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-slate-400">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 14.25v2.25m3-4.5v4.5m3-6.75v6.75m3-9v9M6 20.25h12A2.25 2.25 0 0 0 20.25 18V6A2.25 2.25 0 0 0 18 3.75H6A2.25 2.25 0 0 0 3.75 6v12A2.25 2.25 0 0 0 6 20.25Z" />
                             </svg>
-                            <h2 class="text-2xl font-semibold mr-2">Dashboard</h2>
-                            <h2 class="text-md font-medium">
-                                / <span x-text="activeTab==='users' ? 'Users' : 'Backup Status'"></span>
-                            </h2>
-                        </li>
-                    </ol>
-                </nav>
-
-                <!-- Pill nav -->
-                <div class="mt-4 sm:mt-0">
-                    <nav class="inline-flex space-x-1 rounded-full bg-slate-900/80 p-1 text-sm font-medium text-slate-400"
-                         role="tablist" aria-label="Backup dashboard navigation" x-cloak>
-                        <a :href="tabHref('dashboard')" @click="switchTab('dashboard', $event)"
-                           :class="tabClass('dashboard')" role="tab" :aria-selected="activeTab === 'dashboard'">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
-                                 stroke="currentColor" class="w-5 h-5 mr-1">
-                                <path stroke-linecap="round" stroke-linejoin="round"
-                                      d="M7.5 14.25v2.25m3-4.5v4.5m3-6.75v6.75m3-9v9M6 20.25h12A2.25 2.25 0 0 0 20.25 18V6A2.25 2.25 0 0 0 18 3.75H6A2.25 2.25 0 0 0 3.75 6v12A2.25 2.25 0 0 0 6 20.25Z"/>
-                            </svg>
-                            Backup Status
-                        </a>
-
-                        <a :href="tabHref('users')" @click="switchTab('users', $event)"
-                           :class="tabClass('users')" role="tab" :aria-selected="activeTab === 'users'">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
-                                 stroke="currentColor" class="w-5 h-5 mr-1">
-                                <path stroke-linecap="round" stroke-linejoin="round"
-                                      d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"/>
-                            </svg>
-                            <i class="bi bi-person mr-1"></i> Users
-                        </a>
-
-                        <a :href="vaultsHref()" :class="vaultsClass()" role="tab" aria-selected="false">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
-                                 stroke="currentColor" class="w-5 h-5 mr-1">
-                                <path stroke-linecap="round" stroke-linejoin="round"
-                                      d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125"/>
-                            </svg>
-                            Vaults
-                        </a>
-                    </nav>
-                </div>
-            </div>
-
-            <!-- Tabs Content -->
-            <div class="mt-4">
+                            <h1 class="text-xl font-semibold text-white" x-text="activeTab === 'users' ? 'Users' : 'Backup Status'"></h1>
+                        </div>
+                    </div>
+                    
+                    <!-- Tabs Content -->
+                    <div class="p-6">
                 <div x-show="activeTab === 'dashboard'" x-transition x-cloak>
                     <h2 class="text-md font-medium eb-text-white mb-4 px-2">Account summary</h2>
                     <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -132,9 +188,7 @@
                             @job-status-selected.window="setFromDropdown($event.detail)"
                             class="container mx-auto pb-8">
 
-                            <div class="mb-2 px-2">
-                                <h2 class="text-mdl font-medium text-gray-300">Backup status</h2>
-                            </div>
+                          
 
                             <!-- Search & Custom Job Status Filter -->
                             <div class="mb-4 flex flex-col gap-2 px-2">
@@ -175,7 +229,7 @@
                                             </svg>
                                         </button>
                                         <div x-show="open" x-transition
-                                             class="absolute mt-1 w-full min-w-[180px] rounded-md bg-gray-800 shadow-lg border border-gray-700 z-10">
+                                             class="absolute mt-1 w-full min-w-[180px] rounded-md bg-gray-800 shadow-lg border border-gray-700 z-50">
                                             <ul class="py-1">
                                                 <li>
                                                     <a href="#" @click.prevent="open=false; $store.ebDeviceGroups && $store.ebDeviceGroups.setGroupBy('none')"
@@ -263,9 +317,10 @@
                                         <!-- Right: utilities -->
                                         <div class="flex items-center gap-2">
                                             <button type="button"
-                                                    class="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                                                    class="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:opacity-50 disabled:cursor-wait"
                                                     :class="issuesOnly ? 'border-sky-500/60 bg-sky-500/10 text-sky-200' : 'border-slate-700/80 bg-slate-900/40 text-slate-300 hover:border-slate-600 hover:bg-slate-900/60'"
                                                     role="switch" :aria-checked="issuesOnly ? 'true' : 'false'"
+                                                    :disabled="filterLoading"
                                                     @click="toggleIssuesOnly()">
                                                 <span class="w-2 h-2 rounded-full"
                                                       :class="issuesOnly ? 'bg-sky-400 shadow-[0_0_10px_rgba(56,189,248,0.35)]' : 'bg-slate-600'"></span>
@@ -275,7 +330,8 @@
                                             <button type="button"
                                                     x-show="hasActiveFilters"
                                                     x-cloak
-                                                    class="inline-flex items-center gap-2 rounded-full border border-slate-700/80 bg-slate-900/40 px-3 py-1.5 text-xs font-medium text-slate-300 hover:border-slate-600 hover:bg-slate-900/60 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                                                    class="inline-flex items-center gap-2 rounded-full border border-slate-700/80 bg-slate-900/40 px-3 py-1.5 text-xs font-medium text-slate-300 cursor-pointer hover:border-slate-600 hover:bg-slate-900/60 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:opacity-50 disabled:cursor-wait"
+                                                    :disabled="filterLoading"
                                                     @click="clearFilters()">
                                                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
                                                     <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/>
@@ -805,6 +861,8 @@
                         </div>
                     </div>
                 </div>
+                    </div>
+                </main>
             </div>
         </div>
     </div>
@@ -969,6 +1027,7 @@
             // New strip state
             selectedStatuses: [],
             issuesOnly: false,
+            filterLoading: false,
             countsCache: {},
             timelineVer: 0, // bump to recompute when live running jobs update
             dgTick: 0, // bump to recompute when device-group store updates
@@ -1333,17 +1392,23 @@
             },
 
             toggleIssuesOnly() {
+                if (this.filterLoading) return;
+                this.filterLoading = true;
                 this.issuesOnly = !this.issuesOnly;
                 if (this.issuesOnly) {
                     this.selectedStatuses = [];
                 }
                 this.syncDropdownLabel();
+                setTimeout(() => { this.filterLoading = false; }, 300);
             },
 
             clearFilters() {
+                if (this.filterLoading) return;
+                this.filterLoading = true;
                 this.selectedStatuses = [];
                 this.issuesOnly = false;
                 this.syncDropdownLabel();
+                setTimeout(() => { this.filterLoading = false; }, 300);
             },
 
             setFromDropdown(label) {
@@ -1631,55 +1696,4 @@ try {
 {* Device Groups drawer (Manage Groups) *}
 {include file="modules/addons/eazybackup/templates/clientarea/partials/device-groups-drawer.tpl"}
 
-{literal}
-<script>
-  // Centralized tab state helper
-  window.dashboardTabs = function (moduleLink, currentAction, serverInitialTab) {
-    const activeClass = 'inline-flex items-center px-4 py-1.5 rounded-full bg-slate-800 eb-text-white shadow-sm';
-    const inactiveClass = 'inline-flex items-center px-4 py-1.5 rounded-full text-slate-400 hover:text-slate-200 transition';
-
-    // Single source of truth: start from server-provided initial tab (already whitelisted)
-    const initialTab = (typeof serverInitialTab === 'string' && serverInitialTab) ? serverInitialTab : 'dashboard';
-
-    return {
-      currentAction,              // 'dashboard' or 'vaults'
-      activeTab: initialTab,      // 'dashboard' or 'users'
-      activeClass,
-      inactiveClass,
-
-      isDashboard() { return this.currentAction === 'dashboard'; },
-      isVaults() { return this.currentAction === 'vaults'; },
-
-      tabHref(tab) {
-        // Always build a deep link back to the dashboard with ?tab=
-        return moduleLink + '&a=dashboard&tab=' + encodeURIComponent(tab);
-      },
-
-      tabClass(tab) {
-        return (this.isDashboard() && this.activeTab === tab) ? this.activeClass : this.inactiveClass;
-      },
-
-      vaultsHref() {
-        return moduleLink + '&a=vaults';
-      },
-
-      vaultsClass() {
-        return this.isVaults() ? this.activeClass : this.inactiveClass;
-      },
-
-      switchTab(tab, evt) {
-        // Only intercept clicks while you're on the dashboard action
-        if (this.isDashboard()) {
-          evt.preventDefault();
-          this.activeTab = tab;
-          const url = new URL(window.location.href);
-          url.searchParams.set('tab', tab);
-          history.replaceState({}, '', url.toString());
-        }
-        // If you're not on the dashboard (e.g., Vaults page), let the anchor navigate normally.
-      }
-    };
-  };
-</script>
-{/literal}
 

@@ -111,11 +111,12 @@
   }
 
   function makeJobsTable(el, opts){
-    const state = { page:1, pageSize:25, sortBy:'Started', sortDir:'desc', q:'' };
+    const state = { page:1, pageSize:10, sortBy:'Started', sortDir:'desc', q:'' };
     const serviceId = opts.serviceId; const username = opts.username;
     const thead = el.querySelector('thead'); const tbody = el.querySelector('tbody');
     const colKeys = ['user','id','device','item','vault','ver','type','status','dirs','files','size','vsize','up','down','started','ended','dur'];
     const totalEl = opts.totalEl; const pagerEl = opts.pagerEl; const searchInput = opts.searchInput; const cols = opts.cols || [];
+    const pageSizeEl = opts.pageSizeEl;
 
     async function load(){
       const res = await api('listJobs', { action:'listJobs', serviceId, username, page: state.page, pageSize: state.pageSize, sortBy: state.sortBy, sortDir: state.sortDir, q: state.q });
@@ -194,6 +195,16 @@
 
     // Search
     searchInput && searchInput.addEventListener('input', () => { state.q = searchInput.value||''; state.page = 1; load(); });
+
+    // Page size changes (dispatched from Alpine dropdown)
+    window.addEventListener('jobs:pagesize', (e) => {
+      const size = parseInt(e.detail, 10);
+      if (size && [10, 25, 50, 100].includes(size)) {
+        state.pageSize = size;
+        state.page = 1;
+        load();
+      }
+    });
 
     function isVisible(node){
       if(!node) return false;

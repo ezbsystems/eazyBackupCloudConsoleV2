@@ -24,15 +24,7 @@
               <div class="text-xs text-slate-400 mt-0.5">Organize devices by client/company</div>
             </div>
             <div class="flex items-center gap-2">
-              <button type="button"
-                      class="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-slate-800 bg-slate-900/40 text-slate-300 hover:bg-slate-900/70 hover:text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50"
-                      title="One group per device. Deleting a group moves devices to Ungrouped."
-                      aria-label="Help">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25h1.5v5.25h-1.5V11.25ZM12 8.25h.008v.008H12V8.25Z"/>
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
-                </svg>
-              </button>
+              
               <button type="button"
                       class="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-slate-800 bg-slate-900/40 text-slate-300 hover:bg-slate-900/70 hover:text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50"
                       @click="$store.ebDeviceGroups.closeDrawer()"

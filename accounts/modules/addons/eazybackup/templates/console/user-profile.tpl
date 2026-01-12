@@ -18,9 +18,36 @@
   input[type="number"].no-native-spin {
     -moz-appearance: textfield;
   }
-  /* Dark slim scrollbar for tables */
+  
+  /* Global dark slim scrollbar (Chrome/Edge/Safari) */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: rgba(15, 23, 42, 0.6);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(51, 65, 85, 0.8);
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(71, 85, 105, 0.9);
+  }
+  ::-webkit-scrollbar-corner {
+    background: rgba(15, 23, 42, 0.6);
+  }
+  
+  /* Firefox global scrollbar */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(51, 65, 85, 0.8) rgba(15, 23, 42, 0.6);
+  }
+  
+  /* Dark slim scrollbar for tables (narrower) */
   .table-scroll::-webkit-scrollbar {
     height: 6px;
+    width: 6px;
   }
   .table-scroll::-webkit-scrollbar-track {
     background: rgba(30, 41, 59, 0.5);
@@ -45,87 +72,160 @@
   <!-- Global nebula background -->
   <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
 
-  <div class="container mx-auto px-4 py-8 overflow-x-hidden">
-    <!-- Glass panel container -->
-    <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6 overflow-hidden">
-      <!-- Header & Breadcrumb -->
-      <div class="flex flex-col mb-4 px-2 space-y-3">
-        <nav aria-label="breadcrumb">
-          <ol class="flex space-x-2 items-center">
-            <li class="flex items-center">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" />
-              </svg>
-              <h2 class="text-2xl font-semibold text-white mr-2">Dashboard</h2>
-              <h2 class="text-md font-medium text-white">
-                / <a href="{$modulelink}&a=dashboard" class="text-sky-400 hover:text-sky-500">Users</a> / <span>{$username}</span>
-              </h2>
-            </li>
-          </ol>
-        </nav>
-
-        <!-- Pill nav -->
-        <div class="mt-4 sm:mt-0">
-          <nav class="inline-flex space-x-1 rounded-full bg-slate-900/80 p-1 text-sm font-medium text-slate-400" role="tablist" aria-label="Dashboard navigation">
-            <a href="{$modulelink}&a=dashboard" class="flex items-center px-4 py-2 rounded-full text-slate-400 hover:text-white hover:bg-slate-800 transition">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-1">
+  <div class="container mx-auto px-4 py-8">
+    <!-- App Shell with Sidebar -->
+    <div x-data="{ 
+      activeSubTab: 'profile', 
+      sidebarOpen: true,
+      sidebarCollapsed: localStorage.getItem('eb_sidebar_collapsed') === 'true' || window.innerWidth < 1360,
+      toggleCollapse() {
+        this.sidebarCollapsed = !this.sidebarCollapsed;
+        localStorage.setItem('eb_sidebar_collapsed', this.sidebarCollapsed);
+      },
+      handleResize() {
+        if (window.innerWidth < 1360 && !this.sidebarCollapsed) {
+          this.sidebarCollapsed = true;
+        }
+      }
+    }" 
+    x-init="window.addEventListener('resize', () => handleResize())"
+    class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)]">
+      
+      <div class="flex">
+        <!-- Sidebar -->
+        <aside :class="sidebarCollapsed ? 'w-20' : 'w-64'" class="relative flex-shrink-0 border-r border-slate-800/80 bg-slate-900/50 rounded-tl-3xl rounded-bl-3xl transition-all duration-300 ease-in-out">
+          <div class="flex flex-col h-full">
+            <!-- Sidebar Header -->
+            <div class="p-4 border-b border-slate-800/60">
+              <div class="flex items-center gap-3" :class="sidebarCollapsed && 'justify-center'">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0 text-slate-400">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 14.25v2.25m3-4.5v4.5m3-6.75v6.75m3-9v9M6 20.25h12A2.25 2.25 0 0 0 20.25 18V6A2.25 2.25 0 0 0 18 3.75H6A2.25 2.25 0 0 0 3.75 6v12A2.25 2.25 0 0 0 6 20.25Z" />
-              </svg>
-              Backup Status
-            </a>
-            <a href="{$modulelink}&a=dashboard&tab=users" class="flex items-center px-4 py-2 rounded-full bg-slate-800 text-white shadow-sm">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-1">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0  0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
-              </svg>
-              Users
-            </a>
-            <a href="{$modulelink}&a=vaults" class="flex items-center px-4 py-2 rounded-full text-slate-400 hover:text-white hover:bg-slate-800 transition">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-1">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
-              </svg>
-              Vaults
-            </a>
-          </nav>
-        </div>
-      </div>
-
-      <!-- Sub-tab content -->
-      <div x-data="{ activeSubTab: 'profile' }" class="mt-4">
-        <div class="border-b border-slate-700 mb-6">
-        <div class="flex items-center justify-between">
-          <nav class="-mb-px flex space-x-6" aria-label="Tabs">
-              <a href="#" @click.prevent="activeSubTab = 'profile'" :class="activeSubTab === 'profile' ? 'border-sky-500 text-sky-400' : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-500'" class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm">Profile</a>
-              <a href="#" @click.prevent="activeSubTab = 'protectedItems'" :class="activeSubTab === 'protectedItems' ? 'border-sky-500 text-sky-400' : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-500'" class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm">Protected Items</a>
-              <a href="#" @click.prevent="activeSubTab = 'storage'" :class="activeSubTab === 'storage' ? 'border-sky-500 text-sky-400' : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-500'" class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm">Storage Vaults</a>
-              <a href="#" @click.prevent="activeSubTab = 'devices'" :class="activeSubTab === 'devices' ? 'border-sky-500 text-sky-400' : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-500'" class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm">Devices</a>
-              <a href="#" @click.prevent="activeSubTab = 'jobLogs'" :class="activeSubTab === 'jobLogs' ? 'border-sky-500 text-sky-400' : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-500'" class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm">Job Logs</a>
-          </nav>
-          <div class="relative" x-data="{ open:false }" @keydown.escape.window="open=false" @click.away="open=false">
-            <button type="button" class="inline-flex items-center px-3 py-2 text-sm bg-slate-700 hover:bg-slate-600 rounded text-white" @click="open = !open">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-1">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M10.343 3.94c.09-.542.56-.94 1.11-.94h1.094c.55 0 1.02.398 1.11.94l.149.894c.07.424.384.764.78.93.398.164.855.142 1.205-.108l.737-.527a1.125 1.125 0 0 1 1.45.12l.773.774c.39.389.44 1.002.12 1.45l-.527.737c-.25.35-.272.806-.107 1.204.165.397.505.71.93.78l.893.15c.543.09.94.56.94 1.109v1.094c0 .55-.397 1.02-.94 1.11l-.893.149c-.425.07-.765.383-.93.78-.165.398-.143.854.107 1.204l.527.738c.32.447.269 1.06-.12 1.45l-.774.773a1.125 1.125 0 0 1-1.449.12l-.738-.527c-.35-.25-.806-.272-1.203-.107-.397.165-.71.505-.781.929l-.149.894c-.09.542-.56.94-1.11.94h-1.094c-.55 0-1.019-.398-1.11-.94l-.148-.894c-.071-.424-.384-.764-.781-.93-.398-.164-.854-.142-1.204.108l-.738.527c-.447.32-1.06.269-1.45-.12l-.773-.774a1.125 1.125 0 0 1-.12-1.45l.527-.737c.25-.35.273-.806.108-1.204-.165-.397-.505-.71-.93-.78l-.894-.15c-.542-.09-.94-.56-.94-1.109v-1.094c0-.55.398-1.02.94-1.11l.894-.149c.424-.07.765-.383.93-.78.165-.398.143-.854-.107-1.204l-.527-.738a1.125 1.125 0 0 1 .12-1.45l.773-.773a1.125 1.125 0 0 1 1.45-.12l.737.527c.35.25.807.272 1.204.107.397-.165.71-.505.78-.929l.15-.894Z" />
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-              </svg>
-              Actions
-              <svg class="ml-1 h-4 w-4 opacity-70" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.24 4.5a.75.75 0 01-1.08 0l-4.24-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg>
-            </button>
-            <div x-show="open" x-cloak x-transition class="absolute right-0 mt-2 w-56 bg-slate-800 border border-slate-700 rounded-md shadow-lg z-10">
-              <ul class="py-1 text-sm text-slate-200">
-                <li>
-                  <a href="#" class="flex items-center px-3 py-2 hover:bg-slate-700" data-action="reset-password" data-username="{$username}" data-serviceid="{$serviceid}" @click.prevent="open=false; $dispatch('eb-reset-password', { username: '{$username}', serviceid: '{$serviceid}' })">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-5 w-5 mr-2 text-slate-300">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 21v-2.25a2.25 2.25 0 0 0-2.25-2.25h-10.5A2.25 2.25 0 0 0 4.5 18.75V21" />
+                </svg>
+                <span x-show="!sidebarCollapsed" x-transition.opacity class="font-semibold text-white text-sm">Backup Dashboard</span>
+              </div>
+            </div>
+            
+            <!-- Navigation -->
+            <nav class="flex-1 p-3 space-y-1 overflow-y-auto">
+              <!-- Backup Status -->
+              <a href="{$modulelink}&a=dashboard" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 transition-all duration-200" :class="sidebarCollapsed && 'justify-center'" :title="sidebarCollapsed ? 'Backup Status' : ''">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 14.25v2.25m3-4.5v4.5m3-6.75v6.75m3-9v9M6 20.25h12A2.25 2.25 0 0 0 20.25 18V6A2.25 2.25 0 0 0 18 3.75H6A2.25 2.25 0 0 0 3.75 6v12A2.25 2.25 0 0 0 6 20.25Z" />
+                </svg>
+                <span x-show="!sidebarCollapsed" x-transition.opacity class="text-sm font-medium">Backup Status</span>
+              </a>
+              
+              <!-- Users (Active with sub-nav) -->
+              <div class="space-y-1">
+                <a href="{$modulelink}&a=dashboard" class="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-white/5 text-white transition-all duration-200" :class="sidebarCollapsed && 'justify-center'" :title="sidebarCollapsed ? 'Users' : ''">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
+                  </svg>
+                  <span x-show="!sidebarCollapsed" x-transition.opacity class="text-sm font-medium">Users</span>
+                </a>
+                
+                <!-- User sub-nav -->
+                <div class="space-y-0.5 transition-all duration-300" :class="sidebarCollapsed ? 'px-0' : 'ml-4 pl-4 border-l border-slate-700/50'">
+                  <!-- Current user indicator (hidden when collapsed) -->
+                  <div x-show="!sidebarCollapsed" x-transition.opacity class="flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-500 uppercase tracking-wider">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 12V5.25" />
                     </svg>
-                    <span>Reset password</span>
+                    {$username}
+                  </div>
+                  
+                  <!-- Profile sub-tabs -->
+                  <a href="#" @click.prevent="activeSubTab = 'profile'" :class="[activeSubTab === 'profile' ? (sidebarCollapsed ? 'bg-sky-500/20 text-sky-400' : 'bg-sky-500/10 text-sky-400  border-sky-400 -ml-[1px]') : 'text-slate-400 hover:text-white hover:bg-white/5', sidebarCollapsed && 'justify-center px-0 py-2']" class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all duration-150" :title="sidebarCollapsed ? 'Profile' : ''">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 flex-shrink-0">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M17.982 18.725A7.488 7.488 0 0 0 12 15.75a7.488 7.488 0 0 0-5.982 2.975m11.963 0a9 9 0 1 0-11.963 0m11.963 0A8.966 8.966 0 0 1 12 21a8.966 8.966 0 0 1-5.982-2.275M15 9.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+                    </svg>
+                    <span x-show="!sidebarCollapsed" x-transition.opacity>Profile</span>
                   </a>
-                </li>
-              </ul>
+                  <a href="#" @click.prevent="activeSubTab = 'protectedItems'" :class="[activeSubTab === 'protectedItems' ? (sidebarCollapsed ? 'bg-sky-500/20 text-sky-400' : 'bg-sky-500/10 text-sky-400  border-sky-400 -ml-[1px]') : 'text-slate-400 hover:text-white hover:bg-white/5', sidebarCollapsed && 'justify-center px-0 py-2']" class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all duration-150" :title="sidebarCollapsed ? 'Protected Items' : ''">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 flex-shrink-0">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" />
+                    </svg>
+                    <span x-show="!sidebarCollapsed" x-transition.opacity>Protected Items</span>
+                  </a>
+                  <a href="#" @click.prevent="activeSubTab = 'storage'" :class="[activeSubTab === 'storage' ? (sidebarCollapsed ? 'bg-sky-500/20 text-sky-400' : 'bg-sky-500/10 text-sky-400  border-sky-400 -ml-[1px]') : 'text-slate-400 hover:text-white hover:bg-white/5', sidebarCollapsed && 'justify-center px-0 py-2']" class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all duration-150" :title="sidebarCollapsed ? 'Storage Vaults' : ''">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 flex-shrink-0">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
+                    </svg>
+                    <span x-show="!sidebarCollapsed" x-transition.opacity>Storage Vaults</span>
+                  </a>
+                  <a href="#" @click.prevent="activeSubTab = 'devices'" :class="[activeSubTab === 'devices' ? (sidebarCollapsed ? 'bg-sky-500/20 text-sky-400' : 'bg-sky-500/10 text-sky-400  border-sky-400 -ml-[1px]') : 'text-slate-400 hover:text-white hover:bg-white/5', sidebarCollapsed && 'justify-center px-0 py-2']" class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all duration-150" :title="sidebarCollapsed ? 'Devices' : ''">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 flex-shrink-0">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 12V5.25" />
+                    </svg>
+                    <span x-show="!sidebarCollapsed" x-transition.opacity>Devices</span>
+                  </a>
+                  <a href="#" @click.prevent="activeSubTab = 'jobLogs'" :class="[activeSubTab === 'jobLogs' ? (sidebarCollapsed ? 'bg-sky-500/20 text-sky-400' : 'bg-sky-500/10 text-sky-400  border-sky-400 -ml-[1px]') : 'text-slate-400 hover:text-white hover:bg-white/5', sidebarCollapsed && 'justify-center px-0 py-2']" class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all duration-150" :title="sidebarCollapsed ? 'Job Logs' : ''">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 flex-shrink-0">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                    </svg>
+                    <span x-show="!sidebarCollapsed" x-transition.opacity>Job Logs</span>
+                  </a>
+                </div>
+              </div>
+              
+              <!-- Vaults -->
+              <a href="{$modulelink}&a=vaults" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 transition-all duration-200" :class="sidebarCollapsed && 'justify-center'" :title="sidebarCollapsed ? 'Vaults' : ''">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
+                </svg>
+                <span x-show="!sidebarCollapsed" x-transition.opacity class="text-sm font-medium">Vaults</span>
+              </a>
+              
+              <!-- Collapse toggle -->
+              <button @click="toggleCollapse()" class="flex items-center gap-3 px-3 py-2.5 mt-2 rounded-lg text-slate-500 hover:text-slate-300 hover:bg-white/5 transition-all duration-200" :class="sidebarCollapsed && 'justify-center'" :title="sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0 transition-transform duration-300" :class="sidebarCollapsed && 'rotate-180'">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M18.75 19.5l-7.5-7.5 7.5-7.5m-6 15L5.25 12l7.5-7.5" />
+                </svg>
+                <span x-show="!sidebarCollapsed" x-transition.opacity class="text-sm font-medium">Collapse</span>
+              </button>
+            </nav>
+          </div>
+        </aside>
+        
+        <!-- Main Content Area -->
+        <main class="flex-1 min-w-0 overflow-x-auto">
+          <!-- Content Header -->
+          <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800/60">
+            <div class="flex items-center gap-3">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-slate-400">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 12V5.25" />
+              </svg>
+              <h1 class="text-xl font-semibold text-white">{$username}</h1>
+            </div>
+            
+            <!-- Actions dropdown -->
+            <div class="relative" x-data="{ open:false }" @keydown.escape.window="open=false" @click.away="open=false">
+              <button type="button" class="inline-flex items-center px-3 py-2 text-sm bg-slate-800/60 hover:bg-slate-700 border border-slate-700/50 rounded-lg text-slate-300 hover:text-white transition-all duration-200" @click="open = !open">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 mr-1.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" />
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+                </svg>
+                Actions
+                <svg class="ml-1.5 h-4 w-4 opacity-60" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.24 4.5a.75.75 0 01-1.08 0l-4.24-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg>
+              </button>
+              <div x-show="open" x-cloak x-transition class="absolute right-0 mt-2 w-56 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-10">
+                <ul class="py-1.5 text-sm text-slate-200">
+                  <li>
+                    <a href="#" class="flex items-center px-3 py-2 hover:bg-slate-700/70 rounded-md mx-1.5 transition-colors" data-action="reset-password" data-username="{$username}" data-serviceid="{$serviceid}" @click.prevent="open=false; $dispatch('eb-reset-password', { username: '{$username}', serviceid: '{$serviceid}' })">
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4 mr-2 text-slate-400">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
+                      </svg>
+                      <span>Reset password</span>
+                    </a>
+                  </li>
+                </ul>
+              </div>
             </div>
           </div>
-        </div>
-      </div>       
-
+          
+          <!-- Tab Content -->
+          <div class="p-6">
+      
       <div x-show="activeSubTab === 'profile'" x-transition>
         <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
           <div class="xl:col-span-2 bg-slate-900 p-6 rounded-lg">
@@ -803,20 +903,23 @@
               {/if}
           </div>
           
-          <div class="bg-slate-900 rounded-lg overflow-hidden" x-data="{
+          <div class="bg-slate-900 rounded-lg" x-data="{
               open:false,
               search:'',
-              cols:{ name:true, id:true, type:true, init:true, stored:true, quota:true, usage:true, actions:true },
+              cols:{ name:true, id:false, type:true, init:true, stored:true, quota:true, usage:true, actions:true },
               matchesSearch(el){ const q=this.search.trim().toLowerCase(); if(!q) return true; return (el.textContent||'').toLowerCase().includes(q); },
               pctColor(p){ if(p===null) return 'bg-slate-700'; if(p<70) return 'bg-emerald-500'; if(p<90) return 'bg-amber-500'; return 'bg-rose-500'; }
           }">
               <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 pt-4 pb-2">
                   <div class="relative shrink-0" @click.away="open=false">
-                      <button type="button" class="inline-flex items-center px-3 py-2 text-sm bg-slate-700 hover:bg-slate-600 rounded text-white" @click="open=!open">
-                          View
-                          <svg class="ml-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                      <button type="button" class="inline-flex items-center gap-2 px-3 py-2 text-sm bg-slate-700 hover:bg-slate-600 rounded text-white transition-all duration-200" @click="open=!open">
+                          <span class="text-slate-400">View:</span>
+                          <span class="font-medium">Columns</span>
+                          <svg class="w-4 h-4 opacity-70" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                              <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.24 4.5a.75.75 0 01-1.08 0l-4.24-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/>
+                          </svg>
                       </button>
-                      <div x-show="open" x-transition class="absolute mt-2 w-56 bg-slate-800 border border-slate-700 rounded shadow-lg z-10">
+                      <div x-show="open" x-transition class="absolute mt-2 w-56 bg-slate-800 border border-slate-700 rounded shadow-lg z-20">
                           <div class="p-3 space-y-2 text-slate-200 text-sm">
                               <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.name"> Storage Vault</label>
                               <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.id"> Storage Vault ID</label>
@@ -834,7 +937,7 @@
                   </div>
               </div>
               <div class="table-scroll overflow-x-auto">
-              <table class="min-w-full divide-y divide-slate-700">
+              <table class="w-full min-w-max divide-y divide-slate-700">
                   <thead class="bg-slate-800/50">
                       <tr>
                           <th x-show="cols.name" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Storage Vault</th>
@@ -1007,19 +1110,22 @@
       </div>
 
       <div x-show="activeSubTab === 'devices'" x-cloak x-transition>
-        <div class="bg-slate-900 rounded-lg overflow-hidden" x-data="{
+        <div class="bg-slate-900 rounded-lg" x-data="{
             open:false,
             search:'',
-            cols:{ status:true, name:true, id:true, reg:true, ver:true, plat:true, rfa:true, items:true, actions:true },
+            cols:{ status:true, name:true, id:false, reg:true, ver:true, plat:true, items:true, actions:true },
             matchesSearch(el){ const q=this.search.trim().toLowerCase(); if(!q) return true; return (el.textContent||'').toLowerCase().includes(q); }
         }">
             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 pt-4 pb-2">
                 <div class="relative shrink-0" @click.away="open=false">
-                    <button type="button" class="inline-flex items-center px-3 py-2 text-sm bg-slate-700 hover:bg-slate-600 rounded text-white" @click="open=!open">
-                        View
-                        <svg class="ml-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                    <button type="button" class="inline-flex items-center gap-2 px-3 py-2 text-sm bg-slate-700 hover:bg-slate-600 rounded text-white transition-all duration-200" @click="open=!open">
+                        <span class="text-slate-400">View:</span>
+                        <span class="font-medium">Columns</span>
+                        <svg class="w-4 h-4 opacity-70" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.24 4.5a.75.75 0 01-1.08 0l-4.24-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/>
+                        </svg>
                     </button>
-                    <div x-show="open" x-transition class="absolute mt-2 w-56 bg-slate-800 border border-slate-700 rounded shadow-lg z-10">
+                    <div x-show="open" x-transition class="absolute mt-2 w-56 bg-slate-800 border border-slate-700 rounded shadow-lg z-20">
                         <div class="p-3 space-y-2 text-slate-200 text-sm">
                             <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.status"> Status</label>
                             <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.name"> Device Name</label>
@@ -1027,7 +1133,6 @@
                             <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.reg"> Registered</label>
                             <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.ver"> Version</label>
                             <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.plat"> Platform</label>
-                            <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.rfa"> Remote File Access</label>
                             <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.items"> Protected Items</label>
                             <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.actions"> Actions</label>
                         </div>
@@ -1038,7 +1143,7 @@
                 </div>
             </div>
             <div class="table-scroll overflow-x-auto">
-            <table class="min-w-full divide-y divide-slate-700">
+            <table class="w-full min-w-max divide-y divide-slate-700">
                 <thead class="bg-slate-800/50">
                     <tr>
                         <th x-show="cols.status" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Status</th>
@@ -1047,7 +1152,6 @@
                         <th x-show="cols.reg" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Registered</th>
                         <th x-show="cols.ver" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Version</th>
                         <th x-show="cols.plat" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Platform</th>
-                        <th x-show="cols.rfa" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Remote File Access</th>
                         <th x-show="cols.items" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Protected Items</th>
                         <th x-show="cols.actions" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Actions</th>
               </tr>
@@ -1067,7 +1171,6 @@
                             <td x-show="cols.reg" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$device.registered}</td>
                             <td x-show="cols.ver" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$device.version}</td>
                             <td x-show="cols.plat" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$device.platform}</td>
-                            <td x-show="cols.rfa" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$device.remote_file_access}</td>
                             <td x-show="cols.items" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$device.protected_items}</td>
                             <td x-show="cols.actions" class="px-4 py-4 whitespace-nowrap text-sm">
                                 <button type="button" class="px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 rounded text-white" data-action="open-device-panel" data-device-id="{$device.device_id}" data-device-name="{$device.device_name}" data-device-online="{if $device.status == 'Online'}1{else}0{/if}">Manage</button>
@@ -1075,7 +1178,7 @@
                         </tr>
                     {foreachelse}
                         <tr>
-                            <td colspan="9" class="text-center py-6 text-sm text-gray-400">No devices found for this user.</td>
+                            <td colspan="8" class="text-center py-6 text-sm text-gray-400">No devices found for this user.</td>
                 </tr>
               {/foreach}          
             </tbody>
@@ -1087,30 +1190,67 @@
       <div x-show="activeSubTab === 'jobLogs'" x-cloak x-transition>
         <div class="bg-slate-900 rounded-lg overflow-hidden" x-data="{ open:false, search:'', cols:{ user:true, id:false, device:true, item:true, vault:false, ver:false, type:true, status:true, dirs:false, files:false, size:true, vsize:true, up:false, down:false, started:true, ended:true, dur:true } }">
             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 pt-4 pb-2">
-                <div class="relative shrink-0" @click.away="open=false">
-                    <button type="button" class="inline-flex items-center px-3 py-2 text-sm bg-slate-700 hover:bg-slate-600 rounded text-white" @click="open=!open">
-                        View
-                        <svg class="ml-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
-                    </button>
-                    <div x-show="open" x-transition class="absolute mt-2 w-72 bg-slate-800 border border-slate-700 rounded shadow-lg z-10">
-                        <div class="p-3 grid grid-cols-2 gap-2 text-slate-200 text-sm">
-                            <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.user"> Username</label>
-                            <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.id"> Job ID</label>
-                            <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.device"> Device</label>
-                            <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.item"> Protected Item</label>
-                            <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.vault"> Storage Vault</label>
-                            <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.ver"> Version</label>
-                            <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.type"> Type</label>
-                            <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.status"> Status</label>
-                            <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.dirs"> Directories</label>
-                            <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.files"> Files</label>
-                            <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.size"> Size</label>
-                            <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.vsize"> Storage Vault Size</label>
-                            <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.up"> Uploaded</label>
-                            <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.down"> Downloaded</label>
-                            <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.started"> Started</label>
-                            <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.ended"> Ended</label>
-                            <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.dur"> Duration</label>
+                <div class="flex items-center gap-3">
+                    <!-- View columns dropdown -->
+                    <div class="relative shrink-0" @click.away="open=false">
+                        <button type="button" class="inline-flex items-center gap-2 px-3 py-2 text-sm bg-slate-700 hover:bg-slate-600 rounded text-white transition-all duration-200" @click="open=!open">
+                            <span class="text-slate-400">View:</span>
+                            <span class="font-medium">Columns</span>
+                            <svg class="w-4 h-4 opacity-70" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.24 4.5a.75.75 0 01-1.08 0l-4.24-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/>
+                            </svg>
+                        </button>
+                        <div x-show="open" x-transition class="absolute mt-2 w-72 bg-slate-800 border border-slate-700 rounded shadow-lg z-10">
+                            <div class="p-3 grid grid-cols-2 gap-2 text-slate-200 text-sm">
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.user"> Username</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.id"> Job ID</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.device"> Device</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.item"> Protected Item</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.vault"> Storage Vault</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.ver"> Version</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.type"> Type</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.status"> Status</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.dirs"> Directories</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.files"> Files</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.size"> Size</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.vsize"> Storage Vault Size</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.up"> Uploaded</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.down"> Downloaded</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.started"> Started</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.ended"> Ended</label>
+                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.dur"> Duration</label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Page size dropdown -->
+                    <div x-data="{ 
+                        sizeOpen: false, 
+                        pageSize: 10,
+                        sizes: [10, 25, 50, 100],
+                        setSize(size) {
+                            this.pageSize = size;
+                            this.sizeOpen = false;
+                            window.dispatchEvent(new CustomEvent('jobs:pagesize', { detail: size }));
+                        }
+                    }" class="relative">
+                        <button @click="sizeOpen = !sizeOpen" @click.away="sizeOpen = false" type="button" 
+                                class="inline-flex items-center gap-2 px-3 py-2 text-sm bg-slate-700 hover:bg-slate-600 rounded text-white transition-all duration-200">
+                            <span class="text-slate-400">Show:</span>
+                            <span x-text="pageSize" class="font-medium"></span>
+                            <svg class="w-4 h-4 opacity-70" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.24 4.5a.75.75 0 01-1.08 0l-4.24-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/>
+                            </svg>
+                        </button>
+                        <div x-show="sizeOpen" x-cloak x-transition 
+                             class="absolute left-0 mt-2 w-24 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-10 overflow-hidden">
+                            <template x-for="size in sizes" :key="size">
+                                <button @click="setSize(size)" type="button"
+                                        :class="pageSize === size ? 'bg-slate-700 text-white' : 'text-slate-300 hover:bg-slate-700/70 hover:text-white'"
+                                        class="block w-full text-left px-3 py-2 text-sm transition-colors">
+                                    <span x-text="size"></span>
+                                </button>
+                            </template>
                         </div>
                     </div>
                 </div>
@@ -1149,7 +1289,7 @@
                 </table>
               </div>
             </div>
-            <div class="flex items-center justify-between px-4 py-2">
+            <div class="px-4 py-2">
                 <div id="jobs-pager" class="space-x-2 text-small font-medium text-slate-400"></div>
             </div>
         </div>
@@ -1633,13 +1773,7 @@
                   <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" />
                 </svg>
                 <span :class="password.length >= 8 ? 'text-slate-200' : ''">Minimum 8 characters</span>
-              </li>
-              <li class="flex items-center gap-2">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" />
-                </svg>
-                Use a unique password not used elsewhere
-              </li>
+              </li>              
             </ul>
           </div>
           
@@ -2189,6 +2323,11 @@ try {
   else document.addEventListener('jobReports:ready', attachJobs, { once: true });
 } catch (e) {}
 </script>
+
+          </div><!-- /Tab Content wrapper -->
+        </main><!-- /Main Content Area -->
+      </div><!-- /Flex container -->
+    </div><!-- /App Shell -->
 
 <!-- Restore Wizard Modal -->
 <div id="restore-wizard" class="fixed inset-0 z-50 hidden">
