@@ -185,6 +185,91 @@ SELECT COUNT(*) FROM comet_devices WHERE client_id = 0;  -- Should be 0
 SELECT COUNT(*) FROM comet_devices WHERE id = hash;      -- Should be 0
 ```
 
+### Device Online/Offline Status (is_active) Handling
+
+The `comet_devices.is_active` column tracks whether a device is currently online (connected to the Comet server). This status is displayed on the WHMCS dashboard.
+
+**Challenge:** Comet emits websocket events when devices come online (`SEVT_DEVICE_NEW`) but does NOT emit events when devices go offline. When a device disconnects, Comet simply removes it from its internal dispatcher list without notification.
+
+**Solution (Jan 2026):** A periodic heartbeat mechanism polls `AdminDispatcherListActive()` every 60 seconds to sync device online status.
+
+#### How it works
+
+1. **Device comes online** (`SEVT_DEVICE_NEW`):
+   - The websocket worker calls `upsertCometDevice()` with `is_active=true`.
+   - The device is immediately marked as online in the database.
+
+2. **Device sync** (`syncUserDevices()`):
+   - When called (e.g., on `SEVT_DEVICE_UPDATED`), fetches `AdminDispatcherListActive()` for the user.
+   - Each device is checked against the active connections list.
+   - `is_active` is set based on whether the specific (username, deviceHash) pair is in the active list.
+
+3. **Periodic heartbeat** (every 60 seconds):
+   - The worker runs `refreshDeviceOnlineStatus()` on a timer.
+   - Calls `AdminDispatcherListActive('')` to get ALL active connections from the Comet server.
+   - Uses **server group mapping** to determine which devices belong to this Comet server:
+     - Queries `tblhosting` → `tblservergroupsrel` → `tblservergroups` to find all usernames on this server.
+   - For each device belonging to this server:
+     - If the (username, deviceHash) pair is in the active list → `is_active=1`
+     - If not in the active list → `is_active=0`
+   - This correctly handles users with ALL devices offline (no longer in active list).
+
+#### Key implementation details
+
+**Username + DeviceHash matching:**
+The same device hash can exist for multiple users (shared device scenario). The heartbeat must check the **(username, deviceHash) pair**, not just the hash:
+
+```php
+// Build active connections map: username => [deviceHash => true]
+$activeByUser = [];
+foreach ($activeConnections as $conn) {
+    $activeByUser[$conn->Username][$conn->DeviceID] = true;
+}
+
+// Check if THIS user's device is active
+$shouldBeActive = isset($activeByUser[$deviceUsername][$deviceHash]) ? 1 : 0;
+```
+
+**Server group filtering:**
+Each worker handles one Comet server profile. The heartbeat only updates devices belonging to that server:
+
+```php
+// Get usernames that belong to this Comet server
+$stmt = $pdo->prepare("SELECT DISTINCT h.username
+                       FROM tblhosting h
+                       JOIN tblservergroupsrel sgr ON sgr.serverid = h.server
+                       JOIN tblservergroups sg ON sg.id = sgr.groupid
+                       WHERE LOWER(sg.name) LIKE ?");
+$stmt->execute([$serverGroupPattern]);
+```
+
+**Environment variable:**
+- `EB_HEARTBEAT_INTERVAL` — Heartbeat interval in seconds (default: 60).
+
+**Logging:**
+With `EB_WS_DEBUG=1`, the heartbeat logs:
+```
+Heartbeat: Comet reports 942 active connections for 663 users
+Heartbeat: checked 1315 devices for 972 server users, online=896, offline=419, changed=10
+```
+
+#### Production deployment
+
+When deploying this fix, reset device online status and restart workers:
+
+```sql
+-- Reset all devices to offline (heartbeat will correct within 60 seconds)
+UPDATE comet_devices SET is_active = 0;
+```
+
+```bash
+# Restart workers
+sudo systemctl restart eazybackup-comet-ws@cometbackup.service eazybackup-comet-ws@obc.service
+
+# Verify heartbeat is running
+journalctl -u eazybackup-comet-ws@cometbackup.service -n 20 --no-pager | grep -i heartbeat
+```
+
 **High-Level Flow**
 Comet Server (WebSocket /api/v1/events/stream)
          │

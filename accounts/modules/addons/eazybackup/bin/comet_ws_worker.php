@@ -63,6 +63,7 @@ if (!\function_exists('\Amp\delay')) {
 
 use Amp\Websocket\Client\WebsocketHandshake;
 use function Amp\Websocket\Client\connect;
+use Revolt\EventLoop;
 
 // Do NOT load WHMCS bootstrap or other vendor autoloaders to avoid autoloader conflicts.
 
@@ -263,7 +264,7 @@ function getUsernameForDeviceHash(PDO $pdo, string $deviceHash): ?string {
     return null;
 }
 
-function upsertCometDevice(PDO $pdo, string $profile, string $username, string $hash, array $data): void {
+function upsertCometDevice(PDO $pdo, string $profile, string $username, string $hash, array $data, bool $isActive = true): void {
     $resolved = $username !== '' ? resolveWhmcsUser($pdo, $username, $profile) : ['client_id'=>null, 'username'=>null];
     // If ambiguous / not found, skip insert (we cannot generate a unique ID without client_id)
     $clientId = $resolved['client_id'];
@@ -285,9 +286,10 @@ function upsertCometDevice(PDO $pdo, string $profile, string $username, string $
     // Generate unique ID matching lib/Comet.php: sha256(client_id + deviceHash)
     $deviceId = hash('sha256', (string)$clientId . $hash);
 
+    $activeFlag = $isActive ? 1 : 0;
     try {
         $sql = "INSERT INTO comet_devices (id, client_id, username, hash, content, name, platform_os, platform_arch, is_active, created_at, updated_at, revoked_at)
-                VALUES (:id, :client_id, :username, :hash, :content, :name, :os, :arch, 1, NOW(), NOW(), NULL)
+                VALUES (:id, :client_id, :username, :hash, :content, :name, :os, :arch, :is_active, NOW(), NOW(), NULL)
                 ON DUPLICATE KEY UPDATE
                   client_id=VALUES(client_id),
                   username=VALUES(username),
@@ -295,7 +297,7 @@ function upsertCometDevice(PDO $pdo, string $profile, string $username, string $
                   name=VALUES(name),
                   platform_os=VALUES(platform_os),
                   platform_arch=VALUES(platform_arch),
-                  is_active=1,
+                  is_active=VALUES(is_active),
                   updated_at=NOW(),
                   revoked_at=NULL";
         $stmt = $pdo->prepare($sql);
@@ -308,8 +310,9 @@ function upsertCometDevice(PDO $pdo, string $profile, string $username, string $
             ':name' => $friendly !== '' ? $friendly : null,
             ':os' => $os,
             ':arch' => $arch,
+            ':is_active' => $activeFlag,
         ]);
-        if (EB_DB_DEBUG) logLine($profile, "DB upsert DEVICE ok id={$deviceId} hash={$hash} client_id={$clientId} rc=" . $stmt->rowCount());
+        if (EB_DB_DEBUG) logLine($profile, "DB upsert DEVICE ok id={$deviceId} hash={$hash} client_id={$clientId} is_active={$activeFlag} rc=" . $stmt->rowCount());
     } catch (Throwable $e) {
         logLine($profile, "DB upsert DEVICE ERROR: " . $e->getMessage());
     }
@@ -800,6 +803,23 @@ function syncUserDevices(PDO $pdo, string $profile, string $username): void {
         return;
     }
 
+    // Fetch active (online) devices for this user
+    $activeDeviceIds = [];
+    try {
+        $activeConnections = $client->AdminDispatcherListActive($resolved['username'] ?? $username);
+        if (is_array($activeConnections)) {
+            foreach ($activeConnections as $conn) {
+                if (isset($conn->DeviceID) && is_string($conn->DeviceID) && $conn->DeviceID !== '') {
+                    $activeDeviceIds[$conn->DeviceID] = true;
+                }
+            }
+        }
+        if (EB_WS_DEBUG) logLine($profile, "Devices: {$username} has " . count($activeDeviceIds) . " active device(s)");
+    } catch (Throwable $e) {
+        // If we can't get active list, we'll assume all devices are offline (safer)
+        logLine($profile, "Devices: AdminDispatcherListActive failed for {$username}: " . $e->getMessage());
+    }
+
     // Devices map: DeviceID (hash) => DeviceConfig
     $devices = [];
     if (isset($userProfile->Devices)) {
@@ -809,8 +829,104 @@ function syncUserDevices(PDO $pdo, string $profile, string $username): void {
     foreach ($devices as $deviceId => $cfg) {
         if (!is_string($deviceId) || $deviceId === '') continue;
         $arr = is_array($cfg) ? $cfg : (is_object($cfg) ? get_object_vars($cfg) : []);
-        // Upsert with current FriendlyName / PlatformVersion
-        upsertCometDevice($pdo, $profile, $username, (string)$deviceId, $arr);
+        // Check if this specific device is in the active connections list
+        $isDeviceActive = isset($activeDeviceIds[$deviceId]);
+        // Upsert with current FriendlyName / PlatformVersion and correct is_active status
+        upsertCometDevice($pdo, $profile, $username, (string)$deviceId, $arr, $isDeviceActive);
+    }
+}
+
+/**
+ * Periodic heartbeat: refresh device online status for a single profile.
+ * Comet doesn't emit an event when a device goes offline, so we poll AdminDispatcherListActive().
+ */
+function refreshDeviceOnlineStatus(PDO $pdo, string $profile): void {
+    $client = cometAdminClientForProfile($pdo, $profile);
+    if (!$client) {
+        if (EB_WS_DEBUG) logLine($profile, "Heartbeat: no admin client for profile {$profile}");
+        return;
+    }
+
+    try {
+        // Get ALL active connections for this server (no username filter)
+        $activeConnections = $client->AdminDispatcherListActive('');
+        if (!is_array($activeConnections)) {
+            $activeConnections = [];
+        }
+
+        // Build a map of (username => [deviceId => true]) for active devices
+        // A device hash can belong to multiple users, so we must check BOTH username and deviceId
+        $activeByUser = [];
+        $usernamesSeen = [];
+        foreach ($activeConnections as $conn) {
+            $connUsername = $conn->Username ?? '';
+            $deviceId = $conn->DeviceID ?? '';
+            if ($connUsername !== '' && $deviceId !== '') {
+                if (!isset($activeByUser[$connUsername])) {
+                    $activeByUser[$connUsername] = [];
+                }
+                $activeByUser[$connUsername][$deviceId] = true;
+                $usernamesSeen[$connUsername] = true;
+            }
+        }
+
+        $totalActive = count($activeConnections);
+        logLine($profile, "Heartbeat: Comet reports {$totalActive} active connections for " . count($usernamesSeen) . " users");
+
+        // Get all usernames that belong to THIS Comet server (via server group)
+        // Profile name mapping: cometbackup -> "Comet Backup", obc -> "OBC" (case-insensitive partial match)
+        $serverGroupPattern = '%' . str_replace(['cometbackup', 'obc'], ['Comet%', 'OBC%'], strtolower($profile)) . '%';
+        $stmt = $pdo->prepare("SELECT DISTINCT BINARY h.username as username
+                               FROM tblhosting h
+                               JOIN tblservergroupsrel sgr ON sgr.serverid = h.server
+                               JOIN tblservergroups sg ON sg.id = sgr.groupid
+                               WHERE LOWER(sg.name) LIKE ?");
+        $stmt->execute([$serverGroupPattern]);
+        $serverUsers = [];
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            $serverUsers[$row['username']] = true;
+        }
+        
+        if (count($serverUsers) === 0) {
+            logLine($profile, "Heartbeat: no users found for server group pattern '{$serverGroupPattern}'");
+            return;
+        }
+
+        // Get all devices for users belonging to this server
+        $userList = array_keys($serverUsers);
+        $placeholders = implode(',', array_fill(0, count($userList), '?'));
+        $stmt = $pdo->prepare("SELECT id, hash, username, is_active FROM comet_devices WHERE username IN ({$placeholders})");
+        $stmt->execute($userList);
+        $devices = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $onlineCount = 0;
+        $offlineCount = 0;
+        $changedCount = 0;
+
+        foreach ($devices as $device) {
+            $deviceHash = $device['hash'] ?? '';
+            $deviceUsername = $device['username'] ?? '';
+            $currentStatus = (int)($device['is_active'] ?? 0);
+
+            // Check if THIS user's device is in the active list (must match both username AND deviceHash)
+            $shouldBeActive = isset($activeByUser[$deviceUsername][$deviceHash]) ? 1 : 0;
+
+            if ($currentStatus !== $shouldBeActive) {
+                $updateStmt = $pdo->prepare("UPDATE comet_devices SET is_active = ?, updated_at = NOW() WHERE id = ?");
+                $updateStmt->execute([$shouldBeActive, $device['id']]);
+                $changedCount++;
+            }
+
+            if ($shouldBeActive) {
+                $onlineCount++;
+            } else {
+                $offlineCount++;
+            }
+        }
+
+        logLine($profile, "Heartbeat: checked " . count($devices) . " devices for " . count($serverUsers) . " server users, online={$onlineCount}, offline={$offlineCount}, changed={$changedCount}");
+    } catch (Throwable $e) {
+        logLine($profile, "Heartbeat ERROR: " . $e->getMessage());
     }
 }
 
@@ -974,7 +1090,8 @@ function handleEvent(PDO $pdo, string $profile, array $evt): void {
             $payload = is_array($data) ? $data : [];
             // Prefer the target account's Username over Actor (Actor may be an admin)
             $who = $username !== '' ? $username : $actor;
-            upsertCometDevice($pdo, $profile, $who, $resourceId, $payload);
+            // Device is coming online (is_active=true)
+            upsertCometDevice($pdo, $profile, $who, $resourceId, $payload, true);
             // Notify: device registered (delegated; ignore failures)
             try {
                 @require_once __DIR__ . '/../lib/Notifications/bootstrap.php';
@@ -1108,6 +1225,9 @@ function handleEvent(PDO $pdo, string $profile, array $evt): void {
 /////////////////////
 // One profile run //
 /////////////////////
+// Heartbeat interval in seconds (check device online status every 60 seconds)
+define('EB_HEARTBEAT_INTERVAL', (int)(getenv('EB_HEARTBEAT_INTERVAL') ?: 60));
+
 function runOneProfile(PDO $pdo, array $cfg): never {
     $profile = $cfg['server_id'];
     $url     = $cfg['url'];     // wss://…/events/stream
@@ -1117,6 +1237,24 @@ function runOneProfile(PDO $pdo, array $cfg): never {
     $pass    = $cfg['password'];
     $sess    = $cfg['sessionkey'];
     $totp    = $cfg['totp'];
+
+    // Start heartbeat timer to periodically refresh device online status
+    // Comet doesn't emit events when devices go offline, so we poll AdminDispatcherListActive()
+    $heartbeatId = EventLoop::repeat(EB_HEARTBEAT_INTERVAL, function() use ($pdo, $profile) {
+        try {
+            refreshDeviceOnlineStatus($pdo, $profile);
+        } catch (Throwable $e) {
+            logLine($profile, "Heartbeat exception: " . $e->getMessage());
+        }
+    });
+    logLine($profile, "Started heartbeat timer (interval=" . EB_HEARTBEAT_INTERVAL . "s)");
+
+    // Run initial heartbeat immediately to sync device status on startup
+    try {
+        refreshDeviceOnlineStatus($pdo, $profile);
+    } catch (Throwable $e) {
+        logLine($profile, "Initial heartbeat exception: " . $e->getMessage());
+    }
 
     while (true) {
         try {
