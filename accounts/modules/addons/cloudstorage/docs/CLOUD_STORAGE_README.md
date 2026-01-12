@@ -7,6 +7,7 @@ Cloud Storage is a WHMCS addon module that manages S3-compatible storage on a Ce
 - Access Keys and Subuser management
 - Per-bucket usage and transfer stats (historical + live summaries)
 - Object Lock and Versioning awareness
+- Bucket quota configuration (per-bucket max size and max objects) with at-a-glance quota bar
 - Background deletion workflow for buckets (safe and auditable)
 
 ## Key concepts
@@ -38,7 +39,13 @@ Cloud Storage is a WHMCS addon module that manages S3-compatible storage on a Ce
   - `accounts/modules/addons/cloudstorage/api/deletebucket.php` — Queue bucket deletion (with validation for object-locked buckets).
   - `accounts/modules/addons/cloudstorage/api/objectlockstatus.php` — Live, detailed emptiness and Object Lock status for a bucket.
   - `accounts/modules/addons/cloudstorage/api/livebucketstats.php` — Live per-uid Admin Ops aggregation (30s cache) for usage/object counts.
+  - `accounts/modules/addons/cloudstorage/api/getbucketquota.php` — Fetch bucket quota status/limits (cached, tenant-safe).
+  - `accounts/modules/addons/cloudstorage/api/setbucketquota.php` — Set/enable bucket quota (tenant-safe; invalidates quota cache on save).
   - `accounts/modules/addons/cloudstorage/api/emptybucket.php` — Queue “empty bucket” background job (non-object-locked buckets) via `s3_delete_buckets`.
+
+- Bucket quotas (Client Area)
+  - UI: [`templates/buckets.tpl`](accounts/modules/addons/cloudstorage/templates/buckets.tpl) (Overview quota bar + Management quota drawer)
+  - Admin Ops wrapper: `lib/Admin/AdminOps.php` (`getBucketQuota()`, `setBucketQuota()`)
 
 - Admin pages (WHMCS Admin Area)
   - `accounts/modules/addons/cloudstorage/pages/admin/bucket_monitor.php` — “Cloud Storage Bucket Monitor” UI (bucket list + historical chart + pool forecast).
@@ -598,6 +605,7 @@ The trial verification table is created on activation/upgrade:
 - Real-time current object count in emptiness checks now uses paginated S3 `listObjectsV2` to avoid stale DB snapshots.
 - Emptiness checks for versions, delete markers, multipart uploads, Legal Hold, and per-version retention use S3 APIs: `listObjectVersions`, `listMultipartUploads`, `getObjectLegalHold`, `getObjectRetention`.
 - Admin Ops is preferred for aggregate counts/sizes (efficient, avoids enumerations); S3 is used for per-object/version checks.
+- Bucket quota reads are designed to be **fast** and **tenant-compatible** (see “Bucket quotas” below).
 
 ## Configuration
 Module settings are managed via WHMCS addon settings:
@@ -605,6 +613,77 @@ Module settings are managed via WHMCS addon settings:
 - `ceph_admin_user`, `ceph_access_key`, `ceph_secret_key`
 - `encryption_key` (for stored access keys)
 - `turnstile_site_key`, `turnstile_secret_key` (for Turnstile captcha)
+
+## Bucket quotas (Customer-facing feature)
+
+The Buckets page ([`https://dev.eazybackup.ca/index.php?m=cloudstorage&page=buckets`](https://dev.eazybackup.ca/index.php?m=cloudstorage&page=buckets)) exposes **per-bucket quotas** supported by Ceph RGW. Customers can enable quota enforcement and set limits for:
+
+- **Max storage size** (bytes, configured in the UI as MB/GB/TB)
+- **Max objects** (count)
+
+### UX: where it appears
+
+- **Overview tab (bucket card)**:
+  - Shows a **Quota** bar (vault-style) as the last column.
+  - If quota is disabled / not configured: shows “Usage unavailable (no quota)”.
+  - If enabled: shows a progress bar and `used / quota (percent)`.
+  - Clicking the Quota header/bar switches the bucket card to the **Management** tab for configuration.
+
+- **Management tab (bucket card)**:
+  - Shows a **Bucket quota** card (status + storage usage vs limit).
+  - Clicking the gear opens a **right-side drawer** to enable/disable quota and set limits.
+  - The drawer uses modern steppers for numeric inputs and visually dims fields when disabled.
+
+### New Client Area APIs
+
+#### 1) `api/getbucketquota.php` (read)
+
+- **Input**: `POST bucket_name`
+- **Output**:
+  - `enabled` (bool)
+  - `max_size_bytes` (int; `-1` means unlimited)
+  - `max_objects` (int; `-1` means unlimited)
+- **Ownership checks**:
+  - Bucket must exist in `s3_buckets`
+  - Bucket owner must be the logged-in user’s primary storage user or one of its sub-tenants
+
+#### 2) `api/setbucketquota.php` (write)
+
+- **Input**: `POST bucket_name, enabled, max_size_gb, max_objects`
+- **Behavior**:
+  - Converts `max_size_gb` → KiB before calling Admin Ops (RGW quota API uses KB/KiB semantics).
+  - Invalidates the `getbucketquota.php` 30s session cache for the target bucket after a successful update.
+
+### Admin Ops implementation details
+
+Admin Ops wrapper: `lib/Admin/AdminOps.php`
+
+- **`getBucketQuota()`**:
+  - Prefers lightweight Admin Ops calls that avoid expensive `stats` payloads.
+  - Includes robust fallbacks because RGW responses vary by deployment:
+    - bucket-specific calls (no-stats, then stats)
+    - uid bucket listing (`/admin/bucket?uid=...&stats=true`) and then select the target bucket
+  - Multi-tenant compatibility:
+    - Tries both identity forms:
+      - `uid=<uid>&tenant=<tenant>`
+      - `uid=<tenant>$<uid>` (tenant-qualified uid)
+
+- **`setBucketQuota()`**:
+  - Sends a `PUT` to `/admin/bucket` with the `quota` operation flag and requested limits.
+  - Tries both tenant identity forms (same as above) because some RGW deployments accept only tenant-qualified uids for quota operations.
+
+### Performance / UX improvements (why quota loads fast)
+
+Quotas must load quickly even for empty buckets. The implementation avoids doing expensive work on page load:
+
+- **Avoid expensive stats calls for quota reads**:
+  - `getbucketquota.php` fetches only quota metadata (and caches it for 30 seconds).
+  - It does not require object enumeration.
+
+- **Reuse existing size data**:
+  - The UI calculates quota usage percent using the already-present bucket size snapshot in the bucket card (`data-size-bytes`), which is refreshed by `api/livebucketstats.php`.
+  - This avoids introducing additional live “usage” calls per bucket just to compute a quota progress bar.
+
 
 ## Development notes
 - Key touchpoints for the delete flow:
