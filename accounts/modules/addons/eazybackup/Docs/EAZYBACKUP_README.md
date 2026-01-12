@@ -1236,6 +1236,196 @@ Alpine.store('ebDeviceGroups', {
 - `eb_collapsedGroups` — JSON object of collapsed group states
 - `eb_bulkSelectMode` — Whether bulk selection is enabled
 
+---
+
+## Device Grouping – Phase 2 Roadmap (INCOMPLETE)
+
+> **⚠️ STATUS: NOT IMPLEMENTED**
+> The features listed below are planned enhancements for Phase 2 of the Device Grouping feature. They are **not yet built** and require future development work. This section serves as a roadmap and specification for upcoming iterations.
+
+### 1. Automatic / Smart Grouping
+
+Phase 1 is explicitly "manual groups only." Phase 2 should introduce automatic grouping capabilities:
+
+- **Auto-grouping rules engine**
+  - Create rules based on device metadata: hostname patterns (regex), domain membership, OS type, platform architecture
+  - Example: "Devices matching `^ACME-.*` → assign to group 'ACME Corp'"
+  - Rules evaluated on device registration or on-demand "Re-evaluate all"
+
+- **Suggested groupings**
+  - Analyze device naming conventions and suggest potential groups
+  - "We found 12 devices starting with 'CLINIC-'. Create a group?"
+
+- **Import groups from external sources**
+  - CSV import: columns for device identifier + group name
+  - Active Directory / LDAP integration (future consideration)
+  - RMM tool integration (ConnectWise, Datto, etc.)
+
+### 2. Group Visual Customization
+
+The database schema already includes `color` and `icon` columns that are **not yet wired up** in the UI:
+
+- **Group color chips**
+  - Preset color palette (8-12 colors) for quick selection
+  - Color displayed as a small dot/badge next to group name in headers and pills
+  - Helps visual differentiation in large group lists
+
+- **Group icons**
+  - Small icon set (building, briefcase, hospital, school, server, etc.)
+  - Optional icon displayed in group headers
+  - Consider using Heroicons or similar lightweight icon set
+
+**Database columns ready (unused):**
+```sql
+color  VARCHAR(20) DEFAULT NULL,  -- e.g., 'emerald', 'rose', 'amber'
+icon   VARCHAR(50) DEFAULT NULL,  -- e.g., 'building', 'briefcase'
+```
+
+### 3. Enhanced Sorting & Filtering
+
+Features mentioned in original spec but not yet implemented:
+
+- **Global sort options for device list**
+  - Sort by: Name (A-Z / Z-A)
+  - Sort by: Worst recent status (Error → Missed → Warning → Success)
+  - Sort by: Most overdue (longest time since last successful backup)
+  - Sort by: Last backup time (newest / oldest)
+
+- **Per-group sorting**
+  - Override global sort within specific groups
+  - Sticky sort preference per group (persisted)
+
+- **Advanced filtering**
+  - Filter by group (show only devices in selected groups)
+  - Combine group filter with status filter
+  - "Show all groups with issues" quick filter
+
+### 4. Bulk Operations & Keyboard Shortcuts
+
+- **Range selection with Shift+Click**
+  - Select first device, Shift+Click last device → select all in between
+  - Works within a group or across groups
+
+- **Keyboard navigation**
+  - Arrow keys to navigate device list
+  - `Space` to toggle device selection
+  - `G` to open group assignment popover for selected device(s)
+  - `Escape` to clear selection / close popovers
+  - `/` to focus search input
+
+- **Bulk actions expansion**
+  - Bulk delete devices (with confirmation)
+  - Bulk run backup on selected devices
+  - Bulk export device list (CSV)
+
+### 5. Group-Level Features
+
+- **Group-level notifications**
+  - Configure email alerts per group (e.g., "Alert me if any device in 'Critical Servers' has an error")
+  - Aggregate daily/weekly digest per group
+
+- **Group-level reports**
+  - Export backup status report filtered by group
+  - PDF/CSV export with group summary statistics
+  - Scheduled report delivery
+
+- **Group health dashboard**
+  - Mini dashboard per group showing:
+    - Device count, online/offline split
+    - Last 24h success rate
+    - Storage usage breakdown
+    - Trend chart (last 7/30 days)
+
+### 6. Nested Groups / Hierarchy
+
+For larger organizations with complex structures:
+
+- **Sub-groups (2-level hierarchy)**
+  - Parent group → Child groups
+  - Example: "Healthcare" → "Clinic A", "Clinic B", "Hospital Main"
+  - Collapsible parent groups that expand to show children
+
+- **Group inheritance**
+  - Settings/notifications cascade from parent to children unless overridden
+
+**Note:** This adds significant complexity; consider as Phase 3 if needed.
+
+### 7. Partner Hub Integration
+
+When Partner Hub is active, connect Device Grouping with Customer management:
+
+- **Customer ↔ Group auto-mapping**
+  - Automatically create a group for each Customer
+  - Devices linked to a Customer's Comet accounts are auto-assigned to their group
+
+- **Customer-scoped group views**
+  - Customer portal users see only their group(s)
+  - MSP sees all groups with Customer attribution
+
+- **Billing integration**
+  - Report usage/billing by group
+  - Group-based pricing tiers (future)
+
+### 8. List Density Options
+
+- **Compact mode**
+  - Reduce vertical padding on device rows
+  - Hide some metadata (platform, registration date)
+  - Useful for accounts with 100+ devices
+
+- **Comfortable mode (current)**
+  - Full device row with all information
+
+- **Density toggle in toolbar**
+  - Persisted preference in `localStorage`
+
+### 9. Drag-and-Drop Enhancements
+
+- **Multi-device drag**
+  - When multiple devices are selected, drag them all at once
+  - Visual indicator showing count being dragged ("Moving 5 devices...")
+
+- **Reorder devices within a group**
+  - Custom device ordering per group (optional)
+  - Drag handle on device rows when enabled
+
+- **Touch support improvements**
+  - Long-press to initiate drag on mobile/tablet
+  - Larger drop targets for touch accuracy
+
+### 10. Data Export & Sync
+
+- **Export group configuration**
+  - Export groups + assignments as JSON/CSV
+  - Useful for backup or migration
+
+- **Import group configuration**
+  - Restore groups from exported file
+  - Merge or replace existing groups
+
+- **Sync with external systems**
+  - Webhook notifications on group changes
+  - API for external systems to manage groups programmatically
+
+---
+
+### Implementation Priority (Suggested)
+
+| Priority | Feature | Effort | Impact |
+|----------|---------|--------|--------|
+| P1 | Group colors & icons | Low | Medium |
+| P1 | Global sort options | Low | High |
+| P1 | Shift+Click range selection | Low | Medium |
+| P2 | Auto-grouping rules | Medium | High |
+| P2 | Group-level reports | Medium | High |
+| P2 | Keyboard shortcuts | Low | Medium |
+| P2 | Compact density mode | Low | Medium |
+| P3 | Partner Hub integration | High | High |
+| P3 | Nested groups | High | Medium |
+| P3 | Import/Export | Medium | Low |
+
+---
+
 ## Trial Signup & Email Verification (eazyBackup)
 
 Overview

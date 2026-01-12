@@ -265,8 +265,12 @@ function getUsernameForDeviceHash(PDO $pdo, string $deviceHash): ?string {
 
 function upsertCometDevice(PDO $pdo, string $profile, string $username, string $hash, array $data): void {
     $resolved = $username !== '' ? resolveWhmcsUser($pdo, $username, $profile) : ['client_id'=>null, 'username'=>null];
-    // If ambiguous / not found, use 0 as sentinel to satisfy NOT NULL schema
-    $clientId = $resolved['client_id'] ?? 0;
+    // If ambiguous / not found, skip insert (we cannot generate a unique ID without client_id)
+    $clientId = $resolved['client_id'];
+    if ($clientId === null || $clientId <= 0) {
+        if (EB_WS_DEBUG) logLine($profile, "DB upsert DEVICE SKIPPED: no valid client_id for username={$username} hash={$hash}");
+        return;
+    }
     $usernameCanonical = $resolved['username'] ?? ($username !== '' ? $username : null);
     $friendly = '';
     $os = '';
@@ -277,6 +281,10 @@ function upsertCometDevice(PDO $pdo, string $profile, string $username, string $
         $arch = (string)($data['PlatformVersion']['arch'] ?? '');
     }
     $contentJson = json_encode($data, JSON_UNESCAPED_SLASHES);
+
+    // Generate unique ID matching lib/Comet.php: sha256(client_id + deviceHash)
+    $deviceId = hash('sha256', (string)$clientId . $hash);
+
     try {
         $sql = "INSERT INTO comet_devices (id, client_id, username, hash, content, name, platform_os, platform_arch, is_active, created_at, updated_at, revoked_at)
                 VALUES (:id, :client_id, :username, :hash, :content, :name, :os, :arch, 1, NOW(), NOW(), NULL)
@@ -292,7 +300,7 @@ function upsertCometDevice(PDO $pdo, string $profile, string $username, string $
                   revoked_at=NULL";
         $stmt = $pdo->prepare($sql);
         $stmt->execute([
-            ':id' => $hash,
+            ':id' => $deviceId,
             ':client_id' => $clientId,
             ':username' => $usernameCanonical,
             ':hash' => $hash,
@@ -301,7 +309,7 @@ function upsertCometDevice(PDO $pdo, string $profile, string $username, string $
             ':os' => $os,
             ':arch' => $arch,
         ]);
-        if (EB_DB_DEBUG) logLine($profile, "DB upsert DEVICE ok hash={$hash} rc=" . $stmt->rowCount());
+        if (EB_DB_DEBUG) logLine($profile, "DB upsert DEVICE ok id={$deviceId} hash={$hash} client_id={$clientId} rc=" . $stmt->rowCount());
     } catch (Throwable $e) {
         logLine($profile, "DB upsert DEVICE ERROR: " . $e->getMessage());
     }
@@ -310,10 +318,21 @@ function upsertCometDevice(PDO $pdo, string $profile, string $username, string $
 function revokeCometDevice(PDO $pdo, string $profile, string $username, string $hash): void {
     try {
         $resolved = $username !== '' ? resolveWhmcsUser($pdo, $username, $profile) : ['client_id'=>null, 'username'=>null];
+        $clientId = $resolved['client_id'];
         $usernameCanonical = $resolved['username'] ?? ($username !== '' ? $username : null);
-        $stmt = $pdo->prepare("UPDATE comet_devices SET is_active=0, updated_at=NOW(), revoked_at=NOW(), username=COALESCE(username, :username) WHERE hash=:hash");
-        $stmt->execute([':hash' => $hash, ':username' => $usernameCanonical]);
-        if (EB_DB_DEBUG) logLine($profile, "DB revoke DEVICE ok hash={$hash} rc=" . $stmt->rowCount());
+
+        if ($clientId !== null && $clientId > 0) {
+            // Use computed ID matching lib/Comet.php: sha256(client_id + deviceHash)
+            $deviceId = hash('sha256', (string)$clientId . $hash);
+            $stmt = $pdo->prepare("UPDATE comet_devices SET is_active=0, updated_at=NOW(), revoked_at=NOW(), username=COALESCE(username, :username) WHERE id=:id");
+            $stmt->execute([':id' => $deviceId, ':username' => $usernameCanonical]);
+            if (EB_DB_DEBUG) logLine($profile, "DB revoke DEVICE ok id={$deviceId} hash={$hash} client_id={$clientId} rc=" . $stmt->rowCount());
+        } else {
+            // Fallback: revoke by hash (may affect multiple rows if same device used across clients)
+            $stmt = $pdo->prepare("UPDATE comet_devices SET is_active=0, updated_at=NOW(), revoked_at=NOW(), username=COALESCE(username, :username) WHERE hash=:hash");
+            $stmt->execute([':hash' => $hash, ':username' => $usernameCanonical]);
+            if (EB_DB_DEBUG) logLine($profile, "DB revoke DEVICE (fallback by hash) hash={$hash} rc=" . $stmt->rowCount());
+        }
     } catch (Throwable $e) {
         logLine($profile, "DB revoke DEVICE ERROR: " . $e->getMessage());
     }
