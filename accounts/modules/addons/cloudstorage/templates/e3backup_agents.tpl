@@ -134,7 +134,7 @@
                                 <div class="flex gap-1">
                                     <button @click="toggleAgent(agent)" class="text-xs px-2 py-1 rounded bg-slate-800 border border-slate-700 hover:border-slate-500"
                                             x-text="agent.status === 'active' ? 'Disable' : 'Enable'"></button>
-                                    <button @click="revokeAgent(agent)" class="text-xs px-2 py-1 rounded bg-rose-900/50 border border-rose-700 hover:border-rose-500 text-rose-200">Revoke</button>
+                                    <button @click="deleteAgent(agent)" class="text-xs px-2 py-1 rounded bg-rose-900/50 border border-rose-700 hover:border-rose-500 text-rose-200">Delete</button>
                                 </div>
                             </td>
                         </tr>
@@ -223,23 +223,23 @@ function agentsApp() {
             }
         },
         
-        async revokeAgent(agent) {
-            if (!confirm('Revoke this agent? This will permanently invalidate its token.')) return;
+        async deleteAgent(agent) {
+            if (!confirm('Delete this agent? This will permanently remove it and the device will need to re-enroll.')) return;
             
             try {
-                const res = await fetch('modules/addons/cloudstorage/api/agent_disable.php', {
+                const res = await fetch('modules/addons/cloudstorage/api/agent_delete.php', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: new URLSearchParams({ agent_id: agent.id, revoke: '1' })
+                    body: new URLSearchParams({ agent_id: agent.id })
                 });
                 const data = await res.json();
                 if (data.status === 'success') {
                     this.loadAgents();
                 } else {
-                    alert(data.message || 'Failed to revoke agent');
+                    alert(data.message || 'Failed to delete agent');
                 }
             } catch (e) {
-                alert('Failed to revoke agent');
+                alert('Failed to delete agent');
             }
         }
     };

@@ -449,9 +449,92 @@ Events pushed by the agent are formatted for display using `CloudBackupEventForm
 ## Windows agent runtime
 - Config: `%PROGRAMDATA%\\E3Backup\\agent.conf`.
 - Runs/cache: `%PROGRAMDATA%\\E3Backup\\runs` (Kopia config under `runs/kopia/job_<job_id>.config`).
+- Logs: `%PROGRAMDATA%\\E3Backup\\logs\\` (`agent.log` for service, `tray.log` for tray app).
 - Rclone paths: in-memory config per run; Kopia repo config per job.
 - Service wrapper via kardianos/service; can run foreground for debugging.
 - Default poll interval: **5 seconds** (configurable via `PollIntervalSecs` in config).
+
+## Tray App Auto-Enrollment (Jan 2025)
+
+### Overview
+
+The tray helper (`e3-backup-tray.exe`) automatically opens the enrollment UI when:
+1. The device is **not enrolled** (no `agent_id`/`agent_token` in config)
+2. No **MSP/RMM token enrollment** is pending (no `enrollment_token` in config)
+
+This provides a seamless first-run experience for end users.
+
+### Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    Installer completes                               │
+│   1. Writes initial agent.conf (api_base_url, device identity)     │
+│   2. Starts tray helper via [Run] section                          │
+└─────────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                    Tray App onReady()                                │
+│   1. Loads config                                                   │
+│   2. Checks: enrolled = (AgentID && AgentToken present)            │
+│   3. Checks: pendingTokenEnroll = (EnrollmentToken present)        │
+│   4. If !enrolled && !pendingTokenEnroll:                          │
+│      └── Wait 2 seconds, then call openEnrollUI()                  │
+└─────────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                    Local Enrollment UI                               │
+│   1. Tray starts HTTP server on 127.0.0.1:<random_port>            │
+│   2. Opens browser to http://127.0.0.1:<port>/enroll               │
+│   3. User enters email + password                                   │
+│   4. Tray calls agent_login.php API                                 │
+│   5. On success:                                                    │
+│      - Saves agent_id/agent_token to config                        │
+│      - Starts Windows service                                       │
+│      - Shows success page with "Create Backup Job" button          │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Success Page
+
+After successful enrollment, the tray displays a success page with:
+- Green checkmark confirmation
+- "Enrolled Successfully!" heading
+- "What's Next?" panel directing user to create a backup job
+- **"Create Backup Job →"** button linking to the Jobs page
+
+The button URL is dynamically built from `api_base_url`:
+- API: `https://accounts.eazybackup.ca/modules/addons/cloudstorage/api`
+- Jobs page: `https://accounts.eazybackup.ca/index.php?m=cloudstorage&page=e3backup&view=jobs`
+
+### Debug Logging
+
+The tray app writes debug logs to `%PROGRAMDATA%\E3Backup\logs\tray.log`:
+
+```
+2026-01-13 14:50:00.000  onReady: enrolled=false, pendingTokenEnroll=false, AgentID="", EnrollmentToken=""
+2026-01-13 14:50:00.001  onReady: will open local enrollment UI in 2 seconds
+2026-01-13 14:50:02.005  openEnrollUI: starting local HTTP server
+2026-01-13 14:50:02.010  openEnrollUI: opening browser to http://127.0.0.1:55123/enroll
+2026-01-13 14:50:02.015  openEnrollUI: browser launched successfully
+```
+
+### Build Commands
+
+```bash
+cd /var/www/eazybackup.ca/e3-backup-agent
+
+# Build both Windows binaries
+make build-windows
+
+# Or build individually:
+make build-agent-windows   # Service only
+make build-tray-windows    # Tray only
+```
+
+See `LOCAL_AGENT_BUILD.md` for full build and deployment instructions.
 
 ---
 
@@ -2013,6 +2096,47 @@ agent: kopia VHDX parallel restore complete: 23760732160 bytes (22.13 GB) to C:\
 agent: hyperv_restore cancel requested for run 269
 agent: hyperv_restore cancelled
 ```
+
+---
+
+---
+
+## Agent Management APIs (Jan 2025)
+
+### agent_delete.php
+
+Permanently deletes an agent from the database. Use this when:
+- Testing re-enrollment flows
+- Removing decommissioned devices
+- Cleaning up duplicate agent registrations
+
+**Endpoint**: `POST api/agent_delete.php`
+
+**Parameters**:
+- `agent_id` (required): The agent ID to delete
+
+**Authorization**: Must be the agent's owner OR an MSP parent of the agent's tenant.
+
+**Response**:
+```json
+{
+    "status": "success",
+    "message": "Agent deleted",
+    "agent_id": 123
+}
+```
+
+**Note**: This is different from the `agent_disable.php` endpoint which only sets `status=disabled` and regenerates the token. The delete endpoint completely removes the agent record.
+
+### Download Agent Flyout (Jan 2025)
+
+The sidebar navigation now includes a "Download Agent" menu item that opens a flyout with:
+- **Windows** download button → `/client_installer/e3-backup-agent.exe`
+- **Linux** download button → `/client_installer/e3-backup-agent-linux`
+
+Both buttons use orange styling (`bg-orange-600`) and include platform icons.
+
+**Location**: `accounts/templates/eazyBackup/header.tpl` (sidebar navigation)
 
 ---
 

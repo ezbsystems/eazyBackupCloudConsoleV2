@@ -1,141 +1,191 @@
 # Local Backup Agent – Build & Deploy
 
-## Prereqs
-- Go toolchain (1.24.x) on the build host.
-- Source: `/var/www/eazybackup.ca/e3-backup-agent/`
-- Windows target: GOOS=windows, GOARCH=amd64, CGO_ENABLED=0.
+This guide walks you through building and deploying the E3 Backup Agent for Windows.
 
-## Build (Windows binaries) – Linux build host
+---
 
-These steps produce **two executables**:
-- `e3-backup-agent.exe` (Windows service)
-- `e3-backup-tray.exe` (tray helper + end-user enrollment UI)
+## Quick Start (TL;DR)
 
-### 1) Build the service binary
-From the agent repo on the Linux build host:
+```bash
+# 1. Build both Windows binaries
+cd /var/www/eazybackup.ca/e3-backup-agent
+make build-windows
+
+# 2. Copy to Windows machine and compile installer with Inno Setup
+# 3. Run installer on target Windows machine
+```
+
+---
+
+## Prerequisites
+
+| Requirement | Details |
+|-------------|---------|
+| Go toolchain | Version 1.24.x or later |
+| Source code | `/var/www/eazybackup.ca/e3-backup-agent/` |
+| Target platform | Windows amd64 (CGO_ENABLED=0) |
+| Inno Setup | Required on Windows to compile the installer |
+
+---
+
+## Step 1: Build Windows Binaries (Linux Build Host)
+
+You must build **TWO executables**:
+
+| Binary | Purpose |
+|--------|---------|
+| `e3-backup-agent.exe` | Windows service (runs backups) |
+| `e3-backup-tray.exe` | Tray helper (enrollment UI, user interaction) |
+
+### Option A: Use Makefile (Recommended)
 
 ```bash
 cd /var/www/eazybackup.ca/e3-backup-agent
-CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o bin/e3-backup-agent.exe ./cmd/agent
+
+# Build BOTH binaries at once
+make build-windows
 ```
 
-### 2) Build the tray helper binary (GUI subsystem)
+This will output:
+```
+bin/e3-backup-agent.exe
+bin/e3-backup-tray.exe
+```
 
-The tray helper must be built as a **GUI app** to avoid leaving a visible cmd window open.
+### Option B: Manual Build Commands
+
+If you prefer to run the commands directly:
 
 ```bash
 cd /var/www/eazybackup.ca/e3-backup-agent
-CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w -H=windowsgui" -o bin/e3-backup-tray.exe ./cmd/tray
+mkdir -p bin
+
+# 1. Build the service binary
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
+  go build -trimpath -ldflags="-s -w" \
+  -o bin/e3-backup-agent.exe ./cmd/agent
+
+# 2. Build the tray helper (must use -H=windowsgui to hide console window)
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
+  go build -trimpath -ldflags="-s -w -H=windowsgui" \
+  -o bin/e3-backup-tray.exe ./cmd/tray
 ```
 
-### 3) Collect installer assets
+### Verify Build Output
 
-The Inno installer bundles icon assets from:
-- `/var/www/eazybackup.ca/e3-cloudbackup-worker/assets/`
-  - `tray_logo-drk-orange120x120.png`
-  - `tray_logo-drk-orange.svg` (source-of-truth)
+```bash
+ls -la bin/
+# Should show:
+#   e3-backup-agent.exe
+#   e3-backup-tray.exe
+```
 
-## Compile the Windows installer (Inno Setup) – Windows machine
+---
 
-The installer script is:
-- `/var/www/eazybackup.ca/e3-backup-agent/installer/e3-backup-agent.iss`
+## Step 2: Prepare Installer Assets
 
-### 1) Copy build outputs to Windows (preserve folder layout)
+The Inno Setup installer requires icon assets from the worker repo.
 
-On Windows, you need these relative paths to exist (exactly) for the `.iss` script:
+### Required Files
 
-- `e3-backup-agent\bin\e3-backup-agent.exe`
-- `e3-backup-agent\bin\e3-backup-tray.exe`
-- `e3-backup-agent\installer\e3-backup-agent.iss`
-- `e3-cloudbackup-worker\assets\tray_logo-drk-orange120x120.png`
-- `e3-cloudbackup-worker\assets\tray_logo-drk-orange.svg`
+Copy these to your Windows build machine, preserving the folder structure:
 
-Easiest: copy the whole repo to something like:
-- `C:\src\eazybackup\e3-backup-agent\...`
-- `C:\src\eazybackup\e3-cloudbackup-worker\...`
+```
+your-build-folder/
+├── e3-backup-agent/
+│   ├── bin/
+│   │   ├── e3-backup-agent.exe    ← Built in Step 1
+│   │   └── e3-backup-tray.exe     ← Built in Step 1
+│   └── installer/
+│       └── e3-backup-agent.iss    ← Installer script
+└── e3-cloudbackup-worker/
+    └── assets/
+        ├── tray_logo-drk-orange120x120.png
+        └── tray_logo-drk-orange.svg
+```
 
-### 2) Install Inno Setup Compiler
+### Copy Command Example
 
-Install the Inno Setup Compiler on Windows (GUI app).
+```bash
+# From the Linux server, copy to Windows via scp/rsync/network share:
+scp -r /var/www/eazybackup.ca/e3-backup-agent user@windows-pc:C:/src/eazybackup/
+scp -r /var/www/eazybackup.ca/e3-cloudbackup-worker user@windows-pc:C:/src/eazybackup/
+```
 
-### 3) Open and compile the installer
+---
+
+## Step 3: Compile Windows Installer (Inno Setup)
+
+### Install Inno Setup
+
+Download and install [Inno Setup](https://jrsoftware.org/isinfo.php) on your Windows machine.
+
+### Compile the Installer
 
 1. Open **Inno Setup Compiler**
 2. File → Open → select: `e3-backup-agent\installer\e3-backup-agent.iss`
 3. Build → Compile (or press **F9**)
 
-This produces an installer EXE (default name from the script):
-- `e3-backup-agent-setup.exe`
+### Output
 
-### 4) Silent install (MSP/RMM)
-
-The installer supports:
-- `/TOKEN=...` to write `enrollment_token` to `C:\ProgramData\E3Backup\agent.conf`
-- `/API=...` to override `api_base_url`
-
-Example:
-
-```text
-e3-backup-agent-setup.exe /VERYSILENT /TOKEN=0123456789abcdef0123456789abcdef01234567 /API=https://accounts.eazybackup.ca/modules/addons/cloudstorage/api
+The installer will be created in the `installer\Output\` folder:
+```
+e3-backup-agent-setup.exe
 ```
 
-### 5) Consumer install (interactive)
+---
 
-1. Run the installer normally
-2. Launch the tray helper (or let it auto-run at login)
-3. Click **Enroll / Sign in…** and enter email/password
+## Step 4: Install on Target Windows Machine
 
-The tray helper will:
-- enroll the device
-- write `agent_id`/`agent_token` into `agent.conf`
-- start the Windows service
+### Interactive Install (End Users)
 
+1. Run `e3-backup-agent-setup.exe`
+2. Follow the wizard
+3. After install, the tray helper will launch automatically
+4. If the device is not enrolled, the browser will open to the enrollment page
+5. Or click the tray icon → **Enroll / Sign in…**
 
-## Files of interest
-- Output: `bin/e3-backup-agent.exe`
-- Output: `bin/e3-backup-tray.exe`
-- Config (on Windows): `%PROGRAMDATA%\E3Backup\agent.conf`
-- Run dir (default): `%PROGRAMDATA%\E3Backup\runs`
+### Silent Install (MSP/RMM Deployment)
 
-## agent.conf (enrollment + identity)
+```cmd
+e3-backup-agent-setup.exe /VERYSILENT /TOKEN=your-enrollment-token-here
+```
 
-The agent supports **two enrollment methods**:
-- **MSP/RMM token enrollment** (`enrollment_token`)
-- **End-user login enrollment** (`enroll_email` + `enroll_password`)
+With custom API endpoint:
+```cmd
+e3-backup-agent-setup.exe /VERYSILENT /TOKEN=abc123... /API=https://your-server.com/modules/addons/cloudstorage/api
+```
 
-The installer (or tray helper) should write a minimal config for first run. After successful enrollment, the agent rewrites the config to store `agent_id` + `agent_token` and clears enrollment inputs.
+---
 
-### Example: MSP silent rollout (token)
+## Installed Files
+
+After installation, files are located at:
+
+| Location | Contents |
+|----------|----------|
+| `C:\Program Files\E3Backup\` | Executables (`e3-backup-agent.exe`, `e3-backup-tray.exe`) |
+| `C:\ProgramData\E3Backup\agent.conf` | Configuration file |
+| `C:\ProgramData\E3Backup\runs\` | Backup run data |
+| `C:\ProgramData\E3Backup\logs\` | Log files (`agent.log`, `tray.log`) |
+
+---
+
+## Configuration (agent.conf)
+
+### Before Enrollment (MSP Token)
 
 ```yaml
 api_base_url: "https://accounts.eazybackup.ca/modules/addons/cloudstorage/api"
 enrollment_token: "0123456789abcdef0123456789abcdef01234567"
-
-# Stable device identity (generated if missing)
 device_id: "9f2c3a6c-7d5d-4c67-9c5a-2c1e9c5d7a11"
 install_id: "f1c2d3e4-1111-2222-3333-444455556666"
 device_name: "FILE-SERVER-01"
-
 poll_interval_secs: 5
 run_dir: "C:\\ProgramData\\E3Backup\\runs"
-log_level: "info"
 ```
 
-### Example: End-user enrollment (email/password)
-
-```yaml
-api_base_url: "https://accounts.eazybackup.ca/modules/addons/cloudstorage/api"
-enroll_email: "user@example.com"
-enroll_password: "example-password"
-enroll_remember_me: true
-
-# Stable device identity (generated if missing)
-device_id: "9f2c3a6c-7d5d-4c67-9c5a-2c1e9c5d7a11"
-install_id: "f1c2d3e4-1111-2222-3333-444455556666"
-device_name: "HOME-PC"
-```
-
-### After enrollment (persisted credentials)
+### After Enrollment (Credentials Saved)
 
 ```yaml
 api_base_url: "https://accounts.eazybackup.ca/modules/addons/cloudstorage/api"
@@ -149,32 +199,80 @@ poll_interval_secs: 5
 run_dir: "C:\\ProgramData\\E3Backup\\runs"
 ```
 
-## Running (debug/foreground)
+---
+
+## Manual Service Commands
+
 ```powershell
-.\e3-backup-agent.exe -config C:\ProgramData\E3Backup\agent.conf
+# Install service
+.\e3-backup-agent.exe -service install -config C:\ProgramData\E3Backup\agent.conf
+
+# Start service
+.\e3-backup-agent.exe -service start -config C:\ProgramData\E3Backup\agent.conf
+
+# Stop service
+.\e3-backup-agent.exe -service stop -config C:\ProgramData\E3Backup\agent.conf
+
+# Uninstall service
+.\e3-backup-agent.exe -service uninstall -config C:\ProgramData\E3Backup\agent.conf
 ```
 
-## Service install (kardianos/service)
-- `.\e3-backup-agent.exe -service install -config C:\ProgramData\E3Backup\agent.conf`
-- `.\e3-backup-agent.exe -service start -config C:\ProgramData\E3Backup\agent.conf`
-- `.\e3-backup-agent.exe -service stop -config C:\ProgramData\E3Backup\agent.conf`
-- `.\e3-backup-agent.exe -service uninstall -config C:\ProgramData\E3Backup\agent.conf`
+---
 
-## Tray helper (manual)
-
-Run the tray helper manually (foreground) with:
+## Manual Tray Helper
 
 ```powershell
 .\e3-backup-tray.exe -config C:\ProgramData\E3Backup\agent.conf
 ```
 
+---
+
+## Troubleshooting
+
+### Tray app not included in installer
+**Symptom:** Only `e3-backup-agent.exe` exists in `C:\Program Files\E3Backup\`
+
+**Cause:** The tray binary wasn't built before compiling the installer.
+
+**Fix:** Run `make build-windows` to build both binaries, then recompile the installer.
+
+### YAML parse error (unknown escape character)
+**Symptom:** Service fails with `found unknown escape character`
+
+**Cause:** Windows paths with backslashes aren't escaped in double-quoted YAML strings.
+
+**Fix:** Use escaped backslashes in the config:
+```yaml
+run_dir: "C:\\ProgramData\\E3Backup\\runs"
+```
+
+### Browser doesn't open on first run
+**Symptom:** Tray shows "Not enrolled" but browser doesn't open automatically.
+
+**Cause:** The tray binary wasn't rebuilt with the latest code.
+
+**Fix:** Rebuild with `make build-windows`, recompile installer, reinstall.
+
+**Debug:** Check `C:\ProgramData\E3Backup\logs\tray.log` for debug messages.
+
+---
+
+## Makefile Targets
+
+| Target | Description |
+|--------|-------------|
+| `make build` | Build Linux agent binary |
+| `make build-windows` | Build both Windows binaries (agent + tray) |
+| `make build-agent-windows` | Build only Windows agent |
+| `make build-tray-windows` | Build only Windows tray |
+| `make clean` | Remove build artifacts |
+| `make deps` | Download Go dependencies |
+
+---
+
 ## Notes
-- Embedded rclone (no external binary).
-- Backends registered: local, s3.
-- S3 config uses path-style and location_constraint (region) when provided.
-- Poll interval set via `poll_interval_secs` in config (default 5s).
 
-## Current blocking issue (handoff)
-- Agent sees queued runs in DB, but `agent_next_run.php` returns `no_run` even with `base_count=2` / `filtered_count=2`; claim may be failing.
-- Investigate `agent_next_run.php` claim update and DB transaction; see `LOCAL_AGENT_OVERVIEW.md` for context.
-
+- The agent uses embedded rclone (no external binary required)
+- Supported backends: local, S3
+- Poll interval configurable via `poll_interval_secs` (default: 5 seconds)
+- The tray helper auto-opens the enrollment page if the device is not enrolled
