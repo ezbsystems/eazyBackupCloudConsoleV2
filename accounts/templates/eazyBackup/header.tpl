@@ -42,23 +42,27 @@
     }
 
     /* Sidebar scrollbar (Chrome, Edge, Safari) */
-    #sidebar nav::-webkit-scrollbar {
-        width: 6px; /* thin */
+    #sidebar-scroll::-webkit-scrollbar {
+        width: 4px;
     }
 
-    #sidebar nav::-webkit-scrollbar-track {
-        background: transparent; /* or a solid dark color if preferred */
+    #sidebar-scroll::-webkit-scrollbar-track {
+        background: #1e293b; /* slate-800 - dark track */
     }
 
-    #sidebar nav::-webkit-scrollbar-thumb {
-        background-color: #374151; /* dark gray */
+    #sidebar-scroll::-webkit-scrollbar-thumb {
+        background-color: #475569; /* slate-600 - slightly lighter thumb */
         border-radius: 9999px;
     }
 
+    #sidebar-scroll::-webkit-scrollbar-thumb:hover {
+        background-color: #64748b; /* slate-500 - lighter on hover */
+    }
+
     /* Sidebar scrollbar (Firefox) */
-    #sidebar nav {
+    #sidebar-scroll {
         scrollbar-width: thin;
-        scrollbar-color: #374151 transparent; /* thumb, track */
+        scrollbar-color: #475569 #1e293b; /* thumb, track */
     }
     </style>
 </head>
@@ -122,7 +126,7 @@
                     {/if}
 
                     {if $loggedin}
-                        <div class="h-full overflow-y-auto space-y-1">
+                        <div id="sidebar-scroll" class="h-full overflow-y-auto space-y-1">
                         <!-- Dashboard -->
                         <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=dashboard"
                         class="flex items-center px-2 py-2 text-gray-300 rounded-md hover:bg-[#1B2C50]
@@ -422,6 +426,11 @@
                                     {if $smarty.get.view == 'jobs'} bg-[#1B2C50] font-semibold {/if}">
                                 Jobs
                             </a>
+                            <!-- Download Agent -->
+                            <button id="e3backup-download-trigger"
+                               class="block w-full text-left px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]">
+                                Download Agent
+                            </button>
                             <!-- Hyper-V -->
                             <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=hyperv" 
                                class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
@@ -1313,7 +1322,63 @@ x-data="{ openModal: null }"
     </div>
 </div>
 
+<!-- e3 Backup Agent Download Flyout -->
+<div 
+    id="e3backup-download-flyout" 
+    class="fixed top-0 left-0 h-screen w-80 transform -translate-x-full transition-transform duration-300 ease-in-out bg-gray-900 shadow-2xl z-50"
+    aria-hidden="true"
+>
+    <div class="flex flex-col h-full">
+        <!-- Flyout Header -->
+        <div class="bg-gray-950 h-16 flex items-center justify-between px-4 py-3 border-b border-gray-700">
+            <h2 class="text-lg font-semibold text-white flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 text-orange-400">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                </svg>
+                Download e3 Backup Agent
+            </h2>
+            <button id="e3backup-download-close" class="text-gray-400 hover:text-white focus:outline-none" aria-label="Close menu">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
 
+        <!-- Flyout Content -->
+        <div class="flex-1 overflow-y-auto p-6 bg-gray-900">
+            <p class="text-sm text-gray-400 mb-6">Download the e3 Backup Agent for your operating system.</p>
+            
+            <div class="space-y-3">
+                <!-- Windows Download Button -->
+                <a href="/client_installer/e3-backup-agent.exe" 
+                   target="_blank" 
+                   rel="noopener"
+                   class="flex items-center justify-center gap-3 w-full bg-orange-600 hover:bg-orange-500 text-white font-semibold py-3 px-4 rounded-lg transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-orange-500">
+                    <i class="fa-brands fa-windows text-lg"></i>
+                    <span>Windows</span>
+                </a>
+
+                <!-- Linux Download Button -->
+                <a href="/client_installer/e3-backup-agent-linux" 
+                   target="_blank" 
+                   rel="noopener"
+                   class="flex items-center justify-center gap-3 w-full bg-orange-600 hover:bg-orange-500 text-white font-semibold py-3 px-4 rounded-lg transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-orange-500">
+                    <i class="fa-brands fa-linux text-lg"></i>
+                    <span>Linux</span>
+                </a>
+            </div>
+
+            <div class="mt-8 p-4 rounded-lg bg-gray-800/50 border border-gray-700">
+                <p class="text-xs text-gray-400">
+                    <strong class="text-gray-300">Need help?</strong><br>
+                    After downloading, you'll need an <a href="index.php?m=cloudstorage&page=e3backup&view=tokens" class="text-orange-400 hover:text-orange-300 underline">enrollment token</a> to register your agent.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- e3 Backup Agent Download Flyout Backdrop -->
+<div id="e3backup-download-backdrop" class="fixed inset-0 bg-black bg-opacity-50 z-40 hidden"></div>
 
 
     <!-- Overlay for Mobile (Dark background behind sidebar) -->
@@ -1598,6 +1663,56 @@ document.addEventListener('DOMContentLoaded', function () {
                         firstFocusable.focus();
                     }
                 }
+            }
+        });
+    }
+
+    /*** "e3 Backup Agent Download" Flyout Menu ***/
+    const e3DownloadButton = document.getElementById('e3backup-download-trigger');
+    const e3DownloadFlyout = document.getElementById('e3backup-download-flyout');
+    const e3DownloadFlyoutClose = document.getElementById('e3backup-download-close');
+    const e3DownloadBackdrop = document.getElementById('e3backup-download-backdrop');
+
+    if (e3DownloadButton && e3DownloadFlyout && e3DownloadFlyoutClose && e3DownloadBackdrop) {
+        // Function to open the e3 download flyout
+        function openE3DownloadFlyout() {
+            e3DownloadFlyout.classList.remove('-translate-x-full');
+            e3DownloadFlyout.classList.add('translate-x-0');
+            e3DownloadFlyout.setAttribute('aria-hidden', 'false');
+            e3DownloadBackdrop.classList.remove('hidden');
+            document.body.classList.add('overflow-hidden');
+        }
+
+        // Function to close the e3 download flyout
+        function closeE3DownloadFlyout() {
+            e3DownloadFlyout.classList.remove('translate-x-0');
+            e3DownloadFlyout.classList.add('-translate-x-full');
+            e3DownloadFlyout.setAttribute('aria-hidden', 'true');
+            e3DownloadBackdrop.classList.add('hidden');
+            document.body.classList.remove('overflow-hidden');
+        }
+
+        // Event listener for the trigger button
+        e3DownloadButton.addEventListener('click', function(event) {
+            event.stopPropagation();
+            openE3DownloadFlyout();
+        });
+
+        // Event listener for the close button
+        e3DownloadFlyoutClose.addEventListener('click', function(event) {
+            event.stopPropagation();
+            closeE3DownloadFlyout();
+        });
+
+        // Close when clicking backdrop
+        e3DownloadBackdrop.addEventListener('click', function() {
+            closeE3DownloadFlyout();
+        });
+
+        // Close when pressing Escape key
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape' && !e3DownloadFlyout.classList.contains('-translate-x-full')) {
+                closeE3DownloadFlyout();
             }
         });
     }

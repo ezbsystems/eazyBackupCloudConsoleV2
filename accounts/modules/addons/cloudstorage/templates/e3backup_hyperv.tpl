@@ -2,26 +2,8 @@
     <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
     <div class="container mx-auto px-4 py-6 relative pointer-events-auto">
         <!-- Navigation Tabs -->
-        <div class="mb-6">
-            <nav class="inline-flex rounded-full bg-slate-900/80 p-1 text-xs font-medium text-slate-400" aria-label="e3 Cloud Backup Navigation">
-                <a href="index.php?m=cloudstorage&page=e3backup"
-                   class="px-4 py-1.5 rounded-full transition hover:text-slate-200">
-                    Dashboard
-                </a>
-                <a href="index.php?m=cloudstorage&page=e3backup&view=jobs"
-                   class="px-4 py-1.5 rounded-full transition hover:text-slate-200">
-                    Jobs
-                </a>
-                <a href="index.php?m=cloudstorage&page=e3backup&view=hyperv"
-                   class="px-4 py-1.5 rounded-full transition bg-slate-800 text-slate-50 shadow-sm">
-                    Hyper-V
-                </a>
-                <a href="index.php?m=cloudstorage&page=e3backup&view=agents"
-                   class="px-4 py-1.5 rounded-full transition hover:text-slate-200">
-                    Agents
-                </a>
-            </nav>
-        </div>
+        {assign var="activeNav" value="hyperv"}
+        {include file="modules/addons/cloudstorage/templates/partials/e3backup_nav.tpl"}
 
         <!-- Page Header -->
         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
