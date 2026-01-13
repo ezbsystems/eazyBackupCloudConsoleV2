@@ -24,15 +24,34 @@
 
         {if $isMspClient}
         <!-- Tenant Filter (MSP Only) -->
-        <div class="mb-4 flex items-center gap-4">
-            <label class="text-sm text-slate-400">Filter by Tenant:</label>
-            <select x-model="tenantFilter" @change="loadAgents()" class="rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500">
-                <option value="">All Agents</option>
-                <option value="direct">Direct (No Tenant)</option>
-                {foreach from=$tenants item=tenant}
-                <option value="{$tenant->id}">{$tenant->name|escape}</option>
-                {/foreach}
-            </select>
+        <div class="mb-4 flex flex-col sm:flex-row sm:items-center gap-3">
+            <div class="flex items-center gap-3">
+                <label class="text-sm text-slate-400">Filter by Tenant:</label>
+                <select x-model="tenantFilter" @change="loadAgents()" class="rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500">
+                    <option value="">All Agents</option>
+                    <option value="direct">Direct (No Tenant)</option>
+                    {foreach from=$tenants item=tenant}
+                    <option value="{$tenant->id}">{$tenant->name|escape}</option>
+                    {/foreach}
+                </select>
+            </div>
+
+            <!-- Column selector (same Alpine scope as agentsApp()) -->
+            <div class="relative sm:ml-auto">
+                <button @click="columnsOpen = !columnsOpen" class="text-xs px-3 py-2 rounded bg-slate-900 border border-slate-700 hover:border-slate-500 text-slate-200">
+                    Columns ▾
+                </button>
+                <div x-show="columnsOpen" @click.outside="columnsOpen=false" class="absolute right-0 mt-2 w-56 rounded-lg border border-slate-700 bg-slate-900 shadow-lg p-3 z-10">
+                    <label class="flex items-center gap-2 text-xs text-slate-200">
+                        <input type="checkbox" class="rounded border-slate-600 bg-slate-950" x-model="showDeviceId">
+                        <span>Device ID</span>
+                    </label>
+                    <label class="mt-2 flex items-center gap-2 text-xs text-slate-200">
+                        <input type="checkbox" class="rounded border-slate-600 bg-slate-950" x-model="showDeviceName">
+                        <span>Device Name</span>
+                    </label>
+                </div>
+            </div>
         </div>
         {/if}
 
@@ -41,8 +60,11 @@
             <table class="min-w-full divide-y divide-slate-800 text-sm">
                 <thead class="bg-slate-900/80 text-slate-300">
                     <tr>
+                        <th class="px-4 py-3 text-left font-medium">Connection</th>
                         <th class="px-4 py-3 text-left font-medium">ID</th>
                         <th class="px-4 py-3 text-left font-medium">Hostname</th>
+                        <th class="px-4 py-3 text-left font-medium" x-show="showDeviceId">Device ID</th>
+                        <th class="px-4 py-3 text-left font-medium" x-show="showDeviceName">Device Name</th>
                         {if $isMspClient}
                         <th class="px-4 py-3 text-left font-medium">Tenant</th>
                         {/if}
@@ -56,7 +78,7 @@
                 <tbody class="divide-y divide-slate-800">
                     <template x-if="loading">
                         <tr>
-                            <td colspan="{if $isMspClient}8{else}7{/if}" class="px-4 py-8 text-center text-slate-400">
+                            <td :colspan="{if $isMspClient}9{else}8{/if} + (showDeviceId ? 1 : 0) + (showDeviceName ? 1 : 0)" class="px-4 py-8 text-center text-slate-400">
                                 <svg class="animate-spin h-6 w-6 mx-auto text-sky-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -66,15 +88,31 @@
                     </template>
                     <template x-if="!loading && agents.length === 0">
                         <tr>
-                            <td colspan="{if $isMspClient}8{else}7{/if}" class="px-4 py-8 text-center text-slate-400">
+                            <td :colspan="{if $isMspClient}9{else}8{/if} + (showDeviceId ? 1 : 0) + (showDeviceName ? 1 : 0)" class="px-4 py-8 text-center text-slate-400">
                                 No agents found. <a href="index.php?m=cloudstorage&page=e3backup&view=tokens" class="text-sky-400 hover:underline">Generate an enrollment token</a> to add agents.
                             </td>
                         </tr>
                     </template>
                     <template x-for="agent in agents" :key="agent.id">
                         <tr class="hover:bg-slate-800/50">
+                            <td class="px-4 py-3">
+                                <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold"
+                                      :class="agent.online_status === 'online' ? 'bg-emerald-500/15 text-emerald-200' : (agent.online_status === 'offline' ? 'bg-rose-500/15 text-rose-200' : 'bg-slate-700 text-slate-300')">
+                                    <span class="h-1.5 w-1.5 rounded-full"
+                                          :class="agent.online_status === 'online'
+                                                ? 'bg-emerald-400 ring-2 ring-emerald-400/20 shadow-[0_0_10px_rgba(52,211,153,0.45)]'
+                                                : (agent.online_status === 'offline'
+                                                    ? 'bg-rose-400'
+                                                    : 'bg-slate-500')"></span>
+                                    <span x-text="agent.online_status === 'online' ? 'online' : (agent.online_status === 'offline' ? 'offline' : 'never')"></span>
+                                </span>
+                                <span class="ml-2 text-xs text-slate-500" x-show="agent.seconds_since_seen !== null && agent.seconds_since_seen !== undefined"
+                                      x-text="agent.online_status === 'online' ? '' : '(' + agent.seconds_since_seen + 's)'"></span>
+                            </td>
                             <td class="px-4 py-3 text-slate-200" x-text="agent.id"></td>
                             <td class="px-4 py-3 text-slate-200" x-text="agent.hostname || '—'"></td>
+                            <td class="px-4 py-3 text-slate-300 font-mono text-xs" x-show="showDeviceId" x-text="agent.device_id || '—'"></td>
+                            <td class="px-4 py-3 text-slate-300" x-show="showDeviceName" x-text="agent.device_name || '—'"></td>
                             {if $isMspClient}
                             <td class="px-4 py-3 text-slate-300" x-text="agent.tenant_name || 'Direct'"></td>
                             {/if}
@@ -114,9 +152,34 @@ function agentsApp() {
         agents: [],
         loading: true,
         tenantFilter: '',
+        showDeviceId: false,
+        showDeviceName: false,
+        columnsOpen: false,
         
         init() {
+            // Persisted column preferences
+            try {
+                const saved = JSON.parse(localStorage.getItem('e3_agents_columns') || '{}');
+                this.showDeviceId = !!saved.showDeviceId;
+                this.showDeviceName = !!saved.showDeviceName;
+            } catch (e) {}
+            this.initWatches();
             this.loadAgents();
+        },
+        
+        // Alpine v3: use init-time $watch calls (instead of a $watch: {} object which is not supported)
+        initWatches() {
+            this.$watch('showDeviceId', () => this.persistColumns());
+            this.$watch('showDeviceName', () => this.persistColumns());
+        },
+
+        persistColumns() {
+            try {
+                localStorage.setItem('e3_agents_columns', JSON.stringify({
+                    showDeviceId: this.showDeviceId,
+                    showDeviceName: this.showDeviceName
+                }));
+            } catch (e) {}
         },
         
         async loadAgents() {

@@ -815,6 +815,79 @@ function eazybackup_migrate_schema(): void {
         eb_add_index_if_missing('eb_tos_user_acceptances', "CREATE INDEX IF NOT EXISTS idx_tos_user_contact ON eb_tos_user_acceptances (contact_id)");
     }
 
+    // --- eb_privacy_versions / eb_privacy_client_acceptances / eb_privacy_user_acceptances ---
+    if (!$schema->hasTable('eb_privacy_versions')) {
+        $schema->create('eb_privacy_versions', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->string('version', 32); // e.g., 2026-01-13
+            $t->string('title', 191)->default('Privacy Policy');
+            $t->text('summary')->nullable();
+            $t->longText('content_html')->nullable();
+            $t->tinyInteger('is_active')->default(0);
+            $t->tinyInteger('require_acceptance')->default(0);
+            $t->timestamp('created_at')->nullable()->useCurrent();
+            $t->timestamp('published_at')->nullable();
+            $t->integer('created_by')->nullable();
+            $t->unique('version', 'uq_privacy_version');
+            $t->index(['is_active'], 'idx_privacy_active');
+            $t->index(['require_acceptance'], 'idx_privacy_require');
+        });
+    } else {
+        eb_add_column_if_missing('eb_privacy_versions','summary',            fn(Blueprint $t)=>$t->text('summary')->nullable());
+        eb_add_column_if_missing('eb_privacy_versions','content_html',       fn(Blueprint $t)=>$t->longText('content_html')->nullable());
+        eb_add_column_if_missing('eb_privacy_versions','is_active',          fn(Blueprint $t)=>$t->tinyInteger('is_active')->default(0));
+        eb_add_column_if_missing('eb_privacy_versions','require_acceptance', fn(Blueprint $t)=>$t->tinyInteger('require_acceptance')->default(0));
+        eb_add_column_if_missing('eb_privacy_versions','published_at',       fn(Blueprint $t)=>$t->timestamp('published_at')->nullable());
+        eb_add_column_if_missing('eb_privacy_versions','created_by',         fn(Blueprint $t)=>$t->integer('created_by')->nullable());
+        eb_add_index_if_missing('eb_privacy_versions', "CREATE UNIQUE INDEX IF NOT EXISTS uq_privacy_version ON eb_privacy_versions (version)");
+        eb_add_index_if_missing('eb_privacy_versions', "CREATE INDEX IF NOT EXISTS idx_privacy_active ON eb_privacy_versions (is_active)");
+        eb_add_index_if_missing('eb_privacy_versions', "CREATE INDEX IF NOT EXISTS idx_privacy_require ON eb_privacy_versions (require_acceptance)");
+    }
+
+    if (!$schema->hasTable('eb_privacy_client_acceptances')) {
+        $schema->create('eb_privacy_client_acceptances', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->integer('client_id')->unsigned();
+            $t->string('privacy_version', 32);
+            $t->timestamp('accepted_at')->nullable()->useCurrent();
+            $t->string('ip_address', 45)->nullable();
+            $t->text('user_agent')->nullable();
+            $t->unique(['client_id','privacy_version'], 'uq_client_privacy_version');
+            $t->index(['client_id'], 'idx_privacy_client');
+        });
+    } else {
+        eb_add_column_if_missing('eb_privacy_client_acceptances','ip_address', fn(Blueprint $t)=>$t->string('ip_address',45)->nullable());
+        eb_add_column_if_missing('eb_privacy_client_acceptances','user_agent', fn(Blueprint $t)=>$t->text('user_agent')->nullable());
+        eb_add_index_if_missing('eb_privacy_client_acceptances', "CREATE UNIQUE INDEX IF NOT EXISTS uq_client_privacy_version ON eb_privacy_client_acceptances (client_id, privacy_version)");
+        eb_add_index_if_missing('eb_privacy_client_acceptances', "CREATE INDEX IF NOT EXISTS idx_privacy_client ON eb_privacy_client_acceptances (client_id)");
+    }
+
+    if (!$schema->hasTable('eb_privacy_user_acceptances')) {
+        $schema->create('eb_privacy_user_acceptances', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->integer('client_id')->unsigned();
+            $t->integer('user_id')->nullable();    // WHMCS 8 Users model
+            $t->integer('contact_id')->nullable(); // Legacy sub-account contact id
+            $t->string('privacy_version', 32);
+            $t->timestamp('accepted_at')->nullable()->useCurrent();
+            $t->string('ip_address', 45)->nullable();
+            $t->text('user_agent')->nullable();
+            $t->unique(['client_id','user_id','contact_id','privacy_version'], 'uq_user_privacy_version');
+            $t->index(['client_id'], 'idx_privacy_user_client');
+            $t->index(['user_id'], 'idx_privacy_user_user');
+            $t->index(['contact_id'], 'idx_privacy_user_contact');
+        });
+    } else {
+        eb_add_column_if_missing('eb_privacy_user_acceptances','user_id',     fn(Blueprint $t)=>$t->integer('user_id')->nullable());
+        eb_add_column_if_missing('eb_privacy_user_acceptances','contact_id',  fn(Blueprint $t)=>$t->integer('contact_id')->nullable());
+        eb_add_column_if_missing('eb_privacy_user_acceptances','ip_address',  fn(Blueprint $t)=>$t->string('ip_address',45)->nullable());
+        eb_add_column_if_missing('eb_privacy_user_acceptances','user_agent',  fn(Blueprint $t)=>$t->text('user_agent')->nullable());
+        eb_add_index_if_missing('eb_privacy_user_acceptances', "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_privacy_version ON eb_privacy_user_acceptances (client_id, user_id, contact_id, privacy_version)");
+        eb_add_index_if_missing('eb_privacy_user_acceptances', "CREATE INDEX IF NOT EXISTS idx_privacy_user_client ON eb_privacy_user_acceptances (client_id)");
+        eb_add_index_if_missing('eb_privacy_user_acceptances', "CREATE INDEX IF NOT EXISTS idx_privacy_user_user ON eb_privacy_user_acceptances (user_id)");
+        eb_add_index_if_missing('eb_privacy_user_acceptances', "CREATE INDEX IF NOT EXISTS idx_privacy_user_contact ON eb_privacy_user_acceptances (contact_id)");
+    }
+
     // --- eb_password_onboarding (per-client first-login password flow) ---
     if (!$schema->hasTable('eb_password_onboarding')) {
         $schema->create('eb_password_onboarding', function (Blueprint $t) {
@@ -1680,7 +1753,7 @@ function eazybackup_config()
         'description' => 'WHMCS addon module for eazyBackup',
         'author'      => 'eazyBackup Systems Ltd.',
         'language'    => 'english',
-        'version'     => '1.5', // Password on signup
+        'version'     => '1.5.1', // Password on signup
         'fields'      => [
             'trialsignupgid' => [
                 'FriendlyName' => 'Trial Signup Product Group',
@@ -2708,64 +2781,93 @@ function eazybackup_clientarea(array $vars)
         }
         exit;
     } else if ($_REQUEST["a"] == "tos-block") {
-        // Blocking page with TOS modal
+        // Blocking page with Legal Agreements modal (TOS + Privacy)
         if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) {
-            return ['pagetitle' => 'Terms of Service', 'templatefile' => 'templates/error', 'requirelogin' => true, 'vars' => ['error' => 'Not authenticated']];
+            return ['pagetitle' => 'Legal Agreements', 'templatefile' => 'templates/error', 'requirelogin' => true, 'vars' => ['error' => 'Not authenticated']];
         }
-        $active = Capsule::table('eb_tos_versions')->where('is_active', 1)->orderBy('published_at', 'desc')->first();
-        if (!$active) {
+        $tos = null;
+        $privacy = null;
+        try { $tos = Capsule::table('eb_tos_versions')->where('is_active', 1)->orderBy('published_at', 'desc')->first(); } catch (\Throwable $_) {}
+        try { $privacy = Capsule::table('eb_privacy_versions')->where('is_active', 1)->orderBy('published_at', 'desc')->first(); } catch (\Throwable $_) {}
+        if (!$tos && !$privacy) {
             // Nothing to show; fall back to dashboard
             header('Location: index.php?m=eazybackup&a=dashboard'); exit;
         }
+        $requireTos = ($tos && (int)($tos->require_acceptance ?? 0) === 1) ? 1 : 0;
+        $requirePrivacy = ($privacy && (int)($privacy->require_acceptance ?? 0) === 1) ? 1 : 0;
         $returnTo = isset($_GET['return_to']) ? (string)$_GET['return_to'] : 'clientarea.php';
         // Limit return_to to same origin paths only
         if (strpos($returnTo, 'http://') === 0 || strpos($returnTo, 'https://') === 0) { $returnTo = 'clientarea.php'; }
         return [
-            'pagetitle' => 'Terms of Service',
+            'pagetitle' => 'Legal Agreements',
             'templatefile' => 'templates/tos-block',
             'requirelogin' => true,
             'vars' => array_merge($vars, [
-                'tos' => $active,
+                'tos' => $tos,
+                'privacy' => $privacy,
+                'require_tos' => $requireTos,
+                'require_privacy' => $requirePrivacy,
                 'return_to' => $returnTo,
             ]),
         ];
-    } else if ($_REQUEST["a"] == "tos-accept") {
-        // Record acceptance and redirect back
+    } else if ($_REQUEST["a"] == "legal-accept" || $_REQUEST["a"] == "tos-accept") {
+        // Record acceptance for TOS and/or Privacy Policy and redirect back
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') { header('Location: clientarea.php'); exit; }
         if (!function_exists('check_token') || !check_token('WHMCS.clientarea.default')) { header('Location: clientarea.php'); exit; }
         $clientId = (int)($_SESSION['uid'] ?? 0);
         if ($clientId <= 0) { header('Location: clientarea.php'); exit; }
         $contactId = (int)($_SESSION['cid'] ?? 0);
-        $version = (string)($_POST['tos_version'] ?? '');
-        if ($version === '') {
-            $active = Capsule::table('eb_tos_versions')->where('is_active', 1)->orderBy('published_at', 'desc')->first();
-            $version = $active ? (string)$active->version : '';
+        $tosVersion = (string)($_POST['tos_version'] ?? '');
+        $privacyVersion = (string)($_POST['privacy_version'] ?? '');
+
+        // Backfill missing versions from active docs
+        if ($tosVersion === '') {
+            try {
+                $activeTos = Capsule::table('eb_tos_versions')->where('is_active', 1)->orderBy('published_at', 'desc')->first();
+                $tosVersion = $activeTos ? (string)$activeTos->version : '';
+            } catch (\Throwable $_) {}
         }
-        if ($version !== '') {
-            $ip = (string)($_SERVER['REMOTE_ADDR'] ?? '');
-            $ua = (string)($_SERVER['HTTP_USER_AGENT'] ?? '');
+        if ($privacyVersion === '') {
+            try {
+                $activePriv = Capsule::table('eb_privacy_versions')->where('is_active', 1)->orderBy('published_at', 'desc')->first();
+                $privacyVersion = $activePriv ? (string)$activePriv->version : '';
+            } catch (\Throwable $_) {}
+        }
+
+        $ip = (string)($_SERVER['REMOTE_ADDR'] ?? '');
+        $ua = (string)($_SERVER['HTTP_USER_AGENT'] ?? '');
+
+        $recordAcceptance = function (string $clientTable, string $userTable, string $versionField, string $version) use ($clientId, $contactId, $ip, $ua) {
+            if ($version === '') {
+                return;
+            }
             // Client-level acceptance (once per version)
             try {
-                Capsule::table('eb_tos_client_acceptances')->updateOrInsert(
-                    ['client_id' => $clientId, 'tos_version' => $version],
+                Capsule::table($clientTable)->updateOrInsert(
+                    ['client_id' => $clientId, $versionField => $version],
                     ['accepted_at' => date('Y-m-d H:i:s'), 'ip_address' => $ip, 'user_agent' => $ua]
                 );
             } catch (\Throwable $_) {}
+
             // Per-user acceptance (owner: null ids; sub-user: contact_id)
             try {
-                $conds = ['client_id' => $clientId, 'tos_version' => $version];
+                $conds = ['client_id' => $clientId, $versionField => $version];
                 if ($contactId > 0) {
                     $conds['contact_id'] = $contactId;
                 } else {
                     $conds['user_id'] = null;
                     $conds['contact_id'] = null;
                 }
-                Capsule::table('eb_tos_user_acceptances')->updateOrInsert(
+                Capsule::table($userTable)->updateOrInsert(
                     $conds,
                     ['accepted_at' => date('Y-m-d H:i:s'), 'ip_address' => $ip, 'user_agent' => $ua]
                 );
             } catch (\Throwable $_) {}
-        }
+        };
+
+        $recordAcceptance('eb_tos_client_acceptances', 'eb_tos_user_acceptances', 'tos_version', $tosVersion);
+        $recordAcceptance('eb_privacy_client_acceptances', 'eb_privacy_user_acceptances', 'privacy_version', $privacyVersion);
+
         $returnTo = isset($_POST['return_to']) ? (string)$_POST['return_to'] : 'clientarea.php';
         if (strpos($returnTo, 'http://') === 0 || strpos($returnTo, 'https://') === 0) { $returnTo = 'clientarea.php'; }
 
@@ -2776,41 +2878,52 @@ function eazybackup_clientarea(array $vars)
 
         header('Location: ' . $target); exit;
     } else if ($_REQUEST["a"] == "terms") {
-        // Client Terms page: show current user's accepted version/time and link to view
+        // Client Legal Agreements page: show current user's accepted versions/times and link to view
         if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) {
-            return ['pagetitle' => 'Terms', 'templatefile' => 'templates/error', 'requirelogin' => true, 'vars' => ['error' => 'Not authenticated']];
+            return ['pagetitle' => 'Legal Agreements', 'templatefile' => 'templates/error', 'requirelogin' => true, 'vars' => ['error' => 'Not authenticated']];
         }
         $clientId = (int)$_SESSION['uid'];
         $contactId = (int)($_SESSION['cid'] ?? 0);
-        // Preferred: most recent per-user acceptance
-        $uaRow = null;
-        try {
-            $q = Capsule::table('eb_tos_user_acceptances')->where('client_id', $clientId);
-            if ($contactId > 0) { $q->where('contact_id', $contactId); } else { $q->whereNull('user_id')->whereNull('contact_id'); }
-            $uaRow = $q->orderBy('accepted_at', 'desc')->first();
-        } catch (\Throwable $_) { $uaRow = null; }
-        // Fallback to client-level
-        $caRow = null;
-        try {
-            $caRow = Capsule::table('eb_tos_client_acceptances')->where('client_id', $clientId)->orderBy('accepted_at','desc')->first();
-        } catch (\Throwable $_) { $caRow = null; }
-        $acceptedVersion = $uaRow->tos_version ?? ($caRow->tos_version ?? null);
-        $acceptedAt = $uaRow->accepted_at ?? ($caRow->accepted_at ?? null);
-        $acceptedIp = $uaRow->ip_address ?? ($caRow->ip_address ?? null);
-        $acceptedUa = $uaRow->user_agent ?? ($caRow->user_agent ?? null);
+
+        $getMostRecentAcceptance = function (string $userTable, string $clientTable, string $versionField) use ($clientId, $contactId) {
+            $uaRow = null;
+            $caRow = null;
+            try {
+                $q = Capsule::table($userTable)->where('client_id', $clientId);
+                if ($contactId > 0) { $q->where('contact_id', $contactId); } else { $q->whereNull('user_id')->whereNull('contact_id'); }
+                $uaRow = $q->orderBy('accepted_at', 'desc')->first();
+            } catch (\Throwable $_) { $uaRow = null; }
+            try {
+                $caRow = Capsule::table($clientTable)->where('client_id', $clientId)->orderBy('accepted_at','desc')->first();
+            } catch (\Throwable $_) { $caRow = null; }
+            return [
+                'version' => $uaRow->{$versionField} ?? ($caRow->{$versionField} ?? null),
+                'accepted_at' => $uaRow->accepted_at ?? ($caRow->accepted_at ?? null),
+                'ip' => $uaRow->ip_address ?? ($caRow->ip_address ?? null),
+                'ua' => $uaRow->user_agent ?? ($caRow->user_agent ?? null),
+            ];
+        };
+
+        $tosAcc = $getMostRecentAcceptance('eb_tos_user_acceptances', 'eb_tos_client_acceptances', 'tos_version');
+        $privacyAcc = $getMostRecentAcceptance('eb_privacy_user_acceptances', 'eb_privacy_client_acceptances', 'privacy_version');
+
         // Resolve user name/email
         $name = trim(($vars['clientsdetails']['firstname'] ?? '') . ' ' . ($vars['clientsdetails']['lastname'] ?? ''));
         $email = (string)($vars['clientsdetails']['email'] ?? '');
         return [
-            'pagetitle' => 'Terms',
+            'pagetitle' => 'Legal Agreements',
             'breadcrumb' => ['index.php?m=eazybackup' => 'eazyBackup'],
             'templatefile' => 'templates/terms',
             'requirelogin' => true,
             'vars' => array_merge($vars, [
-                'accepted_version' => $acceptedVersion,
-                'accepted_at' => $acceptedAt,
-                'accepted_ip' => $acceptedIp,
-                'accepted_ua' => $acceptedUa,
+                'tos_accepted_version' => $tosAcc['version'],
+                'tos_accepted_at' => $tosAcc['accepted_at'],
+                'tos_accepted_ip' => $tosAcc['ip'],
+                'tos_accepted_ua' => $tosAcc['ua'],
+                'privacy_accepted_version' => $privacyAcc['version'],
+                'privacy_accepted_at' => $privacyAcc['accepted_at'],
+                'privacy_accepted_ip' => $privacyAcc['ip'],
+                'privacy_accepted_ua' => $privacyAcc['ua'],
                 'user_name' => $name,
                 'user_email' => $email,
             ]),
@@ -2836,6 +2949,28 @@ function eazybackup_clientarea(array $vars)
             'templatefile' => 'templates/tos-view',
             'requirelogin' => true,
             'vars' => array_merge($vars, ['tos' => $row]),
+        ];
+    } else if ($_REQUEST["a"] == "privacy-view") {
+        // Render a specific Privacy Policy version (read-only)
+        $ver = isset($_GET['version']) ? (string)$_GET['version'] : '';
+        if ($ver === '') {
+            $row = Capsule::table('eb_privacy_versions')->where('is_active', 1)->orderBy('published_at', 'desc')->first();
+        } else {
+            $row = Capsule::table('eb_privacy_versions')->where('version', $ver)->first();
+        }
+        if (!$row) {
+            return [
+                'pagetitle' => 'Privacy Policy',
+                'templatefile' => 'templates/error',
+                'requirelogin' => true,
+                'vars' => ['error' => 'Privacy Policy not found'],
+            ];
+        }
+        return [
+            'pagetitle' => 'Privacy Policy',
+            'templatefile' => 'templates/privacy-view',
+            'requirelogin' => true,
+            'vars' => array_merge($vars, ['privacy' => $row]),
         ];
     } else if ($_REQUEST["a"] == "admin-workers") {
         // Admin JSON endpoint: systemd workers status (read-only)
@@ -4416,6 +4551,7 @@ function eazybackup_output($vars)
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=billing">Billing</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=nfr">NFR</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=terms">Terms</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=privacy">Privacy</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=whitelabel">White-Label</a></li>'
                       . '</ul>';
 
@@ -4535,6 +4671,27 @@ function eazybackup_output($vars)
                 }
                 return;
             }
+            case 'privacy': {
+                // Try multiple controller locations to be resilient across environments
+                $candidates = [
+                    __DIR__ . '/pages/admin/privacy/index.php',
+                    __DIR__ . '/pages/admin/privacy.php',
+                    __DIR__ . '/pages/admin/powerpanel/privacy.php',
+                ];
+                $loaded = false;
+                foreach ($candidates as $controller) {
+                    if (is_file($controller)) {
+                        $html = require $controller;
+                        echo $html;
+                        $loaded = true;
+                        break;
+                    }
+                }
+                if (!$loaded) {
+                    echo '<div class="alert alert-danger">Privacy controller not found.</div>';
+                }
+                return;
+            }
             case 'partnerhub': {
                 $controller = __DIR__ . '/pages/admin/partnerhub/settings.php';
                 if (!is_file($controller)) { echo '<div class="alert alert-danger">Controller not found.</div>'; return; }
@@ -4549,6 +4706,7 @@ function eazybackup_output($vars)
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=billing">Billing</a></li>'
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=nfr">NFR</a></li>'
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=terms">Terms</a></li>'
+                   . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=privacy">Privacy</a></li>'
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=whitelabel">White-Label</a></li>'
                    . '<li class="nav-item"><a class="nav-link active" href="#">Partner Hub</a></li>'
                    . '</ul>';
@@ -4604,6 +4762,7 @@ function eazybackup_output($vars)
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=billing">Billing</a></li>'
                    . '<li class="nav-item"><a class="nav-link active" href="#">NFR</a></li>'
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=terms">Terms</a></li>'
+                   . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=privacy">Privacy</a></li>'
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=whitelabel">White-Label</a></li>'
                    . '</ul>';
 
@@ -4739,6 +4898,7 @@ function eazybackup_output($vars)
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=billing">Billing</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=nfr">NFR</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=terms">Terms</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=privacy">Privacy</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=whitelabel">White-Label</a></li>'
                       . '</ul>';
 
@@ -4905,6 +5065,7 @@ function eazybackup_output($vars)
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=billing">Billing</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=nfr">NFR</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=terms">Terms</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=privacy">Privacy</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=whitelabel">White-Label</a></li>'
                       . '</ul>';
 
@@ -5013,6 +5174,7 @@ function eazybackup_output($vars)
                       . '<li class="nav-item"><a class="nav-link active" href="#">Billing</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=nfr">NFR</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=terms">Terms</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=privacy">Privacy</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=whitelabel">White-Label</a></li>'
                       . '</ul>';
 
@@ -5272,6 +5434,7 @@ function eazybackup_sidebar($vars)
         . '<a href="' . $base . '&action=powerpanel&view=items" class="list-group-item"><i class="fa fa-shield-alt"></i> Power Panel: Protected Items</a>'
         . '<a href="' . $base . '&action=powerpanel&view=billing" class="list-group-item"><i class="fa fa-balance-scale"></i> Power Panel: Billing</a>'
         . '<a href="' . $base . '&action=powerpanel&view=terms" class="list-group-item"><i class="fa fa-file-text-o"></i> Power Panel: Terms</a>'
+        . '<a href="' . $base . '&action=powerpanel&view=privacy" class="list-group-item"><i class="fa fa-user-secret"></i> Power Panel: Privacy</a>'
         . '</div>';
     return $sidebar;
 }

@@ -160,7 +160,7 @@
                         </tr>
                     </template>
                     <template x-for="job in jobs" :key="job.id">
-                        <tr class="hover:bg-slate-800/50">
+                        <tr class="hover:bg-slate-800/50 cursor-pointer" @click="editJob(job)">
                             <td class="px-4 py-3 text-slate-200 font-semibold" x-text="job.name"></td>
                             {if $isMspClient}
                             <td class="px-4 py-3 text-slate-300" x-text="job.tenant_name || 'Direct'"></td>
@@ -186,15 +186,21 @@
                             <td class="px-4 py-3 text-slate-300" x-text="job.created_at"></td>
                             <td class="px-4 py-3">
                                 <!-- Desktop: Individual buttons (hidden on small screens) -->
-                                <div class="hidden md:flex items-center gap-1">
+                                <div class="hidden md:flex items-center gap-1" @click.stop>
+                                    <!-- Edit -->
+                                    <button @click.stop="editJob(job)" class="p-1.5 rounded hover:bg-slate-700 text-slate-400 hover:text-slate-300" title="Edit">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+                                        </svg>
+                                    </button>
                                     <!-- Run Now -->
-                                    <button @click="runJob(job.id)" class="p-1.5 rounded hover:bg-slate-700 text-sky-400 hover:text-sky-300" title="Run Now">
+                                    <button @click.stop="runJob(job.id)" class="p-1.5 rounded hover:bg-slate-700 text-sky-400 hover:text-sky-300" title="Run Now">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
                                             <path d="M8 5v14l11-7z"/>
                                         </svg>
                                     </button>
                                     <!-- Pause/Resume -->
-                                    <button @click="toggleJobStatus(job.id, job.status)" class="p-1.5 rounded hover:bg-slate-700" :class="job.status === 'active' ? 'text-amber-400 hover:text-amber-300' : 'text-emerald-400 hover:text-emerald-300'" :title="job.status === 'active' ? 'Pause' : 'Resume'">
+                                    <button @click.stop="toggleJobStatus(job.id, job.status)" class="p-1.5 rounded hover:bg-slate-700" :class="job.status === 'active' ? 'text-amber-400 hover:text-amber-300' : 'text-emerald-400 hover:text-emerald-300'" :title="job.status === 'active' ? 'Pause' : 'Resume'">
                                         <svg x-show="job.status === 'active'" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
                                             <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/>
                                         </svg>
@@ -203,27 +209,27 @@
                                         </svg>
                                     </button>
                                     <!-- Restore -->
-                                    <button @click="openRestore(job)" class="p-1.5 rounded hover:bg-slate-700 text-emerald-400 hover:text-emerald-300" title="Restore">
+                                    <button @click.stop="openRestore(job)" class="p-1.5 rounded hover:bg-slate-700 text-emerald-400 hover:text-emerald-300" title="Restore">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
                                         </svg>
                                     </button>
                                     <!-- View Logs -->
-                                    <button @click="viewLogs(job.id)" class="p-1.5 rounded hover:bg-slate-700 text-slate-400 hover:text-slate-300" title="View Logs">
+                                    <button @click.stop="viewLogs(job.id)" class="p-1.5 rounded hover:bg-slate-700 text-slate-400 hover:text-slate-300" title="View Logs">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
                                         </svg>
                                     </button>
                                     <!-- Delete -->
-                                    <button @click="openDeleteModal(job)" class="p-1.5 rounded hover:bg-slate-700 text-rose-400 hover:text-rose-300" title="Delete">
+                                    <button @click.stop="openDeleteModal(job)" class="p-1.5 rounded hover:bg-slate-700 text-rose-400 hover:text-rose-300" title="Delete">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
                                         </svg>
                                     </button>
                                 </div>
                                 <!-- Mobile: Dropdown menu (visible on small screens) -->
-                                <div class="md:hidden relative" x-data="{ open: false }" @click.away="open = false">
-                                    <button @click="open = !open" class="p-1.5 rounded hover:bg-slate-700 text-slate-400 hover:text-slate-300" title="Actions">
+                                <div class="md:hidden relative" x-data="{ open: false }" @click.away="open = false" @click.stop>
+                                    <button @click.stop="open = !open" class="p-1.5 rounded hover:bg-slate-700 text-slate-400 hover:text-slate-300" title="Actions">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
                                             <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>
                                         </svg>
@@ -236,25 +242,29 @@
                                          x-transition:leave-start="opacity-100 scale-100"
                                          x-transition:leave-end="opacity-0 scale-95"
                                          class="absolute right-0 mt-1 w-40 rounded-lg border border-slate-700 bg-slate-900 shadow-xl z-50 py-1">
-                                        <button @click="runJob(job.id); open = false" class="w-full px-3 py-2 text-left text-sm text-sky-400 hover:bg-slate-800 flex items-center gap-2">
+                                        <button @click.stop="editJob(job); open = false" class="w-full px-3 py-2 text-left text-sm text-slate-300 hover:bg-slate-800 flex items-center gap-2">
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                                            Edit
+                                        </button>
+                                        <button @click.stop="runJob(job.id); open = false" class="w-full px-3 py-2 text-left text-sm text-sky-400 hover:bg-slate-800 flex items-center gap-2">
                                             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
                                             Run Now
                                         </button>
-                                        <button @click="toggleJobStatus(job.id, job.status); open = false" class="w-full px-3 py-2 text-left text-sm hover:bg-slate-800 flex items-center gap-2" :class="job.status === 'active' ? 'text-amber-400' : 'text-emerald-400'">
+                                        <button @click.stop="toggleJobStatus(job.id, job.status); open = false" class="w-full px-3 py-2 text-left text-sm hover:bg-slate-800 flex items-center gap-2" :class="job.status === 'active' ? 'text-amber-400' : 'text-emerald-400'">
                                             <svg x-show="job.status === 'active'" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/></svg>
                                             <svg x-show="job.status !== 'active'" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
                                             <span x-text="job.status === 'active' ? 'Pause' : 'Resume'"></span>
                                         </button>
-                                        <button @click="openRestore(job); open = false" class="w-full px-3 py-2 text-left text-sm text-emerald-400 hover:bg-slate-800 flex items-center gap-2">
+                                        <button @click.stop="openRestore(job); open = false" class="w-full px-3 py-2 text-left text-sm text-emerald-400 hover:bg-slate-800 flex items-center gap-2">
                                             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
                                             Restore
                                         </button>
-                                        <button @click="viewLogs(job.id); open = false" class="w-full px-3 py-2 text-left text-sm text-slate-300 hover:bg-slate-800 flex items-center gap-2">
+                                        <button @click.stop="viewLogs(job.id); open = false" class="w-full px-3 py-2 text-left text-sm text-slate-300 hover:bg-slate-800 flex items-center gap-2">
                                             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
                                             View Logs
                                         </button>
                                         <div class="border-t border-slate-700 my-1"></div>
-                                        <button @click="openDeleteModal(job); open = false" class="w-full px-3 py-2 text-left text-sm text-rose-400 hover:bg-slate-800 flex items-center gap-2">
+                                        <button @click.stop="openDeleteModal(job); open = false" class="w-full px-3 py-2 text-left text-sm text-rose-400 hover:bg-slate-800 flex items-center gap-2">
                                             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
                                             Delete
                                         </button>
@@ -651,6 +661,24 @@ function jobsApp() {
             if (e === 'disk_image') return 'Disk Image';
             if (e === 'hyperv') return 'Hyper-V';
             return engine || '-';
+        },
+        editJob(job) {
+            // Route to the correct edit UI based on source_type
+            const sourceType = (job.source_type || '').toLowerCase();
+            if (sourceType === 'local_agent') {
+                // Open the Local Agent Job Wizard in edit mode
+                if (typeof openLocalJobWizardForEdit === 'function') {
+                    openLocalJobWizardForEdit(job.id);
+                }
+            } else {
+                // Open the Cloud Backup Wizard in edit mode
+                if (typeof openCloudBackupWizardForEdit === 'function') {
+                    openCloudBackupWizardForEdit(job.id);
+                } else {
+                    // Fallback: show notification that edit is not yet implemented for cloud jobs
+                    e3backupNotify('info', 'Cloud job editing coming soon. Use local agent wizard for now.');
+                }
+            }
         }
     }
 }
@@ -700,6 +728,20 @@ function mspTenantFilter() {
 function openCloudBackupWizard() {
     const panel = document.getElementById('createJobSlideover');
     if (!panel) return;
+    
+    // Reset edit mode state when opening via this function (create mode)
+    if (!window.cloudWizardState?.editMode) {
+        window.cloudWizardState = { editMode: false, jobId: null };
+        // Reset panel title for create mode
+        const titleEl = panel.querySelector('h2');
+        if (titleEl) {
+            titleEl.textContent = 'Create Backup Job';
+        }
+        // Reset form fields
+        const form = document.getElementById('createJobForm');
+        if (form) form.reset();
+    }
+    
     panel.style.setProperty('display', 'block', 'important');
     const backdrop = panel.querySelector('.absolute.inset-0.bg-black\\/75');
     if (backdrop) backdrop.style.setProperty('display', 'block', 'important');
@@ -732,6 +774,119 @@ function closeCreateSlideover() {
     if (panel.__x && panel.__x.$data) {
         panel.__x.$data.isOpen = false;
     }
+    // Reset edit mode state when closing
+    window.cloudWizardState = { editMode: false, jobId: null };
+}
+
+// Cloud Wizard edit mode state
+window.cloudWizardState = { editMode: false, jobId: null };
+
+// Open Cloud Backup Wizard in edit mode
+function openCloudBackupWizardForEdit(jobId) {
+    if (!jobId) return;
+    window.cloudWizardState = { editMode: true, jobId: jobId, loading: true };
+    
+    // Open the panel first
+    openCloudBackupWizard();
+    
+    // Then fetch the job data and populate fields
+    fetch('modules/addons/cloudstorage/api/cloudbackup_get_job.php?job_id=' + encodeURIComponent(jobId))
+        .then(r => r.json())
+        .then(data => {
+            if (data.status !== 'success') {
+                e3backupNotify('error', data.message || 'Failed to load job');
+                closeCreateSlideover();
+                return;
+            }
+            const job = data.job || {};
+            const source = data.source || {};
+            
+            // Populate form fields
+            cloudWizardFillFromJob(job, source);
+            
+            // Update panel title
+            const titleEl = document.querySelector('#createJobSlideover h2');
+            if (titleEl) {
+                titleEl.textContent = 'Edit Backup Job';
+            }
+            
+            window.cloudWizardState.loading = false;
+        })
+        .catch(err => {
+            e3backupNotify('error', 'Error loading job: ' + err.message);
+            closeCreateSlideover();
+        });
+}
+
+// Fill Cloud Wizard fields from job data
+function cloudWizardFillFromJob(job, source) {
+    // Job name
+    const nameEl = document.getElementById('jobName');
+    if (nameEl) nameEl.value = job.name || '';
+    
+    // Source type
+    const sourceTypeEl = document.getElementById('sourceType');
+    if (sourceTypeEl) {
+        sourceTypeEl.value = job.source_type || '';
+        onSourceTypeChange(job.source_type || '');
+    }
+    
+    // Fill source-specific fields based on type
+    const type = (source.type || job.source_type || '').toLowerCase();
+    if (type === 's3_compatible') {
+        const endpointEl = document.getElementById('s3Endpoint');
+        if (endpointEl) endpointEl.value = source.endpoint || '';
+        const bucketEl = document.getElementById('s3Bucket');
+        if (bucketEl) bucketEl.value = source.bucket || '';
+        const regionEl = document.getElementById('s3Region');
+        if (regionEl) regionEl.value = source.region || 'ca-central-1';
+        // Access/Secret: don't prefill (security), show indicator if saved
+    } else if (type === 'aws') {
+        const bucketEl = document.getElementById('awsBucket');
+        if (bucketEl) bucketEl.value = source.bucket || '';
+        const regionEl = document.getElementById('awsRegion');
+        if (regionEl) regionEl.value = source.region || 'us-east-1';
+    } else if (type === 'sftp') {
+        const hostEl = document.getElementById('sftpHost');
+        if (hostEl) hostEl.value = source.host || '';
+        const portEl = document.getElementById('sftpPort');
+        if (portEl) portEl.value = source.port || '22';
+        const userEl = document.getElementById('sftpUsername');
+        if (userEl) userEl.value = source.user || '';
+    }
+    
+    // Destination
+    const destBucketEl = document.getElementById('destBucketId');
+    if (destBucketEl) {
+        destBucketEl.value = job.dest_bucket_id || '';
+    }
+    const destPrefixEl = document.getElementById('destPrefix');
+    if (destPrefixEl) destPrefixEl.value = job.dest_prefix || '';
+    
+    // Schedule
+    const scheduleTypeEl = document.getElementById('scheduleType');
+    if (scheduleTypeEl) {
+        scheduleTypeEl.value = job.schedule_type || 'manual';
+        // Trigger schedule UI update
+        scheduleTypeEl.dispatchEvent(new Event('change'));
+    }
+    const scheduleTimeEl = document.getElementById('scheduleTime');
+    if (scheduleTimeEl) scheduleTimeEl.value = job.schedule_time || '';
+    const scheduleWeekdayEl = document.getElementById('scheduleWeekday');
+    if (scheduleWeekdayEl) scheduleWeekdayEl.value = job.schedule_weekday || '1';
+    
+    // Retention
+    const retentionModeEl = document.getElementById('retentionMode');
+    if (retentionModeEl) {
+        retentionModeEl.value = job.retention_mode || 'none';
+        onRetentionModeChange();
+    }
+    const retentionValueEl = document.getElementById('retentionValue');
+    if (retentionValueEl) retentionValueEl.value = job.retention_value || '';
+    
+    // Backup mode
+    const backupModeEl = document.getElementById('backupMode');
+    if (backupModeEl) backupModeEl.value = job.backup_mode || 'sync';
 }
 
 function applyInitialSourceState() {
@@ -866,7 +1021,17 @@ function doCreateJobSubmit(formEl) {
     
     const msgEl = document.getElementById('jobCreationMessage');
     
-    fetch('modules/addons/cloudstorage/api/cloudbackup_create_job.php', {
+    // Check if we're in edit mode
+    const isEdit = window.cloudWizardState?.editMode && window.cloudWizardState?.jobId;
+    if (isEdit) {
+        formData.set('job_id', window.cloudWizardState.jobId);
+    }
+    
+    const endpoint = isEdit 
+        ? 'modules/addons/cloudstorage/api/cloudbackup_update_job.php'
+        : 'modules/addons/cloudstorage/api/cloudbackup_create_job.php';
+    
+    fetch(endpoint, {
         method: 'POST',
         body: formData
     })
@@ -876,13 +1041,13 @@ function doCreateJobSubmit(formEl) {
             closeCreateSlideover();
             // Reload jobs list (AJAX, no full page refresh)
             e3backupReloadJobs();
-            e3backupNotify('success', 'Job created successfully!');
+            e3backupNotify('success', isEdit ? 'Job updated successfully!' : 'Job created successfully!');
         } else {
             if (msgEl) {
-                msgEl.textContent = data.message || 'Failed to create job';
+                msgEl.textContent = data.message || (isEdit ? 'Failed to update job' : 'Failed to create job');
                 msgEl.classList.remove('hidden');
             }
-            e3backupNotify('error', data.message || 'Failed to create job');
+            e3backupNotify('error', data.message || (isEdit ? 'Failed to update job' : 'Failed to create job'));
         }
     })
     .catch(err => {
@@ -890,7 +1055,7 @@ function doCreateJobSubmit(formEl) {
             msgEl.textContent = 'Error: ' + err.message;
             msgEl.classList.remove('hidden');
         }
-        e3backupNotify('error', 'Error creating job');
+        e3backupNotify('error', isEdit ? 'Error updating job' : 'Error creating job');
     });
 }
 
@@ -1269,6 +1434,8 @@ function localWizardFillFromJob(j, s) {
     const engineVal = (job.engine || '').toLowerCase();
     if (engineVal === 'disk_image') {
         localWizardSet('engine', 'disk_image');
+    } else if (engineVal === 'hyperv') {
+        localWizardSet('engine', 'hyperv');
     } else {
         localWizardSet('engine', job.backup_mode === 'sync' ? 'sync' : 'kopia');
     }
@@ -1313,6 +1480,12 @@ function localWizardFillFromJob(j, s) {
         window.localWizardState.data.source_paths = parsedPaths;
         window.localWizardState.data.source_path = parsedPaths[0] || job.source_path || '';
     }
+    
+    // Dispatch event to tell fileBrowser to reload selected paths from hidden input
+    setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('edit-paths-loaded'));
+    }, 100);
+    
     const diskVolEl = document.getElementById('localWizardDiskVolume');
     if (diskVolEl) diskVolEl.value = job.disk_source_volume || '';
     const diskFmtEl = document.getElementById('localWizardDiskFormat');
@@ -1324,14 +1497,42 @@ function localWizardFillFromJob(j, s) {
     const excEl = document.getElementById('localWizardExclude');
     if (excEl) excEl.value = source.exclude_glob || job.local_exclude_glob || '';
     const bwEl = document.getElementById('localWizardBandwidth');
-    if (bwEl) bwEl.value = source.bandwidth_limit_kbps || job.local_bandwidth_limit_kbps || job.bandwidth_limit_kbps || '0';
+    const bwVal = source.bandwidth_limit_kbps || job.local_bandwidth_limit_kbps || job.bandwidth_limit_kbps || '0';
+    if (bwEl) bwEl.value = bwVal;
     const policyObj = job.policy_json ? (safeParseJSON(job.policy_json) || {}) : {};
     const parEl = document.getElementById('localWizardParallelism');
-    if (parEl) parEl.value = job.parallelism || policyObj.parallel_uploads || '8';
+    const parVal = job.parallelism || policyObj.parallel_uploads || '8';
+    if (parEl) parEl.value = parVal;
     const compEl = document.getElementById('localWizardCompression');
-    if (compEl) compEl.value = policyObj.compression || 'none';
+    const compVal = policyObj.compression || 'none';
+    if (compEl) compEl.value = compVal;
     const dbgEl = document.getElementById('localWizardDebugLogs');
-    if (dbgEl) dbgEl.checked = !!policyObj.debug_logs;
+    const dbgVal = !!policyObj.debug_logs;
+    if (dbgEl) dbgEl.checked = dbgVal;
+    
+    // Store network credentials flags for edit mode (preserve secrets)
+    if (window.localWizardState?.data) {
+        window.localWizardState.data.has_network_password = !!source.has_network_password;
+        window.localWizardState.data.network_domain = source.network_domain || '';
+    }
+    
+    // Auto-expand advanced settings if any non-default values are loaded
+    const hasNonDefaultAdvanced = (
+        (parseInt(bwVal, 10) !== 0) ||
+        (parseInt(parVal, 10) !== 8) ||
+        (compVal !== 'none') ||
+        dbgVal
+    );
+    if (hasNonDefaultAdvanced) {
+        // Try to find and expand the advanced toggle via Alpine
+        setTimeout(() => {
+            const advancedToggle = document.querySelector('#localJobWizardModal [data-step="4"] [x-data]');
+            if (advancedToggle && advancedToggle.__x && advancedToggle.__x.$data) {
+                advancedToggle.__x.$data.showAdvanced = true;
+            }
+        }, 100);
+    }
+    
     const schedType = document.getElementById('localWizardScheduleType');
     if (schedType) schedType.value = job.schedule_type || (job.schedule_json?.type) || 'manual';
     const schedTime = document.getElementById('localWizardTime');
@@ -1428,6 +1629,22 @@ function fileBrowser() {
             return window.localWizardState?.data?.engine === 'disk_image';
         },
 
+        // File/folder browse UX:
+        // - At root ("This PC"), show drive cards and hide checkboxes.
+        // - Inside a drive/folder, show the checkbox-based selector list.
+        get isBrowseRoot() {
+            return !this.isDiskImageMode && this.currentPath === '';
+        },
+
+        get showSelectionCheckboxes() {
+            return !this.isDiskImageMode && this.currentPath !== '';
+        },
+
+        get rootBrowseDrives() {
+            if (!this.isBrowseRoot) return [];
+            return this.entries.filter(e => e && e.icon === 'drive' && e.is_dir);
+        },
+
         get localVolumes() {
             if (this.currentPath !== '') return [];
             return this.entries.filter(e => {
@@ -1510,6 +1727,22 @@ function fileBrowser() {
             window.addEventListener('refresh-browser', () => {
                 const path = this.isDiskImageMode ? '' : (this.currentPath || '');
                 this.loadDirectory(path);
+            });
+            // Reload selected paths from hidden input (for edit mode)
+            window.addEventListener('edit-paths-loaded', () => {
+                const preset = document.getElementById('localWizardSourcePaths')?.value || '';
+                if (preset) {
+                    try {
+                        const parsed = JSON.parse(preset);
+                        if (Array.isArray(parsed)) {
+                            this.selectedPaths = parsed;
+                        }
+                    } catch (e) {}
+                }
+                const diskVolume = document.getElementById('localWizardDiskVolume')?.value || '';
+                if (diskVolume) {
+                    this.selectedVolume = diskVolume;
+                }
             });
             window.addEventListener('engine-changed', () => {
                 if (this.isDiskImageMode) {
@@ -2084,10 +2317,16 @@ function localWizardSubmit() {
         disk_source_volume: s.disk_source_volume || '',
         disk_image_format: s.disk_image_format || '',
         disk_temp_dir: s.disk_temp_dir || '',
-        network_username: s.network_username || '',
-        network_password: s.network_password || '',
         network_domain: s.network_domain || '',
     };
+    
+    // Only include network credentials if provided (for edit mode: blank means "keep existing")
+    if (s.network_username) {
+        payload.network_username = s.network_username;
+    }
+    if (s.network_password) {
+        payload.network_password = s.network_password;
+    }
     
     // Add Hyper-V specific fields
     if (s.engine === 'hyperv') {

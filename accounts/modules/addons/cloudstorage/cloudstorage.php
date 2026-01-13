@@ -14,7 +14,7 @@ function cloudstorage_config()
         'description' => 'This module show the usage of your buckets.',
         'author' => 'eazybackup',
         'language' => 'english',
-        'version' => '2.1.3',
+        'version' => '2.1.4',
         'fields' => [
             's3_region' => [
                 'FriendlyName' => 'S3 Region',

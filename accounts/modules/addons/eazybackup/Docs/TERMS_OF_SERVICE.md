@@ -1,15 +1,15 @@
-# Terms of Service (TOS) – Versioning, Consent, and Gating
+# Legal Agreements – Terms of Service + Privacy Policy (Versioning, Consent, and Gating)
 
-This document explains the TOS feature added to the eazyBackup WHMCS addon: what it is, how it works, the data model, file layout (backend, hooks, templates), and operational notes for developers.
+This document explains the Legal Agreements feature added to the eazyBackup WHMCS addon: what it is, how it works, the data model, file layout (backend, hooks, templates), and operational notes for developers.
 
 ## Overview
 
-The TOS system allows admins to publish versioned Terms of Service and optionally require users to accept the latest version upon login before continuing to the client area. It records acceptance at two levels:
+The Legal Agreements system allows admins to publish versioned **Terms of Service** and versioned **Privacy Policy** and optionally require users to accept the latest active versions upon login before continuing to the client area. It records acceptance at two levels (for each document):
 
-- Account-level consent (Customer): one record per client_id per TOS version
-- Per-user consent (Owner or Sub-account/Contact): one record per user/contact per TOS version
+- Account-level consent (Customer): one record per client_id per document version
+- Per-user consent (Owner or Sub-account/Contact): one record per user/contact per document version
 
-When “Require acceptance” is enabled on the active TOS version, the client area is gated until each loginable user scrolls through the TOS and accepts it. Users can later review the exact TOS version and their agreement details in My Account → Terms.
+When “Require acceptance” is enabled on the active version(s), the client area is gated until each loginable user accepts the required document(s). Users can later review the exact versions and their agreement details in My Account → Terms.
 
 ## UX Flows
 
@@ -20,20 +20,21 @@ When “Require acceptance” is enabled on the active TOS version, the client a
 4. Toggle “Require acceptance” to enforce the TOS acceptance for all loginable users
 
 ### Client flow (gating)
-1. User visits client area while a TOS requiring acceptance is active
+1. User visits client area while a required Terms of Service and/or Privacy Policy version is active
 2. A modal prevents access until acceptance
-3. User clicks “View Terms” in the modal to open an in‑modal panel of the full TOS content
-4. Acceptance requires both:
-   - Checking “I agree”
-   - Scrolling to the bottom of the in‑modal TOS content
+3. Modal shows checkbox + link for each required document:
+   - Terms of Service (opens in a modal)
+   - Privacy Policy (opens in a modal)
+4. Acceptance requires only checking the checkbox(es). There is **no requirement** to open or scroll the documents.
 5. Upon acceptance:
    - Account-level acceptance is recorded (client_id + version + timestamp + IP + UA)
    - Per-user acceptance is recorded (client_id + user or contact + version + timestamp + IP + UA)
-6. Users can later view the TOS they agreed to and acceptance details in My Account → Terms
+6. Users can later view the exact versions they agreed to and acceptance details in My Account → Terms
 
-### Client flow (viewing TOS later)
-- My Account → Terms shows the user’s name, email, accepted version, accepted timestamp, IP, and UA
-- “View TOS” opens the exact HTML content (versioned) they agreed to
+### Client flow (viewing later)
+- My Account → Terms shows the user’s name, email, accepted versions, accepted timestamps, IP, and UA
+- “View Terms” opens the exact HTML content (versioned) they agreed to
+- “View Privacy Policy” opens the exact HTML content (versioned) they agreed to
 
 ## Data Model
 
@@ -57,15 +58,33 @@ Notes:
 - Account-level acceptance is the “master” acceptance for the Customer entity
 - Per-user acceptance uniquely tracks each loginable person’s consent
 
+### Privacy Policy data model (mirrors TOS)
+
+- `eb_privacy_versions`
+  - `id` (PK), `version` (e.g. `2026-01-13`), `title`, `summary`, `content_html` (LONGTEXT)
+  - `is_active` (bool), `require_acceptance` (bool), `published_at`, `created_at`, `created_by`
+  - Indexes/unique: version unique; indexes on `is_active`, `require_acceptance`
+
+- `eb_privacy_client_acceptances`
+  - `id` (PK), `client_id`, `privacy_version`, `accepted_at`, `ip_address`, `user_agent`
+  - Unique: `(client_id, privacy_version)`
+
+- `eb_privacy_user_acceptances`
+  - `id` (PK), `client_id`, `user_id` (nullable), `contact_id` (nullable), `privacy_version`
+  - `accepted_at`, `ip_address`, `user_agent`
+  - Unique: `(client_id, user_id, contact_id, privacy_version)`
+
 ## Files & Structure
 
 ### Backend routing – client area
 `accounts/modules/addons/eazybackup/eazybackup.php` in `eazybackup_clientarea()`:
 
 - `a=tos-block`: Shows the gating modal page (used by hooks when require_acceptance is enabled)
-- `a=tos-accept` (POST): Records acceptance (client + user/contact), then redirects to `return_to`
+- `a=legal-accept` (POST): Records acceptance for Terms and/or Privacy (client + user/contact), then redirects to `return_to`
+- `a=tos-accept` (POST): Backward-compatible alias for `a=legal-accept`
 - `a=terms`: My Account → Terms page (shows acceptance details and link to TOS viewer)
 - `a=tos-view[&version=YYYY-MM-DD]`: Read-only render of a specific TOS version (HTML)
+- `a=privacy-view[&version=YYYY-MM-DD]`: Read-only render of a specific Privacy Policy version (HTML)
 
 ### Backend routing – admin area
 `accounts/modules/addons/eazybackup/eazybackup.php` in `eazybackup_output()` (Power Panel):
@@ -78,12 +97,19 @@ Notes:
     - `publish` → set selected version active (deactivates others)
     - `toggle_require` → turn require-acceptance on/off for the active version
 
+- `view=privacy`: Admin UI for Privacy Policy management (mirrors Terms)
+  - Controller: `accounts/modules/addons/eazybackup/pages/admin/privacy/index.php`
+  - Operations:
+    - `create` → insert new version (inactive)
+    - `publish` → set selected version active (deactivates others)
+    - `toggle_require` → turn require-acceptance on/off for the active version
+
 ### Hooks – client-area gating
 `accounts/modules/addons/eazybackup/hooks.php`
 
-- `ClientAreaPage` hook enforces acceptance across the portal when an active version has `require_acceptance=1`
-- Whitelists TOS routes (`tos-block`, `tos-accept`, `tos-view`) and login/logout flows to prevent redirect loops
-- On missing acceptance for current version: redirects to `a=tos-block&return_to=<original>`
+- `ClientAreaPage` hook enforces acceptance across the portal when an active Terms and/or Privacy version has `require_acceptance=1`
+- Whitelists legal routes (`tos-block`, `legal-accept`, `tos-accept`, `tos-view`, `privacy-view`) and login/logout flows to prevent redirect loops
+- On missing acceptance for any required version: redirects to `a=tos-block&return_to=<original>`
 
 ### Templates (Smarty)
 
@@ -91,16 +117,21 @@ Client modals and pages:
 
 - `accounts/modules/addons/eazybackup/templates/tos-block.tpl`
   - Modal UI that blocks access until acceptance
-  - “View Terms” button toggles an in‑modal accordion/panel showing full TOS (`content_html`)
-  - Scroll-gated acceptance: user must scroll to the bottom of the in‑modal TOS and tick the checkbox
+  - Checkbox + link for each required document (Terms and/or Privacy)
+  - Links open in-modal document viewers
+  - No scroll-to-bottom requirement; checkbox acceptance only
   - After acceptance, notes that Terms and agreement details are available in My Account → Terms
 
 - `accounts/modules/addons/eazybackup/templates/terms.tpl`
-  - My Account → Terms page (shows accepted version, timestamp, IP/UA; link to view the TOS version)
+  - My Account → Terms page (shows accepted versions, timestamps, IP/UA; links to view each version)
 
 - `accounts/modules/addons/eazybackup/templates/tos-view.tpl`
   - Read-only display of the `content_html` for any version
   - Uses `{$tos->content_html|unescape:'html' nofilter}` to render saved HTML as-is
+
+- `accounts/modules/addons/eazybackup/templates/privacy-view.tpl`
+  - Read-only display of the `content_html` for any privacy version
+  - Uses `{$privacy->content_html|unescape:'html' nofilter}` to render saved HTML as-is
 
 Navigation:
 
@@ -119,7 +150,7 @@ Navigation:
 ## Security & Guards
 
 - Admin routes require an admin session (`$_SESSION['adminid']`) and CSRF validation (`check_token('WHMCS.admin.default')`)
-- Client routes use `check_token('WHMCS.clientarea.default')` for `tos-accept` POSTs
+- Client routes use `check_token('WHMCS.clientarea.default')` for `legal-accept` / legacy `tos-accept` POSTs
 - ClientArea gating hook:
   - Whitelists TOS routes and login/logout to prevent loops
   - On exception in the hook, fails open (so users are not locked out by hook failures)
@@ -133,25 +164,25 @@ Navigation:
 
 ## How “Require Acceptance” Works
 
-1. Admin publishes a version and turns on “Require acceptance”
-2. ClientArea hook detects the active required version and missing acceptance for the current login identity
+1. Admin publishes a Terms version and/or a Privacy version and turns on “Require acceptance” for each as desired
+2. ClientArea hook detects required active version(s) and missing acceptance for the current login identity
 3. Redirects to `a=tos-block` (blocking modal) with `return_to` of the originally requested page
 4. On “Accept and Continue” → records acceptance, then redirects back to `return_to`
-5. The modal requires:
-   - Agree checkbox
-   - Scrolled-to-bottom status (only when the in-modal Terms panel is open)
 
 ## Acceptance Recording
 
-On `a=tos-accept`:
+On `a=legal-accept` (or legacy `a=tos-accept`):
 
-- Client-level (one per client/version):
-  - `eb_tos_client_acceptances` with `client_id`, `tos_version`, `accepted_at`, `ip_address`, `user_agent`
+- Client-level (one per client/version) is written for each document:
+  - `eb_tos_client_acceptances` (`tos_version`)
+  - `eb_privacy_client_acceptances` (`privacy_version`)
 
 - Per-user (per login persona per version):
   - If sub-account contact session exists (`$_SESSION['cid'] > 0`) → `contact_id`
   - Otherwise owner user (WHMCS 8 users) or “owner context” is recorded with `user_id` and/or both null to represent the owner context depending on implementation
-  - Stored in `eb_tos_user_acceptances` with `client_id`, `user_id`/`contact_id`, `tos_version`, `accepted_at`, `ip_address`, `user_agent`
+  - Stored in:
+    - `eb_tos_user_acceptances` (`tos_version`)
+    - `eb_privacy_user_acceptances` (`privacy_version`)
 
 ## Configuration & Customization
 
@@ -162,15 +193,16 @@ On `a=tos-accept`:
 ## Testing
 
 1. As Admin:
-   - Create a new version and populate `content_html` with sample HTML
-   - Publish the version
-   - Enable “Require acceptance”
+   - Create a new TOS version and a new Privacy version and populate `content_html` with sample HTML
+   - Publish both versions
+   - Enable “Require acceptance” on both
 2. As Client:
    - Login → verify modal appears
-   - Click “View Terms” → in‑modal panel opens with full HTML
-   - Scroll to bottom → Ready indicator flips; check “I agree”; “Accept and Continue” becomes enabled
+   - Click “Terms of Service” link → modal opens with full HTML
+   - Click “Privacy Policy” link → modal opens with full HTML
+   - Tick both checkboxes → “Accept and Continue” becomes enabled
 3. After acceptance:
-   - My Account → Terms shows accepted version, timestamp, IP/UA; link shows exact HTML
+   - My Account → Terms shows accepted versions, timestamps, IP/UA; links show exact HTML
    - Toggle require off → verify no gating on subsequent logins
 
 ## Troubleshooting & Known Pitfalls
@@ -182,11 +214,8 @@ On `a=tos-accept`:
   - Ensure `|unescape:'html' nofilter` is applied in the template to render saved HTML correctly
 
 - Redirect loops when gating:
-  - Ensure the hook whitelists module routes (`tos-block`, `tos-accept`, `tos-view`) and login/logout pages
+  - Ensure the hook whitelists module routes (`tos-block`, `legal-accept`, `tos-accept`, `tos-view`, `privacy-view`) and login/logout pages
   - If you add routing changes, update the whitelist to match
-
-- Terms panel scroll detection:
-  - The modal requires the in‑modal panel to be open and scrolled to the bottom before acceptance. If you change the container’s structure or classes, ensure the scroll handler remains bound to the correct element.
 
 ## File Map (Quick Reference)
 
@@ -198,7 +227,7 @@ On `a=tos-accept`:
   - `accounts/modules/addons/eazybackup/pages/admin/powerpanel/terms.php` (fallback loader)
 
 - Client routes:
-  - `a=tos-block`, `a=tos-accept`, `a=terms`, `a=tos-view` in `eazybackup_clientarea()`
+  - `a=tos-block`, `a=legal-accept` (and legacy `a=tos-accept`), `a=terms`, `a=tos-view`, `a=privacy-view` in `eazybackup_clientarea()`
 
 - Hook (gating):
   - `accounts/modules/addons/eazybackup/hooks.php` (`ClientAreaPage` hook)
@@ -207,6 +236,7 @@ On `a=tos-accept`:
   - `accounts/modules/addons/eazybackup/templates/tos-block.tpl`
   - `accounts/modules/addons/eazybackup/templates/terms.tpl`
   - `accounts/modules/addons/eazybackup/templates/tos-view.tpl`
+  - `accounts/modules/addons/eazybackup/templates/privacy-view.tpl`
 
 - Navigation:
   - `accounts/templates/eazyBackup/includes/profile-nav.tpl` (adds Terms tab)

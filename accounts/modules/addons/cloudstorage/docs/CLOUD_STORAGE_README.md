@@ -716,6 +716,60 @@ Quotas must load quickly even for empty buckets. The implementation avoids doing
   - Auto-logs the user into their account and redirects them to the e3 dashboard.
   - Marks the verification record as consumed so the link cannot be reused.
 
+## Welcome Page Provisioning (Product Onboarding)
+
+The `templates/welcome.tpl` page presents new customers with product selection options. When a customer selects a product and completes the password setup, provisioning is handled by `lib/Provision/Provisioner.php`.
+
+### Product Selection Flow
+
+1. Customer lands on `welcome.tpl` and selects one of four products:
+   - **Cloud Backup** → `provisionCloudBackup()`
+   - **Cloud Storage** → `provisionCloudStorage()`
+   - **Microsoft 365 Backup** → `provisionMs365()`
+   - **Cloud-to-Cloud Backup** → `provisionCloudToCloud()`
+
+2. On password submission, `api/setpassword_and_provision.php` calls the appropriate provisioner method.
+
+### Cloud Backup Provisioning
+
+`Provisioner::provisionCloudBackup()` performs the following:
+
+1. **Order Creation**: Creates a WHMCS order for the configured `pid_cloud_backup` product.
+2. **Order Acceptance**: Accepts the order with `autosetup=true` and the provided username/password.
+3. **Config Options**: Applies default config options (qty=1) for:
+   - **Device** (Config ID 67)
+   - **Cloud Storage** (Config ID 88)
+4. **Trial Period**: Sets the next due date to 14 days out for the trial period.
+5. **Redirect**: Sends user to the eazyBackup download page.
+
+### Config Options Logic
+
+The `applyDefaultConfigOptions()` method ensures trial orders receive the correct initial quantities:
+
+- First attempts to use the eazybackup module's `eazybackup_apply_default_config_options()` function if available (for consistency).
+- Falls back to inline implementation if the eazybackup function is not loaded.
+- Supports the following product mappings:
+  - PID 58 (eazyBackup) → Config IDs [67, 88]
+  - PID 60 (OBC) → Config IDs [67, 88]
+  - Any PID configured as `pid_cloud_backup` → Config IDs [67, 88]
+- MS365 products (PIDs 52, 57, 53, 54) intentionally do not have default config options.
+
+### Configuration (Addon Settings)
+
+- `pid_cloud_backup` — WHMCS Product ID for eazyBackup Cloud Backup
+- `pid_cloud_storage` — WHMCS Product ID for e3 Cloud Storage
+
+### Testing Checklist
+
+- [ ] New customer selects "Cloud Backup" from welcome page
+- [ ] Password is set and order is created with username/password
+- [ ] Service is created with correct config options:
+  - [ ] `tblhostingconfigoptions` has row for config ID 67 with qty=1
+  - [ ] `tblhostingconfigoptions` has row for config ID 88 with qty=1
+- [ ] Next due date is set to 14 days from now
+- [ ] Customer is redirected to eazyBackup download page
+- [ ] Module call logs show `apply_config_options_success` entry
+
 ## Bucket Browser Modernization (UI + Features)
 
 The bucket browser (`templates/browse.tpl`) has been modernized to match the Cloud Backup UI and now includes:

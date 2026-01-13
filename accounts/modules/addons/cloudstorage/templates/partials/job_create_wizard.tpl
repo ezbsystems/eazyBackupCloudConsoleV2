@@ -1241,11 +1241,22 @@
                             <div x-data="{
                                 allAgents: [],
                                 options: [],
+                                search: '',
                                 loading: false,
                                 isOpen: false,
                                 selectedId: '',
                                 selectedName: '',
                                 tenantFilter: '',
+                                get filtered() {
+                                    const q = (this.search || '').toLowerCase();
+                                    if (!q) return this.options;
+                                    return (this.options || []).filter(a => {
+                                        const id = String(a.id || '');
+                                        const hostname = String(a.hostname || '');
+                                        const label = hostname ? (hostname + ' (ID ' + id + ')') : ('Agent #' + id);
+                                        return label.toLowerCase().includes(q);
+                                    });
+                                },
                                 async load() {
                                     this.loading = true;
                                     try {
@@ -1305,12 +1316,15 @@
                                         </svg>
                                     </button>
                                     <div x-show="isOpen" class="absolute z-10 mt-1 w-full bg-slate-900 border border-slate-700 rounded-md shadow-lg max-h-60 overflow-auto" style="display:none;">
-                                        <template x-for="opt in options" :key="opt.id">
+                                        <div class="p-2 border-b border-slate-800">
+                                            <input type="text" x-model="search" placeholder="Search agents..." class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50">
+                                        </div>
+                                        <template x-for="opt in filtered" :key="opt.id">
                                             <div class="px-3 py-2 text-slate-200 hover:bg-slate-800 cursor-pointer" @click="choose(opt)">
                                                 <span x-text="opt.hostname ? (opt.hostname + ' (ID ' + opt.id + ')') : ('Agent #' + opt.id)"></span>
                                             </div>
                                         </template>
-                                        <div class="px-3 py-2 text-slate-500 text-xs" x-show="!loading && options.length===0">No active agents found.</div>
+                                        <div class="px-3 py-2 text-slate-500 text-xs" x-show="!loading && filtered.length===0">No active agents found.</div>
                                     </div>
                                 </div>
                                 <p class="text-xs text-slate-500 mt-1">Select your registered local agent.</p>
@@ -1318,7 +1332,7 @@
                             <div>
                                 <label class="block text-sm font-medium text-slate-200 mb-2">Destination</label>
                                 <div class="flex gap-2">
-                                    <button type="button" class="px-4 py-2 rounded-lg border border-slate-700 bg-slate-800 text-slate-100 opacity-100" disabled>S3 (only)</button>
+                                    <button type="button" class="px-4 py-2 rounded-lg border border-slate-700 bg-slate-800 text-slate-100 opacity-100" disabled>e3 (only)</button>
                                     <button type="button" class="px-4 py-2 rounded-lg border border-slate-700 bg-slate-800 text-slate-500 cursor-not-allowed" disabled>Local (disabled)</button>
                                 </div>
                             </div>
@@ -1737,45 +1751,83 @@
                                             <span class="text-sm text-slate-400" x-text="parentPath ? '..' : 'This PC'"></span>
                                         </button>
 
-                                        <template x-for="entry in entries" :key="entry.path">
-                                            <div class="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-slate-800/60 transition" :class="isSelected(entry.path) ? 'bg-cyan-500/10 ring-1 ring-cyan-500/40' : ''">
-                                                <label class="w-5 h-5 flex items-center justify-center rounded border cursor-pointer" :class="isSelected(entry.path) ? 'bg-cyan-500 border-cyan-500' : 'border-slate-600'">
-                                                    <input type="checkbox" class="hidden" :checked="isSelected(entry.path)" @change="toggleSelection(entry)">
-                                                    <svg x-show="isSelected(entry.path)" class="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
-                                                    </svg>
-                                                </label>
-                                                <button type="button" class="flex-1 flex items-center gap-3 text-left" @click="entry.is_dir ? navigateTo(entry.path) : null">
-                                                    <div class="w-8 h-8 rounded-lg flex items-center justify-center bg-slate-800">
-                                                        <template x-if="entry.icon === 'drive' && !entry.is_network">
-                                                            <svg class="w-5 h-5 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z" />
+                                        <!-- Root ("This PC"): Drive cards (no checkboxes) -->
+                                        <template x-if="isBrowseRoot">
+                                            <div class="p-4">
+                                                <div class="grid grid-cols-2 gap-3">
+                                                    <template x-for="entry in rootBrowseDrives" :key="entry.path">
+                                                        <button type="button"
+                                                                class="volume-card group p-4 rounded-xl border text-left transition-all border-slate-700 bg-slate-800/50 hover:border-cyan-500 hover:bg-slate-800"
+                                                                @click="navigateTo(entry.path)">
+                                                            <div class="flex items-start gap-3">
+                                                                <div class="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
+                                                                     :class="entry.is_network ? 'bg-purple-500/10' : 'bg-blue-500/10'">
+                                                                    <svg x-show="!entry.is_network" class="w-6 h-6 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z" />
+                                                                    </svg>
+                                                                    <svg x-show="entry.is_network" class="w-6 h-6 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
+                                                                    </svg>
+                                                                </div>
+                                                                <div class="flex-1 min-w-0">
+                                                                    <p class="text-base font-semibold text-slate-100 truncate" x-text="entry.name || entry.path"></p>
+                                                                    <p class="text-xs text-slate-400 truncate" x-text="entry.is_network ? (entry.unc_path || 'Network Drive') : (entry.label || 'Local Disk')"></p>
+                                                                    <p class="text-[10px] text-slate-500 mt-1">Click to browse folders</p>
+                                                                </div>
+                                                                <div class="shrink-0 pt-1">
+                                                                    <svg class="w-4 h-4 text-slate-500 group-hover:text-cyan-300 group-hover:translate-x-0.5 transition" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                                                                    </svg>
+                                                                </div>
+                                                            </div>
+                                                        </button>
+                                                    </template>
+                                                </div>
+                                                <div x-show="rootBrowseDrives.length === 0" class="text-center py-12 text-sm text-slate-500">
+                                                    No drives found
+                                                </div>
+                                            </div>
+                                        </template>
+
+                                        <!-- Inside a drive/folder: checkbox selector list -->
+                                        <template x-if="!isBrowseRoot">
+                                            <div class="space-y-1">
+                                                <template x-for="entry in entries" :key="entry.path">
+                                                    <div class="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-slate-800/60 transition" :class="isSelected(entry.path) ? 'bg-cyan-500/10 ring-1 ring-cyan-500/40' : ''">
+                                                        <label class="w-5 h-5 flex items-center justify-center rounded border cursor-pointer" :class="isSelected(entry.path) ? 'bg-cyan-500 border-cyan-500' : 'border-slate-600'">
+                                                            <input type="checkbox" class="hidden" :checked="isSelected(entry.path)" @change="toggleSelection(entry)">
+                                                            <svg x-show="isSelected(entry.path)" class="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
                                                             </svg>
-                                                        </template>
-                                                        <template x-if="entry.is_network">
-                                                            <svg class="w-5 h-5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
+                                                        </label>
+                                                        <button type="button" class="flex-1 flex items-center gap-3 text-left cursor-pointer" @click="entry.is_dir ? navigateTo(entry.path) : null">
+                                                            <div class="w-8 h-8 rounded-lg flex items-center justify-center bg-slate-800">
+                                                                <template x-if="entry.is_network">
+                                                                    <svg class="w-5 h-5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
+                                                                    </svg>
+                                                                </template>
+                                                                <template x-if="entry.is_dir && !entry.is_network">
+                                                                    <svg class="w-5 h-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
+                                                                    </svg>
+                                                                </template>
+                                                                <template x-if="!entry.is_dir && !entry.is_network">
+                                                                    <svg class="w-5 h-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                                                                    </svg>
+                                                                </template>
+                                                            </div>
+                                                            <div class="flex-1 min-w-0">
+                                                                <p class="text-sm text-slate-100 truncate" x-text="entry.name"></p>
+                                                                <p class="text-xs text-slate-500" x-text="entry.is_network ? (entry.unc_path || 'Network Drive') : (entry.is_dir ? 'Folder' : formatBytes(entry.size))"></p>
+                                                            </div>
+                                                            <svg x-show="entry.is_dir" class="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
                                                             </svg>
-                                                        </template>
-                                                        <template x-if="entry.is_dir && entry.icon !== 'drive' && !entry.is_network">
-                                                            <svg class="w-5 h-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
-                                                            </svg>
-                                                        </template>
-                                                        <template x-if="!entry.is_dir && entry.icon !== 'drive'">
-                                                            <svg class="w-5 h-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-                                                            </svg>
-                                                        </template>
+                                                        </button>
                                                     </div>
-                                                    <div class="flex-1 min-w-0">
-                                                        <p class="text-sm text-slate-100 truncate" x-text="entry.name"></p>
-                                                        <p class="text-xs text-slate-500" x-text="entry.is_network ? (entry.unc_path || 'Network Drive') : (entry.is_dir ? 'Folder' : formatBytes(entry.size))"></p>
-                                                    </div>
-                                                    <svg x-show="entry.is_dir" class="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-                                                    </svg>
-                                                </button>
+                                                </template>
                                             </div>
                                         </template>
 
@@ -1899,7 +1951,10 @@
                                         </div>
                                         <div>
                                             <label class="block text-xs text-slate-400 mb-1">Password</label>
-                                            <input type="password" x-model="networkPassword" id="localWizardNetworkPassword" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50" placeholder="Network password" @input="syncCredentials()">
+                                            <input type="password" x-model="networkPassword" id="localWizardNetworkPassword" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50" :placeholder="(window.localWizardState?.editMode && window.localWizardState?.data?.has_network_password) ? 'Leave blank to keep current' : 'Network password'" @input="syncCredentials()">
+                                            <template x-if="window.localWizardState?.editMode && window.localWizardState?.data?.has_network_password">
+                                                <p class="text-xs text-emerald-400 mt-1">A password is saved. Leave blank to keep the current password.</p>
+                                            </template>
                                         </div>
                                         <div>
                                             <label class="block text-xs text-slate-400 mb-1">Domain (optional)</label>
@@ -1944,10 +1999,22 @@
                                 <textarea id="localWizardRetention" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50" rows="4" placeholder="&#123;&quot;keep_last&quot;:30,&quot;keep_daily&quot;:7&#125;"></textarea>
                                 <p class="text-xs text-slate-500 mt-1">JSON or simple values; kept server-side.</p>
                             </div>
-                            <div>
-                                <label class="block text-sm font-medium text-slate-200 mb-2">Backup Policy</label>
+                            <div x-data="{ showAdvancedPolicy: false }">
+                                <div class="flex items-center justify-between mb-2">
+                                    <label class="block text-sm font-medium text-slate-200">Backup Policy</label>
+                                    <label class="flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none">
+                                        <span>Advanced settings</span>
+                                        <button @click="showAdvancedPolicy = !showAdvancedPolicy" type="button"
+                                                class="relative w-9 h-5 rounded-full transition-colors"
+                                                :class="showAdvancedPolicy ? 'bg-cyan-600' : 'bg-slate-700'">
+                                            <span class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform"
+                                                  :class="showAdvancedPolicy ? 'translate-x-4' : 'translate-x-0'"></span>
+                                        </button>
+                                    </label>
+                                </div>
                                 <textarea id="localWizardPolicy" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50" rows="4" placeholder="&#123;&quot;compression&quot;:&quot;none&quot;,&quot;parallel_uploads&quot;:8&#125;"></textarea>
-                                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-3">
+                                <div x-show="showAdvancedPolicy" x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
+                                     class="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-3" style="display:none;">
                                     <div>
                                         <label class="block text-xs text-slate-400 mb-1">Bandwidth (KB/s)</label>
                                         <input id="localWizardBandwidth" type="number" value="0" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50" placeholder="0 = unlimited">
@@ -1966,7 +2033,8 @@
                                         </select>
                                     </div>
                                 </div>
-                                <div class="mt-3">
+                                <div x-show="showAdvancedPolicy" x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
+                                     class="mt-3" style="display:none;">
                                     <label class="inline-flex items-center gap-2">
                                         <input id="localWizardDebugLogs" type="checkbox" class="rounded border-slate-600 bg-slate-800">
                                         <span class="text-sm text-slate-200">Enable detailed eazyBackup debug logs</span>

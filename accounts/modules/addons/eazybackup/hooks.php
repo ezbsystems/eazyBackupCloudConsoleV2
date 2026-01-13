@@ -167,7 +167,7 @@ add_hook('ClientAreaPage', 1, function ($vars) {
 
 
 /**
- * Client-area TOS gating (entire portal) when active version requires acceptance.
+ * Client-area Legal Agreements gating (entire portal) when active versions require acceptance.
  */
 add_hook('ClientAreaPage', 2, function ($vars) {
     try {
@@ -180,37 +180,67 @@ add_hook('ClientAreaPage', 2, function ($vars) {
         // Whitelist acceptance routes and login-related pages to avoid loops
         $reqUri = (string)($_SERVER['REQUEST_URI'] ?? '');
         $qs = (string)($_SERVER['QUERY_STRING'] ?? '');
-        $isModuleTos = (isset($_GET['m']) && $_GET['m'] === 'eazybackup' && isset($_GET['a']) && in_array($_GET['a'], ['tos-block','tos-accept','tos-view'], true));
+        $isModuleLegal = (isset($_GET['m']) && $_GET['m'] === 'eazybackup' && isset($_GET['a']) && in_array($_GET['a'], ['tos-block','tos-accept','legal-accept','tos-view','privacy-view'], true));
         $isLoginOrLogout = (strpos($reqUri, 'logout.php') !== false) || (strpos($reqUri, 'pwreset') !== false);
-        if ($isModuleTos || $isLoginOrLogout) {
+        if ($isModuleLegal || $isLoginOrLogout) {
             return;
         }
-
-        // Read active TOS that requires acceptance
-        $active = Capsule::table('eb_tos_versions')
-            ->where('is_active', 1)
-            ->orderBy('published_at', 'desc')
-            ->first();
-        if (!$active || (int)$active->require_acceptance !== 1) {
-            return; // nothing enforced
-        }
-        $version = (string)$active->version;
 
         // Determine identity for per-user acceptance (contact if present)
         $contactId = (int)($_SESSION['cid'] ?? 0);
 
-        // Check per-user acceptance
-        $q = Capsule::table('eb_tos_user_acceptances')
-            ->where('client_id', $clientId)
-            ->where('tos_version', $version);
-        if ($contactId > 0) {
-            $q->where('contact_id', $contactId);
-        } else {
-            $q->whereNull('user_id')->whereNull('contact_id');
-        }
-        $userAccepted = (bool)$q->exists();
+        // Read active required versions (TOS + Privacy)
+        $tos = Capsule::table('eb_tos_versions')
+            ->where('is_active', 1)
+            ->orderBy('published_at', 'desc')
+            ->first();
+        $privacy = Capsule::table('eb_privacy_versions')
+            ->where('is_active', 1)
+            ->orderBy('published_at', 'desc')
+            ->first();
 
-        if ($userAccepted) {
+        $tosRequired = ($tos && (int)($tos->require_acceptance ?? 0) === 1) ? 1 : 0;
+        $privacyRequired = ($privacy && (int)($privacy->require_acceptance ?? 0) === 1) ? 1 : 0;
+
+        if (!$tosRequired && !$privacyRequired) {
+            return; // nothing enforced
+        }
+
+        $needsAcceptance = false;
+
+        if ($tosRequired) {
+            $version = (string)$tos->version;
+            $q = Capsule::table('eb_tos_user_acceptances')
+                ->where('client_id', $clientId)
+                ->where('tos_version', $version);
+            if ($contactId > 0) {
+                $q->where('contact_id', $contactId);
+            } else {
+                $q->whereNull('user_id')->whereNull('contact_id');
+            }
+            $userAccepted = (bool)$q->exists();
+            if (!$userAccepted) {
+                $needsAcceptance = true;
+            }
+        }
+
+        if ($privacyRequired) {
+            $version = (string)$privacy->version;
+            $q = Capsule::table('eb_privacy_user_acceptances')
+                ->where('client_id', $clientId)
+                ->where('privacy_version', $version);
+            if ($contactId > 0) {
+                $q->where('contact_id', $contactId);
+            } else {
+                $q->whereNull('user_id')->whereNull('contact_id');
+            }
+            $userAccepted = (bool)$q->exists();
+            if (!$userAccepted) {
+                $needsAcceptance = true;
+            }
+        }
+
+        if (!$needsAcceptance) {
             return;
         }
 
