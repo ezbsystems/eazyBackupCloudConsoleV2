@@ -3122,9 +3122,25 @@
 
 <script>
 {literal}
+// Cloud Wizard edit mode state
+window.cloudWizardState = { editMode: false, jobId: null };
+
 function openCreateJobModal() {
     const panel = document.getElementById('createJobSlideover');
     if (!panel) return;
+
+    // Reset edit mode state when opening via this function (create mode)
+    if (!window.cloudWizardState?.editMode) {
+        window.cloudWizardState = { editMode: false, jobId: null };
+        // Reset panel title for create mode
+        const titleEl = panel.querySelector('h2');
+        if (titleEl) {
+            titleEl.textContent = 'Create Backup Job';
+        }
+        // Reset form fields
+        const form = document.getElementById('createJobForm');
+        if (form) form.reset();
+    }
 
     // Force show backdrop and panel for immediate visibility
     panel.style.setProperty('display', 'block', 'important');
@@ -3149,6 +3165,114 @@ function openCreateJobModal() {
 
     // Apply initial state for source type groups
     applyInitialSourceState();
+}
+
+// Open Cloud Backup Wizard in edit mode
+function openCloudBackupWizardForEdit(jobId) {
+    if (!jobId) return;
+    window.cloudWizardState = { editMode: true, jobId: jobId, loading: true };
+    
+    // Open the panel first
+    openCreateJobModal();
+    
+    // Then fetch the job data and populate fields
+    fetch('modules/addons/cloudstorage/api/cloudbackup_get_job.php?job_id=' + encodeURIComponent(jobId))
+        .then(r => r.json())
+        .then(data => {
+            if (data.status !== 'success') {
+                e3backupNotify('error', data.message || 'Failed to load job');
+                closeCreateSlideover();
+                return;
+            }
+            const job = data.job || {};
+            const source = data.source || {};
+            
+            // Populate form fields
+            cloudWizardFillFromJob(job, source);
+            
+            // Update panel title
+            const titleEl = document.querySelector('#createJobSlideover h2');
+            if (titleEl) {
+                titleEl.textContent = 'Edit Backup Job';
+            }
+            
+            window.cloudWizardState.loading = false;
+        })
+        .catch(err => {
+            e3backupNotify('error', 'Error loading job: ' + err.message);
+            closeCreateSlideover();
+        });
+}
+
+// Fill Cloud Wizard fields from job data
+function cloudWizardFillFromJob(job, source) {
+    // Job name
+    const nameEl = document.getElementById('jobName');
+    if (nameEl) nameEl.value = job.name || '';
+    
+    // Source type
+    const sourceTypeEl = document.getElementById('sourceType');
+    if (sourceTypeEl) {
+        sourceTypeEl.value = job.source_type || '';
+        onSourceTypeChange(job.source_type || '');
+    }
+    
+    // Fill source-specific fields based on type
+    const type = (source.type || job.source_type || '').toLowerCase();
+    if (type === 's3_compatible') {
+        const endpointEl = document.getElementById('s3Endpoint');
+        if (endpointEl) endpointEl.value = source.endpoint || '';
+        const bucketEl = document.getElementById('s3Bucket');
+        if (bucketEl) bucketEl.value = source.bucket || '';
+        const regionEl = document.getElementById('s3Region');
+        if (regionEl) regionEl.value = source.region || 'ca-central-1';
+    } else if (type === 'aws') {
+        const bucketEl = document.getElementById('awsBucket');
+        if (bucketEl) bucketEl.value = source.bucket || '';
+        const regionEl = document.getElementById('awsRegion');
+        if (regionEl) regionEl.value = source.region || 'us-east-1';
+    } else if (type === 'sftp') {
+        const hostEl = document.getElementById('sftpHost');
+        if (hostEl) hostEl.value = source.host || '';
+        const portEl = document.getElementById('sftpPort');
+        if (portEl) portEl.value = source.port || '22';
+        const userEl = document.getElementById('sftpUsername');
+        if (userEl) userEl.value = source.user || '';
+    }
+    
+    // Destination
+    const destBucketEl = document.getElementById('destBucketId');
+    if (destBucketEl) {
+        destBucketEl.value = job.dest_bucket_id || '';
+    }
+    const destPrefixEl = document.getElementById('destPrefix');
+    if (destPrefixEl) destPrefixEl.value = job.dest_prefix || '';
+    
+    // Schedule
+    const scheduleTypeEl = document.getElementById('scheduleType');
+    if (scheduleTypeEl) {
+        scheduleTypeEl.value = job.schedule_type || 'manual';
+        scheduleTypeEl.dispatchEvent(new Event('change'));
+    }
+    const scheduleTimeEl = document.getElementById('scheduleTime');
+    if (scheduleTimeEl) scheduleTimeEl.value = job.schedule_time || '';
+    const scheduleWeekdayEl = document.getElementById('scheduleWeekday');
+    if (scheduleWeekdayEl) scheduleWeekdayEl.value = job.schedule_weekday || '1';
+    
+    // Retention
+    const retentionModeEl = document.getElementById('retentionMode');
+    if (retentionModeEl) {
+        retentionModeEl.value = job.retention_mode || 'none';
+        if (typeof onRetentionModeChange === 'function') {
+            onRetentionModeChange();
+        }
+    }
+    const retentionValueEl = document.getElementById('retentionValue');
+    if (retentionValueEl) retentionValueEl.value = job.retention_value || '';
+    
+    // Backup mode
+    const backupModeEl = document.getElementById('backupMode');
+    if (backupModeEl) backupModeEl.value = job.backup_mode || 'sync';
 }
 
 // Local Agent Wizard helpers
@@ -3347,6 +3471,12 @@ function localWizardFillFromJob(j, s) {
         window.localWizardState.data.source_paths = parsedPaths;
         window.localWizardState.data.source_path = parsedPaths[0] || job.source_path || '';
     }
+    
+    // Dispatch event to tell fileBrowser to reload selected paths from hidden input
+    setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('edit-paths-loaded'));
+    }, 100);
+    
     const diskVolEl = document.getElementById('localWizardDiskVolume');
     if (diskVolEl) diskVolEl.value = job.disk_source_volume || '';
     const diskFmtEl = document.getElementById('localWizardDiskFormat');
@@ -3477,6 +3607,22 @@ function fileBrowser() {
             return window.localWizardState?.data?.engine === 'disk_image';
         },
 
+        // File/folder browse UX:
+        // - At root ("This PC"), show drive cards and hide checkboxes.
+        // - Inside a drive/folder, show the checkbox-based selector list.
+        get isBrowseRoot() {
+            return !this.isDiskImageMode && this.currentPath === '';
+        },
+
+        get showSelectionCheckboxes() {
+            return !this.isDiskImageMode && this.currentPath !== '';
+        },
+
+        get rootBrowseDrives() {
+            if (!this.isBrowseRoot) return [];
+            return this.entries.filter(e => e && e.icon === 'drive' && e.is_dir);
+        },
+
         get localVolumes() {
             // Filter to only show local (non-network) drives at root level
             // Exclude network drives, UNC paths, and drives with network type
@@ -3583,6 +3729,22 @@ function fileBrowser() {
                 }
                 // Reload directory (volumes for disk image, folders for file backup)
                 this.loadDirectory('');
+            });
+            // Reload selected paths from hidden input (for edit mode)
+            window.addEventListener('edit-paths-loaded', () => {
+                const preset = document.getElementById('localWizardSourcePaths')?.value || '';
+                if (preset) {
+                    try {
+                        const parsed = JSON.parse(preset);
+                        if (Array.isArray(parsed)) {
+                            this.selectedPaths = parsed;
+                        }
+                    } catch (e) {}
+                }
+                const diskVolume = document.getElementById('localWizardDiskVolume')?.value || '';
+                if (diskVolume) {
+                    this.selectedVolume = diskVolume;
+                }
             });
         },
 
@@ -4607,7 +4769,17 @@ document.getElementById('createJobForm').addEventListener('submit', function(e) 
         s3_user_id: formData.get('s3_user_id')
     };
     
-    fetch('modules/addons/cloudstorage/api/cloudbackup_create_job.php', {
+    // Check if we're in edit mode
+    const isEdit = window.cloudWizardState?.editMode && window.cloudWizardState?.jobId;
+    if (isEdit) {
+        jobData.job_id = window.cloudWizardState.jobId;
+    }
+    
+    const endpoint = isEdit 
+        ? 'modules/addons/cloudstorage/api/cloudbackup_update_job.php'
+        : 'modules/addons/cloudstorage/api/cloudbackup_create_job.php';
+    
+    fetch(endpoint, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
@@ -4620,13 +4792,13 @@ document.getElementById('createJobForm').addEventListener('submit', function(e) 
             // Success toast + close panel, then refresh after a brief delay so the toast is visible
             try {
                 if (window.toast && typeof window.toast.success === 'function') {
-                    window.toast.success('Backup job created successfully');
+                    window.toast.success(isEdit ? 'Backup job updated successfully' : 'Backup job created successfully');
                 }
             } catch (e) {}
             try { closeCreateSlideover(); } catch (e) {}
             setTimeout(() => { location.reload(); }, 1200);
         } else {
-            const msg = data.message || 'Failed to create job';
+            const msg = data.message || (isEdit ? 'Failed to update job' : 'Failed to create job');
             const el = document.getElementById('jobCreationMessage');
             if (el) { el.textContent = msg; el.classList.remove('hidden'); }
             if (window.toast && typeof window.toast.error === 'function') { window.toast.error(msg); }
@@ -5047,6 +5219,9 @@ function closeCreateSlideover() {
     if (panel.__x && panel.__x.$data) {
         panel.__x.$data.isOpen = false;
     }
+    
+    // Reset edit mode state when closing
+    window.cloudWizardState = { editMode: false, jobId: null };
 }
 
 function onEditSourceTypeChange() {

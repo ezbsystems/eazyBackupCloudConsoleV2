@@ -67,6 +67,95 @@ class Provisioner
         }
     }
 
+    /**
+     * Apply default config options (qty=1) for a newly provisioned service.
+     *
+     * This ensures trial orders get the correct initial quantities for:
+     * - Device config option (ID 67)
+     * - Cloud Storage config option (ID 88)
+     *
+     * The mapping is consistent with the eazybackup module's logic.
+     *
+     * @param int $serviceId The WHMCS service ID (tblhosting.id)
+     * @param int $pid       The WHMCS product ID
+     */
+    private static function applyDefaultConfigOptions(int $serviceId, int $pid): void
+    {
+        // First, try to use the eazybackup module's function if it exists (for consistency)
+        if (function_exists('eazybackup_apply_default_config_options')) {
+            try {
+                \eazybackup_apply_default_config_options($serviceId, $pid);
+                try { logModuleCall('cloudstorage', 'apply_config_options_via_eazybackup', ['serviceId' => $serviceId, 'pid' => $pid], 'Used eazybackup function'); } catch (\Throwable $_) {}
+                return;
+            } catch (\Throwable $e) {
+                try { logModuleCall('cloudstorage', 'apply_config_options_eazybackup_failed', ['serviceId' => $serviceId, 'pid' => $pid], $e->getMessage()); } catch (\Throwable $_) {}
+                // Fall through to inline implementation
+            }
+        }
+
+        // Map of product id => array of config option ids to set qty=1
+        // These are the standard eazyBackup/OBC config options:
+        // - 67: Device (Protected Item)
+        // - 88: Cloud Storage (GB)
+        $map = [
+            58 => [67, 88], // eazyBackup
+            60 => [67, 88], // OBC (Office Backup Cloud)
+        ];
+
+        // If this PID isn't in the map, check if it should inherit the default config options.
+        // This handles cases where pid_cloud_backup is set to a different product ID.
+        if (!isset($map[$pid])) {
+            // For Cloud Backup products not in the hardcoded map, apply the same defaults
+            // as eazyBackup (PID 58) since they share the same config option structure.
+            $configuredBackupPid = (int) self::getSetting('pid_cloud_backup', 0);
+            if ($pid === $configuredBackupPid && $configuredBackupPid > 0) {
+                // Use the same config options as eazyBackup
+                $map[$pid] = [67, 88];
+            }
+        }
+
+        if (!isset($map[$pid])) {
+            try { logModuleCall('cloudstorage', 'apply_config_options_skip', ['serviceId' => $serviceId, 'pid' => $pid], 'PID not in config options map'); } catch (\Throwable $_) {}
+            return;
+        }
+
+        foreach ($map[$pid] as $configId) {
+            try {
+                // Find the first sub-option ID for this config option (the "unit" option)
+                $subId = Capsule::table('tblproductconfigoptionssub')
+                    ->where('configid', $configId)
+                    ->orderBy('sortorder')
+                    ->orderBy('id')
+                    ->value('id');
+                $optionId = $subId ? (int) $subId : (int) $configId; // fallback
+
+                // Upsert the hosting config option row with qty=1
+                $exists = Capsule::table('tblhostingconfigoptions')
+                    ->where('relid', $serviceId)
+                    ->where('configid', $configId)
+                    ->exists();
+
+                if ($exists) {
+                    Capsule::table('tblhostingconfigoptions')
+                        ->where('relid', $serviceId)
+                        ->where('configid', $configId)
+                        ->update(['optionid' => $optionId, 'qty' => 1]);
+                } else {
+                    Capsule::table('tblhostingconfigoptions')->insert([
+                        'relid'    => $serviceId,
+                        'configid' => $configId,
+                        'optionid' => $optionId,
+                        'qty'      => 1,
+                    ]);
+                }
+            } catch (\Throwable $e) {
+                try { logModuleCall('cloudstorage', 'apply_config_option_fail', ['serviceId' => $serviceId, 'pid' => $pid, 'configId' => $configId], $e->getMessage()); } catch (\Throwable $_) {}
+            }
+        }
+
+        try { logModuleCall('cloudstorage', 'apply_config_options_success', ['serviceId' => $serviceId, 'pid' => $pid, 'configIds' => $map[$pid]], 'Config options applied'); } catch (\Throwable $_) {}
+    }
+
     public static function provisionCloudBackup(int $clientId, string $username, string $password): string
     {
         $pid = (int) self::getSetting('pid_cloud_backup', 0);
@@ -116,6 +205,14 @@ class Provisioner
             }
         }
         if ($serviceId > 0) {
+            // Apply default config options (Device qty=1, Cloud Storage qty=1)
+            try {
+                self::applyDefaultConfigOptions($serviceId, $pid);
+            } catch (\Throwable $e) {
+                try { logModuleCall('cloudstorage', 'provision_cloud_backup_config_options_fail', ['serviceid' => $serviceId, 'pid' => $pid], $e->getMessage()); } catch (\Throwable $_) {}
+            }
+
+            // Set trial period (14 days)
             try {
                 $tz = new \DateTimeZone('America/Toronto');
                 $nextDue = new \DateTime('now', $tz);

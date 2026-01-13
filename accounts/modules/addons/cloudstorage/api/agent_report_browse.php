@@ -41,6 +41,30 @@ $body = $bodyRaw ? json_decode($bodyRaw, true) : [];
 $commandId = isset($body['command_id']) ? (int) $body['command_id'] : 0;
 $result = $body['result'] ?? null;
 
+// Support robust transport where the agent sends gzip+base64 encoded JSON to avoid WAF false positives
+// on Windows paths like "C:\Users\..." that can trigger HTTP 403 before PHP runs.
+if ($result === null && isset($body['result_b64'])) {
+    $encoding = strtolower((string) ($body['result_encoding'] ?? 'base64'));
+    $b64 = (string) $body['result_b64'];
+    $bin = base64_decode($b64, true);
+    if ($bin === false) {
+        respond(['status' => 'fail', 'message' => 'Invalid result_b64'], 400);
+    }
+    if ($encoding === 'gzip+base64' || $encoding === 'gzip' || $encoding === 'gz+b64') {
+        $json = @gzdecode($bin);
+        if ($json === false) {
+            respond(['status' => 'fail', 'message' => 'Failed to gzdecode browse result'], 400);
+        }
+    } else {
+        $json = $bin;
+    }
+    $decoded = json_decode($json, true);
+    if (json_last_error() !== JSON_ERROR_NONE) {
+        respond(['status' => 'fail', 'message' => 'Invalid decoded browse JSON'], 400);
+    }
+    $result = $decoded;
+}
+
 if ($commandId <= 0) {
     respond(['status' => 'fail', 'message' => 'command_id is required'], 400);
 }

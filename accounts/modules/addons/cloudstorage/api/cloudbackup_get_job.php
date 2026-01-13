@@ -11,6 +11,7 @@ use WHMCS\ClientArea;
 use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
+use WHMCS\Database\Capsule;
 
 $ca = new ClientArea();
 if (!$ca->isLoggedIn()) {
@@ -62,6 +63,7 @@ if (empty($encryptionKey)) {
 
 // Decrypt source_config_enc
 $safeSource = [];
+$decryptedConfig = [];
 try {
     $dec = CloudBackupController::decryptSourceConfig($job, $encryptionKey);
     if (is_string($dec)) {
@@ -70,6 +72,7 @@ try {
     if (!is_array($dec)) {
         $dec = [];
     }
+    $decryptedConfig = $dec;
     $type = $job['source_type'];
     if ($type === 's3_compatible') {
         $safeSource = [
@@ -96,6 +99,18 @@ try {
             'user'     => isset($dec['user']) ? $dec['user'] : null,
             'has_pass' => (isset($dec['pass']) && !empty($dec['pass'])),
         ];
+    } elseif ($type === 'local_agent') {
+        // For local_agent, include editable config fields (no secrets)
+        $safeSource = [
+            'type'                 => 'local_agent',
+            'include_glob'         => $dec['include_glob'] ?? null,
+            'exclude_glob'         => $dec['exclude_glob'] ?? null,
+            'bandwidth_limit_kbps' => $dec['bandwidth_limit_kbps'] ?? null,
+            // Indicate if network credentials are stored (don't expose them)
+            'has_network_password' => isset($dec['network_credentials']['password']) && !empty($dec['network_credentials']['password']),
+            'network_username'     => isset($dec['network_credentials']['username']) ? '[saved]' : null,
+            'network_domain'       => $dec['network_credentials']['domain'] ?? null,
+        ];
     } else {
         $safeSource = ['type' => $type];
     }
@@ -120,16 +135,76 @@ $outJob = [
     'schedule_time'         => $job['schedule_time'],
     'schedule_weekday'      => $job['schedule_weekday'],
     'timezone'              => $job['timezone'],
-    'encryption_enabled'    => (int) $job['encryption_enabled'],
-    'compression_enabled'   => (int) $job['compression_enabled'],
+    'encryption_enabled'    => (int) ($job['encryption_enabled'] ?? 0),
+    'compression_enabled'   => (int) ($job['compression_enabled'] ?? 0),
     'retention_mode'        => $job['retention_mode'],
     'retention_value'       => $job['retention_value'],
     'notify_override_email' => $job['notify_override_email'],
-    'notify_on_success'     => (int) $job['notify_on_success'],
-    'notify_on_warning'     => (int) $job['notify_on_warning'],
-    'notify_on_failure'     => (int) $job['notify_on_failure'],
+    'notify_on_success'     => (int) ($job['notify_on_success'] ?? 0),
+    'notify_on_warning'     => (int) ($job['notify_on_warning'] ?? 0),
+    'notify_on_failure'     => (int) ($job['notify_on_failure'] ?? 0),
     'status'                => $job['status'],
 ];
+
+// Include additional fields for edit mode (local_agent and all jobs)
+// Engine & backup mode
+$outJob['engine'] = $job['engine'] ?? 'sync';
+
+// Source paths (for local_agent multi-folder selection)
+$outJob['source_paths_json'] = $job['source_paths_json'] ?? null;
+
+// Disk image fields
+$outJob['disk_source_volume'] = $job['disk_source_volume'] ?? null;
+$outJob['disk_image_format'] = $job['disk_image_format'] ?? 'vhdx';
+$outJob['disk_temp_dir'] = $job['disk_temp_dir'] ?? null;
+
+// Include/exclude globs (from source config or job-level)
+$outJob['local_include_glob'] = $decryptedConfig['include_glob'] ?? ($job['local_include_glob'] ?? null);
+$outJob['local_exclude_glob'] = $decryptedConfig['exclude_glob'] ?? ($job['local_exclude_glob'] ?? null);
+
+// Policy fields
+$outJob['bandwidth_limit_kbps'] = $job['bandwidth_limit_kbps'] ?? ($decryptedConfig['bandwidth_limit_kbps'] ?? null);
+$outJob['parallelism'] = $job['parallelism'] ?? null;
+
+// JSON config fields
+$outJob['policy_json'] = $job['policy_json'] ?? null;
+$outJob['retention_json'] = $job['retention_json'] ?? null;
+$outJob['schedule_json'] = $job['schedule_json'] ?? null;
+
+// Hyper-V fields
+$outJob['hyperv_enabled'] = (int) ($job['hyperv_enabled'] ?? 0);
+$outJob['hyperv_config'] = $job['hyperv_config'] ?? null;
+
+// Tenant info (for MSP)
+$outJob['tenant_id'] = $job['tenant_id'] ?? null;
+
+// Try to fetch agent hostname if agent_id is set
+if ($outJob['agent_id']) {
+    try {
+        $agent = Capsule::table('s3_cloudbackup_agents')
+            ->where('id', $outJob['agent_id'])
+            ->first(['hostname']);
+        if ($agent) {
+            $outJob['agent_hostname'] = $agent->hostname;
+        }
+    } catch (\Throwable $e) {
+        // Ignore - agent_hostname is optional
+    }
+}
+
+// Try to fetch bucket name if dest_bucket_id is set
+if ($outJob['dest_bucket_id']) {
+    try {
+        $bucket = Capsule::table('s3_buckets')
+            ->where('id', $outJob['dest_bucket_id'])
+            ->first(['name']);
+        if ($bucket) {
+            $outJob['dest_bucket_name'] = $bucket->name;
+        }
+    } catch (\Throwable $e) {
+        // Ignore - dest_bucket_name is optional
+    }
+}
 
 $resp = new JsonResponse([
     'status' => 'success',

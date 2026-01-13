@@ -10,9 +10,26 @@
       <div class="text-sm text-slate-400 mt-2 sm:mt-0">Version: {$tos->version|escape}</div>
     </div>
 
+    <style>
+      /* Legal agreement HTML formatting (Tailwind preflight resets margins/lists) */
+      .eb-legal-content p { margin: 0.75rem 0; }
+      .eb-legal-content strong { font-weight: 700; }
+      .eb-legal-content em { font-style: italic; }
+      .eb-legal-content a { text-decoration: underline; }
+      .eb-legal-content ul,
+      .eb-legal-content ol { margin: 0.75rem 0; padding-left: 1.25rem; }
+      .eb-legal-content ul { list-style: disc; }
+      .eb-legal-content ol { list-style: decimal; }
+      .eb-legal-content li { margin: 0.25rem 0; }
+      .eb-legal-content ol ol { list-style: lower-alpha; }
+      .eb-legal-content h1,
+      .eb-legal-content h2,
+      .eb-legal-content h3 { margin: 1.25rem 0 0.75rem; font-weight: 700; }
+    </style>
+
     <div class="bg-slate-800 rounded-lg border border-slate-700 shadow-lg p-6">
       {if $tos->content_html}
-        <div class="prose prose-invert max-w-none">
+        <div class="eb-legal-content prose prose-invert max-w-none">
           {$tos->content_html|unescape:'html' nofilter}
         </div>
       {else}
