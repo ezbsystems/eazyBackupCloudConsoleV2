@@ -1350,7 +1350,7 @@ x-data="{ openModal: null }"
             
             <div class="space-y-3">
                 <!-- Windows Download Button -->
-                <a href="/client_installer/e3-backup-agent.exe" 
+                <a href="/client_installer/e3-backup-agent-setup.exe" 
                    target="_blank" 
                    rel="noopener"
                    class="flex items-center justify-center gap-3 w-full bg-orange-600 hover:bg-orange-500 text-white font-semibold py-3 px-4 rounded-lg transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-orange-500">

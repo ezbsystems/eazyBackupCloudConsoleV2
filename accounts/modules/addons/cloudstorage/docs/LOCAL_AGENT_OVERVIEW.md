@@ -2131,8 +2131,10 @@ Permanently deletes an agent from the database. Use this when:
 ### Download Agent Flyout (Jan 2025)
 
 The sidebar navigation now includes a "Download Agent" menu item that opens a flyout with:
-- **Windows** download button → `/client_installer/e3-backup-agent.exe`
+- **Windows** download button → `/client_installer/e3-backup-agent-setup.exe`
 - **Linux** download button → `/client_installer/e3-backup-agent-linux`
+
+**Server Path**: The installer files must be placed in `/var/www/eazybackup.ca/accounts/client_installer/` since `accounts/` is the public web root.
 
 Both buttons use orange styling (`bg-orange-600`) and include platform icons.
 
