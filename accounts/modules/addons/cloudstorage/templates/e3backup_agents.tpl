@@ -13,7 +13,7 @@
                 <p class="text-xs text-slate-400 mt-1">Manage your backup agents and their configurations.</p>
             </div>
             <div class="flex gap-2 mt-4 sm:mt-0">
-                <a href="/client_installer/e3-backup-agent.exe" class="px-4 py-2 rounded-md bg-slate-700 text-white text-sm font-semibold hover:bg-slate-600" target="_blank" rel="noopener">
+                <a href="/client_installer/e3-backup-agent-setup.exe" class="px-4 py-2 rounded-md bg-slate-700 text-white text-sm font-semibold hover:bg-slate-600" target="_blank" rel="noopener">
                     Download Agent
                 </a>
                 <a href="index.php?m=cloudstorage&page=e3backup&view=tokens" class="px-4 py-2 rounded-md bg-sky-600 text-white text-sm font-semibold hover:bg-sky-500">

@@ -71,7 +71,7 @@
             
             <div class="space-y-3">
                 <!-- Windows Download Button -->
-                <a href="/client_installer/e3-backup-agent.exe" 
+                <a href="/client_installer/e3-backup-agent-setup.exe" 
                    target="_blank" 
                    rel="noopener"
                    @click="downloadFlyoutOpen = false"

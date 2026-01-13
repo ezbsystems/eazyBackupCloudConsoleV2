@@ -133,6 +133,27 @@ The installer will be created in the `installer\Output\` folder:
 e3-backup-agent-setup.exe
 ```
 
+### Deploy to Web Server
+
+Copy the installer to the public download location on your server:
+
+```bash
+# The public web root is /var/www/eazybackup.ca/accounts/
+# Create the client_installer directory if it doesn't exist
+mkdir -p /var/www/eazybackup.ca/accounts/client_installer
+
+# Copy the installer (from Windows build machine)
+scp e3-backup-agent-setup.exe user@server:/var/www/eazybackup.ca/accounts/client_installer/
+
+# The installer will be accessible at:
+# https://accounts.eazybackup.ca/client_installer/e3-backup-agent-setup.exe
+```
+
+| File | Server Path | Download URL |
+|------|-------------|--------------|
+| Windows Installer | `/var/www/eazybackup.ca/accounts/client_installer/e3-backup-agent-setup.exe` | `/client_installer/e3-backup-agent-setup.exe` |
+| Linux Binary | `/var/www/eazybackup.ca/accounts/client_installer/e3-backup-agent-linux` | `/client_installer/e3-backup-agent-linux` |
+
 ---
 
 ## Step 4: Install on Target Windows Machine

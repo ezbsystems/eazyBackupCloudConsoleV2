@@ -27,7 +27,7 @@
                 <h1 class="text-2xl font-semibold text-white">Backup Agents</h1>
                 <p class="text-xs text-slate-400 mt-1">Manage agent tokens and download the Windows agent.</p>
             </div>
-            <a href="/client_installer/e3-backup-agent.exe" class="px-4 py-2 rounded-md bg-sky-600 text-white text-sm font-semibold hover:bg-sky-500" target="_blank" rel="noopener">
+            <a href="/client_installer/e3-backup-agent-setup.exe" class="px-4 py-2 rounded-md bg-sky-600 text-white text-sm font-semibold hover:bg-sky-500" target="_blank" rel="noopener">
                 Download Windows Agent
             </a>
         </div>
