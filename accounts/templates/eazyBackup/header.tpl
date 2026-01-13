@@ -1378,7 +1378,7 @@ x-data="{ openModal: null }"
     </div>
 </div>
 <!-- e3 Backup Agent Download Flyout Backdrop -->
-<div id="e3backup-download-backdrop" class="fixed inset-0 bg-black bg-opacity-50 z-40 hidden"></div>
+<div id="e3backup-download-backdrop" class="fixed inset-0 bg-black/75 z-40 hidden"></div>
 
 
     <!-- Overlay for Mobile (Dark background behind sidebar) -->
