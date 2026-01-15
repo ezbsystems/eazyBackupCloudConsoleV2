@@ -196,6 +196,7 @@ type NextRunResponse struct {
 	ScheduleJSON            map[string]any `json:"schedule_json"`
 	RetentionJSON           map[string]any `json:"retention_json"`
 	PolicyJSON              map[string]any `json:"policy_json"`
+	CompressionEnabled      bool           `json:"compression_enabled"`
 	DiskSourceVolume        string         `json:"disk_source_volume"`
 	DiskImageFormat         string         `json:"disk_image_format"`
 	DiskTempDir             string         `json:"disk_temp_dir"`

@@ -414,6 +414,7 @@ try {
             'schedule_json' => json_decode($job->schedule_json ?? 'null', true),
             'retention_json' => json_decode($job->retention_json ?? 'null', true),
             'policy_json' => json_decode($job->policy_json ?? 'null', true),
+            'compression_enabled' => (bool) ($job->compression_enabled ?? false),
             'network_credentials' => $networkCreds,
         ];
         if ($hasDiskSource) {

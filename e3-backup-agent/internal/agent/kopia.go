@@ -279,7 +279,7 @@ func (r *Runner) kopiaSnapshotWithEntry(ctx context.Context, run *NextRunRespons
 		Path:     filepath.Clean(run.SourcePath),
 	}
 
-	parallelUploads, compressor := parsePolicyOverrides(run.PolicyJSON)
+	parallelUploads, compressor := parsePolicyOverrides(run.PolicyJSON, run.CompressionEnabled)
 
 	pol, err := policy.TreeForSource(ctx, rep, srcInfo)
 	if err != nil {
@@ -711,7 +711,7 @@ func (r *Runner) kopiaSnapshotDiskImageWithProgress(ctx context.Context, run *Ne
 		})
 	}
 
-	parallelUploads, compressor := parsePolicyOverrides(run.PolicyJSON)
+	parallelUploads, compressor := parsePolicyOverrides(run.PolicyJSON, run.CompressionEnabled)
 	pol, err := policy.TreeForSource(ctx, rep, srcInfo)
 	if err != nil {
 		return "", fmt.Errorf("kopia: load policy: %w", err)
@@ -2154,10 +2154,11 @@ func getHostname() string {
 	return h
 }
 
-// parsePolicyOverrides extracts parallel uploads and compression from policy_json.
-func parsePolicyOverrides(policyJSON map[string]any) (parallel int, compressor string) {
+// parsePolicyOverrides extracts parallel uploads and compression from policy_json and compression_enabled flag.
+// If compressionEnabled is true and no explicit compressor is set in policyJSON, defaults to "zstd-default".
+func parsePolicyOverrides(policyJSON map[string]any, compressionEnabled bool) (parallel int, compressor string) {
 	if policyJSON == nil {
-		return 0, ""
+		policyJSON = make(map[string]any)
 	}
 	if v, ok := policyJSON["parallel_uploads"]; ok {
 		switch t := v.(type) {
@@ -2175,6 +2176,14 @@ func parsePolicyOverrides(policyJSON map[string]any) (parallel int, compressor s
 		if s, ok := v.(string); ok {
 			compressor = strings.TrimSpace(s)
 		}
+	}
+	// If compression_enabled flag is set but no explicit compressor, use Kopia default
+	if compressionEnabled && compressor == "" {
+		compressor = "zstd-default"
+	}
+	// If compressor is explicitly "none", treat as no compression
+	if strings.ToLower(compressor) == "none" {
+		compressor = ""
 	}
 	return parallel, compressor
 }

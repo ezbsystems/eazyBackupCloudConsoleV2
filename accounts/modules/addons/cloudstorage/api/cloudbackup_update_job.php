@@ -273,6 +273,9 @@ if (isset($_POST['compression'])) {
     $updateData['disk_image_format'] = $diskImageFormat;
     $updateData['disk_temp_dir'] = $diskTempDir;
 }
+if (isset($_POST['compression_enabled'])) {
+    $updateData['compression_enabled'] = (int) $_POST['compression_enabled'];
+}
 if (isset($_POST['notify_override_email'])) {
     $updateData['notify_override_email'] = $_POST['notify_override_email'];
 }

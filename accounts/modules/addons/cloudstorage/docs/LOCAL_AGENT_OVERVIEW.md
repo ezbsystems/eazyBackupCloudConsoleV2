@@ -429,6 +429,25 @@ The UI shows two metrics to highlight deduplication savings:
 - **Bytes Uploaded**: Actual bytes sent to storage (may be much smaller)
 - **Dedup Savings**: Calculated as `100 - (uploaded/processed * 100)`
 
+### Compression (Kopia engine)
+
+Compression can be enabled for Kopia-based backup jobs to reduce storage usage and transfer time for compressible data.
+
+**How it works:**
+- The job wizard's Advanced Settings includes a **Compression** dropdown with options: `None`, `zstd-default`, `pgzip`, `s2`.
+- When a non-`none` value is selected, `compression_enabled=1` is set on the job record.
+- The agent receives `compression_enabled: true` in the run payload from `agent_next_run.php`.
+- The Kopia runner (`kopia.go`) reads this flag via `parsePolicyOverrides()`:
+  - If `compression_enabled` is `true` and no explicit compressor is in `policy_json`, defaults to `zstd-default`.
+  - If an explicit compressor is provided in `policy_json.compression`, that value is used.
+  - Setting compressor to `"none"` explicitly disables compression.
+- The effective compression algorithm is applied to Kopia's policy before the snapshot runs.
+- Compression is logged in run events with message ID `KOPIA_POLICY` showing the active `compression` setting.
+
+**Observability:**
+- The event log shows `KOPIA_POLICY` with `compression: "zstd-default"` (or the chosen algorithm).
+- Bytes Processed vs Bytes Uploaded delta reflects both deduplication and compression savings.
+
 ### Event Message Formatting
 
 Events pushed by the agent are formatted for display using `CloudBackupEventFormatter`:
