@@ -59,6 +59,28 @@
 - Start (manual/UI): `cloudbackup_start_run.php` → `CloudBackupController::startRun()` inserts queued run, binds to agent for `local_agent`, optionally stores engine/dest fields; workers should ignore local_agent runs.
 - Reclaim/watchdog: reclaim stale in-progress for same agent within grace; watchdog cron fails truly stale runs.
 
+## Scheduling (Local Agent jobs)
+- Scheduled runs are created by the **scheduler cron**, not by the agent.
+- The agent only claims runs that already exist in `s3_cloudbackup_runs` (`status=queued`).
+- The cron evaluates each active job and enqueues a run by calling `CloudBackupController::startRun($jobId, $clientId, 'schedule')`.
+- Schedule source of truth:
+  - Primary: `schedule_type`, `schedule_time`, `schedule_weekday`, `schedule_cron`
+  - Fallback: `schedule_json.type/time/weekday/cron` when `schedule_type` is blank or `manual`
+- Supported types in the cron: `hourly`, `daily`, `weekly` (cron type is currently skipped).
+
+### Cron setup (every minute)
+Add this to the system crontab so schedules are checked every minute:
+
+```bash
+* * * * * /usr/bin/php -q /var/www/eazybackup.ca/accounts/crons/s3cloudbackup_scheduler.php >/dev/null 2>&1
+```
+
+To verify it is installed:
+
+```bash
+crontab -l | grep s3cloudbackup_scheduler.php
+```
+
 ## Heartbeats, watchdog, and resume
 - Heartbeats: `agent_update_run.php` updates `updated_at`; agents should POST every ≤60–90s.
 - Watchdog: `crons/agent_watchdog.php` fails stale `starting/running` runs past `AGENT_WATCHDOG_TIMEOUT_SECONDS` (default 720s) with `AGENT_OFFLINE`.

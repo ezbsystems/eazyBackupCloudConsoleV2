@@ -1,0 +1,41 @@
+#
+# E3 Backup Agent - example configuration
+#
+# This file demonstrates both enrollment methods:
+#  1) MSP/RMM token enrollment (silent rollouts)
+#  2) End-user email/password enrollment (interactive/tray)
+#
+# After successful enrollment the agent rewrites the config to include:
+#   client_id, agent_id, agent_token
+# and clears enrollment_token / enroll_email / enroll_password.
+#
+
+# --- Common settings (always present) ---
+api_base_url: "https://accounts.eazybackup.ca/modules/addons/cloudstorage/api"
+poll_interval_secs: 5
+run_dir: "C:\\ProgramData\\E3Backup\\runs"
+log_level: "info"
+
+# --- Stable device identity (generated if missing) ---
+# device_id is the long-lived identity used for re-enroll/rekey/reuse
+device_id: "9f2c3a6c-7d5d-4c67-9c5a-2c1e9c5d7a11"
+# install_id changes per install/reinstall (helps server-side diagnostics)
+install_id: "f1c2d3e4-1111-2222-3333-444455556666"
+device_name: "FILE-SERVER-01"
+
+# --- Enrollment (choose ONE method) ---
+
+# Method A: MSP / token enrollment (silent rollout)
+# enrollment_token: "0123456789abcdef0123456789abcdef01234567"
+
+# Method B: End-user login enrollment (tray/interactive)
+# enroll_email: "user@example.com"
+# enroll_password: "example-password"
+# enroll_remember_me: true
+
+# --- After enrollment (agent rewrites these) ---
+# client_id: "42"
+# agent_id: "123"
+# agent_token: "40-hex-token-here"
+
+

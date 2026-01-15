@@ -203,6 +203,7 @@ device_id: "9f2c3a6c-7d5d-4c67-9c5a-2c1e9c5d7a11"
 install_id: "f1c2d3e4-1111-2222-3333-444455556666"
 device_name: "FILE-SERVER-01"
 poll_interval_secs: 5
+user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 e3-backup-agent/1.0"
 run_dir: "C:\\ProgramData\\E3Backup\\runs"
 ```
 
@@ -217,6 +218,7 @@ device_id: "9f2c3a6c-7d5d-4c67-9c5a-2c1e9c5d7a11"
 install_id: "f1c2d3e4-1111-2222-3333-444455556666"
 device_name: "FILE-SERVER-01"
 poll_interval_secs: 5
+user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 e3-backup-agent/1.0"
 run_dir: "C:\\ProgramData\\E3Backup\\runs"
 ```
 

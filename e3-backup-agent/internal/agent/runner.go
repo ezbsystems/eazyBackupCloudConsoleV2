@@ -1,0 +1,1100 @@
+package agent
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log"
+	"net/http"
+	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/rclone/rclone/fs"
+	"github.com/rclone/rclone/fs/accounting"
+	"github.com/rclone/rclone/fs/config"
+	rfilter "github.com/rclone/rclone/fs/filter"
+	"github.com/rclone/rclone/fs/sync"
+)
+
+// Runner executes jobs, spawns rclone, and streams progress/events.
+type Runner struct {
+	client *Client
+	cfg    *AgentConfig
+	// configPath is where agent.conf is stored; used to persist enrollment results.
+	configPath string
+}
+
+func NewRunner(cfg *AgentConfig, configPath string) *Runner {
+	return &Runner{
+		client:     NewClient(cfg),
+		cfg:        cfg,
+		configPath: configPath,
+	}
+}
+
+// Start begins the polling loop (single concurrent run for now).
+func (r *Runner) Start(stop <-chan struct{}) {
+	// Ensure stable device identity exists (for re-enroll/rekey/reuse).
+	r.ensureDeviceIdentity()
+
+	if err := r.enrollIfNeeded(); err != nil {
+		log.Printf("agent: enrollment failed: %v", err)
+		return
+	}
+
+	interval := time.Duration(r.cfg.PollIntervalSecs) * time.Second
+	if interval <= 0 {
+		interval = 5 * time.Second
+	}
+	t := time.NewTicker(interval)
+	defer t.Stop()
+
+	go r.reportVolumesLoop(stop)
+	go r.commandLoop(stop)
+
+	for {
+		if err := r.pollOnce(); err != nil {
+			log.Printf("agent: poll error: %v", err)
+		}
+		select {
+		case <-stop:
+			log.Printf("agent: stopping")
+			return
+		case <-t.C:
+		}
+	}
+}
+
+// enrollIfNeeded performs first-run enrollment using token or email/password
+// then persists the acquired AgentID/AgentToken into the config file.
+func (r *Runner) enrollIfNeeded() error {
+	if r.cfg.AgentID != "" && r.cfg.AgentToken != "" {
+		return nil
+	}
+
+	hostname, _ := os.Hostname()
+
+	var resp *EnrollResponse
+	var err error
+
+	switch {
+	case r.cfg.EnrollmentToken != "":
+		resp, err = r.client.EnrollWithToken(r.cfg.EnrollmentToken, hostname)
+	case r.cfg.EnrollEmail != "" && r.cfg.EnrollPassword != "":
+		resp, err = r.client.EnrollWithCredentials(r.cfg.EnrollEmail, r.cfg.EnrollPassword, hostname)
+	default:
+		return fmt.Errorf("no enrollment credentials configured")
+	}
+
+	if err != nil {
+		return fmt.Errorf("enrollment request failed: %w", err)
+	}
+
+	// Persist credentials and clear enrollment fields
+	r.cfg.AgentID = resp.AgentID
+	r.cfg.ClientID = resp.ClientID
+	r.cfg.AgentToken = resp.AgentToken
+	r.cfg.EnrollmentToken = ""
+	r.cfg.EnrollEmail = ""
+	r.cfg.EnrollPassword = ""
+
+	if r.configPath != "" {
+		if err := r.cfg.Save(r.configPath); err != nil {
+			return fmt.Errorf("failed to save config: %w", err)
+		}
+	}
+
+	// Rebuild client with new credentials
+	r.client = NewClient(r.cfg)
+	log.Printf("agent: enrollment succeeded (client_id=%s, agent_id=%s)", r.cfg.ClientID, r.cfg.AgentID)
+	return nil
+}
+
+// reportVolumesLoop periodically publishes the agent's available volumes for UI pickers.
+func (r *Runner) reportVolumesLoop(stop <-chan struct{}) {
+	interval := 5 * time.Minute
+	t := time.NewTicker(interval)
+	defer t.Stop()
+
+	// Initial report
+	r.reportVolumesOnce()
+
+	for {
+		select {
+		case <-stop:
+			return
+		case <-t.C:
+			r.reportVolumesOnce()
+		}
+	}
+}
+
+func (r *Runner) reportVolumesOnce() {
+	vols, err := ListVolumes()
+	if err != nil {
+		log.Printf("agent: list volumes failed: %v", err)
+		return
+	}
+	if err := r.client.ReportVolumes(vols); err != nil {
+		log.Printf("agent: report volumes failed: %v", err)
+	}
+}
+
+func (r *Runner) pollOnce() error {
+	// Check for new backup runs
+	run, err := r.client.NextRun()
+	if err != nil {
+		return err
+	}
+	if run == nil {
+		log.Printf("agent: no queued runs")
+		return nil
+	}
+	log.Printf("agent: starting run %d for job %d", run.RunID, run.JobID)
+	return r.runRun(run)
+}
+
+// commandLoop polls pending commands frequently to reduce UI latency (e.g., browse requests).
+func (r *Runner) commandLoop(stop <-chan struct{}) {
+	t := time.NewTicker(1 * time.Second)
+	defer t.Stop()
+	for {
+		if err := r.pollAndHandlePendingCommands(); err != nil {
+			log.Printf("agent: pending commands error: %v", err)
+		}
+		select {
+		case <-stop:
+			return
+		case <-t.C:
+		}
+	}
+}
+
+// pollAndHandlePendingCommands checks for and executes pending commands (restore, maintenance).
+func (r *Runner) pollAndHandlePendingCommands() error {
+	cmds, err := r.client.PollPendingCommands()
+	if err != nil {
+		return err
+	}
+	if len(cmds) == 0 {
+		return nil
+	}
+
+	for _, cmd := range cmds {
+		log.Printf("agent: executing pending command %d type=%s job=%d run=%d", cmd.CommandID, cmd.Type, cmd.JobID, cmd.RunID)
+		r.executePendingCommand(cmd)
+	}
+	return nil
+}
+
+// executePendingCommand handles restore, maintenance, and NAS commands with full job context.
+func (r *Runner) executePendingCommand(cmd PendingCommand) {
+	ctx := context.Background()
+
+	switch strings.ToLower(strings.TrimSpace(cmd.Type)) {
+	case "restore":
+		r.executeRestoreCommand(ctx, cmd)
+	case "maintenance_quick", "maintenance_full":
+		r.executeMaintenanceCommand(ctx, cmd)
+	case "nas_mount":
+		r.executeNASMountCommand(ctx, cmd)
+	case "nas_unmount":
+		r.executeNASUnmountCommand(ctx, cmd)
+	case "nas_mount_snapshot":
+		r.executeNASMountSnapshotCommand(ctx, cmd)
+	case "nas_unmount_snapshot":
+		r.executeNASUnmountSnapshotCommand(ctx, cmd)
+	case "browse_directory":
+		r.executeBrowseCommand(cmd)
+	case "list_hyperv_vms":
+		r.executeListHypervVMsCommand(ctx, cmd)
+	case "hyperv_restore":
+		r.executeHyperVRestoreCommand(ctx, cmd)
+	default:
+		log.Printf("agent: unknown pending command type: %s", cmd.Type)
+		_ = r.client.CompleteCommand(cmd.CommandID, "failed", "unknown command type")
+	}
+}
+
+// executeRestoreCommand handles a restore command with progress tracking.
+func (r *Runner) executeRestoreCommand(ctx context.Context, cmd PendingCommand) {
+	if cmd.JobContext == nil {
+		_ = r.client.CompleteCommand(cmd.CommandID, "failed", "missing job context")
+		return
+	}
+
+	// Extract restore parameters from payload
+	manifestID := ""
+	targetPath := ""
+	mount := false
+	var restoreRunID int64 = 0
+	if cmd.Payload != nil {
+		if v, ok := cmd.Payload["manifest_id"].(string); ok {
+			manifestID = v
+		}
+		if v, ok := cmd.Payload["target_path"].(string); ok {
+			targetPath = v
+		}
+		if v, ok := cmd.Payload["mount"].(bool); ok {
+			mount = v
+		}
+		// Get restore_run_id for progress tracking (if provided by new API)
+		if v, ok := cmd.Payload["restore_run_id"].(float64); ok {
+			restoreRunID = int64(v)
+		}
+	}
+
+	// Fallback to manifest from job context if not in payload
+	if manifestID == "" {
+		manifestID = cmd.JobContext.ManifestID
+	}
+
+	if manifestID == "" || targetPath == "" {
+		log.Printf("agent: restore command %d missing manifest_id or target_path", cmd.CommandID)
+		_ = r.client.CompleteCommand(cmd.CommandID, "failed", "missing manifest_id or target_path")
+		return
+	}
+
+	// Use restore_run_id for progress tracking if available, otherwise fall back to backup run_id
+	trackingRunID := cmd.RunID
+	if restoreRunID > 0 {
+		trackingRunID = restoreRunID
+	}
+
+	log.Printf("agent: starting restore command=%d manifest=%s target=%s mount=%v tracking_run=%d", cmd.CommandID, manifestID, targetPath, mount, trackingRunID)
+
+	// Mark restore run as running
+	startedAt := time.Now().UTC()
+	_ = r.client.UpdateRun(RunUpdate{
+		RunID:       trackingRunID,
+		Status:      "running",
+		StartedAt:   startedAt.Format(time.RFC3339),
+		CurrentItem: "Restoring: " + manifestID,
+	})
+
+	// Push restore start event
+	r.pushEvents(trackingRunID, RunEvent{
+		Type:      "info",
+		Level:     "info",
+		MessageID: "RESTORE_STARTING",
+		ParamsJSON: map[string]any{
+			"manifest_id": manifestID,
+			"target_path": targetPath,
+			"mount":       mount,
+		},
+	})
+
+	// Build NextRunResponse from JobContext for kopia functions
+	run := &NextRunResponse{
+		RunID:                   cmd.JobContext.RunID,
+		JobID:                   cmd.JobContext.JobID,
+		Engine:                  cmd.JobContext.Engine,
+		SourcePath:              cmd.JobContext.SourcePath,
+		DestType:                cmd.JobContext.DestType,
+		DestBucketName:          cmd.JobContext.DestBucketName,
+		DestPrefix:              cmd.JobContext.DestPrefix,
+		DestLocalPath:           cmd.JobContext.DestLocalPath,
+		DestEndpoint:            cmd.JobContext.DestEndpoint,
+		DestRegion:              cmd.JobContext.DestRegion,
+		DestAccessKey:           cmd.JobContext.DestAccessKey,
+		DestSecretKey:           cmd.JobContext.DestSecretKey,
+		LocalBandwidthLimitKbps: cmd.JobContext.LocalBandwidthLimitKbps,
+	}
+
+	var err error
+	if mount {
+		err = r.kopiaMount(ctx, run, manifestID, targetPath)
+	} else {
+		err = r.kopiaRestoreWithProgress(ctx, run, manifestID, targetPath, trackingRunID)
+	}
+
+	status := "success"
+	errMsg := ""
+	msg := fmt.Sprintf("restore completed to %s", targetPath)
+	if err != nil {
+		status = "failed"
+		errMsg = err.Error()
+		msg = err.Error()
+		log.Printf("agent: restore command %d failed: %v", cmd.CommandID, err)
+		r.pushEvents(trackingRunID, RunEvent{
+			Type:      "error",
+			Level:     "error",
+			MessageID: "RESTORE_FAILED",
+			ParamsJSON: map[string]any{
+				"error":       err.Error(),
+				"manifest_id": manifestID,
+				"target_path": targetPath,
+			},
+		})
+	} else {
+		log.Printf("agent: restore command %d completed successfully", cmd.CommandID)
+		r.pushEvents(trackingRunID, RunEvent{
+			Type:      "summary",
+			Level:     "info",
+			MessageID: "RESTORE_COMPLETED",
+			ParamsJSON: map[string]any{
+				"manifest_id": manifestID,
+				"target_path": targetPath,
+			},
+		})
+	}
+
+	// Update restore run with final status
+	finishedAt := time.Now().UTC().Format(time.RFC3339)
+	_ = r.client.UpdateRun(RunUpdate{
+		RunID:        trackingRunID,
+		Status:       status,
+		ErrorSummary: errMsg,
+		FinishedAt:   finishedAt,
+	})
+
+	_ = r.client.CompleteCommand(cmd.CommandID, "completed", msg)
+}
+
+// executeMaintenanceCommand handles maintenance commands.
+func (r *Runner) executeMaintenanceCommand(ctx context.Context, cmd PendingCommand) {
+	if cmd.JobContext == nil {
+		_ = r.client.CompleteCommand(cmd.CommandID, "failed", "missing job context")
+		return
+	}
+
+	mode := "quick"
+	if strings.Contains(strings.ToLower(cmd.Type), "full") {
+		mode = "full"
+	}
+
+	log.Printf("agent: starting maintenance command=%d mode=%s job=%d", cmd.CommandID, mode, cmd.JobID)
+
+	// Build NextRunResponse from JobContext
+	run := &NextRunResponse{
+		RunID:          cmd.JobContext.RunID,
+		JobID:          cmd.JobContext.JobID,
+		Engine:         cmd.JobContext.Engine,
+		SourcePath:     cmd.JobContext.SourcePath,
+		DestType:       cmd.JobContext.DestType,
+		DestBucketName: cmd.JobContext.DestBucketName,
+		DestPrefix:     cmd.JobContext.DestPrefix,
+		DestLocalPath:  cmd.JobContext.DestLocalPath,
+		DestEndpoint:   cmd.JobContext.DestEndpoint,
+		DestRegion:     cmd.JobContext.DestRegion,
+		DestAccessKey:  cmd.JobContext.DestAccessKey,
+		DestSecretKey:  cmd.JobContext.DestSecretKey,
+	}
+
+	r.pushEvents(cmd.RunID, RunEvent{
+		Type:      "info",
+		Level:     "info",
+		MessageID: "MAINTENANCE_STARTING",
+		ParamsJSON: map[string]any{
+			"mode": mode,
+		},
+	})
+
+	err := r.kopiaMaintenance(ctx, run, mode)
+	status := "completed"
+	msg := "maintenance " + mode + " completed"
+	if err != nil {
+		status = "failed"
+		msg = err.Error()
+		log.Printf("agent: maintenance command %d failed: %v", cmd.CommandID, err)
+		r.pushEvents(cmd.RunID, RunEvent{
+			Type:      "error",
+			Level:     "error",
+			MessageID: "MAINTENANCE_FAILED",
+			ParamsJSON: map[string]any{
+				"error": err.Error(),
+				"mode":  mode,
+			},
+		})
+	} else {
+		log.Printf("agent: maintenance command %d completed successfully", cmd.CommandID)
+		r.pushEvents(cmd.RunID, RunEvent{
+			Type:      "info",
+			Level:     "info",
+			MessageID: "MAINTENANCE_COMPLETED",
+			ParamsJSON: map[string]any{
+				"mode": mode,
+			},
+		})
+	}
+
+	_ = r.client.CompleteCommand(cmd.CommandID, status, msg)
+}
+
+// executeBrowseCommand handles filesystem browse requests from the dashboard.
+func (r *Runner) executeBrowseCommand(cmd PendingCommand) {
+	req := BrowseDirectoryRequest{
+		Path:     "",
+		MaxItems: 500,
+	}
+
+	if cmd.Payload != nil {
+		if v, ok := cmd.Payload["path"].(string); ok {
+			req.Path = v
+		}
+		if v, ok := cmd.Payload["max_items"].(float64); ok && v > 0 {
+			req.MaxItems = int(v)
+		}
+	}
+
+	resp := BrowseDirectory(req)
+	if err := r.client.ReportBrowseResult(cmd.CommandID, resp); err != nil {
+		log.Printf("agent: browse command %d failed to report: %v", cmd.CommandID, err)
+		_ = r.client.CompleteCommand(cmd.CommandID, "failed", "report browse failed: "+err.Error())
+		return
+	}
+	// agent_report_browse.php marks the command as completed; no further action here.
+}
+
+func (r *Runner) runRun(run *NextRunResponse) error {
+	if run.RunID == 0 {
+		return fmt.Errorf("next run returned no run_id")
+	}
+
+	// Authenticate to network share if credentials provided
+	if run.NetworkCredentials != nil && run.NetworkCredentials.Username != "" {
+		if err := r.authenticateNetworkPath(run.SourcePath, run.NetworkCredentials); err != nil {
+			log.Printf("agent: run %d network auth failed: %v", run.RunID, err)
+			return fmt.Errorf("network authentication failed: %w", err)
+		}
+		defer r.disconnectNetworkPath(run.SourcePath)
+	}
+
+	engine := strings.ToLower(strings.TrimSpace(run.Engine))
+	if engine == "" {
+		engine = "sync"
+	}
+	switch engine {
+	case "kopia":
+		return r.runKopia(run)
+	case "disk_image":
+		return r.runDiskImage(run)
+	case "hyperv":
+		return r.runHyperV(run)
+	default:
+		return r.runSync(run)
+	}
+}
+
+func (r *Runner) runSync(run *NextRunResponse) error {
+	startedAt := time.Now().UTC()
+
+	runDir := filepath.Join(r.cfg.RunDir, fmt.Sprintf("run_%d", run.RunID))
+	if err := os.MkdirAll(runDir, 0o755); err != nil {
+		return fmt.Errorf("create run dir: %w", err)
+	}
+
+	destEndpoint := normalizeEndpoint(firstNonEmpty(run.DestEndpoint, r.cfg.DestEndpoint))
+	destRegion := firstNonEmpty(run.DestRegion, r.cfg.DestRegion)
+	if destEndpoint == "" {
+		return fmt.Errorf("missing dest endpoint")
+	}
+	if run.DestAccessKey == "" || run.DestSecretKey == "" {
+		return fmt.Errorf("missing dest credentials")
+	}
+
+	src := run.SourcePath
+	if src == "" {
+		return fmt.Errorf("missing source_path")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Build config directly in memory for embedded rclone
+	cfgStore := config.Data()
+	cfgStore.DeleteSection("source")
+	cfgStore.DeleteSection("dest")
+	cfgStore.SetValue("source", "type", "local")
+	cfgStore.SetValue("source", "nounc", "true")
+	cfgStore.SetValue("dest", "type", "s3")
+	cfgStore.SetValue("dest", "provider", "Other")
+	cfgStore.SetValue("dest", "access_key_id", run.DestAccessKey)
+	cfgStore.SetValue("dest", "secret_access_key", run.DestSecretKey)
+	cfgStore.SetValue("dest", "endpoint", destEndpoint)
+	cfgStore.SetValue("dest", "force_path_style", "true")
+	if destRegion != "" {
+		cfgStore.SetValue("dest", "region", destRegion)
+		cfgStore.SetValue("dest", "location_constraint", destRegion)
+	}
+	log.Printf("agent: run %d config source=%s dest=%s bucket=%s prefix=%s endpoint=%s region=%s", run.RunID, src, "dest", run.DestBucketName, run.DestPrefix, destEndpoint, destRegion)
+	// Reset global stats
+	stats := accounting.GlobalStats()
+	stats.ResetCounters()
+
+	// Apply include/exclude filters
+	fopt := rfilter.DefaultOpt
+	fopt.DeleteExcluded = false
+	if run.LocalIncludeGlob != "" {
+		fopt.FilterRule = append(fopt.FilterRule, "+ "+run.LocalIncludeGlob)
+	}
+	if run.LocalExcludeGlob != "" {
+		fopt.FilterRule = append(fopt.FilterRule, "- "+run.LocalExcludeGlob)
+	}
+	fi, err := rfilter.NewFilter(&fopt)
+	if err != nil {
+		return fmt.Errorf("filter init: %w", err)
+	}
+	ctx = rfilter.ReplaceConfig(ctx, fi)
+
+	srcRemote := "source:" + src
+	destRemote := fmt.Sprintf("dest:%s/%s", run.DestBucketName, strings.TrimPrefix(run.DestPrefix, "/"))
+
+	srcFs, err := fs.NewFs(ctx, srcRemote)
+	if err != nil {
+		log.Printf("agent: run %d source fs error: %v", run.RunID, err)
+		return fmt.Errorf("source fs: %w", err)
+	}
+	destFs, err := fs.NewFs(ctx, destRemote)
+	if err != nil {
+		log.Printf("agent: run %d dest fs error: %v", run.RunID, err)
+		return fmt.Errorf("dest fs: %w", err)
+	}
+
+	// Mark running
+	_ = r.client.UpdateRun(RunUpdate{
+		RunID:     run.RunID,
+		Status:    "running",
+		StartedAt: startedAt.Format(time.RFC3339),
+	})
+	r.pushEvents(run.RunID, RunEvent{
+		Type:      "info",
+		Level:     "info",
+		MessageID: "BACKUP_STARTING",
+	})
+
+	// Progress ticker and cancel polling
+	progressTicker := time.NewTicker(5 * time.Second)
+	defer progressTicker.Stop()
+	commandTicker := time.NewTicker(3 * time.Second)
+	defer commandTicker.Stop()
+
+	// Run sync
+	runErr := make(chan error, 1)
+	lastProgressAt := time.Now()
+	var lastBytes int64 = 0
+
+	// Increase parallelism for throughput (default transfers/checkers are lower)
+	// Note: fs.GetConfig is global; safe here because we run one job at a time.
+	cfg := fs.GetConfig(ctx)
+	cfg.Transfers = 16
+	cfg.Checkers = 16
+
+	go func() {
+		runErr <- sync.Sync(ctx, destFs, srcFs, false)
+	}()
+
+	for {
+		select {
+		case <-progressTicker.C:
+			done := stats.GetBytes()
+			now := time.Now()
+			elapsed := now.Sub(lastProgressAt).Seconds()
+			speed := int64(0)
+			if elapsed > 0 {
+				speed = int64(float64(done-lastBytes) / elapsed)
+			}
+			lastProgressAt = now
+			lastBytes = done
+			// total not known without listing; send bytes only
+			pct := percent(done, 0)
+			_ = r.client.UpdateRun(RunUpdate{
+				RunID:              run.RunID,
+				Status:             "running",
+				ProgressPct:        pct,
+				BytesTransferred:   Int64Ptr(done),
+				ObjectsTransferred: stats.GetTransfers(),
+				ObjectsTotal:       0,
+				SpeedBytesPerSec:   speed,
+				EtaSeconds:         0,
+			})
+			r.pushEvents(run.RunID, RunEvent{
+				Type:      "progress",
+				Level:     "info",
+				MessageID: "PROGRESS_UPDATE",
+				ParamsJSON: map[string]any{
+					"pct":         pct,
+					"bytes_done":  done,
+					"bytes_total": int64(0),
+					"files_done":  stats.GetTransfers(),
+					"files_total": int64(0),
+					"speed_bps":   speed,
+					"eta_seconds": int64(0),
+				},
+			})
+		case <-commandTicker.C:
+			cancelReq, cmds, errCmd := r.pollCommands(run.RunID)
+			if errCmd != nil {
+				log.Printf("agent: command poll error: %v", errCmd)
+			}
+			// Handle cancel first
+			if cancelReq {
+				log.Printf("agent: cancel requested for run %d", run.RunID)
+				r.pushEvents(run.RunID, RunEvent{
+					Type:      "cancelled",
+					Level:     "warn",
+					MessageID: "CANCEL_REQUESTED",
+				})
+				cancel()
+			}
+			// Handle maintenance/restore commands
+			for _, c := range cmds {
+				r.handleCommand(ctx, run, c)
+			}
+		case err := <-runErr:
+			status := "success"
+			errMsg := ""
+			if errors.Is(err, context.Canceled) {
+				status = "cancelled"
+				errMsg = ""
+			} else if err != nil {
+				status = "failed"
+				errMsg = err.Error()
+				log.Printf("agent: run %d finished with error: %v", run.RunID, err)
+			} else {
+				log.Printf("agent: run %d completed successfully", run.RunID)
+			}
+			finishedAt := time.Now().UTC().Format(time.RFC3339)
+			done := stats.GetBytes()
+			_ = r.client.UpdateRun(RunUpdate{
+				RunID:              run.RunID,
+				Status:             status,
+				ErrorSummary:       errMsg,
+				FinishedAt:         finishedAt,
+				BytesTransferred:   Int64Ptr(done),
+				ObjectsTransferred: stats.GetTransfers(),
+			})
+			// Emit terminal events for live log UI
+			switch status {
+			case "success":
+				r.pushEvents(run.RunID, RunEvent{
+					Type:      "summary",
+					Level:     "info",
+					MessageID: "COMPLETED_SUCCESS",
+				}, RunEvent{
+					Type:      "summary",
+					Level:     "info",
+					MessageID: "SUMMARY_TOTAL",
+					ParamsJSON: map[string]any{
+						"bytes_done": done,
+					},
+				})
+			case "cancelled":
+				r.pushEvents(run.RunID, RunEvent{
+					Type:      "cancelled",
+					Level:     "warn",
+					MessageID: "CANCELLED",
+				})
+			default:
+				r.pushEvents(run.RunID, RunEvent{
+					Type:      "error",
+					Level:     "error",
+					MessageID: "COMPLETED_FAILED",
+					ParamsJSON: map[string]any{
+						"error": errMsg,
+					},
+				})
+			}
+			return err
+		}
+	}
+}
+
+// runKopia provides a placeholder path for Kopia-based snapshotting.
+// It wires the same lifecycle events/updates as the sync path but defers
+// the actual Kopia integration to a dedicated implementation.
+func (r *Runner) runKopia(run *NextRunResponse) error {
+	startedAt := time.Now().UTC()
+	_ = r.client.UpdateRun(RunUpdate{
+		RunID:     run.RunID,
+		Status:    "running",
+		StartedAt: startedAt.Format(time.RFC3339),
+	})
+	r.pushEvents(run.RunID, RunEvent{
+		Type:      "info",
+		Level:     "info",
+		MessageID: "BACKUP_STARTING",
+		ParamsJSON: map[string]any{
+			"engine": "kopia",
+		},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Run kopia snapshot in background so we can poll for cancel/commands.
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- r.kopiaSnapshot(ctx, run)
+	}()
+
+	commandTicker := time.NewTicker(3 * time.Second)
+	defer commandTicker.Stop()
+
+	var runErr error
+loop:
+	for {
+		select {
+		case runErr = <-errCh:
+			break loop
+		case <-commandTicker.C:
+			cancelReq, cmds, errCmd := r.pollCommands(run.RunID)
+			if errCmd != nil {
+				log.Printf("agent: command poll error for kopia run %d: %v", run.RunID, errCmd)
+			}
+			if cancelReq {
+				log.Printf("agent: cancel requested for kopia run %d", run.RunID)
+				r.pushEvents(run.RunID, RunEvent{
+					Type:      "cancelled",
+					Level:     "warn",
+					MessageID: "CANCEL_REQUESTED",
+				})
+				cancel()
+			}
+			for _, c := range cmds {
+				r.handleCommand(ctx, run, c)
+			}
+		}
+	}
+
+	status := "success"
+	errMsg := ""
+	if errors.Is(runErr, context.Canceled) {
+		status = "cancelled"
+	} else if runErr != nil {
+		status = "failed"
+		errMsg = runErr.Error()
+		log.Printf("agent: run %d (kopia) error: %v", run.RunID, runErr)
+	}
+
+	finishedAt := time.Now().UTC().Format(time.RFC3339)
+	_ = r.client.UpdateRun(RunUpdate{
+		RunID:        run.RunID,
+		Status:       status,
+		ErrorSummary: errMsg,
+		FinishedAt:   finishedAt,
+	})
+
+	switch status {
+	case "success":
+		r.pushEvents(run.RunID, RunEvent{
+			Type:      "summary",
+			Level:     "info",
+			MessageID: "COMPLETED_SUCCESS",
+			ParamsJSON: map[string]any{
+				"engine": "kopia",
+			},
+		})
+	case "cancelled":
+		r.pushEvents(run.RunID, RunEvent{
+			Type:      "cancelled",
+			Level:     "warn",
+			MessageID: "CANCELLED",
+		})
+	default:
+		r.pushEvents(run.RunID, RunEvent{
+			Type:      "error",
+			Level:     "error",
+			MessageID: "COMPLETED_FAILED",
+			ParamsJSON: map[string]any{
+				"error":  errMsg,
+				"engine": "kopia",
+			},
+		})
+	}
+
+	return runErr
+}
+
+// pollCommands checks server for cancel requests.
+type RunCommand struct {
+	Type      string         `json:"type"`
+	CommandID int64          `json:"command_id,omitempty"`
+	Payload   map[string]any `json:"payload,omitempty"`
+}
+
+func (r *Runner) pollCommands(runID int64) (bool, []RunCommand, error) {
+	endpoint := r.client.baseURL + "/agent_poll_commands.php"
+	values := url.Values{}
+	values.Set("run_id", fmt.Sprintf("%d", runID))
+
+	req, err := http.NewRequest(http.MethodPost, endpoint, strings.NewReader(values.Encode()))
+	if err != nil {
+		return false, nil, err
+	}
+	r.client.authHeaders(req)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := r.client.httpClient.Do(req)
+	if err != nil {
+		return false, nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return false, nil, fmt.Errorf("poll commands status %d", resp.StatusCode)
+	}
+
+	var out struct {
+		Status   string       `json:"status"`
+		Commands []RunCommand `json:"commands"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return false, nil, err
+	}
+	if out.Status != "success" {
+		return false, nil, fmt.Errorf("poll commands failed: %s", out.Status)
+	}
+	cancel := false
+	cmds := []RunCommand{}
+	for _, c := range out.Commands {
+		if strings.EqualFold(c.Type, "cancel") {
+			log.Printf("agent: pollCommands received cancel command for run %d", runID)
+			cancel = true
+			continue
+		}
+		cmds = append(cmds, c)
+	}
+	if len(out.Commands) > 0 {
+		log.Printf("agent: pollCommands run=%d received %d commands, cancel=%v", runID, len(out.Commands), cancel)
+	}
+	return cancel, cmds, nil
+}
+
+func (r *Runner) cloneDestRemote(startResp *StartRunResponse, endpoint, region string) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "[dest]\n")
+	fmt.Fprintf(&sb, "type = s3\n")
+	fmt.Fprintf(&sb, "provider = Other\n")
+	fmt.Fprintf(&sb, "env_auth = false\n")
+	fmt.Fprintf(&sb, "access_key_id = %s\n", startResp.DestAccessKey)
+	fmt.Fprintf(&sb, "secret_access_key = %s\n", startResp.DestSecretKey)
+	fmt.Fprintf(&sb, "endpoint = %s\n", endpoint)
+	if region != "" {
+		fmt.Fprintf(&sb, "region = %s\n", region)
+	}
+	return sb.String()
+}
+
+func writeRcloneConfig(path string, content string) error {
+	return os.WriteFile(path, []byte(content), 0o600)
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// normalizeEndpoint strips any path/query/fragment from an endpoint URL.
+// Kopia rejects endpoints with paths. Handles host-only, with/without scheme.
+func normalizeEndpoint(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	original := raw
+	u, err := url.Parse(raw)
+	if err == nil && u.Scheme != "" && u.Host != "" {
+		normalized := fmt.Sprintf("%s://%s", u.Scheme, u.Host)
+		if normalized != original {
+			log.Printf("agent: normalize endpoint %q -> %q", original, normalized)
+		}
+		return normalized
+	}
+	// If no scheme/host, try assuming https:// and re-parse
+	u2, err2 := url.Parse("https://" + raw)
+	if err2 == nil && u2.Host != "" {
+		normalized := fmt.Sprintf("https://%s", u2.Host)
+		if normalized != original {
+			log.Printf("agent: normalize endpoint %q -> %q", original, normalized)
+		}
+		return normalized
+	}
+	// Fallback: take first token before '/' to drop any path
+	if parts := strings.SplitN(raw, "/", 2); len(parts) > 0 && parts[0] != "" {
+		normalized := parts[0]
+		if normalized != original {
+			log.Printf("agent: normalize endpoint %q -> %q", original, normalized)
+		}
+		return normalized
+	}
+	return raw
+}
+
+func percent(done, total int64) float64 {
+	if total <= 0 {
+		return 0
+	}
+	return (float64(done) / float64(total)) * 100.0
+}
+
+func (r *Runner) pushEvents(runID int64, events ...RunEvent) {
+	if len(events) == 0 {
+		return
+	}
+	if err := r.client.PushEvents(runID, events); err != nil {
+		log.Printf("agent: push events for run %d failed: %v", runID, err)
+	}
+}
+
+// handleCommand executes maintenance/restore commands and reports completion.
+func (r *Runner) handleCommand(ctx context.Context, run *NextRunResponse, cmd RunCommand) {
+	switch strings.ToLower(strings.TrimSpace(cmd.Type)) {
+	case "maintenance_quick", "maintenance_full":
+		mode := "quick"
+		if strings.Contains(strings.ToLower(cmd.Type), "full") {
+			mode = "full"
+		}
+		err := r.kopiaMaintenance(ctx, run, mode)
+		status := "completed"
+		msg := "maintenance " + mode
+		if err != nil {
+			status = "failed"
+			msg = err.Error()
+		}
+		_ = r.client.CompleteCommand(cmd.CommandID, status, msg)
+	case "restore":
+		manifestID := ""
+		targetPath := ""
+		mount := false
+		if cmd.Payload != nil {
+			if v, ok := cmd.Payload["manifest_id"].(string); ok {
+				manifestID = v
+			}
+			if v, ok := cmd.Payload["target_path"].(string); ok {
+				targetPath = v
+			}
+			if v, ok := cmd.Payload["mount"].(bool); ok {
+				mount = v
+			}
+		}
+		if manifestID == "" || targetPath == "" {
+			_ = r.client.CompleteCommand(cmd.CommandID, "failed", "missing manifest_id or target_path")
+			return
+		}
+		var err error
+		if mount {
+			err = r.kopiaMount(ctx, run, manifestID, targetPath)
+		} else {
+			err = r.kopiaRestore(ctx, run, manifestID, targetPath)
+		}
+		status := "completed"
+		msg := "restore ok"
+		if err != nil {
+			status = "failed"
+			msg = err.Error()
+		}
+		_ = r.client.CompleteCommand(cmd.CommandID, status, msg)
+	default:
+		// Unknown command: mark failed to avoid loops
+		_ = r.client.CompleteCommand(cmd.CommandID, "failed", "unknown command")
+	}
+}
+
+// authenticateNetworkPath mounts a network share using provided credentials.
+// This is essential when the agent runs as a Windows service (SYSTEM account)
+// which doesn't have access to user-mapped drives.
+func (r *Runner) authenticateNetworkPath(sourcePath string, creds *NetworkCredentials) error {
+	if creds == nil || creds.Username == "" {
+		return nil
+	}
+
+	// Determine the share root to authenticate to
+	sharePath := sourcePath
+	if IsUNCPath(sourcePath) {
+		sharePath = ExtractShareRoot(sourcePath)
+		if sharePath == "" {
+			sharePath = sourcePath
+		}
+	}
+
+	// Skip if not a UNC path (local path doesn't need auth)
+	if !IsUNCPath(sharePath) {
+		log.Printf("agent: skipping network auth for non-UNC path: %s", sourcePath)
+		return nil
+	}
+
+	log.Printf("agent: authenticating to network share: %s as %s", sharePath, creds.Username)
+
+	// Build net use command
+	// Format: net use \\server\share /user:DOMAIN\username password /persistent:no
+	args := []string{"use", sharePath}
+
+	// Add user credentials
+	user := creds.Username
+	if creds.Domain != "" && !strings.Contains(creds.Username, "\\") && !strings.Contains(creds.Username, "@") {
+		user = creds.Domain + "\\" + creds.Username
+	}
+	args = append(args, "/user:"+user)
+
+	if creds.Password != "" {
+		args = append(args, creds.Password)
+	}
+
+	args = append(args, "/persistent:no")
+
+	cmd := exec.Command("net", args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// Don't log the password
+		safeArgs := []string{"use", sharePath, "/user:" + user, "***", "/persistent:no"}
+		log.Printf("agent: net use failed: %v (args: %v, output: %s)", err, safeArgs, strings.TrimSpace(string(output)))
+		return fmt.Errorf("net use failed: %w", err)
+	}
+
+	log.Printf("agent: successfully authenticated to %s", sharePath)
+	return nil
+}
+
+// disconnectNetworkPath removes a network share connection.
+func (r *Runner) disconnectNetworkPath(sourcePath string) {
+	sharePath := sourcePath
+	if IsUNCPath(sourcePath) {
+		sharePath = ExtractShareRoot(sourcePath)
+		if sharePath == "" {
+			sharePath = sourcePath
+		}
+	}
+
+	if !IsUNCPath(sharePath) {
+		return
+	}
+
+	log.Printf("agent: disconnecting from network share: %s", sharePath)
+
+	cmd := exec.Command("net", "use", sharePath, "/delete", "/y")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// Log but don't fail - disconnection errors are non-fatal
+		log.Printf("agent: net use /delete warning: %v (output: %s)", err, strings.TrimSpace(string(output)))
+	}
+}
+
+func (r *Runner) buildConfig(endpoint, region string, startResp *StartRunResponse) string {
+	var sb strings.Builder
+	// source
+	fmt.Fprintf(&sb, "[source]\n")
+	fmt.Fprintf(&sb, "type = local\n")
+	fmt.Fprintf(&sb, "nounc = true\n\n")
+	// dest
+	fmt.Fprintf(&sb, "[dest]\n")
+	fmt.Fprintf(&sb, "type = s3\n")
+	fmt.Fprintf(&sb, "provider = Other\n")
+	fmt.Fprintf(&sb, "access_key_id = %s\n", startResp.DestAccessKey)
+	fmt.Fprintf(&sb, "secret_access_key = %s\n", startResp.DestSecretKey)
+	fmt.Fprintf(&sb, "endpoint = %s\n", endpoint)
+	if region != "" {
+		fmt.Fprintf(&sb, "region = %s\n", region)
+	}
+	fmt.Fprintln(&sb)
+	return sb.String()
+}

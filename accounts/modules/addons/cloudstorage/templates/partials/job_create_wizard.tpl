@@ -1245,8 +1245,16 @@
                                 loading: false,
                                 isOpen: false,
                                 selectedId: '',
-                                selectedName: '',
+                                selectedAgent: null,
                                 tenantFilter: '',
+                                init() {
+                                    this.load();
+                                    const component = this;
+                                    window.addEventListener('tenant-changed', (e) => {
+                                        component.tenantFilter = e.detail?.tenantId || '';
+                                        component.applyTenantFilter();
+                                    });
+                                },
                                 get filtered() {
                                     const q = (this.search || '').toLowerCase();
                                     if (!q) return this.options;
@@ -1256,6 +1264,24 @@
                                         const label = hostname ? (hostname + ' (ID ' + id + ')') : ('Agent #' + id);
                                         return label.toLowerCase().includes(q);
                                     });
+                                },
+                                agentLabel(a) {
+                                    return a.hostname ? (a.hostname + ' (ID ' + a.id + ')') : ('Agent #' + a.id);
+                                },
+                                statusBadgeClass(status) {
+                                    if (status === 'online') return 'bg-emerald-500/15 text-emerald-200';
+                                    if (status === 'offline') return 'bg-rose-500/15 text-rose-200';
+                                    return 'bg-slate-700 text-slate-300';
+                                },
+                                statusDotClass(status) {
+                                    if (status === 'online') return 'bg-emerald-400 ring-2 ring-emerald-400/20 shadow-[0_0_10px_rgba(52,211,153,0.45)]';
+                                    if (status === 'offline') return 'bg-rose-400';
+                                    return 'bg-slate-500';
+                                },
+                                statusText(status) {
+                                    if (status === 'online') return 'online';
+                                    if (status === 'offline') return 'offline';
+                                    return 'never';
                                 },
                                 async load() {
                                     this.loading = true;
@@ -1279,7 +1305,7 @@
                                     // Reset selection if current agent doesn't match filter
                                     if (this.selectedId && !this.options.find(a => String(a.id) === String(this.selectedId))) {
                                         this.selectedId = '';
-                                        this.selectedName = '';
+                                        this.selectedAgent = null;
                                         const hid = document.getElementById('localWizardAgentId');
                                         if (hid) hid.value = '';
                                         if (window.localWizardState?.data) {
@@ -1289,7 +1315,7 @@
                                 },
                                 choose(opt) {
                                     this.selectedId = opt.id;
-                                    this.selectedName = opt.hostname ? (opt.hostname + ' (ID ' + opt.id + ')') : ('Agent #' + opt.id);
+                                    this.selectedAgent = opt;
                                     const hid = document.getElementById('localWizardAgentId');
                                     if (hid) hid.value = this.selectedId;
                                     if (window.localWizardState?.data) {
@@ -1298,19 +1324,22 @@
                                     localWizardOnAgentSelected(this.selectedId);
                                     this.isOpen = false;
                                 }
-                            }" x-init="
-                                load();
-                                window.addEventListener('tenant-changed', (e) => {
-                                    this.tenantFilter = e.detail?.tenantId || '';
-                                    this.applyTenantFilter();
-                                });
-                            ">
+                            }" x-init="init()">
                                 <label class="block text-sm font-medium text-slate-200 mb-2">Agent</label>
                                 <input type="hidden" id="localWizardAgentId">
                                 <div class="relative">
                                     <button type="button" class="w-full px-4 py-2 rounded-lg border border-slate-700 bg-slate-800 text-slate-100 flex justify-between items-center"
                                             @click="isOpen = !isOpen">
-                                        <span x-text="selectedName || (loading ? 'Loading agents…' : 'Select agent')"></span>
+                                        <span class="flex items-center gap-2">
+                                            <template x-if="selectedAgent">
+                                                <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold"
+                                                      :class="statusBadgeClass(selectedAgent.online_status)">
+                                                    <span class="h-1.5 w-1.5 rounded-full" :class="statusDotClass(selectedAgent.online_status)"></span>
+                                                    <span x-text="statusText(selectedAgent.online_status)"></span>
+                                                </span>
+                                            </template>
+                                            <span x-text="selectedAgent ? agentLabel(selectedAgent) : (loading ? 'Loading agents…' : 'Select agent')"></span>
+                                        </span>
                                         <svg class="w-4 h-4 text-slate-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
                                         </svg>
@@ -1320,8 +1349,13 @@
                                             <input type="text" x-model="search" placeholder="Search agents..." class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50">
                                         </div>
                                         <template x-for="opt in filtered" :key="opt.id">
-                                            <div class="px-3 py-2 text-slate-200 hover:bg-slate-800 cursor-pointer" @click="choose(opt)">
-                                                <span x-text="opt.hostname ? (opt.hostname + ' (ID ' + opt.id + ')') : ('Agent #' + opt.id)"></span>
+                                            <div class="px-3 py-2 text-slate-200 hover:bg-slate-800 cursor-pointer flex items-center gap-2" @click="choose(opt)">
+                                                <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold"
+                                                      :class="statusBadgeClass(opt.online_status)">
+                                                    <span class="h-1.5 w-1.5 rounded-full" :class="statusDotClass(opt.online_status)"></span>
+                                                    <span x-text="statusText(opt.online_status)"></span>
+                                                </span>
+                                                <span x-text="agentLabel(opt)"></span>
                                             </div>
                                         </template>
                                         <div class="px-3 py-2 text-slate-500 text-xs" x-show="!loading && filtered.length===0">No active agents found.</div>
@@ -1338,7 +1372,11 @@
                             </div>
                             <!-- Disk image fields moved to Step 2 -->
                             <div id="localWizardS3Fields">
-                                <label class="block text-sm font-medium text-slate-200 mb-2">Bucket</label>
+                                <label class="block text-sm font-medium text-slate-200 mb-1">
+                                    e3 Storage Location
+                                    <span class="ml-1 text-xs font-normal text-slate-400">(Bucket)</span>
+                                </label>
+                                <p class="text-xs text-slate-500 mb-2">Choose where your backup data will be stored. Each bucket is a secure container in our e3 cloud storage.</p>
                                 <div
                                     x-data="{
                                         isOpen: false,
@@ -1372,8 +1410,13 @@
                                     <div class="relative">
                                         <button type="button"
                                                 @click="isOpen = !isOpen"
-                                                class="relative w-full px-3 py-2 text-left text-slate-300 bg-slate-900 border border-gray-600 rounded-md shadow-sm cursor-default focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500">
-                                            <span class="block truncate" x-text="selectedName || 'Select a bucket'"></span>
+                                                class="relative w-full px-3 py-2 text-left text-slate-300 bg-slate-900 border border-slate-700 rounded-lg shadow-sm cursor-default focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50">
+                                            <span class="flex items-center gap-2">
+                                                <svg class="w-4 h-4 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                                                </svg>
+                                                <span class="block truncate" x-text="selectedName || 'Choose where to store your backups'"></span>
+                                            </span>
                                             <span class="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
                                                 <svg class="w-5 h-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                                                     <path fill-rule="evenodd" d="M10 3a1 1 0 01.707.293l3 3a1 1 0 01-1.414 1.414L10 5.414 7.707 7.707a1 1 0 01-1.414-1.414l3-3A1 1 0 0110 3zm-3.707 9.293a1 1 0 011.414 0L10 14.586l2.293-2.293a1 1 0 011.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>

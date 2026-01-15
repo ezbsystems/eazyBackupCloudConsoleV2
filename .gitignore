@@ -19,6 +19,10 @@
 !/e3-cloudbackup-worker/
 !/e3-cloudbackup-worker/**
 
+# Our local backup agent
+!/e3-backup-agent/
+!/e3-backup-agent/**
+
 # Our backup script
 !/backup_whmcs_db.sh
 

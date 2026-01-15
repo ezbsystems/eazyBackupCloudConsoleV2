@@ -116,12 +116,15 @@ function cometbilling_output($vars)
 
     echo '<div class="tablebg">';
     echo '<h2>Comet Billing</h2>';
-    echo '<p><a href="'.$baseUrl.'&action=dashboard">Dashboard</a> | '
-        . '<a href="'.$baseUrl.'&action=purchases">Purchases</a> | '
-        . '<a href="'.$baseUrl.'&action=usage">Usage</a> | '
-        . '<a href="'.$baseUrl.'&action=active_services">Active Services</a> | '
-        . '<a href="'.$baseUrl.'&action=reconcile">Reconcile</a> | '
-        . '<a href="'.$baseUrl.'&action=keys">API Keys</a></p>';
+    echo '<p style="margin-bottom: 15px;">'
+        . '<a href="'.$baseUrl.'&action=dashboard" class="btn btn-default">Dashboard</a> '
+        . '<a href="'.$baseUrl.'&action=reconcile" class="btn btn-default">Reconcile</a> '
+        . '<a href="'.$baseUrl.'&action=credit_lots" class="btn btn-default">Credit Lots</a> '
+        . '<a href="'.$baseUrl.'&action=purchases" class="btn btn-default">Purchases</a> '
+        . '<a href="'.$baseUrl.'&action=active_services" class="btn btn-default">Active Services</a> '
+        . '<a href="'.$baseUrl.'&action=usage" class="btn btn-default">Usage History</a> '
+        . '<a href="'.$baseUrl.'&action=keys" class="btn btn-default">API Keys</a>'
+        . '</p>';
 
     switch ($action) {
         case 'pullnow':
@@ -139,21 +142,83 @@ function cometbilling_output($vars)
                 echo '<form method="post">' . generate_token('WHMCS.admin.default') . '<button class="btn btn-primary" type="submit">Run Pull Now</button></form>';
             }
             break;
+            
         case 'purchases':
             include __DIR__ . '/templates/admin/purchases.tpl.php';
             break;
+            
         case 'usage':
             include __DIR__ . '/templates/admin/usage.tpl.php';
             break;
+            
         case 'active_services':
             include __DIR__ . '/templates/admin/active_services.tpl.php';
             break;
+            
         case 'reconcile':
             include __DIR__ . '/templates/admin/reconcile.tpl.php';
             break;
+            
+        case 'reconcile_view':
+            // View a specific saved reconciliation report
+            $reportId = (int)($_GET['id'] ?? 0);
+            if ($reportId > 0) {
+                $report = \CometBilling\Reconciler::getReport($reportId);
+                if ($report) {
+                    echo '<h3>Reconciliation Report #' . $reportId . '</h3>';
+                    echo '<p>Generated: ' . $report->report_date . '</p>';
+                    echo '<p>Status: <strong>' . strtoupper($report->overall_status) . '</strong></p>';
+                    echo '<pre>' . htmlspecialchars(json_encode($report->items, JSON_PRETTY_PRINT)) . '</pre>';
+                    echo '<p><a href="'.$baseUrl.'&action=reconcile" class="btn btn-default">Back to Reconciliation</a></p>';
+                } else {
+                    echo '<div class="errorbox">Report not found.</div>';
+                }
+            }
+            break;
+            
+        case 'credit_lots':
+            include __DIR__ . '/templates/admin/credit_lots.tpl.php';
+            break;
+            
+        case 'collect_usage':
+            // Manually trigger server usage collection
+            echo '<h3>Collect Server Usage</h3>';
+            if ($_SERVER['REQUEST_METHOD'] === 'POST' && function_exists('check_token') && check_token('WHMCS.admin.default')) {
+                // Load Comet SDK
+                $cometAutoload = dirname(__DIR__, 2) . '/servers/comet/vendor/autoload.php';
+                if (file_exists($cometAutoload)) {
+                    require_once $cometAutoload;
+                }
+                
+                try {
+                    $serverKey = $_POST['server_key'] ?? null;
+                    if ($serverKey && $serverKey !== 'all') {
+                        $data = \CometBilling\ServerUsageCollector::collectFromServer($serverKey);
+                        echo '<div class="successbox">Collected usage from ' . htmlspecialchars($serverKey) . '</div>';
+                    } else {
+                        $data = \CometBilling\ServerUsageCollector::collectAll();
+                        echo '<div class="successbox">Collected usage from all servers</div>';
+                    }
+                    echo '<pre>' . htmlspecialchars(json_encode($data, JSON_PRETTY_PRINT)) . '</pre>';
+                } catch (\Exception $e) {
+                    echo '<div class="errorbox">Error: ' . htmlspecialchars($e->getMessage()) . '</div>';
+                }
+                echo '<p><a class="btn btn-default" href="'.$baseUrl.'">Back</a></p>';
+            } else {
+                echo '<form method="post">' . generate_token('WHMCS.admin.default');
+                echo '<p>Server: <select name="server_key">';
+                echo '<option value="all">All Servers</option>';
+                echo '<option value="cometbackup">cometbackup</option>';
+                echo '<option value="obc">obc</option>';
+                echo '</select></p>';
+                echo '<button class="btn btn-primary" type="submit">Collect Now</button></form>';
+            }
+            break;
+            
         case 'keys':
             include __DIR__ . '/templates/admin/keys.tpl.php';
             break;
+            
         case 'dashboard':
         default:
             include __DIR__ . '/templates/admin/dashboard.tpl.php';
@@ -165,6 +230,8 @@ function cometbilling_output($vars)
 
 /**
  * Optional: WHMCS Cron integration (runs if EnableDailyPull is ON)
+ * - Pulls Portal data (active services)
+ * - Collects server usage snapshots
  */
 function cometbilling_cron($vars)
 {
@@ -173,14 +240,32 @@ function cometbilling_cron($vars)
         ->pluck('value', 'setting');
 
     if (!empty($settings['EnableDailyPull'])) {
-        // Run importer
+        // 1) Pull Portal data
         $cmd = PHP_BINARY . ' ' . __DIR__ . '/bin/portal_pull.php';
-        // Non-blocking fire & forget; or just include the script directly.
         if (function_exists('proc_open')) {
             @proc_close(@proc_open($cmd . ' >/dev/null 2>&1 &', [], $pipes));
         } else {
-            // Fallback: inline
+            if (!defined('COMETBILLING_INLINE')) {
+                define('COMETBILLING_INLINE', true);
+            }
             include __DIR__ . '/bin/portal_pull.php';
+        }
+        
+        // 2) Collect server usage (for reconciliation)
+        $cmd2 = PHP_BINARY . ' ' . __DIR__ . '/bin/collect_usage.php';
+        if (function_exists('proc_open')) {
+            @proc_close(@proc_open($cmd2 . ' >/dev/null 2>&1 &', [], $pipes));
+        } else {
+            // Load Comet SDK
+            $cometAutoload = dirname(__DIR__, 2) . '/servers/comet/vendor/autoload.php';
+            if (file_exists($cometAutoload)) {
+                require_once $cometAutoload;
+            }
+            try {
+                \CometBilling\ServerUsageCollector::collectAll();
+            } catch (\Exception $e) {
+                logActivity('[CometBilling] Server usage collection failed: ' . $e->getMessage());
+            }
         }
     }
 }

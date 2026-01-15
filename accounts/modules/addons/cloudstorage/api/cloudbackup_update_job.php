@@ -420,9 +420,17 @@ if (isset($_POST['dest_bucket_id'])) {
         $response->send();
         exit();
     }
+    $allowedUserIds = [$user->id];
+    try {
+        $childIds = Capsule::table('s3_users')->where('parent_id', $user->id)->pluck('id')->toArray();
+        if (!empty($childIds)) {
+            $allowedUserIds = array_values(array_unique(array_merge($allowedUserIds, $childIds)));
+        }
+    } catch (\Throwable $e) {}
+
     $bucket = Capsule::table('s3_buckets')
         ->where('id', $_POST['dest_bucket_id'])
-        ->where('user_id', $user->id)
+        ->whereIn('user_id', $allowedUserIds)
         ->where('is_active', 1)
         ->first();
     if (!$bucket) {
@@ -430,6 +438,8 @@ if (isset($_POST['dest_bucket_id'])) {
         $response->send();
         exit();
     }
+    // Keep job storage owner aligned with the bucket owner
+    $updateData['s3_user_id'] = (int) $bucket->user_id;
 }
 
 // Validate AWS/S3-compatible source on update if present
