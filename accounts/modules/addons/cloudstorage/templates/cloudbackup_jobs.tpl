@@ -4380,7 +4380,10 @@ function localWizardBuildReview() {
     const dbgVal = !!document.getElementById('localWizardDebugLogs')?.checked;
     s.bandwidth_limit_kbps = bwVal;
     s.parallelism = parVal;
-    if (compVal) {
+    s.compression = compVal;
+    // Set compression_enabled flag for Kopia-based jobs
+    s.compression_enabled = (compVal && compVal.toLowerCase() !== 'none') ? 1 : 0;
+    if (compVal && compVal.toLowerCase() !== 'none') {
         policyObj.compression = compVal;
     }
     if (parVal) {
@@ -4453,6 +4456,7 @@ function localWizardSubmit() {
         parallelism: s.parallelism || '',
         encryption_mode: s.encryption_mode || 'repokey',
         compression: s.compression || '',
+        compression_enabled: s.compression_enabled || 0,
         // legacy retention fields kept for compatibility
         retention_mode: 'none',
         retention_value: '',
