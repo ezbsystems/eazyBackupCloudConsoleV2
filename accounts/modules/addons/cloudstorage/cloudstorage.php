@@ -1050,7 +1050,7 @@ function cloudstorage_activate() {
             $table->unsignedInteger('dest_bucket_id');
             $table->string('dest_prefix', 1024);
             $table->enum('backup_mode', ['sync', 'archive'])->default('sync');
-            $table->enum('schedule_type', ['manual', 'daily', 'weekly', 'cron'])->default('manual');
+            $table->enum('schedule_type', ['manual', 'hourly', 'daily', 'weekly', 'cron'])->default('manual');
             $table->time('schedule_time')->nullable();
             $table->tinyInteger('schedule_weekday')->nullable();
             $table->string('schedule_cron', 191)->nullable();
@@ -1388,6 +1388,13 @@ function cloudstorage_activate() {
                 });
                 logModuleCall('cloudstorage', 'activate', [], 'Added Kopia/engine fields to s3_cloudbackup_jobs', [], []);
             }
+            // Local agent bandwidth limit (separate from cloud job bandwidth_limit_kbps)
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'local_bandwidth_limit_kbps')) {
+                \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_jobs', function ($table) {
+                    $table->unsignedInteger('local_bandwidth_limit_kbps')->nullable()->default(0)->after('compression');
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Added local_bandwidth_limit_kbps to s3_cloudbackup_jobs', [], []);
+            }
         }
 
         // Ensure agent volume columns exist for UI device picker
@@ -1469,6 +1476,26 @@ function cloudstorage_activate() {
                 $table->foreign('run_id')->references('id')->on('s3_cloudbackup_runs')->onDelete('cascade');
             });
             logModuleCall('cloudstorage', 'activate', [], 'Created s3_cloudbackup_run_commands table', [], []);
+        }
+
+        // Add agent_id to run_commands for browse/discovery commands (not tied to a run)
+        if (Capsule::schema()->hasTable('s3_cloudbackup_run_commands')) {
+            if (!Capsule::schema()->hasColumn('s3_cloudbackup_run_commands', 'agent_id')) {
+                Capsule::schema()->table('s3_cloudbackup_run_commands', function ($table) {
+                    $table->unsignedInteger('agent_id')->nullable()->after('run_id');
+                    $table->index('agent_id', 'idx_agent_id');
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Added agent_id to s3_cloudbackup_run_commands', [], []);
+            }
+            // Make run_id nullable - browse/discovery commands don't have a run_id
+            // Note: This requires raw SQL as Laravel doesn't support modifying nullable on existing columns easily
+            try {
+                Capsule::statement('ALTER TABLE s3_cloudbackup_run_commands MODIFY run_id BIGINT UNSIGNED NULL');
+                logModuleCall('cloudstorage', 'activate', [], 'Made run_id nullable in s3_cloudbackup_run_commands', [], []);
+            } catch (\Throwable $e) {
+                // Ignore if already nullable or if there's a constraint issue
+                logModuleCall('cloudstorage', 'activate', [], 'run_id nullable modification skipped: ' . $e->getMessage(), [], []);
+            }
         }
 
         // Trial signup email verification table
@@ -2040,6 +2067,28 @@ function cloudstorage_upgrade($vars) {
             }
         }
 
+        // Add 'hourly' to schedule_type ENUM in s3_cloudbackup_jobs
+        if (\WHMCS\Database\Capsule::schema()->hasTable('s3_cloudbackup_jobs')) {
+            try {
+                $databaseName = \WHMCS\Database\Capsule::connection()->getDatabaseName();
+                $col = \WHMCS\Database\Capsule::table('information_schema.COLUMNS')
+                    ->select(['COLUMN_TYPE'])
+                    ->where('TABLE_SCHEMA', $databaseName)
+                    ->where('TABLE_NAME', 's3_cloudbackup_jobs')
+                    ->where('COLUMN_NAME', 'schedule_type')
+                    ->first();
+                
+                $columnType = strtolower((string) ($col->COLUMN_TYPE ?? ''));
+                // Check if 'hourly' is missing from the ENUM
+                if ($columnType !== '' && strpos($columnType, 'hourly') === false) {
+                    \WHMCS\Database\Capsule::statement("ALTER TABLE `s3_cloudbackup_jobs` MODIFY COLUMN `schedule_type` ENUM('manual','hourly','daily','weekly','cron') NOT NULL DEFAULT 'manual'");
+                    logModuleCall('cloudstorage', 'upgrade_schedule_type_add_hourly', [], 'Added hourly to s3_cloudbackup_jobs.schedule_type ENUM', [], []);
+                }
+            } catch (\Throwable $e) {
+                logModuleCall('cloudstorage', 'upgrade_schedule_type_add_hourly_fail', [], $e->getMessage(), [], []);
+            }
+        }
+
         // Ensure trial selection table exists
         if (!\WHMCS\Database\Capsule::schema()->hasTable('cloudstorage_trial_selection')) {
             \WHMCS\Database\Capsule::schema()->create('cloudstorage_trial_selection', function ($table) {
@@ -2095,7 +2144,7 @@ function cloudstorage_upgrade($vars) {
                 $table->unsignedInteger('dest_bucket_id');
                 $table->string('dest_prefix', 1024);
                 $table->enum('backup_mode', ['sync', 'archive'])->default('sync');
-                $table->enum('schedule_type', ['manual', 'daily', 'weekly', 'cron'])->default('manual');
+                $table->enum('schedule_type', ['manual', 'hourly', 'daily', 'weekly', 'cron'])->default('manual');
                 $table->time('schedule_time')->nullable();
                 $table->tinyInteger('schedule_weekday')->nullable();
                 $table->string('schedule_cron', 191)->nullable();
@@ -2319,6 +2368,23 @@ function cloudstorage_upgrade($vars) {
                 $table->foreign('run_id')->references('id')->on('s3_cloudbackup_runs')->onDelete('cascade');
             });
             logModuleCall('cloudstorage', 'upgrade', [], 'Created s3_cloudbackup_run_commands table', [], []);
+        }
+
+        // Add agent_id to run_commands for browse/discovery commands (not tied to a run)
+        if (\WHMCS\Database\Capsule::schema()->hasTable('s3_cloudbackup_run_commands')) {
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_run_commands', 'agent_id')) {
+                \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_run_commands', function ($table) {
+                    $table->unsignedInteger('agent_id')->nullable()->after('run_id');
+                    $table->index('agent_id', 'idx_run_cmd_agent_id');
+                });
+                logModuleCall('cloudstorage', 'upgrade', [], 'Added agent_id to s3_cloudbackup_run_commands', [], []);
+            }
+            // Make run_id nullable - browse/discovery commands don't have a run_id
+            try {
+                \WHMCS\Database\Capsule::statement('ALTER TABLE s3_cloudbackup_run_commands MODIFY run_id BIGINT UNSIGNED NULL');
+            } catch (\Throwable $e) {
+                // Ignore if already nullable
+            }
         }
 
         if (!\WHMCS\Database\Capsule::schema()->hasTable('s3_cloudbackup_settings')) {

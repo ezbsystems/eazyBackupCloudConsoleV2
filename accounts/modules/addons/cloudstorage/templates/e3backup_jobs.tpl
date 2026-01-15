@@ -324,7 +324,7 @@
 </div>
 
 <!-- Include the Job Creation Wizard Slide-Over -->
-{include file="modules/addons/cloudstorage/templates/partials/job_create_wizard.tpl"}
+{include file="{$smarty.const.ROOTDIR}/modules/addons/cloudstorage/templates/partials/job_create_wizard.tpl"}
 
 <!-- Restore Wizard Modal -->
 <div id="restoreWizardModal" class="fixed inset-0 z-[2100] hidden">
@@ -1325,10 +1325,17 @@ function resetLocalWizardFields() {
     if (dbg) dbg.checked = false;
     const diskFormat = document.getElementById('localWizardDiskFormat');
     if (diskFormat) diskFormat.value = 'vhdx';
-    const agentBtn = document.querySelector('#localWizardAgentId')?.parentElement?.querySelector('button span');
-    if (agentBtn) agentBtn.textContent = 'Select agent';
+    // Reset Agent dropdown via Alpine v3 state
+    const agentRoot = document.querySelector('#localWizardAgentId')?.closest('[x-data]');
+    if (agentRoot && agentRoot._x_dataStack) {
+        const data = agentRoot._x_dataStack[0];
+        if (data) {
+            data.selectedId = '';
+            data.selectedAgent = null;
+        }
+    }
     const bucketBtn = document.getElementById('localWizardBucketId')?.parentElement?.querySelector('button .block');
-    if (bucketBtn) bucketBtn.textContent = 'Select a bucket';
+    if (bucketBtn) bucketBtn.textContent = 'Choose where to store your backups';
     localWizardSet('engine', 'kopia');
 }
 
@@ -1388,24 +1395,27 @@ function openLocalJobWizardForEdit(jobId) {
         });
 }
 
-function localWizardSetAgentSelection(agentId, agentLabel) {
+function localWizardSetAgentSelection(agentId, agentLabel, agentObj) {
     const hid = document.getElementById('localWizardAgentId');
     if (hid) hid.value = agentId || '';
-    const btnLabel = hid?.parentElement?.querySelector('button span');
-    if (btnLabel && agentLabel) {
-        btnLabel.textContent = agentLabel;
-    }
+    // Update Alpine v3 state (do NOT manipulate DOM directly as it destroys Alpine children)
     const root = hid?.closest('[x-data]');
-    if (root && root.__x && root.__x.$data) {
+    if (root && root._x_dataStack) {
         try {
-            root.__x.$data.selectedId = agentId || '';
-            root.__x.$data.selectedName = agentLabel || '';
-            setTimeout(() => {
-                if (root.__x && root.__x.$data) {
-                    root.__x.$data.selectedId = agentId || '';
-                    root.__x.$data.selectedName = agentLabel || '';
+            const data = root._x_dataStack[0];
+            if (data) {
+                data.selectedId = agentId || '';
+                // Try to find matching agent from loaded list for full object with online_status
+                let agent = agentObj || null;
+                if (!agent && agentId && data.allAgents) {
+                    agent = data.allAgents.find(a => String(a.id) === String(agentId));
                 }
-            }, 150);
+                // Fallback: create minimal agent object if not found
+                if (!agent && agentId) {
+                    agent = { id: agentId, hostname: agentLabel?.replace(/ \(ID \d+\)$/, '') || '', online_status: 'offline' };
+                }
+                data.selectedAgent = agent;
+            }
         } catch (e) {}
     }
 }
@@ -1434,7 +1444,7 @@ function localWizardFillFromJob(j, s) {
         bucketHidden.value = job.dest_bucket_id || '';
         const bucketBtnLabel = bucketHidden.parentElement?.querySelector('button .block');
         if (bucketBtnLabel) {
-            const name = job.dest_bucket_name || (job.dest_bucket_id ? `Bucket #${job.dest_bucket_id}` : 'Select a bucket');
+    const name = job.dest_bucket_name || (job.dest_bucket_id ? `Bucket #${job.dest_bucket_id}` : 'Choose where to store your backups');
             bucketBtnLabel.textContent = name;
         }
     }
@@ -2392,4 +2402,3 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 </script>
 {/literal}
-

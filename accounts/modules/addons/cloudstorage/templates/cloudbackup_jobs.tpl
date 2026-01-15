@@ -1209,97 +1209,16 @@
                     "></div>
                 </div>
             </div>
-            <!-- Inline Bucket Creation -->
-            <div class="mb-4" x-data="{ open:false, creating:false }">
+            <!-- Create Bucket Button (opens modal) -->
+            <div class="mb-4">
                 <button type="button"
-                        class="inline-flex items-center gap-2 rounded-full border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:text-white hover:border-slate-500 transition"
-                        @click="open = !open">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 6v12m6-6H6" />
+                        class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-slate-600 text-slate-400 hover:text-sky-400 hover:border-sky-500/50 transition text-sm"
+                        onclick="openBucketCreateModal(onCloudBackupBucketCreated)">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                     </svg>
-                    <span x-text="open ? `Hide create bucket` : `Don't have a bucket? Create one`"></span>
+                    Create new bucket
                 </button>
-                <div class="mt-3 rounded-lg border border-slate-700 bg-slate-900/50 p-3 space-y-3" x-show="open" x-cloak>
-                    <div>
-                        <label class="block text-xs font-medium text-slate-300 mb-1">Bucket Name</label>
-                        <input type="text" id="inline_bucket_name" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-3 py-2 focus:outline-none focus:border-sky-600" placeholder="e.g., backups-company-prod">
-                        <p class="mt-1 text-[11px] text-slate-400">Lowercase letters, numbers, and hyphens only.</p>
-                    </div>
-                    <!-- Tenant selection combobox (Alpine) -->
-                    <div
-                        x-data="{
-                            isOpen: false,
-                            selectedUsername: '',
-                            searchTerm: '',
-                            usernames: [
-                                {foreach from=$usernames item=username name=userloop}
-                                    '{$username|escape:'javascript'}'{if !$smarty.foreach.userloop.last},{/if}
-                                {/foreach}
-                            ],
-                            get filteredUsernames() {
-                                if (this.searchTerm === '') return this.usernames;
-                                return this.usernames.filter(u => u.toLowerCase().includes(this.searchTerm.toLowerCase()));
-                            }
-                        }"
-                        @click.away="isOpen = false"
-                    >
-                        <label for="inline_username" class="block text-xs font-medium text-slate-300 mb-1">Select Tenant</label>
-                        <input type="hidden" id="inline_username" x-model="selectedUsername">
-                        <div class="relative">
-                            <button @click="isOpen = !isOpen" type="button" class="relative w-full px-3 py-2 text-left text-slate-300 bg-slate-900 border border-gray-600 rounded-md shadow-sm cursor-default focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500">
-                                <span class="block truncate" x-text="selectedUsername || 'Select a tenant'"></span>
-                                <span class="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
-                                    <svg class="w-5 h-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                                        <path fill-rule="evenodd" d="M10 3a1 1 0 01.707.293l3 3a1 1 0 01-1.414 1.414L10 5.414 7.707 7.707a1 1 0 01-1.414-1.414l3-3A1 1 0 0110 3zm-3.707 9.293a1 1 0 011.414 0L10 14.586l2.293-2.293a1 1 0 011.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
-                                    </svg>
-                                </span>
-                            </button>
-                            <div x-show="isOpen"
-                                 x-transition:leave="transition ease-in duration-100"
-                                 x-transition:leave-start="opacity-100"
-                                 x-transition:leave-end="opacity-0"
-                                 class="absolute z-10 w-full mt-1 bg-slate-900 border border-gray-600 rounded-md shadow-lg"
-                                 style="display: none;">
-                                <div class="p-2">
-                                    <input type="text" x-model="searchTerm" placeholder="Search tenants..." class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-300 focus:outline-none focus:ring-sky-500 focus:border-sky-500">
-                                </div>
-                                <ul class="py-1 overflow-auto text-base max-h-60 ring-1 ring-black ring-opacity-5 focus:outline-none sm:text-sm scrollbar_thin" role="listbox">
-                                    <template x-if="filteredUsernames.length === 0">
-                                        <li class="px-4 py-2 text-gray-400">No tenants found.</li>
-                                    </template>
-                                    <template x-for="u in filteredUsernames" :key="u">
-                                        <li @click="selectedUsername = u; isOpen = false"
-                                            class="px-4 py-2 text-gray-300 cursor-pointer select-none hover:bg-gray-700"
-                                            x-text="u">
-                                        </li>
-                                    </template>
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
-                    <div>
-                        <label class="inline-flex items-center gap-2">
-                            <input type="checkbox" id="inline_bucket_versioning" class="w-4 h-4 text-sky-600 bg-gray-700 border-gray-600 rounded focus:ring-sky-500 focus:ring-2">
-                            <span class="text-sm text-slate-300">Enable versioning</span>
-                        </label>
-                        <div class="mt-2" x-data="{ v:false }" x-init="$watch(() => { const el = document.getElementById('inline_bucket_versioning'); return el ? !!el.checked : false; }, val => v = !!val)">
-                            <div x-show="v" x-cloak>
-                                <label class="block text-xs font-medium text-slate-300 mb-1">Keep previous versions for (days)</label>
-                                <input type="number" min="1" value="30" id="inline_bucket_retention_days" class="w-40 bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-3 py-2 focus:outline-none focus:border-sky-600">
-                                <p class="mt-1 text-[11px] text-amber-300/90">Each stored version increases usage and may impact monthly billing.</p>
-                            </div>
-                        </div>
-                    </div>
-                    <div id="inlineCreateBucketMsg" class="hidden text-xs"></div>
-                    <div class="flex justify-end">
-                        <button type="button" class="btn-run-now"
-                                :disabled="creating"
-                                @click="creating=true; createBucketInline().finally(() => creating=false)">
-                            <span x-show="!creating">Create bucket</span>
-                            <span x-show="creating">Creating…</span>
-                        </button>
-                    </div>
-                </div>
             </div>
             <div class="mb-4">
                 <label class="block text-sm font-medium text-slate-300 mb-2">Destination Prefix</label>
@@ -3120,8 +3039,16 @@
 }
 </style>
 
+<!-- Include the Bucket Creation Modal -->
+{include file="modules/addons/cloudstorage/templates/partials/bucket_create_modal.tpl"}
+
 <script>
 {literal}
+// Build an API base that works whether WHMCS is installed at domain root or a subdirectory (e.g. /accounts).
+// {$WEB_ROOT} is the WHMCS install web root. Example values: "" or "/accounts".
+const CLOUDSTORAGE_WEB_ROOT = (String('{/literal}{$WEB_ROOT}{literal}') || '').replace(/\/$/, '');
+const CLOUDSTORAGE_API_BASE = ((CLOUDSTORAGE_WEB_ROOT && CLOUDSTORAGE_WEB_ROOT !== '/') ? CLOUDSTORAGE_WEB_ROOT : '') + '/modules/addons/cloudstorage/api';
+
 // Cloud Wizard edit mode state
 window.cloudWizardState = { editMode: false, jobId: null };
 
@@ -3325,11 +3252,18 @@ function resetLocalWizardFields() {
     if (diskVolume) diskVolume.value = '';
     const diskTemp = document.getElementById('localWizardDiskTemp');
     if (diskTemp) diskTemp.value = '';
+    // Reset Agent dropdown via Alpine v3 state
+    const agentRoot = document.querySelector('#localWizardAgentId')?.closest('[x-data]');
+    if (agentRoot && agentRoot._x_dataStack) {
+        const data = agentRoot._x_dataStack[0];
+        if (data) {
+            data.selectedId = '';
+            data.selectedAgent = null;
+        }
+    }
     // Reset button labels
-    const agentBtn = document.querySelector('#localWizardAgentId')?.parentElement?.querySelector('button span');
-    if (agentBtn) agentBtn.textContent = 'Select agent';
     const bucketBtn = document.getElementById('localWizardBucketId')?.parentElement?.querySelector('button .block');
-    if (bucketBtn) bucketBtn.textContent = 'Select a bucket';
+    if (bucketBtn) bucketBtn.textContent = 'Choose where to store your backups';
     // Reset engine button styles
     localWizardSet('engine', 'kopia');
 }
@@ -3396,27 +3330,27 @@ function openLocalJobWizardForEdit(jobId) {
         });
 }
 
-function localWizardSetAgentSelection(agentId, agentLabel) {
+function localWizardSetAgentSelection(agentId, agentLabel, agentObj) {
     const hid = document.getElementById('localWizardAgentId');
     if (hid) hid.value = agentId || '';
-    // Button text fallback
-    const btnLabel = hid?.parentElement?.querySelector('button span');
-    if (btnLabel && agentLabel) {
-        btnLabel.textContent = agentLabel;
-    }
-    // Sync Alpine component state if present
+    // Update Alpine v3 state (do NOT manipulate DOM directly as it destroys Alpine children)
     const root = hid?.closest('[x-data]');
-    if (root && root.__x && root.__x.$data) {
+    if (root && root._x_dataStack) {
         try {
-            root.__x.$data.selectedId = agentId || '';
-            root.__x.$data.selectedName = agentLabel || '';
-            // If options arrive later, keep the label by reapplying once after a short delay
-            setTimeout(() => {
-                if (root.__x && root.__x.$data) {
-                    root.__x.$data.selectedId = agentId || '';
-                    root.__x.$data.selectedName = agentLabel || '';
+            const data = root._x_dataStack[0];
+            if (data) {
+                data.selectedId = agentId || '';
+                // Try to find matching agent from loaded list for full object with online_status
+                let agent = agentObj || null;
+                if (!agent && agentId && data.allAgents) {
+                    agent = data.allAgents.find(a => String(a.id) === String(agentId));
                 }
-            }, 150);
+                // Fallback: create minimal agent object if not found
+                if (!agent && agentId) {
+                    agent = { id: agentId, hostname: agentLabel?.replace(/ \(ID \d+\)$/, '') || '', online_status: 'offline' };
+                }
+                data.selectedAgent = agent;
+            }
         } catch (e) {}
     }
 }
@@ -3443,7 +3377,7 @@ function localWizardFillFromJob(j, s) {
         bucketHidden.value = job.dest_bucket_id || '';
         const bucketBtnLabel = bucketHidden.parentElement?.querySelector('button .block');
         if (bucketBtnLabel) {
-            const name = job.dest_bucket_name || (job.dest_bucket_id ? `Bucket #${job.dest_bucket_id}` : 'Select a bucket');
+            const name = job.dest_bucket_name || (job.dest_bucket_id ? `Bucket #${job.dest_bucket_id}` : 'Choose where to store your backups');
             bucketBtnLabel.textContent = name;
         }
     }
@@ -4174,8 +4108,8 @@ function localWizardSubmit() {
         body: new URLSearchParams(payload),
     };
     const endpoint = isEdit
-        ? 'modules/addons/cloudstorage/api/cloudbackup_update_job.php'
-        : 'modules/addons/cloudstorage/api/cloudbackup_create_job.php';
+        ? (CLOUDSTORAGE_API_BASE + '/cloudbackup_update_job.php')
+        : (CLOUDSTORAGE_API_BASE + '/cloudbackup_create_job.php');
     if (isEdit && !payload.job_id) {
         return toast?.error?.('Missing job ID for update');
     }
@@ -4625,7 +4559,7 @@ function doCreateJobSubmit(formEl) {
             jobData.source_connection_id = connId;
         }
     }
-    fetch('modules/addons/cloudstorage/api/cloudbackup_create_job.php', {
+    fetch(CLOUDSTORAGE_API_BASE + '/cloudbackup_create_job.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams(jobData)
@@ -4776,8 +4710,8 @@ document.getElementById('createJobForm').addEventListener('submit', function(e) 
     }
     
     const endpoint = isEdit 
-        ? 'modules/addons/cloudstorage/api/cloudbackup_update_job.php'
-        : 'modules/addons/cloudstorage/api/cloudbackup_create_job.php';
+        ? (CLOUDSTORAGE_API_BASE + '/cloudbackup_update_job.php')
+        : (CLOUDSTORAGE_API_BASE + '/cloudbackup_create_job.php');
     
     fetch(endpoint, {
         method: 'POST',
@@ -5544,7 +5478,31 @@ function runJob(jobId) {
 	}
 }
 
-// Inline bucket create helper for Create Job slide-over
+// Callback for when a bucket is created from the modal (cloud backup wizard)
+function onCloudBackupBucketCreated(bucket) {
+    if (!bucket || !bucket.id) return;
+    
+    // Find the bucket dropdown select element
+    const selectEl = document.querySelector('select[name="dest_bucket_id"]');
+    if (selectEl) {
+        // Add the new bucket as an option
+        const opt = document.createElement('option');
+        opt.value = bucket.id;
+        opt.textContent = bucket.name;
+        selectEl.appendChild(opt);
+        
+        // Select the new bucket
+        selectEl.value = bucket.id;
+        selectEl.dispatchEvent(new Event('change'));
+    }
+    
+    // Show success notification
+    if (window.toast) {
+        window.toast.success('Bucket "' + bucket.name + '" created and selected');
+    }
+}
+
+// Inline bucket create helper for Create Job slide-over (legacy, kept for compatibility)
 async function createBucketInline() {
 	const nameEl = document.getElementById('inline_bucket_name');
 	const verEl = document.getElementById('inline_bucket_versioning');

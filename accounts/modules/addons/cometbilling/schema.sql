@@ -86,4 +86,99 @@ CREATE TABLE IF NOT EXISTS cb_api_keys (
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- ============================================================================
+-- CREDIT PACK TRACKING (FIFO)
+-- ============================================================================
+
+-- Credit lots for FIFO consumption tracking
+CREATE TABLE IF NOT EXISTS cb_credit_lots (
+  id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  purchase_id BIGINT UNSIGNED NULL,
+  lot_type ENUM('purchased', 'bonus', 'adjustment') NOT NULL DEFAULT 'purchased',
+  original_amount DECIMAL(12,4) NOT NULL,
+  remaining_amount DECIMAL(12,4) NOT NULL,
+  created_at DATETIME NOT NULL,
+  depleted_at DATETIME NULL,
+  KEY idx_remaining (remaining_amount),
+  KEY idx_type (lot_type),
+  KEY idx_created (created_at),
+  KEY idx_purchase (purchase_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Credit allocation log (usage -> lots mapping)
+CREATE TABLE IF NOT EXISTS cb_credit_allocations (
+  id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  usage_date DATE NOT NULL,
+  total_amount DECIMAL(12,4) NOT NULL,
+  description VARCHAR(255) NULL,
+  allocations JSON NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_usage_date (usage_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ============================================================================
+-- RECONCILIATION
+-- ============================================================================
+
+-- Saved reconciliation reports
+CREATE TABLE IF NOT EXISTS cb_reconciliation_reports (
+  id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  report_date DATETIME NOT NULL,
+  server_collected_at DATETIME NULL,
+  portal_snapshot_at DATETIME NULL,
+  overall_status ENUM('ok', 'variance_detected', 'incomplete') NOT NULL DEFAULT 'ok',
+  summary JSON NULL,
+  items JSON NULL,
+  server_data JSON NULL,
+  portal_data JSON NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_report_date (report_date),
+  KEY idx_status (overall_status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ============================================================================
+-- SERVER USAGE SNAPSHOTS
+-- ============================================================================
+
+-- Daily server usage snapshots (from Comet Admin API)
+CREATE TABLE IF NOT EXISTS cb_server_usage (
+  id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  snapshot_date DATE NOT NULL,
+  server_key VARCHAR(64) NOT NULL,
+  
+  -- Aggregate counts
+  total_users INT UNSIGNED NOT NULL DEFAULT 0,
+  total_devices INT UNSIGNED NOT NULL DEFAULT 0,
+  hyperv_vms INT UNSIGNED NOT NULL DEFAULT 0,
+  vmware_vms INT UNSIGNED NOT NULL DEFAULT 0,
+  proxmox_vms INT UNSIGNED NOT NULL DEFAULT 0,
+  disk_image INT UNSIGNED NOT NULL DEFAULT 0,
+  mssql INT UNSIGNED NOT NULL DEFAULT 0,
+  m365_accounts INT UNSIGNED NOT NULL DEFAULT 0,
+  storage_bytes BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  protected_items INT UNSIGNED NOT NULL DEFAULT 0,
+  
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  
+  UNIQUE KEY uq_snapshot (snapshot_date, server_key),
+  KEY idx_server (server_key),
+  KEY idx_date (snapshot_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Combined daily usage (all servers aggregated)
+CREATE TABLE IF NOT EXISTS cb_server_usage_combined (
+  snapshot_date DATE PRIMARY KEY,
+  total_servers INT UNSIGNED NOT NULL DEFAULT 0,
+  total_users INT UNSIGNED NOT NULL DEFAULT 0,
+  total_devices INT UNSIGNED NOT NULL DEFAULT 0,
+  hyperv_vms INT UNSIGNED NOT NULL DEFAULT 0,
+  vmware_vms INT UNSIGNED NOT NULL DEFAULT 0,
+  proxmox_vms INT UNSIGNED NOT NULL DEFAULT 0,
+  disk_image INT UNSIGNED NOT NULL DEFAULT 0,
+  mssql INT UNSIGNED NOT NULL DEFAULT 0,
+  m365_accounts INT UNSIGNED NOT NULL DEFAULT 0,
+  storage_bytes BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  protected_items INT UNSIGNED NOT NULL DEFAULT 0,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 

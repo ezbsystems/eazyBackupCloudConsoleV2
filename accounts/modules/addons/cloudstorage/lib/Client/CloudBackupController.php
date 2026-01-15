@@ -180,6 +180,30 @@ class CloudBackupController {
             if (isset($data['agent_id'])) {
                 $jobData['agent_id'] = $data['agent_id'];
             }
+            // Only include optional columns that exist in the schema
+            $optionalCols = [
+                'source_connection_id',
+                'engine',
+                'dest_type',
+                'dest_local_path',
+                'bucket_auto_create',
+                'schedule_json',
+                'retention_json',
+                'policy_json',
+                'bandwidth_limit_kbps',
+                'parallelism',
+                'encryption_mode',
+                'compression',
+                'source_paths_json',
+                'disk_source_volume',
+                'disk_image_format',
+                'disk_temp_dir',
+            ];
+            foreach ($optionalCols as $col) {
+                if (isset($jobData[$col]) && !Capsule::schema()->hasColumn('s3_cloudbackup_jobs', $col)) {
+                    unset($jobData[$col]);
+                }
+            }
 
             $jobId = Capsule::table('s3_cloudbackup_jobs')->insertGetId($jobData);
 
