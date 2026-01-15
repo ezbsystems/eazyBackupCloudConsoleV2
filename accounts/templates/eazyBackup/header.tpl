@@ -294,7 +294,6 @@
                             'index.php?m=cloudstorage&page=buckets',
                             'index.php?m=cloudstorage&page=access_keys',
                             'index.php?m=cloudstorage&page=users',
-                            'index.php?m=cloudstorage&page=cloudbackup',
                             'index.php?m=cloudstorage&page=billing',
                             'index.php?m=cloudstorage&page=history'
                         ].some(path => window.location.href.includes(path))
@@ -307,7 +306,6 @@
                                     || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=buckets')
                                     || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=access_keys')
                                     || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=users')
-                                    || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=cloudbackup')
                                     || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=billing')
                                     || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=history')
                                 } bg-[#1B2C50] font-semibold {/if}"
@@ -352,18 +350,6 @@
                             class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
                                     {if $smarty.server.REQUEST_URI|strstr:'page=users'} bg-[#1B2C50] font-semibold {/if}">
                                 Users
-                            </a>
-                            <!-- Cloud Backups -->
-                            <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=cloudbackup" 
-                            class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
-                                    {if $smarty.server.REQUEST_URI|strstr:'page=cloudbackup' && !($smarty.server.REQUEST_URI|strstr:'view=cloudnas')} bg-[#1B2C50] font-semibold {/if}">
-                                Cloud Backups
-                            </a>
-                            <!-- Cloud NAS -->
-                            <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=cloudbackup&view=cloudnas" 
-                            class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
-                                    {if $smarty.server.REQUEST_URI|strstr:'view=cloudnas'} bg-[#1B2C50] font-semibold {/if}">
-                                Cloud NAS
                             </a>
                             <!-- Billing -->
                             <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=billing" 
@@ -425,6 +411,12 @@
                                class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
                                     {if $smarty.get.view == 'jobs'} bg-[#1B2C50] font-semibold {/if}">
                                 Jobs
+                            </a>
+                            <!-- Cloud NAS -->
+                            <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=cloudnas" 
+                               class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
+                                    {if $smarty.get.view == 'cloudnas'} bg-[#1B2C50] font-semibold {/if}">
+                                Cloud NAS
                             </a>
                             <!-- Download Agent -->
                             <button id="e3backup-download-trigger"

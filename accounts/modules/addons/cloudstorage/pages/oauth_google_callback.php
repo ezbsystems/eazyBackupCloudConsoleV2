@@ -11,7 +11,7 @@ if (!defined('WHMCS')) {
 $ca = new ClientArea();
 if (!$ca->isLoggedIn()) {
     $_SESSION['message'] = 'Please log in to complete Google connection.';
-    header('Location: index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_jobs');
+    header('Location: index.php?m=cloudstorage&page=e3backup&view=jobs');
     exit;
 }
 
@@ -45,7 +45,7 @@ try {
             ], [], [], []);
         }
         $_SESSION['message'] = 'Invalid OAuth state. Please try again.';
-        header('Location: index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_jobs');
+        header('Location: index.php?m=cloudstorage&page=e3backup&view=jobs');
         exit;
     }
 
@@ -61,7 +61,7 @@ try {
 
     if (!$clientId || !$clientSecret || !$encryptionKey) {
         $_SESSION['message'] = 'Google OAuth or encryption not configured.';
-        header('Location: index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_jobs');
+        header('Location: index.php?m=cloudstorage&page=e3backup&view=jobs');
         exit;
     }
 
@@ -114,14 +114,14 @@ try {
 
     if ($httpCode < 200 || $httpCode >= 300 || !$tokenResp) {
         $_SESSION['message'] = 'Failed to obtain tokens from Google.';
-        header('Location: index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_jobs');
+        header('Location: index.php?m=cloudstorage&page=e3backup&view=jobs');
         exit;
     }
 
     $tokenJson = json_decode($tokenResp, true);
     if (!is_array($tokenJson)) {
         $_SESSION['message'] = 'Unexpected token response.';
-        header('Location: index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_jobs');
+        header('Location: index.php?m=cloudstorage&page=e3backup&view=jobs');
         exit;
     }
 
@@ -131,7 +131,7 @@ try {
 
     if (!$accessToken) {
         $_SESSION['message'] = 'No access token returned by Google.';
-        header('Location: index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_jobs');
+        header('Location: index.php?m=cloudstorage&page=e3backup&view=jobs');
         exit;
     }
 
@@ -219,7 +219,7 @@ try {
     } else {
         if (!$encRefresh) {
             $_SESSION['message'] = 'Google did not return a refresh token. Please remove the app from your Google account permissions and try again.';
-            header('Location: index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_jobs');
+            header('Location: index.php?m=cloudstorage&page=e3backup&view=jobs');
             exit;
         }
         Capsule::table('s3_cloudbackup_sources')->insert([
@@ -237,11 +237,11 @@ try {
     }
 
     $_SESSION['message'] = 'Google Drive connected successfully.';
-    header('Location: index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_jobs&open_create=1&prefill_source=google_drive');
+    header('Location: index.php?m=cloudstorage&page=e3backup&view=jobs&open_create=1&prefill_source=google_drive');
     exit;
 } catch (\Exception $e) {
     $_SESSION['message'] = 'Google OAuth failed. Please try again.';
-    header('Location: index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_jobs');
+    header('Location: index.php?m=cloudstorage&page=e3backup&view=jobs');
     exit;
 }
 

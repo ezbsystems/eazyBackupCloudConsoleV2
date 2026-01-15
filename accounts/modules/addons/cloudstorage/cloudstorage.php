@@ -2796,7 +2796,7 @@ function cloudstorage_clientarea($vars) {
             switch ($view) {
                 case 'live':
                     $pagetitle = 'e3 Cloud Backup - Live Progress';
-                    $templatefile = 'templates/e3backup_live';
+                    $templatefile = 'templates/cloudbackup_live';
                     $viewVars = require 'pages/e3backup_live.php';
                     break;
                 case 'agents':
@@ -2819,10 +2819,20 @@ function cloudstorage_clientarea($vars) {
                     $templatefile = 'templates/e3backup_jobs';
                     $viewVars = require 'pages/e3backup_jobs.php';
                     break;
+                case 'runs':
+                    $pagetitle = 'e3 Cloud Backup - Run History';
+                    $templatefile = 'templates/e3backup_runs';
+                    $viewVars = require 'pages/e3backup_runs.php';
+                    break;
                 case 'tenant_users':
                     $pagetitle = 'e3 Cloud Backup - Tenant Users';
                     $templatefile = 'templates/e3backup_tenant_users';
                     $viewVars = require 'pages/e3backup_tenant_users.php';
+                    break;
+                case 'cloudnas':
+                    $pagetitle = 'e3 Cloud Backup - Cloud NAS';
+                    $templatefile = 'templates/e3backup_cloudnas';
+                    $viewVars = require 'pages/cloudnas.php';
                     break;
                 case 'hyperv':
                     $pagetitle = 'e3 Cloud Backup - Hyper-V';
@@ -2884,55 +2894,9 @@ function cloudstorage_clientarea($vars) {
             break;
 
         case 'cloudbackup':
-            $view = $_GET['view'] ?? 'cloudbackup_jobs';
-            switch ($view) {
-                case 'cloudbackup_runs':
-                    $pagetitle = 'Backup Run History';
-                    $templatefile = 'templates/cloudbackup_runs';
-                    $viewVars = require 'pages/cloudbackup_runs.php';
-                    break;
-                case 'cloudbackup_live':
-                    $pagetitle = 'Live Backup Progress';
-                    $templatefile = 'templates/cloudbackup_live';
-                    $viewVars = require 'pages/cloudbackup_live.php';
-                    break;
-                case 'cloudbackup_agents':
-                    $pagetitle = 'Backup Agents';
-                    $templatefile = 'templates/cloudbackup_agents';
-                    $viewVars = require 'pages/cloudbackup_agents.php';
-                    break;
-                case 'cloudnas':
-                    $pagetitle = 'Cloud NAS';
-                    $templatefile = 'templates/cloudnas';
-                    $viewVars = require 'pages/cloudnas.php';
-                    break;
-                case 'cloudbackup_settings':
-                    $pagetitle = 'Backup Settings';
-                    $templatefile = 'templates/cloudbackup_settings';
-                    $viewVars = require 'pages/cloudbackup_settings.php';
-                    break;
-                case 'cloudbackup_hyperv':
-                    // Redirect to e3backup hyperv page
-                    $jobId = isset($_GET['job_id']) ? (int)$_GET['job_id'] : '';
-                    $redirectUrl = 'index.php?m=cloudstorage&page=e3backup&view=hyperv';
-                    if ($jobId) $redirectUrl .= '&job_id=' . $jobId;
-                    header('Location: ' . $redirectUrl);
-                    exit;
-                case 'cloudbackup_hyperv_restore':
-                    // Redirect to e3backup hyperv restore page
-                    $vmId = isset($_GET['vm_id']) ? (int)$_GET['vm_id'] : '';
-                    $redirectUrl = 'index.php?m=cloudstorage&page=e3backup&view=hyperv_restore';
-                    if ($vmId) $redirectUrl .= '&vm_id=' . $vmId;
-                    header('Location: ' . $redirectUrl);
-                    exit;
-                case 'cloudbackup_jobs':
-                default:
-                    $pagetitle = 'Cloud Backup Jobs';
-                    $templatefile = 'templates/cloudbackup_jobs';
-                    $viewVars = require 'pages/cloudbackup_jobs.php';
-                    break;
-            }
-            break;
+            // Legacy cloudbackup routes removed
+            header($_SERVER['SERVER_PROTOCOL'] . ' 404 Not Found');
+            exit;
 
         default:
             $pagetitle = 'S3 Storage';

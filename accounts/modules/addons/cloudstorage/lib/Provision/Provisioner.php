@@ -482,8 +482,8 @@ class Provisioner
     {
         // Reuse cloud storage provisioning path to ensure Ceph user/account exists
         $redirect = self::provisionCloudStorage($clientId);
-        // Route into the cloud backup UI inside Cloud Storage module
-        return 'index.php?m=cloudstorage&page=cloudbackup';
+        // Route into the e3 backup UI
+        return 'index.php?m=cloudstorage&page=e3backup&view=jobs';
     }
 }
 

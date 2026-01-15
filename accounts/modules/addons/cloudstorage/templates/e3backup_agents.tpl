@@ -1,6 +1,8 @@
 <div class="min-h-screen bg-slate-950 text-gray-200" x-data="agentsApp()">
     <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
     <div class="container mx-auto px-4 py-6 relative pointer-events-auto">
+        {* Glass panel container *}
+        <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
         <!-- Header -->
         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
             <div>
@@ -27,13 +29,82 @@
         <div class="mb-4 flex flex-col sm:flex-row sm:items-center gap-3">
             <div class="flex items-center gap-3">
                 <label class="text-sm text-slate-400">Filter by Tenant:</label>
-                <select x-model="tenantFilter" @change="loadAgents()" class="rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500">
-                    <option value="">All Agents</option>
-                    <option value="direct">Direct (No Tenant)</option>
-                    {foreach from=$tenants item=tenant}
-                    <option value="{$tenant->id}">{$tenant->name|escape}</option>
-                    {/foreach}
-                </select>
+                <div
+                    x-data="{
+                        isOpen: false,
+                        tenantLabel() {
+                            if (!this.tenantFilter) return 'All Agents';
+                            if (this.tenantFilter === 'direct') return 'Direct (No Tenant)';
+                            try {
+                                const sel = String(this.tenantFilter);
+                                const safe = sel.split('\"').join('\\\\\"');
+                                const el = document.querySelector('[data-agents-tenant-option=\"' + safe + '\"]');
+                                const txt = el ? String(el.textContent || '').trim() : '';
+                                if (txt) return txt;
+                            } catch (e) {}
+                            return 'Tenant ' + this.tenantFilter;
+                        }
+                    }"
+                    class="relative"
+                    @click.away="isOpen = false"
+                >
+                    <button
+                        type="button"
+                        @click="isOpen = !isOpen"
+                        class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                    >
+                        <span class="truncate max-w-[14rem]" x-text="tenantLabel()"></span>
+                        <svg class="w-4 h-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                        </svg>
+                    </button>
+                    <div
+                        x-show="isOpen"
+                        x-transition:enter="transition ease-out duration-100"
+                        x-transition:enter-start="opacity-0 scale-95"
+                        x-transition:enter-end="opacity-100 scale-100"
+                        x-transition:leave="transition ease-in duration-75"
+                        x-transition:leave-start="opacity-100 scale-100"
+                        x-transition:leave-end="opacity-0 scale-95"
+                        class="absolute left-0 mt-2 w-72 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden"
+                        style="display: none;"
+                    >
+                        <div class="px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 border-b border-slate-800">
+                            Select tenant
+                        </div>
+                        <div class="py-1 max-h-72 overflow-auto">
+                            <button
+                                type="button"
+                                class="w-full px-4 py-2 text-left text-sm transition"
+                                :class="tenantFilter === '' ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
+                                @click="tenantFilter=''; isOpen=false; loadAgents()"
+                                data-agents-tenant-option=""
+                            >
+                                All Agents
+                            </button>
+                            <button
+                                type="button"
+                                class="w-full px-4 py-2 text-left text-sm transition"
+                                :class="tenantFilter === 'direct' ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
+                                @click="tenantFilter='direct'; isOpen=false; loadAgents()"
+                                data-agents-tenant-option="direct"
+                            >
+                                Direct (No Tenant)
+                            </button>
+                            {foreach from=$tenants item=tenant}
+                            <button
+                                type="button"
+                                class="w-full px-4 py-2 text-left text-sm transition"
+                                :class="String(tenantFilter) === String('{$tenant->id}') ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
+                                @click="tenantFilter='{$tenant->id}'; isOpen=false; loadAgents()"
+                                data-agents-tenant-option="{$tenant->id}"
+                            >
+                                {$tenant->name|escape}
+                            </button>
+                            {/foreach}
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- Column selector (same Alpine scope as agentsApp()) -->
@@ -141,6 +212,7 @@
                     </template>
                 </tbody>
             </table>
+        </div>
         </div>
     </div>
 </div>
