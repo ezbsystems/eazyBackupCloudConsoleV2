@@ -2283,19 +2283,224 @@
                         </div>
                     </div>
 
-                    <!-- Step 4 -->
-                    <div class="wizard-step hidden" data-step="4">
-                        <div class="grid md:grid-cols-2 gap-4">
+                    <!-- Step 4: Retention & Policy -->
+                    <div class="wizard-step hidden" data-step="4" x-data="localWizardRetentionUI()" x-init="init()">
+                        <!-- Hidden input for form compatibility -->
+                        <input type="hidden" id="localWizardRetention" x-model="retentionJson">
+                        <input type="hidden" id="localWizardPolicy">
+                        
+                        <div class="space-y-6">
+                            <!-- Retention Policy Builder -->
                             <div>
-                                <label class="block text-sm font-medium text-slate-200 mb-2">Retention</label>
-                                <textarea id="localWizardRetention" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50" rows="4" placeholder="&#123;&quot;keep_last&quot;:30,&quot;keep_daily&quot;:7&#125;"></textarea>
-                                <p class="text-xs text-slate-500 mt-1">JSON or simple values; kept server-side.</p>
+                                <label class="block text-sm font-medium text-slate-200 mb-3">Retention Policy</label>
+                                
+                                <!-- Retention Mode Dropdown -->
+                                <div @click.away="retentionDropdownOpen = false" class="mb-4">
+                                    <div class="relative">
+                                        <button type="button"
+                                                @click="retentionDropdownOpen = !retentionDropdownOpen"
+                                                class="relative w-full px-4 py-2.5 text-left bg-slate-800 border border-slate-700 rounded-lg shadow-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50 transition-colors hover:border-slate-600">
+                                            <span class="flex items-center gap-3">
+                                                <span class="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+                                                      :class="{
+                                                          'bg-slate-700/50 text-slate-400': mode === 'none',
+                                                          'bg-sky-500/20 text-sky-400': mode === 'keep_last',
+                                                          'bg-violet-500/20 text-violet-400': mode === 'keep_within',
+                                                          'bg-amber-500/20 text-amber-400': mode === 'keep_daily'
+                                                      }">
+                                                    <template x-if="mode === 'none'">
+                                                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                                                        </svg>
+                                                    </template>
+                                                    <template x-if="mode === 'keep_last'">
+                                                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                                                        </svg>
+                                                    </template>
+                                                    <template x-if="mode === 'keep_within'">
+                                                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                                        </svg>
+                                                    </template>
+                                                    <template x-if="mode === 'keep_daily'">
+                                                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                        </svg>
+                                                    </template>
+                                                </span>
+                                                <span class="block truncate text-slate-100" x-text="modeLabels[mode] || 'Select retention policy'"></span>
+                                            </span>
+                                            <span class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                                                <svg class="w-5 h-5 text-slate-400 transition-transform duration-200" :class="retentionDropdownOpen ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                                                </svg>
+                                            </span>
+                                        </button>
+                                        
+                                        <!-- Dropdown Panel -->
+                                        <div x-show="retentionDropdownOpen"
+                                             x-transition:enter="transition ease-out duration-200"
+                                             x-transition:enter-start="opacity-0 translate-y-1 scale-95"
+                                             x-transition:enter-end="opacity-100 translate-y-0 scale-100"
+                                             x-transition:leave="transition ease-in duration-150"
+                                             x-transition:leave-start="opacity-100 translate-y-0 scale-100"
+                                             x-transition:leave-end="opacity-0 translate-y-1 scale-95"
+                                             class="absolute z-20 mt-2 w-full bg-slate-900 border border-slate-700 rounded-xl shadow-xl overflow-hidden"
+                                             style="display: none;">
+                                            <ul class="py-1">
+                                                <!-- No Retention -->
+                                                <li @click="selectMode('none')"
+                                                    class="flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors"
+                                                    :class="mode === 'none' ? 'bg-cyan-500/10 text-cyan-200' : 'text-slate-200 hover:bg-slate-800'">
+                                                    <span class="w-8 h-8 rounded-lg bg-slate-700/50 flex items-center justify-center shrink-0">
+                                                        <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                                                        </svg>
+                                                    </span>
+                                                    <div class="flex-1">
+                                                        <p class="text-sm font-medium">No Retention</p>
+                                                        <p class="text-xs text-slate-500">Keep all backups indefinitely</p>
+                                                    </div>
+                                                    <svg x-show="mode === 'none'" class="w-5 h-5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                                                    </svg>
+                                                </li>
+                                                <!-- Keep Last N -->
+                                                <li @click="selectMode('keep_last')"
+                                                    class="flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors"
+                                                    :class="mode === 'keep_last' ? 'bg-cyan-500/10 text-cyan-200' : 'text-slate-200 hover:bg-slate-800'">
+                                                    <span class="w-8 h-8 rounded-lg bg-sky-500/20 flex items-center justify-center shrink-0">
+                                                        <svg class="w-4 h-4 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                                                        </svg>
+                                                    </span>
+                                                    <div class="flex-1">
+                                                        <p class="text-sm font-medium">Keep last ... Backups</p>
+                                                        <p class="text-xs text-slate-500">Keep a fixed number of most recent backups</p>
+                                                    </div>
+                                                    <svg x-show="mode === 'keep_last'" class="w-5 h-5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                                                    </svg>
+                                                </li>
+                                                <!-- Keep Within -->
+                                                <li @click="selectMode('keep_within')"
+                                                    class="flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors"
+                                                    :class="mode === 'keep_within' ? 'bg-cyan-500/10 text-cyan-200' : 'text-slate-200 hover:bg-slate-800'">
+                                                    <span class="w-8 h-8 rounded-lg bg-violet-500/20 flex items-center justify-center shrink-0">
+                                                        <svg class="w-4 h-4 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                                        </svg>
+                                                    </span>
+                                                    <div class="flex-1">
+                                                        <p class="text-sm font-medium">Keep all backups in the last...</p>
+                                                        <p class="text-xs text-slate-500">Keep backups within a time window</p>
+                                                    </div>
+                                                    <svg x-show="mode === 'keep_within'" class="w-5 h-5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                                                    </svg>
+                                                </li>
+                                                <!-- Keep Daily -->
+                                                <li @click="selectMode('keep_daily')"
+                                                    class="flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors"
+                                                    :class="mode === 'keep_daily' ? 'bg-cyan-500/10 text-cyan-200' : 'text-slate-200 hover:bg-slate-800'">
+                                                    <span class="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center shrink-0">
+                                                        <svg class="w-4 h-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                        </svg>
+                                                    </span>
+                                                    <div class="flex-1">
+                                                        <p class="text-sm font-medium">Keep last ... backup at most one per day</p>
+                                                        <p class="text-xs text-slate-500">Thin backups to one per day, keeping N days</p>
+                                                    </div>
+                                                    <svg x-show="mode === 'keep_daily'" class="w-5 h-5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                                                    </svg>
+                                                </li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Keep Last N Panel -->
+                                <div x-show="mode === 'keep_last'" x-transition class="rounded-xl border border-slate-700 bg-slate-900/50 p-4">
+                                    <label class="block text-xs text-slate-400 mb-2">Number of backups to keep</label>
+                                    <div class="flex items-center gap-3">
+                                        <div class="flex rounded-xl overflow-hidden ring-1 ring-white/10 bg-slate-800 w-36">
+                                            <button type="button" class="px-3 py-2.5 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500" aria-label="Decrease" @click="keepLast = Math.max(1, keepLast - 1); syncToState()">−</button>
+                                            <input x-model.number="keepLast" @input="syncToState()" type="number" min="1" step="1" class="eb-no-spinner flex-1 text-center bg-transparent text-white/90 placeholder-white/30 focus:outline-none focus:ring-0 px-2 py-2.5 w-12" />
+                                            <button type="button" class="px-3 py-2.5 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500" aria-label="Increase" @click="keepLast++; syncToState()">+</button>
+                                        </div>
+                                        <span class="text-sm text-slate-400">backups</span>
+                                    </div>
+                                    <p class="text-xs text-slate-500 mt-2">Older backups beyond this count will be automatically removed.</p>
+                                </div>
+                                
+                                <!-- Keep Within Panel -->
+                                <div x-show="mode === 'keep_within'" x-transition class="rounded-xl border border-slate-700 bg-slate-900/50 p-4">
+                                    <label class="block text-xs text-slate-400 mb-3">Keep all backups within (choose one)</label>
+                                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                        <!-- Days -->
+                                        <div class="space-y-1.5">
+                                            <label class="block text-xs text-slate-500">Days</label>
+                                            <div class="flex rounded-xl overflow-hidden ring-1 ring-white/10 bg-slate-800">
+                                                <button type="button" class="px-2 py-2 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 text-sm" aria-label="Decrease days" @click="setWithinUnit('d', Math.max(0, withinDays - 1))">−</button>
+                                                <input x-model.number="withinDays" @input="setWithinUnit('d', withinDays)" type="number" min="0" step="1" class="eb-no-spinner flex-1 text-center bg-transparent text-white/90 placeholder-white/30 focus:outline-none focus:ring-0 px-1 py-2 w-10 text-sm" :disabled="withinUnit && withinUnit !== 'd'" :class="withinUnit && withinUnit !== 'd' ? 'opacity-40' : ''" />
+                                                <button type="button" class="px-2 py-2 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 text-sm" aria-label="Increase days" @click="setWithinUnit('d', withinDays + 1)">+</button>
+                                            </div>
+                                        </div>
+                                        <!-- Weeks -->
+                                        <div class="space-y-1.5">
+                                            <label class="block text-xs text-slate-500">Weeks</label>
+                                            <div class="flex rounded-xl overflow-hidden ring-1 ring-white/10 bg-slate-800">
+                                                <button type="button" class="px-2 py-2 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 text-sm" aria-label="Decrease weeks" @click="setWithinUnit('w', Math.max(0, withinWeeks - 1))">−</button>
+                                                <input x-model.number="withinWeeks" @input="setWithinUnit('w', withinWeeks)" type="number" min="0" step="1" class="eb-no-spinner flex-1 text-center bg-transparent text-white/90 placeholder-white/30 focus:outline-none focus:ring-0 px-1 py-2 w-10 text-sm" :disabled="withinUnit && withinUnit !== 'w'" :class="withinUnit && withinUnit !== 'w' ? 'opacity-40' : ''" />
+                                                <button type="button" class="px-2 py-2 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 text-sm" aria-label="Increase weeks" @click="setWithinUnit('w', withinWeeks + 1)">+</button>
+                                            </div>
+                                        </div>
+                                        <!-- Months -->
+                                        <div class="space-y-1.5">
+                                            <label class="block text-xs text-slate-500">Months</label>
+                                            <div class="flex rounded-xl overflow-hidden ring-1 ring-white/10 bg-slate-800">
+                                                <button type="button" class="px-2 py-2 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 text-sm" aria-label="Decrease months" @click="setWithinUnit('m', Math.max(0, withinMonths - 1))">−</button>
+                                                <input x-model.number="withinMonths" @input="setWithinUnit('m', withinMonths)" type="number" min="0" step="1" class="eb-no-spinner flex-1 text-center bg-transparent text-white/90 placeholder-white/30 focus:outline-none focus:ring-0 px-1 py-2 w-10 text-sm" :disabled="withinUnit && withinUnit !== 'm'" :class="withinUnit && withinUnit !== 'm' ? 'opacity-40' : ''" />
+                                                <button type="button" class="px-2 py-2 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 text-sm" aria-label="Increase months" @click="setWithinUnit('m', withinMonths + 1)">+</button>
+                                            </div>
+                                        </div>
+                                        <!-- Years -->
+                                        <div class="space-y-1.5">
+                                            <label class="block text-xs text-slate-500">Years</label>
+                                            <div class="flex rounded-xl overflow-hidden ring-1 ring-white/10 bg-slate-800">
+                                                <button type="button" class="px-2 py-2 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 text-sm" aria-label="Decrease years" @click="setWithinUnit('y', Math.max(0, withinYears - 1))">−</button>
+                                                <input x-model.number="withinYears" @input="setWithinUnit('y', withinYears)" type="number" min="0" step="1" class="eb-no-spinner flex-1 text-center bg-transparent text-white/90 placeholder-white/30 focus:outline-none focus:ring-0 px-1 py-2 w-10 text-sm" :disabled="withinUnit && withinUnit !== 'y'" :class="withinUnit && withinUnit !== 'y' ? 'opacity-40' : ''" />
+                                                <button type="button" class="px-2 py-2 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 text-sm" aria-label="Increase years" @click="setWithinUnit('y', withinYears + 1)">+</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <p class="text-xs text-slate-500 mt-3">All backups within this time window will be kept. Only one unit can be used at a time.</p>
+                                </div>
+                                
+                                <!-- Keep Daily Panel -->
+                                <div x-show="mode === 'keep_daily'" x-transition class="rounded-xl border border-slate-700 bg-slate-900/50 p-4">
+                                    <label class="block text-xs text-slate-400 mb-2">Number of daily backups to keep</label>
+                                    <div class="flex items-center gap-3">
+                                        <div class="flex rounded-xl overflow-hidden ring-1 ring-white/10 bg-slate-800 w-36">
+                                            <button type="button" class="px-3 py-2.5 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500" aria-label="Decrease" @click="keepDaily = Math.max(1, keepDaily - 1); syncToState()">−</button>
+                                            <input x-model.number="keepDaily" @input="syncToState()" type="number" min="1" step="1" class="eb-no-spinner flex-1 text-center bg-transparent text-white/90 placeholder-white/30 focus:outline-none focus:ring-0 px-2 py-2.5 w-12" />
+                                            <button type="button" class="px-3 py-2.5 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500" aria-label="Increase" @click="keepDaily++; syncToState()">+</button>
+                                        </div>
+                                        <span class="text-sm text-slate-400">daily backups</span>
+                                    </div>
+                                    <p class="text-xs text-slate-500 mt-2">Keeps one backup per day for the specified number of days. Multiple backups on the same day are thinned.</p>
+                                </div>
                             </div>
+                            
+                            <!-- Advanced Settings (unchanged structure) -->
                             <div x-data="{ showAdvancedPolicy: false }">
-                                <div class="flex items-center justify-between mb-2">
-                                    <label class="block text-sm font-medium text-slate-200">Backup Policy</label>
+                                <div class="flex items-center justify-between mb-3">
+                                    <label class="block text-sm font-medium text-slate-200">Advanced Settings</label>
                                     <label class="flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none">
-                                        <span>Advanced settings</span>
+                                        <span>Show advanced</span>
                                         <button @click="showAdvancedPolicy = !showAdvancedPolicy" type="button"
                                                 class="relative w-9 h-5 rounded-full transition-colors"
                                                 :class="showAdvancedPolicy ? 'bg-cyan-600' : 'bg-slate-700'">
@@ -2304,34 +2509,34 @@
                                         </button>
                                     </label>
                                 </div>
-                                <textarea id="localWizardPolicy" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50" rows="4" placeholder="&#123;&quot;compression&quot;:&quot;none&quot;,&quot;parallel_uploads&quot;:8&#125;"></textarea>
                                 <div x-show="showAdvancedPolicy" x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
-                                     class="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-3" style="display:none;">
-                                    <div>
-                                        <label class="block text-xs text-slate-400 mb-1">Bandwidth (KB/s)</label>
-                                        <input id="localWizardBandwidth" type="number" value="0" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50" placeholder="0 = unlimited">
+                                     class="rounded-xl border border-slate-700 bg-slate-900/50 p-4 space-y-4" style="display:none;">
+                                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                        <div>
+                                            <label class="block text-xs text-slate-400 mb-1">Bandwidth (KB/s)</label>
+                                            <input id="localWizardBandwidth" type="number" value="0" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50" placeholder="0 = unlimited">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-slate-400 mb-1">Parallel uploads</label>
+                                            <input id="localWizardParallelism" type="number" value="8" min="1" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50" placeholder="8">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-slate-400 mb-1">Compression</label>
+                                            <select id="localWizardCompression" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50">
+                                                <option value="none" selected>None</option>
+                                                <option value="zstd-default">zstd-default</option>
+                                                <option value="pgzip">pgzip</option>
+                                                <option value="s2">s2</option>
+                                            </select>
+                                        </div>
                                     </div>
                                     <div>
-                                        <label class="block text-xs text-slate-400 mb-1">Parallel uploads</label>
-                                        <input id="localWizardParallelism" type="number" value="8" min="1" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50" placeholder="8">
+                                        <label class="inline-flex items-center gap-2">
+                                            <input id="localWizardDebugLogs" type="checkbox" class="rounded border-slate-600 bg-slate-800">
+                                            <span class="text-sm text-slate-200">Enable detailed eazyBackup debug logs</span>
+                                        </label>
+                                        <p class="text-xs text-slate-500 mt-1">Adds more step-level events to the live progress view for troubleshooting.</p>
                                     </div>
-                                    <div>
-                                        <label class="block text-xs text-slate-400 mb-1">Compression</label>
-                                        <select id="localWizardCompression" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50">
-                                            <option value="none" selected>None</option>
-                                            <option value="zstd-default">zstd-default</option>
-                                            <option value="pgzip">pgzip</option>
-                                            <option value="s2">s2</option>
-                                        </select>
-                                    </div>
-                                </div>
-                                <div x-show="showAdvancedPolicy" x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
-                                     class="mt-3" style="display:none;">
-                                    <label class="inline-flex items-center gap-2">
-                                        <input id="localWizardDebugLogs" type="checkbox" class="rounded border-slate-600 bg-slate-800">
-                                        <span class="text-sm text-slate-200">Enable detailed eazyBackup debug logs</span>
-                                    </label>
-                                    <p class="text-xs text-slate-500 mt-1">Adds more step-level events to the live progress view for troubleshooting.</p>
                                 </div>
                             </div>
                         </div>
