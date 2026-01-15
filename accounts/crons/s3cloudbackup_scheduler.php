@@ -47,10 +47,48 @@ function resolveScheduleType($job): array
         }
     }
 
+    // Extract weekday - can be array (multi-day) or single value
+    $weekday = $job->schedule_weekday ?? null;
+    $weekdayArray = [];
+    if (isset($json['weekday'])) {
+        if (is_array($json['weekday'])) {
+            $weekdayArray = array_map('intval', $json['weekday']);
+        } elseif (is_string($json['weekday']) && strpos($json['weekday'], ',') !== false) {
+            $weekdayArray = array_map('intval', explode(',', $json['weekday']));
+        } elseif ($json['weekday'] !== '') {
+            $weekdayArray = [(int)$json['weekday']];
+        }
+    } elseif ($weekday !== null && $weekday !== '') {
+        if (is_string($weekday) && strpos($weekday, ',') !== false) {
+            $weekdayArray = array_map('intval', explode(',', $weekday));
+        } else {
+            $weekdayArray = [(int)$weekday];
+        }
+    }
+    // Filter valid weekdays (1-7)
+    $weekdayArray = array_filter($weekdayArray, fn($d) => $d >= 1 && $d <= 7);
+    
+    // Extract minute for hourly schedules
+    $hourlyMinute = null;
+    if (isset($json['minute']) && is_numeric($json['minute'])) {
+        $hourlyMinute = (int)$json['minute'];
+    } else {
+        // Try to extract from time field (format "MM:00" for hourly)
+        $time = (string)($job->schedule_time ?? ($json['time'] ?? ''));
+        if ($time !== '' && preg_match('/^(\d{1,2}):/', $time, $m)) {
+            $hourlyMinute = (int)$m[1];
+        }
+    }
+    if ($hourlyMinute !== null && ($hourlyMinute < 0 || $hourlyMinute > 59)) {
+        $hourlyMinute = 0;
+    }
+
     return [
         'type' => $type,
         'time' => (string)($job->schedule_time ?? ($json['time'] ?? '')),
-        'weekday' => (string)($job->schedule_weekday ?? ($json['weekday'] ?? '')),
+        'weekday' => count($weekdayArray) > 0 ? (string)$weekdayArray[0] : '',
+        'weekday_array' => $weekdayArray,
+        'hourly_minute' => $hourlyMinute,
         'cron' => (string)($job->schedule_cron ?? ($json['cron'] ?? '')),
     ];
 }
@@ -79,38 +117,68 @@ function computeSlot(DateTime $now, array $schedule): ?array
     }
 
     $slotStart = clone $now;
+    
     if ($type === 'hourly') {
-        $slotStart->setTime((int)$now->format('H'), 0, 0);
+        // Use the minute offset from schedule (default to 0 if not set)
+        $minute = $schedule['hourly_minute'] ?? 0;
+        if (!is_numeric($minute) || $minute < 0 || $minute > 59) {
+            $minute = 0;
+        }
+        $slotStart->setTime((int)$now->format('H'), (int)$minute, 0);
         $slotEnd = (clone $slotStart)->modify('+1 hour');
         return [$slotStart, $slotEnd];
     }
 
     if ($type === 'daily') {
         $time = trim((string)($schedule['time'] ?? '00:00'));
-        if (!preg_match('/^([01]\d|2[0-3]):([0-5]\d)$/', $time)) {
+        if (!preg_match('/^(\d{1,2}):(\d{2})$/', $time, $m)) {
             return null;
         }
-        [$hour, $minute] = array_map('intval', explode(':', $time));
+        $hour = (int)$m[1];
+        $minute = (int)$m[2];
+        if ($hour < 0 || $hour > 23 || $minute < 0 || $minute > 59) {
+            return null;
+        }
         $slotStart->setTime($hour, $minute, 0);
         $slotEnd = (clone $slotStart)->modify('+1 day');
         return [$slotStart, $slotEnd];
     }
 
     if ($type === 'weekly') {
-        $weekday = (int)($schedule['weekday'] ?? 0);
-        if ($weekday < 1 || $weekday > 7) {
+        // Support multi-day weekly: check if today is in the weekday array
+        $weekdayArray = $schedule['weekday_array'] ?? [];
+        if (empty($weekdayArray)) {
+            // Fall back to single weekday value
+            $weekday = (int)($schedule['weekday'] ?? 0);
+            if ($weekday >= 1 && $weekday <= 7) {
+                $weekdayArray = [$weekday];
+            }
+        }
+        if (empty($weekdayArray)) {
             return null;
         }
+        
         $time = trim((string)($schedule['time'] ?? '00:00'));
-        if (!preg_match('/^([01]\d|2[0-3]):([0-5]\d)$/', $time)) {
+        if (!preg_match('/^(\d{1,2}):(\d{2})$/', $time, $m)) {
             return null;
         }
-        [$hour, $minute] = array_map('intval', explode(':', $time));
+        $hour = (int)$m[1];
+        $minute = (int)$m[2];
+        if ($hour < 0 || $hour > 23 || $minute < 0 || $minute > 59) {
+            return null;
+        }
+        
+        $today = (int)$now->format('N'); // 1=Monday, 7=Sunday
+        
+        // Check if today is one of the scheduled days
+        if (!in_array($today, $weekdayArray, true)) {
+            return null; // Today is not a scheduled day
+        }
+        
+        // Today is a scheduled day - compute the slot for today
         $slotStart->setTime($hour, $minute, 0);
-        $today = (int)$now->format('N');
-        $delta = $weekday - $today;
-        $slotStart->modify(($delta >= 0 ? '+' : '') . $delta . ' days');
-        $slotEnd = (clone $slotStart)->modify('+7 days');
+        // Slot end is tomorrow at the same time (ensures one run per scheduled day)
+        $slotEnd = (clone $slotStart)->modify('+1 day');
         return [$slotStart, $slotEnd];
     }
 

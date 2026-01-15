@@ -1378,6 +1378,7 @@
                                 </label>
                                 <p class="text-xs text-slate-500 mb-2">Choose where your backup data will be stored. Each bucket is a secure container in our e3 cloud storage.</p>
                                 <div
+                                    id="localWizardBucketDropdown"
                                     x-data="{
                                         isOpen: false,
                                         search: '',
@@ -1401,6 +1402,15 @@
                                             if (hid) hid.value = this.selectedId;
                                             this.isOpen = false;
                                             // Update breadcrumb state when bucket changes
+                                            if (typeof localWizardUpdateView === 'function') localWizardUpdateView();
+                                        },
+                                        addBucket(bucket) {
+                                            if (!bucket || !bucket.id) return;
+                                            this.options.push({ id: String(bucket.id), name: bucket.name || '' });
+                                            this.selectedId = String(bucket.id);
+                                            this.selectedName = bucket.name || '';
+                                            const hid = document.getElementById('localWizardBucketId');
+                                            if (hid) hid.value = this.selectedId;
                                             if (typeof localWizardUpdateView === 'function') localWizardUpdateView();
                                         }
                                     }"
@@ -1439,11 +1449,14 @@
                                     </div>
                                 </div>
                                 <div class="mt-3">
-                                    <label class="block text-sm font-medium text-slate-200 mb-2">Prefix (optional)</label>
+                                    <label class="block text-sm font-medium text-slate-200 mb-2">Directory (optional)</label>
                                     <input id="localWizardPrefix" type="text" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50" placeholder="backups/job123/">
                                 </div>
                                 <div class="mt-3">
-                                    <button type="button" class="px-3 py-2 rounded-md border border-slate-700 text-slate-200 hover:border-slate-500" onclick="openInlineBucketCreate()">
+                                    <button type="button" class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-slate-600 text-slate-400 hover:text-sky-400 hover:border-sky-500/50 transition text-sm" onclick="openBucketCreateModal(onLocalWizardBucketCreated)">
+                                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                                        </svg>
                                         Create new bucket
                                     </button>
                                 </div>
@@ -2010,27 +2023,263 @@
                         </template>
                     </div>
 
-                    <!-- Step 3 -->
-                    <div class="wizard-step hidden" data-step="3">
-                        <label class="block text-sm font-medium text-slate-200 mb-2">Schedule</label>
-                        <div class="grid md:grid-cols-2 gap-4">
-                            <select id="localWizardScheduleType" class="bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50">
-                                <option value="manual">Manual</option>
-                                <option value="daily">Daily</option>
-                                <option value="weekly">Weekly</option>
-                                <option value="cron">Cron</option>
-                            </select>
-                            <input id="localWizardTime" type="time" class="bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50" />
-                            <select id="localWizardWeekday" class="bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50">
-                                <option value="1">Monday</option>
-                                <option value="2">Tuesday</option>
-                                <option value="3">Wednesday</option>
-                                <option value="4">Thursday</option>
-                                <option value="5">Friday</option>
-                                <option value="6">Saturday</option>
-                                <option value="7">Sunday</option>
-                            </select>
-                            <input id="localWizardCron" type="text" class="bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50" placeholder="*/30 * * * *" />
+                    <!-- Step 3: Schedule -->
+                    <div class="wizard-step hidden" data-step="3" x-data="localWizardScheduleUI()" x-init="init()">
+                        <label class="block text-sm font-medium text-slate-200 mb-3">Schedule</label>
+                        
+                        <!-- Hidden inputs for compatibility -->
+                        <input type="hidden" id="localWizardTime" x-model="computedTime">
+                        <input type="hidden" id="localWizardWeekday" x-model="firstSelectedWeekday">
+                        <input type="hidden" id="localWizardCron" x-model="cronExpr">
+                        
+                        <div class="space-y-4">
+                            <!-- Schedule Type (Custom Alpine Dropdown) -->
+                            <div @click.away="scheduleDropdownOpen = false">
+                                <label class="block text-xs text-slate-400 mb-1.5">Schedule Type</label>
+                                <!-- Hidden input for form compatibility -->
+                                <input type="hidden" id="localWizardScheduleType" x-model="scheduleType">
+                                <div class="relative">
+                                    <button type="button"
+                                            @click="scheduleDropdownOpen = !scheduleDropdownOpen"
+                                            class="relative w-full px-4 py-2.5 text-left bg-slate-800 border border-slate-700 rounded-lg shadow-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50 transition-colors hover:border-slate-600">
+                                        <span class="flex items-center gap-3">
+                                            <!-- Icon based on selected type -->
+                                            <span class="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+                                                  :class="{
+                                                      'bg-slate-700/50 text-slate-400': scheduleType === 'manual',
+                                                      'bg-amber-500/20 text-amber-400': scheduleType === 'hourly',
+                                                      'bg-sky-500/20 text-sky-400': scheduleType === 'daily',
+                                                      'bg-violet-500/20 text-violet-400': scheduleType === 'weekly',
+                                                      'bg-emerald-500/20 text-emerald-400': scheduleType === 'cron'
+                                                  }">
+                                                <template x-if="scheduleType === 'manual'">
+                                                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" />
+                                                    </svg>
+                                                </template>
+                                                <template x-if="scheduleType === 'hourly'">
+                                                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                    </svg>
+                                                </template>
+                                                <template x-if="scheduleType === 'daily'">
+                                                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z" />
+                                                    </svg>
+                                                </template>
+                                                <template x-if="scheduleType === 'weekly'">
+                                                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+                                                    </svg>
+                                                </template>
+                                                <template x-if="scheduleType === 'cron'">
+                                                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5" />
+                                                    </svg>
+                                                </template>
+                                            </span>
+                                            <span class="block truncate text-slate-100" x-text="scheduleTypeLabels[scheduleType] || 'Select schedule'"></span>
+                                        </span>
+                                        <span class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                                            <svg class="w-5 h-5 text-slate-400 transition-transform duration-200" :class="scheduleDropdownOpen ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                                            </svg>
+                                        </span>
+                                    </button>
+                                    
+                                    <!-- Dropdown Panel -->
+                                    <div x-show="scheduleDropdownOpen"
+                                         x-transition:enter="transition ease-out duration-200"
+                                         x-transition:enter-start="opacity-0 translate-y-1 scale-95"
+                                         x-transition:enter-end="opacity-100 translate-y-0 scale-100"
+                                         x-transition:leave="transition ease-in duration-150"
+                                         x-transition:leave-start="opacity-100 translate-y-0 scale-100"
+                                         x-transition:leave-end="opacity-0 translate-y-1 scale-95"
+                                         class="absolute z-20 mt-2 w-full bg-slate-900 border border-slate-700 rounded-xl shadow-xl overflow-hidden"
+                                         style="display: none;">
+                                        <ul class="py-1">
+                                            <!-- Manual -->
+                                            <li @click="selectScheduleType('manual')"
+                                                class="flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors"
+                                                :class="scheduleType === 'manual' ? 'bg-cyan-500/10 text-cyan-200' : 'text-slate-200 hover:bg-slate-800'">
+                                                <span class="w-8 h-8 rounded-lg bg-slate-700/50 flex items-center justify-center shrink-0">
+                                                    <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" />
+                                                    </svg>
+                                                </span>
+                                                <div class="flex-1">
+                                                    <p class="text-sm font-medium">Manual</p>
+                                                    <p class="text-xs text-slate-500">Run on demand only</p>
+                                                </div>
+                                                <svg x-show="scheduleType === 'manual'" class="w-5 h-5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                                                </svg>
+                                            </li>
+                                            <!-- Hourly -->
+                                            <li @click="selectScheduleType('hourly')"
+                                                class="flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors"
+                                                :class="scheduleType === 'hourly' ? 'bg-cyan-500/10 text-cyan-200' : 'text-slate-200 hover:bg-slate-800'">
+                                                <span class="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center shrink-0">
+                                                    <svg class="w-4 h-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                    </svg>
+                                                </span>
+                                                <div class="flex-1">
+                                                    <p class="text-sm font-medium">Hourly</p>
+                                                    <p class="text-xs text-slate-500">Run every hour at a set minute</p>
+                                                </div>
+                                                <svg x-show="scheduleType === 'hourly'" class="w-5 h-5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                                                </svg>
+                                            </li>
+                                            <!-- Daily -->
+                                            <li @click="selectScheduleType('daily')"
+                                                class="flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors"
+                                                :class="scheduleType === 'daily' ? 'bg-cyan-500/10 text-cyan-200' : 'text-slate-200 hover:bg-slate-800'">
+                                                <span class="w-8 h-8 rounded-lg bg-sky-500/20 flex items-center justify-center shrink-0">
+                                                    <svg class="w-4 h-4 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z" />
+                                                    </svg>
+                                                </span>
+                                                <div class="flex-1">
+                                                    <p class="text-sm font-medium">Daily</p>
+                                                    <p class="text-xs text-slate-500">Run once per day at a set time</p>
+                                                </div>
+                                                <svg x-show="scheduleType === 'daily'" class="w-5 h-5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                                                </svg>
+                                            </li>
+                                            <!-- Weekly -->
+                                            <li @click="selectScheduleType('weekly')"
+                                                class="flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors"
+                                                :class="scheduleType === 'weekly' ? 'bg-cyan-500/10 text-cyan-200' : 'text-slate-200 hover:bg-slate-800'">
+                                                <span class="w-8 h-8 rounded-lg bg-violet-500/20 flex items-center justify-center shrink-0">
+                                                    <svg class="w-4 h-4 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+                                                    </svg>
+                                                </span>
+                                                <div class="flex-1">
+                                                    <p class="text-sm font-medium">Weekly</p>
+                                                    <p class="text-xs text-slate-500">Run on selected days of the week</p>
+                                                </div>
+                                                <svg x-show="scheduleType === 'weekly'" class="w-5 h-5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                                                </svg>
+                                            </li>
+                                            <!-- Cron -->
+                                            <li @click="selectScheduleType('cron')"
+                                                class="flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors"
+                                                :class="scheduleType === 'cron' ? 'bg-cyan-500/10 text-cyan-200' : 'text-slate-200 hover:bg-slate-800'">
+                                                <span class="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center shrink-0">
+                                                    <svg class="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5" />
+                                                    </svg>
+                                                </span>
+                                                <div class="flex-1">
+                                                    <p class="text-sm font-medium">Custom (Cron)</p>
+                                                    <p class="text-xs text-slate-500">Advanced cron expression</p>
+                                                </div>
+                                                <svg x-show="scheduleType === 'cron'" class="w-5 h-5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                                                </svg>
+                                            </li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Hourly: Minute selector -->
+                            <div x-show="scheduleType === 'hourly'" x-transition class="rounded-xl border border-slate-700 bg-slate-900/50 p-4">
+                                <label class="block text-xs text-slate-400 mb-2">Run at minute</label>
+                                <div class="flex items-center gap-3">
+                                    <div class="flex rounded-xl overflow-hidden ring-1 ring-white/10 bg-slate-800 w-32">
+                                        <button type="button" class="px-3 py-2.5 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500" aria-label="Decrease" @click="hourlyMinute = Math.max(0, hourlyMinute - 1)">−</button>
+                                        <input x-model.number="hourlyMinute" type="number" min="0" max="59" step="1" class="eb-no-spinner flex-1 text-center bg-transparent text-white/90 placeholder-white/30 focus:outline-none focus:ring-0 px-2 py-2.5 w-12" />
+                                        <button type="button" class="px-3 py-2.5 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500" aria-label="Increase" @click="hourlyMinute = Math.min(59, hourlyMinute + 1)">+</button>
+                                    </div>
+                                    <span class="text-sm text-slate-400">past each hour</span>
+                                </div>
+                                <p class="text-xs text-slate-500 mt-2">Job will run every hour at the specified minute (e.g., :15 means 1:15, 2:15, 3:15...)</p>
+                            </div>
+                            
+                            <!-- Daily: Hour + Minute -->
+                            <div x-show="scheduleType === 'daily'" x-transition class="rounded-xl border border-slate-700 bg-slate-900/50 p-4">
+                                <label class="block text-xs text-slate-400 mb-2">Run daily at</label>
+                                <div class="flex items-center gap-2">
+                                    <!-- Hour stepper -->
+                                    <div class="flex rounded-xl overflow-hidden ring-1 ring-white/10 bg-slate-800">
+                                        <button type="button" class="px-3 py-2.5 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500" aria-label="Decrease hour" @click="dailyHour = (dailyHour - 1 + 24) % 24">−</button>
+                                        <input x-model.number="dailyHour" type="number" min="0" max="23" step="1" class="eb-no-spinner flex-1 text-center bg-transparent text-white/90 placeholder-white/30 focus:outline-none focus:ring-0 px-2 py-2.5 w-12" />
+                                        <button type="button" class="px-3 py-2.5 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500" aria-label="Increase hour" @click="dailyHour = (dailyHour + 1) % 24">+</button>
+                                    </div>
+                                    <span class="text-lg text-slate-400 font-medium">:</span>
+                                    <!-- Minute stepper -->
+                                    <div class="flex rounded-xl overflow-hidden ring-1 ring-white/10 bg-slate-800">
+                                        <button type="button" class="px-3 py-2.5 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500" aria-label="Decrease minute" @click="dailyMinute = (dailyMinute - 1 + 60) % 60">−</button>
+                                        <input x-model.number="dailyMinute" type="number" min="0" max="59" step="1" class="eb-no-spinner flex-1 text-center bg-transparent text-white/90 placeholder-white/30 focus:outline-none focus:ring-0 px-2 py-2.5 w-12" />
+                                        <button type="button" class="px-3 py-2.5 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500" aria-label="Increase minute" @click="dailyMinute = (dailyMinute + 1) % 60">+</button>
+                                    </div>
+                                </div>
+                                <p class="text-xs text-slate-500 mt-2">Uses 24-hour format (e.g., 14:30 = 2:30 PM)</p>
+                            </div>
+                            
+                            <!-- Weekly: Day checkboxes + Hour + Minute -->
+                            <div x-show="scheduleType === 'weekly'" x-transition class="rounded-xl border border-slate-700 bg-slate-900/50 p-4 space-y-4">
+                                <div>
+                                    <label class="block text-xs text-slate-400 mb-2">Run on these days</label>
+                                    <div class="flex flex-wrap gap-2">
+                                        <template x-for="day in weekDays" :key="day.value">
+                                            <label class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-all"
+                                                   :class="selectedWeekdays.includes(day.value) ? 'border-cyan-500 bg-cyan-500/20 text-cyan-200' : 'border-slate-600 bg-slate-800 text-slate-300 hover:border-slate-500'">
+                                                <input type="checkbox" class="sr-only" :value="day.value" :checked="selectedWeekdays.includes(day.value)" @change="toggleWeekday(day.value)">
+                                                <span class="text-sm font-medium" x-text="day.short"></span>
+                                            </label>
+                                        </template>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-slate-400 mb-2">At time</label>
+                                    <div class="flex items-center gap-2">
+                                        <!-- Hour stepper -->
+                                        <div class="flex rounded-xl overflow-hidden ring-1 ring-white/10 bg-slate-800">
+                                            <button type="button" class="px-3 py-2.5 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500" aria-label="Decrease hour" @click="weeklyHour = (weeklyHour - 1 + 24) % 24">−</button>
+                                            <input x-model.number="weeklyHour" type="number" min="0" max="23" step="1" class="eb-no-spinner flex-1 text-center bg-transparent text-white/90 placeholder-white/30 focus:outline-none focus:ring-0 px-2 py-2.5 w-12" />
+                                            <button type="button" class="px-3 py-2.5 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500" aria-label="Increase hour" @click="weeklyHour = (weeklyHour + 1) % 24">+</button>
+                                        </div>
+                                        <span class="text-lg text-slate-400 font-medium">:</span>
+                                        <!-- Minute stepper -->
+                                        <div class="flex rounded-xl overflow-hidden ring-1 ring-white/10 bg-slate-800">
+                                            <button type="button" class="px-3 py-2.5 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500" aria-label="Decrease minute" @click="weeklyMinute = (weeklyMinute - 1 + 60) % 60">−</button>
+                                            <input x-model.number="weeklyMinute" type="number" min="0" max="59" step="1" class="eb-no-spinner flex-1 text-center bg-transparent text-white/90 placeholder-white/30 focus:outline-none focus:ring-0 px-2 py-2.5 w-12" />
+                                            <button type="button" class="px-3 py-2.5 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500" aria-label="Increase minute" @click="weeklyMinute = (weeklyMinute + 1) % 60">+</button>
+                                        </div>
+                                    </div>
+                                    <p class="text-xs text-slate-500 mt-2">Uses 24-hour format</p>
+                                </div>
+                            </div>
+                            
+                            <!-- Cron: Expression input -->
+                            <div x-show="scheduleType === 'cron'" x-transition class="rounded-xl border border-slate-700 bg-slate-900/50 p-4">
+                                <label class="block text-xs text-slate-400 mb-2">Cron Expression</label>
+                                <input type="text" x-model="cronExpr" placeholder="*/30 * * * *"
+                                       class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2.5 text-slate-100 font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50">
+                                <p class="text-xs text-slate-500 mt-2">Standard cron format: minute hour day-of-month month day-of-week</p>
+                            </div>
+                            
+                            <!-- Manual info -->
+                            <div x-show="scheduleType === 'manual'" x-transition class="rounded-xl border border-slate-700 bg-slate-900/50 p-4">
+                                <div class="flex items-start gap-3">
+                                    <div class="w-8 h-8 rounded-lg bg-slate-700/50 flex items-center justify-center shrink-0">
+                                        <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        </svg>
+                                    </div>
+                                    <div>
+                                        <p class="text-sm text-slate-200">Run on demand only</p>
+                                        <p class="text-xs text-slate-500 mt-1">This job will only run when you manually trigger it using the "Run Now" button.</p>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
