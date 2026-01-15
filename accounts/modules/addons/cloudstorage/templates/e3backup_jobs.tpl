@@ -326,6 +326,9 @@
 <!-- Include the Job Creation Wizard Slide-Over -->
 {include file="{$smarty.const.ROOTDIR}/modules/addons/cloudstorage/templates/partials/job_create_wizard.tpl"}
 
+<!-- Include Bucket Creation Modal (shared) -->
+{include file="{$smarty.const.ROOTDIR}/modules/addons/cloudstorage/templates/partials/bucket_create_modal.tpl"}
+
 <!-- Restore Wizard Modal -->
 <div id="restoreWizardModal" class="fixed inset-0 z-[2100] hidden">
     <div class="absolute inset-0 bg-black/75" onclick="closeRestoreModal()"></div>
@@ -394,8 +397,167 @@
     </div>
 </div>
 
+<style>
+/* Hide native number spinners for custom steppers */
+.eb-no-spinner::-webkit-outer-spin-button,
+.eb-no-spinner::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.eb-no-spinner { -moz-appearance: textfield; appearance: textfield; }
+</style>
+
 {literal}
 <script>
+// ========================================
+// Local Wizard Schedule UI Alpine Component
+// ========================================
+function localWizardScheduleUI() {
+    return {
+        scheduleType: 'manual',
+        scheduleDropdownOpen: false,
+        hourlyMinute: 0,
+        dailyHour: 2,
+        dailyMinute: 0,
+        weeklyHour: 2,
+        weeklyMinute: 0,
+        selectedWeekdays: [],
+        cronExpr: '',
+        scheduleTypeLabels: {
+            'manual': 'Manual (Run on demand)',
+            'hourly': 'Hourly',
+            'daily': 'Daily',
+            'weekly': 'Weekly',
+            'cron': 'Custom (Cron)'
+        },
+        weekDays: [
+            { value: 1, short: 'Mon', name: 'Monday' },
+            { value: 2, short: 'Tue', name: 'Tuesday' },
+            { value: 3, short: 'Wed', name: 'Wednesday' },
+            { value: 4, short: 'Thu', name: 'Thursday' },
+            { value: 5, short: 'Fri', name: 'Friday' },
+            { value: 6, short: 'Sat', name: 'Saturday' },
+            { value: 7, short: 'Sun', name: 'Sunday' }
+        ],
+        
+        init() {
+            // Load values from existing job when editing
+            this.$nextTick(() => {
+                const typeEl = document.getElementById('localWizardScheduleType');
+                const timeEl = document.getElementById('localWizardTime');
+                const weekdayEl = document.getElementById('localWizardWeekday');
+                const cronEl = document.getElementById('localWizardCron');
+                
+                // Get existing values
+                const existingType = typeEl?.value || 'manual';
+                const existingTime = timeEl?.value || '';
+                const existingWeekday = weekdayEl?.value || '';
+                const existingCron = cronEl?.value || '';
+                
+                this.scheduleType = existingType;
+                this.cronExpr = existingCron;
+                
+                // Parse existing time
+                if (existingTime) {
+                    const parts = existingTime.split(':');
+                    if (parts.length >= 2) {
+                        const h = parseInt(parts[0], 10) || 0;
+                        const m = parseInt(parts[1], 10) || 0;
+                        if (existingType === 'hourly') {
+                            this.hourlyMinute = m;
+                        } else if (existingType === 'daily') {
+                            this.dailyHour = h;
+                            this.dailyMinute = m;
+                        } else if (existingType === 'weekly') {
+                            this.weeklyHour = h;
+                            this.weeklyMinute = m;
+                        }
+                    }
+                }
+                
+                // Parse weekday(s) - check schedule_json first for array
+                if (existingType === 'weekly') {
+                    let weekdays = [];
+                    const stateData = window.localWizardState?.data;
+                    const schedJson = stateData?.schedule_json || {};
+                    if (schedJson.weekday && Array.isArray(schedJson.weekday)) {
+                        weekdays = schedJson.weekday.map(d => parseInt(d, 10)).filter(d => d >= 1 && d <= 7);
+                    } else if (existingWeekday) {
+                        // Single day or CSV
+                        const dayStr = String(existingWeekday);
+                        if (dayStr.includes(',')) {
+                            weekdays = dayStr.split(',').map(d => parseInt(d.trim(), 10)).filter(d => d >= 1 && d <= 7);
+                        } else {
+                            const day = parseInt(dayStr, 10);
+                            if (day >= 1 && day <= 7) {
+                                weekdays = [day];
+                            }
+                        }
+                    }
+                    this.selectedWeekdays = weekdays;
+                }
+            });
+            
+            // Listen for edit-paths-loaded event to reinitialize
+            window.addEventListener('edit-paths-loaded', () => {
+                this.$nextTick(() => this.init());
+            });
+        },
+        
+        get computedTime() {
+            if (this.scheduleType === 'hourly') {
+                return String(this.hourlyMinute).padStart(2, '0') + ':00';
+            } else if (this.scheduleType === 'daily') {
+                return String(this.dailyHour).padStart(2, '0') + ':' + String(this.dailyMinute).padStart(2, '0');
+            } else if (this.scheduleType === 'weekly') {
+                return String(this.weeklyHour).padStart(2, '0') + ':' + String(this.weeklyMinute).padStart(2, '0');
+            }
+            return '';
+        },
+        
+        get firstSelectedWeekday() {
+            if (this.selectedWeekdays.length > 0) {
+                return String(Math.min(...this.selectedWeekdays));
+            }
+            return '';
+        },
+        
+        toggleWeekday(day) {
+            const idx = this.selectedWeekdays.indexOf(day);
+            if (idx >= 0) {
+                this.selectedWeekdays.splice(idx, 1);
+            } else {
+                this.selectedWeekdays.push(day);
+                this.selectedWeekdays.sort((a, b) => a - b);
+            }
+            this.syncToState();
+        },
+        
+        selectScheduleType(type) {
+            this.scheduleType = type;
+            this.scheduleDropdownOpen = false;
+            this.syncToState();
+        },
+        
+        onTypeChange() {
+            this.syncToState();
+        },
+        
+        syncToState() {
+            // Update localWizardState.data.schedule_json for multi-day weekly and hourly minute
+            if (!window.localWizardState?.data) return;
+            const schedJson = {
+                type: this.scheduleType,
+                time: this.computedTime,
+                cron: this.cronExpr
+            };
+            if (this.scheduleType === 'weekly') {
+                schedJson.weekday = [...this.selectedWeekdays];
+            } else if (this.scheduleType === 'hourly') {
+                schedJson.minute = this.hourlyMinute;
+            }
+            window.localWizardState.data.schedule_json = schedJson;
+        }
+    };
+}
+
 // ========================================
 // e3backup: shared helpers (toast + reload)
 // ========================================
@@ -1300,6 +1462,7 @@ function resetLocalWizardFields() {
         bucket_auto_create: true,
         source_paths: [],
         tenant_id: '',
+        schedule_json: null, // Reset schedule data for new jobs
     };
     const idsToClear = [
         'localWizardName','localWizardAgentId','localWizardBucketId','localWizardPrefix',
@@ -1530,9 +1693,31 @@ function localWizardFillFromJob(j, s) {
     const schedTime = document.getElementById('localWizardTime');
     if (schedTime) schedTime.value = job.schedule_time || (job.schedule_json?.time) || '';
     const schedWeek = document.getElementById('localWizardWeekday');
-    if (schedWeek) schedWeek.value = job.schedule_weekday || (job.schedule_json?.weekday) || '1';
+    // Handle weekday as array or single value
+    let weekdayVal = '1';
+    const jobSchedJson = typeof job.schedule_json === 'string' ? safeParseJSON(job.schedule_json) : job.schedule_json;
+    if (jobSchedJson?.weekday) {
+        if (Array.isArray(jobSchedJson.weekday) && jobSchedJson.weekday.length > 0) {
+            weekdayVal = String(Math.min(...jobSchedJson.weekday));
+        } else {
+            weekdayVal = String(jobSchedJson.weekday);
+        }
+    } else if (job.schedule_weekday) {
+        weekdayVal = String(job.schedule_weekday);
+    }
+    if (schedWeek) schedWeek.value = weekdayVal;
     const schedCron = document.getElementById('localWizardCron');
-    if (schedCron) schedCron.value = job.schedule_cron || (job.schedule_json?.cron) || '';
+    if (schedCron) schedCron.value = job.schedule_cron || (jobSchedJson?.cron) || '';
+    
+    // Store schedule_json in state for Alpine component to initialize from
+    if (window.localWizardState?.data) {
+        window.localWizardState.data.schedule_json = jobSchedJson || {
+            type: job.schedule_type || 'manual',
+            time: job.schedule_time || '',
+            weekday: job.schedule_weekday || weekdayVal,
+            cron: job.schedule_cron || ''
+        };
+    }
     const retTxt = document.getElementById('localWizardRetention');
     if (retTxt) {
         const rj = job.retention_json || '';
@@ -2175,12 +2360,32 @@ function localWizardBuildReview() {
     s.schedule_time = document.getElementById('localWizardTime')?.value || '';
     s.schedule_weekday = document.getElementById('localWizardWeekday')?.value || '';
     s.schedule_cron = document.getElementById('localWizardCron')?.value || '';
-    s.schedule_json = {
-        type: s.schedule_type,
-        time: s.schedule_time,
-        weekday: s.schedule_weekday,
-        cron: s.schedule_cron,
-    };
+    
+    // Preserve schedule_json from Alpine component if it has richer data (weekday array, minute)
+    const existingSchedJson = s.schedule_json || {};
+    const hasWeekdayArray = Array.isArray(existingSchedJson.weekday) && existingSchedJson.weekday.length > 0;
+    const hasMinute = typeof existingSchedJson.minute === 'number';
+    
+    if (hasWeekdayArray || hasMinute) {
+        // Use the Alpine-built schedule_json but ensure type/time/cron are current
+        s.schedule_json = {
+            ...existingSchedJson,
+            type: s.schedule_type,
+            time: s.schedule_time,
+            cron: s.schedule_cron,
+        };
+        // For compatibility, store first selected day in schedule_weekday
+        if (hasWeekdayArray) {
+            s.schedule_weekday = String(Math.min(...existingSchedJson.weekday));
+        }
+    } else {
+        s.schedule_json = {
+            type: s.schedule_type,
+            time: s.schedule_time,
+            weekday: s.schedule_weekday,
+            cron: s.schedule_cron,
+        };
+    }
     const retentionTxt = document.getElementById('localWizardRetention')?.value || '';
     const policyTxt = document.getElementById('localWizardPolicy')?.value || '';
     const parsedPol = policyTxt ? safeParseJSON(policyTxt) : null;
@@ -2400,5 +2605,26 @@ document.addEventListener('DOMContentLoaded', () => {
         bucketInput.addEventListener('change', () => localWizardUpdateView());
     }
 });
+
+// Callback for bucket creation modal in Local Agent wizard
+function onLocalWizardBucketCreated(bucket) {
+    if (!bucket || !bucket.id) return;
+    
+    // Find the local wizard bucket dropdown Alpine component
+    const dropdownEl = document.getElementById('localWizardBucketDropdown');
+    if (dropdownEl && dropdownEl._x_dataStack) {
+        const data = dropdownEl._x_dataStack[0];
+        if (data && typeof data.addBucket === 'function') {
+            data.addBucket(bucket);
+        }
+    }
+    
+    // Show success notification
+    if (window.toast) {
+        window.toast.success('Bucket "' + bucket.name + '" created and selected');
+    } else if (typeof e3backupNotify === 'function') {
+        e3backupNotify('success', 'Bucket "' + bucket.name + '" created and selected');
+    }
+}
 </script>
 {/literal}
