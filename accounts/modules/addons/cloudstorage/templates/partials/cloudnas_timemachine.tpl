@@ -11,7 +11,7 @@
             Time Machine allows you to browse and mount point-in-time snapshots from your eazyBackup archive backups. 
             Create a backup job with the Archive engine to get started.
         </p>
-        <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_jobs" 
+        <a href="index.php?m=cloudstorage&page=e3backup&view=jobs" 
            class="inline-flex items-center gap-2 mt-6 px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-sm font-medium transition">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />

@@ -11,7 +11,7 @@
                 <p class="font-semibold text-amber-100">Agent Required</p>
                 <p class="text-sm text-amber-200/80 mt-1">
                     Cloud NAS requires the Windows backup agent to be installed and connected. 
-                    <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_agents" class="underline hover:text-white">Set up an agent</a> to get started.
+                    <a href="index.php?m=cloudstorage&page=e3backup&view=agents" class="underline hover:text-white">Set up an agent</a> to get started.
                 </p>
             </div>
         </div>

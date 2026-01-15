@@ -49,6 +49,29 @@
             background-color: rgb(2 6 23);                    /* bg-slate-950 */
             border-color: rgba(51,65,85,1);
         }
+
+        /* Scrollbars (ensure available on all pages using this template) */
+        .scrollbar_thin {
+            /* Firefox */
+            scrollbar-width: thin;
+            scrollbar-color: #4a5568 #192331;
+        }
+        .scrollbar_thin::-webkit-scrollbar { width: 8px; height: 8px; }
+        .scrollbar_thin::-webkit-scrollbar-track { background: #192331; border-radius: 4px; }
+        .scrollbar_thin::-webkit-scrollbar-thumb { background: #4a5568; border-radius: 4px; border: 1px solid #2d3748; }
+        .scrollbar_thin::-webkit-scrollbar-thumb:hover { background: #5a6478; }
+        .scrollbar_thin::-webkit-scrollbar-thumb:active { background: #6b7486; }
+
+        /* Slightly slimmer + darker variant for modal panels */
+        .scrollbar-thin-dark {
+            /* Firefox */
+            scrollbar-width: thin;
+            scrollbar-color: #334155 #0b1220;
+        }
+        .scrollbar-thin-dark::-webkit-scrollbar { width: 6px; height: 6px; }
+        .scrollbar-thin-dark::-webkit-scrollbar-track { background: #0b1220; border-radius: 9999px; }
+        .scrollbar-thin-dark::-webkit-scrollbar-thumb { background: #334155; border-radius: 9999px; border: 1px solid #0f172a; }
+        .scrollbar-thin-dark::-webkit-scrollbar-thumb:hover { background: #475569; }
         </style>
         <div id="jobCreationMessage" class="bg-red-600 text-white px-4 py-2 rounded-md mb-4 hidden"></div>
         <form id="createJobForm">
@@ -1950,7 +1973,7 @@
                                                 <h4 class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Selected</h4>
                                                 <span class="text-xs text-cyan-300" x-text="selectedPaths.length"></span>
                                             </div>
-                                            <div class="space-y-2 max-h-48 overflow-y-auto">
+                                            <div class="space-y-2 max-h-48 overflow-y-auto scrollbar-thin-dark">
                                                 <template x-for="path in selectedPaths" :key="path">
                                                     <div class="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-slate-800/60">
                                                         <svg class="w-3 h-3 text-cyan-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">

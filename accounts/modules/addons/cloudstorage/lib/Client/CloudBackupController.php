@@ -124,7 +124,8 @@ class CloudBackupController {
     {
         try {
             // Validate required fields
-            $required = ['client_id', 's3_user_id', 'name', 'source_type', 'source_display_name', 'source_config', 'source_path', 'dest_bucket_id', 'dest_prefix'];
+            // Destination prefix is optional (may be empty).
+            $required = ['client_id', 's3_user_id', 'name', 'source_type', 'source_display_name', 'source_config', 'source_path', 'dest_bucket_id'];
             foreach ($required as $field) {
                 if (!isset($data[$field])) {
                     return ['status' => 'fail', 'message' => "Missing required field: {$field}"];
@@ -146,7 +147,7 @@ class CloudBackupController {
                 'source_connection_id' => $data['source_connection_id'] ?? null,
                 'source_path' => $data['source_path'],
                 'dest_bucket_id' => $data['dest_bucket_id'],
-                'dest_prefix' => $data['dest_prefix'],
+                'dest_prefix' => $data['dest_prefix'] ?? '',
                 'backup_mode' => $data['backup_mode'] ?? 'sync',
                 'engine' => $data['engine'] ?? 'sync',
                 'dest_type' => $data['dest_type'] ?? 's3',
@@ -335,6 +336,20 @@ class CloudBackupController {
             }
             if (isset($data['status'])) {
                 $updateData['status'] = $data['status'];
+            }
+
+            // Defensive: only update columns that exist (older installs may lack optional columns).
+            // createJob() already does this; updateJob() must match to avoid SQL "Unknown column" errors.
+            try {
+                $table = 's3_cloudbackup_jobs';
+                foreach (array_keys($updateData) as $col) {
+                    // updated_at is expected, but still guard to be safe.
+                    if (!Capsule::schema()->hasColumn($table, $col)) {
+                        unset($updateData[$col]);
+                    }
+                }
+            } catch (\Throwable $e) {
+                // If schema introspection fails, proceed with original updateData.
             }
 
             Capsule::table('s3_cloudbackup_jobs')

@@ -1,13 +1,14 @@
 <div class="min-h-screen bg-slate-950 text-gray-300">
     <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
     <div class="container mx-auto px-4 pb-10 pt-6 relative pointer-events-auto">
-        {include file="modules/addons/cloudstorage/templates/partials/cloudbackup_nav.tpl"}
+        {assign var="activeNav" value="jobs"}
+        {include file="modules/addons/cloudstorage/templates/partials/e3backup_nav.tpl"}
         <!-- Glass panel container -->
         <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
 
         <div class="flex flex-col sm:flex-row h-16 justify-between items-start sm:items-center mb-3">
             <div class="flex items-center">
-                <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_runs&job_id={$job.id}" class="mr-4 text-sky-400 hover:text-sky-500">
+                <a href="index.php?m=cloudstorage&page=e3backup&view=runs&job_id={$job.id}" class="mr-4 text-sky-400 hover:text-sky-500">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
                     </svg>
@@ -95,13 +96,13 @@
             <div class="rounded-2xl border border-slate-800/80 bg-slate-900/70 px-4 py-3">
                 <p class="text-xs font-medium text-slate-400 uppercase tracking-wide">Status</p>
                 <p class="mt-1">
-                    <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium
-                        {if $metrics.status eq 'success'}bg-emerald-500/10 text-emerald-300
-                        {elseif $metrics.status eq 'failed'}bg-rose-500/15 text-rose-300
-                        {elseif $metrics.status eq 'running' || $metrics.status eq 'starting' || $metrics.status eq 'queued'}bg-sky-500/10 text-sky-300
-                        {elseif $metrics.status eq 'cancelled'}bg-amber-500/15 text-amber-300
+                    <span id="statusTopBadge" class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium
+                        {if $run.status eq 'success'}bg-emerald-500/10 text-emerald-300
+                        {elseif $run.status eq 'failed'}bg-rose-500/15 text-rose-300
+                        {elseif $run.status eq 'running' || $run.status eq 'starting' || $run.status eq 'queued'}bg-sky-500/10 text-sky-300
+                        {elseif $run.status eq 'cancelled'}bg-amber-500/15 text-amber-300
                         {else}bg-slate-500/15 text-slate-300{/if}">
-                        {$metrics.status|ucfirst}
+                        <span id="statusTopText">{$run.status|ucfirst}</span>
                     </span>
                 </p>
             </div>
@@ -129,7 +130,7 @@
             </div>
             <div class="rounded-2xl border border-slate-800/80 bg-slate-900/70 px-4 py-3">
                 <p class="text-xs font-medium text-slate-400 uppercase tracking-wide">Speed</p>
-                <p class="mt-1 text-2xl font-semibold text-white">
+                <p class="mt-1 text-2xl font-semibold text-white" id="speedTop">
                     {if $run.speed_bytes_per_sec}
                         {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.speed_bytes_per_sec)}/s
                     {else}
@@ -593,10 +594,16 @@ function updateProgress() {
                 // Update speed with 2 decimal places
                 if (run.speed_bytes_per_sec !== undefined && run.speed_bytes_per_sec !== null) {
                     const speedEl = document.getElementById('speed');
+                    const speedTopEl = document.getElementById('speedTop');
                     if (speedEl) {
                         speedEl.textContent = formatBytes(run.speed_bytes_per_sec) + '/s';
                         speedEl.classList.add('opacity-0');
                         setTimeout(() => speedEl.classList.remove('opacity-0'), 50);
+                    }
+                    if (speedTopEl) {
+                        speedTopEl.textContent = formatBytes(run.speed_bytes_per_sec) + '/s';
+                        speedTopEl.classList.add('opacity-0');
+                        setTimeout(() => speedTopEl.classList.remove('opacity-0'), 50);
                     }
                 }
                 
@@ -723,6 +730,38 @@ function updateProgress() {
                             pingDot.style.display = 'none';
                         }
                     }
+                }
+
+                // Update compact top status badge (was previously rendered from $metrics.status and didn't update while running)
+                const statusTopBadge = document.getElementById('statusTopBadge');
+                if (statusTopBadge) {
+                    const statusTopText = document.getElementById('statusTopText');
+                    const topStatusMap = {
+                        'success': { text: 'Success', cls: 'bg-emerald-500/10 text-emerald-300' },
+                        'failed': { text: 'Failed', cls: 'bg-rose-500/15 text-rose-300' },
+                        'running': { text: 'Running', cls: 'bg-sky-500/10 text-sky-300' },
+                        'starting': { text: 'Starting', cls: 'bg-sky-500/10 text-sky-300' },
+                        'queued': { text: 'Queued', cls: 'bg-sky-500/10 text-sky-300' },
+                        'cancelled': { text: 'Cancelled', cls: 'bg-amber-500/15 text-amber-300' },
+                        'warning': { text: 'Warning', cls: 'bg-amber-500/15 text-amber-300' },
+                        'partial_success': { text: 'Partial Success', cls: 'bg-amber-500/15 text-amber-300' }
+                    };
+                    const cfg = topStatusMap[run.status] || { text: (run.status ? (run.status.charAt(0).toUpperCase() + run.status.slice(1)) : 'Unknown'), cls: 'bg-slate-500/15 text-slate-300' };
+
+                    // Strip possible previous status color classes
+                    statusTopBadge.classList.remove(
+                        'bg-emerald-500/10','text-emerald-300',
+                        'bg-rose-500/15','text-rose-300',
+                        'bg-sky-500/10','text-sky-300',
+                        'bg-amber-500/15','text-amber-300',
+                        'bg-slate-500/15','text-slate-300'
+                    );
+                    // Apply new classes
+                    cfg.cls.split(' ').forEach(c => c && statusTopBadge.classList.add(c));
+                    if (statusTopText) statusTopText.textContent = cfg.text;
+
+                    statusTopBadge.classList.add('opacity-0');
+                    setTimeout(() => statusTopBadge.classList.remove('opacity-0'), 50);
                 }
                 
                 // Update cancel button visibility

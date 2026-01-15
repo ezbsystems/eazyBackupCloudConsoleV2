@@ -226,7 +226,7 @@
                  class="absolute z-20 mt-1 w-full rounded-lg bg-slate-800 border border-slate-700 shadow-xl max-h-60 overflow-y-auto">
                 <template x-if="agents.length === 0">
                     <div class="px-3 py-4 text-sm text-slate-400 text-center">
-                        No agents available. <a href="index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_agents" class="text-cyan-400 hover:underline">Set up an agent</a>
+                        No agents available. <a href="index.php?m=cloudstorage&page=e3backup&view=agents" class="text-cyan-400 hover:underline">Set up an agent</a>
                     </div>
                 </template>
                 <template x-for="agent in agents" :key="agent.id">

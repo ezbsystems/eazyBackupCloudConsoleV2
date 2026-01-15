@@ -5,6 +5,32 @@
         {assign var="activeNav" value="jobs"}
         {include file="modules/addons/cloudstorage/templates/partials/e3backup_nav.tpl"}
 
+        {* Glass panel container *}
+        <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
+        <style>
+        .btn-run-now {
+            display: inline-flex; align-items: center; gap: 0.5rem;
+            border-radius: 9999px; padding: 0.375rem 1rem;
+            font-size: 0.875rem; font-weight: 600;
+            color: rgb(15 23 42);
+            background-image: linear-gradient(to right, rgb(16 185 129), rgb(52 211 153), rgb(56 189 248));
+            box-shadow: 0 1px 2px rgba(0,0,0,0.25);
+            border: 1px solid rgba(16,185,129,0.4);
+            transition: transform .15s ease, box-shadow .2s ease;
+        }
+        .btn-run-now:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(16,185,129,0.25); }
+        .btn-run-now:active { transform: translateY(0); box-shadow: 0 1px 2px rgba(0,0,0,0.25); }
+        .icon-btn {
+            display:inline-flex; align-items:center; justify-content:center;
+            width:2rem; height:2rem; border-radius:9999px;
+            border:1px solid rgba(51,65,85,0.8);
+            background-color: rgba(15,23,42,0.6);
+            color:#cbd5e1; font-size:.75rem; transition: all .15s ease;
+        }
+        .icon-btn:hover { border-color:#94a3b8; color:white; background-color:#1f2937; }
+        .icon-btn[disabled] { opacity:.6; cursor:not-allowed; }
+        </style>
+
         <!-- Header -->
         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
             <div>
@@ -19,7 +45,7 @@
             <div class="flex gap-2 mt-4 sm:mt-0">
                 <!-- Create Job Dropdown -->
                 <div x-data="{ isOpen: false }" class="relative" @click.away="isOpen = false">
-                    <button @click="isOpen = !isOpen" class="px-4 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold inline-flex items-center gap-2">
+                    <button @click="isOpen = !isOpen" class="btn-run-now">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
                         </svg>
@@ -87,176 +113,341 @@
         <div class="mb-4 flex flex-col sm:flex-row gap-3 items-start sm:items-center">
             <div class="flex items-center gap-2">
                 <label class="text-sm text-slate-400">Tenant:</label>
-                <select x-model="tenantFilter" @change="onTenantChange" class="rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500">
-                    <option value="">All Tenants</option>
-                    <option value="direct">Direct (No Tenant)</option>
-                    {foreach from=$tenants item=tenant}
-                    <option value="{$tenant->id}">{$tenant->name|escape}</option>
-                    {/foreach}
-                </select>
+                <div x-data="{ isOpen: false }" class="relative" @click.away="isOpen = false">
+                    <button
+                        type="button"
+                        @click="isOpen = !isOpen"
+                        class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                    >
+                        <span class="truncate max-w-[14rem]" x-text="tenantLabel()"></span>
+                        <svg class="w-4 h-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                        </svg>
+                    </button>
+                    <div
+                        x-show="isOpen"
+                        x-transition:enter="transition ease-out duration-100"
+                        x-transition:enter-start="opacity-0 scale-95"
+                        x-transition:enter-end="opacity-100 scale-100"
+                        x-transition:leave="transition ease-in duration-75"
+                        x-transition:leave-start="opacity-100 scale-100"
+                        x-transition:leave-end="opacity-0 scale-95"
+                        class="absolute left-0 mt-2 w-72 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden"
+                        style="display: none;"
+                    >
+                        <div class="px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 border-b border-slate-800">
+                            Select tenant
+                        </div>
+                        <div class="py-1 max-h-72 overflow-auto">
+                            <button
+                                type="button"
+                                class="w-full px-4 py-2 text-left text-sm transition"
+                                :class="tenantFilter === '' ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
+                                @click="tenantFilter=''; isOpen=false; onTenantChange()"
+                                data-tenant-option=""
+                            >
+                                All Tenants
+                            </button>
+                            <button
+                                type="button"
+                                class="w-full px-4 py-2 text-left text-sm transition"
+                                :class="tenantFilter === 'direct' ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
+                                @click="tenantFilter='direct'; isOpen=false; onTenantChange()"
+                                data-tenant-option="direct"
+                            >
+                                Direct (No Tenant)
+                            </button>
+                            {foreach from=$tenants item=tenant}
+                            <button
+                                type="button"
+                                class="w-full px-4 py-2 text-left text-sm transition"
+                                :class="String(tenantFilter) === String('{$tenant->id}') ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
+                                @click="tenantFilter='{$tenant->id}'; isOpen=false; onTenantChange()"
+                                data-tenant-option="{$tenant->id}"
+                            >
+                                {$tenant->name|escape}
+                            </button>
+                            {/foreach}
+                        </div>
+                    </div>
+                </div>
             </div>
             <div class="flex items-center gap-2">
                 <label class="text-sm text-slate-400">Agent:</label>
-                <select x-model="agentFilter" @change="loadJobs" class="rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500">
-                    <option value="">All Agents</option>
-                    <template x-for="agent in filteredAgents" :key="agent.id">
-                        <option :value="agent.id" x-text="agent.hostname"></option>
-                    </template>
-                </select>
+                <div x-data="{ isOpen: false }" class="relative" @click.away="isOpen = false">
+                    <button
+                        type="button"
+                        @click="isOpen = !isOpen"
+                        class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                    >
+                        <span class="truncate max-w-[14rem]" x-text="agentLabel()"></span>
+                        <svg class="w-4 h-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                        </svg>
+                    </button>
+                    <div
+                        x-show="isOpen"
+                        x-transition:enter="transition ease-out duration-100"
+                        x-transition:enter-start="opacity-0 scale-95"
+                        x-transition:enter-end="opacity-100 scale-100"
+                        x-transition:leave="transition ease-in duration-75"
+                        x-transition:leave-start="opacity-100 scale-100"
+                        x-transition:leave-end="opacity-0 scale-95"
+                        class="absolute left-0 mt-2 w-72 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden"
+                        style="display: none;"
+                    >
+                        <div class="px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 border-b border-slate-800">
+                            Select agent
+                        </div>
+                        <div class="py-1 max-h-72 overflow-auto">
+                            <button
+                                type="button"
+                                class="w-full px-4 py-2 text-left text-sm transition"
+                                :class="agentFilter === '' ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
+                                @click="agentFilter=''; isOpen=false; loadJobs()"
+                            >
+                                All Agents
+                            </button>
+                            <template x-for="agent in filteredAgents" :key="agent.id">
+                                <button
+                                    type="button"
+                                    class="w-full px-4 py-2 text-left text-sm transition"
+                                    :class="String(agentFilter) === String(agent.id) ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
+                                    @click="agentFilter=agent.id; isOpen=false; loadJobs()"
+                                >
+                                    <span class="truncate" x-text="agent.hostname || ('Agent #' + agent.id)"></span>
+                                </button>
+                            </template>
+                            <template x-if="filteredAgents.length === 0">
+                                <div class="px-4 py-2 text-sm text-slate-400">
+                                    No agents available
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
         {/if}
 
-        <!-- Jobs Table -->
-        <div class="overflow-x-auto rounded-lg border border-slate-800">
-            <table class="min-w-full divide-y divide-slate-800 text-sm">
-                <thead class="bg-slate-900/80 text-slate-300">
-                    <tr>
-                        <th class="px-4 py-3 text-left font-medium">Job</th>
-                        {if $isMspClient}<th class="px-4 py-3 text-left font-medium">Tenant</th>{/if}
-                        <th class="px-4 py-3 text-left font-medium">Agent</th>
-                        <th class="px-4 py-3 text-left font-medium">Source</th>
-                        <th class="px-4 py-3 text-left font-medium">Engine</th>
-                        <th class="px-4 py-3 text-left font-medium">Schedule</th>
-                        <th class="px-4 py-3 text-left font-medium">Status</th>
-                        <th class="px-4 py-3 text-left font-medium">Created</th>
-                        <th class="px-4 py-3 text-left font-medium">Actions</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-800">
-                    <template x-if="loading">
-                        <tr>
-                            <td colspan="{if $isMspClient}9{else}8{/if}" class="px-4 py-8 text-center text-slate-400">
-                                <svg class="animate-spin h-6 w-6 mx-auto text-sky-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        <!-- Filters -->
+        <div class="mb-4 flex flex-col sm:flex-row gap-3 justify-between items-start sm:items-center">
+            <div class="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                <input type="text" placeholder="Search jobs" class="w-full sm:w-80 rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                    x-model="searchQuery">
+                <div x-data="{ isOpen: false }" class="relative" @click.away="isOpen = false">
+                    <button
+                        type="button"
+                        @click="isOpen = !isOpen"
+                        class="inline-flex items-center justify-between gap-2 rounded-full border border-slate-700 bg-slate-900/80 px-4 py-2 text-xs text-slate-200 w-full sm:w-auto min-w-[12rem]"
+                    >
+                        <span class="truncate" x-text="sourceLabel()"></span>
+                        <svg class="w-4 h-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                        </svg>
+                    </button>
+                    <div
+                        x-show="isOpen"
+                        x-transition:enter="transition ease-out duration-100"
+                        x-transition:enter-start="opacity-0 scale-95"
+                        x-transition:enter-end="opacity-100 scale-100"
+                        x-transition:leave="transition ease-in duration-75"
+                        x-transition:leave-start="opacity-100 scale-100"
+                        x-transition:leave-end="opacity-0 scale-95"
+                        class="absolute left-0 mt-2 w-64 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden"
+                        style="display: none;"
+                    >
+                        <div class="px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 border-b border-slate-800">
+                            Source type
+                        </div>
+                        <div class="py-1">
+                            <button type="button" class="w-full px-4 py-2 text-left text-sm transition"
+                                :class="sourceFilter === 'all' ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
+                                @click="sourceFilter='all'; isOpen=false"
+                            >All Sources</button>
+                            <button type="button" class="w-full px-4 py-2 text-left text-sm transition"
+                                :class="sourceFilter === 'local_agent' ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
+                                @click="sourceFilter='local_agent'; isOpen=false"
+                            >Local Agent</button>
+                            <button type="button" class="w-full px-4 py-2 text-left text-sm transition"
+                                :class="sourceFilter === 'cloud' ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
+                                @click="sourceFilter='cloud'; isOpen=false"
+                            >Cloud-to-Cloud</button>
+                            <button type="button" class="w-full px-4 py-2 text-left text-sm transition"
+                                :class="sourceFilter === 's3_compatible' ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
+                                @click="sourceFilter='s3_compatible'; isOpen=false"
+                            >S3-Compatible</button>
+                            <button type="button" class="w-full px-4 py-2 text-left text-sm transition"
+                                :class="sourceFilter === 'aws' ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
+                                @click="sourceFilter='aws'; isOpen=false"
+                            >AWS</button>
+                            <button type="button" class="w-full px-4 py-2 text-left text-sm transition"
+                                :class="sourceFilter === 'sftp' ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
+                                @click="sourceFilter='sftp'; isOpen=false"
+                            >SFTP</button>
+                            <button type="button" class="w-full px-4 py-2 text-left text-sm transition"
+                                :class="sourceFilter === 'google_drive' ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
+                                @click="sourceFilter='google_drive'; isOpen=false"
+                            >Google Drive</button>
+                            <button type="button" class="w-full px-4 py-2 text-left text-sm transition"
+                                :class="sourceFilter === 'dropbox' ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
+                                @click="sourceFilter='dropbox'; isOpen=false"
+                            >Dropbox</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="inline-flex rounded-full bg-slate-900/80 p-1 text-xs font-medium text-slate-400">
+                <button class="px-3 py-1.5 rounded-full transition" :class="statusFilter === 'all' ? 'bg-slate-800 text-slate-50 shadow-sm' : 'hover:text-slate-200'" @click="statusFilter='all'">All</button>
+                <button class="px-3 py-1.5 rounded-full transition" :class="statusFilter === 'success' ? 'bg-slate-800 text-slate-50 shadow-sm' : 'hover:text-slate-200'" @click="statusFilter='success'">Success</button>
+                <button class="px-3 py-1.5 rounded-full transition" :class="statusFilter === 'warning' ? 'bg-slate-800 text-slate-50 shadow-sm' : 'hover:text-slate-200'" @click="statusFilter='warning'">Warning</button>
+                <button class="px-3 py-1.5 rounded-full transition" :class="statusFilter === 'failed' ? 'bg-slate-800 text-slate-50 shadow-sm' : 'hover:text-slate-200'" @click="statusFilter='failed'">Failed</button>
+                <button class="px-3 py-1.5 rounded-full transition" :class="statusFilter === 'running' ? 'bg-slate-800 text-slate-50 shadow-sm' : 'hover:text-slate-200'" @click="statusFilter='running'">Running</button>
+                <button class="px-3 py-1.5 rounded-full transition" :class="statusFilter === 'failed_recent' ? 'bg-slate-800 text-slate-50 shadow-sm' : 'hover:text-slate-200'" @click="statusFilter='failed_recent'">Failed Recently</button>
+            </div>
+        </div>
+
+        <!-- Jobs Container -->
+        <div class="grid grid-cols-1 gap-6">
+            <template x-if="loading">
+                <div class="rounded-2xl border border-slate-800/80 bg-slate-900/70 p-6 text-center text-slate-400">
+                    <svg class="animate-spin h-6 w-6 mx-auto text-sky-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                </div>
+            </template>
+            <template x-if="!loading && filteredJobs.length === 0">
+                <div class="rounded-2xl border border-slate-800/80 bg-slate-900/70 p-6 text-center text-slate-400">
+                    No jobs found.
+                </div>
+            </template>
+            <template x-for="job in filteredJobs" :key="job.id">
+                <div class="job-row group relative overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-900/70 p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-400/60 hover:shadow-lg hover:shadow-emerald-500/15">
+                    <div class="flex items-center justify-between gap-4 mb-3">
+                        <div class="flex items-center gap-3">
+                            <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-800/90 group-hover:bg-slate-700">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-sky-300" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 15.75a4.5 4.5 0 004.5 4.5h9a4.5 4.5 0 004.5-4.5 4.5 4.5 0 00-3.75-4.415A5.25 5.25 0 006.75 9.75a5.25 5.25 0 00-.518 2.25M9 12l3-3m0 0l3 3m-3-3v7.5" />
                                 </svg>
-                            </td>
-                        </tr>
-                    </template>
-                    <template x-if="!loading && jobs.length === 0">
-                        <tr>
-                            <td colspan="{if $isMspClient}9{else}8{/if}" class="px-4 py-8 text-center text-slate-400">
-                                No jobs found.
-                            </td>
-                        </tr>
-                    </template>
-                    <template x-for="job in jobs" :key="job.id">
-                        <tr class="hover:bg-slate-800/50 cursor-pointer" @click="editJob(job)">
-                            <td class="px-4 py-3 text-slate-200 font-semibold" x-text="job.name"></td>
-                            {if $isMspClient}
-                            <td class="px-4 py-3 text-slate-300" x-text="job.tenant_name || 'Direct'"></td>
-                            {/if}
-                            <td class="px-4 py-3 text-slate-300" x-text="job.agent_hostname || ('Agent #' + job.agent_id)"></td>
-                            <td class="px-4 py-3 text-slate-300">
-                                <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium"
-                                      :class="sourceClass(job.source_type)">
-                                    <span class="h-1.5 w-1.5 rounded-full bg-sky-400"></span>
-                                    <span x-text="job.source_type"></span>
-                                </span>
-                            </td>
-                            <td class="px-4 py-3 text-slate-300" x-text="formatEngine(job.engine)"></td>
-                            <td class="px-4 py-3 text-slate-300" x-text="job.schedule_type"></td>
-                            <td class="px-4 py-3">
-                                <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold"
-                                      :class="statusClass(job.status)">
-                                    <span class="h-1.5 w-1.5 rounded-full"
-                                          :class="dotClass(job.status)"></span>
-                                    <span x-text="job.status"></span>
-                                </span>
-                            </td>
-                            <td class="px-4 py-3 text-slate-300" x-text="job.created_at"></td>
-                            <td class="px-4 py-3">
-                                <!-- Desktop: Individual buttons (hidden on small screens) -->
-                                <div class="hidden md:flex items-center gap-1" @click.stop>
-                                    <!-- Edit -->
-                                    <button @click.stop="editJob(job)" class="p-1.5 rounded hover:bg-slate-700 text-slate-400 hover:text-slate-300" title="Edit">
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
-                                        </svg>
-                                    </button>
-                                    <!-- Run Now -->
-                                    <button @click.stop="runJob(job.id)" class="p-1.5 rounded hover:bg-slate-700 text-sky-400 hover:text-sky-300" title="Run Now">
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
-                                            <path d="M8 5v14l11-7z"/>
-                                        </svg>
-                                    </button>
-                                    <!-- Pause/Resume -->
-                                    <button @click.stop="toggleJobStatus(job.id, job.status)" class="p-1.5 rounded hover:bg-slate-700" :class="job.status === 'active' ? 'text-amber-400 hover:text-amber-300' : 'text-emerald-400 hover:text-emerald-300'" :title="job.status === 'active' ? 'Pause' : 'Resume'">
-                                        <svg x-show="job.status === 'active'" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
-                                            <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/>
-                                        </svg>
-                                        <svg x-show="job.status !== 'active'" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
-                                            <path d="M8 5v14l11-7z"/>
-                                        </svg>
-                                    </button>
-                                    <!-- Restore -->
-                                    <button @click.stop="openRestore(job)" class="p-1.5 rounded hover:bg-slate-700 text-emerald-400 hover:text-emerald-300" title="Restore">
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
-                                        </svg>
-                                    </button>
-                                    <!-- View Logs -->
-                                    <button @click.stop="viewLogs(job.id)" class="p-1.5 rounded hover:bg-slate-700 text-slate-400 hover:text-slate-300" title="View Logs">
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-                                        </svg>
-                                    </button>
-                                    <!-- Delete -->
-                                    <button @click.stop="openDeleteModal(job)" class="p-1.5 rounded hover:bg-slate-700 text-rose-400 hover:text-rose-300" title="Delete">
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-                                        </svg>
-                                    </button>
+                            </div>
+                            <div>
+                                <div class="flex items-center gap-2">
+                                    <h3 class="text-sm font-semibold text-white" x-text="job.name"></h3>
+                                    <span x-show="job.source_type === 'local_agent'" class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.65rem] font-semibold bg-sky-500/15 text-sky-200 border border-sky-400/40">
+                                        Local Agent
+                                    </span>
+                                    <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium" :class="statusClass(job.status)">
+                                        <span class="h-1.5 w-1.5 rounded-full" :class="dotClass(job.status)"></span>
+                                        <span x-text="(job.status || '').charAt(0).toUpperCase() + (job.status || '').slice(1)"></span>
+                                    </span>
                                 </div>
-                                <!-- Mobile: Dropdown menu (visible on small screens) -->
-                                <div class="md:hidden relative" x-data="{ open: false }" @click.away="open = false" @click.stop>
-                                    <button @click.stop="open = !open" class="p-1.5 rounded hover:bg-slate-700 text-slate-400 hover:text-slate-300" title="Actions">
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
-                                            <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>
-                                        </svg>
-                                    </button>
-                                    <div x-show="open" x-cloak
-                                         x-transition:enter="transition ease-out duration-100"
-                                         x-transition:enter-start="opacity-0 scale-95"
-                                         x-transition:enter-end="opacity-100 scale-100"
-                                         x-transition:leave="transition ease-in duration-75"
-                                         x-transition:leave-start="opacity-100 scale-100"
-                                         x-transition:leave-end="opacity-0 scale-95"
-                                         class="absolute right-0 mt-1 w-40 rounded-lg border border-slate-700 bg-slate-900 shadow-xl z-50 py-1">
-                                        <button @click.stop="editJob(job); open = false" class="w-full px-3 py-2 text-left text-sm text-slate-300 hover:bg-slate-800 flex items-center gap-2">
-                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
-                                            Edit
-                                        </button>
-                                        <button @click.stop="runJob(job.id); open = false" class="w-full px-3 py-2 text-left text-sm text-sky-400 hover:bg-slate-800 flex items-center gap-2">
-                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-                                            Run Now
-                                        </button>
-                                        <button @click.stop="toggleJobStatus(job.id, job.status); open = false" class="w-full px-3 py-2 text-left text-sm hover:bg-slate-800 flex items-center gap-2" :class="job.status === 'active' ? 'text-amber-400' : 'text-emerald-400'">
-                                            <svg x-show="job.status === 'active'" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/></svg>
-                                            <svg x-show="job.status !== 'active'" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-                                            <span x-text="job.status === 'active' ? 'Pause' : 'Resume'"></span>
-                                        </button>
-                                        <button @click.stop="openRestore(job); open = false" class="w-full px-3 py-2 text-left text-sm text-emerald-400 hover:bg-slate-800 flex items-center gap-2">
-                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
-                                            Restore
-                                        </button>
-                                        <button @click.stop="viewLogs(job.id); open = false" class="w-full px-3 py-2 text-left text-sm text-slate-300 hover:bg-slate-800 flex items-center gap-2">
-                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                                            View Logs
-                                        </button>
-                                        <div class="border-t border-slate-700 my-1"></div>
-                                        <button @click.stop="openDeleteModal(job); open = false" class="w-full px-3 py-2 text-left text-sm text-rose-400 hover:bg-slate-800 flex items-center gap-2">
-                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-                                            Delete
-                                        </button>
-                                    </div>
-                                </div>
-                            </td>
-                        </tr>
-                    </template>
-                </tbody>
-            </table>
+                                <p class="mt-1 text-xs text-slate-400">
+                                    <span x-text="formatMode(job)"></span>
+                                    from
+                                    <span class="font-mono text-slate-200" x-text="formatSourceType(job.source_type)"></span>
+                                    →
+                                    <span class="font-mono text-slate-200" x-text="formatDestination(job)"></span>
+                                </p>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <div x-data="{ running: false }">
+                                <button
+                                    class="btn-run-now"
+                                    @click="running = true; runJob(job.id).finally(() => running = false)"
+                                    :disabled="job.status !== 'active'"
+                                >
+                                    <template x-if="!running">
+                                        <div class="flex items-center gap-2">
+                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347a1.125 1.125 0 0 1-1.667-.986V5.653Z" />
+                                            </svg>
+                                            <span>Run now</span>
+                                        </div>
+                                    </template>
+                                    <template x-if="running">
+                                        <div class="flex items-center gap-2">
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
+                                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                                            </svg>
+                                            <span>Running…</span>
+                                        </div>
+                                    </template>
+                                </button>
+                            </div>
+                            <button @click="editJob(job)" class="icon-btn" title="Edit">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4">
+                                    <path d="M21.731 2.269a2.625 2.625 0 00-3.712 0l-1.157 1.157 3.712 3.712 1.157-1.157a2.625 2.625 0 000-3.712z" />
+                                    <path d="M3.75 15.75V19.5h3.75l9.72-9.72-3.75-3.75L3.75 15.75z" />
+                                </svg>
+                            </button>
+                            <button @click="toggleJobStatus(job.id, job.status)" class="icon-btn" :title="job.status === 'active' ? 'Pause' : 'Resume'">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M21 7.5V18M15 7.5V18M3 16.811V8.69c0-.864.933-1.406 1.683-.977l7.108 4.061a1.125 1.125 0 0 1 0 1.954l-7.108 4.061A1.125 1.125 0 0 1 3 16.811Z" />
+                                </svg>
+                            </button>
+                            <button @click="openDeleteModal(job)" class="icon-btn" title="Delete">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                                </svg>
+                            </button>
+                            <button @click="viewLogs(job.id)" class="icon-btn" title="Logs">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0ZM3.75 12h.007v.008H3.75V12Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm-.375 5.25h.007v.008H3.75v-.008Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" />
+                                </svg>
+                            </button>
+                            <button @click="openRestore(job)" class="icon-btn" title="Restore">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 4v9m0 0l-3.5-3.5M12 13l3.5-3.5M6 20h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.5" />
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="mt-2 grid grid-cols-1 sm:grid-cols-6 gap-4 text-xs text-slate-400">
+                        <div>
+                            <h6 class="text-sm font-medium text-slate-400">Source</h6>
+                            <span class="text-md font-medium text-slate-300" x-text="job.source_display_name || formatSourceType(job.source_type)"></span>
+                            <span class="text-xs text-slate-500 ml-2" x-text="formatAgentHint(job)"></span>
+                        </div>
+                        <div>
+                            <h6 class="text-sm font-medium text-slate-400">Destination</h6>
+                            <span class="text-md font-medium text-slate-300" x-text="formatDestinationName(job)"></span>
+                            <span class="text-xs text-slate-500 ml-2" x-show="job.dest_prefix" x-text="'/' + job.dest_prefix"></span>
+                        </div>
+                        <div>
+                            <h6 class="text-sm font-medium text-slate-400">Mode</h6>
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium"
+                                  :class="job.backup_mode === 'archive' ? 'bg-purple-700 text-purple-200' : 'bg-blue-700 text-blue-200'">
+                                <span x-text="formatMode(job)"></span>
+                            </span>
+                            <span x-show="job.encryption_enabled" class="ml-1 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-700 text-green-200" title="Encrypted">
+                                🔒
+                            </span>
+                        </div>
+                        <div>
+                            <h6 class="text-sm font-medium text-slate-400">Schedule</h6>
+                            <span class="text-md font-medium text-slate-300" x-text="formatSchedule(job.schedule_type)"></span>
+                        </div>
+                        <div>
+                            <h6 class="text-sm font-medium text-slate-400">Next Run</h6>
+                            <span class="text-md font-medium" :class="job.schedule_type === 'manual' ? 'text-slate-500' : 'text-slate-300'" x-text="nextRunText(job)"></span>
+                        </div>
+                        <div>
+                            <h6 class="text-sm font-medium text-slate-400">Last Run</h6>
+                            <div class="text-md font-medium text-slate-300">
+                                <span x-text="formatLastRunTime(job)"></span>
+                                <template x-if="job.last_run && job.last_run.status">
+                                    <span class="ml-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.65rem] font-medium" :class="lastRunStatusClass(job.last_run.status)">
+                                        <span x-text="capitalize(job.last_run.status)"></span>
+                                    </span>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </template>
         </div>
 
         <!-- Delete Job Confirmation Modal -->
@@ -319,6 +510,7 @@
                     </button>
                 </div>
             </div>
+        </div>
         </div>
     </div>
 </div>
@@ -782,12 +974,45 @@ function jobsApp() {
         loading: true,
         tenantFilter: '',
         agentFilter: '',
+        searchQuery: '',
+        sourceFilter: 'all',
+        statusFilter: 'all',
         // Delete confirmation modal state
         deleteModalOpen: false,
         deleteJobId: '',
         deleteJobName: '',
         deleteInProgress: false,
         agents: {/literal}{if $agents}{$agents|@json_encode}{else}[]{/if}{literal},
+        tenantLabel() {
+            if (!this.tenantFilter) return 'All Tenants';
+            if (this.tenantFilter === 'direct') return 'Direct (No Tenant)';
+            try {
+                const sel = String(this.tenantFilter);
+                const el = document.querySelector('[data-tenant-option="' + sel.replaceAll('"', '\\"') + '"]');
+                const txt = el ? String(el.textContent || '').trim() : '';
+                if (txt) return txt;
+            } catch (e) {}
+            return 'Tenant ' + this.tenantFilter;
+        },
+        agentLabel() {
+            if (!this.agentFilter) return 'All Agents';
+            const a = (this.agents || []).find(x => String(x.id) === String(this.agentFilter));
+            return (a && a.hostname) ? a.hostname : ('Agent ' + this.agentFilter);
+        },
+        sourceLabel() {
+            const v = (this.sourceFilter || 'all');
+            const map = {
+                all: 'All Sources',
+                local_agent: 'Local Agent',
+                cloud: 'Cloud-to-Cloud',
+                s3_compatible: 'S3-Compatible',
+                aws: 'AWS',
+                sftp: 'SFTP',
+                google_drive: 'Google Drive',
+                dropbox: 'Dropbox',
+            };
+            return map[v] || 'All Sources';
+        },
         get filteredAgents() {
             if (!this.tenantFilter || this.tenantFilter === 'direct') {
                 return this.tenantFilter === 'direct'
@@ -795,6 +1020,38 @@ function jobsApp() {
                     : this.agents;
             }
             return this.agents.filter(a => String(a.tenant_id) === String(this.tenantFilter));
+        },
+        get filteredJobs() {
+            const q = (this.searchQuery || '').toLowerCase().trim();
+            const source = (this.sourceFilter || 'all').toLowerCase();
+            const status = (this.statusFilter || 'all').toLowerCase();
+            const now = Date.now();
+
+            return (this.jobs || []).filter((job) => {
+                const name = (job.name || '').toLowerCase();
+                const sourceName = (job.source_display_name || '').toLowerCase();
+                const sourceType = (job.source_type || '').toLowerCase();
+                const dest = (this.formatDestination(job) || '').toLowerCase();
+                const lastStatus = (job.last_run && job.last_run.status ? job.last_run.status : '').toLowerCase();
+                const lastStartedRaw = job.last_run && job.last_run.started_at ? job.last_run.started_at : '';
+                const lastStarted = lastStartedRaw ? Date.parse(lastStartedRaw) : NaN;
+
+                const hay = (name + ' ' + sourceName + ' ' + sourceType + ' ' + dest).trim();
+                if (q && hay.indexOf(q) === -1) return false;
+                if (source !== 'all' && sourceType !== source) return false;
+
+                if (status !== 'all') {
+                    if (status === 'failed_recent') {
+                        if (lastStatus !== 'failed' || isNaN(lastStarted)) return false;
+                        if ((now - lastStarted) > (24 * 3600 * 1000)) return false;
+                    } else if (status === 'running') {
+                        if (!['running', 'starting', 'queued'].includes(lastStatus)) return false;
+                    } else {
+                        if (lastStatus !== status) return false;
+                    }
+                }
+                return true;
+            });
         },
         init() { this.loadJobs(); },
         onTenantChange() {
@@ -909,7 +1166,7 @@ function jobsApp() {
             }
         },
         viewLogs(jobId) {
-            window.location.href = 'index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_runs&job_id=' + encodeURIComponent(jobId);
+            window.location.href = 'index.php?m=cloudstorage&page=e3backup&view=runs&job_id=' + encodeURIComponent(jobId);
         },
         openRestore(job) {
             // For Hyper-V jobs, redirect to the Hyper-V page to select a VM
@@ -946,6 +1203,80 @@ function jobsApp() {
             if (e === 'hyperv') return 'Hyper-V';
             return engine || '-';
         },
+        formatSourceType(type) {
+            const t = (type || '').toLowerCase();
+            if (t === 'local_agent') return 'Local Agent';
+            if (t === 's3_compatible') return 'S3-Compatible';
+            if (t === 'google_drive') return 'Google Drive';
+            if (t === 'dropbox') return 'Dropbox';
+            if (t === 'aws') return 'AWS';
+            if (t === 'sftp') return 'SFTP';
+            if (t === 'cloud') return 'Cloud-to-Cloud';
+            return type || '-';
+        },
+        formatDestination(job) {
+            const name = job.dest_bucket_name
+                ? job.dest_bucket_name
+                : (job.dest_bucket_id ? ('Bucket #' + job.dest_bucket_id) : 'Bucket');
+            const prefix = job.dest_prefix ? ('/' + job.dest_prefix) : '';
+            return name + prefix;
+        },
+        formatDestinationName(job) {
+            if (job.dest_bucket_name) return job.dest_bucket_name;
+            if (job.dest_bucket_id) return 'Bucket #' + job.dest_bucket_id;
+            return 'Bucket';
+        },
+        formatMode(job) {
+            const mode = (job.backup_mode || '').toLowerCase();
+            if (mode === 'archive') return 'Archive';
+            if (mode === 'sync') return 'Sync';
+            const engine = (job.engine || '').toLowerCase();
+            if (engine === 'kopia') return 'Archive';
+            if (engine) return engine;
+            return 'Sync';
+        },
+        formatSchedule(type) {
+            const t = (type || '').toLowerCase();
+            if (t === 'manual') return 'Manual';
+            if (t === 'daily') return 'Daily';
+            if (t === 'weekly') return 'Weekly';
+            if (t === 'hourly') return 'Hourly';
+            if (t === 'cron') return 'Cron';
+            return type || '-';
+        },
+        nextRunText(job) {
+            return computeNextRunText(job.schedule_type, job.schedule_time, job.schedule_weekday);
+        },
+        formatLastRunTime(job) {
+            if (!job.last_run || !job.last_run.started_at) return '-';
+            try {
+                return fmtDateTime(new Date(job.last_run.started_at));
+            } catch (e) {
+                return job.last_run.started_at;
+            }
+        },
+        lastRunStatusClass(status) {
+            const s = (status || '').toLowerCase();
+            if (s === 'success') return 'bg-emerald-500/10 text-emerald-300';
+            if (s === 'failed') return 'bg-rose-500/15 text-rose-300';
+            if (s === 'warning') return 'bg-amber-500/15 text-amber-300';
+            if (s === 'cancelled') return 'bg-amber-500/15 text-amber-300';
+            if (s === 'running' || s === 'starting') return 'bg-sky-500/10 text-sky-300';
+            return 'bg-slate-500/15 text-slate-300';
+        },
+        capitalize(value) {
+            if (!value) return '';
+            return value.charAt(0).toUpperCase() + value.slice(1);
+        },
+        formatAgentHint(job) {
+            const type = (job.source_type || '').toLowerCase();
+            if (type === 'local_agent') {
+                if (job.agent_hostname) return '(' + job.agent_hostname + ')';
+                if (job.agent_id) return '(Agent #' + job.agent_id + ')';
+                return '';
+            }
+            return type ? '(' + type + ')' : '';
+        },
         editJob(job) {
             // Route to the correct edit UI based on source_type
             const sourceType = (job.source_type || '').toLowerCase();
@@ -966,6 +1297,77 @@ function jobsApp() {
         }
     }
 }
+
+function computeNextRunText(type, timeStr, weekday) {
+    if (!type || type === 'manual') return '-';
+    const now = new Date();
+    const [hh, mm, ss] = (timeStr || '00:00:00').split(':').map(x => parseInt(x, 10) || 0);
+    let next = new Date();
+    next.setSeconds(0);
+    next.setHours(hh, mm, ss || 0, 0);
+
+    if (type === 'daily') {
+        if (next <= now) {
+            next.setDate(next.getDate() + 1);
+        }
+        return fmtDateTime(next);
+    }
+    if (type === 'weekly') {
+        let jsTarget = 0;
+        if (weekday && weekday >= 1 && weekday <= 7) {
+            jsTarget = (weekday % 7);
+        }
+        next.setDate(now.getDate() + ((7 + jsTarget - now.getDay()) % 7));
+        if (next <= now) {
+            next.setDate(next.getDate() + 7);
+        }
+        return fmtDateTime(next);
+    }
+    if (type === 'hourly') {
+        if (next <= now) {
+            next.setHours(next.getHours() + 1);
+        }
+        return fmtDateTime(next);
+    }
+    return '-';
+}
+
+function fmtDateTime(d) {
+    try {
+        const opts = { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' };
+        return new Intl.DateTimeFormat(undefined, opts).format(d);
+    } catch (e) {
+        const pad = (n) => (n < 10 ? '0' + n : '' + n);
+        return pad(d.getDate()) + ' ' + (d.toLocaleString('default',{month:'short'})) + ' ' + d.getFullYear() + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    try {
+        const params = new URLSearchParams(window.location.search || '');
+        if (params.get('open_create') === '1') {
+            if (typeof openCreateJobModal === 'function') {
+                openCreateJobModal();
+            }
+            const pre = params.get('prefill_source') || 'google_drive';
+            const sel = document.getElementById('sourceType');
+            if (sel) {
+                sel.value = pre;
+                sel.dispatchEvent(new Event('change'));
+            }
+            setTimeout(() => {
+                const gf = document.getElementById('gdriveFields');
+                if (gf && gf.__x && gf.__x.$data && typeof gf.__x.$data.load === 'function') {
+                    gf.__x.$data.load();
+                }
+            }, 150);
+            const url = new URL(window.location.href);
+            url.searchParams.delete('open_create');
+            url.searchParams.delete('prefill_source');
+            window.history.replaceState({}, '', url.toString());
+        }
+    } catch (e) {}
+});
 
 // --- MSP Tenant Filter Component ---
 function mspTenantFilter() {
@@ -1554,7 +1956,7 @@ function submitRestore() {
             const restoreRunParam = data.restore_run_uuid || data.restore_run_id;
             if (restoreRunParam) {
                 setTimeout(() => {
-                    window.location.href = 'index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_live&job_id=' + 
+                    window.location.href = 'index.php?m=cloudstorage&page=e3backup&view=live&job_id=' + 
                         encodeURIComponent(data.job_id) + '&run_id=' + encodeURIComponent(restoreRunParam);
                 }, 1000);
             }
@@ -1876,7 +2278,9 @@ function localWizardFillFromJob(j, s) {
         retTxt.value = retentionObj ? JSON.stringify(retentionObj) : '';
     }
     if (job.agent_id) {
-        localWizardOnAgentSelected(job.agent_id);
+        // When loading an existing job for edit, preserve any preloaded selections
+        // (otherwise the file browser clears them when the agent-selected event fires).
+        localWizardOnAgentSelected(job.agent_id, { preserveSelection: true });
     }
     localWizardBuildReview();
 }
@@ -1905,10 +2309,10 @@ const localWizardVolumeState = {
     lastAgentId: '',
 };
 
-function localWizardOnAgentSelected(agentId) {
+function localWizardOnAgentSelected(agentId, opts = {}) {
     if (!agentId) return;
     localWizardVolumeState.lastAgentId = agentId;
-    window.dispatchEvent(new CustomEvent('local-agent-selected', { detail: { agentId } }));
+    window.dispatchEvent(new CustomEvent('local-agent-selected', { detail: { agentId, preserveSelection: !!opts.preserveSelection } }));
     localWizardUpdateView();
 }
 
@@ -2037,10 +2441,29 @@ function fileBrowser() {
             }
             window.addEventListener('local-agent-selected', (e) => {
                 this.agentId = e.detail?.agentId || '';
-                this.selectedPaths = [];
+                const preserve = !!e.detail?.preserveSelection;
+                if (!preserve) {
+                    this.selectedPaths = [];
+                } else {
+                    // Hydrate from hidden input/state if present
+                    const preset = document.getElementById('localWizardSourcePaths')?.value || '';
+                    if (preset) {
+                        try {
+                            const parsed = JSON.parse(preset);
+                            if (Array.isArray(parsed)) {
+                                this.selectedPaths = parsed;
+                            }
+                        } catch (e2) {}
+                    } else if (Array.isArray(window.localWizardState?.data?.source_paths)) {
+                        this.selectedPaths = [...window.localWizardState.data.source_paths];
+                    }
+                }
                 this.selectedVolume = '';
                 this.selectedVolumeInfo = null;
-                this.syncToWizard();
+                // Only overwrite hidden inputs when not preserving selections (edit mode preload).
+                if (!preserve) {
+                    this.syncToWizard();
+                }
                 this.syncDiskVolumeToWizard();
                 if (this.agentId) {
                     this.loadDirectory('');

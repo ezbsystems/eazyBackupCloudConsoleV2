@@ -16,6 +16,37 @@ use WHMCS\Module\Addon\CloudStorage\Client\AwsS3Validator;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 use WHMCS\Database\Capsule;
 
+/**
+ * Normalize a JSON input that may arrive HTML-entity encoded.
+ * Returns a canonical JSON string, or null for empty/invalid input.
+ */
+function normalizeJsonString($value): ?string
+{
+    if (is_array($value)) {
+        return json_encode($value);
+    }
+    if (!is_string($value)) {
+        return null;
+    }
+    $raw = trim($value);
+    if ($raw === '') {
+        return null;
+    }
+    $candidates = [
+        $raw,
+        stripslashes($raw),
+        html_entity_decode($raw, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+        trim($raw, "'\""),
+    ];
+    foreach ($candidates as $cand) {
+        $tmp = json_decode($cand, true);
+        if (json_last_error() === JSON_ERROR_NONE && is_array($tmp)) {
+            return json_encode($tmp);
+        }
+    }
+    return null;
+}
+
 $ca = new ClientArea();
 if (!$ca->isLoggedIn()) {
     $jsonData = [
@@ -183,7 +214,11 @@ if (($sourceTypeForPath === 'local_agent' || isset($_POST['agent_id'])) && $hasA
 }
 
 if (isset($_POST['source_path'])) {
-    $updateData['source_path'] = $_POST['source_path'];
+    // Do not overwrite an existing source_path with empty string (common when editing without revisiting Source step).
+    $sp = trim((string)$_POST['source_path']);
+    if ($sp !== '' || !empty($sourcePaths)) {
+        $updateData['source_path'] = $_POST['source_path'];
+    }
 }
 if ($hasSourcePathsJson && !empty($sourcePaths)) {
     $updateData['source_paths_json'] = json_encode($sourcePaths, JSON_UNESCAPED_SLASHES);
@@ -192,7 +227,8 @@ if (isset($_POST['dest_bucket_id'])) {
     $updateData['dest_bucket_id'] = $_POST['dest_bucket_id'];
 }
 if (isset($_POST['dest_prefix'])) {
-    $updateData['dest_prefix'] = $_POST['dest_prefix'];
+    // Destination prefix is optional; allow empty string.
+    $updateData['dest_prefix'] = (string)$_POST['dest_prefix'];
 }
 if (isset($_POST['dest_local_path'])) {
     $updateData['dest_local_path'] = $_POST['dest_local_path'];
@@ -250,13 +286,22 @@ if (isset($_POST['retention_value'])) {
     $updateData['retention_value'] = isset($_POST['retention_value']) ? (int)$_POST['retention_value'] : null;
 }
 if (isset($_POST['retention_json'])) {
-    $updateData['retention_json'] = is_array($_POST['retention_json']) ? json_encode($_POST['retention_json']) : $_POST['retention_json'];
+    $norm = normalizeJsonString($_POST['retention_json']);
+    if ($norm !== null) {
+        $updateData['retention_json'] = $norm;
+    }
 }
 if (isset($_POST['policy_json'])) {
-    $updateData['policy_json'] = is_array($_POST['policy_json']) ? json_encode($_POST['policy_json']) : $_POST['policy_json'];
+    $norm = normalizeJsonString($_POST['policy_json']);
+    if ($norm !== null) {
+        $updateData['policy_json'] = $norm;
+    }
 }
 if (isset($_POST['schedule_json'])) {
-    $updateData['schedule_json'] = is_array($_POST['schedule_json']) ? json_encode($_POST['schedule_json']) : $_POST['schedule_json'];
+    $norm = normalizeJsonString($_POST['schedule_json']);
+    if ($norm !== null) {
+        $updateData['schedule_json'] = $norm;
+    }
 }
 if (isset($_POST['bandwidth_limit_kbps'])) {
     $updateData['bandwidth_limit_kbps'] = isset($_POST['bandwidth_limit_kbps']) ? (int)$_POST['bandwidth_limit_kbps'] : null;
@@ -487,15 +532,7 @@ if (is_array($result) && ($result['status'] ?? 'fail') === 'success') {
         }
     }
 
-    // Enforce destination prefix required: use posted or existing
-    $effectivePrefix = isset($updateData['dest_prefix'])
-        ? trim((string)$updateData['dest_prefix'])
-        : trim((string)($existingJob['dest_prefix'] ?? ''));
-    if ($effectivePrefix === '') {
-        $response = new JsonResponse(['status' => 'fail', 'message' => 'Destination Prefix is required.'], 200);
-        $response->send();
-        exit();
-    }
+    // Destination prefix is optional (may be blank).
 
     try {
         $lcRes = \WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController::manageLifecycleForJob((int)$jobId);

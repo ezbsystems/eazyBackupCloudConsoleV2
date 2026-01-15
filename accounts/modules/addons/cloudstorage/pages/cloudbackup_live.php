@@ -21,14 +21,14 @@ if (is_null($product) || is_null($product->username)) {
 
 $runIdentifier = $_GET['run_uuid'] ?? ($_GET['run_id'] ?? null);
 if (!$runIdentifier) {
-    header('Location: index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_jobs');
+    header('Location: index.php?m=cloudstorage&page=e3backup&view=jobs');
     exit;
 }
 
 // Verify run ownership
 $run = CloudBackupController::getRun($runIdentifier, $loggedInUserId);
 if (!$run) {
-    header('Location: index.php?m=cloudstorage&page=cloudbackup&view=cloudbackup_jobs');
+    header('Location: index.php?m=cloudstorage&page=e3backup&view=jobs');
     exit;
 }
 
