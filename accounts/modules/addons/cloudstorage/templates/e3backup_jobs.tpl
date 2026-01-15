@@ -559,6 +559,146 @@ function localWizardScheduleUI() {
 }
 
 // ========================================
+// Local Wizard Retention UI Alpine Component
+// ========================================
+function localWizardRetentionUI() {
+    return {
+        mode: 'none',
+        retentionDropdownOpen: false,
+        keepLast: 30,
+        keepDaily: 7,
+        withinDays: 0,
+        withinWeeks: 0,
+        withinMonths: 0,
+        withinYears: 0,
+        withinUnit: '', // 'd', 'w', 'm', 'y' or '' for none
+        retentionJson: '',
+        modeLabels: {
+            'none': 'No Retention',
+            'keep_last': 'Keep last ... Backups',
+            'keep_within': 'Keep all backups in the last...',
+            'keep_daily': 'Keep last ... backup at most one per day'
+        },
+        
+        init() {
+            this.$nextTick(() => {
+                // Load from state or hidden input
+                const stateData = window.localWizardState?.data;
+                let retJson = stateData?.retention_json || null;
+                
+                // Try hidden input if state is empty
+                if (!retJson) {
+                    const hiddenEl = document.getElementById('localWizardRetention');
+                    if (hiddenEl && hiddenEl.value) {
+                        try {
+                            retJson = JSON.parse(hiddenEl.value);
+                        } catch (e) {
+                            retJson = null;
+                        }
+                    }
+                }
+                
+                if (retJson && typeof retJson === 'object') {
+                    this.parseRetentionJson(retJson);
+                }
+                
+                this.syncToState();
+            });
+        },
+        
+        parseRetentionJson(obj) {
+            // Parse keep_last
+            if (obj.keep_last && typeof obj.keep_last === 'number') {
+                this.mode = 'keep_last';
+                this.keepLast = obj.keep_last;
+                return;
+            }
+            
+            // Parse keep_daily
+            if (obj.keep_daily && typeof obj.keep_daily === 'number') {
+                this.mode = 'keep_daily';
+                this.keepDaily = obj.keep_daily;
+                return;
+            }
+            
+            // Parse keep_within (e.g., "30d", "4w", "6m", "1y")
+            if (obj.keep_within && typeof obj.keep_within === 'string') {
+                this.mode = 'keep_within';
+                const match = obj.keep_within.match(/^(\d+)([dwmy])$/i);
+                if (match) {
+                    const val = parseInt(match[1], 10);
+                    const unit = match[2].toLowerCase();
+                    this.withinUnit = unit;
+                    this.withinDays = unit === 'd' ? val : 0;
+                    this.withinWeeks = unit === 'w' ? val : 0;
+                    this.withinMonths = unit === 'm' ? val : 0;
+                    this.withinYears = unit === 'y' ? val : 0;
+                }
+                return;
+            }
+            
+            // Default to none
+            this.mode = 'none';
+        },
+        
+        selectMode(newMode) {
+            this.mode = newMode;
+            this.retentionDropdownOpen = false;
+            this.syncToState();
+        },
+        
+        setWithinUnit(unit, value) {
+            // Clear all other units when setting one
+            this.withinDays = unit === 'd' ? value : 0;
+            this.withinWeeks = unit === 'w' ? value : 0;
+            this.withinMonths = unit === 'm' ? value : 0;
+            this.withinYears = unit === 'y' ? value : 0;
+            
+            // Set active unit if value > 0, otherwise clear
+            if (value > 0) {
+                this.withinUnit = unit;
+            } else {
+                this.withinUnit = '';
+            }
+            
+            this.syncToState();
+        },
+        
+        syncToState() {
+            let retObj = null;
+            
+            if (this.mode === 'keep_last' && this.keepLast > 0) {
+                retObj = { keep_last: this.keepLast };
+            } else if (this.mode === 'keep_daily' && this.keepDaily > 0) {
+                retObj = { keep_daily: this.keepDaily };
+            } else if (this.mode === 'keep_within') {
+                let withinStr = '';
+                if (this.withinDays > 0) {
+                    withinStr = this.withinDays + 'd';
+                } else if (this.withinWeeks > 0) {
+                    withinStr = this.withinWeeks + 'w';
+                } else if (this.withinMonths > 0) {
+                    withinStr = this.withinMonths + 'm';
+                } else if (this.withinYears > 0) {
+                    withinStr = this.withinYears + 'y';
+                }
+                if (withinStr) {
+                    retObj = { keep_within: withinStr };
+                }
+            }
+            
+            // Update state
+            if (window.localWizardState?.data) {
+                window.localWizardState.data.retention_json = retObj;
+            }
+            
+            // Update hidden input
+            this.retentionJson = retObj ? JSON.stringify(retObj) : '';
+        }
+    };
+}
+
+// ========================================
 // e3backup: shared helpers (toast + reload)
 // ========================================
 function e3backupNotify(type, message) {
@@ -1463,6 +1603,7 @@ function resetLocalWizardFields() {
         source_paths: [],
         tenant_id: '',
         schedule_json: null, // Reset schedule data for new jobs
+        retention_json: null, // Reset retention data for new jobs
     };
     const idsToClear = [
         'localWizardName','localWizardAgentId','localWizardBucketId','localWizardPrefix',
@@ -1718,15 +1859,21 @@ function localWizardFillFromJob(j, s) {
             cron: job.schedule_cron || ''
         };
     }
+    
+    // Store retention_json in state for Alpine component to initialize from
+    let retentionObj = null;
+    if (job.retention_json) {
+        retentionObj = typeof job.retention_json === 'string' 
+            ? safeParseJSON(job.retention_json) 
+            : job.retention_json;
+    }
+    if (window.localWizardState?.data) {
+        window.localWizardState.data.retention_json = retentionObj;
+    }
+    // Set hidden input for Alpine x-model binding
     const retTxt = document.getElementById('localWizardRetention');
     if (retTxt) {
-        const rj = job.retention_json || '';
-        retTxt.value = typeof rj === 'string' ? rj : JSON.stringify(rj || {}, null, 2);
-    }
-    const polTxt = document.getElementById('localWizardPolicy');
-    if (polTxt) {
-        const pj = job.policy_json || '';
-        polTxt.value = typeof pj === 'string' ? pj : JSON.stringify(pj || {}, null, 2);
+        retTxt.value = retentionObj ? JSON.stringify(retentionObj) : '';
     }
     if (job.agent_id) {
         localWizardOnAgentSelected(job.agent_id);
@@ -2386,15 +2533,20 @@ function localWizardBuildReview() {
             cron: s.schedule_cron,
         };
     }
-    const retentionTxt = document.getElementById('localWizardRetention')?.value || '';
-    const policyTxt = document.getElementById('localWizardPolicy')?.value || '';
-    const parsedPol = policyTxt ? safeParseJSON(policyTxt) : null;
-    let policyObj = (parsedPol && typeof parsedPol === 'object') ? parsedPol : {};
+    // Get retention_json from state (set by Alpine component) or fallback to hidden input
+    let retentionObj = s.retention_json || null;
+    if (!retentionObj) {
+        const retentionTxt = document.getElementById('localWizardRetention')?.value || '';
+        retentionObj = retentionTxt ? safeParseJSON(retentionTxt) : null;
+    }
+    s.retention_json = retentionObj;
+    
+    // Build policy_json from advanced settings fields
+    let policyObj = {};
     const bwVal = document.getElementById('localWizardBandwidth')?.value || '';
     const parVal = document.getElementById('localWizardParallelism')?.value || '';
     const compVal = document.getElementById('localWizardCompression')?.value || 'none';
     const dbgVal = !!document.getElementById('localWizardDebugLogs')?.checked;
-    s.retention_json = retentionTxt ? safeParseJSON(retentionTxt) || retentionTxt : '';
     s.bandwidth_limit_kbps = bwVal;
     s.parallelism = parVal;
     if (compVal) {
