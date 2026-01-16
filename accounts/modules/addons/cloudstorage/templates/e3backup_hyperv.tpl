@@ -5,6 +5,8 @@
         {assign var="activeNav" value="hyperv"}
         {include file="modules/addons/cloudstorage/templates/partials/e3backup_nav.tpl"}
 
+        {* Glass panel container *}
+        <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
         <!-- Page Header -->
         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
             <div>
@@ -236,6 +238,7 @@
         </div>
         {/if}
         {/if}
+        </div>
     </div>
 </div>
 

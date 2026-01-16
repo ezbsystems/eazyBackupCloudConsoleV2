@@ -341,14 +341,7 @@
                                         <span class="h-1.5 w-1.5 rounded-full" :class="dotClass(job.status)"></span>
                                         <span x-text="(job.status || '').charAt(0).toUpperCase() + (job.status || '').slice(1)"></span>
                                     </span>
-                                </div>
-                                <p class="mt-1 text-xs text-slate-400">
-                                    <span x-text="formatMode(job)"></span>
-                                    from
-                                    <span class="font-mono text-slate-200" x-text="formatSourceType(job.source_type)"></span>
-                                    →
-                                    <span class="font-mono text-slate-200" x-text="formatDestination(job)"></span>
-                                </p>
+                                </div>                                
                             </div>
                         </div>
                         <div class="flex items-center gap-2">
@@ -428,7 +421,7 @@
                         </div>
                         <div>
                             <h6 class="text-sm font-medium text-slate-400">Schedule</h6>
-                            <span class="text-md font-medium text-slate-300" x-text="formatSchedule(job.schedule_type)"></span>
+                            <span class="text-md font-medium text-slate-300" x-text="formatScheduleLabel(job)"></span>
                         </div>
                         <div>
                             <h6 class="text-sm font-medium text-slate-400">Next Run</h6>
@@ -1244,8 +1237,166 @@ function jobsApp() {
             if (t === 'cron') return 'Cron';
             return type || '-';
         },
+        formatScheduleLabel(job) {
+            const type = this.resolveScheduleType(job);
+            const rawLabel = this.formatSchedule(type);
+            const base = rawLabel && rawLabel !== '-' ? rawLabel : (type ? this.capitalize(type) : 'Schedule');
+            const extras = [];
+            if (type === 'weekly') {
+                const weekdays = this.getWeekdayNames(job);
+                if (weekdays.length) {
+                    extras.push(weekdays.join(', '));
+                }
+            }
+            const timeLabel = this.formatScheduleTimeLabel(type, job);
+            if (timeLabel) {
+                extras.push(timeLabel);
+            }
+            return extras.length ? base + ' · ' + extras.join(' · ') : base;
+        },
+        formatScheduleTimeLabel(type, job) {
+            if (!type || type === 'manual') {
+                return '';
+            }
+            if (type === 'hourly') {
+                const minute = this.scheduleJsonNumber(job, 'minute');
+                if (minute !== null) {
+                    return 'at :' + String(minute).padStart(2, '0') + ' past the hour';
+                }
+            }
+            const timeStr = this.resolveScheduleTime(job);
+            const parts = this.parseScheduleTimeParts(timeStr);
+            if (!parts) {
+                return '';
+            }
+            if (type === 'hourly') {
+                const minute = parts.minute ?? parts.hour ?? 0;
+                return 'at :' + String(minute).padStart(2, '0') + ' past the hour';
+            }
+            if (parts.hour === null && parts.minute === null) {
+                return '';
+            }
+            const hh = parts.hour !== null ? String(parts.hour).padStart(2, '0') : '00';
+            const mm = parts.minute !== null ? String(parts.minute).padStart(2, '0') : '00';
+            return 'at ' + hh + ':' + mm;
+        },
+        parseScheduleTimeParts(timeStr) {
+            if (!timeStr) {
+                return null;
+            }
+            const parts = String(timeStr).split(':');
+            return {
+                hour: this.parseScheduleNumber(parts[0]),
+                minute: parts.length > 1 ? this.parseScheduleNumber(parts[1]) : null,
+                second: parts.length > 2 ? this.parseScheduleNumber(parts[2]) : null,
+            };
+        },
+        parseScheduleNumber(value) {
+            if (value === undefined || value === null || value === '') {
+                return null;
+            }
+            const num = parseInt(String(value).trim(), 10);
+            return Number.isFinite(num) ? num : null;
+        },
+        resolveScheduleType(job) {
+            const explicit = (job.schedule_type || '').toLowerCase().trim();
+            if (explicit && explicit !== 'manual') {
+                return explicit;
+            }
+            const jsonType = (this.scheduleJsonValue(job, 'type') || '').toLowerCase().trim();
+            if (jsonType) {
+                return jsonType;
+            }
+            return explicit || 'manual';
+        },
+        resolveScheduleTime(job) {
+            const explicit = job.schedule_time;
+            if (explicit) {
+                return explicit;
+            }
+            return this.scheduleJsonValue(job, 'time') || '';
+        },
+        scheduleJsonValue(job, key) {
+            const json = this.parseScheduleJson(job);
+            if (!json || typeof json !== 'object') {
+                return null;
+            }
+            return json[key] ?? null;
+        },
+        scheduleJsonNumber(job, key) {
+            const value = this.scheduleJsonValue(job, key);
+            return this.parseScheduleNumber(value);
+        },
+        parseScheduleJson(job) {
+            if (!job) {
+                return null;
+            }
+            if ('__parsedScheduleJson' in job) {
+                return job.__parsedScheduleJson;
+            }
+            let parsed = null;
+            const raw = job.schedule_json;
+            if (raw) {
+                if (typeof raw === 'string') {
+                    try {
+                        parsed = JSON.parse(raw);
+                    } catch (e) {
+                        parsed = null;
+                    }
+                } else if (typeof raw === 'object') {
+                    parsed = raw;
+                }
+            }
+            job.__parsedScheduleJson = parsed;
+            return parsed;
+        },
+        getWeekdayNames(job) {
+            const values = this.getWeekdayIndices(job);
+            return values.map(day => this.weekdayName(day)).filter(Boolean);
+        },
+        getWeekdayIndices(job) {
+            const json = this.parseScheduleJson(job);
+            const weekdays = [];
+            if (json && json.weekday) {
+                if (Array.isArray(json.weekday)) {
+                    weekdays.push(...json.weekday.map(v => this.parseScheduleNumber(v)));
+                } else if (typeof json.weekday === 'string' && json.weekday.includes(',')) {
+                    weekdays.push(...json.weekday.split(',').map(v => this.parseScheduleNumber(v)));
+                } else {
+                    weekdays.push(this.parseScheduleNumber(json.weekday));
+                }
+            }
+            if (weekdays.length === 0 && job.schedule_weekday) {
+                if (String(job.schedule_weekday).includes(',')) {
+                    weekdays.push(...String(job.schedule_weekday).split(',').map(v => this.parseScheduleNumber(v)));
+                } else {
+                    weekdays.push(this.parseScheduleNumber(job.schedule_weekday));
+                }
+            }
+            const filtered = weekdays
+                .map((v) => (v !== null ? v : null))
+                .filter((v) => v !== null && v >= 1 && v <= 7);
+            return Array.from(new Set(filtered));
+        },
+        weekdayName(value) {
+            const day = this.parseScheduleNumber(value);
+            const map = {
+                1: 'Monday',
+                2: 'Tuesday',
+                3: 'Wednesday',
+                4: 'Thursday',
+                5: 'Friday',
+                6: 'Saturday',
+                7: 'Sunday',
+            };
+            return map[day] || '';
+        },
         nextRunText(job) {
-            return computeNextRunText(job.schedule_type, job.schedule_time, job.schedule_weekday);
+            const type = this.resolveScheduleType(job);
+            const time = this.resolveScheduleTime(job);
+            const weekdayIdx = (this.getWeekdayIndices(job)[0] || '');
+            const hourlyMinute = this.scheduleJsonNumber(job, 'minute');
+            return computeNextRunText(type, time, weekdayIdx, hourlyMinute);
         },
         formatLastRunTime(job) {
             if (!job.last_run || !job.last_run.started_at) return '-';
@@ -1298,38 +1449,77 @@ function jobsApp() {
     }
 }
 
-function computeNextRunText(type, timeStr, weekday) {
-    if (!type || type === 'manual') return '-';
+function computeNextRunText(type, timeStr, weekday, hourlyMinute) {
+    const scheduleType = (type || '').toLowerCase();
+    if (!scheduleType || scheduleType === 'manual') return '-';
+
     const now = new Date();
-    const [hh, mm, ss] = (timeStr || '00:00:00').split(':').map(x => parseInt(x, 10) || 0);
+    const timeParts = parseScheduleTimeString(timeStr);
     let next = new Date();
     next.setSeconds(0);
-    next.setHours(hh, mm, ss || 0, 0);
 
-    if (type === 'daily') {
+    if (scheduleType === 'hourly') {
+        const minute = Number.isFinite(hourlyMinute) ? hourlyMinute : (timeParts.minute ?? timeParts.hour ?? 0);
+        const safeMinute = minMax(minute, 0, 59);
+        next.setMinutes(safeMinute, 0, 0);
+        if (next <= now) {
+            next.setHours(next.getHours() + 1);
+        }
+        return fmtDateTime(next);
+    }
+
+    if (scheduleType === 'daily') {
+        const hh = timeParts.hour !== null ? timeParts.hour : 0;
+        const mm = timeParts.minute !== null ? timeParts.minute : 0;
+        next.setHours(hh, mm, 0, 0);
         if (next <= now) {
             next.setDate(next.getDate() + 1);
         }
         return fmtDateTime(next);
     }
-    if (type === 'weekly') {
-        let jsTarget = 0;
-        if (weekday && weekday >= 1 && weekday <= 7) {
-            jsTarget = (weekday % 7);
+
+    if (scheduleType === 'weekly') {
+        const hh = timeParts.hour !== null ? timeParts.hour : 0;
+        const mm = timeParts.minute !== null ? timeParts.minute : 0;
+        let targetDay = parseInt(String(weekday || ''), 10);
+        if (isNaN(targetDay) || targetDay < 1 || targetDay > 7) {
+            targetDay = 0;
         }
+        const jsTarget = targetDay ? (targetDay % 7) : 0;
+        next.setHours(hh, mm, 0, 0);
         next.setDate(now.getDate() + ((7 + jsTarget - now.getDay()) % 7));
         if (next <= now) {
             next.setDate(next.getDate() + 7);
         }
         return fmtDateTime(next);
     }
-    if (type === 'hourly') {
-        if (next <= now) {
-            next.setHours(next.getHours() + 1);
-        }
-        return fmtDateTime(next);
-    }
+
     return '-';
+}
+
+function parseScheduleTimeString(timeStr) {
+    if (!timeStr) {
+        return { hour: null, minute: null };
+    }
+    const parts = String(timeStr).split(':');
+    const hour = parseNullableInt(parts[0]);
+    const minute = parts.length > 1 ? parseNullableInt(parts[1]) : null;
+    return { hour, minute };
+}
+
+function parseNullableInt(value) {
+    if (value === undefined || value === null || value === '') {
+        return null;
+    }
+    const parsed = parseInt(String(value).trim(), 10);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+function minMax(value, min, max) {
+    if (!Number.isFinite(value)) return min;
+    if (value < min) return min;
+    if (value > max) return max;
+    return value;
 }
 
 function fmtDateTime(d) {
@@ -2185,7 +2375,11 @@ function localWizardFillFromJob(j, s) {
     }, 100);
     
     const diskVolEl = document.getElementById('localWizardDiskVolume');
-    if (diskVolEl) diskVolEl.value = job.disk_source_volume || '';
+    const diskVolumeValue = parseStoredVolume(job.disk_source_volume || '');
+    if (diskVolEl) diskVolEl.value = diskVolumeValue;
+    if (window.localWizardState?.data) {
+        window.localWizardState.data.disk_source_volume = diskVolumeValue;
+    }
     const diskFmtEl = document.getElementById('localWizardDiskFormat');
     if (diskFmtEl) diskFmtEl.value = (job.disk_image_format || 'vhdx');
     const diskTempEl = document.getElementById('localWizardDiskTemp');
@@ -2400,11 +2594,85 @@ function fileBrowser() {
             this.syncDiskVolumeToWizard();
         },
 
+        normalizeDiskVolumePath(value) {
+            if (!value) return '';
+            return String(value).trim().replace(/[\\/]+$/, '').toLowerCase();
+        },
+
+        extractDriveLetter(value) {
+            if (!value) return '';
+            const match = String(value).trim().match(/([A-Za-z]):/);
+            return match ? match[1].toLowerCase() : '';
+        },
+
+        getVolumeCandidates(entry) {
+            if (!entry) return [];
+            const candidates = [];
+            if (entry.path) candidates.push(entry.path);
+            if (entry.name) candidates.push(entry.name);
+            if (entry.label) candidates.push(entry.label);
+            if (entry.unc_path) candidates.push(entry.unc_path);
+            return candidates;
+        },
+
+        matchesSelectedVolume(entry) {
+            if (!entry) return false;
+            const selected = this.selectedVolume || '';
+            if (!selected) return false;
+            const selectedDrive = this.extractDriveLetter(selected);
+            const normalizedSelected = this.normalizeDiskVolumePath(selected);
+            if (!selectedDrive && !normalizedSelected) return false;
+            const candidates = this.getVolumeCandidates(entry);
+            for (const candidate of candidates) {
+                const candidateDrive = this.extractDriveLetter(candidate);
+                if (selectedDrive && candidateDrive && selectedDrive === candidateDrive) {
+                    return true;
+                }
+                const normalizedCandidate = this.normalizeDiskVolumePath(candidate);
+                if (normalizedCandidate && normalizedSelected && normalizedCandidate === normalizedSelected) {
+                    return true;
+                }
+            }
+            return false;
+        },
+
+        restoreDiskVolumeSelection() {
+            const rawLatest = document.getElementById('localWizardDiskVolume')?.value
+                || window.localWizardState?.data?.disk_source_volume
+                || '';
+            const latest = parseStoredVolume(rawLatest);
+            if (latest && latest !== this.selectedVolume) {
+                this.selectedVolume = latest;
+            }
+            if (!this.selectedVolume) return;
+            const match = this.localVolumes.find(entry => this.matchesSelectedVolume(entry));
+            if (match) {
+                if (match.path) {
+                    this.selectedVolume = match.path;
+                }
+                this.selectedVolumeInfo = match;
+                this.syncDiskVolumeToWizard();
+            }
+        },
+
+        isVolumeEntrySelected(entry) {
+            return this.matchesSelectedVolume(entry);
+        },
+
         syncDiskVolumeToWizard() {
-            const input = document.getElementById('localWizardDiskVolume');
-            if (input) input.value = this.selectedVolume || '';
+            const volume = this.selectedVolume || '';
+            // Always update wizard state first (most reliable)
             if (window.localWizardState?.data) {
-                window.localWizardState.data.disk_source_volume = this.selectedVolume || '';
+                window.localWizardState.data.disk_source_volume = volume;
+            }
+            // Then update input element if it exists
+            const input = document.getElementById('localWizardDiskVolume');
+            if (input) {
+                input.value = volume;
+            }
+            // Trigger review rebuild to ensure it's captured
+            if (typeof localWizardBuildReview === 'function') {
+                localWizardBuildReview();
             }
         },
 
@@ -2458,8 +2726,12 @@ function fileBrowser() {
                         this.selectedPaths = [...window.localWizardState.data.source_paths];
                     }
                 }
-                this.selectedVolume = '';
+                const diskVolumeFromInput = document.getElementById('localWizardDiskVolume')?.value || '';
+                this.selectedVolume = preserve ? (diskVolumeFromInput || this.selectedVolume) : '';
                 this.selectedVolumeInfo = null;
+                if (preserve) {
+                    this.restoreDiskVolumeSelection();
+                }
                 // Only overwrite hidden inputs when not preserving selections (edit mode preload).
                 if (!preserve) {
                     this.syncToWizard();
@@ -2490,6 +2762,7 @@ function fileBrowser() {
                 if (diskVolume) {
                     this.selectedVolume = diskVolume;
                 }
+                this.restoreDiskVolumeSelection();
             });
             window.addEventListener('engine-changed', () => {
                 if (this.isDiskImageMode) {
@@ -2529,6 +2802,7 @@ function fileBrowser() {
                     this.currentPath = res.path || '';
                     this.parentPath = res.parent || '';
                     this.entries = Array.isArray(res.entries) ? res.entries : [];
+                    this.restoreDiskVolumeSelection();
                 } else {
                     this.error = data.message || 'Failed to load directory';
                 }
@@ -2906,7 +3180,20 @@ function localWizardBuildReview() {
     const srcPathsRaw = document.getElementById('localWizardSourcePaths')?.value || '[]';
     const srcPathsParsed = safeParseJSON(srcPathsRaw);
     s.source_paths = Array.isArray(srcPathsParsed) ? srcPathsParsed : [];
-    s.disk_source_volume = document.getElementById('localWizardDiskVolume')?.value || '';
+    
+    // For disk image backups, prioritize wizard state (updated by syncDiskVolumeToWizard)
+    // then fall back to input element
+    const diskVolumeInput = document.getElementById('localWizardDiskVolume');
+    const diskVolumeFromState = s.disk_source_volume || '';
+    const diskVolumeFromInput = diskVolumeInput?.value || '';
+    
+    // Use state value if available (most reliable), otherwise use input
+    s.disk_source_volume = diskVolumeFromState || diskVolumeFromInput;
+    
+    // If we got a value from state but input is empty, sync it to input for consistency
+    if (s.disk_source_volume && diskVolumeFromState && !diskVolumeFromInput && diskVolumeInput) {
+        diskVolumeInput.value = s.disk_source_volume;
+    }
     s.disk_image_format = document.getElementById('localWizardDiskFormat')?.value || 'vhdx';
     s.disk_temp_dir = document.getElementById('localWizardDiskTemp')?.value || '';
     if ((s.engine || '') === 'disk_image' && !s.source_path) {
@@ -3015,6 +3302,29 @@ function safeParseJSON(txt) {
     } catch (e) {
         return null;
     }
+}
+
+function htmlDecode(value) {
+    if (value === undefined || value === null) return '';
+    const div = document.createElement('div');
+    div.innerHTML = String(value);
+    return div.textContent || div.innerText || '';
+}
+
+function parseStoredVolume(value) {
+    const decoded = htmlDecode(value);
+    if (!decoded) return '';
+    if (decoded.startsWith('[')) {
+        try {
+            const parsed = JSON.parse(decoded);
+            if (Array.isArray(parsed) && parsed.length) {
+                return String(parsed[0]);
+            }
+        } catch (e) {
+            // fall back to decoded string
+        }
+    }
+    return decoded;
 }
 
 function localWizardSubmit() {

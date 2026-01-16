@@ -1,6 +1,9 @@
 <div class="min-h-screen bg-slate-950 text-gray-200" x-data="agentsApp()">
     <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
     <div class="container mx-auto px-4 py-6 relative pointer-events-auto">
+        {assign var="activeNav" value="agents"}
+        {include file="modules/addons/cloudstorage/templates/partials/e3backup_nav.tpl"}
+
         {* Glass panel container *}
         <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
         <!-- Header -->

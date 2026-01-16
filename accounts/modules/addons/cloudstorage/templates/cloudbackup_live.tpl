@@ -92,19 +92,13 @@
         </div>
 
         <!-- Compact Metrics Strip -->
-        <div class="mb-6 grid gap-4 md:grid-cols-5">
+        <div class="mb-6 grid gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
             <div class="rounded-2xl border border-slate-800/80 bg-slate-900/70 px-4 py-3">
                 <p class="text-xs font-medium text-slate-400 uppercase tracking-wide">Status</p>
-                <p class="mt-1">
-                    <span id="statusTopBadge" class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium
-                        {if $run.status eq 'success'}bg-emerald-500/10 text-emerald-300
-                        {elseif $run.status eq 'failed'}bg-rose-500/15 text-rose-300
-                        {elseif $run.status eq 'running' || $run.status eq 'starting' || $run.status eq 'queued'}bg-sky-500/10 text-sky-300
-                        {elseif $run.status eq 'cancelled'}bg-amber-500/15 text-amber-300
-                        {else}bg-slate-500/15 text-slate-300{/if}">
-                        <span id="statusTopText">{$run.status|ucfirst}</span>
-                    </span>
-                </p>
+                <div class="mt-1 flex items-center gap-2">
+                    <span id="statusTopDot" class="h-3 w-3 rounded-full status-dot bg-sky-500 shadow-[0_0_8px_rgba(59,130,246,0.6)] animate-status-pulse"></span>
+                    <span id="statusTopText" class="text-sm font-semibold text-white">{$run.status|ucfirst}</span>
+                </div>
             </div>
             <div class="rounded-2xl border border-slate-800/80 bg-slate-900/70 px-4 py-3">
                 <p class="text-xs font-medium text-slate-400 uppercase tracking-wide">Processed</p>
@@ -127,6 +121,7 @@
                         0.00 Bytes
                     {/if}
                 </p>
+                <p id="uploadedSavingsTop" class="mt-1 text-xs text-slate-400"></p>
             </div>
             <div class="rounded-2xl border border-slate-800/80 bg-slate-900/70 px-4 py-3">
                 <p class="text-xs font-medium text-slate-400 uppercase tracking-wide">Speed</p>
@@ -151,26 +146,39 @@
                     {/if}
                 </p>
             </div>
+            <div class="rounded-2xl border border-slate-800/80 bg-slate-900/70 px-4 py-3">
+                <p class="text-xs font-medium text-slate-400 uppercase tracking-wide">Duration</p>
+                <p class="mt-1 text-2xl font-semibold text-white" id="durationValue">-</p>
+                <p id="durationLabel" class="text-xs text-slate-400 mt-1">Elapsed</p>
+            </div>
         </div>
 
         {assign var="isRunningStatus" value=($run.status eq 'running' || $run.status eq 'starting' || $run.status eq 'queued')}
         <div class="bg-slate-800 rounded-lg border border-slate-700 shadow-lg p-6" x-data="{ isRunning: {if $isRunningStatus}true{else}false{/if} }">
             <div class="mb-6">
-                <div class="flex justify-between items-center mb-2">
-                    <span class="text-sm font-medium text-slate-400">Progress</span>
-                    <span class="text-sm font-medium text-slate-300 transition-opacity duration-300" id="progressPercent">
-                        {if $run.progress_pct}
-                            {$run.progress_pct|string_format:"%.2f"}%
-                        {elseif $isRunningStatus}
-                            Preparing...
-                        {else}
-                            0.00%
-                        {/if}
-                    </span>
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-slate-400">Progress</p>
+                        <p class="text-3xl font-semibold text-white" id="progressPercent">
+                            {if $run.progress_pct}
+                                {$run.progress_pct|string_format:"%.2f"}%
+                            {elseif $isRunningStatus}
+                                Preparing...
+                            {else}
+                                0.00%
+                            {/if}
+                        </p>
+                    </div>
+                    <div class="space-y-0.5">
+                        <p class="text-xs font-medium text-slate-400 uppercase tracking-wide">Stage</p>
+                        <p id="stageLabel" class="text-lg font-semibold text-white">
+                            {if $run.stage}{$run.stage}{else}{$run.status|ucfirst}{/if}
+                        </p>
+                    </div>
                 </div>
-                <div class="w-full bg-gray-700 rounded-full h-4 relative overflow-hidden">
+                <div class="mt-4 h-5 sm:h-6 rounded-2xl bg-gray-700 relative overflow-hidden">
                     <div
-                        class="h-4 rounded-full transition-all duration-500 ease-out bg-gradient-to-r from-sky-500 to-sky-400 relative"
+                        class="h-full rounded-2xl transition-all duration-500 ease-out bg-gradient-to-r from-sky-500 to-sky-400 relative"
                         id="progressBar"
                         style="width: {if $run.progress_pct}{$run.progress_pct}{else}0{/if}%"
                         :class="{ 'animate-pulse': isRunning }"
@@ -181,139 +189,88 @@
                         aria-valuenow="{if $run.progress_pct}{$run.progress_pct|string_format:"%.2f"}{else}0.00{/if}"
                     >
                         <div class="absolute inset-0 progress-stripes" x-show="isRunning"></div>
-                        <div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-shimmer" 
+                        <div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-shimmer"
                              style="animation: shimmer 2s infinite;"
                              x-show="isRunning"></div>
                     </div>
                 </div>
             </div>
 
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-6">
-                <div>
-                    <h6 class="text-sm font-medium text-slate-400 mb-2">Bytes Processed</h6>
-                    <div class="text-2xl font-semibold text-slate-300 transition-opacity duration-300" id="bytesProcessed">
-                        {if $run.bytes_processed}
-                            {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.bytes_processed)}
-                        {elseif $run.bytes_transferred}
-                            {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.bytes_transferred)}
-                        {else}
-                            0.00 Bytes
-                        {/if}
-                    </div>
-                    {if $run.bytes_total}
-                        <div class="text-sm text-slate-500 mt-1">
-                            of {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.bytes_total)}
+            <div class="space-y-4">
+                {if $run.current_item}
+                    <div>
+                        <h6 class="text-sm font-medium text-slate-400 mb-2">Current File</h6>
+                        <div class="bg-gray-900 p-3 rounded-md text-sm text-slate-300 font-mono break-all" id="currentItem">
+                            {$run.current_item}
                         </div>
-                    {/if}
-                </div>
-                <div>
-                    <h6 class="text-sm font-medium text-slate-400 mb-2">Bytes Uploaded</h6>
-                    <div class="text-2xl font-semibold text-slate-300 transition-opacity duration-300" id="bytesTransferred">
-                        {if $run.bytes_transferred}
-                            {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.bytes_transferred)}
-                        {else}
-                            0.00 Bytes
-                        {/if}
                     </div>
-                    <div class="text-sm text-slate-500 mt-1" id="dedupSavings">
-                        {if $run.bytes_processed && $run.bytes_transferred && $run.bytes_processed > 0}
-                            {assign var="savings" value=100-($run.bytes_transferred/$run.bytes_processed*100)}
-                            {if $savings > 0}
-                                <span class="text-emerald-400">{$savings|string_format:"%.1f"}% dedup savings</span>
-                            {/if}
-                        {/if}
-                    </div>
-                </div>
-                <div>
-                    <h6 class="text-sm font-medium text-slate-400 mb-2">Speed</h6>
-                    <div class="text-2xl font-semibold text-slate-300 transition-opacity duration-300" id="speed">
-                        {if $run.speed_bytes_per_sec}
-                            {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.speed_bytes_per_sec)}/s
-                        {else}
-                            -
-                        {/if}
-                    </div>
-                </div>
-                <div>
-                    <h6 class="text-sm font-medium text-slate-400 mb-2">ETA</h6>
-                    <div class="text-2xl font-semibold text-slate-300 transition-opacity duration-300" id="eta">
-                        {if $run.eta_seconds}
-                            {assign var="hours" value=$run.eta_seconds/3600|floor}
-                            {assign var="minutes" value=($run.eta_seconds%3600)/60|floor}
-                            {assign var="seconds" value=$run.eta_seconds%60|string_format:"%.0f"}
-                            {if $hours > 0}{$hours}h {/if}{if $minutes > 0}{$minutes}m {/if}{$seconds}s
-                        {else}
-                            -
-                        {/if}
-                    </div>
-                </div>
-                <div>
-                    <h6 class="text-sm font-medium text-slate-400 mb-2">Status</h6>
-                    <div class="inline-flex items-center gap-2" id="statusBadge" x-data="{ 
-                        status: '{$run.status}',
-                        getStatusConfig() {
-                            const configs = {
-                                'success': { color: 'green', text: 'Success', pulse: false },
-                                'failed': { color: 'red', text: 'Failed', pulse: false },
-                                'running': { color: 'blue', text: 'Running', pulse: true },
-                                'starting': { color: 'blue', text: 'Starting', pulse: true },
-                                'queued': { color: 'yellow', text: 'Queued', pulse: true },
-                                'warning': { color: 'yellow', text: 'Warning', pulse: false },
-                                'cancelled': { color: 'gray', text: 'Cancelled', pulse: false },
-                                'partial_success': { color: 'yellow', text: 'Partial Success', pulse: false }
-                            };
-                            return configs[this.status] || { color: 'gray', text: this.status.charAt(0).toUpperCase() + this.status.slice(1), pulse: false };
-                        }
-                    }" x-init="status = '{$run.status}'">
-                        <div class="relative">
-                            <div class="w-3 h-3 rounded-full" 
-                                 :class="{
-                                     'bg-green-500 animate-pulse': getStatusConfig().color === 'green' && getStatusConfig().pulse,
-                                     'bg-green-500': getStatusConfig().color === 'green' && !getStatusConfig().pulse,
-                                     'bg-red-500': getStatusConfig().color === 'red',
-                                     'bg-blue-500 animate-pulse': getStatusConfig().color === 'blue' && getStatusConfig().pulse,
-                                     'bg-blue-500': getStatusConfig().color === 'blue' && !getStatusConfig().pulse,
-                                     'bg-yellow-500': getStatusConfig().color === 'yellow',
-                                     'bg-gray-500': getStatusConfig().color === 'gray'
-                                 }"
-                                 :style="getStatusConfig().color === 'green' ? 'box-shadow: 0 0 8px rgba(34, 197, 94, 0.6);' : 
-                                         getStatusConfig().color === 'red' ? 'box-shadow: 0 0 8px rgba(239, 68, 68, 0.6);' :
-                                         getStatusConfig().color === 'blue' ? 'box-shadow: 0 0 8px rgba(59, 130, 246, 0.6);' :
-                                         getStatusConfig().color === 'yellow' ? 'box-shadow: 0 0 8px rgba(234, 179, 8, 0.6);' :
-                                         'box-shadow: 0 0 8px rgba(107, 114, 128, 0.6);'">
-                            </div>
-                            <div class="absolute inset-0 w-3 h-3 rounded-full -z-10 animate-ping opacity-75"
-                                 x-show="getStatusConfig().pulse"
-                                 x-cloak
-                                 :class="{
-                                     'bg-green-500': getStatusConfig().color === 'green',
-                                     'bg-red-500': getStatusConfig().color === 'red',
-                                     'bg-blue-500': getStatusConfig().color === 'blue',
-                                     'bg-yellow-500': getStatusConfig().color === 'yellow',
-                                     'bg-gray-500': getStatusConfig().color === 'gray'
-                                 }"></div>
+                {/if}
+                <div x-data="{ open: false }" class="rounded-xl border border-slate-700 bg-slate-900/40">
+                    <button
+                        type="button"
+                        class="flex w-full items-center justify-between px-4 py-3 text-sm font-semibold text-slate-200 hover:text-white"
+                        @click="open = !open"
+                    >
+                        <span>Details</span>
+                        <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            class="h-4 w-4 transition-transform duration-200"
+                            :class="open ? 'rotate-180' : ''"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                        >
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </button>
+                    <div x-show="open" x-cloak class="px-4 pb-4 text-sm text-slate-400 space-y-2">
+                        <div class="flex items-center justify-between">
+                            <span class="text-slate-500">Run ID</span>
+                            <span class="font-mono text-slate-100 text-xs">{$run.id}</span>
                         </div>
-                        <span class="text-sm font-medium text-slate-300" x-text="getStatusConfig().text"></span>
+                        <div class="flex items-center justify-between">
+                            <span class="text-slate-500">Job</span>
+                            <span class="text-slate-100 truncate">{if $job.name}{$job.name}{else}Job #{$job.id}{/if}</span>
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <span class="text-slate-500">Status</span>
+                            <span id="detailsStatus" class="text-white font-semibold text-xs">{$run.status|ucfirst}</span>
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <span class="text-slate-500">Run UUID</span>
+                            <span class="font-mono text-slate-100 text-xs break-all">{$run.run_uuid|default:$run.id}</span>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            {if $run.current_item}
-                <div class="mt-6">
-                    <h6 class="text-sm font-medium text-slate-400 mb-2">Current File</h6>
-                    <div class="bg-gray-900 p-3 rounded-md text-sm text-slate-300 font-mono break-all" id="currentItem">
-                        {$run.current_item}
-                    </div>
-                </div>
-            {/if}
-
             <!-- Live Logs Section -->
             <div class="mt-6">
-                <div class="flex justify-between items-center mb-2">
+                <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
                     <h6 class="text-sm font-medium text-slate-400">Live Logs</h6>
-                    <button onclick="clearLogs()" class="text-xs text-slate-500 hover:text-slate-300 transition-colors">
-                        Clear
-                    </button>
+                    <div class="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+                        <button
+                            type="button"
+                            onclick="clearLogs()"
+                            class="px-3 py-1 rounded-full border border-slate-700 bg-slate-900/60 text-slate-300 hover:border-slate-500 hover:text-white transition-colors"
+                        >
+                            Clear
+                        </button>
+                        <button
+                            type="button"
+                            onclick="toggleAutoScrollLogs()"
+                            class="px-3 py-1 rounded-full border border-slate-700 bg-slate-900/60 text-slate-300 hover:border-slate-500 hover:text-white transition-colors"
+                        >
+                            Autoscroll: <span id="autoScrollLabel">On</span>
+                        </button>
+                        <button
+                            type="button"
+                            onclick="copyLogs()"
+                            class="px-3 py-1 rounded-full border border-slate-700 bg-slate-900/60 text-slate-300 hover:border-slate-500 hover:text-white transition-colors"
+                        >
+                            Copy
+                        </button>
+                    </div>
                 </div>
                 <div class="bg-gray-900 rounded-md p-4 max-h-96 overflow-y-auto font-mono text-xs text-slate-300" id="liveLogs">
                     <div class="text-slate-500 italic" id="liveLogsEmpty">
@@ -375,6 +332,22 @@
 .log-badge-warn { background-color: rgba(245,158,11,0.15); color: #fde68a; }    /* amber */
 .log-badge-info { background-color: rgba(148,163,184,0.15); color: #cbd5e1; }   /* slate */
 .log-badge-ok { background-color: rgba(16,185,129,0.1); color: #a7f3d0; }       /* emerald */
+.status-dot {
+    transition: transform 0.2s ease;
+}
+.animate-status-pulse {
+    animation: statusPulse 1.8s ease-in-out infinite;
+}
+@keyframes statusPulse {
+    0% { transform: scale(1); opacity: 0.8; }
+    50% { transform: scale(1.35); opacity: 0.45; }
+    100% { transform: scale(1); opacity: 0.8; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .animate-status-pulse {
+        animation: none;
+    }
+}
 </style>
 
 <script>
@@ -385,6 +358,45 @@ let eventsInterval;
 let isRunning = {if $isRunningStatus}true{else}false{/if};
 let lastLogsHash = null;
 let lastEventId = 0;
+const STATUS_CONFIGS = {
+    'success': { text: 'Success', color: 'green', pulse: false },
+    'failed': { text: 'Failed', color: 'red', pulse: false },
+    'running': { text: 'Running', color: 'blue', pulse: true },
+    'starting': { text: 'Starting', color: 'blue', pulse: true },
+    'queued': { text: 'Queued', color: 'yellow', pulse: true },
+    'warning': { text: 'Warning', color: 'yellow', pulse: false },
+    'cancelled': { text: 'Cancelled', color: 'gray', pulse: false },
+    'partial_success': { text: 'Partial Success', color: 'yellow', pulse: false }
+};
+const STATUS_DOT_CLASSES = {
+    'green': 'bg-green-500',
+    'red': 'bg-red-500',
+    'blue': 'bg-blue-500',
+    'yellow': 'bg-yellow-500',
+    'gray': 'bg-gray-500'
+};
+const STATUS_GLOW_COLORS = {
+    'green': 'rgba(34, 197, 94, 0.6)',
+    'red': 'rgba(239, 68, 68, 0.6)',
+    'blue': 'rgba(59, 130, 246, 0.6)',
+    'yellow': 'rgba(234, 179, 8, 0.6)',
+    'gray': 'rgba(107, 114, 128, 0.6)'
+};
+const STAGE_FALLBACKS = {
+    'running': 'Uploading',
+    'starting': 'Preparing',
+    'queued': 'Queued',
+    'success': 'Completed',
+    'failed': 'Failed',
+    'warning': 'Warning',
+    'cancelled': 'Cancelled',
+    'partial_success': 'Partial Success'
+};
+const TERMINAL_STATUSES = ['success', 'failed', 'cancelled', 'warning', 'partial_success'];
+let durationStartMs = null;
+let durationEndMs = null;
+let durationTimer = null;
+let autoScrollLogs = true;
 
 // Smoothly tween the bar to a target percentage
 let currentPct = (() => {
@@ -579,15 +591,19 @@ function updateProgress() {
                         setTimeout(() => bytesTopEl.classList.remove('opacity-0'), 50);
                     }
                     
-                    // Update dedup savings
-                    const dedupEl = document.getElementById('dedupSavings');
-                    if (dedupEl && bytesProcessed > 0) {
-                        const savings = 100 - (run.bytes_transferred / bytesProcessed * 100);
-                        if (savings > 0) {
-                            dedupEl.innerHTML = '<span class="text-emerald-400">' + savings.toFixed(1) + '% dedup savings</span>';
+                    // Update dedup savings display in the headline card
+                    const uploadedSavingsEl = document.getElementById('uploadedSavingsTop');
+                    if (uploadedSavingsEl && bytesProcessed > 0) {
+                        const transferred = run.bytes_transferred || 0;
+                        const savedBytes = Math.max(0, bytesProcessed - transferred);
+                        const savedPercent = bytesProcessed > 0 ? (savedBytes / bytesProcessed) * 100 : 0;
+                        if (savedBytes > 0) {
+                            uploadedSavingsEl.textContent = 'Saved: ' + formatBytes(savedBytes) + ' (' + savedPercent.toFixed(1) + '%)';
                         } else {
-                            dedupEl.innerHTML = '';
+                            uploadedSavingsEl.textContent = 'Saved: ' + formatBytes(0) + ' (' + savedPercent.toFixed(1) + '%)';
                         }
+                    } else if (uploadedSavingsEl) {
+                        uploadedSavingsEl.textContent = '';
                     }
                 }
                 
@@ -631,138 +647,14 @@ function updateProgress() {
                     }
                 }
                 
-                // Update status badge with Alpine.js - always update to ensure reactivity
-                const statusBadge = document.getElementById('statusBadge');
-                if (statusBadge) {
-                    // Status mapping for fallback
-                    const statusMap = {
-                        'success': { text: 'Success', color: 'green', pulse: false },
-                        'failed': { text: 'Failed', color: 'red', pulse: false },
-                        'running': { text: 'Running', color: 'blue', pulse: true },
-                        'starting': { text: 'Starting', color: 'blue', pulse: true },
-                        'queued': { text: 'Queued', color: 'yellow', pulse: true },
-                        'warning': { text: 'Warning', color: 'yellow', pulse: false },
-                        'cancelled': { text: 'Cancelled', color: 'gray', pulse: false },
-                        'partial_success': { text: 'Partial Success', color: 'yellow', pulse: false }
-                    };
-                    const statusConfig = statusMap[run.status] || { 
-                        text: run.status.charAt(0).toUpperCase() + run.status.slice(1), 
-                        color: 'gray', 
-                        pulse: false 
-                    };
-                    
-                    // Try Alpine.js update first
-                    if (window.Alpine) {
-                        try {
-                            const alpineData = Alpine.$data(statusBadge);
-                            if (alpineData) {
-                                // Always update status to trigger reactivity
-                                alpineData.status = run.status;
-                                // Force Alpine to re-evaluate by accessing a reactive property
-                                void alpineData.getStatusConfig();
-                            }
-                        } catch (e) {
-                            console.warn('Error updating Alpine.js status:', e);
-                        }
-                    }
-                    
-                    // Fallback: directly update DOM elements to ensure UI updates
-                    const statusText = statusBadge.querySelector('span.text-sm');
-                    const statusDot = statusBadge.querySelector('.w-3.h-3.rounded-full');
-                    const pingDot = statusBadge.querySelector('.animate-ping');
-                    
-                    if (statusText) {
-                        statusText.textContent = statusConfig.text;
-                    }
-                    
-                    // Update dot color classes
-                    if (statusDot) {
-                        // Remove all color classes and animations
-                        statusDot.classList.remove('bg-green-500', 'bg-red-500', 'bg-blue-500', 'bg-yellow-500', 'bg-gray-500', 'animate-pulse');
-                        
-                        // Add appropriate color class based on status
-                        const colorClasses = {
-                            'green': 'bg-green-500',
-                            'red': 'bg-red-500',
-                            'blue': 'bg-blue-500',
-                            'yellow': 'bg-yellow-500',
-                            'gray': 'bg-gray-500'
-                        };
-                        if (colorClasses[statusConfig.color]) {
-                            statusDot.classList.add(colorClasses[statusConfig.color]);
-                        }
-                        
-                        if (statusConfig.pulse) {
-                            statusDot.classList.add('animate-pulse');
-                        }
-                        
-                        // Update glow effect
-                        const glowColors = {
-                            'green': 'rgba(34, 197, 94, 0.6)',
-                            'red': 'rgba(239, 68, 68, 0.6)',
-                            'blue': 'rgba(59, 130, 246, 0.6)',
-                            'yellow': 'rgba(234, 179, 8, 0.6)',
-                            'gray': 'rgba(107, 114, 128, 0.6)'
-                        };
-                        const glowColor = glowColors[statusConfig.color] || glowColors.gray;
-                        statusDot.style.boxShadow = '0 0 8px ' + glowColor;
-                    }
-                    
-                    // Update ping animation dot
-                    if (pingDot) {
-                        pingDot.classList.remove('bg-green-500', 'bg-red-500', 'bg-blue-500', 'bg-yellow-500', 'bg-gray-500');
-                        
-                        const colorClasses = {
-                            'green': 'bg-green-500',
-                            'red': 'bg-red-500',
-                            'blue': 'bg-blue-500',
-                            'yellow': 'bg-yellow-500',
-                            'gray': 'bg-gray-500'
-                        };
-                        if (colorClasses[statusConfig.color]) {
-                            pingDot.classList.add(colorClasses[statusConfig.color]);
-                        }
-                        
-                        // Show/hide ping based on pulse
-                        if (statusConfig.pulse) {
-                            pingDot.style.display = '';
-                        } else {
-                            pingDot.style.display = 'none';
-                        }
-                    }
-                }
-
-                // Update compact top status badge (was previously rendered from $metrics.status and didn't update while running)
-                const statusTopBadge = document.getElementById('statusTopBadge');
-                if (statusTopBadge) {
-                    const statusTopText = document.getElementById('statusTopText');
-                    const topStatusMap = {
-                        'success': { text: 'Success', cls: 'bg-emerald-500/10 text-emerald-300' },
-                        'failed': { text: 'Failed', cls: 'bg-rose-500/15 text-rose-300' },
-                        'running': { text: 'Running', cls: 'bg-sky-500/10 text-sky-300' },
-                        'starting': { text: 'Starting', cls: 'bg-sky-500/10 text-sky-300' },
-                        'queued': { text: 'Queued', cls: 'bg-sky-500/10 text-sky-300' },
-                        'cancelled': { text: 'Cancelled', cls: 'bg-amber-500/15 text-amber-300' },
-                        'warning': { text: 'Warning', cls: 'bg-amber-500/15 text-amber-300' },
-                        'partial_success': { text: 'Partial Success', cls: 'bg-amber-500/15 text-amber-300' }
-                    };
-                    const cfg = topStatusMap[run.status] || { text: (run.status ? (run.status.charAt(0).toUpperCase() + run.status.slice(1)) : 'Unknown'), cls: 'bg-slate-500/15 text-slate-300' };
-
-                    // Strip possible previous status color classes
-                    statusTopBadge.classList.remove(
-                        'bg-emerald-500/10','text-emerald-300',
-                        'bg-rose-500/15','text-rose-300',
-                        'bg-sky-500/10','text-sky-300',
-                        'bg-amber-500/15','text-amber-300',
-                        'bg-slate-500/15','text-slate-300'
-                    );
-                    // Apply new classes
-                    cfg.cls.split(' ').forEach(c => c && statusTopBadge.classList.add(c));
-                    if (statusTopText) statusTopText.textContent = cfg.text;
-
-                    statusTopBadge.classList.add('opacity-0');
-                    setTimeout(() => statusTopBadge.classList.remove('opacity-0'), 50);
-                }
+                const statusConfig = STATUS_CONFIGS[run.status] || {
+                    text: run.status ? (run.status.charAt(0).toUpperCase() + run.status.slice(1)) : 'Unknown',
+                    color: 'gray',
+                    pulse: false
+                };
+                updateStatusDisplay(statusConfig);
+                updateStageLabel(run);
+                updateDuration(run);
                 
                 // Update cancel button visibility
                 const cancelButton = document.getElementById('cancelButton');
@@ -847,6 +739,109 @@ function formatEta(secondsTotal) {
     if (m > 0) out += m + 'm ';
     out += sec + 's';
     return out.trim();
+}
+
+function formatDurationFromMs(ms) {
+    const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+    const days = Math.floor(totalSeconds / 86400);
+    const hours = Math.floor((totalSeconds % 86400) / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    const pad = value => String(value).padStart(2, '0');
+    const base = pad(hours) + ':' + pad(minutes) + ':' + pad(seconds);
+    if (days > 0) {
+        return days + 'd ' + base;
+    }
+    return base;
+}
+
+function ensureDurationStart(run) {
+    if (durationStartMs) return;
+    if (run.started_at) {
+        const parsed = Date.parse(run.started_at);
+        if (!isNaN(parsed)) {
+            durationStartMs = parsed;
+            return;
+        }
+    }
+    durationStartMs = Date.now();
+}
+
+function startDurationTicker() {
+    if (durationTimer) return;
+    durationTimer = setInterval(() => {
+        if (!durationStartMs) return;
+        const durationValueEl = document.getElementById('durationValue');
+        if (!durationValueEl) return;
+        const elapsed = Math.max(0, Date.now() - durationStartMs);
+        durationValueEl.textContent = formatDurationFromMs(elapsed);
+    }, 1000);
+}
+
+function stopDurationTicker() {
+    if (durationTimer) {
+        clearInterval(durationTimer);
+        durationTimer = null;
+    }
+}
+
+function updateDuration(run) {
+    const durationValueEl = document.getElementById('durationValue');
+    const durationLabelEl = document.getElementById('durationLabel');
+    if (!durationValueEl || !durationLabelEl) return;
+    ensureDurationStart(run);
+    const now = Date.now();
+    const isTerminal = TERMINAL_STATUSES.includes(run.status);
+    if (isTerminal) {
+        if (!durationEndMs) {
+            durationEndMs = now;
+        }
+        stopDurationTicker();
+        durationLabelEl.textContent = 'Duration';
+        const elapsed = Math.max(0, durationEndMs - durationStartMs);
+        durationValueEl.textContent = formatDurationFromMs(elapsed);
+    } else {
+        durationEndMs = null;
+        durationLabelEl.textContent = 'Elapsed';
+        const elapsed = Math.max(0, now - durationStartMs);
+        durationValueEl.textContent = formatDurationFromMs(elapsed);
+        startDurationTicker();
+    }
+}
+
+function toTitleCase(text) {
+    if (!text) return '';
+    return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function updateStageLabel(run) {
+    const stageEl = document.getElementById('stageLabel');
+    if (!stageEl) return;
+    const fallback = STAGE_FALLBACKS[run.status] || toTitleCase(run.status || '');
+    stageEl.textContent = run.stage || fallback || 'Pending';
+}
+
+function updateStatusDisplay(statusConfig) {
+    const statusTextEl = document.getElementById('statusTopText');
+    const statusDotEl = document.getElementById('statusTopDot');
+    const detailsStatusEl = document.getElementById('detailsStatus');
+    if (statusTextEl) {
+        statusTextEl.textContent = statusConfig.text;
+    }
+    if (detailsStatusEl) {
+        detailsStatusEl.textContent = statusConfig.text;
+    }
+    if (!statusDotEl) return;
+    statusDotEl.className = 'h-3 w-3 rounded-full status-dot';
+    const colorClass = STATUS_DOT_CLASSES[statusConfig.color] || STATUS_DOT_CLASSES.gray;
+    statusDotEl.classList.add(colorClass);
+    if (statusConfig.pulse) {
+        statusDotEl.classList.add('animate-status-pulse');
+    } else {
+        statusDotEl.classList.remove('animate-status-pulse');
+    }
+    const glowColor = STATUS_GLOW_COLORS[statusConfig.color] || STATUS_GLOW_COLORS.gray;
+    statusDotEl.style.boxShadow = '0 0 8px ' + glowColor;
 }
 
 // Track processed log entries to prevent duplicates
@@ -945,8 +940,10 @@ function updateLiveLogs(logLines) {
         liveLogsContainer.appendChild(logEntryEl);
     });
     
-    // Auto-scroll to bottom
-    liveLogsContainer.scrollTop = liveLogsContainer.scrollHeight;
+    // Auto-scroll to bottom when enabled
+    if (autoScrollLogs) {
+        liveLogsContainer.scrollTop = liveLogsContainer.scrollHeight;
+    }
 }
 
 function setFormattedLogs(text) {
@@ -957,7 +954,9 @@ function setFormattedLogs(text) {
     if (liveLogsEmpty) liveLogsEmpty.style.display = 'none';
     // Replace entire content with server-formatted text
     liveLogsContainer.textContent = text || '';
-    liveLogsContainer.scrollTop = liveLogsContainer.scrollHeight;
+    if (autoScrollLogs) {
+        liveLogsContainer.scrollTop = liveLogsContainer.scrollHeight;
+    }
 }
 
 function setStructuredLogs(entries) {
@@ -992,7 +991,9 @@ function setStructuredLogs(entries) {
         liveLogsContainer.appendChild(line);
     });
 
-    liveLogsContainer.scrollTop = liveLogsContainer.scrollHeight;
+    if (autoScrollLogs) {
+        liveLogsContainer.scrollTop = liveLogsContainer.scrollHeight;
+    }
 }
 
 function updateFormattedLogs() {
@@ -1065,7 +1066,9 @@ function updateEventLogs() {
                     terminalEventSeen = true;
                 }
             });
-            liveLogsContainer.scrollTop = liveLogsContainer.scrollHeight;
+            if (autoScrollLogs) {
+                liveLogsContainer.scrollTop = liveLogsContainer.scrollHeight;
+            }
         })
         .catch(() => {});
 }
@@ -1088,6 +1091,46 @@ function clearLogs() {
     
     // Clear processed hashes
     processedLogHashes.clear();
+}
+
+function toggleAutoScrollLogs() {
+    autoScrollLogs = !autoScrollLogs;
+    const label = document.getElementById('autoScrollLabel');
+    if (label) {
+        label.textContent = autoScrollLogs ? 'On' : 'Off';
+    }
+}
+
+function copyLogs() {
+    const liveLogsContainer = document.getElementById('liveLogs');
+    if (!liveLogsContainer) return;
+    const text = Array.from(liveLogsContainer.children)
+        .map(child => child.textContent || '')
+        .join('\n')
+        .trim();
+    if (!text) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+            alert('Logs copied to clipboard');
+        }).catch(() => {
+            fallbackCopy(text);
+        });
+    } else {
+        fallbackCopy(text);
+    }
+
+    function fallbackCopy(value) {
+        const textarea = document.createElement('textarea');
+        textarea.value = value;
+        textarea.setAttribute('readonly', 'readonly');
+        textarea.style.position = 'absolute';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        alert('Logs copied to clipboard');
+    }
 }
 
 function cancelRun(runId) {
