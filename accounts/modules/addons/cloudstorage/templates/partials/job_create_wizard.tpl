@@ -1781,14 +1781,14 @@
                                             <template x-for="entry in localVolumes" :key="entry.path">
                                                 <button type="button" 
                                                         class="volume-card group p-4 rounded-xl border text-left transition-all"
-                                                        :class="selectedVolume === entry.path 
+                                                        :class="isVolumeEntrySelected(entry)
                                                             ? 'border-cyan-500 bg-cyan-500/10 ring-2 ring-cyan-500/40' 
                                                             : 'border-slate-700 bg-slate-800/50 hover:border-slate-600 hover:bg-slate-800'"
                                                         @click="selectVolume(entry)">
                                                     <div class="flex items-start gap-3">
                                                         <div class="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
-                                                             :class="selectedVolume === entry.path ? 'bg-cyan-500/20' : 'bg-slate-700/50'">
-                                                            <svg class="w-6 h-6" :class="selectedVolume === entry.path ? 'text-cyan-400' : 'text-blue-400'" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                             :class="isVolumeEntrySelected(entry) ? 'bg-cyan-500/20' : 'bg-slate-700/50'">
+                                                            <svg class="w-6 h-6" :class="isVolumeEntrySelected(entry) ? 'text-cyan-400' : 'text-blue-400'" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12a3 3 0 106 0 3 3 0 00-6 0z" />
                                                             </svg>
@@ -1804,8 +1804,8 @@
                                                         </div>
                                                         <div class="shrink-0">
                                                             <div class="w-5 h-5 rounded-full border-2 flex items-center justify-center"
-                                                                 :class="selectedVolume === entry.path ? 'border-cyan-500 bg-cyan-500' : 'border-slate-600'">
-                                                                <svg x-show="selectedVolume === entry.path" class="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                 :class="isVolumeEntrySelected(entry) ? 'border-cyan-500 bg-cyan-500' : 'border-slate-600'">
+                                                                <svg x-show="isVolumeEntrySelected(entry)" class="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
                                                                 </svg>
                                                             </div>
@@ -1943,7 +1943,7 @@
                                         </div>
 
                                         <!-- Hidden inputs for disk image data -->
-                                        <input type="hidden" id="localWizardDiskVolume" x-model="selectedVolume">
+                                        <input type="hidden" id="localWizardDiskVolume">
                                         <input type="hidden" id="localWizardDiskVolumeSelect" value="">
 
                                         <!-- Image Format -->
@@ -1993,11 +1993,11 @@
                                             </div>
                                         </div>
 
-                                        <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4 space-y-2">
+                                        <div x-show="!isDiskImageMode" class="rounded-xl border border-slate-800 bg-slate-900/60 p-4 space-y-2">
                                             <label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Add manually</label>
                                             <div class="flex gap-2">
-                                                <input type="text" x-model="manualPath" class="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50" placeholder="C:\Data or /path" @keyup.enter="addManualPath()">
-                                                <button type="button" class="px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm" @click="addManualPath()">Add</button>
+                                                <input type="text" x-model="manualPath" :disabled="isDiskImageMode" class="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50 disabled:opacity-50 disabled:cursor-not-allowed" placeholder="C:\Data or /path" @keyup.enter="addManualPath()">
+                                                <button type="button" :disabled="isDiskImageMode" class="px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm disabled:opacity-50 disabled:cursor-not-allowed" @click="addManualPath()">Add</button>
                                             </div>
                                         </div>
 
