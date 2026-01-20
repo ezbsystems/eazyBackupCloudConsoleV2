@@ -80,68 +80,79 @@ $encryptionKey = $module->where('setting', 'encryption_key')->pluck('value')->fi
 // NOTE: We store the customer-visible username/email in s3_users.username,
 // but we use a RGW-safe uid (no '@') for Ceph Admin Ops.
 
+$adminUser = 'API';
 try {
+    $order = localAPI('AddOrder', [
+        'clientid'     => $userId,
+        'pid'          => [$packageId],
+        'billingcycle' => ['Monthly'],
+        'paymentmethod'=> 'stripe',
+        'noinvoice'    => true,
+        'noemail'      => true,
+    ], $adminUser);
+    try { logModuleCall('cloudstorage', 'create_s3_addorder', ['clientId' => $userId], $order); } catch (\Throwable $_) {}
+    if (($order['result'] ?? '') !== 'success') {
+        throw new \Exception('AddOrder failed: ' . ($order['message'] ?? 'unknown'));
+    }
+
+    $accept = localAPI('AcceptOrder', [
+        'orderid'         => $order['orderid'],
+        'autosetup'       => true,
+        'sendemail'       => true,
+        'serviceusername' => $username,
+    ], $adminUser);
+    try { logModuleCall('cloudstorage', 'create_s3_acceptorder', ['orderId' => $order['orderid']], $accept); } catch (\Throwable $_) {}
+    if (($accept['result'] ?? '') !== 'success') {
+        throw new \Exception('AcceptOrder failed: ' . ($accept['message'] ?? 'unknown'));
+    }
+
+    $serviceId = (int) ($accept['serviceid'] ?? 0);
+    $serviceRecord = null;
+    if ($serviceId > 0) {
+        $serviceRecord = DBController::getRow('tblhosting', [['id', '=', $serviceId]], ['id', 'server']);
+    }
+    if ($serviceId <= 0 && !empty($order['orderid'])) {
+        $serviceRecord = DBController::getRow('tblhosting', [['orderid', '=', (int)$order['orderid']]], ['id', 'server']);
+        if ($serviceRecord && isset($serviceRecord->id)) {
+            $serviceId = (int) $serviceRecord->id;
+        }
+    }
+    if ($serviceId <= 0 || !$serviceRecord || !isset($serviceRecord->id)) {
+        throw new \Exception('Failed to resolve hosting service for order ' . ($order['orderid'] ?? 'unknown'));
+    }
+
+    $trialDue = date('Y-m-d', strtotime('+30 days'));
+    $update = [
+        'domainstatus'    => 'Active',
+        'nextduedate'     => $trialDue,
+        'nextinvoicedate' => $trialDue,
+        'updated_at'      => date('Y-m-d H:i:s'),
+    ];
+    if (empty($serviceRecord->server)) {
+        $update['server'] = $serverId;
+    }
+    try { logModuleCall('cloudstorage', 'create_s3_hosting_update', ['serviceId' => $serviceId], $update); } catch (\Throwable $_) {}
+    DBController::updateRecord('tblhosting', $update, [['id', '=', $serviceId]]);
+
     $tenantId = HelperController::getUniqueTenantId();
     $cephUid = HelperController::generateCephUserId($username, $tenantId);
     $params = [
-        'uid'  => $cephUid,
-        'name' => $username,
-        'email' => $username,
+        'uid'    => $cephUid,
+        'name'   => $username,
+        'email'  => $username,
         'tenant' => $tenantId
     ];
 
     $user = AdminOps::createUser($s3Endpoint, $cephAdminAccessKey, $cephAdminSecretKey, $params);
     try { logModuleCall('cloudstorage', 'adminops_create_user', ['params' => $params], $user); } catch (\Throwable $e) {}
-
     if ($user['status'] != 'success') {
         try { logModuleCall('cloudstorage', 'adminops_create_user_fail', ['params' => $params], $user); } catch (\Throwable $e) {}
-        $jsonData = [
-            'message' => $user['message'],
-            'status' => 'fail',
-        ];
-
-        $response = new JsonResponse($jsonData, 200);
-        $response->send();
-        exit();
-    }
-
-    // If a hosting record already exists for this client+package (from order flow), update it; else create it
-    $existing = DBController::getRow('tblhosting', [
-        ['userid', '=', $userId],
-        ['packageid', '=', $packageId],
-    ], ['id','server','username','domainstatus'], 'id', 'DESC');
-    if ($existing && isset($existing->id)) {
-        try { logModuleCall('cloudstorage', 'hosting_update', ['id' => (int)$existing->id, 'userId' => $userId, 'packageId' => $packageId], ['server' => $existing->server, 'username' => $existing->username, 'domainstatus' => $existing->domainstatus]); } catch (\Throwable $e) {}
-        $update = [
-            'username' => $username,
-            'domainstatus' => 'Active',
-            'updated_at' => date('Y-m-d H:i:s'),
-        ];
-        if (empty($existing->server)) {
-            $update['server'] = $serverId;
-        }
-        DBController::updateRecord('tblhosting', $update, [ ['id', '=', (int)$existing->id] ]);
-        $hostingId = (int) $existing->id;
-    } else {
-        try { logModuleCall('cloudstorage', 'hosting_insert', ['userId' => $userId, 'packageId' => $packageId], []); } catch (\Throwable $e) {}
-    $hostingId = DBController::insertGetId('tblhosting', [
-        'userid' => $userId,
-        'packageid' => $packageId,
-        'server' => $serverId,
-        'username' => $username,
-        'regdate' => date('Y-m-d'),
-        // 30-day trial window (invoice should not generate until day 31)
-        'nextduedate' => date('Y-m-d', strtotime('+30 days')),
-        'billingcycle' => $billingCycle,
-        'domainstatus' => 'Active',
-        'created_at' => date('Y-m-d H:i:s'),
-        'updated_at' => date('Y-m-d H:i:s'),
-    ]);
+        throw new \Exception($user['message'] ?? 'Admin Ops user creation failed.');
     }
 
     $s3UserId = DBController::saveUser([
-        'username' => $username,
-        'ceph_uid' => $cephUid,
+        'username'  => $username,
+        'ceph_uid'  => $cephUid,
         'tenant_id' => $tenantId
     ]);
 
@@ -154,16 +165,16 @@ try {
         ? ((strlen($akPlain) <= 8) ? $akPlain : (substr($akPlain, 0, 4) . '…' . substr($akPlain, -4)))
         : null;
     DBController::insertRecord('s3_user_access_keys', [
-        'user_id' => $s3UserId,
-        'access_key' => $accessKey,
-        'secret_key' => $secretKey,
-        'access_key_hint' => $hint
+        'user_id'        => $s3UserId,
+        'access_key'     => $accessKey,
+        'secret_key'     => $secretKey,
+        'access_key_hint'=> $hint
     ]);
     try { logModuleCall('cloudstorage', 'adminops_create_keys_store', ['s3_user_id' => $s3UserId], ['access_key_len' => strlen($accessKey), 'secret_key_len' => strlen($secretKey)]); } catch (\Throwable $e) {}
 
     $jsonData = [
         'status' => 'success',
-        'message' => 'e3 storage account has been created successfully.'
+        'message'=> 'e3 storage account has been created successfully.'
     ];
 
     $response = new JsonResponse($jsonData, 200);
@@ -171,9 +182,10 @@ try {
     exit();
 
 } catch (Exception $e) {
+    try { logModuleCall('cloudstorage', 'create_s3_provision_error', ['clientId' => $clientId, 'username' => $username], $e->getMessage()); } catch (\Throwable $_) {}
     $jsonData = [
         'status' => 'fail',
-        'message' => 'An error occurred while creating the account. Please try again later.'
+        'message'=> 'An error occurred while creating the account. Please try again later.'
     ];
 
     $response = new JsonResponse($jsonData, 200);

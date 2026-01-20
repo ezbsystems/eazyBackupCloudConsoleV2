@@ -653,7 +653,7 @@ class CloudBackupController {
      * @param int $clientId
      * @return array
      */
-    public static function cancelRun($runId, $clientId)
+    public static function cancelRun($runId, $clientId, $forceCancel = false)
     {
         try {
             // Verify run ownership
@@ -670,8 +670,17 @@ class CloudBackupController {
                 return ['status' => 'fail', 'message' => 'Run not found or access denied'];
             }
 
-            // Only allow cancellation of queued, starting, or running runs
-            if (!in_array($run['status'], ['queued', 'starting', 'running'])) {
+            $cancelableStatuses = ['queued', 'starting', 'running'];
+            $terminalStatuses = ['success', 'warning', 'failed', 'cancelled', 'partial_success'];
+            if ($forceCancel) {
+                if (in_array($run['status'], $terminalStatuses, true)) {
+                    logModuleCall(self::$module, 'cancelRun_force_already_terminal', [
+                        'run_id' => $run['id'],
+                        'current_status' => $run['status'],
+                    ], 'Force cancel not allowed on terminal run');
+                    return ['status' => 'fail', 'message' => 'Run already completed'];
+                }
+            } elseif (!in_array($run['status'], $cancelableStatuses, true)) {
                 logModuleCall(self::$module, 'cancelRun_status_check', [
                     'run_id' => $run['id'],
                     'current_status' => $run['status'],
@@ -683,12 +692,13 @@ class CloudBackupController {
             
             // For 'queued' runs that haven't been picked up by agent yet, cancel immediately
             // For 'starting' or 'running' runs, agent will poll and see cancel_requested
-            if ($run['status'] === 'queued') {
+            if ($run['status'] === 'queued' || $forceCancel) {
                 $update['status'] = 'cancelled';
                 $update['finished_at'] = Capsule::raw('NOW()');
+                if ($forceCancel && empty($run['error_summary'])) {
+                    $update['error_summary'] = 'Cancellation forced by user';
+                }
             }
-            // Note: Don't set status to 'cancelled' for running jobs - let the agent do that
-            // so it can properly clean up (e.g., merge Hyper-V checkpoints)
 
             $affected = Capsule::table('s3_cloudbackup_runs')
                 ->where('id', $run['id'])
