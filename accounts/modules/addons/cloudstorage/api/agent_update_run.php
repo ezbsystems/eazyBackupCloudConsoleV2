@@ -49,6 +49,24 @@ function getBodyJson(): array
     return is_array($decoded) ? $decoded : [];
 }
 
+function recordForcedRunFailureEvent(int $runId, string $summary): void
+{
+    try {
+        $nowMicro = microtime(true);
+        Capsule::table('s3_cloudbackup_run_events')->insert([
+            'run_id' => $runId,
+            'ts' => date('Y-m-d H:i:s.u', $nowMicro),
+            'type' => 'error',
+            'level' => 'error',
+            'code' => 'AGENT_START_FAILURE',
+            'message_id' => 'AGENT_START_FAILURE',
+            'params_json' => json_encode(['summary' => $summary]),
+        ]);
+    } catch (\Throwable $e) {
+        logModuleCall('cloudstorage', 'agent_update_run_event_insert_error', ['run_id' => $runId], $e->getMessage());
+    }
+}
+
 $body = getBodyJson();
 $runId = $_POST['run_id'] ?? ($body['run_id'] ?? null);
 if (!$runId) {
@@ -60,7 +78,7 @@ $agent = authenticateAgent();
 $run = Capsule::table('s3_cloudbackup_runs as r')
     ->join('s3_cloudbackup_jobs as j', 'r.job_id', '=', 'j.id')
     ->where('r.id', $runId)
-    ->select('r.id', 'j.client_id')
+    ->select('r.id', 'r.status', 'r.job_id', 'j.client_id')
     ->first();
 
 if (!$run || (int)$run->client_id !== (int)$agent->client_id) {
@@ -135,6 +153,36 @@ if (empty($update)) {
 // Touch updated_at when the column exists (older schemas may not have it)
 if ($hasUpdatedAtColumn) {
     $update['updated_at'] = Capsule::raw('NOW()');
+}
+
+// Force terminal failure if the agent reports an error summary before a terminal status
+$terminalStatuses = ['success', 'failed', 'warning', 'cancelled', 'partial_success'];
+$incomingStatus = isset($body['status']) ? strtolower($body['status']) : null;
+$currentStatus = isset($run->status) ? strtolower($run->status) : null;
+$errorSummaryText = '';
+if (isset($body['error_summary']) && is_string($body['error_summary'])) {
+    $errorSummaryText = trim($body['error_summary']);
+}
+$shouldForceFailure = !in_array($currentStatus, $terminalStatuses, true)
+    && !in_array($incomingStatus, $terminalStatuses, true)
+    && $errorSummaryText !== '';
+if ($shouldForceFailure) {
+    logModuleCall('cloudstorage', 'agent_update_run_force_failure', [
+        'run_id' => $runId,
+        'current_status' => $run->status,
+        'incoming_status' => $incomingStatus,
+    ], $errorSummaryText);
+    $update['status'] = 'failed';
+    if (!isset($update['finished_at'])) {
+        $update['finished_at'] = date('Y-m-d H:i:s');
+    }
+    if (!isset($update['error_summary']) || $update['error_summary'] === '') {
+        $update['error_summary'] = $errorSummaryText;
+    }
+    if (!isset($update['progress_pct'])) {
+        $update['progress_pct'] = 0;
+    }
+    recordForcedRunFailureEvent($runId, $errorSummaryText);
 }
 
 // Handle disk_manifests_json for Hyper-V and disk image backups

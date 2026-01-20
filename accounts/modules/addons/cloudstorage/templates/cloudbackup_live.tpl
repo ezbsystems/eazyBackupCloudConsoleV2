@@ -197,6 +197,10 @@
             </div>
 
             <div class="space-y-4">
+                <div id="errorSummaryContainer" class="hidden rounded-2xl border border-rose-500/50 bg-rose-500/10 px-4 py-3 text-sm text-rose-100" role="status" aria-live="polite">
+                    <p class="text-xs font-semibold uppercase tracking-wide text-rose-300">Startup Error</p>
+                    <p id="errorSummaryText" class="mt-1 text-sm font-semibold text-rose-100"></p>
+                </div>
                 {if $run.current_item}
                     <div>
                         <h6 class="text-sm font-medium text-slate-400 mb-2">Current File</h6>
@@ -269,6 +273,14 @@
                             class="px-3 py-1 rounded-full border border-slate-700 bg-slate-900/60 text-slate-300 hover:border-slate-500 hover:text-white transition-colors"
                         >
                             Copy
+                        </button>
+                        <button
+                            id="forceCancelButton"
+                            type="button"
+                            onclick="cancelRun({$run.id}, true)"
+                            class="hidden px-3 py-1 rounded-full border border-rose-500 bg-rose-500/10 text-rose-200 hover:border-rose-400 hover:text-white transition-colors"
+                        >
+                            Force Cancel
                         </button>
                     </div>
                 </div>
@@ -358,6 +370,9 @@ let eventsInterval;
 let isRunning = {if $isRunningStatus}true{else}false{/if};
 let lastLogsHash = null;
 let lastEventId = 0;
+const errorSummaryContainer = document.getElementById('errorSummaryContainer');
+const errorSummaryText = document.getElementById('errorSummaryText');
+const forceCancelButton = document.getElementById('forceCancelButton');
 const STATUS_CONFIGS = {
     'success': { text: 'Success', color: 'green', pulse: false },
     'failed': { text: 'Failed', color: 'red', pulse: false },
@@ -453,6 +468,7 @@ function updateProgress() {
         .then(data => {
             if (data.status === 'success' && data.run) {
                 const run = data.run;
+                refreshErrorSummary(run);
                 
                 // Compute progress percentage with sensible fallbacks
                 // Use bytes_processed (scanned from source) for progress, not bytes_transferred (uploaded)
@@ -739,6 +755,24 @@ function formatEta(secondsTotal) {
     if (m > 0) out += m + 'm ';
     out += sec + 's';
     return out.trim();
+}
+
+function refreshErrorSummary(run) {
+    if (!errorSummaryContainer || !errorSummaryText) {
+        return;
+    }
+    const summary = (run.error_summary || '').trim();
+    if (summary) {
+        errorSummaryText.textContent = summary;
+        errorSummaryContainer.classList.remove('hidden');
+    } else {
+        errorSummaryContainer.classList.add('hidden');
+    }
+    if (forceCancelButton) {
+        const status = (run.status || '').toLowerCase();
+        const shouldShowForce = summary && ['running', 'starting', 'queued'].includes(status);
+        forceCancelButton.style.display = shouldShowForce ? '' : 'none';
+    }
 }
 
 function formatDurationFromMs(ms) {
@@ -1133,15 +1167,18 @@ function copyLogs() {
     }
 }
 
-function cancelRun(runId) {
-    if (!confirm('Are you sure you want to cancel this run?')) {
+function cancelRun(runId, force = false) {
+    const promptText = force
+        ? 'The run appears stuck. Force cancellation to clear it?'
+        : 'Are you sure you want to cancel this run?';
+    if (!confirm(promptText)) {
         return;
     }
     
     const btn = document.getElementById('cancelButton');
     if (btn) {
         btn.disabled = true;
-        btn.textContent = 'Cancel requested...';
+        btn.textContent = force ? 'Force cancel requested...' : 'Cancel requested...';
     }
     
     fetch('modules/addons/cloudstorage/api/cloudbackup_cancel_run.php', {
@@ -1149,7 +1186,10 @@ function cancelRun(runId) {
         headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
         },
-        body: new URLSearchParams([['run_uuid', runId]])
+        body: new URLSearchParams([
+            ['run_uuid', runId],
+            ['force', force ? '1' : '0'],
+        ])
     })
     .then(response => response.json())
     .then(data => {

@@ -38,6 +38,7 @@ if (is_null($product) || empty($product->username)) {
 }
 
 $runIdentifier = $_POST['run_uuid'] ?? $_POST['run_id'] ?? null;
+$forceCancel = isset($_POST['force']) ? filter_var($_POST['force'], FILTER_VALIDATE_BOOLEAN) : false;
 if (!$runIdentifier) {
     $jsonData = [
         'status' => 'fail',
@@ -55,7 +56,7 @@ logModuleCall('cloudstorage', 'cancel_run_request', [
     'post_data' => $_POST,
 ], 'Received cancel request');
 
-$result = CloudBackupController::cancelRun($runIdentifier, $loggedInUserId);
+$result = CloudBackupController::cancelRun($runIdentifier, $loggedInUserId, $forceCancel);
 
 // Debug: Log the result
 logModuleCall('cloudstorage', 'cancel_run_result', [
