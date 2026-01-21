@@ -86,8 +86,6 @@ $result = Capsule::connection()->transaction(function () use ($timing, $heartbea
     $staleRuns = Capsule::table('s3_cloudbackup_runs as r')
         ->select('r.*', Capsule::raw("$heartbeatExpr as last_heartbeat_at"))
         ->whereIn('r.status', ['starting', 'running'])
-        ->whereNull('r.finished_at')
-        ->where('r.cancel_requested', 0)
         ->whereRaw("TIMESTAMPDIFF(SECOND, $heartbeatExpr, NOW()) > ?", [$timing['watchdog_timeout_seconds']])
         ->lockForUpdate()
         ->get();
@@ -98,10 +96,13 @@ $result = Capsule::connection()->transaction(function () use ($timing, $heartbea
     foreach ($staleRuns as $run) {
         $lastHeartbeat = $run->last_heartbeat_at ?? null;
         $message = 'Agent offline / no heartbeat since ' . formatHeartbeat($lastHeartbeat);
+        $isCancelRequested = !empty($run->cancel_requested);
+        $updateStatus = $isCancelRequested ? 'cancelled' : 'failed';
+        $summary = $isCancelRequested ? ('Cancellation requested; ' . $message) : $message;
 
         $update = [
-            'status' => 'failed',
-            'error_summary' => $message,
+            'status' => $updateStatus,
+            'error_summary' => $summary,
             'finished_at' => Capsule::raw('NOW()'),
         ];
 
@@ -116,13 +117,14 @@ $result = Capsule::connection()->transaction(function () use ($timing, $heartbea
         $events[] = [
             'run_id' => $run->id,
             'ts' => date('Y-m-d H:i:s.u'),
-            'type' => 'error',
-            'level' => 'error',
-            'code' => 'AGENT_OFFLINE',
-            'message_id' => 'AGENT_OFFLINE',
+            'type' => $isCancelRequested ? 'cancelled' : 'error',
+            'level' => $isCancelRequested ? 'warn' : 'error',
+            'code' => $isCancelRequested ? 'CANCELLED' : 'AGENT_OFFLINE',
+            'message_id' => $isCancelRequested ? 'CANCELLED' : 'AGENT_OFFLINE',
             'params_json' => json_encode([
                 'last_heartbeat_at' => $lastHeartbeat,
                 'watchdog_timeout_seconds' => $timing['watchdog_timeout_seconds'],
+                'cancel_requested' => $isCancelRequested ? 1 : 0,
             ]),
         ];
 
@@ -130,6 +132,7 @@ $result = Capsule::connection()->transaction(function () use ($timing, $heartbea
             'run_id' => $run->id,
             'agent_id' => $run->agent_id ?? null,
             'last_heartbeat_at' => $lastHeartbeat,
+            'status' => $updateStatus,
         ];
     }
 
@@ -149,9 +152,10 @@ echo "[agent_watchdog] processed stale runs: {$result['count']}\n";
 if (!empty($result['processed'])) {
     foreach ($result['processed'] as $run) {
         echo sprintf(
-            " - run_id=%s agent_id=%s last_heartbeat=%s\n",
+            " - run_id=%s agent_id=%s status=%s last_heartbeat=%s\n",
             $run['run_id'],
             $run['agent_id'] ?? 'null',
+            $run['status'] ?? 'unknown',
             formatHeartbeat($run['last_heartbeat_at'] ?? null)
         );
     }
