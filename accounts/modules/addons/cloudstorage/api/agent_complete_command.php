@@ -58,7 +58,12 @@ if (!$cmd) {
 // For commands with agent_id set directly (browse, discovery commands), check ownership via agent_id
 // These commands have run_id = NULL as they're not tied to a specific backup run
 $agentScopedCommands = ['browse_directory', 'list_hyperv_vms', 'nas_mount', 'nas_unmount', 'nas_mount_snapshot', 'nas_unmount_snapshot'];
-if (in_array(strtolower((string) $cmd->type), $agentScopedCommands, true)) {
+$isAgentScoped = in_array(strtolower((string) $cmd->type), $agentScopedCommands, true);
+if (!$isAgentScoped && empty($cmd->run_id) && !empty($cmd->agent_id)) {
+    $isAgentScoped = true;
+}
+
+if ($isAgentScoped) {
     // Ownership check via agent_id column on the command itself
     if ((int) ($cmd->agent_id ?? 0) !== (int) $agent->id) {
         respond(['status' => 'fail', 'message' => 'Unauthorized'], 403);

@@ -1098,6 +1098,232 @@ class CloudBackupController {
     }
 
     /**
+     * Upsert a restore point record.
+     *
+     * @param array $data
+     * @return array
+     */
+    public static function upsertRestorePoint(array $data): array
+    {
+        try {
+            if (!Capsule::schema()->hasTable('s3_cloudbackup_restore_points')) {
+                return ['status' => 'skip', 'message' => 'Restore points table not available'];
+            }
+
+            $clientId = (int) ($data['client_id'] ?? 0);
+            if ($clientId <= 0) {
+                return ['status' => 'skip', 'message' => 'Missing client_id'];
+            }
+
+            $manifestId = trim((string) ($data['manifest_id'] ?? ''));
+            $hypervBackupPointId = (int) ($data['hyperv_backup_point_id'] ?? 0);
+            $runId = (int) ($data['run_id'] ?? 0);
+
+            $query = Capsule::table('s3_cloudbackup_restore_points')
+                ->where('client_id', $clientId);
+
+            if ($hypervBackupPointId > 0) {
+                $query->where('hyperv_backup_point_id', $hypervBackupPointId);
+            } elseif ($manifestId !== '') {
+                $query->where('manifest_id', $manifestId);
+            } elseif ($runId > 0) {
+                $query->where('run_id', $runId)->whereNull('hyperv_vm_id');
+            } else {
+                return ['status' => 'skip', 'message' => 'No dedupe key available'];
+            }
+
+            $existing = $query->first();
+            $payload = $data;
+            unset($payload['id']);
+
+            if ($existing) {
+                unset($payload['created_at']);
+                Capsule::table('s3_cloudbackup_restore_points')
+                    ->where('id', $existing->id)
+                    ->update($payload);
+                return ['status' => 'updated', 'id' => (int) $existing->id];
+            }
+
+            if (!isset($payload['created_at'])) {
+                $payload['created_at'] = date('Y-m-d H:i:s');
+            }
+            $newId = Capsule::table('s3_cloudbackup_restore_points')->insertGetId($payload);
+            return ['status' => 'inserted', 'id' => (int) $newId];
+        } catch (\Throwable $e) {
+            logModuleCall(self::$module, 'upsertRestorePoint', ['data' => $data], $e->getMessage());
+            return ['status' => 'fail', 'message' => 'Restore point upsert failed'];
+        }
+    }
+
+    /**
+     * Record restore points for a completed run.
+     *
+     * @param int $runId
+     * @return array
+     */
+    public static function recordRestorePointsForRun(int $runId): array
+    {
+        try {
+            if (!Capsule::schema()->hasTable('s3_cloudbackup_restore_points')) {
+                return ['status' => 'skip', 'message' => 'Restore points table not available'];
+            }
+
+            $run = Capsule::table('s3_cloudbackup_runs')
+                ->where('id', $runId)
+                ->first();
+            if (!$run) {
+                return ['status' => 'skip', 'message' => 'Run not found'];
+            }
+
+            $runStatus = (string) ($run->status ?? '');
+            if (!in_array($runStatus, ['success', 'warning'], true)) {
+                return ['status' => 'skip', 'message' => 'Run not in terminal success/warning'];
+            }
+
+            $runType = strtolower((string) ($run->run_type ?? ''));
+            if (in_array($runType, ['restore', 'hyperv_restore'], true)) {
+                return ['status' => 'skip', 'message' => 'Restore run ignored'];
+            }
+
+            $job = Capsule::table('s3_cloudbackup_jobs')
+                ->where('id', $run->job_id)
+                ->first();
+            if (!$job) {
+                return ['status' => 'skip', 'message' => 'Job not found'];
+            }
+
+            $agentId = (int) ($run->agent_id ?? $job->agent_id ?? 0);
+            $agent = null;
+            if ($agentId > 0) {
+                $agent = Capsule::table('s3_cloudbackup_agents')
+                    ->where('id', $agentId)
+                    ->first();
+            }
+
+            $base = [
+                'client_id' => (int) $job->client_id,
+                'tenant_id' => $agent->tenant_id ?? null,
+                'tenant_user_id' => $agent->tenant_user_id ?? null,
+                'agent_id' => $agentId > 0 ? $agentId : null,
+                'job_id' => (int) $job->id,
+                'job_name' => (string) ($job->name ?? ''),
+                'run_id' => (int) $run->id,
+                'run_uuid' => (string) ($run->run_uuid ?? ''),
+                'engine' => (string) ($run->engine ?? $job->engine ?? ''),
+                'status' => $runStatus,
+                'source_type' => (string) ($job->source_type ?? ''),
+                'source_display_name' => (string) ($job->source_display_name ?? ''),
+                'source_path' => (string) ($job->source_path ?? ''),
+                'dest_type' => (string) ($job->dest_type ?? ''),
+                'dest_bucket_id' => $job->dest_bucket_id ?? null,
+                'dest_prefix' => (string) ($job->dest_prefix ?? ''),
+                'dest_local_path' => (string) ($job->dest_local_path ?? ''),
+                's3_user_id' => $job->s3_user_id ?? null,
+                'created_at' => $run->created_at ?? date('Y-m-d H:i:s'),
+                'finished_at' => $run->finished_at ?? null,
+            ];
+
+            $manifestId = (string) ($run->log_ref ?? '');
+            if ($manifestId === '' && !empty($run->stats_json)) {
+                $decoded = json_decode((string) $run->stats_json, true);
+                if (json_last_error() === JSON_ERROR_NONE && !empty($decoded['manifest_id'])) {
+                    $manifestId = (string) $decoded['manifest_id'];
+                }
+            }
+
+            $results = [];
+
+            // Hyper-V: one restore point per VM backup point when available
+            if ((string) ($run->engine ?? '') === 'hyperv' && Capsule::schema()->hasTable('s3_hyperv_backup_points')) {
+                $bps = Capsule::table('s3_hyperv_backup_points as bp')
+                    ->where('bp.run_id', $run->id)
+                    ->get();
+                if ($bps && count($bps) > 0) {
+                    $vmMap = [];
+                    $vmIds = [];
+                    foreach ($bps as $bp) {
+                        if (!empty($bp->vm_id)) {
+                            $vmIds[] = (int) $bp->vm_id;
+                        }
+                    }
+                    if (!empty($vmIds)) {
+                        $vmRows = Capsule::table('s3_hyperv_vms')
+                            ->whereIn('id', array_values(array_unique($vmIds)))
+                            ->get(['id', 'vm_name']);
+                        foreach ($vmRows as $vmRow) {
+                            $vmMap[(int) $vmRow->id] = (string) ($vmRow->vm_name ?? '');
+                        }
+                    }
+                    foreach ($bps as $bp) {
+                        $data = $base;
+                        $data['manifest_id'] = (string) ($bp->manifest_id ?? '');
+                        if ($data['manifest_id'] === '') {
+                            continue;
+                        }
+                        $data['hyperv_vm_id'] = $bp->vm_id ?? null;
+                        $data['hyperv_vm_name'] = $vmMap[(int) ($bp->vm_id ?? 0)] ?? null;
+                        $data['hyperv_backup_type'] = (string) ($bp->backup_type ?? '');
+                        $data['hyperv_backup_point_id'] = $bp->id ?? null;
+                        $data['disk_manifests_json'] = $bp->disk_manifests ?? null;
+                        $data['created_at'] = $bp->created_at ?? ($run->created_at ?? date('Y-m-d H:i:s'));
+                        $results[] = self::upsertRestorePoint($data);
+                    }
+                    return ['status' => 'success', 'count' => count($results)];
+                }
+            }
+
+            if ($manifestId === '') {
+                return ['status' => 'skip', 'message' => 'No manifest_id available'];
+            }
+
+            $base['manifest_id'] = $manifestId;
+            $results[] = self::upsertRestorePoint($base);
+
+            return ['status' => 'success', 'count' => count($results)];
+        } catch (\Throwable $e) {
+            logModuleCall(self::$module, 'recordRestorePointsForRun', ['run_id' => $runId], $e->getMessage());
+            return ['status' => 'fail', 'message' => 'Failed to record restore points'];
+        }
+    }
+
+    /**
+     * Best-effort backfill for restore points from recent runs and Hyper-V backup points.
+     *
+     * @param int $limit
+     * @return array
+     */
+    public static function backfillRestorePoints(int $limit = 500): array
+    {
+        try {
+            if (!Capsule::schema()->hasTable('s3_cloudbackup_restore_points')) {
+                return ['status' => 'skip', 'message' => 'Restore points table not available'];
+            }
+            if (!Capsule::schema()->hasTable('s3_cloudbackup_runs')) {
+                return ['status' => 'skip', 'message' => 'Runs table not available'];
+            }
+
+            $inserted = 0;
+            $runs = Capsule::table('s3_cloudbackup_runs')
+                ->whereIn('status', ['success', 'warning'])
+                ->orderByDesc('id')
+                ->limit(max(1, $limit))
+                ->get(['id']);
+
+            foreach ($runs as $r) {
+                $res = self::recordRestorePointsForRun((int) $r->id);
+                if (($res['status'] ?? '') === 'success') {
+                    $inserted += (int) ($res['count'] ?? 0);
+                }
+            }
+
+            return ['status' => 'success', 'inserted' => $inserted];
+        } catch (\Throwable $e) {
+            logModuleCall(self::$module, 'backfillRestorePoints', ['limit' => $limit], $e->getMessage());
+            return ['status' => 'fail', 'message' => 'Backfill failed'];
+        }
+    }
+
+    /**
      * Ensure bucket versioning is enabled for a bucket by its ID.
      * Attempts with bucket owner's credentials, then admin fallback inside BucketController.
      *
