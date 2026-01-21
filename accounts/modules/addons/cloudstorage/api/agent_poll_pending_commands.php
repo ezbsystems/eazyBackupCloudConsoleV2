@@ -138,6 +138,148 @@ try {
             ->where('id', $cmd->command_id)
             ->update(['status' => 'processing']);
     }
+
+    // Restore commands that are agent-scoped (restore points flow, no job/run join)
+    $restorePointCommands = Capsule::table('s3_cloudbackup_run_commands')
+        ->where('agent_id', $agent->id)
+        ->whereNull('run_id')
+        ->where('status', 'pending')
+        ->whereIn('type', ['restore', 'hyperv_restore'])
+        ->orderBy('id', 'asc')
+        ->limit(5)
+        ->get(['id as command_id', 'run_id', 'type', 'payload_json', 'agent_id']);
+
+    foreach ($restorePointCommands as $cmd) {
+        $payload = [];
+        if (!empty($cmd->payload_json)) {
+            $dec = json_decode($cmd->payload_json, true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($dec)) {
+                $payload = $dec;
+            }
+        }
+
+        $restorePointId = (int) ($payload['restore_point_id'] ?? 0);
+        if ($restorePointId <= 0) {
+            Capsule::table('s3_cloudbackup_run_commands')
+                ->where('id', $cmd->command_id)
+                ->update([
+                    'status' => 'failed',
+                    'result_message' => 'Missing restore_point_id',
+                ]);
+            continue;
+        }
+
+        $restorePoint = Capsule::table('s3_cloudbackup_restore_points')
+            ->where('id', $restorePointId)
+            ->where('client_id', $agent->client_id)
+            ->first();
+        if (!$restorePoint) {
+            Capsule::table('s3_cloudbackup_run_commands')
+                ->where('id', $cmd->command_id)
+                ->update([
+                    'status' => 'failed',
+                    'result_message' => 'Restore point not found',
+                ]);
+            continue;
+        }
+
+        // Get bucket info (if applicable)
+        $bucket = null;
+        if (!empty($restorePoint->dest_bucket_id)) {
+            $bucket = Capsule::table('s3_buckets')
+                ->where('id', $restorePoint->dest_bucket_id)
+                ->first();
+        }
+
+        // Get access keys
+        $keys = null;
+        if (!empty($restorePoint->s3_user_id)) {
+            $keys = Capsule::table('s3_user_access_keys')
+                ->where('user_id', $restorePoint->s3_user_id)
+                ->orderByDesc('id')
+                ->first();
+        }
+
+        // Get addon settings for endpoint/region
+        $settings = Capsule::table('tbladdonmodules')
+            ->where('module', 'cloudstorage')
+            ->pluck('value', 'setting');
+        $settingsMap = [];
+        foreach ($settings as $k => $v) {
+            $settingsMap[$k] = $v;
+        }
+
+        $agentEndpoint = $settingsMap['cloudbackup_agent_s3_endpoint'] ?? '';
+        if (empty($agentEndpoint)) {
+            $agentEndpoint = $settingsMap['s3_endpoint'] ?? '';
+        }
+        if (empty($agentEndpoint)) {
+            $agentEndpoint = 'https://s3.ca-central-1.eazybackup.com';
+        }
+        $agentRegion = $settingsMap['cloudbackup_agent_s3_region'] ?? ($settingsMap['s3_region'] ?? '');
+
+        // Decrypt access keys
+        $encKeyPrimary = $settingsMap['cloudbackup_encryption_key'] ?? '';
+        $encKeySecondary = $settingsMap['encryption_key'] ?? '';
+        $accessKeyRaw = $keys->access_key ?? '';
+        $secretKeyRaw = $keys->secret_key ?? '';
+
+        $decryptWith = function (?string $key) use ($accessKeyRaw, $secretKeyRaw) {
+            $ak = $accessKeyRaw;
+            $sk = $secretKeyRaw;
+            if ($key && $ak) {
+                $ak = HelperController::decryptKey($ak, $key);
+            }
+            if ($key && $sk) {
+                $sk = HelperController::decryptKey($sk, $key);
+            }
+            return [
+                is_string($ak) ? $ak : '',
+                is_string($sk) ? $sk : '',
+            ];
+        };
+
+        [$decAkPrimary, $decSkPrimary] = $decryptWith($encKeyPrimary);
+        $decAk = $decAkPrimary;
+        $decSk = $decSkPrimary;
+        if ($decAk === '' || $decSk === '') {
+            [$decAkSecondary, $decSkSecondary] = $decryptWith($encKeySecondary);
+            if ($decAkSecondary !== '' && $decSkSecondary !== '') {
+                $decAk = $decAkSecondary;
+                $decSk = $decSkSecondary;
+            }
+        }
+
+        $jobContext = [
+            'job_id' => (int) ($restorePoint->job_id ?? 0),
+            'run_id' => (int) ($payload['restore_run_id'] ?? 0),
+            'engine' => $restorePoint->engine ?? 'kopia',
+            'source_path' => $restorePoint->source_path ?? '',
+            'dest_type' => $restorePoint->dest_type ?? 's3',
+            'dest_bucket_name' => $bucket->name ?? '',
+            'dest_prefix' => $restorePoint->dest_prefix ?? '',
+            'dest_local_path' => $restorePoint->dest_local_path ?? '',
+            'dest_endpoint' => $agentEndpoint,
+            'dest_region' => $agentRegion,
+            'dest_access_key' => is_string($decAk) ? $decAk : '',
+            'dest_secret_key' => is_string($decSk) ? $decSk : '',
+            'local_bandwidth_limit_kbps' => 0,
+            'manifest_id' => $restorePoint->manifest_id ?? '',
+        ];
+
+        $commands[] = [
+            'command_id' => (int) $cmd->command_id,
+            'type' => $cmd->type,
+            'run_id' => (int) ($payload['restore_run_id'] ?? 0),
+            'job_id' => (int) ($restorePoint->job_id ?? 0),
+            'payload' => empty($payload) ? new \stdClass() : $payload,
+            'job_context' => $jobContext,
+        ];
+
+        Capsule::table('s3_cloudbackup_run_commands')
+            ->where('id', $cmd->command_id)
+            ->update(['status' => 'processing']);
+    }
     
     // Then, find pending commands for jobs owned by this agent
     // We join through: commands -> runs -> jobs to verify ownership

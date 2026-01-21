@@ -14,7 +14,7 @@ function cloudstorage_config()
         'description' => 'This module show the usage of your buckets.',
         'author' => 'eazybackup',
         'language' => 'english',
-        'version' => '2.1.4',
+        'version' => '2.1.5',
         'fields' => [
             's3_region' => [
                 'FriendlyName' => 'S3 Region',
@@ -1147,6 +1147,49 @@ function cloudstorage_activate() {
                 $table->foreign('run_id')->references('id')->on('s3_cloudbackup_runs')->onDelete('cascade');
             });
             logModuleCall('cloudstorage', 'activate', [], 'Created s3_cloudbackup_run_events table', [], []);
+        }
+
+        // Cloud Backup restore points table (persistent restore registry)
+        if (!Capsule::schema()->hasTable('s3_cloudbackup_restore_points')) {
+            Capsule::schema()->create('s3_cloudbackup_restore_points', function ($table) {
+                $table->bigIncrements('id');
+                $table->unsignedInteger('client_id');
+                $table->unsignedInteger('tenant_id')->nullable();
+                $table->unsignedInteger('tenant_user_id')->nullable();
+                $table->unsignedInteger('agent_id')->nullable();
+                $table->unsignedInteger('job_id')->nullable();
+                $table->string('job_name', 191)->nullable();
+                $table->unsignedBigInteger('run_id')->nullable();
+                $table->string('run_uuid', 36)->nullable();
+                $table->string('engine', 32)->nullable();
+                $table->string('status', 32)->nullable();
+                $table->string('manifest_id', 191)->nullable();
+                $table->string('source_type', 32)->nullable();
+                $table->string('source_display_name', 191)->nullable();
+                $table->string('source_path', 1024)->nullable();
+                $table->string('dest_type', 32)->nullable();
+                $table->unsignedInteger('dest_bucket_id')->nullable();
+                $table->string('dest_prefix', 1024)->nullable();
+                $table->string('dest_local_path', 1024)->nullable();
+                $table->unsignedInteger('s3_user_id')->nullable();
+                $table->unsignedInteger('hyperv_vm_id')->nullable();
+                $table->string('hyperv_vm_name', 191)->nullable();
+                $table->string('hyperv_backup_type', 32)->nullable();
+                $table->unsignedBigInteger('hyperv_backup_point_id')->nullable();
+                $table->mediumText('disk_manifests_json')->nullable();
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('finished_at')->nullable();
+
+                $table->index('client_id');
+                $table->index('tenant_id');
+                $table->index('agent_id');
+                $table->index('manifest_id');
+                $table->index('run_id');
+                $table->index('hyperv_vm_id');
+                $table->index('hyperv_backup_point_id');
+                $table->unique(['client_id', 'manifest_id'], 'uniq_restore_manifest');
+            });
+            logModuleCall('cloudstorage', 'activate', [], 'Created s3_cloudbackup_restore_points table', [], []);
         }
 
         // Cloud Backup reusable sources table
@@ -2467,6 +2510,49 @@ function cloudstorage_upgrade($vars) {
             logModuleCall('cloudstorage', 'upgrade', [], 'Created s3_cloudbackup_run_events table', [], []);
         }
 
+        // Ensure restore points table exists for upgraded installs
+        if (!\WHMCS\Database\Capsule::schema()->hasTable('s3_cloudbackup_restore_points')) {
+            \WHMCS\Database\Capsule::schema()->create('s3_cloudbackup_restore_points', function ($table) {
+                $table->bigIncrements('id');
+                $table->unsignedInteger('client_id');
+                $table->unsignedInteger('tenant_id')->nullable();
+                $table->unsignedInteger('tenant_user_id')->nullable();
+                $table->unsignedInteger('agent_id')->nullable();
+                $table->unsignedInteger('job_id')->nullable();
+                $table->string('job_name', 191)->nullable();
+                $table->unsignedBigInteger('run_id')->nullable();
+                $table->string('run_uuid', 36)->nullable();
+                $table->string('engine', 32)->nullable();
+                $table->string('status', 32)->nullable();
+                $table->string('manifest_id', 191)->nullable();
+                $table->string('source_type', 32)->nullable();
+                $table->string('source_display_name', 191)->nullable();
+                $table->string('source_path', 1024)->nullable();
+                $table->string('dest_type', 32)->nullable();
+                $table->unsignedInteger('dest_bucket_id')->nullable();
+                $table->string('dest_prefix', 1024)->nullable();
+                $table->string('dest_local_path', 1024)->nullable();
+                $table->unsignedInteger('s3_user_id')->nullable();
+                $table->unsignedInteger('hyperv_vm_id')->nullable();
+                $table->string('hyperv_vm_name', 191)->nullable();
+                $table->string('hyperv_backup_type', 32)->nullable();
+                $table->unsignedBigInteger('hyperv_backup_point_id')->nullable();
+                $table->mediumText('disk_manifests_json')->nullable();
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('finished_at')->nullable();
+
+                $table->index('client_id');
+                $table->index('tenant_id');
+                $table->index('agent_id');
+                $table->index('manifest_id');
+                $table->index('run_id');
+                $table->index('hyperv_vm_id');
+                $table->index('hyperv_backup_point_id');
+                $table->unique(['client_id', 'manifest_id'], 'uniq_restore_manifest');
+            });
+            logModuleCall('cloudstorage', 'upgrade', [], 'Created s3_cloudbackup_restore_points table', [], []);
+        }
+
         // Ensure prefix delete queue exists on upgrades
         if (!\WHMCS\Database\Capsule::schema()->hasTable('s3_delete_prefixes')) {
             \WHMCS\Database\Capsule::schema()->create('s3_delete_prefixes', function ($table) {
@@ -2818,6 +2904,11 @@ function cloudstorage_clientarea($vars) {
                     $pagetitle = 'e3 Cloud Backup - Jobs';
                     $templatefile = 'templates/e3backup_jobs';
                     $viewVars = require 'pages/e3backup_jobs.php';
+                    break;
+                case 'restores':
+                    $pagetitle = 'e3 Cloud Backup - Restores';
+                    $templatefile = 'templates/e3backup_restores';
+                    $viewVars = require 'pages/e3backup_restores.php';
                     break;
                 case 'runs':
                     $pagetitle = 'e3 Cloud Backup - Run History';

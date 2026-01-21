@@ -45,6 +45,7 @@
 - `s3_cloudbackup_run_logs`: structured run log stream.
 - `s3_cloudbackup_run_events`: vendor-agnostic event feed.
 - `s3_cloudbackup_run_commands`: queued commands for agents (`cancel`, `maintenance_quick/full`, `restore`, `mount`, `nas_mount`, `nas_unmount`, `list_hyperv_vms`).
+- `s3_cloudbackup_restore_points`: persistent restore registry (manifest_id, agent/tenant/job metadata, source/dest details, Hyper-V VM context). Designed to survive job deletion.
 - **Hyper-V specific tables**:
   - `s3_hyperv_vms`: VM registry (id, client_id, agent_id, vm_guid, vm_name, state, generation, rct_enabled, last_seen_at).
   - `s3_hyperv_vm_disks`: VM disk details (id, vm_id, disk_path, size_bytes, rct_id, controller_type).
@@ -1762,6 +1763,45 @@ The restore pipeline is independent of active backup runs. Key components:
 
 ### Email Notifications
 Restore runs trigger the same email notification flow as backups when terminal status is reached and notifications are enabled.
+
+---
+
+## Restore Points Registry (Jan 2026)
+
+Jobs are a configuration concept; restore data must survive job deletion. The restore registry decouples restores from jobs.
+
+### Data model
+- `s3_cloudbackup_restore_points` stores restore-ready snapshots with:
+  - **Identity**: `client_id`, `tenant_id`, `tenant_user_id`, `agent_id`
+  - **Linkage**: `job_id`, `job_name`, `run_id`, `run_uuid`
+  - **Snapshot**: `manifest_id`, `engine`, `status`, `created_at`, `finished_at`
+  - **Source/Destination**: `source_type`, `source_display_name`, `source_path`, `dest_type`, `dest_bucket_id`, `dest_prefix`, `dest_local_path`, `s3_user_id`
+  - **Hyper-V**: `hyperv_vm_id`, `hyperv_vm_name`, `hyperv_backup_type`, `hyperv_backup_point_id`, `disk_manifests_json`
+
+### Write path (server-side)
+- On terminal run completion (`success` or `warning`), `agent_update_run.php` records restore points:
+  - Non-Hyper-V: one restore point per run (manifest from `log_ref` or `stats_json.manifest_id`).
+  - Hyper-V: one restore point per VM backup point (`s3_hyperv_backup_points`) with disk manifests.
+- `CloudBackupController::recordRestorePointsForRun()` consolidates the logic.
+- Backfill tool: `crons/backfill_restore_points.php` to populate restore points from historical runs.
+
+### Restore start (client API)
+- `cloudbackup_start_restore.php` accepts **either**:
+  - `backup_run_id` (legacy path), or
+  - `restore_point_id` (new path).
+- For restore points, the API validates tenant/agent ownership and queues a restore command scoped to the agent.
+- Hyper-V restore points are redirected to the Hyper-V restore flow (see below).
+
+### Agent command delivery
+- `agent_poll_pending_commands.php` supports restore commands that are **agent-scoped** and **not tied to a run/job join**.
+- The agent receives full context constructed from restore point data (bucket, prefix, endpoint, access keys, manifest_id).
+
+### UI/UX
+- New **Restores** page: `index.php?m=cloudstorage&page=e3backup&view=restores`
+  - Tenant and Agent filters (MSP support), search by job name/manifest/VM.
+  - Restore wizard uses restore points (not jobs).
+- New list API: `api/e3backup_restore_points_list.php` (filters by tenant/agent/search).
+- Agents page includes a **Manage** drawer with “Open Restore Points” shortcut filtered by agent/tenant.
 
 ---
 

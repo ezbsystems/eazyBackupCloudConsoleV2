@@ -4,6 +4,7 @@ require_once __DIR__ . '/../../../../init.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Symfony\Component\HttpFoundation\JsonResponse;
+use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -320,6 +321,16 @@ try {
     if ((int) $affected === 0) {
         logModuleCall('cloudstorage', 'agent_update_run_noop', ['run_id' => $runId, 'agent_id' => $agent->id], ['update' => $update, 'affected' => $affected]);
     }
+
+    $finalStatus = isset($update['status']) ? strtolower((string) $update['status']) : null;
+    if ($finalStatus && in_array($finalStatus, ['success', 'warning'], true)) {
+        try {
+            CloudBackupController::recordRestorePointsForRun((int) $runId);
+        } catch (\Throwable $e) {
+            logModuleCall('cloudstorage', 'agent_update_run_restore_points_error', ['run_id' => $runId], $e->getMessage());
+        }
+    }
+
     respond(['status' => 'success']);
 } catch (\Throwable $e) {
     logModuleCall('cloudstorage', 'agent_update_run_error', ['run_id' => $runId, 'agent_id' => $agent->id], $e->getMessage());

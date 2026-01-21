@@ -412,6 +412,12 @@
                                     {if $smarty.get.view == 'jobs'} bg-[#1B2C50] font-semibold {/if}">
                                 Jobs
                             </a>
+                            <!-- Restores -->
+                            <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=restores" 
+                               class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
+                                    {if $smarty.get.view == 'restores'} bg-[#1B2C50] font-semibold {/if}">
+                                Restores
+                            </a>
                             <!-- Cloud NAS -->
                             <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=cloudnas" 
                                class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]

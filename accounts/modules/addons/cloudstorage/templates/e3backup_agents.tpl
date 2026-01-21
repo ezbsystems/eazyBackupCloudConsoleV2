@@ -206,6 +206,7 @@
                             <td class="px-4 py-3 text-slate-300" x-text="agent.created_at"></td>
                             <td class="px-4 py-3">
                                 <div class="flex gap-1">
+                                    <button @click="openManage(agent)" class="text-xs px-2 py-1 rounded bg-sky-900/30 border border-sky-700 hover:border-sky-500 text-sky-200">Manage</button>
                                     <button @click="toggleAgent(agent)" class="text-xs px-2 py-1 rounded bg-slate-800 border border-slate-700 hover:border-slate-500"
                                             x-text="agent.status === 'active' ? 'Disable' : 'Enable'"></button>
                                     <button @click="deleteAgent(agent)" class="text-xs px-2 py-1 rounded bg-rose-900/50 border border-rose-700 hover:border-rose-500 text-rose-200">Delete</button>
@@ -215,6 +216,61 @@
                     </template>
                 </tbody>
             </table>
+        </div>
+
+        <!-- Manage Drawer -->
+        <div x-show="manageOpen"
+             x-transition:enter="transition ease-out duration-200"
+             x-transition:enter-start="opacity-0"
+             x-transition:enter-end="opacity-100"
+             x-transition:leave="transition ease-in duration-150"
+             x-transition:leave-start="opacity-100"
+             x-transition:leave-end="opacity-0"
+             class="fixed inset-0 z-40"
+             style="display: none;">
+            <div class="absolute inset-0 bg-black/60" @click="closeManage()"></div>
+            <div class="absolute right-0 top-0 h-full w-full max-w-md bg-slate-950 border-l border-slate-800 shadow-2xl">
+                <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+                    <div>
+                        <h3 class="text-lg font-semibold text-white">Manage Agent</h3>
+                        <p class="text-xs text-slate-400 mt-1" x-text="selectedAgent ? (selectedAgent.hostname || ('Agent #' + selectedAgent.id)) : ''"></p>
+                    </div>
+                    <button class="text-slate-400 hover:text-white" @click="closeManage()">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="px-6 py-5 space-y-6">
+                    <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+                        <div class="text-xs uppercase tracking-wide text-slate-400">Restore</div>
+                        <p class="text-xs text-slate-400 mt-2">Launch restore points filtered to this agent.</p>
+                        <button class="mt-3 text-xs px-3 py-2 rounded bg-sky-600 text-white hover:bg-sky-500"
+                                @click="goToRestores(selectedAgent)">
+                            Open Restore Points
+                        </button>
+                    </div>
+
+                    <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+                        <div class="text-xs uppercase tracking-wide text-slate-400">Device Name</div>
+                        <p class="text-xs text-slate-400 mt-2">Update the device name shown in the UI.</p>
+                        <input type="text" class="mt-3 w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200"
+                               placeholder="Coming soon" disabled>
+                        <button class="mt-3 text-xs px-3 py-2 rounded bg-slate-700 text-slate-400 cursor-not-allowed" disabled>
+                            Save
+                        </button>
+                    </div>
+
+                    <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+                        <div class="text-xs uppercase tracking-wide text-slate-400">Updates</div>
+                        <p class="text-xs text-slate-400 mt-2">Trigger an agent policy refresh.</p>
+                        <button class="mt-3 text-xs px-3 py-2 rounded bg-slate-700 text-slate-400 cursor-not-allowed" disabled>
+                            Coming soon
+                        </button>
+                    </div>
+                </div>
+            </div>
         </div>
         </div>
     </div>
@@ -230,6 +286,8 @@ function agentsApp() {
         showDeviceId: false,
         showDeviceName: false,
         columnsOpen: false,
+        manageOpen: false,
+        selectedAgent: null,
         
         init() {
             // Persisted column preferences
@@ -316,6 +374,32 @@ function agentsApp() {
             } catch (e) {
                 alert('Failed to delete agent');
             }
+        }
+        ,
+        openManage(agent) {
+            this.selectedAgent = agent;
+            this.manageOpen = true;
+        },
+
+        closeManage() {
+            this.manageOpen = false;
+            this.selectedAgent = null;
+        },
+
+        goToRestores(agent) {
+            if (!agent) return;
+            const isMsp = {if $isMspClient}true{else}false{/if};
+            const params = [];
+            if (agent.id) params.push('agent_id=' + encodeURIComponent(agent.id));
+            if (isMsp) {
+                if (agent.tenant_id) {
+                    params.push('tenant_id=' + encodeURIComponent(agent.tenant_id));
+                } else {
+                    params.push('tenant_id=direct');
+                }
+            }
+            const qs = params.length ? '&' + params.join('&') : '';
+            window.location.href = 'index.php?m=cloudstorage&page=e3backup&view=restores' + qs;
         }
     };
 }
