@@ -95,6 +95,7 @@ if ($hasJobTenant) {
 $liveRuns = $liveRunsQuery
     ->where('j.client_id', $loggedInUserId)
     ->whereIn('r.status', ['running', 'starting', 'queued'])
+    ->whereNull('r.finished_at')
     ->orderByDesc('r.started_at')
     ->limit(8)
     ->get($liveSelect);
