@@ -24,10 +24,37 @@ $isMsp = MspController::isMspClient($clientId);
 $tenantFilter = $_GET['tenant_id'] ?? null;
 $agentFilter = $_GET['agent_id'] ?? null;
 $search = trim((string) ($_GET['search'] ?? ''));
+$fromDateRaw = trim((string) ($_GET['from_date'] ?? ''));
+$toDateRaw = trim((string) ($_GET['to_date'] ?? ''));
 $limit = isset($_GET['limit']) ? (int) $_GET['limit'] : 200;
 if ($limit <= 0 || $limit > 500) {
     $limit = 200;
 }
+$offset = isset($_GET['offset']) ? (int) $_GET['offset'] : 0;
+if ($offset < 0) {
+    $offset = 0;
+}
+
+function parseDateBound(string $raw, bool $endOfDay): ?string
+{
+    if ($raw === '') {
+        return null;
+    }
+    try {
+        $dt = new \DateTime($raw);
+        if ($endOfDay) {
+            $dt->setTime(23, 59, 59);
+        } else {
+            $dt->setTime(0, 0, 0);
+        }
+        return $dt->format('Y-m-d H:i:s');
+    } catch (\Throwable $e) {
+        return null;
+    }
+}
+
+$fromDate = parseDateBound($fromDateRaw, false);
+$toDate = parseDateBound($toDateRaw, true);
 
 if (!Capsule::schema()->hasTable('s3_cloudbackup_restore_points')) {
     (new JsonResponse(['status' => 'fail', 'message' => 'Restore points not available'], 200))->send();
@@ -68,6 +95,7 @@ try {
             'rp.created_at',
             'rp.finished_at',
             'a.hostname as agent_hostname',
+            'a.status as agent_status',
             'a.tenant_id as agent_tenant_id',
             'b.name as dest_bucket_name',
         ]);
@@ -88,6 +116,16 @@ try {
         $query->where('rp.agent_id', (int) $agentFilter);
     }
 
+    if ($fromDate || $toDate) {
+        $tsField = Capsule::raw('COALESCE(rp.finished_at, rp.created_at)');
+        if ($fromDate) {
+            $query->where($tsField, '>=', $fromDate);
+        }
+        if ($toDate) {
+            $query->where($tsField, '<=', $toDate);
+        }
+    }
+
     if ($search !== '') {
         $query->where(function ($q) use ($search) {
             $q->where('rp.job_name', 'like', '%' . $search . '%')
@@ -101,10 +139,21 @@ try {
 
     $points = $query
         ->orderByDesc('rp.created_at')
-        ->limit($limit)
+        ->offset($offset)
+        ->limit($limit + 1)
         ->get();
 
-    (new JsonResponse(['status' => 'success', 'restore_points' => $points], 200))->send();
+    $hasMore = $points->count() > $limit;
+    if ($hasMore) {
+        $points = $points->slice(0, $limit)->values();
+    }
+
+    (new JsonResponse([
+        'status' => 'success',
+        'restore_points' => $points,
+        'has_more' => $hasMore,
+        'next_offset' => $hasMore ? ($offset + $limit) : null,
+    ], 200))->send();
 } catch (\Throwable $e) {
     (new JsonResponse(['status' => 'fail', 'message' => 'Failed to load restore points'], 500))->send();
 }

@@ -60,7 +60,8 @@ foreach ($events as $e) {
             $params = $decoded;
         }
     }
-    $message = CloudBackupEventFormatter::render($e->message_id, $params);
+    $safeParams = CloudBackupEventFormatter::sanitizeParamsForOutput($params);
+    $message = CloudBackupEventFormatter::render($e->message_id, $safeParams);
     $out[] = [
         'id' => (int) $e->id,
         'ts' => (string) $e->ts,
@@ -68,7 +69,7 @@ foreach ($events as $e) {
         'level' => (string) $e->level,
         'code' => (string) $e->code,
         'message_id' => (string) $e->message_id,
-        'params' => $params,
+        'params' => $safeParams,
         'message' => $message,
     ];
     if (in_array((string)$e->message_id, ['PROGRESS_UPDATE','NO_CHANGES','SUMMARY_TOTAL'], true)) {

@@ -40,7 +40,7 @@
 
 ## Database tables (new/extended)
 - `s3_cloudbackup_agents`: agent registry (id, client_id, agent_token, hostname, status, last_seen_at).
-- `s3_cloudbackup_jobs`: adds `engine`, `dest_type`, `dest_bucket/prefix`, `dest_local_path`, `bucket_auto_create`, `schedule_json`, `retention_json`, `policy_json`, `bandwidth_limit_kbps`, `parallelism`, `encryption_mode`, `compression`, `local_include_glob`, `local_exclude_glob`, `local_bandwidth_limit_kbps`, `agent_id`, `last_policy_hash`, `hyperv_enabled`, `hyperv_config`.
+- `s3_cloudbackup_jobs`: adds `engine`, `dest_type`, `source_paths_json`, `dest_bucket/prefix`, `dest_local_path`, `bucket_auto_create`, `schedule_json`, `retention_json`, `policy_json`, `bandwidth_limit_kbps`, `parallelism`, `encryption_mode`, `compression`, `local_include_glob`, `local_exclude_glob`, `local_bandwidth_limit_kbps`, `agent_id`, `last_policy_hash`, `hyperv_enabled`, `hyperv_config`.
 - `s3_cloudbackup_runs`: adds `engine`, `dest_type`, `dest_bucket/prefix`, `dest_local_path`, `stats_json`, `progress_json`, `log_ref`, `policy_snapshot`, `worker_host`, `agent_id`, `disk_manifests_json`, `cancel_requested`.
 - `s3_cloudbackup_run_logs`: structured run log stream.
 - `s3_cloudbackup_run_events`: vendor-agnostic event feed.
@@ -1790,18 +1790,31 @@ Jobs are a configuration concept; restore data must survive job deletion. The re
   - `backup_run_id` (legacy path), or
   - `restore_point_id` (new path).
 - For restore points, the API validates tenant/agent ownership and queues a restore command scoped to the agent.
+- Optional `target_agent_id` allows restoring to a different active agent (same tenant or direct-only). Required when the original agent is missing.
+- Optional `selected_paths` (Kopia only) allows file/folder-level restores from a snapshot.
 - Hyper-V restore points are redirected to the Hyper-V restore flow (see below).
 
 ### Agent command delivery
 - `agent_poll_pending_commands.php` supports restore commands that are **agent-scoped** and **not tied to a run/job join**.
 - The agent receives full context constructed from restore point data (bucket, prefix, endpoint, access keys, manifest_id).
+- Snapshot browsing for Kopia uses `browse_snapshot` commands (queued via `agent_browse_snapshot.php`).
 
 ### UI/UX
 - New **Restores** page: `index.php?m=cloudstorage&page=e3backup&view=restores`
-  - Tenant and Agent filters (MSP support), search by job name/manifest/VM.
-  - Restore wizard uses restore points (not jobs).
-- New list API: `api/e3backup_restore_points_list.php` (filters by tenant/agent/search).
+  - Tenant and Agent filters (MSP support), date range filters, search by job name/manifest/VM.
+  - MSPs default to “select a filter to load results” to avoid large lists.
+  - Restore wizard uses restore points (not jobs), includes destination agent selection.
+  - Kopia restore points support snapshot browsing and multi-select file/folder restore.
+  - Destination step includes remote filesystem browse for target paths.
+- New list API: `api/e3backup_restore_points_list.php` (filters by tenant/agent/search/date with pagination).
 - Agents page includes a **Manage** drawer with “Open Restore Points” shortcut filtered by agent/tenant.
+- Restore wizard now queues `browse_snapshot` + `browse_filesystem` commands and submits an optional `target_agent_id` plus `selected_paths` payload (Kopia only), letting users restore file selections and choose a new agent when the original is gone.
+
+### Backend Enhancements (Jan 2026)
+- `cloudbackup_start_restore.php` validates the optional `target_agent_id`, enforces tenant/agent ownership, and stores the `selected_paths` list that the agent will use for targeted Kopia restores.
+- `agent_poll_pending_commands.php` and `agent_report_browse.php` now understand the `browse_snapshot` command type so agents can stream snapshot listings to the wizard.
+- `agent_browse_snapshot.php` queues the `browse_snapshot` command when the UI requests a directory listing and returns structured entries for the browser UI.
+- `api/e3backup_restore_points_list.php` exposes paginated, filtered restore points (tenant, agent, date range, search) so the UI can remain performant.
 
 ---
 
@@ -2301,6 +2314,7 @@ Both buttons use orange styling (`bg-orange-600`) and include platform icons.
   - Selected paths are synced to hidden inputs as `source_paths` (JSON array) plus `source_path` (first entry for backward compatibility).
 - **Data model**:
   - If column `source_paths_json` exists on `s3_cloudbackup_jobs`, it is populated with the array; otherwise only `source_path` is set to the first selection (compatibility mode).
+  - Paths are normalized via `sanitizePathInput()` (HTML entity decode + trim quotes/whitespace) before persisting, and the Go agent also runs `sanitizeSourcePath()` so stored values are safe for Windows APIs.
 
 ---
 

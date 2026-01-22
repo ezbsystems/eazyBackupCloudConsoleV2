@@ -32,37 +32,19 @@
         <div class="mb-4 flex flex-col sm:flex-row sm:items-center gap-3">
             <div class="flex items-center gap-3">
                 <label class="text-sm text-slate-400">Filter by Tenant:</label>
-                <div
-                    x-data="{
-                        isOpen: false,
-                        tenantLabel() {
-                            if (!this.tenantFilter) return 'All Agents';
-                            if (this.tenantFilter === 'direct') return 'Direct (No Tenant)';
-                            try {
-                                const sel = String(this.tenantFilter);
-                                const safe = sel.split('\"').join('\\\\\"');
-                                const el = document.querySelector('[data-agents-tenant-option=\"' + safe + '\"]');
-                                const txt = el ? String(el.textContent || '').trim() : '';
-                                if (txt) return txt;
-                            } catch (e) {}
-                            return 'Tenant ' + this.tenantFilter;
-                        }
-                    }"
-                    class="relative"
-                    @click.away="isOpen = false"
-                >
+                <div class="relative" @click.away="tenantMenuOpen = false">
                     <button
                         type="button"
-                        @click="isOpen = !isOpen"
+                        @click="tenantMenuOpen = !tenantMenuOpen"
                         class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500"
                     >
                         <span class="truncate max-w-[14rem]" x-text="tenantLabel()"></span>
-                        <svg class="w-4 h-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                        <svg class="w-4 h-4 transition-transform" :class="tenantMenuOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                             <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
                         </svg>
                     </button>
                     <div
-                        x-show="isOpen"
+                        x-show="tenantMenuOpen"
                         x-transition:enter="transition ease-out duration-100"
                         x-transition:enter-start="opacity-0 scale-95"
                         x-transition:enter-end="opacity-100 scale-100"
@@ -80,7 +62,7 @@
                                 type="button"
                                 class="w-full px-4 py-2 text-left text-sm transition"
                                 :class="tenantFilter === '' ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
-                                @click="tenantFilter=''; isOpen=false; loadAgents()"
+                                @click="tenantFilter=''; tenantMenuOpen=false; loadAgents()"
                                 data-agents-tenant-option=""
                             >
                                 All Agents
@@ -89,7 +71,7 @@
                                 type="button"
                                 class="w-full px-4 py-2 text-left text-sm transition"
                                 :class="tenantFilter === 'direct' ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
-                                @click="tenantFilter='direct'; isOpen=false; loadAgents()"
+                                @click="tenantFilter='direct'; tenantMenuOpen=false; loadAgents()"
                                 data-agents-tenant-option="direct"
                             >
                                 Direct (No Tenant)
@@ -99,7 +81,7 @@
                                 type="button"
                                 class="w-full px-4 py-2 text-left text-sm transition"
                                 :class="String(tenantFilter) === String('{$tenant->id}') ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
-                                @click="tenantFilter='{$tenant->id}'; isOpen=false; loadAgents()"
+                                @click="tenantFilter='{$tenant->id}'; tenantMenuOpen=false; loadAgents()"
                                 data-agents-tenant-option="{$tenant->id}"
                             >
                                 {$tenant->name|escape}
@@ -282,7 +264,9 @@ function agentsApp() {
     return {
         agents: [],
         loading: true,
+        tenants: {/literal}{if $tenants}{$tenants|json_encode nofilter}{else}[]{/if}{literal},
         tenantFilter: '',
+        tenantMenuOpen: false,
         showDeviceId: false,
         showDeviceName: false,
         columnsOpen: false,
@@ -304,6 +288,13 @@ function agentsApp() {
         initWatches() {
             this.$watch('showDeviceId', () => this.persistColumns());
             this.$watch('showDeviceName', () => this.persistColumns());
+        },
+
+        tenantLabel() {
+            if (!this.tenantFilter) return 'All Agents';
+            if (this.tenantFilter === 'direct') return 'Direct (No Tenant)';
+            const match = (this.tenants || []).find(t => String(t.id) === String(this.tenantFilter));
+            return match ? match.name : `Tenant ${this.tenantFilter}`;
         },
 
         persistColumns() {
@@ -388,7 +379,7 @@ function agentsApp() {
 
         goToRestores(agent) {
             if (!agent) return;
-            const isMsp = {if $isMspClient}true{else}false{/if};
+            const isMsp = {/literal}{if $isMspClient}true{else}false{/if}{literal};
             const params = [];
             if (agent.id) params.push('agent_id=' + encodeURIComponent(agent.id));
             if (isMsp) {

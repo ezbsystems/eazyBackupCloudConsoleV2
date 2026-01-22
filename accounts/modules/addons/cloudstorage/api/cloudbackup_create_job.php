@@ -51,6 +51,13 @@ function normalizeJsonString($value): ?string
     return null;
 }
 
+function sanitizePathInput(string $value): string
+{
+    $decoded = html_entity_decode($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $trimmed = trim($decoded);
+    return trim($trimmed, " \t\n\r\0\x0B\"'");
+}
+
 $ca = new ClientArea();
 if (!$ca->isLoggedIn()) {
     respondJson(['status' => 'fail', 'message' => 'Session timeout.'], 200);
@@ -109,6 +116,9 @@ if (!isset($_POST['source_path']) || $_POST['source_path'] === '') {
     }
     $_POST['source_path'] = $mapped;
 }
+if (isset($_POST['source_path'])) {
+    $_POST['source_path'] = sanitizePathInput((string) $_POST['source_path']);
+}
 
 // Normalize source_paths (multi-select from Local Agent file browser)
 $sourcePaths = [];
@@ -128,6 +138,7 @@ if (isset($_POST['source_paths'])) {
         }
     }
 }
+$sourcePaths = array_values(array_filter(array_map('sanitizePathInput', $sourcePaths), fn($p) => $p !== ''));
 $primarySourcePath = $_POST['source_path'] ?? '';
 if (!empty($sourcePaths)) {
     $primarySourcePath = $sourcePaths[0];

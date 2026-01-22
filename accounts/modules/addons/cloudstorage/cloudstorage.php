@@ -14,7 +14,7 @@ function cloudstorage_config()
         'description' => 'This module show the usage of your buckets.',
         'author' => 'eazybackup',
         'language' => 'english',
-        'version' => '2.1.5',
+        'version' => '2.1.6',
         'fields' => [
             's3_region' => [
                 'FriendlyName' => 'S3 Region',
@@ -1047,6 +1047,7 @@ function cloudstorage_activate() {
             $table->string('source_display_name', 191);
             $table->mediumText('source_config_enc');
             $table->string('source_path', 1024);
+            $table->json('source_paths_json')->nullable();
             $table->unsignedInteger('dest_bucket_id');
             $table->string('dest_prefix', 1024);
             $table->enum('backup_mode', ['sync', 'archive'])->default('sync');
@@ -1405,6 +1406,12 @@ function cloudstorage_activate() {
                     $table->index('source_connection_id');
                 });
                 logModuleCall('cloudstorage', 'activate', [], 'Added source_connection_id to s3_cloudbackup_jobs', [], []);
+            }
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'source_paths_json')) {
+                \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_jobs', function ($table) {
+                    $table->json('source_paths_json')->nullable()->after('source_path');
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Added source_paths_json to s3_cloudbackup_jobs', [], []);
             }
             // Add agent_id for local agent binding (nullable to preserve existing jobs)
             if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'agent_id')) {

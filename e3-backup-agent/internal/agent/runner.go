@@ -211,6 +211,8 @@ func (r *Runner) executePendingCommand(cmd PendingCommand) {
 		r.executeNASUnmountSnapshotCommand(ctx, cmd)
 	case "browse_directory":
 		r.executeBrowseCommand(cmd)
+	case "browse_snapshot":
+		r.executeBrowseSnapshotCommand(ctx, cmd)
 	case "list_hyperv_vms":
 		r.executeListHypervVMsCommand(ctx, cmd)
 	case "hyperv_restore":
@@ -233,6 +235,7 @@ func (r *Runner) executeRestoreCommand(ctx context.Context, cmd PendingCommand) 
 	targetPath := ""
 	mount := false
 	var restoreRunID int64 = 0
+	var selectedPaths []string
 	if cmd.Payload != nil {
 		if v, ok := cmd.Payload["manifest_id"].(string); ok {
 			manifestID = v
@@ -242,6 +245,34 @@ func (r *Runner) executeRestoreCommand(ctx context.Context, cmd PendingCommand) 
 		}
 		if v, ok := cmd.Payload["mount"].(bool); ok {
 			mount = v
+		}
+		if v, ok := cmd.Payload["selected_paths"]; ok {
+			switch t := v.(type) {
+			case []any:
+				for _, item := range t {
+					if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+						selectedPaths = append(selectedPaths, strings.TrimSpace(s))
+					}
+				}
+			case []string:
+				for _, s := range t {
+					if strings.TrimSpace(s) != "" {
+						selectedPaths = append(selectedPaths, strings.TrimSpace(s))
+					}
+				}
+			case string:
+				trimmed := strings.TrimSpace(t)
+				if trimmed != "" {
+					var decoded []string
+					if err := json.Unmarshal([]byte(trimmed), &decoded); err == nil {
+						for _, s := range decoded {
+							if strings.TrimSpace(s) != "" {
+								selectedPaths = append(selectedPaths, strings.TrimSpace(s))
+							}
+						}
+					}
+				}
+			}
 		}
 		// Get restore_run_id for progress tracking (if provided by new API)
 		if v, ok := cmd.Payload["restore_run_id"].(float64); ok {
@@ -309,6 +340,8 @@ func (r *Runner) executeRestoreCommand(ctx context.Context, cmd PendingCommand) 
 	var err error
 	if mount {
 		err = r.kopiaMount(ctx, run, manifestID, targetPath)
+	} else if len(selectedPaths) > 0 {
+		err = r.kopiaRestoreSelectedPaths(ctx, run, manifestID, targetPath, selectedPaths, trackingRunID)
 	} else {
 		err = r.kopiaRestoreWithProgress(ctx, run, manifestID, targetPath, trackingRunID)
 	}
@@ -318,15 +351,15 @@ func (r *Runner) executeRestoreCommand(ctx context.Context, cmd PendingCommand) 
 	msg := fmt.Sprintf("restore completed to %s", targetPath)
 	if err != nil {
 		status = "failed"
-		errMsg = err.Error()
-		msg = err.Error()
+		errMsg = sanitizeErrorMessage(err)
+		msg = errMsg
 		log.Printf("agent: restore command %d failed: %v", cmd.CommandID, err)
 		r.pushEvents(trackingRunID, RunEvent{
 			Type:      "error",
 			Level:     "error",
 			MessageID: "RESTORE_FAILED",
 			ParamsJSON: map[string]any{
-				"error":       err.Error(),
+				"error":       errMsg,
 				"manifest_id": manifestID,
 				"target_path": targetPath,
 			},
@@ -720,7 +753,7 @@ func (r *Runner) runKopia(run *NextRunResponse) error {
 		Level:     "info",
 		MessageID: "BACKUP_STARTING",
 		ParamsJSON: map[string]any{
-			"engine": "kopia",
+			"engine": "eazyBackup",
 		},
 	})
 
@@ -768,7 +801,7 @@ loop:
 		status = "cancelled"
 	} else if runErr != nil {
 		status = "failed"
-		errMsg = runErr.Error()
+		errMsg = sanitizeErrorMessage(runErr)
 		log.Printf("agent: run %d (kopia) error: %v", run.RunID, runErr)
 	}
 
@@ -787,7 +820,7 @@ loop:
 			Level:     "info",
 			MessageID: "COMPLETED_SUCCESS",
 			ParamsJSON: map[string]any{
-				"engine": "kopia",
+				"engine": "eazyBackup",
 			},
 		})
 	case "cancelled":
@@ -803,7 +836,7 @@ loop:
 			MessageID: "COMPLETED_FAILED",
 			ParamsJSON: map[string]any{
 				"error":  errMsg,
-				"engine": "kopia",
+				"engine": "eazyBackup",
 			},
 		})
 	}

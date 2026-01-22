@@ -181,6 +181,9 @@ class CloudBackupController {
             if (isset($data['agent_id'])) {
                 $jobData['agent_id'] = $data['agent_id'];
             }
+            if (array_key_exists('source_paths_json', $data)) {
+                $jobData['source_paths_json'] = $data['source_paths_json'];
+            }
             // Only include optional columns that exist in the schema
             $optionalCols = [
                 'source_connection_id',
@@ -255,6 +258,9 @@ class CloudBackupController {
             }
             if (isset($data['source_path'])) {
                 $updateData['source_path'] = $data['source_path'];
+            }
+            if (array_key_exists('source_paths_json', $data)) {
+                $updateData['source_paths_json'] = $data['source_paths_json'];
             }
             if (array_key_exists('source_connection_id', $data)) {
                 $updateData['source_connection_id'] = $data['source_connection_id'];
