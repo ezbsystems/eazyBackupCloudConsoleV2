@@ -37,8 +37,19 @@ if (!$ca->isLoggedIn()) {
 $clientId = $ca->getUserID();
 $backupRunIdentifier = $_POST['backup_run_uuid'] ?? ($_POST['backup_run_id'] ?? null);
 $restorePointId = isset($_POST['restore_point_id']) ? (int) $_POST['restore_point_id'] : 0;
+$targetAgentId = isset($_POST['target_agent_id']) ? (int) $_POST['target_agent_id'] : 0;
 $targetPath = isset($_POST['target_path']) ? trim((string) $_POST['target_path']) : '';
 $mount = isset($_POST['mount']) && $_POST['mount'] === 'true';
+$selectedPathsRaw = $_POST['selected_paths'] ?? null;
+$selectedPaths = [];
+if (is_array($selectedPathsRaw)) {
+    $selectedPaths = array_values(array_filter(array_map('strval', $selectedPathsRaw), fn($p) => trim($p) !== ''));
+} elseif (is_string($selectedPathsRaw) && trim($selectedPathsRaw) !== '') {
+    $decoded = json_decode($selectedPathsRaw, true);
+    if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+        $selectedPaths = array_values(array_filter(array_map('strval', $decoded), fn($p) => trim($p) !== ''));
+    }
+}
 
 // Validate inputs
 if (empty($backupRunIdentifier) && $restorePointId <= 0) {
@@ -53,6 +64,7 @@ $backupRunId = 0;
 $restorePoint = null;
 $job = null;
 $manifestId = '';
+$targetAgent = null;
 
 if ($restorePointId > 0) {
     if (!Capsule::schema()->hasTable('s3_cloudbackup_restore_points')) {
@@ -101,6 +113,35 @@ if ($restorePointId > 0) {
         ->first();
     if (!$job) {
         respond(['status' => 'fail', 'message' => 'Backup job not found for this restore point']);
+    }
+
+    $originalAgentId = (int) ($restorePoint->agent_id ?? 0);
+    $desiredAgentId = $targetAgentId > 0 ? $targetAgentId : $originalAgentId;
+    if ($desiredAgentId <= 0) {
+        respond(['status' => 'fail', 'message' => 'Destination agent is required.']);
+    }
+
+    $targetAgent = Capsule::table('s3_cloudbackup_agents')
+        ->where('id', $desiredAgentId)
+        ->where('client_id', $clientId)
+        ->first(['id', 'status', 'tenant_id']);
+
+    if (!$targetAgent || $targetAgent->status !== 'active') {
+        if ($targetAgentId <= 0) {
+            respond(['status' => 'fail', 'message' => 'Original agent is unavailable. Select a destination agent.']);
+        }
+        respond(['status' => 'fail', 'message' => 'Selected agent not found or inactive.']);
+    }
+
+    $restoreTenantId = $restorePoint->tenant_id ?? null;
+    if ($restoreTenantId) {
+        if ((int) $targetAgent->tenant_id !== (int) $restoreTenantId) {
+            respond(['status' => 'fail', 'message' => 'Destination agent does not belong to the same tenant.']);
+        }
+    } else {
+        if (!empty($targetAgent->tenant_id)) {
+            respond(['status' => 'fail', 'message' => 'Destination agent must be a direct (non-tenant) agent.']);
+        }
     }
 } else {
     $backupRun = CloudBackupController::getRun($backupRunIdentifier, $clientId);
@@ -159,7 +200,7 @@ try {
     $restoreRunUuid = null;
     $commandId = null;
 
-    Capsule::connection()->transaction(function () use ($backupRun, $backupRunId, $restorePoint, $manifestId, $targetPath, $mount, $job, &$restoreRunId, &$restoreRunUuid, &$commandId) {
+    Capsule::connection()->transaction(function () use ($backupRun, $backupRunId, $restorePoint, $manifestId, $targetPath, $mount, $job, $targetAgent, $targetAgentId, &$restoreRunId, &$restoreRunUuid, &$commandId) {
         // Determine which columns exist for the runs table
         $hasAgentIdRuns = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'agent_id');
         $hasEngineColumn = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'engine');
@@ -176,7 +217,7 @@ try {
         
         // Add optional columns if they exist
         if ($hasAgentIdRuns) {
-            $agentId = $job->agent_id ?? ($restorePoint ? $restorePoint->agent_id : null);
+            $agentId = $targetAgent ? ($targetAgent->id ?? null) : ($job->agent_id ?? ($restorePoint ? $restorePoint->agent_id : null));
             if ($agentId) {
                 $runData['agent_id'] = $agentId;
             }
@@ -202,6 +243,12 @@ try {
         if (!empty($restorePoint) && !empty($restorePoint->id)) {
             $restoreMetadata['restore_point_id'] = (int) $restorePoint->id;
         }
+        if ($targetAgentId > 0) {
+            $restoreMetadata['target_agent_id'] = $targetAgentId;
+        }
+        if (!empty($selectedPaths)) {
+            $restoreMetadata['selected_paths'] = $selectedPaths;
+        }
         
         if (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'stats_json')) {
             $runData['stats_json'] = json_encode($restoreMetadata);
@@ -218,13 +265,15 @@ try {
         // Queue the restore command (references the BACKUP run for job context)
         $commandId = Capsule::table('s3_cloudbackup_run_commands')->insertGetId([
             'run_id' => $backupRunId ?: null,
-            'agent_id' => $restorePoint ? ($restorePoint->agent_id ?? null) : null,
+            'agent_id' => $targetAgent ? ($targetAgent->id ?? null) : ($restorePoint ? ($restorePoint->agent_id ?? null) : null),
             'type' => 'restore',
             'payload_json' => json_encode([
                 'restore_point_id' => $restorePoint ? ($restorePoint->id ?? null) : null,
                 'manifest_id' => $manifestId,
                 'target_path' => $targetPath,
                 'mount' => $mount,
+                'target_agent_id' => $targetAgent ? ($targetAgent->id ?? null) : null,
+                'selected_paths' => !empty($selectedPaths) ? $selectedPaths : null,
                 'restore_run_id' => $restoreRunId, // Reference to progress tracking run
                 'restore_run_uuid' => $restoreRunUuid,
             ]),

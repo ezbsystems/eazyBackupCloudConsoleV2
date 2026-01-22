@@ -144,7 +144,7 @@ try {
         ->where('agent_id', $agent->id)
         ->whereNull('run_id')
         ->where('status', 'pending')
-        ->whereIn('type', ['restore', 'hyperv_restore'])
+        ->whereIn('type', ['restore', 'hyperv_restore', 'browse_snapshot'])
         ->orderBy('id', 'asc')
         ->limit(5)
         ->get(['id as command_id', 'run_id', 'type', 'payload_json', 'agent_id']);

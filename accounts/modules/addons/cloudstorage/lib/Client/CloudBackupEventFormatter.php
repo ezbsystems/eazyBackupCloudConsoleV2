@@ -211,7 +211,8 @@ class CloudBackupEventFormatter
         // Sanitize branding in all string params
         foreach ($out as $key => $value) {
             if (is_string($value)) {
-                $out[$key] = self::sanitizeBranding($value);
+                $decoded = html_entity_decode($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+                $out[$key] = self::sanitizeBranding($decoded);
             }
         }
         
@@ -269,6 +270,17 @@ class CloudBackupEventFormatter
             $out['manifest_id'] = substr($params['manifest_id'], 0, 16) . '...';
         }
         return $out;
+    }
+
+    /**
+     * Public wrapper for sanitized params in API responses.
+     *
+     * @param array $params
+     * @return array
+     */
+    public static function sanitizeParamsForOutput(array $params)
+    {
+        return self::sanitizeParams($params);
     }
 
     private static function formatEta($seconds)

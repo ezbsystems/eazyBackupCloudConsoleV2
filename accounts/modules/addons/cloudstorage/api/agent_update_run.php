@@ -68,6 +68,25 @@ function recordForcedRunFailureEvent(int $runId, string $summary): void
     }
 }
 
+function sanitizeBranding(string $text): string
+{
+    if ($text === '') {
+        return $text;
+    }
+    $decoded = html_entity_decode($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $patterns = [
+        '/\bKopia\b/i' => 'eazyBackup',
+        '/\bkopia\b/i' => 'eazyBackup',
+        '/kopia:/i' => 'backup engine:',
+        '/kopia\s+upload/i' => 'upload',
+        '/kopia\s+error/i' => 'backup error',
+    ];
+    foreach ($patterns as $pattern => $replacement) {
+        $decoded = preg_replace($pattern, $replacement, $decoded);
+    }
+    return $decoded;
+}
+
 $body = getBodyJson();
 $runId = $_POST['run_id'] ?? ($body['run_id'] ?? null);
 if (!$runId) {
@@ -131,7 +150,11 @@ foreach ($fields as $field) {
         $update[$field] = is_array($val) ? json_encode($val) : $val;
         continue;
     }
-    $update[$field] = $val;
+    if (in_array($field, ['error_summary', 'log_excerpt', 'validation_log_excerpt'], true) && is_string($val)) {
+        $update[$field] = sanitizeBranding($val);
+    } else {
+        $update[$field] = $val;
+    }
 }
 
 // Allow manifest_id alias to log_ref (e.g., agents posting manifest separately)

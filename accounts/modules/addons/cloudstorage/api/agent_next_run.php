@@ -67,6 +67,13 @@ function getBoolEnv(string $key, bool $default): bool
     return $default;
 }
 
+function sanitizePathInput(string $value): string
+{
+    $decoded = html_entity_decode($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $trimmed = trim($decoded);
+    return trim($trimmed, " \t\n\r\0\x0B\"'");
+}
+
 function getModuleSetting(string $key, $default = null)
 {
     try {
@@ -393,6 +400,7 @@ try {
             }
         }
 
+        $sourcePath = sanitizePathInput((string) ($job->source_path ?? ''));
         $runData = [
             'run_id' => $run->id,
             'job_id' => $run->job_id,
@@ -400,7 +408,7 @@ try {
             'source_type' => $sourceTypeVal,
             'dest_type' => $job->dest_type ?? 's3',
             'bucket_auto_create' => (bool) ($job->bucket_auto_create ?? false),
-            'source_path' => $job->source_path ?? '',
+            'source_path' => $sourcePath,
             'local_include_glob' => $job->local_include_glob ?? '',
             'local_exclude_glob' => $job->local_exclude_glob ?? '',
             'local_bandwidth_limit_kbps' => $job->local_bandwidth_limit_kbps ?? 0,

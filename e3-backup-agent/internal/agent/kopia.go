@@ -11,6 +11,7 @@ import (
 	"math"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -97,6 +98,7 @@ func (r *Runner) kopiaSnapshotWithEntry(ctx context.Context, run *NextRunRespons
 
 	// Basic validation of source path before doing heavy work (only when using filesystem path).
 	if entryOverride == nil {
+		run.SourcePath = sanitizeSourcePath(run.SourcePath)
 		stat, err := os.Stat(run.SourcePath)
 		if err != nil {
 			return fmt.Errorf("kopia: source path stat failed: %w", err)
@@ -595,6 +597,13 @@ func (r *Runner) kopiaSnapshotWithEntry(ctx context.Context, run *NextRunRespons
 	return nil
 }
 
+func sanitizeSourcePath(raw string) string {
+	s := strings.TrimSpace(raw)
+	s = strings.ReplaceAll(s, "&quot;", "\"")
+	s = strings.ReplaceAll(s, "&#34;", "\"")
+	return strings.Trim(s, "\"'")
+}
+
 // kopiaSnapshotDiskImage runs a Kopia snapshot for disk image backups.
 // It uses a stable source path (e.g., "C:") for SourceInfo to enable proper deduplication
 // across runs, while reading data from the provided entry (e.g., VSS snapshot device).
@@ -1088,7 +1097,9 @@ func (r *Runner) kopiaRestore(ctx context.Context, run *NextRunResponse, manifes
 		OverwriteFiles:       true,
 		OverwriteSymlinks:    true,
 	}
-	_, err = restore.Entry(ctx, rep, out, rootEntry, restore.Options{})
+	_, err = restore.Entry(ctx, rep, out, rootEntry, restore.Options{
+		RestoreDirEntryAtDepth: math.MaxInt32,
+	})
 	return err
 }
 
@@ -1218,6 +1229,7 @@ func (r *Runner) kopiaRestoreWithProgress(ctx context.Context, run *NextRunRespo
 	stats, err := restore.Entry(ctx, rep, out, rootEntry, restore.Options{
 		ProgressCallback: progressCounter.onProgress,
 		Parallel:         4, // Use parallel restore for better performance
+		RestoreDirEntryAtDepth: math.MaxInt32,
 	})
 
 	if err != nil {
@@ -1258,6 +1270,106 @@ func (r *Runner) kopiaRestoreWithProgress(ctx context.Context, run *NextRunRespo
 			"errors":         stats.IgnoredErrorCount,
 		},
 	})
+
+	return nil
+}
+
+// kopiaRestoreSelectedPaths restores a subset of snapshot paths to the target path.
+func (r *Runner) kopiaRestoreSelectedPaths(ctx context.Context, run *NextRunResponse, manifestID, targetPath string, selectedPaths []string, runID int64) error {
+	opts := kopiaOptionsFromRun(r.cfg, run)
+	repoPath := filepath.Join(r.cfg.RunDir, "kopia", fmt.Sprintf("job_%d.config", run.JobID))
+	password := opts.password()
+
+	if _, statErr := os.Stat(repoPath); os.IsNotExist(statErr) {
+		log.Printf("agent: kopia repo config not found at %s, connecting to remote repo", repoPath)
+		st, stErr := opts.storage(ctx)
+		if stErr != nil {
+			return fmt.Errorf("kopia: storage init for restore: %w", stErr)
+		}
+		if connErr := repo.Connect(ctx, repoPath, st, password, nil); connErr != nil {
+			return fmt.Errorf("kopia: connect to repo for restore failed: %w", connErr)
+		}
+	}
+
+	rep, err := repo.Open(ctx, repoPath, password, nil)
+	if err != nil {
+		return fmt.Errorf("kopia: open repo for restore: %w", err)
+	}
+	defer rep.Close(ctx)
+
+	if err := os.MkdirAll(targetPath, 0o755); err != nil {
+		return fmt.Errorf("kopia: mkdir target: %w", err)
+	}
+
+	man, err := snapshot.LoadSnapshot(ctx, rep, manifest.ID(manifestID))
+	if err != nil {
+		return fmt.Errorf("kopia: load snapshot: %w", err)
+	}
+
+	rootEntry := snapshotfs.EntryFromDirEntry(rep, man.RootEntry)
+	if rootEntry == nil {
+		return fmt.Errorf("kopia: failed to create root entry from snapshot")
+	}
+
+	progressCounter := &restoreProgressCounter{
+		runner: r,
+		runID:  runID,
+	}
+
+	unique := map[string]struct{}{}
+	paths := make([]string, 0, len(selectedPaths))
+	for _, raw := range selectedPaths {
+		p := normalizeSnapshotPath(raw)
+		if p == "" {
+			continue
+		}
+		if _, exists := unique[p]; exists {
+			continue
+		}
+		unique[p] = struct{}{}
+		paths = append(paths, p)
+	}
+	if len(paths) == 0 {
+		return fmt.Errorf("kopia: no valid paths selected")
+	}
+
+	for _, rel := range paths {
+		entry, err := findSnapshotEntry(ctx, rootEntry, rel)
+		if err != nil {
+			return fmt.Errorf("kopia: selected path not found (%s): %w", rel, err)
+		}
+
+		parentRel := path.Dir(rel)
+		if parentRel == "." || parentRel == "/" {
+			parentRel = ""
+		}
+		destBase := targetPath
+		if parentRel != "" {
+			destBase = filepath.Join(targetPath, filepath.FromSlash(parentRel))
+		}
+		if err := os.MkdirAll(destBase, 0o755); err != nil {
+			return fmt.Errorf("kopia: mkdir target for %s: %w", rel, err)
+		}
+
+		fsOut := &restore.FilesystemOutput{
+			TargetPath:           destBase,
+			OverwriteDirectories: true,
+			OverwriteFiles:       true,
+			OverwriteSymlinks:    true,
+			WriteFilesAtomically: false,
+			SkipOwners:           true,
+			SkipPermissions:      true,
+		}
+		out := &fullRestoreOutput{fsOut}
+
+		if _, err := restore.Entry(ctx, rep, out, entry, restore.Options{
+			ProgressCallback: progressCounter.onProgress,
+			Parallel:         4,
+			RestoreDirEntryAtDepth: math.MaxInt32,
+		}); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }
@@ -1965,6 +2077,7 @@ func (r *Runner) kopiaRestoreVHDX(ctx context.Context, run *NextRunResponse, man
 			stats, err := restore.Entry(ctx, rep, singleFileOut, rootEntry, restore.Options{
 				ProgressCallback: progressCounter.onProgress,
 				Parallel:         parallelFactor,
+				RestoreDirEntryAtDepth: math.MaxInt32,
 			})
 
 			if err != nil {
@@ -2004,6 +2117,7 @@ func (r *Runner) kopiaRestoreVHDX(ctx context.Context, run *NextRunResponse, man
 			stats, err := restore.Entry(ctx, rep, out, rootEntry, restore.Options{
 				ProgressCallback: progressCounter.onProgress,
 				Parallel:         parallelFactor,
+				RestoreDirEntryAtDepth: math.MaxInt32,
 			})
 
 			if err != nil {
