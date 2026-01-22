@@ -181,6 +181,7 @@ type NextRunResponse struct {
 	JobID                   int64          `json:"job_id"`
 	Engine                  string         `json:"engine"`
 	SourcePath              string         `json:"source_path"`
+	SourcePaths             []string       `json:"source_paths,omitempty"`
 	LocalIncludeGlob        string         `json:"local_include_glob"`
 	LocalExcludeGlob        string         `json:"local_exclude_glob"`
 	LocalBandwidthLimitKbps int            `json:"local_bandwidth_limit_kbps"`

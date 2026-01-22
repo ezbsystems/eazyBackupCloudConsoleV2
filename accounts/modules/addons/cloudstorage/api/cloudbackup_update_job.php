@@ -196,10 +196,7 @@ if (isset($_POST['source_paths'])) {
 }
 $sourcePaths = array_values(array_filter(array_map('sanitizePathInput', $sourcePaths), fn($p) => $p !== ''));
 $primarySourcePath = $_POST['source_path'] ?? ($existingJob['source_path'] ?? '');
-if (!empty($sourcePaths)) {
-    $primarySourcePath = $sourcePaths[0];
-    $_POST['source_path'] = $primarySourcePath;
-} elseif ($primarySourcePath !== '') {
+if (empty($sourcePaths) && $primarySourcePath !== '') {
     $sourcePaths[] = $primarySourcePath;
 }
 $hasSourcePathsJson = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'source_paths_json');

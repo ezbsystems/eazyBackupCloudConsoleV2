@@ -2311,9 +2311,9 @@ Both buttons use orange styling (`bg-orange-600`) and include platform icons.
   - `runner.go`: handles `browse_directory` pending commands and reports via `Client.ReportBrowseResult()`.
 - **Frontend**:
   - `templates/cloudbackup_jobs.tpl` Step 2 replaced with an Alpine-powered explorer (breadcrumb, lazy loading, icons, multi-select checkboxes, selection summary, manual path input). Include/exclude globs remain.
-  - Selected paths are synced to hidden inputs as `source_paths` (JSON array) plus `source_path` (first entry for backward compatibility).
+  - Selected paths are synced to hidden inputs as `source_paths` (JSON array) plus `source_path` (first entry for legacy display/compatibility). The agent now uses `source_paths` for Local Agent runs.
 - **Data model**:
-  - If column `source_paths_json` exists on `s3_cloudbackup_jobs`, it is populated with the array; otherwise only `source_path` is set to the first selection (compatibility mode).
+  - If column `source_paths_json` exists on `s3_cloudbackup_jobs`, it is populated with the array; `source_path` remains optional and is no longer the authoritative list for Local Agent runs.
   - Paths are normalized via `sanitizePathInput()` (HTML entity decode + trim quotes/whitespace) before persisting, and the Go agent also runs `sanitizeSourcePath()` so stored values are safe for Windows APIs.
 
 ---
@@ -2596,4 +2596,25 @@ GOOS=windows GOARCH=amd64 go build -o e3-backup-agent.exe ./cmd/agent
 | **Kopia Engine** | `internal/agent/kopia.go` |
 | **Hyper-V Engine** | `internal/agent/hyperv_backup.go` |
 | **Progress Counter** | `internal/agent/kopia.go` → `kopiaProgressCounter` |
+
+---
+
+## Session Updates (Jan 2026)
+
+### Multi-source backups
+- Local Agent runs now consume the full `source_paths` list (multi-folder selection) instead of relying on `source_path`.
+- **Kopia engine** snapshots multiple paths by building a virtual root; internal source identity is stable (`multi-job-<jobId>`) to preserve incremental behavior.
+- **Sync engine** (rclone) uploads each selected source into its own subfolder under `dest_prefix`, using a stable label derived from the source path.
+
+### Files + folders counters
+- The agent now emits **files and folders separately**:
+  - `files_done`, `files_total`, `folders_done` are provided via `stats_json` on run updates.
+  - `objects_transferred` now reflects **files only** to avoid over-counting.
+- `cloudbackup_progress.php` exposes these fields for UI consumption.
+
+### Live Progress UI redesign
+- The live progress page was rebuilt as a “mission control” console:
+  - Identity strip (Agent + Job), hero progress block, telemetry tiles (Speed/Processed/Uploaded/Files+Folders), current file panel, and tabbed logs/details.
+  - Pause/Resume freezes updates; logs include search, autoscroll toggle, and copy.
+  - Files/Folders telemetry is hidden for disk image and Hyper-V runs.
 

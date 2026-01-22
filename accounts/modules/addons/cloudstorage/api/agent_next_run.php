@@ -401,6 +401,20 @@ try {
         }
 
         $sourcePath = sanitizePathInput((string) ($job->source_path ?? ''));
+        $sourcePaths = [];
+        $sourcePathsRaw = $job->source_paths_json ?? null;
+        if (is_array($sourcePathsRaw)) {
+            $sourcePaths = $sourcePathsRaw;
+        } elseif (is_string($sourcePathsRaw) && trim($sourcePathsRaw) !== '') {
+            $decoded = json_decode($sourcePathsRaw, true);
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                $decoded = json_decode(html_entity_decode($sourcePathsRaw, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'), true);
+            }
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $sourcePaths = $decoded;
+            }
+        }
+        $sourcePaths = array_values(array_filter(array_map('sanitizePathInput', $sourcePaths), fn($p) => $p !== ''));
         $runData = [
             'run_id' => $run->id,
             'job_id' => $run->job_id,
@@ -408,7 +422,6 @@ try {
             'source_type' => $sourceTypeVal,
             'dest_type' => $job->dest_type ?? 's3',
             'bucket_auto_create' => (bool) ($job->bucket_auto_create ?? false),
-            'source_path' => $sourcePath,
             'local_include_glob' => $job->local_include_glob ?? '',
             'local_exclude_glob' => $job->local_exclude_glob ?? '',
             'local_bandwidth_limit_kbps' => $job->local_bandwidth_limit_kbps ?? 0,
@@ -425,6 +438,11 @@ try {
             'compression_enabled' => (bool) ($job->compression_enabled ?? false),
             'network_credentials' => $networkCreds,
         ];
+        if ($sourceTypeVal === 'local_agent') {
+            $runData['source_paths'] = $sourcePaths;
+        } else {
+            $runData['source_path'] = $sourcePath;
+        }
         if ($hasDiskSource) {
             $runData['disk_source_volume'] = $job->disk_source_volume ?? '';
         }

@@ -6,179 +6,72 @@
         <!-- Glass panel container -->
         <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
 
-        <div class="flex flex-col sm:flex-row h-16 justify-between items-start sm:items-center mb-3">
-            <div class="flex items-center">
-                <a href="index.php?m=cloudstorage&page=e3backup&view=runs&job_id={$job.id}" class="mr-4 text-sky-400 hover:text-sky-500">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-                    </svg>
-                </a>
-                <h2 class="text-2xl font-semibold text-white flex items-center gap-2">
-                    {if $is_restore}
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+        <div class="space-y-8">
+            <!-- Identity strip -->
+            <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div class="flex items-center gap-4">
+                    <a href="index.php?m=cloudstorage&page=e3backup&view=runs&job_id={$job.id}" class="text-sky-400 hover:text-sky-300">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
                         </svg>
-                        <span>Restore Progress: {$job.name}</span>
-                        <span class="inline-flex items-center rounded-full bg-emerald-500/15 px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide text-emerald-200 border border-emerald-400/40">
-                            Restore
-                        </span>
-                    {else}
-                        <span>Live Progress: {$job.name}</span>
-                    {/if}
-                    <span class="inline-flex items-center rounded-full bg-amber-500/15 px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide text-amber-200 border border-amber-400/40">
-                        Beta
+                    </a>
+                    <div>
+                        <p class="text-xs uppercase tracking-wide text-slate-500">{if $is_restore}Live Restore{else}Live Backup{/if}</p>
+                        <h1 class="text-2xl sm:text-3xl font-semibold text-white">
+                            {if $job.name}{$job.name}{else}Job #{$job.id}{/if}
+                        </h1>
+                    </div>
+                </div>
+                <div class="flex flex-wrap items-center gap-2">
+                    <span class="inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-900/70 px-3 py-1 text-xs text-slate-200">
+                        <span id="statusTopDot" class="h-2.5 w-2.5 rounded-full status-dot bg-sky-500 shadow-[0_0_8px_rgba(59,130,246,0.6)] animate-status-pulse"></span>
+                        <span id="statusTopText" class="font-semibold">{$run.status|ucfirst}</span>
                     </span>
-                </h2>
-            </div>
-            <button
-                id="cancelButton"
-                onclick="cancelRun({$run.id})"
-                class="bg-red-700 hover:bg-red-600 text-white px-4 py-2 rounded-md hidden"
-                style="display: none;"
-            >
-                Cancel Run
-            </button>
-        </div>
-        
-        {* Restore metadata info box *}
-        {if $is_restore && $restore_metadata}
-        <div class="mb-6 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-100 flex items-start gap-2">
-            {if $is_hyperv_restore}
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mt-[2px]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2"/>
-            </svg>
-            {else}
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mt-[2px]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-            </svg>
-            {/if}
-            <div class="flex-1">
-                {if $is_hyperv_restore}
-                    <p class="font-semibold text-emerald-100 text-[0.75rem] uppercase tracking-wide">Hyper-V Disk Restore</p>
-                    <p class="mt-1 text-[0.75rem] leading-relaxed text-emerald-100/90">
-                        Restoring VM <code class="bg-emerald-900/50 px-1 rounded">{$restore_metadata.vm_name}</code>
-                        ({$restore_metadata.disk_count} disk{if $restore_metadata.disk_count > 1}s{/if})
-                        to <code class="bg-emerald-900/50 px-1 rounded">{$restore_metadata.target_path}</code>
-                    </p>
-                    {if $restore_metadata.backup_type}
-                    <p class="mt-1 text-[0.75rem] leading-relaxed text-emerald-100/70">
-                        Backup Type: <span class="font-medium">{$restore_metadata.backup_type}</span>
-                        {if $restore_metadata.restore_chain_length > 1}
-                        (Chain: {$restore_metadata.restore_chain_length} backups)
-                        {/if}
-                    </p>
-                    {/if}
-                {else}
-                    <p class="font-semibold text-emerald-100 text-[0.75rem] uppercase tracking-wide">Restore Operation</p>
-                    <p class="mt-1 text-[0.75rem] leading-relaxed text-emerald-100/90">
-                        Restoring snapshot <code class="bg-emerald-900/50 px-1 rounded">{$restore_metadata.manifest_id|truncate:16:'...'}</code> 
-                        to <code class="bg-emerald-900/50 px-1 rounded">{$restore_metadata.target_path}</code>
-                    </p>
-                {/if}
-            </div>
-        </div>
-        {/if}
-        <div class="mb-6 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs text-amber-100 flex items-start gap-2">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mt-[2px]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 9v3.75M12 15.75h.007M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <div>
-                <p class="font-semibold text-amber-100 text-[0.75rem] uppercase tracking-wide">Cloud Backup (Beta)</p>
-                <p class="mt-1 text-[0.75rem] leading-relaxed text-amber-100/90">
-                    Cloud Backup is currently in beta. Functionality may change and occasional issues are expected.
-                    Please keep a primary backup strategy in place and contact support if you notice any problems.
-                </p>
-            </div>
-        </div>
-
-        <!-- Compact Metrics Strip -->
-        <div class="mb-6 grid gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
-            <div class="rounded-2xl border border-slate-800/80 bg-slate-900/70 px-4 py-3">
-                <p class="text-xs font-medium text-slate-400 uppercase tracking-wide">Status</p>
-                <div class="mt-1 flex items-center gap-2">
-                    <span id="statusTopDot" class="h-3 w-3 rounded-full status-dot bg-sky-500 shadow-[0_0_8px_rgba(59,130,246,0.6)] animate-status-pulse"></span>
-                    <span id="statusTopText" class="text-sm font-semibold text-white">{$run.status|ucfirst}</span>
+                    <span class="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-900/60 px-3 py-1 text-xs text-slate-200">
+                        <span class="text-slate-400">Agent:</span>
+                        <span class="text-slate-100">
+                            {if $agent_name}{$agent_name}{elseif $agent_id}Agent #{$agent_id}{else}Agent unavailable{/if}
+                        </span>
+                    </span>
+                    <span class="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-900/60 px-3 py-1 text-xs text-slate-200">
+                        <span class="text-slate-400">Job:</span>
+                        <span class="text-slate-100">{if $job.name}{$job.name}{else}Job #{$job.id}{/if}</span>
+                    </span>
+                    <button
+                        id="cancelButton"
+                        onclick="cancelRun({$run.id})"
+                        class="hidden rounded-full border border-rose-500/60 bg-rose-500/10 px-3 py-1 text-xs text-rose-200 hover:border-rose-400 hover:text-white transition-colors"
+                        style="display: none;"
+                    >
+                        Cancel Run
+                    </button>
                 </div>
             </div>
-            <div class="rounded-2xl border border-slate-800/80 bg-slate-900/70 px-4 py-3">
-                <p class="text-xs font-medium text-slate-400 uppercase tracking-wide">Processed</p>
-                <p class="mt-1 text-2xl font-semibold text-white" id="bytesProcessedTop">
-                    {if $run.bytes_processed}
-                        {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.bytes_processed)}
-                    {elseif $run.bytes_transferred}
-                        {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.bytes_transferred)}
-                    {else}
-                        0.00 Bytes
-                    {/if}
-                </p>
-            </div>
-            <div class="rounded-2xl border border-slate-800/80 bg-slate-900/70 px-4 py-3">
-                <p class="text-xs font-medium text-slate-400 uppercase tracking-wide">Uploaded</p>
-                <p class="mt-1 text-2xl font-semibold text-white" id="bytesTransferredTop">
-                    {if $run.bytes_transferred}
-                        {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.bytes_transferred)}
-                    {else}
-                        0.00 Bytes
-                    {/if}
-                </p>
-                <p id="uploadedSavingsTop" class="mt-1 text-xs text-slate-400"></p>
-            </div>
-            <div class="rounded-2xl border border-slate-800/80 bg-slate-900/70 px-4 py-3">
-                <p class="text-xs font-medium text-slate-400 uppercase tracking-wide">Speed</p>
-                <p class="mt-1 text-2xl font-semibold text-white" id="speedTop">
-                    {if $run.speed_bytes_per_sec}
-                        {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.speed_bytes_per_sec)}/s
-                    {else}
-                        -
-                    {/if}
-                </p>
-            </div>
-            <div class="rounded-2xl border border-slate-800/80 bg-slate-900/70 px-4 py-3">
-                <p class="text-xs font-medium text-slate-400 uppercase tracking-wide">ETA</p>
-                <p class="mt-1 text-2xl font-semibold text-white" id="etaTop">
-                    {if $run.eta_seconds}
-                        {assign var="hours" value=$run.eta_seconds/3600|floor}
-                        {assign var="minutes" value=($run.eta_seconds%3600)/60|floor}
-                        {assign var="seconds" value=$run.eta_seconds%60|string_format:"%.0f"}
-                        {if $hours > 0}{$hours}h {/if}{if $minutes > 0}{$minutes}m {/if}{$seconds}s
-                    {else}
-                        -
-                    {/if}
-                </p>
-            </div>
-            <div class="rounded-2xl border border-slate-800/80 bg-slate-900/70 px-4 py-3">
-                <p class="text-xs font-medium text-slate-400 uppercase tracking-wide">Duration</p>
-                <p class="mt-1 text-2xl font-semibold text-white" id="durationValue">-</p>
-                <p id="durationLabel" class="text-xs text-slate-400 mt-1">Elapsed</p>
-            </div>
-        </div>
 
-        {assign var="isRunningStatus" value=($run.status eq 'running' || $run.status eq 'starting' || $run.status eq 'queued')}
-        <div class="bg-slate-800 rounded-lg border border-slate-700 shadow-lg p-6" x-data="{ isRunning: {if $isRunningStatus}true{else}false{/if} }">
-            <div class="mb-6">
-                <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <!-- Progress hero -->
+            {assign var="isRunningStatus" value=($run.status eq 'running' || $run.status eq 'starting' || $run.status eq 'queued')}
+            <div class="rounded-3xl border border-slate-800/80 bg-slate-900/60 px-6 py-6 shadow-[0_20px_60px_rgba(0,0,0,0.45)]" x-data="{ isRunning: {if $isRunningStatus}true{else}false{/if} }">
+                <div class="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
                     <div>
-                        <p class="text-sm font-medium text-slate-400">Progress</p>
-                        <p class="text-3xl font-semibold text-white" id="progressPercent">
+                        <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Progress</p>
+                        <p class="text-5xl sm:text-6xl font-semibold text-white" id="progressPercent">
                             {if $run.progress_pct}
                                 {$run.progress_pct|string_format:"%.2f"}%
-                            {elseif $isRunningStatus}
-                                Preparing...
                             {else}
                                 0.00%
                             {/if}
                         </p>
                     </div>
-                    <div class="space-y-0.5">
-                        <p class="text-xs font-medium text-slate-400 uppercase tracking-wide">Stage</p>
-                        <p id="stageLabel" class="text-lg font-semibold text-white">
+                    <div class="text-left lg:text-right">
+                        <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Stage</p>
+                        <p id="stageLabel" class="text-lg sm:text-xl font-semibold text-white">
                             {if $run.stage}{$run.stage}{else}{$run.status|ucfirst}{/if}
                         </p>
                     </div>
                 </div>
-                <div class="mt-4 h-5 sm:h-6 rounded-2xl bg-gray-700 relative overflow-hidden">
+                <div class="mt-6 h-4 sm:h-5 rounded-full bg-slate-800/80 relative overflow-hidden">
                     <div
-                        class="h-full rounded-2xl transition-all duration-500 ease-out bg-gradient-to-r from-sky-500 to-sky-400 relative"
+                        class="h-full rounded-full transition-all duration-500 ease-out bg-gradient-to-r from-sky-500 to-sky-400 relative"
                         id="progressBar"
                         style="width: {if $run.progress_pct}{$run.progress_pct}{else}0{/if}%"
                         :class="{ 'animate-pulse': isRunning }"
@@ -194,99 +87,229 @@
                              x-show="isRunning"></div>
                     </div>
                 </div>
+                <div class="mt-5 flex flex-wrap items-center gap-4 text-xs text-slate-400">
+                    <div class="flex items-center gap-2">
+                        <span class="uppercase tracking-wide text-slate-500">Status</span>
+                        <span id="statusMicroDot" class="h-2 w-2 rounded-full bg-sky-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]"></span>
+                        <span id="statusMicroText" class="text-slate-200 font-semibold">{$run.status|ucfirst}</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="uppercase tracking-wide text-slate-500">ETA</span>
+                        <span class="text-slate-200 font-semibold" id="etaTop">
+                            {if $run.eta_seconds}
+                                {assign var="hours" value=$run.eta_seconds/3600|floor}
+                                {assign var="minutes" value=($run.eta_seconds%3600)/60|floor}
+                                {assign var="seconds" value=$run.eta_seconds%60|string_format:"%.0f"}
+                                {if $hours > 0}{$hours}h {/if}{if $minutes > 0}{$minutes}m {/if}{$seconds}s
+                            {else}
+                                -
+                            {/if}
+                        </span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="uppercase tracking-wide text-slate-500">Duration</span>
+                        <span class="text-slate-200 font-semibold" id="durationValue">-</span>
+                        <span id="durationLabel" class="text-slate-500">Elapsed</span>
+                    </div>
+                </div>
             </div>
 
-            <div class="space-y-4">
-                <div id="errorSummaryContainer" class="hidden rounded-2xl border border-rose-500/50 bg-rose-500/10 px-4 py-3 text-sm text-rose-100" role="status" aria-live="polite">
-                    <p class="text-xs font-semibold uppercase tracking-wide text-rose-300">Startup Error</p>
-                    <p id="errorSummaryText" class="mt-1 text-sm font-semibold text-rose-100"></p>
+            <!-- Telemetry cards -->
+            {assign var="showFilesMetric" value=(!$is_restore && $job.engine ne 'disk_image' && $job.engine ne 'hyperv')}
+            <div class="grid gap-4 sm:grid-cols-2 xl:{if $showFilesMetric}grid-cols-4{else}grid-cols-3{/if}">
+                <div class="rounded-2xl border border-slate-800/80 bg-slate-950/70 px-4 py-4">
+                    <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Speed</p>
+                    <p class="mt-2 text-2xl font-semibold text-white" id="speedValue">
+                        {if $run.speed_bytes_per_sec}
+                            {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.speed_bytes_per_sec)}/s
+                        {else}
+                            -
+                        {/if}
+                    </p>
+                    <p id="speedHint" class="mt-1 text-xs text-slate-500"></p>
                 </div>
-                {if $run.current_item}
-                    <div>
-                        <h6 class="text-sm font-medium text-slate-400 mb-2">Current File</h6>
-                        <div class="bg-gray-900 p-3 rounded-md text-sm text-slate-300 font-mono break-all" id="currentItem">
-                            {$run.current_item}
+                <div class="rounded-2xl border border-slate-800/80 bg-slate-950/70 px-4 py-4">
+                    <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Processed</p>
+                    <p class="mt-2 text-2xl font-semibold text-white" id="bytesProcessedValue">
+                        {if $run.bytes_processed}
+                            {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.bytes_processed)}
+                        {elseif $run.bytes_transferred}
+                            {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.bytes_transferred)}
+                        {else}
+                            0.00 Bytes
+                        {/if}
+                    </p>
+                </div>
+                <div class="rounded-2xl border border-slate-800/80 bg-slate-950/70 px-4 py-4">
+                    <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Uploaded</p>
+                    <p class="mt-2 text-2xl font-semibold text-white" id="bytesTransferredValue">
+                        {if $run.bytes_transferred}
+                            {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.bytes_transferred)}
+                        {else}
+                            0.00 Bytes
+                        {/if}
+                    </p>
+                    <p id="uploadedSavings" class="mt-1 text-xs text-slate-500"></p>
+                </div>
+                {if $showFilesMetric}
+                <div class="rounded-2xl border border-slate-800/80 bg-slate-950/70 px-4 py-4">
+                    <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Files & Folders</p>
+                    <div class="mt-3 space-y-3">
+                        <div class="flex items-center justify-between text-sm">
+                            <span class="text-slate-400">Files</span>
+                            <span class="text-white font-semibold" id="filesValue">-</span>
+                        </div>
+                        <div class="flex items-center justify-between text-sm">
+                            <span class="text-slate-400">Folders</span>
+                            <span class="text-slate-200 font-semibold" id="foldersValue">—</span>
                         </div>
                     </div>
+                </div>
                 {/if}
-                <div x-data="{ open: false }" class="rounded-xl border border-slate-700 bg-slate-900/40">
-                    <button
-                        type="button"
-                        class="flex w-full items-center justify-between px-4 py-3 text-sm font-semibold text-slate-200 hover:text-white"
-                        @click="open = !open"
-                    >
-                        <span>Details</span>
-                        <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            class="h-4 w-4 transition-transform duration-200"
-                            :class="open ? 'rotate-180' : ''"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                        >
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-                        </svg>
-                    </button>
-                    <div x-show="open" x-cloak class="px-4 pb-4 text-sm text-slate-400 space-y-2">
-                        <div class="flex items-center justify-between">
-                            <span class="text-slate-500">Run ID</span>
-                            <span class="font-mono text-slate-100 text-xs">{$run.id}</span>
-                        </div>
-                        <div class="flex items-center justify-between">
-                            <span class="text-slate-500">Job</span>
-                            <span class="text-slate-100 truncate">{if $job.name}{$job.name}{else}Job #{$job.id}{/if}</span>
-                        </div>
-                        <div class="flex items-center justify-between">
-                            <span class="text-slate-500">Status</span>
-                            <span id="detailsStatus" class="text-white font-semibold text-xs">{$run.status|ucfirst}</span>
-                        </div>
-                        <div class="flex items-center justify-between">
-                            <span class="text-slate-500">Run UUID</span>
-                            <span class="font-mono text-slate-100 text-xs break-all">{$run.run_uuid|default:$run.id}</span>
-                        </div>
-                    </div>
-                </div>
             </div>
 
-            <!-- Live Logs Section -->
-            <div class="mt-6">
-                <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
-                    <h6 class="text-sm font-medium text-slate-400">Live Logs</h6>
-                    <div class="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+            <div id="errorSummaryContainer" class="hidden rounded-2xl border border-rose-500/50 bg-rose-500/10 px-4 py-3 text-sm text-rose-100" role="status" aria-live="polite">
+                <p class="text-xs font-semibold uppercase tracking-wide text-rose-300">Startup Error</p>
+                <p id="errorSummaryText" class="mt-1 text-sm font-semibold text-rose-100"></p>
+            </div>
+
+            <!-- Lower section -->
+            <div class="grid gap-6 lg:grid-cols-3">
+                <div class="rounded-2xl border border-slate-800/80 bg-slate-950/70 px-5 py-5">
+                    <div class="flex items-start justify-between gap-3">
+                        <div>
+                            <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Now backing up</p>
+                            <p class="text-sm text-slate-400">Current file</p>
+                        </div>
                         <button
                             type="button"
-                            onclick="clearLogs()"
-                            class="px-3 py-1 rounded-full border border-slate-700 bg-slate-900/60 text-slate-300 hover:border-slate-500 hover:text-white transition-colors"
-                        >
-                            Clear
-                        </button>
-                        <button
-                            type="button"
-                            onclick="toggleAutoScrollLogs()"
-                            class="px-3 py-1 rounded-full border border-slate-700 bg-slate-900/60 text-slate-300 hover:border-slate-500 hover:text-white transition-colors"
-                        >
-                            Autoscroll: <span id="autoScrollLabel">On</span>
-                        </button>
-                        <button
-                            type="button"
-                            onclick="copyLogs()"
-                            class="px-3 py-1 rounded-full border border-slate-700 bg-slate-900/60 text-slate-300 hover:border-slate-500 hover:text-white transition-colors"
+                            onclick="copyCurrentFile()"
+                            class="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-xs text-slate-300 hover:border-slate-500 hover:text-white transition-colors"
                         >
                             Copy
                         </button>
-                        <button
-                            id="forceCancelButton"
-                            type="button"
-                            onclick="cancelRun({$run.id}, true)"
-                            class="hidden px-3 py-1 rounded-full border border-rose-500 bg-rose-500/10 text-rose-200 hover:border-rose-400 hover:text-white transition-colors"
-                        >
-                            Force Cancel
-                        </button>
+                    </div>
+                    <div class="mt-4 rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-3">
+                        <div id="currentItem" class="text-xs text-slate-200 font-mono break-words">
+                            {if $run.current_item}{$run.current_item}{else}-{/if}
+                        </div>
+                        <div id="currentItemEmpty" class="text-xs text-slate-500 italic {if $run.current_item}hidden{/if}">
+                            Waiting for file updates...
+                        </div>
                     </div>
                 </div>
-                <div class="bg-gray-900 rounded-md p-4 max-h-96 overflow-y-auto font-mono text-xs text-slate-300" id="liveLogs">
-                    <div class="text-slate-500 italic" id="liveLogsEmpty">
-                        Waiting for log data...
+                <div class="lg:col-span-2 rounded-2xl border border-slate-800/80 bg-slate-950/70 px-5 py-5">
+                    <div x-data="{ tab: 'logs' }">
+                        <div class="flex flex-wrap items-center justify-between gap-3">
+                            <div class="flex items-center gap-2 text-sm">
+                                <button type="button"
+                                        class="px-3 py-1 rounded-full border transition-colors"
+                                        :class="tab === 'logs' ? 'border-sky-500/60 bg-sky-500/10 text-sky-200' : 'border-slate-700 text-slate-300 hover:border-slate-500 hover:text-white'"
+                                        @click="tab = 'logs'">
+                                    Live Logs
+                                </button>
+                                <button type="button"
+                                        class="px-3 py-1 rounded-full border transition-colors"
+                                        :class="tab === 'details' ? 'border-sky-500/60 bg-sky-500/10 text-sky-200' : 'border-slate-700 text-slate-300 hover:border-slate-500 hover:text-white'"
+                                        @click="tab = 'details'">
+                                    Details
+                                </button>
+                            </div>
+                            <div class="flex flex-wrap items-center gap-2 text-xs text-slate-400" x-show="tab === 'logs'" x-cloak>
+                                <div class="relative">
+                                    <input id="logSearchInput" type="text" placeholder="Search logs"
+                                           oninput="setLogSearch(this.value)"
+                                           class="rounded-full bg-slate-900/70 border border-slate-700 px-3 py-1 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
+                                </div>
+                                <button type="button"
+                                        id="pauseUpdatesBtn"
+                                        onclick="togglePauseUpdates()"
+                                        class="px-3 py-1 rounded-full border border-slate-700 bg-slate-900/60 text-slate-300 hover:border-slate-500 hover:text-white transition-colors">
+                                    Pause
+                                </button>
+                                <button type="button"
+                                        onclick="toggleAutoScrollLogs()"
+                                        class="px-3 py-1 rounded-full border border-slate-700 bg-slate-900/60 text-slate-300 hover:border-slate-500 hover:text-white transition-colors">
+                                    Autoscroll: <span id="autoScrollLabel">On</span>
+                                </button>
+                                <button type="button"
+                                        onclick="copyLogs()"
+                                        class="px-3 py-1 rounded-full border border-slate-700 bg-slate-900/60 text-slate-300 hover:border-slate-500 hover:text-white transition-colors">
+                                    Copy
+                                </button>
+                                <button type="button"
+                                        onclick="clearLogs()"
+                                        class="px-3 py-1 rounded-full border border-slate-700 bg-slate-900/60 text-slate-300 hover:border-slate-500 hover:text-white transition-colors">
+                                    Clear
+                                </button>
+                                <button
+                                    id="forceCancelButton"
+                                    type="button"
+                                    onclick="cancelRun({$run.id}, true)"
+                                    class="hidden px-3 py-1 rounded-full border border-rose-500 bg-rose-500/10 text-rose-200 hover:border-rose-400 hover:text-white transition-colors"
+                                >
+                                    Force Cancel
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="mt-4" x-show="tab === 'logs'" x-cloak>
+                            <div class="bg-slate-950/80 rounded-lg border border-slate-800 p-4 max-h-[420px] overflow-y-auto font-mono text-xs text-slate-300" id="liveLogs">
+                                <div class="text-slate-500 italic" id="liveLogsEmpty">
+                                    Waiting for log data...
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mt-4 space-y-4" x-show="tab === 'details'" x-cloak>
+                            <div class="grid gap-3 sm:grid-cols-2 text-sm text-slate-400">
+                                <div class="flex items-center justify-between">
+                                    <span class="text-slate-500">Status</span>
+                                    <span id="detailsStatus" class="text-white font-semibold text-xs">{$run.status|ucfirst}</span>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <span class="text-slate-500">Agent</span>
+                                    <span id="detailsAgent" class="text-slate-100 text-xs">
+                                        {if $agent_name}{$agent_name}{elseif $agent_id}Agent #{$agent_id}{else}Agent unavailable{/if}
+                                    </span>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <span class="text-slate-500">Job</span>
+                                    <span id="detailsJob" class="text-slate-100 text-xs truncate">{if $job.name}{$job.name}{else}Job #{$job.id}{/if}</span>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <span class="text-slate-500">Run ID</span>
+                                    <span id="detailsRunId" class="font-mono text-slate-100 text-xs">{$run.id}</span>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <span class="text-slate-500">Run UUID</span>
+                                    <span id="detailsRunUuid" class="font-mono text-slate-100 text-xs break-all">{$run.run_uuid|default:$run.id}</span>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <span class="text-slate-500">Started</span>
+                                    <span id="detailsStartedAt" class="text-slate-100 text-xs">{$run.started_at|default:'-'}</span>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <span class="text-slate-500">Finished</span>
+                                    <span id="detailsFinishedAt" class="text-slate-100 text-xs">{$run.finished_at|default:'-'}</span>
+                                </div>
+                            </div>
+                            {if $is_restore && $restore_metadata}
+                            <div class="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-100">
+                                {if $is_hyperv_restore}
+                                    <p class="font-semibold uppercase tracking-wide text-emerald-200">Hyper-V Restore</p>
+                                    <p class="mt-1">VM <span class="font-semibold">{$restore_metadata.vm_name}</span> to <span class="font-semibold">{$restore_metadata.target_path}</span></p>
+                                {else}
+                                    <p class="font-semibold uppercase tracking-wide text-emerald-200">Restore</p>
+                                    <p class="mt-1">Snapshot {$restore_metadata.manifest_id|truncate:16:'...'} to {$restore_metadata.target_path}</p>
+                                {/if}
+                            </div>
+                            {/if}
+                            <div class="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-100">
+                                <p class="font-semibold uppercase tracking-wide text-amber-200">Cloud Backup (Beta)</p>
+                                <p class="mt-1">Cloud Backup is in beta. Keep a primary backup strategy in place and contact support if you notice any issues.</p>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -412,6 +435,10 @@ let durationStartMs = null;
 let durationEndMs = null;
 let durationTimer = null;
 let autoScrollLogs = true;
+let isPaused = false;
+let logEntries = [];
+let logSearchQuery = '';
+const MAX_LOG_LINES = 800;
 
 // Smoothly tween the bar to a target percentage
 let currentPct = (() => {
@@ -449,6 +476,21 @@ const etaModel = {
     predictedTotalSec: null     // non-decreasing predicted total duration (sec)
 };
 
+function parseRunTimestamp(value) {
+    if (!value) return null;
+    const raw = String(value).trim();
+    if (!raw) return null;
+    if (raw.includes('T')) {
+        const parsed = Date.parse(raw);
+        return isNaN(parsed) ? null : parsed;
+    }
+    const iso = raw.replace(' ', 'T') + 'Z';
+    const parsed = Date.parse(iso);
+    if (!isNaN(parsed)) return parsed;
+    const fallback = Date.parse(raw);
+    return isNaN(fallback) ? null : fallback;
+}
+
 // Initialize cancel button visibility on page load
 (function initCancelButton() {
     const cancelButton = document.getElementById('cancelButton');
@@ -463,6 +505,7 @@ const etaModel = {
 })();
 
 function updateProgress() {
+    if (isPaused) return;
     fetch('modules/addons/cloudstorage/api/cloudbackup_progress.php?run_uuid={$run.run_uuid|default:$run.id}')
         .then(response => response.json())
         .then(data => {
@@ -485,12 +528,8 @@ function updateProgress() {
                     // Time-based fallback using ETA (monotonic)
                     // Seed start time from server if available
                     if (!etaModel.startMs) {
-                        if (run.started_at) {
-                            const parsed = Date.parse(run.started_at);
-                            etaModel.startMs = isNaN(parsed) ? Date.now() : parsed;
-                        } else {
-                            etaModel.startMs = Date.now();
-                        }
+                        const parsed = parseRunTimestamp(run.started_at);
+                        etaModel.startMs = parsed || Date.now();
                     }
                     const nowMs = Date.now();
                     const elapsedSec = Math.max(0, (nowMs - etaModel.startMs) / 1000);
@@ -509,19 +548,10 @@ function updateProgress() {
                 const progressBar = document.getElementById('progressBar');
                 const progressPercent = document.getElementById('progressPercent');
 
-                // Update the label above the bar to show transferred vs total when possible
+                // Update the main percent display
                 if (progressPercent) {
-                    if (run.bytes_total && run.bytes_total > 0) {
-                        const transferredText = formatBytes(run.bytes_transferred || 0);
-                        const totalText = formatBytes(run.bytes_total);
-                        progressPercent.textContent = transferredText + ' of ' + totalText + ' (' + progressPct.toFixed(2) + '%)';
-                    } else if (progressPct > 0) {
-                        progressPercent.textContent = progressPct.toFixed(2) + '%';
-                    } else if (['starting', 'queued'].includes(run.status)) {
-                        progressPercent.textContent = 'Preparing...';
-                    } else {
-                        progressPercent.textContent = 'Transferring...';
-                    }
+                    const pctText = (progressPct > 0 ? progressPct : 0).toFixed(2) + '%';
+                    progressPercent.textContent = pctText;
                 }
 
                 const isFinished = ['success','failed','cancelled','warning','partial_success'].includes(run.status);
@@ -575,79 +605,67 @@ function updateProgress() {
                 
                 // Logs are rendered exclusively from the sanitized event stream (see updateEventLogs).
                 
-                // Update bytes processed (scanned from source)
+                // Update telemetry tiles
                 const bytesProcessed = run.bytes_processed || run.bytes_transferred || 0;
-                if (bytesProcessed !== undefined && bytesProcessed !== null) {
-                    const processedEl = document.getElementById('bytesProcessed');
-                    const processedTopEl = document.getElementById('bytesProcessedTop');
-                    if (processedEl) {
-                        processedEl.textContent = formatBytes(bytesProcessed);
-                        processedEl.classList.add('opacity-0');
-                        setTimeout(() => processedEl.classList.remove('opacity-0'), 50);
-                    }
-                    if (processedTopEl) {
-                        processedTopEl.textContent = formatBytes(bytesProcessed);
-                        processedTopEl.classList.add('opacity-0');
-                        setTimeout(() => processedTopEl.classList.remove('opacity-0'), 50);
-                    }
+                const processedValueEl = document.getElementById('bytesProcessedValue');
+                if (processedValueEl) {
+                    processedValueEl.textContent = formatBytes(bytesProcessed);
                 }
-                
-                // Update bytes uploaded (actual network transfer)
-                if (run.bytes_transferred !== undefined && run.bytes_transferred !== null) {
-                    const bytesEl = document.getElementById('bytesTransferred');
-                    const bytesTopEl = document.getElementById('bytesTransferredTop');
-                    if (bytesEl) {
-                        bytesEl.textContent = formatBytes(run.bytes_transferred);
-                        bytesEl.classList.add('opacity-0');
-                        setTimeout(() => bytesEl.classList.remove('opacity-0'), 50);
-                    }
-                    if (bytesTopEl) {
-                        bytesTopEl.textContent = formatBytes(run.bytes_transferred);
-                        bytesTopEl.classList.add('opacity-0');
-                        setTimeout(() => bytesTopEl.classList.remove('opacity-0'), 50);
-                    }
-                    
-                    // Update dedup savings display in the headline card
-                    const uploadedSavingsEl = document.getElementById('uploadedSavingsTop');
-                    if (uploadedSavingsEl && bytesProcessed > 0) {
+
+                const transferredValueEl = document.getElementById('bytesTransferredValue');
+                if (transferredValueEl) {
+                    transferredValueEl.textContent = formatBytes(run.bytes_transferred || 0);
+                }
+
+                const uploadedSavingsEl = document.getElementById('uploadedSavings');
+                if (uploadedSavingsEl) {
+                    if (bytesProcessed > 0) {
                         const transferred = run.bytes_transferred || 0;
                         const savedBytes = Math.max(0, bytesProcessed - transferred);
                         const savedPercent = bytesProcessed > 0 ? (savedBytes / bytesProcessed) * 100 : 0;
-                        if (savedBytes > 0) {
-                            uploadedSavingsEl.textContent = 'Saved: ' + formatBytes(savedBytes) + ' (' + savedPercent.toFixed(1) + '%)';
-                        } else {
-                            uploadedSavingsEl.textContent = 'Saved: ' + formatBytes(0) + ' (' + savedPercent.toFixed(1) + '%)';
-                        }
-                    } else if (uploadedSavingsEl) {
+                        uploadedSavingsEl.textContent = 'Saved: ' + formatBytes(savedBytes) + ' (' + savedPercent.toFixed(1) + '%)';
+                    } else {
                         uploadedSavingsEl.textContent = '';
                     }
                 }
-                
-                // Update speed with 2 decimal places
-                if (run.speed_bytes_per_sec !== undefined && run.speed_bytes_per_sec !== null) {
-                    const speedEl = document.getElementById('speed');
-                    const speedTopEl = document.getElementById('speedTop');
-                    if (speedEl) {
-                        speedEl.textContent = formatBytes(run.speed_bytes_per_sec) + '/s';
-                        speedEl.classList.add('opacity-0');
-                        setTimeout(() => speedEl.classList.remove('opacity-0'), 50);
+
+                const speedValueEl = document.getElementById('speedValue');
+                if (speedValueEl) {
+                    speedValueEl.textContent = run.speed_bytes_per_sec ? (formatBytes(run.speed_bytes_per_sec) + '/s') : '-';
+                }
+                const speedHintEl = document.getElementById('speedHint');
+                if (speedHintEl) {
+                    speedHintEl.textContent = run.speed_bytes_per_sec ? 'Instantaneous' : '';
+                }
+
+                const filesValueEl = document.getElementById('filesValue');
+                const foldersValueEl = document.getElementById('foldersValue');
+                if (filesValueEl) {
+                    const filesDone = (run.files_done !== undefined && run.files_done !== null)
+                        ? run.files_done
+                        : (run.objects_transferred || 0);
+                    const filesTotal = (run.files_total !== undefined && run.files_total !== null)
+                        ? run.files_total
+                        : (run.objects_total || 0);
+                    if (filesTotal > 0) {
+                        filesValueEl.textContent = formatCount(filesDone) + ' / ' + formatCount(filesTotal);
+                    } else {
+                        filesValueEl.textContent = formatCount(filesDone);
                     }
-                    if (speedTopEl) {
-                        speedTopEl.textContent = formatBytes(run.speed_bytes_per_sec) + '/s';
-                        speedTopEl.classList.add('opacity-0');
-                        setTimeout(() => speedTopEl.classList.remove('opacity-0'), 50);
+                }
+                if (foldersValueEl) {
+                    if (run.folders_done !== undefined && run.folders_done !== null) {
+                        foldersValueEl.textContent = formatCount(run.folders_done);
+                    } else {
+                        foldersValueEl.textContent = '—';
                     }
                 }
                 
                 // Update ETA values (top card and panel) with integer seconds
-                if (run.eta_seconds !== undefined && run.eta_seconds !== null) {
-                    const etaEl = document.getElementById('eta');
-                    const etaTopEl = document.getElementById('etaTop');
-                    if (etaEl) {
-                        etaEl.textContent = formatEta(run.eta_seconds);
-                        etaEl.classList.add('opacity-0');
-                        setTimeout(() => etaEl.classList.remove('opacity-0'), 50);
-                    }
+                const etaTopEl = document.getElementById('etaTop');
+                if (isFinished) {
+                    if (etaTopEl) etaTopEl.textContent = '-';
+                } else if (run.eta_seconds !== undefined && run.eta_seconds !== null) {
                     if (etaTopEl) {
                         etaTopEl.textContent = formatEta(run.eta_seconds);
                         etaTopEl.classList.add('opacity-0');
@@ -656,12 +674,22 @@ function updateProgress() {
                 }
                 
                 // Update current item
-                if (run.current_item) {
-                    const currentItemEl = document.getElementById('currentItem');
-                    if (currentItemEl) {
+                const currentItemEl = document.getElementById('currentItem');
+                const currentItemEmpty = document.getElementById('currentItemEmpty');
+                if (currentItemEl) {
+                    if (run.current_item) {
                         currentItemEl.textContent = run.current_item;
+                        if (currentItemEmpty) currentItemEmpty.classList.add('hidden');
+                    } else {
+                        currentItemEl.textContent = '-';
+                        if (currentItemEmpty) currentItemEmpty.classList.remove('hidden');
                     }
                 }
+
+                const detailsStarted = document.getElementById('detailsStartedAt');
+                if (detailsStarted && run.started_at) detailsStarted.textContent = run.started_at;
+                const detailsFinished = document.getElementById('detailsFinishedAt');
+                if (detailsFinished) detailsFinished.textContent = run.finished_at || '-';
                 
                 const statusConfig = STATUS_CONFIGS[run.status] || {
                     text: run.status ? (run.status.charAt(0).toUpperCase() + run.status.slice(1)) : 'Unknown',
@@ -744,6 +772,14 @@ function formatBytes(bytes) {
     return value.toFixed(2) + ' ' + sizes[i];
 }
 
+function formatCount(value) {
+    const num = Number(value) || 0;
+    if (typeof Intl !== 'undefined' && Intl.NumberFormat) {
+        return new Intl.NumberFormat().format(num);
+    }
+    return String(num);
+}
+
 function formatEta(secondsTotal) {
     const s = Math.max(0, Math.floor(Number(secondsTotal) || 0));
     if (s <= 0) return '-';
@@ -755,6 +791,91 @@ function formatEta(secondsTotal) {
     if (m > 0) out += m + 'm ';
     out += sec + 's';
     return out.trim();
+}
+
+function setLogSearch(value) {
+    logSearchQuery = (value || '').toLowerCase().trim();
+    renderLogEntries();
+}
+
+function togglePauseUpdates() {
+    isPaused = !isPaused;
+    const btn = document.getElementById('pauseUpdatesBtn');
+    if (btn) btn.textContent = isPaused ? 'Resume' : 'Pause';
+    if (!isPaused) {
+        updateProgress();
+        updateEventLogs();
+    }
+}
+
+function appendLogEntry(entry) {
+    logEntries.push(entry);
+    if (logEntries.length > MAX_LOG_LINES) {
+        logEntries = logEntries.slice(logEntries.length - MAX_LOG_LINES);
+    }
+}
+
+function renderLogEntries() {
+    const liveLogsContainer = document.getElementById('liveLogs');
+    const liveLogsEmpty = document.getElementById('liveLogsEmpty');
+    if (!liveLogsContainer) return;
+    liveLogsContainer.removeAttribute('data-formatted');
+    while (liveLogsContainer.firstChild) liveLogsContainer.removeChild(liveLogsContainer.firstChild);
+
+    let filtered = logEntries;
+    if (logSearchQuery) {
+        filtered = logEntries.filter(entry => {
+            const hay = (entry.message || '') + ' ' + (entry.level || '') + ' ' + (entry.ts || '');
+            return hay.toLowerCase().includes(logSearchQuery);
+        });
+    }
+    if (!filtered.length) {
+        if (liveLogsEmpty) liveLogsEmpty.style.display = 'block';
+        return;
+    }
+    if (liveLogsEmpty) liveLogsEmpty.style.display = 'none';
+
+    filtered.forEach(entry => {
+        const line = document.createElement('div');
+        line.className = 'log-line mb-1';
+        const badge = document.createElement('span');
+        badge.className = 'log-badge ' + (
+            entry.level === 'error' ? 'log-badge-error' :
+            entry.level === 'warn' ? 'log-badge-warn' :
+            entry.level === 'ok' ? 'log-badge-ok' : 'log-badge-info'
+        );
+        badge.textContent = (entry.level || 'info').toUpperCase();
+        const text = document.createElement('span');
+        const ts = entry.ts ? '[' + entry.ts + '] ' : '';
+        text.textContent = ts + (entry.message || '');
+        text.style.marginLeft = '.5rem';
+        line.appendChild(badge);
+        line.appendChild(text);
+        liveLogsContainer.appendChild(line);
+    });
+    if (autoScrollLogs) {
+        liveLogsContainer.scrollTop = liveLogsContainer.scrollHeight;
+    }
+}
+
+function copyCurrentFile() {
+    const currentItemEl = document.getElementById('currentItem');
+    if (!currentItemEl) return;
+    const text = (currentItemEl.textContent || '').trim();
+    if (!text || text === '-') return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text);
+    } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.setAttribute('readonly', 'readonly');
+        textarea.style.position = 'absolute';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+    }
 }
 
 function refreshErrorSummary(run) {
@@ -791,14 +912,8 @@ function formatDurationFromMs(ms) {
 
 function ensureDurationStart(run) {
     if (durationStartMs) return;
-    if (run.started_at) {
-        const parsed = Date.parse(run.started_at);
-        if (!isNaN(parsed)) {
-            durationStartMs = parsed;
-            return;
-        }
-    }
-    durationStartMs = Date.now();
+    const parsed = parseRunTimestamp(run.started_at);
+    durationStartMs = parsed || Date.now();
 }
 
 function startDurationTicker() {
@@ -828,7 +943,8 @@ function updateDuration(run) {
     const isTerminal = TERMINAL_STATUSES.includes(run.status);
     if (isTerminal) {
         if (!durationEndMs) {
-            durationEndMs = now;
+            const finished = parseRunTimestamp(run.finished_at);
+            durationEndMs = finished || now;
         }
         stopDurationTicker();
         durationLabelEl.textContent = 'Duration';
@@ -858,12 +974,17 @@ function updateStageLabel(run) {
 function updateStatusDisplay(statusConfig) {
     const statusTextEl = document.getElementById('statusTopText');
     const statusDotEl = document.getElementById('statusTopDot');
+    const microTextEl = document.getElementById('statusMicroText');
+    const microDotEl = document.getElementById('statusMicroDot');
     const detailsStatusEl = document.getElementById('detailsStatus');
     if (statusTextEl) {
         statusTextEl.textContent = statusConfig.text;
     }
     if (detailsStatusEl) {
         detailsStatusEl.textContent = statusConfig.text;
+    }
+    if (microTextEl) {
+        microTextEl.textContent = statusConfig.text;
     }
     if (!statusDotEl) return;
     statusDotEl.className = 'h-3 w-3 rounded-full status-dot';
@@ -876,6 +997,11 @@ function updateStatusDisplay(statusConfig) {
     }
     const glowColor = STATUS_GLOW_COLORS[statusConfig.color] || STATUS_GLOW_COLORS.gray;
     statusDotEl.style.boxShadow = '0 0 8px ' + glowColor;
+    if (microDotEl) {
+        microDotEl.className = 'h-2 w-2 rounded-full';
+        microDotEl.classList.add(colorClass);
+        microDotEl.style.boxShadow = '0 0 6px ' + glowColor;
+    }
 }
 
 // Track processed log entries to prevent duplicates
@@ -1054,6 +1180,7 @@ function updateFormattedLogs() {
 // Prefer sanitized event stream over logs when available
 let terminalEventSeen = false;
 function updateEventLogs() {
+    if (isPaused) return;
     let url = 'modules/addons/cloudstorage/api/cloudbackup_get_run_events.php?run_uuid={$run.run_uuid|default:$run.id}&limit=500';
     if (lastEventId > 0) {
         url += '&since_id=' + encodeURIComponent(String(lastEventId));
@@ -1063,34 +1190,15 @@ function updateEventLogs() {
         .then(d => {
             if (d.status !== 'success' || !Array.isArray(d.events)) return;
             if (d.events.length === 0) return;
-            // Render events
-            const liveLogsContainer = document.getElementById('liveLogs');
-            const liveLogsEmpty = document.getElementById('liveLogsEmpty');
-            if (!liveLogsContainer) return;
-            if (liveLogsEmpty) liveLogsEmpty.style.display = 'none';
-            // If first events load, clear any prior content
-            if (lastEventId === 0) {
-                while (liveLogsContainer.firstChild) liveLogsContainer.removeChild(liveLogsContainer.firstChild);
-            }
             d.events.forEach(ev => {
                 // Stop appending once a terminal event is seen (avoid repeated "Backup cancelled.")
                 if (terminalEventSeen) return;
-                const line = document.createElement('div');
-                line.className = 'log-line mb-1';
-                const badge = document.createElement('span');
-                badge.className = 'log-badge ' + (
-                    ev.level === 'error' ? 'log-badge-error' :
-                    ev.level === 'warn' ? 'log-badge-warn' :
-                    'log-badge-info'
-                );
-                badge.textContent = (ev.level || 'info').toUpperCase();
-                const text = document.createElement('span');
-                const ts = ev.ts ? '[' + ev.ts + '] ' : '';
-                text.textContent = ts + (ev.message || '');
-                text.style.marginLeft = '.5rem';
-                line.appendChild(badge);
-                line.appendChild(text);
-                liveLogsContainer.appendChild(line);
+                appendLogEntry({
+                    id: ev.id || null,
+                    level: ev.level || 'info',
+                    ts: ev.ts || '',
+                    message: ev.message || ''
+                });
                 if (typeof ev.id === 'number' && ev.id > lastEventId) {
                     lastEventId = ev.id;
                 }
@@ -1100,9 +1208,7 @@ function updateEventLogs() {
                     terminalEventSeen = true;
                 }
             });
-            if (autoScrollLogs) {
-                liveLogsContainer.scrollTop = liveLogsContainer.scrollHeight;
-            }
+            renderLogEntries();
         })
         .catch(() => {});
 }
@@ -1125,6 +1231,7 @@ function clearLogs() {
     
     // Clear processed hashes
     processedLogHashes.clear();
+    logEntries = [];
 }
 
 function toggleAutoScrollLogs() {

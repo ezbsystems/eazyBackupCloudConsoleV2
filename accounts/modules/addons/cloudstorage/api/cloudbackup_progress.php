@@ -62,6 +62,27 @@ if (!$run) {
     exit();
 }
 
+$statsJson = null;
+if (!empty($run['stats_json'])) {
+    if (is_array($run['stats_json'])) {
+        $statsJson = $run['stats_json'];
+    } elseif (is_string($run['stats_json'])) {
+        $decoded = json_decode($run['stats_json'], true);
+        if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+            $statsJson = $decoded;
+        }
+    }
+}
+$filesDone = $statsJson['files_done'] ?? null;
+$filesTotal = $statsJson['files_total'] ?? null;
+$foldersDone = $statsJson['folders_done'] ?? null;
+if ($filesDone === null && isset($run['objects_transferred'])) {
+    $filesDone = $run['objects_transferred'];
+}
+if ($filesTotal === null && isset($run['objects_total'])) {
+    $filesTotal = $run['objects_total'];
+}
+
 // Parse log excerpt into lines for live display
 $logLines = [];
 if (!empty($run['log_excerpt'])) {
@@ -130,6 +151,9 @@ $jsonData = [
         'bytes_processed' => $run['bytes_processed'] ?? null,  // Bytes read/scanned from source
         'objects_total' => $run['objects_total'],
         'objects_transferred' => $run['objects_transferred'],
+        'files_done' => $filesDone,
+        'files_total' => $filesTotal,
+        'folders_done' => $foldersDone,
         'speed_bytes_per_sec' => $run['speed_bytes_per_sec'],
         'eta_seconds' => $run['eta_seconds'],
         'current_item' => $run['current_item'],
