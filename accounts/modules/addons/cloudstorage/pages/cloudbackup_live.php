@@ -4,6 +4,7 @@ use WHMCS\ClientArea;
 use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
+use WHMCS\Database\Capsule;
 
 $packageId = ProductConfig::$E3_PRODUCT_ID;
 $ca = new ClientArea();
@@ -34,6 +35,22 @@ if (!$run) {
 
 // Get job details
 $job = CloudBackupController::getJob($run['job_id'], $loggedInUserId);
+
+// Resolve agent display name (if available)
+$agentName = null;
+$agentId = $job['agent_id'] ?? ($run['agent_id'] ?? null);
+if (!empty($agentId)) {
+    try {
+        $agentRow = Capsule::table('s3_cloudbackup_agents')
+            ->where('id', (int) $agentId)
+            ->first(['hostname']);
+        if ($agentRow && !empty($agentRow->hostname)) {
+            $agentName = $agentRow->hostname;
+        }
+    } catch (\Throwable $e) {
+        // Best-effort only; leave agentName null
+    }
+}
 
 // Detect if this is a restore run
 $isRestore = false;
@@ -68,6 +85,8 @@ if (!empty($run['stats_json'])) {
 return [
     'run' => $run,
     'job' => $job,
+    'agent_name' => $agentName,
+    'agent_id' => $agentId,
     'is_restore' => $isRestore,
     'is_hyperv_restore' => $isHypervRestore,
     'restore_metadata' => $restoreMetadata,

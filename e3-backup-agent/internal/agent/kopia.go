@@ -21,6 +21,7 @@ import (
 
 	kopiafs "github.com/kopia/kopia/fs"
 	"github.com/kopia/kopia/fs/localfs"
+	"github.com/kopia/kopia/fs/virtualfs"
 	"github.com/kopia/kopia/repo"
 	"github.com/kopia/kopia/repo/blob"
 	"github.com/kopia/kopia/repo/blob/filesystem"
@@ -77,6 +78,96 @@ func sanitizeErrorMessage(err error) string {
 	return msg
 }
 
+func displaySourceLabel(run *NextRunResponse) string {
+	if run == nil {
+		return ""
+	}
+	if len(run.SourcePaths) > 1 {
+		return fmt.Sprintf("multiple sources (%d)", len(run.SourcePaths))
+	}
+	if len(run.SourcePaths) == 1 && strings.TrimSpace(run.SourcePaths[0]) != "" {
+		return run.SourcePaths[0]
+	}
+	return run.SourcePath
+}
+
+type renamedEntry struct {
+	entry kopiafs.Entry
+	name  string
+}
+
+func (e *renamedEntry) Name() string {
+	return e.name
+}
+
+func (e *renamedEntry) Size() int64 {
+	return e.entry.Size()
+}
+
+func (e *renamedEntry) Mode() os.FileMode {
+	return e.entry.Mode()
+}
+
+func (e *renamedEntry) ModTime() time.Time {
+	return e.entry.ModTime()
+}
+
+func (e *renamedEntry) IsDir() bool {
+	return e.entry.IsDir()
+}
+
+func (e *renamedEntry) Sys() interface{} {
+	return e.entry.Sys()
+}
+
+func (e *renamedEntry) Owner() kopiafs.OwnerInfo {
+	return e.entry.Owner()
+}
+
+func (e *renamedEntry) Device() kopiafs.DeviceInfo {
+	return e.entry.Device()
+}
+
+func (e *renamedEntry) LocalFilesystemPath() string {
+	return e.entry.LocalFilesystemPath()
+}
+
+type renamedDirectory struct {
+	*renamedEntry
+	dir kopiafs.Directory
+}
+
+func (d *renamedDirectory) Child(ctx context.Context, name string) (kopiafs.Entry, error) {
+	return d.dir.Child(ctx, name)
+}
+
+func (d *renamedDirectory) Readdir(ctx context.Context) (kopiafs.Entries, error) {
+	return d.dir.Readdir(ctx)
+}
+
+func buildMultiSourceEntry(paths []string) (kopiafs.Entry, error) {
+	entries := make(kopiafs.Entries, 0, len(paths))
+	labels := buildSourceLabels(paths)
+	for idx, p := range paths {
+		clean := sanitizeSourcePath(p)
+		if clean == "" {
+			return nil, fmt.Errorf("source path is empty")
+		}
+		entry, err := localfs.NewEntry(clean)
+		if err != nil {
+			return nil, fmt.Errorf("source path stat failed for %s: %w", clean, err)
+		}
+		name := labels[idx]
+		wrapped := &renamedEntry{entry: entry, name: name}
+		if dir, ok := entry.(kopiafs.Directory); ok {
+			entries = append(entries, &renamedDirectory{renamedEntry: wrapped, dir: dir})
+		} else {
+			entries = append(entries, wrapped)
+		}
+	}
+	return virtualfs.NewStaticDirectory("sources", entries), nil
+}
+
 // kopiaSnapshot runs a Kopia snapshot for the given run.
 func (r *Runner) kopiaSnapshot(ctx context.Context, run *NextRunResponse) error {
 	repoPath := filepath.Join(r.cfg.RunDir, "kopia", fmt.Sprintf("job_%d.config", run.JobID))
@@ -97,6 +188,7 @@ func (r *Runner) kopiaSnapshotWithEntry(ctx context.Context, run *NextRunRespons
 	}
 
 	// Basic validation of source path before doing heavy work (only when using filesystem path).
+	sourceLabel := displaySourceLabel(run)
 	if entryOverride == nil {
 		run.SourcePath = sanitizeSourcePath(run.SourcePath)
 		stat, err := os.Stat(run.SourcePath)
@@ -111,7 +203,7 @@ func (r *Runner) kopiaSnapshotWithEntry(ctx context.Context, run *NextRunRespons
 					Level:     "warn",
 					MessageID: "KOPIA_SOURCE_EMPTY",
 					ParamsJSON: map[string]any{
-						"source": run.SourcePath,
+						"source": sourceLabel,
 					},
 				})
 			}
@@ -120,7 +212,7 @@ func (r *Runner) kopiaSnapshotWithEntry(ctx context.Context, run *NextRunRespons
 
 	log.Printf(
 		"agent: run %d (kopia) storage init dest_type=%s bucket=%s prefix=%q endpoint=%q endpoint_len=%d region=%q source=%s",
-		run.RunID, opts.destType, opts.bucket, opts.prefix, opts.endpoint, len(opts.endpoint), opts.region, run.SourcePath,
+		run.RunID, opts.destType, opts.bucket, opts.prefix, opts.endpoint, len(opts.endpoint), opts.region, sourceLabel,
 	)
 	r.pushEvents(run.RunID, RunEvent{
 		Type:      "info",
@@ -132,7 +224,7 @@ func (r *Runner) kopiaSnapshotWithEntry(ctx context.Context, run *NextRunRespons
 			"prefix":   opts.prefix,
 			"endpoint": opts.endpoint,
 			"region":   opts.region,
-			"source":   run.SourcePath,
+			"source":   sourceLabel,
 		},
 	})
 
@@ -242,7 +334,16 @@ func (r *Runner) kopiaSnapshotWithEntry(ctx context.Context, run *NextRunRespons
 	)
 	if entryOverride != nil {
 		srcEntry = entryOverride
-		totalBytes = declaredSize
+		if declaredSize > 0 {
+			totalBytes = declaredSize
+		} else if len(run.SourcePaths) > 0 {
+			for _, p := range run.SourcePaths {
+				if tb, tf := estimateSourceSize(p); tb > 0 {
+					totalBytes += tb
+					totalFiles += tf
+				}
+			}
+		}
 	} else {
 		localEntry, err := localfs.NewEntry(run.SourcePath)
 		if err != nil {
@@ -342,7 +443,7 @@ func (r *Runner) kopiaSnapshotWithEntry(ctx context.Context, run *NextRunRespons
 			MessageID: "KOPIA_STAGE",
 			ParamsJSON: map[string]any{
 				"stage":            "upload_start",
-				"source":           run.SourcePath,
+				"source":           sourceLabel,
 				"bucket":           opts.bucket,
 				"prefix":           opts.prefix,
 				"parallel_uploads": u.ParallelUploads,
@@ -357,7 +458,7 @@ func (r *Runner) kopiaSnapshotWithEntry(ctx context.Context, run *NextRunRespons
 			Level:     "info",
 			MessageID: "KOPIA_UPLOAD_START",
 			ParamsJSON: map[string]any{
-				"source":           run.SourcePath,
+				"source":           sourceLabel,
 				"bucket":           opts.bucket,
 				"prefix":           opts.prefix,
 				"parallel_uploads": u.ParallelUploads,
@@ -398,7 +499,7 @@ func (r *Runner) kopiaSnapshotWithEntry(ctx context.Context, run *NextRunRespons
 				Level:     "error",
 				MessageID: "KOPIA_UPLOAD_NIL_MANIFEST",
 				ParamsJSON: map[string]any{
-					"source": run.SourcePath,
+					"source": sourceLabel,
 				},
 			})
 			return fmt.Errorf("kopia: upload returned nil manifest")
@@ -470,7 +571,7 @@ func (r *Runner) kopiaSnapshotWithEntry(ctx context.Context, run *NextRunRespons
 				Level:     "error",
 				MessageID: "KOPIA_MANIFEST_MISSING",
 				ParamsJSON: map[string]any{
-					"source":          run.SourcePath,
+					"source":          sourceLabel,
 					"bucket":          opts.bucket,
 					"prefix":          opts.prefix,
 					"include_glob":    run.LocalIncludeGlob,
@@ -486,11 +587,15 @@ func (r *Runner) kopiaSnapshotWithEntry(ctx context.Context, run *NextRunRespons
 		}
 
 		log.Printf("agent: kopia manifest id for run %d: %s", run.RunID, manifestID)
+		filesDone, filesTotal, foldersDone := progressCounter.GetCounts()
 		if err := r.client.UpdateRun(RunUpdate{
 			RunID:      run.RunID,
 			ManifestID: manifestID,
 			StatsJSON: map[string]any{
 				"manifest_id": manifestID,
+				"files_done":  filesDone,
+				"files_total": filesTotal,
+				"folders_done": foldersDone,
 			},
 		}); err != nil {
 			log.Printf("agent: UpdateRun manifest failed run %d: %v", run.RunID, err)
@@ -511,7 +616,7 @@ func (r *Runner) kopiaSnapshotWithEntry(ctx context.Context, run *NextRunRespons
 			MessageID: "KOPIA_MANIFEST_RECORDED",
 			ParamsJSON: map[string]any{
 				"manifest_id": manifestID,
-				"source":      run.SourcePath,
+				"source":      sourceLabel,
 				"bucket":      opts.bucket,
 				"prefix":      opts.prefix,
 			},
@@ -549,7 +654,7 @@ func (r *Runner) kopiaSnapshotWithEntry(ctx context.Context, run *NextRunRespons
 				Level:     "error",
 				MessageID: "KOPIA_MANIFEST_MISSING",
 				ParamsJSON: map[string]any{
-					"source":          run.SourcePath,
+					"source":          sourceLabel,
 					"bucket":          opts.bucket,
 					"prefix":          opts.prefix,
 					"include_glob":    run.LocalIncludeGlob,
@@ -567,11 +672,15 @@ func (r *Runner) kopiaSnapshotWithEntry(ctx context.Context, run *NextRunRespons
 		}
 		manifestID = fallbackID
 		log.Printf("agent: kopia manifest recovered from latest snapshot for run %d: %s", run.RunID, manifestID)
+		filesDone, filesTotal, foldersDone := progressCounter.GetCounts()
 		if err := r.client.UpdateRun(RunUpdate{
 			RunID:      run.RunID,
 			ManifestID: manifestID,
 			StatsJSON: map[string]any{
 				"manifest_id": manifestID,
+				"files_done":  filesDone,
+				"files_total": filesTotal,
+				"folders_done": foldersDone,
 			},
 		}); err != nil {
 			log.Printf("agent: UpdateRun fallback manifest failed run %d: %v", run.RunID, err)
@@ -583,7 +692,7 @@ func (r *Runner) kopiaSnapshotWithEntry(ctx context.Context, run *NextRunRespons
 			MessageID: "KOPIA_MANIFEST_FALLBACK",
 			ParamsJSON: map[string]any{
 				"manifest_id": manifestID,
-				"source":      run.SourcePath,
+				"source":      sourceLabel,
 				"bucket":      opts.bucket,
 				"prefix":      opts.prefix,
 			},
@@ -908,6 +1017,15 @@ func (p *kopiaProgressCounter) GetFinalStats() (bytesHashed, bytesUploaded int64
 	return atomic.LoadInt64(&p.bytesHashed), atomic.LoadInt64(&p.bytesUploaded)
 }
 
+func (p *kopiaProgressCounter) GetCounts() (filesDone, filesTotal, foldersDone int64) {
+	filesHashed := atomic.LoadInt64(&p.filesHashed)
+	filesCached := atomic.LoadInt64(&p.filesCached)
+	filesDone = filesHashed + filesCached
+	filesTotal = atomic.LoadInt64(&p.totalFiles)
+	foldersDone = atomic.LoadInt64(&p.dirsFinished)
+	return
+}
+
 func (p *kopiaProgressCounter) CachedFile(fname string, numBytes int64) {
 	atomic.AddInt64(&p.filesCached, 1)
 	// Treat cached bytes as processed for progress.
@@ -1023,7 +1141,13 @@ func (p *kopiaProgressCounter) reportProgressLocked(force bool) {
 		etaSeconds = int64(float64(remaining) / float64(speed))
 	}
 
-	objectsTransferred := filesHashed + filesCached + dirsFinished
+	filesDone := filesHashed + filesCached
+	objectsTransferred := filesDone
+	statsPayload := map[string]any{
+		"files_done":   filesDone,
+		"files_total":  totalFiles,
+		"folders_done": dirsFinished,
+	}
 
 	// Call external progress callback if set (for Hyper-V cumulative progress)
 	if p.externalProgressCb != nil {
@@ -1047,6 +1171,7 @@ func (p *kopiaProgressCounter) reportProgressLocked(force bool) {
 			SpeedBytesPerSec:   speed,
 			EtaSeconds:         etaSeconds,
 			CurrentItem:        currentItem,
+			StatsJSON:          statsPayload,
 		})
 	}
 

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	kopiafs "github.com/kopia/kopia/fs"
 	"github.com/rclone/rclone/fs"
 	"github.com/rclone/rclone/fs/accounting"
 	"github.com/rclone/rclone/fs/config"
@@ -491,11 +492,18 @@ func (r *Runner) runRun(run *NextRunResponse) error {
 
 	// Authenticate to network share if credentials provided
 	if run.NetworkCredentials != nil && run.NetworkCredentials.Username != "" {
-		if err := r.authenticateNetworkPath(run.SourcePath, run.NetworkCredentials); err != nil {
-			log.Printf("agent: run %d network auth failed: %v", run.RunID, err)
-			return fmt.Errorf("network authentication failed: %w", err)
+		sourcePaths := normalizeSourcePaths(run.SourcePaths, run.SourcePath)
+		for _, path := range uniqueNetworkShareRoots(sourcePaths) {
+			if err := r.authenticateNetworkPath(path, run.NetworkCredentials); err != nil {
+				log.Printf("agent: run %d network auth failed: %v", run.RunID, err)
+				return fmt.Errorf("network authentication failed: %w", err)
+			}
 		}
-		defer r.disconnectNetworkPath(run.SourcePath)
+		defer func() {
+			for _, path := range uniqueNetworkShareRoots(sourcePaths) {
+				r.disconnectNetworkPath(path)
+			}
+		}()
 	}
 
 	engine := strings.ToLower(strings.TrimSpace(run.Engine))
@@ -531,10 +539,12 @@ func (r *Runner) runSync(run *NextRunResponse) error {
 		return fmt.Errorf("missing dest credentials")
 	}
 
-	src := run.SourcePath
-	if src == "" {
-		return fmt.Errorf("missing source_path")
+	sourcePaths := normalizeSourcePaths(run.SourcePaths, run.SourcePath)
+	if len(sourcePaths) == 0 {
+		return fmt.Errorf("missing source_paths")
 	}
+	sourceLabels := buildSourceLabels(sourcePaths)
+	multiSource := len(sourcePaths) > 1
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -555,7 +565,6 @@ func (r *Runner) runSync(run *NextRunResponse) error {
 		cfgStore.SetValue("dest", "region", destRegion)
 		cfgStore.SetValue("dest", "location_constraint", destRegion)
 	}
-	log.Printf("agent: run %d config source=%s dest=%s bucket=%s prefix=%s endpoint=%s region=%s", run.RunID, src, "dest", run.DestBucketName, run.DestPrefix, destEndpoint, destRegion)
 	// Reset global stats
 	stats := accounting.GlobalStats()
 	stats.ResetCounters()
@@ -574,20 +583,6 @@ func (r *Runner) runSync(run *NextRunResponse) error {
 		return fmt.Errorf("filter init: %w", err)
 	}
 	ctx = rfilter.ReplaceConfig(ctx, fi)
-
-	srcRemote := "source:" + src
-	destRemote := fmt.Sprintf("dest:%s/%s", run.DestBucketName, strings.TrimPrefix(run.DestPrefix, "/"))
-
-	srcFs, err := fs.NewFs(ctx, srcRemote)
-	if err != nil {
-		log.Printf("agent: run %d source fs error: %v", run.RunID, err)
-		return fmt.Errorf("source fs: %w", err)
-	}
-	destFs, err := fs.NewFs(ctx, destRemote)
-	if err != nil {
-		log.Printf("agent: run %d dest fs error: %v", run.RunID, err)
-		return fmt.Errorf("dest fs: %w", err)
-	}
 
 	// Mark running
 	_ = r.client.UpdateRun(RunUpdate{
@@ -619,7 +614,32 @@ func (r *Runner) runSync(run *NextRunResponse) error {
 	cfg.Checkers = 16
 
 	go func() {
-		runErr <- sync.Sync(ctx, destFs, srcFs, false)
+		for idx, src := range sourcePaths {
+			destPrefix := run.DestPrefix
+			if multiSource {
+				destPrefix = joinDestPrefix(run.DestPrefix, sourceLabels[idx])
+			}
+			srcRemote := "source:" + src
+			destRemote := fmt.Sprintf("dest:%s/%s", run.DestBucketName, strings.TrimPrefix(destPrefix, "/"))
+			log.Printf("agent: run %d config source=%s dest=%s bucket=%s prefix=%s endpoint=%s region=%s", run.RunID, src, "dest", run.DestBucketName, destPrefix, destEndpoint, destRegion)
+			srcFs, err := fs.NewFs(ctx, srcRemote)
+			if err != nil {
+				log.Printf("agent: run %d source fs error: %v", run.RunID, err)
+				runErr <- fmt.Errorf("source fs: %w", err)
+				return
+			}
+			destFs, err := fs.NewFs(ctx, destRemote)
+			if err != nil {
+				log.Printf("agent: run %d dest fs error: %v", run.RunID, err)
+				runErr <- fmt.Errorf("dest fs: %w", err)
+				return
+			}
+			if err := sync.Sync(ctx, destFs, srcFs, false); err != nil {
+				runErr <- err
+				return
+			}
+		}
+		runErr <- nil
 	}()
 
 	for {
@@ -760,10 +780,38 @@ func (r *Runner) runKopia(run *NextRunResponse) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	sourcePaths := normalizeSourcePaths(run.SourcePaths, run.SourcePath)
+	if len(sourcePaths) == 0 {
+		return fmt.Errorf("missing source_paths")
+	}
+	var entryOverride kopiafs.Entry
+	if len(sourcePaths) == 1 {
+		run.SourcePath = sourcePaths[0]
+	} else {
+		var err error
+		entryOverride, err = buildMultiSourceEntry(sourcePaths)
+		if err != nil {
+			return err
+		}
+		run.SourcePath = fmt.Sprintf("multi-job-%d", run.JobID)
+		r.pushEvents(run.RunID, RunEvent{
+			Type:      "info",
+			Level:     "info",
+			MessageID: "KOPIA_MULTI_SOURCE",
+			ParamsJSON: map[string]any{
+				"sources": sourcePaths,
+			},
+		})
+	}
+
 	// Run kopia snapshot in background so we can poll for cancel/commands.
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- r.kopiaSnapshot(ctx, run)
+		if entryOverride != nil {
+			errCh <- r.kopiaSnapshotWithEntry(ctx, run, entryOverride, 0)
+		} else {
+			errCh <- r.kopiaSnapshot(ctx, run)
+		}
 	}()
 
 	commandTicker := time.NewTicker(3 * time.Second)
@@ -842,6 +890,37 @@ loop:
 	}
 
 	return runErr
+}
+
+func uniqueNetworkShareRoots(paths []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		if p == "" {
+			continue
+		}
+		key := p
+		if IsUNCPath(p) {
+			if share := ExtractShareRoot(p); share != "" {
+				key = share
+			}
+		}
+		if !seen[key] {
+			seen[key] = true
+			out = append(out, key)
+		}
+	}
+	return out
+}
+
+func joinDestPrefix(prefix, suffix string) string {
+	if suffix == "" {
+		return prefix
+	}
+	if prefix == "" {
+		return suffix
+	}
+	return strings.TrimSuffix(prefix, "/") + "/" + strings.TrimPrefix(suffix, "/")
 }
 
 // pollCommands checks server for cancel requests.

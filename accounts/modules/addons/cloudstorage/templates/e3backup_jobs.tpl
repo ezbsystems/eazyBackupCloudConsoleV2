@@ -1167,8 +1167,22 @@ function jobsApp() {
                 window.location.href = 'index.php?m=cloudstorage&page=e3backup&view=hyperv&job_id=' + encodeURIComponent(job.id);
                 return;
             }
-            // For regular jobs, open the restore modal
-            window.openRestoreModal(job.id);
+            this.goToRestores(job);
+        },
+        goToRestores(job) {
+            if (!job) return;
+            const isMsp = {/literal}{if $isMspClient}true{else}false{/if}{literal};
+            const params = [];
+            if (job.agent_id) params.push('agent_id=' + encodeURIComponent(job.agent_id));
+            if (isMsp) {
+                if (job.tenant_id) {
+                    params.push('tenant_id=' + encodeURIComponent(job.tenant_id));
+                } else {
+                    params.push('tenant_id=direct');
+                }
+            }
+            const qs = params.length ? '&' + params.join('&') : '';
+            window.location.href = 'index.php?m=cloudstorage&page=e3backup&view=restores' + qs;
         },
         openRestoreModal(jobId) {
             window.openRestoreModal(jobId);
