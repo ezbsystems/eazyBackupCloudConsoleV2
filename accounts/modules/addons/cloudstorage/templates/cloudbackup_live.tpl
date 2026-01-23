@@ -391,6 +391,7 @@ let logsInterval;
 let eventsInterval;
 {assign var="isRunningStatus" value=($run.status eq 'running' || $run.status eq 'starting' || $run.status eq 'queued')}
 let isRunning = {if $isRunningStatus}true{else}false{/if};
+const RUN_UUID = '{$run.run_uuid|default:""}';
 let lastLogsHash = null;
 let lastEventId = 0;
 const errorSummaryContainer = document.getElementById('errorSummaryContainer');
@@ -1294,7 +1295,8 @@ function cancelRun(runId, force = false) {
             'Content-Type': 'application/x-www-form-urlencoded',
         },
         body: new URLSearchParams([
-            ['run_uuid', runId],
+            ['run_id', runId],
+            ...(RUN_UUID ? [['run_uuid', RUN_UUID]] : []),
             ['force', force ? '1' : '0'],
         ])
     })

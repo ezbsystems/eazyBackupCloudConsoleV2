@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	kopiafs "github.com/kopia/kopia/fs"
@@ -125,12 +126,44 @@ func (r *deviceReader) Entry() (kopiafs.Entry, error) {
 // Larger buffer reduces syscall overhead and improves sequential throughput.
 const diskReadBufferSize = 8 * 1024 * 1024 // 8 MiB
 
-// Feature flag: enable parallel reader when AGENT_PARALLEL_DISK_READS=1
+const (
+	parallelDiskReadsUnset    int32 = -1
+	parallelDiskReadsDisabled int32 = 0
+	parallelDiskReadsEnabled  int32 = 1
+)
+
+var parallelDiskReadsOverride int32 = parallelDiskReadsUnset
+
+// setParallelDiskReadsOverride sets a per-run override for parallel disk reads.
+// Pass nil to clear the override; returns a reset function to restore prior state.
+func setParallelDiskReadsOverride(enabled *bool) func() {
+	prev := atomic.LoadInt32(&parallelDiskReadsOverride)
+	next := parallelDiskReadsUnset
+	if enabled != nil {
+		if *enabled {
+			next = parallelDiskReadsEnabled
+		} else {
+			next = parallelDiskReadsDisabled
+		}
+	}
+	atomic.StoreInt32(&parallelDiskReadsOverride, next)
+	return func() {
+		atomic.StoreInt32(&parallelDiskReadsOverride, prev)
+	}
+}
+
+// Feature flag: disable parallel reader by setting AGENT_PARALLEL_DISK_READS=0/false
 func useParallelReader() bool {
+	if v := atomic.LoadInt32(&parallelDiskReadsOverride); v != parallelDiskReadsUnset {
+		return v == parallelDiskReadsEnabled
+	}
 	val := os.Getenv("AGENT_PARALLEL_DISK_READS")
 	if val == "" {
-		return false
+		return true
 	}
-	enabled, _ := strconv.ParseBool(val)
+	enabled, err := strconv.ParseBool(val)
+	if err != nil {
+		return true
+	}
 	return enabled
 }

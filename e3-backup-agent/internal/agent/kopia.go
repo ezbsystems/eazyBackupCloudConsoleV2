@@ -2411,6 +2411,9 @@ func parsePolicyOverrides(policyJSON map[string]any, compressionEnabled bool) (p
 			}
 		}
 	}
+	if parallel <= 0 {
+		parallel = 16
+	}
 	if v, ok := policyJSON["compression"]; ok {
 		if s, ok := v.(string); ok {
 			compressor = strings.TrimSpace(s)

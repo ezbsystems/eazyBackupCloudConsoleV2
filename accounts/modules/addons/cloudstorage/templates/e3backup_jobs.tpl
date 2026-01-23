@@ -1550,24 +1550,43 @@ document.addEventListener('DOMContentLoaded', function() {
     try {
         const params = new URLSearchParams(window.location.search || '');
         if (params.get('open_create') === '1') {
-            if (typeof openCreateJobModal === 'function') {
-                openCreateJobModal();
-            }
-            const pre = params.get('prefill_source') || 'google_drive';
-            const sel = document.getElementById('sourceType');
-            if (sel) {
-                sel.value = pre;
-                sel.dispatchEvent(new Event('change'));
-            }
-            setTimeout(() => {
-                const gf = document.getElementById('gdriveFields');
-                if (gf && gf.__x && gf.__x.$data && typeof gf.__x.$data.load === 'function') {
-                    gf.__x.$data.load();
+            const prefillSourceRaw = params.get('prefill_source') || 'google_drive';
+            const prefillSource = String(prefillSourceRaw || '').toLowerCase();
+
+            if (prefillSource === 'local_agent') {
+                if (typeof openLocalJobWizard === 'function') {
+                    openLocalJobWizard();
                 }
-            }, 150);
+
+                const agentId = params.get('prefill_agent_id') || '';
+                if (agentId && typeof localWizardSetAgentSelection === 'function') {
+                    localWizardSetAgentSelection(agentId, `Agent #${agentId}`);
+                }
+                if (agentId && typeof localWizardOnAgentSelected === 'function') {
+                    localWizardOnAgentSelected(agentId);
+                }
+            } else {
+                if (typeof openCreateJobModal === 'function') {
+                    openCreateJobModal();
+                }
+                const sel = document.getElementById('sourceType');
+                if (sel) {
+                    sel.value = prefillSourceRaw;
+                    sel.dispatchEvent(new Event('change'));
+                }
+                setTimeout(() => {
+                    const gf = document.getElementById('gdriveFields');
+                    if (gf && gf.__x && gf.__x.$data && typeof gf.__x.$data.load === 'function') {
+                        gf.__x.$data.load();
+                    }
+                }, 150);
+            }
+
             const url = new URL(window.location.href);
             url.searchParams.delete('open_create');
             url.searchParams.delete('prefill_source');
+            url.searchParams.delete('prefill_agent_id');
+            url.searchParams.delete('tenant_id');
             window.history.replaceState({}, '', url.toString());
         }
     } catch (e) {}
@@ -2407,14 +2426,17 @@ function localWizardFillFromJob(j, s) {
     if (bwEl) bwEl.value = bwVal;
     const policyObj = job.policy_json ? (safeParseJSON(job.policy_json) || {}) : {};
     const parEl = document.getElementById('localWizardParallelism');
-    const parVal = job.parallelism || policyObj.parallel_uploads || '8';
+    const parVal = job.parallelism || policyObj.parallel_uploads || '16';
     if (parEl) parEl.value = parVal;
     const compEl = document.getElementById('localWizardCompression');
-    const compVal = policyObj.compression || 'none';
+    const compVal = policyObj.compression || 'zstd-default';
     if (compEl) compEl.value = compVal;
     const dbgEl = document.getElementById('localWizardDebugLogs');
     const dbgVal = !!policyObj.debug_logs;
     if (dbgEl) dbgEl.checked = dbgVal;
+    const pdrEl = document.getElementById('localWizardParallelDiskReads');
+    const pdrVal = policyObj.parallel_disk_reads !== false;
+    if (pdrEl) pdrEl.checked = pdrVal;
     
     // Store network credentials flags for edit mode (preserve secrets)
     if (window.localWizardState?.data) {
@@ -2425,9 +2447,10 @@ function localWizardFillFromJob(j, s) {
     // Auto-expand advanced settings if any non-default values are loaded
     const hasNonDefaultAdvanced = (
         (parseInt(bwVal, 10) !== 0) ||
-        (parseInt(parVal, 10) !== 8) ||
-        (compVal !== 'none') ||
-        dbgVal
+        (parseInt(parVal, 10) !== 16) ||
+        (compVal !== 'zstd-default') ||
+        dbgVal ||
+        (pdrVal === false)
     );
     if (hasNonDefaultAdvanced) {
         // Try to find and expand the advanced toggle via Alpine
@@ -3371,8 +3394,9 @@ function localWizardBuildReview() {
     let policyObj = {};
     const bwVal = document.getElementById('localWizardBandwidth')?.value || '';
     const parVal = document.getElementById('localWizardParallelism')?.value || '';
-    const compVal = document.getElementById('localWizardCompression')?.value || 'none';
+    const compVal = document.getElementById('localWizardCompression')?.value || 'zstd-default';
     const dbgVal = !!document.getElementById('localWizardDebugLogs')?.checked;
+    const pdrVal = document.getElementById('localWizardParallelDiskReads')?.checked;
     s.bandwidth_limit_kbps = bwVal;
     s.parallelism = parVal;
     s.compression = compVal;
@@ -3389,6 +3413,9 @@ function localWizardBuildReview() {
     }
     if (dbgVal) {
         policyObj.debug_logs = true;
+    }
+    if (pdrVal === false) {
+        policyObj.parallel_disk_reads = false;
     }
     s.policy_json = policyObj;
 
