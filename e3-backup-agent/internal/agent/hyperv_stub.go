@@ -18,3 +18,7 @@ func (r *Runner) executeListHypervVMsCommand(ctx context.Context, cmd PendingCom
 	_ = r.client.CompleteCommand(cmd.CommandID, "failed", "Hyper-V is only supported on Windows")
 }
 
+// executeListHypervVMDetailsCommand is not supported on non-Windows platforms.
+func (r *Runner) executeListHypervVMDetailsCommand(ctx context.Context, cmd PendingCommand) {
+	_ = r.client.CompleteCommand(cmd.CommandID, "failed", "Hyper-V is only supported on Windows")
+}

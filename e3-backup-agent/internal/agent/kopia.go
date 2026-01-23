@@ -721,9 +721,9 @@ func (r *Runner) kopiaSnapshotDiskImage(ctx context.Context, run *NextRunRespons
 }
 
 // kopiaSnapshotDiskImageWithProgress is like kopiaSnapshotDiskImage but with an optional progress callback.
-// The callback is called with the cumulative bytes processed during the snapshot.
+// The callback is called with the cumulative bytes processed and uploaded during the snapshot.
 // Returns the manifest ID of the saved snapshot.
-func (r *Runner) kopiaSnapshotDiskImageWithProgress(ctx context.Context, run *NextRunResponse, entryOverride kopiafs.Entry, declaredSize int64, stableSourcePath string, progressCb func(bytesProcessed int64)) (string, error) {
+func (r *Runner) kopiaSnapshotDiskImageWithProgress(ctx context.Context, run *NextRunResponse, entryOverride kopiafs.Entry, declaredSize int64, stableSourcePath string, progressCb func(bytesProcessed int64, bytesUploaded int64)) (string, error) {
 	opts := kopiaOptionsFromRun(r.cfg, run)
 	repoPath := filepath.Join(r.cfg.RunDir, "kopia", fmt.Sprintf("job_%d.config", run.JobID))
 	if err := os.MkdirAll(filepath.Dir(repoPath), 0o755); err != nil {
@@ -973,14 +973,14 @@ type kopiaProgressCounter struct {
 	totalFiles      int64
 	
 	// Optional external progress callback (for Hyper-V cumulative progress)
-	externalProgressCb func(bytesProcessed int64)
+	externalProgressCb func(bytesProcessed int64, bytesUploaded int64)
 }
 
 func newKopiaProgressCounter(r *Runner, runID int64) *kopiaProgressCounter {
 	return newKopiaProgressCounterWithCallback(r, runID, nil)
 }
 
-func newKopiaProgressCounterWithCallback(r *Runner, runID int64, progressCb func(bytesProcessed int64)) *kopiaProgressCounter {
+func newKopiaProgressCounterWithCallback(r *Runner, runID int64, progressCb func(bytesProcessed int64, bytesUploaded int64)) *kopiaProgressCounter {
 	now := time.Now()
 	return &kopiaProgressCounter{
 		runner:             r,
@@ -1151,7 +1151,7 @@ func (p *kopiaProgressCounter) reportProgressLocked(force bool) {
 
 	// Call external progress callback if set (for Hyper-V cumulative progress)
 	if p.externalProgressCb != nil {
-		p.externalProgressCb(bytesHashed)
+		p.externalProgressCb(bytesHashed, bytesUploaded)
 	}
 
 	// Fire-and-forget; errors are logged upstream.

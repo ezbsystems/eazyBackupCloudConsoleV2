@@ -496,33 +496,37 @@ try {
                 logModuleCall('cloudstorage', 'agent_next_run_hyperv', ['job_id' => $job->id], $e->getMessage());
             }
             
-            // Fallback: if no VMs found in s3_hyperv_vms, try to extract from source_path
-            // (for jobs created before VM registration was added)
-            if (empty($hypervVMs) && !empty($job->source_path)) {
-                $sourcePathStr = $job->source_path;
-                // source_path may contain comma-separated GUIDs or "Hyper-V VMs (N)" format
-                if (strpos($sourcePathStr, 'Hyper-V VMs') === false) {
-                    // Looks like GUIDs - parse them
-                    $guids = array_filter(array_map('trim', explode(',', $sourcePathStr)));
-                    $guidPattern = '/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i';
-                    foreach ($guids as $guid) {
-                        if (preg_match($guidPattern, $guid)) {
-                            $hypervVMs[] = [
-                                'vm_id' => 0, // No DB record
-                                'vm_name' => $guid, // Agent will resolve to real name
-                                'vm_guid' => $guid,
-                                'last_checkpoint_id' => null,
-                                'last_rct_ids' => new \stdClass(),
-                            ];
-                        }
+            // Fallback: if no VMs found in s3_hyperv_vms, try source_paths_json or source_path
+            if (empty($hypervVMs)) {
+                $vmCandidates = [];
+                if (!empty($sourcePaths)) {
+                    $vmCandidates = $sourcePaths;
+                } elseif (!empty($job->source_path)) {
+                    $sourcePathStr = $job->source_path;
+                    if (strpos($sourcePathStr, 'Hyper-V VMs') === false) {
+                        $vmCandidates = array_filter(array_map('trim', explode(',', $sourcePathStr)));
                     }
-                    if (!empty($hypervVMs)) {
-                        logModuleCall('cloudstorage', 'agent_next_run_hyperv_fallback', [
-                            'job_id' => $job->id,
-                            'source_path' => $sourcePathStr,
-                            'vm_count' => count($hypervVMs),
-                        ], 'Used source_path fallback for VM discovery');
+                }
+                $guidPattern = '/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i';
+                foreach ($vmCandidates as $guid) {
+                    if ($guid === '') {
+                        continue;
                     }
+                    if (preg_match($guidPattern, $guid)) {
+                        $hypervVMs[] = [
+                            'vm_id' => 0,
+                            'vm_name' => $guid,
+                            'vm_guid' => $guid,
+                            'last_checkpoint_id' => null,
+                            'last_rct_ids' => new \stdClass(),
+                        ];
+                    }
+                }
+                if (!empty($hypervVMs)) {
+                    logModuleCall('cloudstorage', 'agent_next_run_hyperv_fallback', [
+                        'job_id' => $job->id,
+                        'vm_count' => count($hypervVMs),
+                    ], 'Used source_paths/source_path fallback for VM discovery');
                 }
             }
             

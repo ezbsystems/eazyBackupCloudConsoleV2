@@ -59,6 +59,8 @@ type hypervProgressTracker struct {
 	totalBytes     int64
 	completedBytes int64 // Bytes from fully completed VMs/disks
 	currentBytes   int64 // Bytes processed in current disk (atomic)
+	completedUploadedBytes int64 // Uploaded bytes from completed disks
+	currentUploaded        int64 // Uploaded bytes for current disk (atomic)
 	startTime      time.Time
 	currentVM      string
 	currentVMIndex int
@@ -76,9 +78,18 @@ func (p *hypervProgressTracker) addCompletedBytes(bytes int64) {
 	atomic.StoreInt64(&p.currentBytes, 0) // Reset current disk counter
 }
 
-// setCurrentBytes updates the bytes processed in the current disk (called frequently).
-func (p *hypervProgressTracker) setCurrentBytes(bytes int64) {
-	atomic.StoreInt64(&p.currentBytes, bytes)
+// finalizeCurrentDiskUpload moves current uploaded bytes into completed total.
+func (p *hypervProgressTracker) finalizeCurrentDiskUpload() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.completedUploadedBytes += atomic.LoadInt64(&p.currentUploaded)
+	atomic.StoreInt64(&p.currentUploaded, 0)
+}
+
+// updateCurrentBytes updates the bytes processed/uploaded in the current disk (called frequently).
+func (p *hypervProgressTracker) updateCurrentBytes(bytesProcessed int64, bytesUploaded int64) {
+	atomic.StoreInt64(&p.currentBytes, bytesProcessed)
+	atomic.StoreInt64(&p.currentUploaded, bytesUploaded)
 	p.reportProgress(false)
 }
 
@@ -102,6 +113,8 @@ func (p *hypervProgressTracker) reportProgress(force bool) {
 
 	currentDiskBytes := atomic.LoadInt64(&p.currentBytes)
 	totalProcessed := p.completedBytes + currentDiskBytes
+	currentUploaded := atomic.LoadInt64(&p.currentUploaded)
+	totalUploaded := p.completedUploadedBytes + currentUploaded
 
 	var progressPct float64
 	if p.totalBytes > 0 {
@@ -124,6 +137,7 @@ func (p *hypervProgressTracker) reportProgress(force bool) {
 		RunID:            p.runID,
 		Status:           "running",
 		ProgressPct:      progressPct,
+		BytesTransferred: Int64Ptr(totalUploaded),
 		BytesProcessed:   Int64Ptr(totalProcessed),
 		BytesTotal:       Int64Ptr(p.totalBytes),
 		SpeedBytesPerSec: speedBps,
@@ -619,9 +633,9 @@ func (r *Runner) backupHyperVVM(
 		var manifestID string
 		
 		// Progress callback for cumulative tracking
-		progressCallback := func(bytesProcessed int64) {
+		progressCallback := func(bytesProcessed int64, bytesUploaded int64) {
 			if progressTracker != nil {
-				progressTracker.setCurrentBytes(bytesProcessed)
+				progressTracker.updateCurrentBytes(bytesProcessed, bytesUploaded)
 			}
 		}
 
@@ -645,6 +659,7 @@ func (r *Runner) backupHyperVVM(
 		// After disk completes, add its bytes to cumulative total
 		if err == nil && progressTracker != nil {
 			progressTracker.addCompletedBytes(disk.SizeBytes)
+			progressTracker.finalizeCurrentDiskUpload()
 		}
 
 		if err != nil {
@@ -686,8 +701,8 @@ func (r *Runner) backupHyperVVM(
 }
 
 // backupVHDXFull backs up an entire VHDX file using Kopia.
-// ProgressCallback is called during backup to report bytes processed.
-type ProgressCallback func(bytesProcessed int64)
+// ProgressCallback is called during backup to report bytes processed and uploaded.
+type ProgressCallback func(bytesProcessed int64, bytesUploaded int64)
 
 func (r *Runner) backupVHDXFull(ctx context.Context, run *NextRunResponse, vhdxPath string, size int64, progressCb ProgressCallback) (string, error) {
 	reader, err := newFullVHDXReader(vhdxPath)
@@ -780,7 +795,7 @@ func (r *Runner) executeListHypervVMsCommand(ctx context.Context, cmd PendingCom
 
 	log.Printf("agent: discovered %d Hyper-V VMs for command %d", len(vms), cmd.CommandID)
 
-	// Convert to JSON-friendly format
+    // Convert to JSON-friendly format
 	vmList := make([]map[string]interface{}, 0, len(vms))
 	for _, vm := range vms {
 		vmData := map[string]interface{}{
@@ -793,22 +808,8 @@ func (r *Runner) executeListHypervVMsCommand(ctx context.Context, cmd PendingCom
 			"integration_services": vm.IntegrationSvcs,
 			"is_linux":             vm.IsLinux,
 			"rct_enabled":          vm.RCTEnabled,
+            "disk_count":           len(vm.Disks),
 		}
-
-		// Include disk information
-		disks := make([]map[string]interface{}, 0, len(vm.Disks))
-		for _, disk := range vm.Disks {
-			diskData := map[string]interface{}{
-				"path":            disk.Path,
-				"size_bytes":      disk.SizeBytes,
-				"used_bytes":      disk.UsedBytes,
-				"vhd_format":      disk.VHDFormat,
-				"rct_enabled":     disk.RCTEnabled,
-				"controller_type": disk.ControllerType,
-			}
-			disks = append(disks, diskData)
-		}
-		vmData["disks"] = disks
 
 		vmList = append(vmList, vmData)
 	}
@@ -819,20 +820,99 @@ func (r *Runner) executeListHypervVMsCommand(ctx context.Context, cmd PendingCom
 		"count": len(vmList),
 	}
 
-	resultJSON, err := json.Marshal(result)
-	if err != nil {
-		log.Printf("agent: list_hyperv_vms command %d failed to marshal: %v", cmd.CommandID, err)
-		_ = r.client.CompleteCommand(cmd.CommandID, "failed", "Failed to serialize VM list: "+err.Error())
-		return
-	}
-
-	// Complete the command with the VM list as the result
-	if err := r.client.CompleteCommand(cmd.CommandID, "completed", string(resultJSON)); err != nil {
-		log.Printf("agent: list_hyperv_vms command %d failed to complete: %v", cmd.CommandID, err)
-		return
-	}
+    if err := r.client.ReportBrowseResult(cmd.CommandID, result); err != nil {
+        log.Printf("agent: list_hyperv_vms command %d failed to report: %v", cmd.CommandID, err)
+        _ = r.client.CompleteCommand(cmd.CommandID, "failed", "report hyperv vms failed: "+err.Error())
+        return
+    }
 
 	log.Printf("agent: list_hyperv_vms command %d completed successfully", cmd.CommandID)
+}
+
+// executeListHypervVMDetailsCommand handles the list_hyperv_vm_details command from the server.
+// This returns disk details for selected VMs only.
+func (r *Runner) executeListHypervVMDetailsCommand(ctx context.Context, cmd PendingCommand) {
+    log.Printf("agent: executing list_hyperv_vm_details command %d", cmd.CommandID)
+
+    vmIDs := []string{}
+    if cmd.Payload != nil {
+        if v, ok := cmd.Payload["vm_ids"]; ok {
+            switch t := v.(type) {
+            case []any:
+                for _, item := range t {
+                    if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+                        vmIDs = append(vmIDs, strings.TrimSpace(s))
+                    }
+                }
+            case []string:
+                for _, s := range t {
+                    if strings.TrimSpace(s) != "" {
+                        vmIDs = append(vmIDs, strings.TrimSpace(s))
+                    }
+                }
+            case string:
+                trimmed := strings.TrimSpace(t)
+                if trimmed != "" {
+                    var decoded []string
+                    if err := json.Unmarshal([]byte(trimmed), &decoded); err == nil {
+                        for _, s := range decoded {
+                            if strings.TrimSpace(s) != "" {
+                                vmIDs = append(vmIDs, strings.TrimSpace(s))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if len(vmIDs) == 0 {
+        _ = r.client.CompleteCommand(cmd.CommandID, "failed", "vm_ids is required")
+        return
+    }
+
+    mgr := hyperv.NewManager()
+    details := make([]map[string]interface{}, 0, len(vmIDs))
+
+    for _, vmID := range vmIDs {
+        vm, err := getVMByNameOrGUID(ctx, mgr, vmID, vmID)
+        if err != nil {
+            log.Printf("agent: list_hyperv_vm_details command %d failed for %s: %v", cmd.CommandID, vmID, err)
+            continue
+        }
+
+        disks := make([]map[string]interface{}, 0, len(vm.Disks))
+        for _, disk := range vm.Disks {
+            disks = append(disks, map[string]interface{}{
+                "path":            disk.Path,
+                "size_bytes":      disk.SizeBytes,
+                "used_bytes":      disk.UsedBytes,
+                "vhd_format":      disk.VHDFormat,
+                "rct_enabled":     disk.RCTEnabled,
+                "controller_type": disk.ControllerType,
+            })
+        }
+
+        details = append(details, map[string]interface{}{
+            "id":         vm.ID,
+            "name":       vm.Name,
+            "disk_count": len(vm.Disks),
+            "disks":      disks,
+        })
+    }
+
+    result := map[string]interface{}{
+        "details": details,
+        "count":   len(details),
+    }
+
+    if err := r.client.ReportBrowseResult(cmd.CommandID, result); err != nil {
+        log.Printf("agent: list_hyperv_vm_details command %d failed to report: %v", cmd.CommandID, err)
+        _ = r.client.CompleteCommand(cmd.CommandID, "failed", "report hyperv vm details failed: "+err.Error())
+        return
+    }
+
+    log.Printf("agent: list_hyperv_vm_details command %d completed successfully", cmd.CommandID)
 }
 
 // checkContextCancelled checks if the context has been cancelled.

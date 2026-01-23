@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"log"
 	"os"
@@ -47,9 +48,12 @@ func main() {
 	}
 
 	// Foreground mode
-	cfg, err := agent.LoadConfig(*configPath)
-	if err != nil {
+	cfg, err := agent.LoadConfigAllowUnenrolled(*configPath)
+	if err != nil && !errors.Is(err, agent.ErrMissingEnrollment) {
 		log.Fatalf("failed to load config: %v", err)
+	}
+	if errors.Is(err, agent.ErrMissingEnrollment) {
+		log.Printf("config missing enrollment credentials; waiting for enrollment")
 	}
 
 	log.Printf("e3-backup-agent starting (client_id=%s, agent_id=%s, api=%s)", cfg.ClientID, cfg.AgentID, cfg.APIBaseURL)
@@ -78,11 +82,14 @@ func (p *program) Start(s service.Service) error {
 }
 
 func (p *program) run() {
-	cfg, err := agent.LoadConfig(p.configPath)
-	if err != nil {
+	cfg, err := agent.LoadConfigAllowUnenrolled(p.configPath)
+	if err != nil && !errors.Is(err, agent.ErrMissingEnrollment) {
 		log.Printf("service: failed to load config: %v", err)
 		// Return so SCM reports a start failure; log file will contain the reason.
 		return
+	}
+	if errors.Is(err, agent.ErrMissingEnrollment) {
+		log.Printf("service: config missing enrollment credentials; waiting for enrollment")
 	}
 	log.Printf("service: e3-backup-agent starting (client_id=%s, agent_id=%s, api=%s)", cfg.ClientID, cfg.AgentID, cfg.APIBaseURL)
 	r := agent.NewRunner(cfg, p.configPath)

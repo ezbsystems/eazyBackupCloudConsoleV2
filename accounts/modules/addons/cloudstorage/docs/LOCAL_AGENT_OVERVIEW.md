@@ -496,7 +496,14 @@ Events pushed by the agent are formatted for display using `CloudBackupEventForm
 - Service wrapper via kardianos/service; can run foreground for debugging.
 - Default poll interval: **5 seconds** (configurable via `PollIntervalSecs` in config).
 
-## Tray App Auto-Enrollment (Jan 2025)
+## Installer and Uninstaller Notes (Jan 2026)
+- Installer wizard includes a Production vs Development toggle; `/API=...` still overrides.
+- Enrollment responses return `api_base_url` based on the request host (with proxy headers) to avoid dev/prod mismatches.
+- ProgramData permissions allow standard users to write `agent.conf` after install.
+- Service can start before enrollment and waits for credentials in `agent.conf` (no restart needed after enrollment).
+- Uninstaller stops the tray app and removes `%PROGRAMDATA%\\E3Backup` and `%ProgramFiles%\\E3Backup` leftovers.
+
+## Tray App Auto-Enrollment (Jan 2025, updated Jan 2026)
 
 ### Overview
 
@@ -550,6 +557,10 @@ After successful enrollment, the tray displays a success page with:
 The button URL is dynamically built from `api_base_url`:
 - API: `https://accounts.eazybackup.ca/modules/addons/cloudstorage/api`
 - Jobs page: `https://accounts.eazybackup.ca/index.php?m=cloudstorage&page=e3backup&view=jobs`
+
+### Jan 2026 Enhancements
+- Enrollment parsing accepts numeric `agent_id`/`client_id` responses and validates credentials.
+- Tray shows a clear error if saving `agent.conf` fails.
 
 ### Debug Logging
 

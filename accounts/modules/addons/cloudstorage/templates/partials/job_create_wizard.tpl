@@ -1602,7 +1602,9 @@
                                                             <div class="flex items-center gap-3 mt-1 text-[10px] text-slate-500">
                                                                 <span x-show="vm.cpu_count" x-text="vm.cpu_count + ' vCPU'"></span>
                                                                 <span x-show="vm.memory_mb" x-text="formatMemory(vm.memory_mb)"></span>
-                                                                <span x-show="vm.disks && vm.disks.length" x-text="vm.disks.length + ' disk(s)'"></span>
+                                                                <span x-show="Array.isArray(vm.disks) && vm.disks.length" x-text="(Array.isArray(vm.disks) ? vm.disks.length : 0) + ' disk(s)'"></span>
+                                                                <span x-show="(!vm.disks || vm.disks.length === 0) && (vm.disk_count !== null && vm.disk_count !== undefined)" class="text-[10px] text-slate-500" x-text="vm.disk_count + ' disk(s)'"></span>
+                                                                <span x-show="(!vm.disks || vm.disks.length === 0) && (vm.disk_count === null || vm.disk_count === undefined) && isSelected(vm.id)" class="text-[10px] text-slate-500">Fetching disk info...</span>
                                                             </div>
                                                         </div>
                                                         <!-- Checkbox -->

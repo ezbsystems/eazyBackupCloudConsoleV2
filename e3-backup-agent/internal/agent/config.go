@@ -1,12 +1,15 @@
 package agent
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
 
 	"gopkg.in/yaml.v3"
 )
+
+var ErrMissingEnrollment = errors.New("missing enrollment credentials")
 
 // AgentConfig holds the minimal identity and endpoint configuration the agent needs.
 // This keeps secrets out of flags and environment variables; the installer will drop
@@ -66,15 +69,20 @@ func (c *AgentConfig) Validate() error {
 		return fmt.Errorf("api_base_url is required")
 	}
 
+	c.applyDefaults()
+
 	// Enrolled config OR pre-enrollment config must be present.
 	enrolled := c.AgentID != "" && c.AgentToken != ""
 	preEnrollToken := c.EnrollmentToken != ""
 	preEnrollLogin := c.EnrollEmail != "" && c.EnrollPassword != ""
 	if !enrolled && !preEnrollToken && !preEnrollLogin {
-		return fmt.Errorf("agent_id/agent_token are required unless enrollment_token or enroll_email+enroll_password are provided")
+		return fmt.Errorf("%w: agent_id/agent_token are required unless enrollment_token or enroll_email+enroll_password are provided", ErrMissingEnrollment)
 	}
 
-	// Defaults
+	return nil
+}
+
+func (c *AgentConfig) applyDefaults() {
 	if c.EnrollRememberMe == nil {
 		// Default is to remember credentials (installer/tray may override).
 		// Note: the agent service clears enrollment fields after successful enrollment regardless.
@@ -103,7 +111,29 @@ func (c *AgentConfig) Validate() error {
 			c.RunDir = "/var/lib/e3-backup-agent/runs"
 		}
 	}
-	return nil
+}
+
+// LoadConfigAllowUnenrolled reads the config and applies defaults, but
+// allows missing enrollment credentials so the service can wait for enrollment.
+func LoadConfigAllowUnenrolled(path string) (*AgentConfig, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read config: %w", err)
+	}
+
+	var cfg AgentConfig
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("parse config: %w", err)
+	}
+
+	if err := cfg.Validate(); err != nil {
+		if errors.Is(err, ErrMissingEnrollment) {
+			return &cfg, err
+		}
+		return nil, err
+	}
+
+	return &cfg, nil
 }
 
 // Save writes the config back to disk with restrictive permissions.

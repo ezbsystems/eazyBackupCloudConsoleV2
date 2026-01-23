@@ -5,6 +5,8 @@ AppPublisher=EazyBackup
 DefaultDirName={autopf}\E3Backup
 DefaultGroupName=E3 Backup Agent
 DisableProgramGroupPage=yes
+ArchitecturesAllowed=x64
+ArchitecturesInstallIn64BitMode=x64
 Compression=lzma2
 SolidCompression=yes
 PrivilegesRequired=admin
@@ -17,6 +19,12 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "autorun_tray"; Description: "Run tray helper at login (recommended)"; Flags: checkedonce
 Name: "start_tray_now"; Description: "Start tray helper after install"; Flags: checkedonce
+
+[Dirs]
+; Ensure standard users can update config/logs/runs without elevation
+Name: "{commonappdata}\E3Backup"; Permissions: users-modify
+Name: "{commonappdata}\E3Backup\logs"; Permissions: users-modify
+Name: "{commonappdata}\E3Backup\runs"; Permissions: users-modify
 
 [Files]
 ; NOTE: build these two binaries before compiling the installer:
@@ -45,11 +53,57 @@ Filename: "{app}\e3-backup-agent.exe"; Parameters: "-service start -config ""{co
 Filename: "{app}\e3-backup-tray.exe"; Parameters: "-config ""{commonappdata}\E3Backup\agent.conf"""; Tasks: start_tray_now; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
+; Stop tray helper (may lock files in Program Files)
+Filename: "{cmd}"; Parameters: "/c taskkill /F /IM e3-backup-tray.exe >nul 2>&1"; Flags: runhidden; RunOnceId: "StopTray"
 ; Stop/uninstall service on uninstall
 Filename: "{app}\e3-backup-agent.exe"; Parameters: "-service stop -config ""{commonappdata}\E3Backup\agent.conf"""; Flags: runhidden; RunOnceId: "StopService"
 Filename: "{app}\e3-backup-agent.exe"; Parameters: "-service uninstall -config ""{commonappdata}\E3Backup\agent.conf"""; Flags: runhidden; RunOnceId: "UninstallService"
 
+[UninstallDelete]
+; Remove ProgramData folder and any leftover app files
+Type: filesandordirs; Name: "{commonappdata}\E3Backup"
+Type: filesandordirs; Name: "{app}"
+
 [Code]
+var
+  EnvPage: TWizardPage;
+  UseDevCheckbox: TNewCheckBox;
+
+function GetDefaultApiBase: string;
+begin
+  Result := 'https://accounts.eazybackup.ca/modules/addons/cloudstorage/api';
+end;
+
+function GetDevApiBase: string;
+begin
+  Result := 'https://dev.eazybackup.ca/modules/addons/cloudstorage/api';
+end;
+
+function GetSelectedApiBase: string;
+begin
+  if Assigned(UseDevCheckbox) and UseDevCheckbox.Checked then
+    Result := GetDevApiBase
+  else
+    Result := GetDefaultApiBase;
+end;
+
+procedure InitializeWizard;
+begin
+  EnvPage := CreateCustomPage(
+    wpSelectTasks,
+    'Server Environment',
+    'Choose which server the agent should enroll with.'
+  );
+
+  UseDevCheckbox := TNewCheckBox.Create(EnvPage);
+  UseDevCheckbox.Parent := EnvPage.Surface;
+  UseDevCheckbox.Caption := 'Use development server (dev.eazybackup.ca)';
+  UseDevCheckbox.Checked := False;
+  UseDevCheckbox.Left := ScaleX(0);
+  UseDevCheckbox.Top := ScaleY(8);
+  UseDevCheckbox.Width := EnvPage.SurfaceWidth;
+end;
+
 function GetParamValue(const ParamName: string): string;
 var
   I: Integer;
@@ -139,7 +193,7 @@ begin
   cfgPath := cfgDir + '\agent.conf';
 
   apiBase := GetParamValue('API');
-  if apiBase = '' then apiBase := 'https://accounts.eazybackup.ca/modules/addons/cloudstorage/api';
+  if apiBase = '' then apiBase := GetSelectedApiBase;
 
   token := GetParamValue('TOKEN');
 

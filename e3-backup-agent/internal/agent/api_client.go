@@ -51,11 +51,34 @@ func (c *Client) authHeaders(req *http.Request) {
 	c.applyUserAgent(req)
 }
 
+type jsonString string
+
+func (s *jsonString) UnmarshalJSON(b []byte) error {
+	if len(b) == 0 {
+		*s = ""
+		return nil
+	}
+	if b[0] == '"' {
+		var v string
+		if err := json.Unmarshal(b, &v); err != nil {
+			return err
+		}
+		*s = jsonString(v)
+		return nil
+	}
+	var num json.Number
+	if err := json.Unmarshal(b, &num); err != nil {
+		return err
+	}
+	*s = jsonString(num.String())
+	return nil
+}
+
 // EnrollResponse represents the enrollment payload returned by the server.
 type EnrollResponse struct {
 	Status     string `json:"status"`
-	AgentID    string `json:"agent_id"`
-	ClientID   string `json:"client_id"`
+	AgentID    jsonString `json:"agent_id"`
+	ClientID   jsonString `json:"client_id"`
 	AgentToken string `json:"agent_token"`
 	APIBaseURL string `json:"api_base_url"`
 	TenantID   *int   `json:"tenant_id,omitempty"`
@@ -101,6 +124,9 @@ func (c *Client) EnrollWithToken(token, hostname string) (*EnrollResponse, error
 		}
 		return nil, fmt.Errorf("enroll failed: status %s", out.Status)
 	}
+	if strings.TrimSpace(string(out.AgentID)) == "" || strings.TrimSpace(out.AgentToken) == "" {
+		return nil, fmt.Errorf("enroll failed: missing agent credentials")
+	}
 	return &out, nil
 }
 
@@ -143,6 +169,9 @@ func (c *Client) EnrollWithCredentials(email, password, hostname string) (*Enrol
 			return nil, fmt.Errorf("login enroll failed: %s", out.Message)
 		}
 		return nil, fmt.Errorf("login enroll failed: status %s", out.Status)
+	}
+	if strings.TrimSpace(string(out.AgentID)) == "" || strings.TrimSpace(out.AgentToken) == "" {
+		return nil, fmt.Errorf("login enroll failed: missing agent credentials")
 	}
 	return &out, nil
 }
@@ -498,7 +527,7 @@ func (c *Client) CompleteCommand(commandID int64, status, resultMessage string) 
 }
 
 // ReportBrowseResult sends a filesystem browse result for a command.
-func (c *Client) ReportBrowseResult(commandID int64, result BrowseDirectoryResponse) error {
+func (c *Client) ReportBrowseResult(commandID int64, result any) error {
 	endpoint := c.baseURL + "/agent_report_browse.php"
 	// Some web stacks/WAF rules will block requests containing Windows paths like "C:\Users\..."
 	// (often returning HTTP 403 before PHP runs). To make this robust, send the browse result
