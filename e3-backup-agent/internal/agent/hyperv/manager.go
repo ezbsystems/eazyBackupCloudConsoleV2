@@ -31,18 +31,14 @@ $ErrorActionPreference = 'Stop'
 $vms = Get-VM | ForEach-Object {
     $vm = $_
     $disks = Get-VMHardDiskDrive -VM $vm | ForEach-Object {
-        $vhd = $null
-        try {
-            $vhd = Get-VHD -Path $_.Path -ErrorAction SilentlyContinue
-        } catch {}
         @{
             ControllerType = $_.ControllerType.ToString()
             ControllerNumber = $_.ControllerNumber
             ControllerLocation = $_.ControllerLocation
             Path = $_.Path
-            SizeBytes = if ($vhd) { $vhd.Size } else { 0 }
-            UsedBytes = if ($vhd) { $vhd.FileSize } else { 0 }
-            VHDFormat = if ($vhd) { $vhd.VhdFormat.ToString() } else { "Unknown" }
+            SizeBytes = 0
+            UsedBytes = 0
+            VHDFormat = ""
             RCTEnabled = $_.SupportPersistentReservations
             RCTID = ""
         }

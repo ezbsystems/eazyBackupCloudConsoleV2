@@ -2920,6 +2920,7 @@ function hypervBrowser() {
         vms: [],
         selectedVMs: [],
         agentId: '',
+        detailsLoadingIds: [],
 
         init() {
             this.agentId = document.getElementById('localWizardAgentId')?.value || '';
@@ -2958,6 +2959,34 @@ function hypervBrowser() {
             });
         },
 
+        sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        },
+
+        async requestJSON(url, options = {}) {
+            const resp = await fetch(url, options);
+            const text = await resp.text();
+            try {
+                return JSON.parse(text);
+            } catch (e) {
+                throw new Error(`Failed to parse response: ${text.slice(0, 120)}...`);
+            }
+        },
+
+        async pollCommand(commandId, timeoutMs = 45000) {
+            const started = Date.now();
+            let delay = 600;
+            while (Date.now() - started < timeoutMs) {
+                const poll = await this.requestJSON(`modules/addons/cloudstorage/api/agent_poll_hyperv_vms.php?command_id=${commandId}`);
+                if (poll.status !== 'pending') {
+                    return poll;
+                }
+                await this.sleep(delay);
+                delay = Math.min(Math.round(delay * 1.6), 4000);
+            }
+            return { status: 'timeout' };
+        },
+
         async loadVMs() {
             if (!this.agentId) {
                 this.error = 'Select an agent to discover VMs.';
@@ -2966,28 +2995,45 @@ function hypervBrowser() {
             this.loading = true;
             this.error = null;
             try {
-                const resp = await fetch(`modules/addons/cloudstorage/api/agent_list_hyperv_vms.php?agent_id=${this.agentId}`);
-                const text = await resp.text();
-                let data;
-                try {
-                    data = JSON.parse(text);
-                } catch (e) {
-                    this.error = `Failed to parse response: ${text.slice(0, 120)}...`;
+                const data = await this.requestJSON(`modules/addons/cloudstorage/api/agent_list_hyperv_vms.php?agent_id=${this.agentId}`);
+                if (data.status === 'success') {
+                    this.applyVMList(data.vms);
                     return;
                 }
-                if (data.status === 'success') {
-                    this.vms = Array.isArray(data.vms) ? data.vms : [];
-                    // Re-validate selected VMs
-                    const validIds = this.vms.map(v => v.id);
-                    this.selectedVMs = this.selectedVMs.filter(id => validIds.includes(id));
-                    this.syncToWizard();
+
+                if (data.status !== 'pending' || !data.command_id) {
+                    this.error = data.message || 'Failed to queue VM discovery';
+                    return;
+                }
+
+                const poll = await this.pollCommand(data.command_id, 60000);
+                if (poll.status === 'success') {
+                    this.applyVMList(poll.vms);
+                } else if (poll.status === 'timeout') {
+                    this.error = 'VM discovery is taking longer than expected. Please try again.';
                 } else {
-                    this.error = data.message || 'Failed to load VMs';
+                    this.error = poll.message || 'Failed to load VMs';
                 }
             } catch (e) {
                 this.error = e.message || 'Network error';
             } finally {
                 this.loading = false;
+            }
+        },
+
+        applyVMList(vms) {
+            this.vms = Array.isArray(vms) ? vms.map(vm => ({
+                ...vm,
+                disk_count: typeof vm.disk_count === 'number' ? vm.disk_count : (Array.isArray(vm.disks) ? vm.disks.length : null),
+                disks: Array.isArray(vm.disks) ? vm.disks : null,
+                disks_loaded: Array.isArray(vm.disks),
+            })) : [];
+            // Re-validate selected VMs
+            const validIds = this.vms.map(v => v.id);
+            this.selectedVMs = this.selectedVMs.filter(id => validIds.includes(id));
+            this.syncToWizard();
+            if (this.selectedVMs.length > 0) {
+                this.queueVMDetails(this.selectedVMs);
             }
         },
 
@@ -3000,6 +3046,7 @@ function hypervBrowser() {
                 this.selectedVMs = this.selectedVMs.filter(id => id !== vm.id);
             } else {
                 this.selectedVMs = [...this.selectedVMs, vm.id];
+                this.queueVMDetails([vm.id]);
             }
             this.syncToWizard();
         },
@@ -3012,6 +3059,7 @@ function hypervBrowser() {
         selectAllVMs() {
             this.selectedVMs = this.vms.map(v => v.id);
             this.syncToWizard();
+            this.queueVMDetails(this.selectedVMs);
         },
 
         clearSelection() {
@@ -3030,6 +3078,60 @@ function hypervBrowser() {
                 return `${(mb / 1024).toFixed(1)} GB RAM`;
             }
             return `${mb} MB RAM`;
+        },
+
+        async queueVMDetails(vmIds) {
+            const uniqueIds = [...new Set((vmIds || []).filter(Boolean))];
+            const pending = uniqueIds.filter(id => {
+                const vm = this.vms.find(v => v.id === id);
+                if (!vm || vm.disks_loaded) return false;
+                return !this.detailsLoadingIds.includes(id);
+            });
+            if (pending.length === 0) {
+                return;
+            }
+            this.detailsLoadingIds = [...new Set([...this.detailsLoadingIds, ...pending])];
+            try {
+                const data = await this.requestJSON(
+                    `modules/addons/cloudstorage/api/agent_list_hyperv_vm_details.php?agent_id=${this.agentId}`,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ vm_ids: pending }),
+                    }
+                );
+                if (data.status === 'success' && Array.isArray(data.details)) {
+                    this.applyVMDetails(data.details);
+                    return;
+                }
+                if (data.status === 'pending' && data.command_id) {
+                    const poll = await this.pollCommand(data.command_id, 60000);
+                    if (poll.status === 'success' && Array.isArray(poll.details)) {
+                        this.applyVMDetails(poll.details);
+                        return;
+                    }
+                }
+            } catch (e) {
+                console.warn('Failed to load Hyper-V VM details', e);
+            } finally {
+                this.detailsLoadingIds = this.detailsLoadingIds.filter(id => !pending.includes(id));
+            }
+        },
+
+        applyVMDetails(details) {
+            const detailMap = new Map(details.map(d => [d.id, d]));
+            this.vms = this.vms.map(vm => {
+                const detail = detailMap.get(vm.id);
+                if (!detail) return vm;
+                const disks = Array.isArray(detail.disks) ? detail.disks : vm.disks;
+                return {
+                    ...vm,
+                    disks,
+                    disk_count: typeof detail.disk_count === 'number' ? detail.disk_count : (Array.isArray(disks) ? disks.length : vm.disk_count),
+                    disks_loaded: Array.isArray(disks),
+                };
+            });
+            this.detailsLoadingIds = this.detailsLoadingIds.filter(id => !detailMap.has(id));
         },
 
         syncToWizard() {

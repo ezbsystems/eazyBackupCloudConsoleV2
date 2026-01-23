@@ -41,6 +41,29 @@ type agentConfig struct {
 
 const defaultAPIBaseURL = "https://accounts.eazybackup.ca/modules/addons/cloudstorage/api"
 
+type jsonString string
+
+func (s *jsonString) UnmarshalJSON(b []byte) error {
+	if len(b) == 0 {
+		*s = ""
+		return nil
+	}
+	if b[0] == '"' {
+		var v string
+		if err := json.Unmarshal(b, &v); err != nil {
+			return err
+		}
+		*s = jsonString(v)
+		return nil
+	}
+	var num json.Number
+	if err := json.Unmarshal(b, &num); err != nil {
+		return err
+	}
+	*s = jsonString(num.String())
+	return nil
+}
+
 func defaultConfigPath() string {
 	pd := os.Getenv("ProgramData")
 	if pd == "" {
@@ -405,13 +428,18 @@ func (a *trayApp) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		if strings.TrimSpace(res.APIBaseURL) != "" {
 			cfg.APIBaseURL = strings.TrimSpace(res.APIBaseURL)
 		}
-		cfg.ClientID = res.ClientID
-		cfg.AgentID = res.AgentID
+		cfg.ClientID = string(res.ClientID)
+		cfg.AgentID = string(res.AgentID)
 		cfg.AgentToken = res.AgentToken
 		cfg.EnrollEmail = ""
 		cfg.EnrollPassword = ""
 		cfg.EnrollmentToken = ""
-		_ = saveConfig(a.configPath, cfg)
+		if err := saveConfig(a.configPath, cfg); err != nil {
+			a.setErr("failed to save agent.conf: " + err.Error())
+			w.WriteHeader(500)
+			renderEnrollPage(w, "Enrollment succeeded but saving agent.conf failed. Please run the tray as Administrator and try again.")
+			return
+		}
 
 		// Start service after successful enrollment.
 		_ = a.sc("start")
@@ -427,8 +455,8 @@ func (a *trayApp) handleEnroll(w http.ResponseWriter, r *http.Request) {
 type enrollResp struct {
 	Status     string `json:"status"`
 	Message    string `json:"message"`
-	AgentID    string `json:"agent_id"`
-	ClientID   string `json:"client_id"`
+	AgentID    jsonString `json:"agent_id"`
+	ClientID   jsonString `json:"client_id"`
 	AgentToken string `json:"agent_token"`
 	APIBaseURL string `json:"api_base_url"`
 }
@@ -460,12 +488,17 @@ func enrollWithCredentials(apiBaseURL, email, password, hostname, deviceID, inst
 	body, _ := io.ReadAll(resp.Body)
 
 	var out enrollResp
-	_ = json.Unmarshal(body, &out)
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, fmt.Errorf("enrollment parse failed: %v", err)
+	}
 	if out.Status != "success" {
 		if out.Message != "" {
-			return nil, fmt.Errorf(out.Message)
+			return nil, fmt.Errorf("%s", out.Message)
 		}
 		return nil, fmt.Errorf("enrollment failed")
+	}
+	if strings.TrimSpace(string(out.AgentID)) == "" || strings.TrimSpace(out.AgentToken) == "" {
+		return nil, fmt.Errorf("enrollment response missing agent credentials")
 	}
 	return &out, nil
 }

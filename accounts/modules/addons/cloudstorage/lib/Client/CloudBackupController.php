@@ -184,6 +184,12 @@ class CloudBackupController {
             if (array_key_exists('source_paths_json', $data)) {
                 $jobData['source_paths_json'] = $data['source_paths_json'];
             }
+        if (array_key_exists('hyperv_enabled', $data)) {
+            $jobData['hyperv_enabled'] = (int) $data['hyperv_enabled'];
+        }
+        if (array_key_exists('hyperv_config', $data)) {
+            $jobData['hyperv_config'] = $data['hyperv_config'];
+        }
             // Only include optional columns that exist in the schema
             $optionalCols = [
                 'source_connection_id',
@@ -202,6 +208,8 @@ class CloudBackupController {
                 'disk_source_volume',
                 'disk_image_format',
                 'disk_temp_dir',
+            'hyperv_enabled',
+            'hyperv_config',
             ];
             foreach ($optionalCols as $col) {
                 if (isset($jobData[$col]) && !Capsule::schema()->hasColumn('s3_cloudbackup_jobs', $col)) {

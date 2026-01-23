@@ -15,6 +15,30 @@ function respond(array $data, int $httpCode = 200): void
     exit;
 }
 
+function detectBaseUrl(): string
+{
+    $systemUrl = rtrim(\WHMCS\Config\Setting::getValue('SystemURL'), '/');
+    $scheme = 'http';
+    if (!empty($_SERVER['HTTP_X_FORWARDED_PROTO'])) {
+        $scheme = trim(explode(',', $_SERVER['HTTP_X_FORWARDED_PROTO'])[0]);
+    } elseif (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') {
+        $scheme = 'https';
+    }
+
+    $host = '';
+    if (!empty($_SERVER['HTTP_X_FORWARDED_HOST'])) {
+        $host = trim(explode(',', $_SERVER['HTTP_X_FORWARDED_HOST'])[0]);
+    } elseif (!empty($_SERVER['HTTP_HOST'])) {
+        $host = $_SERVER['HTTP_HOST'];
+    }
+
+    if ($host !== '') {
+        return $scheme . '://' . $host;
+    }
+
+    return $systemUrl;
+}
+
 $token = trim($_POST['token'] ?? '');
 $hostname = trim($_POST['hostname'] ?? '');
 $deviceId = trim($_POST['device_id'] ?? '');
@@ -112,7 +136,7 @@ try {
             ]);
         }
 
-        $systemUrl = rtrim(\WHMCS\Config\Setting::getValue('SystemURL'), '/');
+        $systemUrl = rtrim(detectBaseUrl(), '/');
 
         return [
             'agent_id' => (string) $agentId,

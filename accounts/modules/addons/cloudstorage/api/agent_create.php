@@ -10,6 +10,30 @@ if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
 }
 
+function detectBaseUrl(): string
+{
+    $systemUrl = rtrim(\WHMCS\Config\Setting::getValue('SystemURL'), '/');
+    $scheme = 'http';
+    if (!empty($_SERVER['HTTP_X_FORWARDED_PROTO'])) {
+        $scheme = trim(explode(',', $_SERVER['HTTP_X_FORWARDED_PROTO'])[0]);
+    } elseif (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') {
+        $scheme = 'https';
+    }
+
+    $host = '';
+    if (!empty($_SERVER['HTTP_X_FORWARDED_HOST'])) {
+        $host = trim(explode(',', $_SERVER['HTTP_X_FORWARDED_HOST'])[0]);
+    } elseif (!empty($_SERVER['HTTP_HOST'])) {
+        $host = $_SERVER['HTTP_HOST'];
+    }
+
+    if ($host !== '') {
+        return $scheme . '://' . $host;
+    }
+
+    return $systemUrl;
+}
+
 function randomToken($len = 40)
 {
     return bin2hex(random_bytes($len / 2));
@@ -33,7 +57,7 @@ $id = Capsule::table('s3_cloudbackup_agents')->insertGetId([
     'updated_at' => Capsule::raw('NOW()'),
 ]);
 
-$systemUrl = rtrim(\WHMCS\Config\Setting::getValue('SystemURL'), '/');
+$systemUrl = rtrim(detectBaseUrl(), '/');
 $config = [
     'client_id' => (string)$clientId,
     'agent_id' => (string)$id,

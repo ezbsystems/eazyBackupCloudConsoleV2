@@ -27,6 +27,14 @@ if ($limit <= 0 || $limit > 1000) {
     $limit = 250;
 }
 
+function sanitizeEventId(string $value): string
+{
+    if ($value === '') {
+        return $value;
+    }
+    return str_ireplace('KOPIA', 'EAZYBACKUP', $value);
+}
+
 if (empty($runIdentifier)) {
     (new JsonResponse(['status' => 'fail', 'message' => 'Run ID is required.'], 200))->send();
     exit;
@@ -62,13 +70,15 @@ foreach ($events as $e) {
     }
     $safeParams = CloudBackupEventFormatter::sanitizeParamsForOutput($params);
     $message = CloudBackupEventFormatter::render($e->message_id, $safeParams);
+    $safeCode = sanitizeEventId((string) $e->code);
+    $safeMessageId = sanitizeEventId((string) $e->message_id);
     $out[] = [
         'id' => (int) $e->id,
         'ts' => (string) $e->ts,
         'type' => (string) $e->type,
         'level' => (string) $e->level,
-        'code' => (string) $e->code,
-        'message_id' => (string) $e->message_id,
+        'code' => $safeCode,
+        'message_id' => $safeMessageId,
         'params' => $safeParams,
         'message' => $message,
     ];

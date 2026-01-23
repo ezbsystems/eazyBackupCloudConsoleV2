@@ -86,7 +86,7 @@ try {
     $browseCommands = Capsule::table('s3_cloudbackup_run_commands')
         ->where('agent_id', $agent->id)
         ->where('status', 'pending')
-        ->whereIn('type', ['browse_directory', 'list_hyperv_vms'])
+        ->whereIn('type', ['browse_directory', 'list_hyperv_vms', 'list_hyperv_vm_details'])
         ->orderBy('id', 'asc')
         ->limit(5)
         ->get(['id as command_id', 'run_id', 'type', 'payload_json']);

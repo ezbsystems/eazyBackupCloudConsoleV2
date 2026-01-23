@@ -43,6 +43,11 @@ func (r *Runner) Start(stop <-chan struct{}) {
 	// Ensure stable device identity exists (for re-enroll/rekey/reuse).
 	r.ensureDeviceIdentity()
 
+	if err := r.waitForEnrollmentIfNeeded(stop); err != nil {
+		log.Printf("agent: enrollment wait failed: %v", err)
+		return
+	}
+
 	if err := r.enrollIfNeeded(); err != nil {
 		log.Printf("agent: enrollment failed: %v", err)
 		return
@@ -67,6 +72,48 @@ func (r *Runner) Start(stop <-chan struct{}) {
 			log.Printf("agent: stopping")
 			return
 		case <-t.C:
+		}
+	}
+}
+
+func (r *Runner) waitForEnrollmentIfNeeded(stop <-chan struct{}) error {
+	if r.cfg == nil {
+		return fmt.Errorf("config is nil")
+	}
+	enrolled := strings.TrimSpace(r.cfg.AgentID) != "" && strings.TrimSpace(r.cfg.AgentToken) != ""
+	hasEnrollCreds := strings.TrimSpace(r.cfg.EnrollmentToken) != "" ||
+		(strings.TrimSpace(r.cfg.EnrollEmail) != "" && strings.TrimSpace(r.cfg.EnrollPassword) != "")
+	if enrolled || hasEnrollCreds {
+		return nil
+	}
+	if r.configPath == "" {
+		return fmt.Errorf("no config path available to wait for enrollment")
+	}
+
+	log.Printf("agent: waiting for enrollment credentials in %s", r.configPath)
+	t := time.NewTicker(2 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-stop:
+			return fmt.Errorf("stopped while waiting for enrollment")
+		case <-t.C:
+			cfg, err := LoadConfigAllowUnenrolled(r.configPath)
+			if err != nil && !errors.Is(err, ErrMissingEnrollment) {
+				log.Printf("agent: waiting for enrollment: config error: %v", err)
+				continue
+			}
+			if cfg == nil {
+				continue
+			}
+			r.cfg = cfg
+			r.client = NewClient(r.cfg)
+			enrolled := strings.TrimSpace(r.cfg.AgentID) != "" && strings.TrimSpace(r.cfg.AgentToken) != ""
+			hasEnrollCreds := strings.TrimSpace(r.cfg.EnrollmentToken) != "" ||
+				(strings.TrimSpace(r.cfg.EnrollEmail) != "" && strings.TrimSpace(r.cfg.EnrollPassword) != "")
+			if enrolled || hasEnrollCreds {
+				return nil
+			}
 		}
 	}
 }
@@ -97,8 +144,8 @@ func (r *Runner) enrollIfNeeded() error {
 	}
 
 	// Persist credentials and clear enrollment fields
-	r.cfg.AgentID = resp.AgentID
-	r.cfg.ClientID = resp.ClientID
+	r.cfg.AgentID = string(resp.AgentID)
+	r.cfg.ClientID = string(resp.ClientID)
 	r.cfg.AgentToken = resp.AgentToken
 	r.cfg.EnrollmentToken = ""
 	r.cfg.EnrollEmail = ""
@@ -216,6 +263,8 @@ func (r *Runner) executePendingCommand(cmd PendingCommand) {
 		r.executeBrowseSnapshotCommand(ctx, cmd)
 	case "list_hyperv_vms":
 		r.executeListHypervVMsCommand(ctx, cmd)
+	case "list_hyperv_vm_details":
+		r.executeListHypervVMDetailsCommand(ctx, cmd)
 	case "hyperv_restore":
 		r.executeHyperVRestoreCommand(ctx, cmd)
 	default:

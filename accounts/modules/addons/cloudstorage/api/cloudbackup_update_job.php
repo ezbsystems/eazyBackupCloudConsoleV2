@@ -47,6 +47,60 @@ function normalizeJsonString($value): ?string
     return null;
 }
 
+function normalizeJsonPayload($value): ?string
+{
+    if (is_array($value) || is_object($value)) {
+        return json_encode($value);
+    }
+    if (!is_string($value)) {
+        return null;
+    }
+    $raw = trim($value);
+    if ($raw === '') {
+        return null;
+    }
+    $candidates = [
+        $raw,
+        stripslashes($raw),
+        html_entity_decode($raw, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+        trim($raw, "'\""),
+    ];
+    foreach ($candidates as $cand) {
+        $tmp = json_decode($cand, true);
+        if (json_last_error() === JSON_ERROR_NONE) {
+            return json_encode($tmp);
+        }
+    }
+    return null;
+}
+
+function decodeJsonArray($value): array
+{
+    if (is_array($value)) {
+        return $value;
+    }
+    if (!is_string($value)) {
+        return [];
+    }
+    $raw = trim($value);
+    if ($raw === '') {
+        return [];
+    }
+    $candidates = [
+        $raw,
+        stripslashes($raw),
+        html_entity_decode($raw, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+        trim($raw, "'\""),
+    ];
+    foreach ($candidates as $cand) {
+        $tmp = json_decode($cand, true);
+        if (json_last_error() === JSON_ERROR_NONE && is_array($tmp)) {
+            return $tmp;
+        }
+    }
+    return [];
+}
+
 function sanitizePathInput(string $value): string
 {
     $decoded = html_entity_decode($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
@@ -200,6 +254,10 @@ if (empty($sourcePaths) && $primarySourcePath !== '') {
     $sourcePaths[] = $primarySourcePath;
 }
 $hasSourcePathsJson = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'source_paths_json');
+$hypervEnabled = isset($_POST['hyperv_enabled']) ? (int) $_POST['hyperv_enabled'] : 0;
+$hypervConfigJson = normalizeJsonPayload($_POST['hyperv_config'] ?? null);
+$hypervVmIds = decodeJsonArray($_POST['hyperv_vm_ids'] ?? null);
+$hypervVms = decodeJsonArray($_POST['hyperv_vms'] ?? null);
 
 // Validate agent assignment for local_agent jobs when provided/required
 $hasAgentIdJobs = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'agent_id');
@@ -328,6 +386,12 @@ if (isset($_POST['compression'])) {
     $updateData['disk_source_volume'] = $diskSourceVolume;
     $updateData['disk_image_format'] = $diskImageFormat;
     $updateData['disk_temp_dir'] = $diskTempDir;
+}
+if (($updateData['engine'] ?? '') === 'hyperv' || $hypervEnabled) {
+    $updateData['hyperv_enabled'] = 1;
+    if ($hypervConfigJson !== null) {
+        $updateData['hyperv_config'] = $hypervConfigJson;
+    }
 }
 if (isset($_POST['compression_enabled'])) {
     $updateData['compression_enabled'] = (int) $_POST['compression_enabled'];
@@ -522,6 +586,67 @@ if (in_array($postedSourceType, ['aws', 's3_compatible'], true) && is_array($rec
 }
 
 $result = CloudBackupController::updateJob($jobId, $loggedInUserId, $updateData, $encryptionKey);
+if (is_array($result) && ($result['status'] ?? '') === 'success') {
+    $jobIdInt = (int) $jobId;
+    if ($jobIdInt > 0 && (($updateData['engine'] ?? ($existingJob['engine'] ?? '')) === 'hyperv')) {
+        try {
+            if (Capsule::schema()->hasTable('s3_hyperv_vms')) {
+                $vmList = [];
+                if (!empty($hypervVms)) {
+                    foreach ($hypervVms as $vm) {
+                        if (!is_array($vm)) {
+                            continue;
+                        }
+                        $vmId = (string) ($vm['id'] ?? $vm['vm_guid'] ?? $vm['vm_id'] ?? '');
+                        $vmName = (string) ($vm['name'] ?? $vm['vm_name'] ?? $vmId);
+                        if ($vmId !== '') {
+                            $vmList[] = ['id' => $vmId, 'name' => $vmName];
+                        }
+                    }
+                }
+                if (empty($vmList) && !empty($hypervVmIds)) {
+                    foreach ($hypervVmIds as $vmId) {
+                        $vmId = (string) $vmId;
+                        if ($vmId !== '') {
+                            $vmList[] = ['id' => $vmId, 'name' => $vmId];
+                        }
+                    }
+                }
+                if (!empty($vmList)) {
+                    Capsule::table('s3_hyperv_vms')
+                        ->where('job_id', $jobIdInt)
+                        ->update(['backup_enabled' => 0]);
+                    foreach ($vmList as $vm) {
+                        $existing = Capsule::table('s3_hyperv_vms')
+                            ->where('job_id', $jobIdInt)
+                            ->where('vm_guid', $vm['id'])
+                            ->first();
+                        if ($existing) {
+                            Capsule::table('s3_hyperv_vms')
+                                ->where('id', $existing->id)
+                                ->update([
+                                    'vm_name' => $vm['name'],
+                                    'backup_enabled' => 1,
+                                    'updated_at' => Capsule::raw('NOW()'),
+                                ]);
+                        } else {
+                            Capsule::table('s3_hyperv_vms')->insert([
+                                'job_id' => $jobIdInt,
+                                'vm_name' => $vm['name'],
+                                'vm_guid' => $vm['id'],
+                                'backup_enabled' => 1,
+                                'created_at' => Capsule::raw('NOW()'),
+                                'updated_at' => Capsule::raw('NOW()'),
+                            ]);
+                        }
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            logModuleCall('cloudstorage', 'update_job_hyperv_vms', ['job_id' => $jobIdInt], $e->getMessage());
+        }
+    }
+}
 
 // Align bucket lifecycle with retention and enforce versioning when keep_days
 if (is_array($result) && ($result['status'] ?? 'fail') === 'success') {
