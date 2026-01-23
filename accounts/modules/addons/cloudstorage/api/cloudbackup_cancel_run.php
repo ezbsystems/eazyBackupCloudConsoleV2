@@ -37,7 +37,7 @@ if (is_null($product) || empty($product->username)) {
     exit();
 }
 
-$runIdentifier = $_POST['run_uuid'] ?? $_POST['run_id'] ?? null;
+$runIdentifier = $_POST['run_id'] ?? $_POST['run_uuid'] ?? null;
 $forceCancel = isset($_POST['force']) ? filter_var($_POST['force'], FILTER_VALIDATE_BOOLEAN) : false;
 if (!$runIdentifier) {
     $jsonData = [

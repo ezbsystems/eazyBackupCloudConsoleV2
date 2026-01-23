@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1053,6 +1054,43 @@ func firstNonEmpty(vals ...string) string {
 		}
 	}
 	return ""
+}
+
+func policyBool(policy map[string]any, key string) *bool {
+	if policy == nil {
+		return nil
+	}
+	val, ok := policy[key]
+	if !ok {
+		return nil
+	}
+	switch t := val.(type) {
+	case bool:
+		return &t
+	case string:
+		s := strings.TrimSpace(t)
+		if s == "" {
+			return nil
+		}
+		if b, err := strconv.ParseBool(s); err == nil {
+			return &b
+		}
+	case float64:
+		if t == 0 {
+			b := false
+			return &b
+		}
+		b := true
+		return &b
+	case int:
+		if t == 0 {
+			b := false
+			return &b
+		}
+		b := true
+		return &b
+	}
+	return nil
 }
 
 // normalizeEndpoint strips any path/query/fragment from an endpoint URL.

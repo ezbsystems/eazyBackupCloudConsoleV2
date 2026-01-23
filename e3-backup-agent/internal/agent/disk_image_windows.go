@@ -40,6 +40,10 @@ func (r *Runner) createDiskImageStream(ctx context.Context, run *NextRunResponse
 	if err != nil {
 		return fmt.Errorf("vss create: %w", err)
 	}
+	if err := ctx.Err(); err != nil {
+		_ = vss.Remove(id)
+		return err
+	}
 	// VSS requires cleanup to release snapshot
 	cleanup := func() {
 		_ = vss.Remove(id)
@@ -66,6 +70,9 @@ func (r *Runner) createDiskImageStream(ctx context.Context, run *NextRunResponse
 	})
 
 	size, _ := getDeviceSizeWindows(devicePath)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if size > 0 {
 		_ = r.client.UpdateRun(RunUpdate{
 			RunID:      run.RunID,
@@ -76,9 +83,7 @@ func (r *Runner) createDiskImageStream(ctx context.Context, run *NextRunResponse
 	// Use the original volume (e.g., "C:") as the stable source identifier for Kopia.
 	// This ensures subsequent snapshots are recognized as the same source for deduplication.
 	stableSourcePath := srcVolume
-	if strings.HasSuffix(stableSourcePath, "\\") {
-		stableSourcePath = strings.TrimSuffix(stableSourcePath, "\\")
-	}
+	stableSourcePath = strings.TrimSuffix(stableSourcePath, "\\")
 
 	streamEntry := &deviceEntry{
 		name: fmt.Sprintf("%s.img", strings.TrimSuffix(stableSourcePath, ":")),

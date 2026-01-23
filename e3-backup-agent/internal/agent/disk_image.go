@@ -40,6 +40,9 @@ func (r *Runner) runDiskImage(run *NextRunResponse) error {
 		Status:    "running",
 		StartedAt: startedAt.Format(time.RFC3339),
 	})
+	resetParallelReads := setParallelDiskReadsOverride(policyBool(run.PolicyJSON, "parallel_disk_reads"))
+	defer resetParallelReads()
+
 	r.pushEvents(run.RunID, RunEvent{
 		Type:      "info",
 		Level:     "info",
@@ -95,7 +98,23 @@ func (r *Runner) runDiskImage(run *NextRunResponse) error {
 
 	opts := normalizeDiskImageOptions(r, run)
 	if opts.SourceVolume == "" {
-		return fmt.Errorf("disk image: missing source volume")
+		err := fmt.Errorf("disk image: missing source volume")
+		log.Printf("agent: disk image failed before start: %v", err)
+		r.pushEvents(run.RunID, RunEvent{
+			Type:      "error",
+			Level:     "error",
+			MessageID: "DISK_IMAGE_FAILED",
+			ParamsJSON: map[string]any{
+				"error": err.Error(),
+			},
+		})
+		_ = r.client.UpdateRun(RunUpdate{
+			RunID:        run.RunID,
+			Status:       "failed",
+			ErrorSummary: err.Error(),
+			FinishedAt:   time.Now().UTC().Format(time.RFC3339),
+		})
+		return err
 	}
 
 	// Streaming mode: read snapshot device directly into Kopia (no zero-skip, no temp image).
@@ -176,8 +195,17 @@ func normalizeDiskImageOptions(r *Runner, run *NextRunResponse) diskImageOptions
 	}
 	_ = os.MkdirAll(tempDir, 0o755)
 	blockSize := int64(2 << 20) // 2 MiB default for image chunking
+
+	sourceVolume := strings.TrimSpace(run.DiskSourceVolume)
+	if sourceVolume == "" {
+		// Disk image jobs on local_agent can store the path in source_paths or source_path.
+		paths := normalizeSourcePaths(run.SourcePaths, run.SourcePath)
+		if len(paths) > 0 {
+			sourceVolume = strings.TrimSpace(paths[0])
+		}
+	}
 	return diskImageOptions{
-		SourceVolume: firstNonEmpty(run.DiskSourceVolume, run.SourcePath),
+		SourceVolume: sourceVolume,
 		ImageFormat:  format,
 		TempDir:      tempDir,
 		BlockSize:    blockSize,

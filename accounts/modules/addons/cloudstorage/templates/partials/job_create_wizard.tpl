@@ -1335,6 +1335,14 @@
                                             window.localWizardState.data.agent_id = '';
                                         }
                                     }
+                                    // If a selection exists (e.g. deep-link prefill), refresh selectedAgent from loaded data
+                                    // so we display the correct live online_status badge instead of a placeholder.
+                                    if (this.selectedId) {
+                                        const match = this.options.find(a => String(a.id) === String(this.selectedId));
+                                        if (match) {
+                                            this.selectedAgent = match;
+                                        }
+                                    }
                                 },
                                 choose(opt) {
                                     this.selectedId = opt.id;
@@ -2543,13 +2551,13 @@
                                         </div>
                                         <div>
                                             <label class="block text-xs text-slate-400 mb-1">Parallel uploads</label>
-                                            <input id="localWizardParallelism" type="number" value="8" min="1" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50" placeholder="8">
+                                            <input id="localWizardParallelism" type="number" value="16" min="1" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50" placeholder="16">
                                         </div>
                                         <div>
                                             <label class="block text-xs text-slate-400 mb-1">Compression</label>
                                             <select id="localWizardCompression" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50">
-                                                <option value="none" selected>None</option>
-                                                <option value="zstd-default">zstd-default</option>
+                                                <option value="zstd-default" selected>zstd-default</option>
+                                                <option value="none">None</option>
                                                 <option value="pgzip">pgzip</option>
                                                 <option value="s2">s2</option>
                                             </select>
@@ -2561,6 +2569,13 @@
                                             <span class="text-sm text-slate-200">Enable detailed eazyBackup debug logs</span>
                                         </label>
                                         <p class="text-xs text-slate-500 mt-1">Adds more step-level events to the live progress view for troubleshooting.</p>
+                                    </div>
+                                    <div>
+                                        <label class="inline-flex items-center gap-2">
+                                            <input id="localWizardParallelDiskReads" type="checkbox" class="rounded border-slate-600 bg-slate-800" checked>
+                                            <span class="text-sm text-slate-200">Enable parallel disk reads</span>
+                                        </label>
+                                        <p class="text-xs text-slate-500 mt-1">Recommended for Disk Image and Hyper-V. Disable if the disk is under heavy load.</p>
                                     </div>
                                 </div>
                             </div>

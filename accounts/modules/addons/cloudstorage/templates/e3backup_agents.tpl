@@ -226,6 +226,15 @@
 
                 <div class="px-6 py-5 space-y-6">
                     <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+                        <div class="text-xs uppercase tracking-wide text-slate-400">Backup</div>
+                        <p class="text-xs text-slate-400 mt-2">Create a new backup job scoped to this agent.</p>
+                        <button class="mt-3 text-xs px-3 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-500"
+                                @click="goToCreateJob(selectedAgent)">
+                            Create Backup Job
+                        </button>
+                    </div>
+
+                    <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
                         <div class="text-xs uppercase tracking-wide text-slate-400">Restore</div>
                         <p class="text-xs text-slate-400 mt-2">Launch restore points filtered to this agent.</p>
                         <button class="mt-3 text-xs px-3 py-2 rounded bg-sky-600 text-white hover:bg-sky-500"
@@ -391,6 +400,24 @@ function agentsApp() {
             }
             const qs = params.length ? '&' + params.join('&') : '';
             window.location.href = 'index.php?m=cloudstorage&page=e3backup&view=restores' + qs;
+        },
+
+        goToCreateJob(agent) {
+            if (!agent) return;
+            const isMsp = {/literal}{if $isMspClient}true{else}false{/if}{literal};
+            const params = [];
+            params.push('open_create=1');
+            params.push('prefill_source=local_agent');
+            if (agent.id) params.push('prefill_agent_id=' + encodeURIComponent(agent.id));
+            if (isMsp) {
+                if (agent.tenant_id) {
+                    params.push('tenant_id=' + encodeURIComponent(agent.tenant_id));
+                } else {
+                    params.push('tenant_id=direct');
+                }
+            }
+            const qs = params.length ? '&' + params.join('&') : '';
+            window.location.href = 'index.php?m=cloudstorage&page=e3backup&view=jobs' + qs;
         }
     };
 }

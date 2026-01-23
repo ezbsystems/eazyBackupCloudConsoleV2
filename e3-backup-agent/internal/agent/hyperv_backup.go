@@ -154,6 +154,9 @@ func (r *Runner) runHyperV(run *NextRunResponse) error {
 		Status:    "running",
 		StartedAt: startedAt.Format(time.RFC3339),
 	})
+	resetParallelReads := setParallelDiskReadsOverride(policyBool(run.PolicyJSON, "parallel_disk_reads"))
+	defer resetParallelReads()
+
 	r.pushEvents(run.RunID, RunEvent{
 		Type:      "info",
 		Level:     "info",
@@ -617,6 +620,9 @@ func (r *Runner) backupHyperVVM(
 
 	// Back up each disk
 	for _, disk := range vm.Disks {
+		if ctx.Err() != nil {
+			return result, ctx.Err()
+		}
 		log.Printf("agent: hyperv backing up disk: %s (size=%d)", disk.Path, disk.SizeBytes)
 
 		r.pushEvents(run.RunID, RunEvent{

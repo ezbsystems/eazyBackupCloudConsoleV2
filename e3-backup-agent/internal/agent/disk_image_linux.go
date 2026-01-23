@@ -17,6 +17,9 @@ import (
 
 // createDiskImageStream for Linux: optional LVM snapshot, then stream device directly to Kopia (no temp file).
 func (r *Runner) createDiskImageStream(ctx context.Context, run *NextRunResponse, opts diskImageOptions) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	src := opts.SourceVolume
 	if src == "" {
 		return fmt.Errorf("disk image: source volume is empty")
@@ -25,6 +28,9 @@ func (r *Runner) createDiskImageStream(ctx context.Context, run *NextRunResponse
 	snapPath, cleanup, err := createLVSnapshotIfPossible(src)
 	if err != nil {
 		log.Printf("agent: lvm snapshot creation failed, falling back to direct device: %v", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	if snapPath != "" {
 		src = snapPath
@@ -45,6 +51,9 @@ func (r *Runner) createDiskImageStream(ctx context.Context, run *NextRunResponse
 
 	// Get device size for progress tracking
 	size := getDeviceSizeLinux(src)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if size > 0 {
 		_ = r.client.UpdateRun(RunUpdate{
 			RunID:      run.RunID,
