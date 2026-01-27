@@ -717,13 +717,13 @@ func sanitizeSourcePath(raw string) string {
 // It uses a stable source path (e.g., "C:") for SourceInfo to enable proper deduplication
 // across runs, while reading data from the provided entry (e.g., VSS snapshot device).
 func (r *Runner) kopiaSnapshotDiskImage(ctx context.Context, run *NextRunResponse, entryOverride kopiafs.Entry, declaredSize int64, stableSourcePath string) (string, error) {
-	return r.kopiaSnapshotDiskImageWithProgress(ctx, run, entryOverride, declaredSize, stableSourcePath, nil)
+	return r.kopiaSnapshotDiskImageWithProgress(ctx, run, entryOverride, declaredSize, stableSourcePath, nil, false)
 }
 
 // kopiaSnapshotDiskImageWithProgress is like kopiaSnapshotDiskImage but with an optional progress callback.
 // The callback is called with the cumulative bytes processed and uploaded during the snapshot.
 // Returns the manifest ID of the saved snapshot.
-func (r *Runner) kopiaSnapshotDiskImageWithProgress(ctx context.Context, run *NextRunResponse, entryOverride kopiafs.Entry, declaredSize int64, stableSourcePath string, progressCb func(bytesProcessed int64, bytesUploaded int64)) (string, error) {
+func (r *Runner) kopiaSnapshotDiskImageWithProgress(ctx context.Context, run *NextRunResponse, entryOverride kopiafs.Entry, declaredSize int64, stableSourcePath string, progressCb func(bytesProcessed int64, bytesUploaded int64), skipRunUpdate bool) (string, error) {
 	opts := kopiaOptionsFromRun(r.cfg, run)
 	repoPath := filepath.Join(r.cfg.RunDir, "kopia", fmt.Sprintf("job_%d.config", run.JobID))
 	if err := os.MkdirAll(filepath.Dir(repoPath), 0o755); err != nil {
@@ -843,7 +843,7 @@ func (r *Runner) kopiaSnapshotDiskImageWithProgress(ctx context.Context, run *Ne
 	log.Printf("agent: kopia disk image policy overrides run=%d compressor=%q parallel_uploads=%d",
 		run.RunID, ep.CompressionPolicy.CompressorName, parallelUploads)
 
-	progressCounter := newKopiaProgressCounterWithCallback(r, run.RunID, progressCb)
+	progressCounter := newKopiaProgressCounterWithCallback(r, run.RunID, progressCb, skipRunUpdate)
 	var manifestID string
 
 	// OnUpload callback is required to track bytes actually written to blob storage
@@ -974,13 +974,14 @@ type kopiaProgressCounter struct {
 	
 	// Optional external progress callback (for Hyper-V cumulative progress)
 	externalProgressCb func(bytesProcessed int64, bytesUploaded int64)
+	skipRunUpdate      bool
 }
 
 func newKopiaProgressCounter(r *Runner, runID int64) *kopiaProgressCounter {
-	return newKopiaProgressCounterWithCallback(r, runID, nil)
+	return newKopiaProgressCounterWithCallback(r, runID, nil, false)
 }
 
-func newKopiaProgressCounterWithCallback(r *Runner, runID int64, progressCb func(bytesProcessed int64, bytesUploaded int64)) *kopiaProgressCounter {
+func newKopiaProgressCounterWithCallback(r *Runner, runID int64, progressCb func(bytesProcessed int64, bytesUploaded int64), skipRunUpdate bool) *kopiaProgressCounter {
 	now := time.Now()
 	return &kopiaProgressCounter{
 		runner:             r,
@@ -988,6 +989,7 @@ func newKopiaProgressCounterWithCallback(r *Runner, runID int64, progressCb func
 		startTime:          now,
 		lastReportAt:       now,
 		externalProgressCb: progressCb,
+		skipRunUpdate:      skipRunUpdate,
 	}
 }
 
@@ -1157,8 +1159,8 @@ func (p *kopiaProgressCounter) reportProgressLocked(force bool) {
 	// Fire-and-forget; errors are logged upstream.
 	// BytesTransferred = actual bytes uploaded to storage (shows deduplication savings)
 	// BytesProcessed = bytes read/hashed from source (shows overall scan progress)
-	// Note: When external callback is set (Hyper-V), the external tracker handles run updates
-	if p.externalProgressCb == nil {
+	// Note: When skipRunUpdate is true (Hyper-V), the external tracker handles run updates.
+	if !p.skipRunUpdate {
 		_ = p.runner.client.UpdateRun(RunUpdate{
 			RunID:              p.runID,
 			Status:             "running",

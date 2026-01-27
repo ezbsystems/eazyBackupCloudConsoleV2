@@ -383,6 +383,8 @@ if (isset($_POST['encryption_mode'])) {
 }
 if (isset($_POST['compression'])) {
     $updateData['compression'] = $_POST['compression'];
+}
+if (($updateData['engine'] ?? $existingJob['engine'] ?? '') === 'disk_image') {
     $updateData['disk_source_volume'] = $diskSourceVolume;
     $updateData['disk_image_format'] = $diskImageFormat;
     $updateData['disk_temp_dir'] = $diskTempDir;

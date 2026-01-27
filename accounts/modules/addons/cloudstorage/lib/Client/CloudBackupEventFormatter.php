@@ -124,6 +124,10 @@ class CloudBackupEventFormatter
             'DISK_IMAGE_STREAM_COMPLETED' => 'Disk image stream completed.',
             'DISK_IMAGE_COMPLETED' => 'Disk image backup completed.',
             'DISK_IMAGE_FAILED' => 'Disk image backup failed: {error}.',
+            'DISK_RESTORE_STARTING' => 'Starting disk restore to {target_disk}.',
+            'DISK_RESTORE_STARTED' => 'Disk restore started to {target_disk}.',
+            'DISK_RESTORE_COMPLETED' => 'Disk restore completed successfully.',
+            'DISK_RESTORE_FAILED' => 'Disk restore failed: {error}.',
         ];
     }
 

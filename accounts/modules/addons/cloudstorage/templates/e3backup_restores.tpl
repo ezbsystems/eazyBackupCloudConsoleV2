@@ -242,7 +242,13 @@
                                         Hyper-V Restore
                                     </a>
                                 </template>
-                                <template x-if="!point.hyperv_backup_point_id">
+                                <template x-if="!point.hyperv_backup_point_id && String(point.engine || '').toLowerCase() === 'disk_image'">
+                                    <a :href="'index.php?m=cloudstorage&page=e3backup&view=disk_image_restore&restore_point_id=' + point.id"
+                                       class="text-xs px-2 py-1 rounded bg-purple-600/20 border border-purple-500/40 text-purple-200 hover:bg-purple-600/30 hover:border-purple-400 transition">
+                                        Disk Recovery
+                                    </a>
+                                </template>
+                                <template x-if="!point.hyperv_backup_point_id && String(point.engine || '').toLowerCase() !== 'disk_image'">
                                     <button @click="openRestoreModal(point)"
                                             class="text-xs px-2 py-1 rounded bg-sky-600/20 border border-sky-500/40 text-sky-300 hover:bg-sky-600/30 hover:border-sky-400 transition">
                                         Restore

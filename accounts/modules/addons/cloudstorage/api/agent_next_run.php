@@ -156,7 +156,7 @@ try {
             if ($hasRunTypeColumnReclaim) {
                 $reclaimQuery->where(function ($q) {
                     $q->whereNull('r.run_type')
-                      ->orWhereNotIn('r.run_type', ['restore', 'hyperv_restore']);
+                      ->orWhereNotIn('r.run_type', ['restore', 'hyperv_restore', 'disk_restore']);
                 });
             }
 
@@ -198,7 +198,7 @@ try {
         if ($hasRunTypeColumn) {
             $base->where(function ($q) {
                 $q->whereNull('r.run_type')
-                  ->orWhereNotIn('r.run_type', ['restore', 'hyperv_restore']);
+                  ->orWhereNotIn('r.run_type', ['restore', 'hyperv_restore', 'disk_restore']);
             });
         }
 

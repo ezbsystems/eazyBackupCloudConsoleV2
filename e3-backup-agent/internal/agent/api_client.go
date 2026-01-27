@@ -23,6 +23,7 @@ type Client struct {
 	installID  string
 	deviceName string
 	userAgent  string
+	recoverySessionToken string
 }
 
 func NewClient(cfg *AgentConfig) *Client {
@@ -35,6 +36,15 @@ func NewClient(cfg *AgentConfig) *Client {
 		installID:  cfg.InstallID,
 		deviceName: cfg.DeviceName,
 		userAgent:  strings.TrimSpace(cfg.UserAgent),
+	}
+}
+
+func NewRecoveryClient(apiBaseURL, sessionToken string) *Client {
+	return &Client{
+		httpClient: &http.Client{Timeout: 30 * time.Second},
+		baseURL:    strings.TrimRight(apiBaseURL, "/"),
+		userAgent:  "e3-backup-agent-recovery/1.0",
+		recoverySessionToken: sessionToken,
 	}
 }
 
@@ -434,26 +444,63 @@ type HyperVVMResult struct {
 }
 
 func (c *Client) UpdateRun(u RunUpdate) error {
+	if c.recoverySessionToken != "" {
+		endpoint := c.baseURL + "/cloudbackup_recovery_update_run.php"
+		payload, _ := json.Marshal(u)
+		body := map[string]any{}
+		_ = json.Unmarshal(payload, &body)
+		body["session_token"] = c.recoverySessionToken
+		buf, _ := json.Marshal(body)
+		req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(buf))
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		c.applyUserAgent(req)
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			return fmt.Errorf("recovery update run status %d body=%s", resp.StatusCode, strings.TrimSpace(string(bodyBytes)))
+		}
+		return nil
+	}
+
 	endpoint := c.baseURL + "/agent_update_run.php"
 	buf, _ := json.Marshal(u)
-	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(buf))
-	if err != nil {
-		return err
-	}
-	c.authHeaders(req)
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(buf))
+		if err != nil {
+			return err
+		}
+		c.authHeaders(req)
 
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		// Try to surface response body for diagnostics
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			lastErr = err
+			if !isTransientNetErr(err) || attempt == 2 {
+				return err
+			}
+			time.Sleep(time.Duration(attempt+1) * 250 * time.Millisecond)
+			continue
+		}
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("update run status %d body=%s", resp.StatusCode, strings.TrimSpace(string(body)))
+		resp.Body.Close()
+
+		if resp.StatusCode == http.StatusOK {
+			return nil
+		}
+		lastErr = fmt.Errorf("update run status %d body=%s", resp.StatusCode, strings.TrimSpace(string(body)))
+		if !shouldRetryStatus(resp.StatusCode) || attempt == 2 {
+			return lastErr
+		}
+		time.Sleep(time.Duration(attempt+1) * 250 * time.Millisecond)
 	}
-	return nil
+	return lastErr
 }
 
 type RunEvent struct {
@@ -466,6 +513,28 @@ type RunEvent struct {
 
 func (c *Client) PushEvents(runID int64, events []RunEvent) error {
 	if len(events) == 0 {
+		return nil
+	}
+	if c.recoverySessionToken != "" {
+		endpoint := c.baseURL + "/cloudbackup_recovery_push_events.php"
+		body := map[string]any{"run_id": runID, "events": events, "session_token": c.recoverySessionToken}
+		buf, _ := json.Marshal(body)
+		req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(buf))
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		c.applyUserAgent(req)
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			b, _ := io.ReadAll(resp.Body)
+			msg := strings.TrimSpace(string(b))
+			return fmt.Errorf("recovery push events status %d body=%s", resp.StatusCode, msg)
+		}
 		return nil
 	}
 	endpoint := c.baseURL + "/agent_push_events.php"
@@ -497,6 +566,47 @@ func (c *Client) PushEvents(runID int64, events []RunEvent) error {
 		return fmt.Errorf("push events status %d", resp.StatusCode)
 	}
 	return nil
+}
+
+// PollRecoveryCancel checks whether a recovery restore should be cancelled.
+func (c *Client) PollRecoveryCancel(runID int64) (bool, error) {
+	if c.recoverySessionToken == "" {
+		return false, nil
+	}
+	endpoint := c.baseURL + "/cloudbackup_recovery_poll_cancel.php"
+	body := map[string]any{"run_id": runID, "session_token": c.recoverySessionToken}
+	buf, _ := json.Marshal(body)
+	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(buf))
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	c.applyUserAgent(req)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		msg := strings.TrimSpace(string(b))
+		return false, fmt.Errorf("recovery cancel poll status %d body=%s", resp.StatusCode, msg)
+	}
+	var out struct {
+		Status          string `json:"status"`
+		CancelRequested bool   `json:"cancel_requested"`
+		Message         string `json:"message"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return false, err
+	}
+	if out.Status != "success" {
+		if out.Message == "" {
+			out.Message = "cancel poll failed"
+		}
+		return false, fmt.Errorf(out.Message)
+	}
+	return out.CancelRequested, nil
 }
 
 // CompleteCommand marks a run command as completed/failed.

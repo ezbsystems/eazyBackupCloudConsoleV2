@@ -3,6 +3,7 @@ package agent
 import (
 	"bufio"
 	"context"
+	"io"
 	"os"
 	"strconv"
 	"sync/atomic"
@@ -96,6 +97,11 @@ var _ kopiafs.Reader = (*deviceReader)(nil)
 func (r *deviceReader) Read(p []byte) (int, error) {
 	n, err := r.reader.Read(p)
 	r.offset += int64(n)
+	if err != nil && isWindowsSectorNotFound(err) {
+		if r.entry != nil && r.entry.size > 0 && r.offset >= r.entry.size {
+			return n, io.EOF
+		}
+	}
 	return n, err
 }
 

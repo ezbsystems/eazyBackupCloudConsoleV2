@@ -7,7 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	vhdxwriter "github.com/your-org/e3-backup-agent/internal/agent/vhdx"
@@ -91,9 +93,49 @@ func (r *Runner) runDiskImage(run *NextRunResponse) error {
 			}
 		}
 	}()
+	stallSeconds := diskImageStallSeconds()
+	var lastProgressAt int64
+	atomic.StoreInt64(&lastProgressAt, time.Now().UnixNano())
+	progressCb := func(bytesProcessed int64, bytesUploaded int64) {
+		atomic.StoreInt64(&lastProgressAt, time.Now().UnixNano())
+	}
+	stallDone := make(chan struct{})
+	if stallSeconds > 0 {
+		go func() {
+			defer close(stallDone)
+			ticker := time.NewTicker(15 * time.Second)
+			defer ticker.Stop()
+			timeout := time.Duration(stallSeconds) * time.Second
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					last := time.Unix(0, atomic.LoadInt64(&lastProgressAt))
+					if time.Since(last) >= timeout {
+						log.Printf("agent: disk image stalled for %ds, cancelling run %d", stallSeconds, run.RunID)
+						r.pushEvents(run.RunID, RunEvent{
+							Type:      "error",
+							Level:     "error",
+							MessageID: "DISK_IMAGE_STALLED",
+							ParamsJSON: map[string]any{
+								"message":       "Disk image backup stalled; cancelling run.",
+								"stall_seconds": stallSeconds,
+							},
+						})
+						cancel()
+						return
+					}
+				}
+			}
+		}()
+	} else {
+		close(stallDone)
+	}
 	defer func() {
-		cancel() // Ensure context is cancelled to stop polling goroutine
-		<-cancelPollDone // Wait for polling goroutine to finish
+		cancel() // Ensure context is cancelled to stop polling goroutines
+		<-cancelPollDone
+		<-stallDone
 	}()
 
 	opts := normalizeDiskImageOptions(r, run)
@@ -117,8 +159,13 @@ func (r *Runner) runDiskImage(run *NextRunResponse) error {
 		return err
 	}
 
+	layout, layoutErr := CollectDiskLayout(opts.SourceVolume)
+	if layoutErr != nil {
+		log.Printf("agent: disk image layout capture failed: %v", layoutErr)
+	}
+
 	// Streaming mode: read snapshot device directly into Kopia (no zero-skip, no temp image).
-	err := r.createDiskImageStream(ctx, run, opts)
+	manifestID, err := r.createDiskImageStream(ctx, run, opts, progressCb)
 	
 	// Determine final status
 	finishedAt := time.Now().UTC().Format(time.RFC3339)
@@ -159,6 +206,17 @@ func (r *Runner) runDiskImage(run *NextRunResponse) error {
 			FinishedAt:   finishedAt,
 		})
 		return err
+	}
+
+	// Persist disk layout metadata on the run (used for restore points).
+	if layout != nil && manifestID != "" {
+		_ = r.client.UpdateRun(RunUpdate{
+			RunID: run.RunID,
+			StatsJSON: map[string]any{
+				"manifest_id": manifestID,
+				"disk_layout": layout,
+			},
+		})
 	}
 
 	// Mark success and emit summary after streaming completes.
@@ -211,6 +269,16 @@ func normalizeDiskImageOptions(r *Runner, run *NextRunResponse) diskImageOptions
 		BlockSize:    blockSize,
 		Cache:        LoadBlockCache(r.cfg.RunDir, run.JobID, blockSize),
 	}
+}
+
+func diskImageStallSeconds() int {
+	val := strings.TrimSpace(os.Getenv("AGENT_DISK_IMAGE_STALL_SECONDS"))
+	if val != "" {
+		if secs, err := strconv.Atoi(val); err == nil && secs > 0 {
+			return secs
+		}
+	}
+	return 300
 }
 
 type sparseWriter interface {

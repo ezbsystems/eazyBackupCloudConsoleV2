@@ -39,6 +39,20 @@ func NewRunner(cfg *AgentConfig, configPath string) *Runner {
 	}
 }
 
+// NewRunnerWithClient allows custom clients (e.g., recovery session client).
+func NewRunnerWithClient(cfg *AgentConfig, client *Client, configPath string) *Runner {
+	return &Runner{
+		client:     client,
+		cfg:        cfg,
+		configPath: configPath,
+	}
+}
+
+// RunDiskRestoreCommand exposes disk restore execution for recovery environments.
+func (r *Runner) RunDiskRestoreCommand(ctx context.Context, cmd PendingCommand) {
+	r.executeDiskRestoreCommand(ctx, cmd)
+}
+
 // Start begins the polling loop (single concurrent run for now).
 func (r *Runner) Start(stop <-chan struct{}) {
 	// Ensure stable device identity exists (for re-enroll/rekey/reuse).
@@ -262,12 +276,20 @@ func (r *Runner) executePendingCommand(cmd PendingCommand) {
 		r.executeBrowseCommand(cmd)
 	case "browse_snapshot":
 		r.executeBrowseSnapshotCommand(ctx, cmd)
+	case "list_disks":
+		r.executeListDisksCommand(cmd)
 	case "list_hyperv_vms":
 		r.executeListHypervVMsCommand(ctx, cmd)
 	case "list_hyperv_vm_details":
 		r.executeListHypervVMDetailsCommand(ctx, cmd)
 	case "hyperv_restore":
 		r.executeHyperVRestoreCommand(ctx, cmd)
+	case "disk_restore":
+		r.executeDiskRestoreCommand(ctx, cmd)
+	case "reset_agent":
+		log.Printf("agent: reset_agent command %d received; exiting for restart", cmd.CommandID)
+		_ = r.client.CompleteCommand(cmd.CommandID, "completed", "agent reset")
+		os.Exit(0)
 	default:
 		log.Printf("agent: unknown pending command type: %s", cmd.Type)
 		_ = r.client.CompleteCommand(cmd.CommandID, "failed", "unknown command type")
@@ -985,14 +1007,21 @@ func (r *Runner) pollCommands(runID int64) (bool, []RunCommand, error) {
 	values := url.Values{}
 	values.Set("run_id", fmt.Sprintf("%d", runID))
 
-	req, err := http.NewRequest(http.MethodPost, endpoint, strings.NewReader(values.Encode()))
-	if err != nil {
-		return false, nil, err
+	doPoll := func() (*http.Response, error) {
+		req, err := http.NewRequest(http.MethodPost, endpoint, strings.NewReader(values.Encode()))
+		if err != nil {
+			return nil, err
+		}
+		r.client.authHeaders(req)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		return r.client.httpClient.Do(req)
 	}
-	r.client.authHeaders(req)
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := r.client.httpClient.Do(req)
+	resp, err := doPoll()
+	if err != nil && isTransientNetErr(err) {
+		time.Sleep(250 * time.Millisecond)
+		resp, err = doPoll()
+	}
 	if err != nil {
 		return false, nil, err
 	}
