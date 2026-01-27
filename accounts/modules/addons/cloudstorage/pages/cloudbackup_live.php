@@ -64,6 +64,8 @@ if (!empty($run['run_type'])) {
     } elseif ($run['run_type'] === 'hyperv_restore') {
         $isRestore = true;
         $isHypervRestore = true;
+    } elseif ($run['run_type'] === 'disk_restore') {
+        $isRestore = true;
     }
 }
 
@@ -77,6 +79,9 @@ if (!empty($run['stats_json'])) {
         } elseif (!empty($statsJson['type']) && $statsJson['type'] === 'hyperv_restore') {
             $isRestore = true;
             $isHypervRestore = true;
+            $restoreMetadata = $statsJson;
+        } elseif (!empty($statsJson['type']) && $statsJson['type'] === 'disk_restore') {
+            $isRestore = true;
             $restoreMetadata = $statsJson;
         }
     }

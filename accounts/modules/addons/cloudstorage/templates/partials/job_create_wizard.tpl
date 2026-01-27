@@ -1517,7 +1517,7 @@
                         },
                         get stepDescription() {
                             if (this.isHyperV) return 'Select one or more Hyper-V virtual machines to back up';
-                            if (this.isDiskImage) return 'Select a local disk volume to create an image backup';
+                            if (this.isDiskImage) return 'Select a local disk to create a bare‑metal image backup';
                             return 'Browse your agent and select folders to back up';
                         }
                     }">
@@ -1765,8 +1765,8 @@
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12a3 3 0 106 0 3 3 0 00-6 0z" />
                                     </svg>
-                                    <span class="text-sm text-slate-300">Local Disk Volumes</span>
-                                    <span class="text-xs text-slate-500 ml-auto">Select one volume for disk image backup</span>
+                                    <span class="text-sm text-slate-300">Local Disks</span>
+                                    <span class="text-xs text-slate-500 ml-auto">Select one disk for bare‑metal backup</span>
                                 </div>
 
                                 <div class="h-[420px] overflow-y-auto scrollbar_thin">
@@ -1785,7 +1785,7 @@
                                         <button type="button" class="mt-3 px-3 py-2 rounded-lg bg-slate-800 text-slate-200 text-xs" @click="retry()">Retry</button>
                                     </div>
 
-                                    <!-- DISK IMAGE MODE: Volume cards grid -->
+                                    <!-- DISK IMAGE MODE: Disk cards grid -->
                                     <div x-show="!loading && !error && isDiskImageMode" class="p-4">
                                         <div class="grid grid-cols-2 gap-3">
                                             <template x-for="entry in localVolumes" :key="entry.path">
@@ -1804,12 +1804,20 @@
                                                             </svg>
                                                         </div>
                                                         <div class="flex-1 min-w-0">
-                                                            <p class="text-base font-semibold text-slate-100" x-text="entry.path || entry.name"></p>
-                                                            <p class="text-sm text-slate-400 truncate" x-text="entry.label || 'Local Disk'"></p>
+                                                            <p class="text-base font-semibold text-slate-100" x-text="entry.name || entry.path"></p>
+                                                            <p class="text-sm text-slate-400 truncate" x-text="entry.model || entry.path"></p>
                                                             <div class="flex items-center gap-2 mt-1">
-                                                                <span class="text-xs text-slate-500" x-text="entry.filesystem || ''"></span>
-                                                                <span x-show="entry.size_bytes" class="text-xs text-slate-500">•</span>
                                                                 <span x-show="entry.size_bytes" class="text-xs text-slate-500" x-text="formatBytes(entry.size_bytes)"></span>
+                                                                <span x-show="entry.partition_style" class="text-xs text-slate-500">•</span>
+                                                                <span x-show="entry.partition_style" class="text-xs text-slate-500" x-text="String(entry.partition_style || '').toUpperCase()"></span>
+                                                            </div>
+                                                            <div class="mt-2 space-y-1 text-[10px] text-slate-500" x-show="entry.partitions && entry.partitions.length">
+                                                                <template x-for="part in entry.partitions" :key="part.path || part.name">
+                                                                    <div class="flex items-center justify-between">
+                                                                        <span class="truncate" x-text="part.name || part.path"></span>
+                                                                        <span class="ml-2" x-text="formatBytes(part.size_bytes || 0)"></span>
+                                                                    </div>
+                                                                </template>
                                                             </div>
                                                         </div>
                                                         <div class="shrink-0">
@@ -1825,7 +1833,7 @@
                                             </template>
                                         </div>
                                         <div x-show="localVolumes.length === 0" class="text-center py-12 text-sm text-slate-500">
-                                            No local disk volumes found
+                                            No local disks found
                                         </div>
                                     </div>
 

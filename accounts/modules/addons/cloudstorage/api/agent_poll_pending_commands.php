@@ -86,7 +86,7 @@ try {
     $browseCommands = Capsule::table('s3_cloudbackup_run_commands')
         ->where('agent_id', $agent->id)
         ->where('status', 'pending')
-        ->whereIn('type', ['browse_directory', 'list_hyperv_vms', 'list_hyperv_vm_details'])
+        ->whereIn('type', ['browse_directory', 'list_hyperv_vms', 'list_hyperv_vm_details', 'list_disks', 'reset_agent'])
         ->orderBy('id', 'asc')
         ->limit(5)
         ->get(['id as command_id', 'run_id', 'type', 'payload_json']);
@@ -144,7 +144,7 @@ try {
         ->where('agent_id', $agent->id)
         ->whereNull('run_id')
         ->where('status', 'pending')
-        ->whereIn('type', ['restore', 'hyperv_restore', 'browse_snapshot'])
+        ->whereIn('type', ['restore', 'hyperv_restore', 'disk_restore', 'browse_snapshot'])
         ->orderBy('id', 'asc')
         ->limit(5)
         ->get(['id as command_id', 'run_id', 'type', 'payload_json', 'agent_id']);

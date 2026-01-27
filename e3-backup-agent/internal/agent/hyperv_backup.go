@@ -755,7 +755,7 @@ func (r *Runner) backupVHDXWithReader(ctx context.Context, run *NextRunResponse,
 	run.Engine = "kopia"
 	run.SourcePath = vhdxPath
 
-	manifestID, err := r.kopiaSnapshotDiskImageWithProgress(ctx, run, entry, size, vhdxPath, progressCb)
+	manifestID, err := r.kopiaSnapshotDiskImageWithProgress(ctx, run, entry, size, vhdxPath, progressCb, true)
 
 	run.Engine = origEngine
 	run.SourcePath = origSource

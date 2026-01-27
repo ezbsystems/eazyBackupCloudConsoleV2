@@ -97,8 +97,44 @@ $result = Capsule::connection()->transaction(function () use ($timing, $heartbea
         $lastHeartbeat = $run->last_heartbeat_at ?? null;
         $message = 'Agent offline / no heartbeat since ' . formatHeartbeat($lastHeartbeat);
         $isCancelRequested = !empty($run->cancel_requested);
-        $updateStatus = $isCancelRequested ? 'cancelled' : 'failed';
-        $summary = $isCancelRequested ? ('Cancellation requested; ' . $message) : $message;
+
+        if (!$isCancelRequested) {
+            // Phase 1: request cancellation and emit event, but don't mark failed yet.
+            $update = [
+                'cancel_requested' => 1,
+            ];
+            if ($hasUpdatedAtColumn) {
+                $update['updated_at'] = Capsule::raw('NOW()');
+            }
+            Capsule::table('s3_cloudbackup_runs')
+                ->where('id', $run->id)
+                ->update($update);
+
+            $events[] = [
+                'run_id' => $run->id,
+                'ts' => date('Y-m-d H:i:s.u'),
+                'type' => 'cancelled',
+                'level' => 'warn',
+                'code' => 'CANCEL_REQUESTED',
+                'message_id' => 'CANCEL_REQUESTED',
+                'params_json' => json_encode([
+                    'last_heartbeat_at' => $lastHeartbeat,
+                    'watchdog_timeout_seconds' => $timing['watchdog_timeout_seconds'],
+                ]),
+            ];
+
+            $processed[] = [
+                'run_id' => $run->id,
+                'agent_id' => $run->agent_id ?? null,
+                'last_heartbeat_at' => $lastHeartbeat,
+                'status' => 'cancel_requested',
+            ];
+            continue;
+        }
+
+        // Phase 2: already requested cancellation; mark terminal.
+        $updateStatus = 'cancelled';
+        $summary = 'Cancellation requested; ' . $message;
 
         $update = [
             'status' => $updateStatus,
@@ -117,14 +153,14 @@ $result = Capsule::connection()->transaction(function () use ($timing, $heartbea
         $events[] = [
             'run_id' => $run->id,
             'ts' => date('Y-m-d H:i:s.u'),
-            'type' => $isCancelRequested ? 'cancelled' : 'error',
-            'level' => $isCancelRequested ? 'warn' : 'error',
-            'code' => $isCancelRequested ? 'CANCELLED' : 'AGENT_OFFLINE',
-            'message_id' => $isCancelRequested ? 'CANCELLED' : 'AGENT_OFFLINE',
+            'type' => 'cancelled',
+            'level' => 'warn',
+            'code' => 'CANCELLED',
+            'message_id' => 'CANCELLED',
             'params_json' => json_encode([
                 'last_heartbeat_at' => $lastHeartbeat,
                 'watchdog_timeout_seconds' => $timing['watchdog_timeout_seconds'],
-                'cancel_requested' => $isCancelRequested ? 1 : 0,
+                'cancel_requested' => 1,
             ]),
         ];
 

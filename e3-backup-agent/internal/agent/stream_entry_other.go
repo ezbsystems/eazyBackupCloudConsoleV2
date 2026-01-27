@@ -10,3 +10,7 @@ func openDeviceOptimized(path string) (*os.File, error) {
 	return os.OpenFile(path, os.O_RDONLY, 0)
 }
 
+func isWindowsSectorNotFound(err error) bool {
+	return false
+}
+

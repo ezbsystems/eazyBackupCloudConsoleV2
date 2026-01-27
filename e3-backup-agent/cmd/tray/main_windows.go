@@ -3,7 +3,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -128,6 +131,9 @@ type trayApp struct {
 	mu       sync.Mutex
 	lastErr  string
 	lastInfo string
+
+	recoveryMu   sync.Mutex
+	recoveryJobs map[string]*recoveryJob
 }
 
 func (a *trayApp) onReady() {
@@ -174,6 +180,7 @@ func (a *trayApp) onReady() {
 	mStart := systray.AddMenuItem("Start service", "Start the E3 Backup Agent service")
 	mStop := systray.AddMenuItem("Stop service", "Stop the E3 Backup Agent service")
 	mRestart := systray.AddMenuItem("Restart service", "Restart the E3 Backup Agent service")
+	mRecovery := systray.AddMenuItem("Create recovery media…", "Create a bootable recovery USB")
 	systray.AddSeparator()
 	mDevice := systray.AddMenuItem("Device ID: loading…", "Device identity")
 	mDevice.Disable()
@@ -208,6 +215,8 @@ func (a *trayApp) onReady() {
 				_ = a.sc("stop")
 				time.Sleep(800 * time.Millisecond)
 				_ = a.sc("start")
+			case <-mRecovery.ClickedCh:
+				a.openRecoveryUI()
 			case <-mCopyDevice.ClickedCh:
 				a.copyDeviceID()
 			case <-mQuit.ClickedCh:
@@ -315,6 +324,27 @@ func (a *trayApp) openEnrollUI() {
 	}
 }
 
+func (a *trayApp) openRecoveryUI() {
+	logDebug("openRecoveryUI: starting local HTTP server")
+	a.httpOnce.Do(func() {
+		a.startHTTP()
+	})
+	if a.httpAddr == "" {
+		logDebug("openRecoveryUI: failed to start local UI server")
+		a.setErr("failed to start local UI")
+		return
+	}
+	u := "http://" + a.httpAddr + "/recovery"
+	logDebug("openRecoveryUI: opening browser to %s", u)
+	cmd := exec.Command("rundll32.exe", "url.dll,FileProtocolHandler", u)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	if err := cmd.Start(); err != nil {
+		logDebug("openRecoveryUI: failed to open browser: %v", err)
+	} else {
+		logDebug("openRecoveryUI: browser launched successfully")
+	}
+}
+
 // openWebEnrollmentPage opens the user's default browser to the web-based enrollment page.
 // This is called automatically after installation if the device is not already enrolled
 // and no MSP/RMM enrollment token is configured.
@@ -370,6 +400,10 @@ func (a *trayApp) startHTTP() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/enroll", a.handleEnroll)
+	mux.HandleFunc("/recovery", a.handleRecovery)
+	mux.HandleFunc("/recovery/api/disks", a.handleRecoveryDisks)
+	mux.HandleFunc("/recovery/api/start", a.handleRecoveryStart)
+	mux.HandleFunc("/recovery/api/status", a.handleRecoveryStatus)
 	mux.HandleFunc("/assets/eazybackup-logo.svg", func(w http.ResponseWriter, r *http.Request) {
 		b := []byte(eazybackupLogoSVG)
 		w.Header().Set("Content-Type", "image/svg+xml")
@@ -648,6 +682,373 @@ func renderSuccessPage(w http.ResponseWriter, apiBaseURL string) {
 	_, _ = io.WriteString(w, `<a href="`+htmlEscape(jobsURL)+`" class="btn" target="_blank">Create Backup Job →</a>`)
 	_, _ = io.WriteString(w, `</div>`)
 	_, _ = io.WriteString(w, `</div></body></html>`)
+}
+
+type recoveryJob struct {
+	ID       string `json:"id"`
+	Status   string `json:"status"`
+	Progress int    `json:"progress"`
+	Message  string `json:"message,omitempty"`
+}
+
+type recoveryDisk struct {
+	Number         int64  `json:"number"`
+	Name           string `json:"name"`
+	SizeBytes      int64  `json:"size_bytes"`
+	PartitionStyle string `json:"partition_style,omitempty"`
+}
+
+func (a *trayApp) handleRecovery(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(405)
+		return
+	}
+	renderRecoveryPage(w)
+}
+
+func (a *trayApp) handleRecoveryDisks(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(405)
+		return
+	}
+	disks, err := listRemovableDisks()
+	if err != nil {
+		writeJSON(w, map[string]any{"status": "fail", "message": err.Error()})
+		return
+	}
+	writeJSON(w, map[string]any{"status": "success", "disks": disks})
+}
+
+func (a *trayApp) handleRecoveryStart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(405)
+		return
+	}
+	var payload struct {
+		DiskNumber int64  `json:"disk_number"`
+		ImageURL   string `json:"image_url"`
+		Checksum   string `json:"checksum"`
+	}
+	dec := json.NewDecoder(r.Body)
+	if err := dec.Decode(&payload); err != nil {
+		writeJSON(w, map[string]any{"status": "fail", "message": "invalid payload"})
+		return
+	}
+	if payload.DiskNumber < 0 || payload.ImageURL == "" {
+		writeJSON(w, map[string]any{"status": "fail", "message": "disk_number and image_url required"})
+		return
+	}
+
+	jobID, _ := newUUIDv4()
+	if strings.TrimSpace(jobID) == "" {
+		jobID = fmt.Sprintf("job-%d", time.Now().UnixNano())
+	}
+	job := &recoveryJob{ID: jobID, Status: "queued", Progress: 0}
+	a.storeRecoveryJob(job)
+	go a.runRecoveryJob(job.ID, payload.DiskNumber, payload.ImageURL, payload.Checksum)
+
+	writeJSON(w, map[string]any{"status": "success", "job_id": job.ID})
+}
+
+func (a *trayApp) handleRecoveryStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(405)
+		return
+	}
+	jobID := r.URL.Query().Get("job_id")
+	if jobID == "" {
+		writeJSON(w, map[string]any{"status": "fail", "message": "job_id required"})
+		return
+	}
+	job := a.getRecoveryJob(jobID)
+	if job == nil {
+		writeJSON(w, map[string]any{"status": "fail", "message": "job not found"})
+		return
+	}
+	writeJSON(w, map[string]any{"status": "success", "job": job})
+}
+
+func (a *trayApp) storeRecoveryJob(job *recoveryJob) {
+	a.recoveryMu.Lock()
+	defer a.recoveryMu.Unlock()
+	if a.recoveryJobs == nil {
+		a.recoveryJobs = map[string]*recoveryJob{}
+	}
+	a.recoveryJobs[job.ID] = job
+}
+
+func (a *trayApp) updateRecoveryJob(id, status, message string, progress int) {
+	a.recoveryMu.Lock()
+	defer a.recoveryMu.Unlock()
+	if a.recoveryJobs == nil {
+		return
+	}
+	job, ok := a.recoveryJobs[id]
+	if !ok {
+		return
+	}
+	job.Status = status
+	job.Message = message
+	if progress >= 0 {
+		job.Progress = progress
+	}
+}
+
+func (a *trayApp) getRecoveryJob(id string) *recoveryJob {
+	a.recoveryMu.Lock()
+	defer a.recoveryMu.Unlock()
+	if a.recoveryJobs == nil {
+		return nil
+	}
+	return a.recoveryJobs[id]
+}
+
+func (a *trayApp) runRecoveryJob(jobID string, diskNumber int64, imageURL, checksum string) {
+	a.updateRecoveryJob(jobID, "downloading", "Downloading recovery image", 0)
+	cacheDir := filepath.Join(os.Getenv("ProgramData"), "E3Backup", "recovery-cache")
+	_ = os.MkdirAll(cacheDir, 0o755)
+	imagePath := filepath.Join(cacheDir, filepath.Base(imageURL))
+
+	if err := downloadWithProgress(imageURL, imagePath, func(p int) {
+		a.updateRecoveryJob(jobID, "downloading", "Downloading recovery image", p)
+	}); err != nil {
+		a.updateRecoveryJob(jobID, "failed", err.Error(), -1)
+		return
+	}
+
+	if checksum != "" {
+		a.updateRecoveryJob(jobID, "verifying", "Verifying checksum", 0)
+		if err := verifyFileChecksum(imagePath, checksum); err != nil {
+			a.updateRecoveryJob(jobID, "failed", err.Error(), -1)
+			return
+		}
+	}
+
+	a.updateRecoveryJob(jobID, "writing", "Writing image to USB", 0)
+	if err := writeImageToDisk(imagePath, diskNumber, func(p int) {
+		a.updateRecoveryJob(jobID, "writing", "Writing image to USB", p)
+	}); err != nil {
+		a.updateRecoveryJob(jobID, "failed", err.Error(), -1)
+		return
+	}
+
+	a.updateRecoveryJob(jobID, "completed", "Recovery media created", 100)
+}
+
+func listRemovableDisks() ([]recoveryDisk, error) {
+	ps := `
+$disks = Get-Disk | Where-Object { $_.BusType -eq 'USB' -and $_.OperationalStatus -eq 'Online' } | ForEach-Object {
+    [pscustomobject]@{
+        number = $_.Number
+        name = $_.FriendlyName
+        size_bytes = $_.Size
+        partition_style = $_.PartitionStyle
+    }
+}
+$disks | ConvertTo-Json -Depth 3
+`
+	out, err := runPowerShell(ps)
+	if err != nil {
+		return nil, err
+	}
+	var disks []recoveryDisk
+	if err := json.Unmarshal([]byte(out), &disks); err != nil {
+		// Single disk might come as object
+		var single recoveryDisk
+		if err := json.Unmarshal([]byte(out), &single); err == nil && single.Name != "" {
+			disks = append(disks, single)
+		} else {
+			return nil, fmt.Errorf("failed to parse disk list: %w", err)
+		}
+	}
+	return disks, nil
+}
+
+func downloadWithProgress(url, dest string, update func(int)) error {
+	resp, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("download failed: %s", resp.Status)
+	}
+	out, err := os.Create(dest)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	var written int64
+	total := resp.ContentLength
+	buf := make([]byte, 4*1024*1024)
+	for {
+		n, err := resp.Body.Read(buf)
+		if n > 0 {
+			if _, werr := out.Write(buf[:n]); werr != nil {
+				return werr
+			}
+			written += int64(n)
+			if total > 0 {
+				update(int(float64(written) / float64(total) * 100))
+			}
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func verifyFileChecksum(path, expected string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return err
+	}
+	sum := hex.EncodeToString(h.Sum(nil))
+	if !strings.EqualFold(sum, expected) {
+		return fmt.Errorf("checksum mismatch")
+	}
+	return nil
+}
+
+func writeImageToDisk(imagePath string, diskNumber int64, update func(int)) error {
+	_ = exec.Command("powershell", "-NoProfile", "-Command", fmt.Sprintf("Set-Disk -Number %d -IsReadOnly $false -IsOffline $true", diskNumber)).Run()
+
+	imageFile, err := os.Open(imagePath)
+	if err != nil {
+		return err
+	}
+	defer imageFile.Close()
+
+	diskPath := fmt.Sprintf(`\\.\PhysicalDrive%d`, diskNumber)
+	diskFile, err := os.OpenFile(diskPath, os.O_WRONLY, 0)
+	if err != nil {
+		return fmt.Errorf("open target disk: %w", err)
+	}
+	defer diskFile.Close()
+
+	info, _ := imageFile.Stat()
+	total := info.Size()
+	var written int64
+	buf := make([]byte, 4*1024*1024)
+	for {
+		n, err := imageFile.Read(buf)
+		if n > 0 {
+			if _, werr := diskFile.Write(buf[:n]); werr != nil {
+				return werr
+			}
+			written += int64(n)
+			if total > 0 {
+				update(int(float64(written) / float64(total) * 100))
+			}
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+	}
+
+	_ = exec.Command("powershell", "-NoProfile", "-Command", fmt.Sprintf("Set-Disk -Number %d -IsOffline $false", diskNumber)).Run()
+	return nil
+}
+
+func writeJSON(w http.ResponseWriter, payload map[string]any) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func renderRecoveryPage(w http.ResponseWriter) {
+	const page = `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Create Recovery Media</title>
+  <style>
+    body { font-family: sans-serif; background: #0f172a; color: #e2e8f0; padding: 24px; }
+    .card { background: #111827; border: 1px solid #1f2937; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+    button { background: #0ea5e9; color: #fff; border: 0; padding: 8px 12px; border-radius: 8px; cursor: pointer; }
+    select, input { width: 100%; padding: 8px; background: #0b1220; color: #e2e8f0; border: 1px solid #1f2937; border-radius: 8px; }
+    small { color: #94a3b8; }
+  </style>
+</head>
+<body>
+  <h2>Create Recovery Media</h2>
+  <div class="card">
+    <label>USB Disk</label>
+    <select id="diskSelect"></select>
+  </div>
+  <div class="card">
+    <label>Recovery Image URL</label>
+    <input id="imageUrl" value="https://downloads.eazybackup.ca/recovery/e3-recovery-linux.img"/>
+    <small>Download will start automatically when you create media.</small>
+  </div>
+  <div class="card">
+    <button onclick="start()">Create Recovery Media</button>
+    <div id="status" style="margin-top: 8px;"></div>
+  </div>
+<script>
+async function loadDisks() {
+  const resp = await fetch('/recovery/api/disks');
+  const data = await resp.json();
+  const sel = document.getElementById('diskSelect');
+  sel.innerHTML = '';
+  (data.disks || []).forEach(d => {
+    const opt = document.createElement('option');
+    opt.value = d.number;
+    opt.textContent = 'Disk ' + d.number + ' - ' + d.name + ' (' + Math.round(d.size_bytes/1024/1024/1024) + ' GB)';
+    sel.appendChild(opt);
+  });
+}
+async function start() {
+  const diskNumber = Number(document.getElementById('diskSelect').value);
+  const imageUrl = document.getElementById('imageUrl').value;
+  const resp = await fetch('/recovery/api/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ disk_number: diskNumber, image_url: imageUrl })});
+  const data = await resp.json();
+  if (data.status !== 'success') {
+    document.getElementById('status').textContent = data.message || 'Failed';
+    return;
+  }
+  pollStatus(data.job_id);
+}
+async function pollStatus(jobId) {
+  const resp = await fetch('/recovery/api/status?job_id=' + encodeURIComponent(jobId));
+  const data = await resp.json();
+  if (data.status === 'success') {
+    const job = data.job || {};
+    document.getElementById('status').textContent = (job.status || '') + ' (' + (job.progress || 0) + '%) ' + (job.message || '');
+    if (job.status !== 'completed' && job.status !== 'failed') {
+      setTimeout(() => pollStatus(jobId), 1000);
+    }
+  }
+}
+loadDisks();
+</script>
+</body>
+</html>`
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte(page))
+}
+
+func runPowerShell(script string) (string, error) {
+	cmd := exec.Command("powershell", "-NoProfile", "-Command", script)
+	var buf bytes.Buffer
+	cmd.Stdout = &buf
+	cmd.Stderr = &buf
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("powershell failed: %v (%s)", err, buf.String())
+	}
+	return strings.TrimSpace(buf.String()), nil
 }
 
 // buildJobsPageURL converts the API base URL to the backup jobs page URL.

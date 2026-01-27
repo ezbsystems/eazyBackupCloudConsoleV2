@@ -14,7 +14,7 @@ function cloudstorage_config()
         'description' => 'This module show the usage of your buckets.',
         'author' => 'eazybackup',
         'language' => 'english',
-        'version' => '2.1.6',
+        'version' => '2.1.7',
         'fields' => [
             's3_region' => [
                 'FriendlyName' => 'S3 Region',
@@ -1178,6 +1178,11 @@ function cloudstorage_activate() {
                 $table->string('hyperv_backup_type', 32)->nullable();
                 $table->unsignedBigInteger('hyperv_backup_point_id')->nullable();
                 $table->mediumText('disk_manifests_json')->nullable();
+                $table->mediumText('disk_layout_json')->nullable();
+                $table->unsignedBigInteger('disk_total_bytes')->nullable();
+                $table->unsignedBigInteger('disk_used_bytes')->nullable();
+                $table->string('disk_boot_mode', 16)->nullable(); // uefi|bios|unknown
+                $table->string('disk_partition_style', 16)->nullable(); // gpt|mbr|unknown
                 $table->timestamp('created_at')->useCurrent();
                 $table->timestamp('finished_at')->nullable();
 
@@ -1188,6 +1193,7 @@ function cloudstorage_activate() {
                 $table->index('run_id');
                 $table->index('hyperv_vm_id');
                 $table->index('hyperv_backup_point_id');
+                $table->index('disk_partition_style');
                 $table->unique(['client_id', 'manifest_id'], 'uniq_restore_manifest');
             });
             logModuleCall('cloudstorage', 'activate', [], 'Created s3_cloudbackup_restore_points table', [], []);
@@ -1308,6 +1314,43 @@ function cloudstorage_activate() {
                 $table->index('expires_at');
             });
             logModuleCall('cloudstorage', 'activate', [], 'Created s3_agent_enrollment_tokens table', [], []);
+        }
+
+        if (!Capsule::schema()->hasTable('s3_cloudbackup_recovery_tokens')) {
+            Capsule::schema()->create('s3_cloudbackup_recovery_tokens', function ($table) {
+                $table->bigIncrements('id');
+                $table->unsignedInteger('client_id');
+                $table->unsignedInteger('tenant_id')->nullable();
+                $table->unsignedInteger('tenant_user_id')->nullable();
+                $table->unsignedBigInteger('restore_point_id');
+                $table->string('token', 32); // short recovery code
+                $table->string('description', 255)->nullable();
+                $table->dateTime('expires_at')->nullable();
+                $table->dateTime('used_at')->nullable();
+                $table->dateTime('revoked_at')->nullable();
+                $table->string('session_token', 64)->nullable();
+                $table->dateTime('session_expires_at')->nullable();
+                $table->unsignedBigInteger('session_run_id')->nullable();
+                $table->string('created_ip', 45)->nullable();
+                $table->string('created_user_agent', 255)->nullable();
+                $table->dateTime('exchanged_at')->nullable();
+                $table->string('exchanged_ip', 45)->nullable();
+                $table->string('exchanged_user_agent', 255)->nullable();
+                $table->dateTime('started_at')->nullable();
+                $table->string('started_ip', 45)->nullable();
+                $table->string('started_user_agent', 255)->nullable();
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('updated_at')->nullable();
+
+                $table->unique('token');
+                $table->index('client_id');
+                $table->index('tenant_id');
+                $table->index('restore_point_id');
+                $table->index('expires_at');
+                $table->index('used_at');
+                $table->index('session_token');
+            });
+            logModuleCall('cloudstorage', 'activate', [], 'Created s3_cloudbackup_recovery_tokens table', [], []);
         }
 
         if (!Capsule::schema()->hasTable('s3_backup_usage_snapshots')) {
@@ -2545,6 +2588,11 @@ function cloudstorage_upgrade($vars) {
                 $table->string('hyperv_backup_type', 32)->nullable();
                 $table->unsignedBigInteger('hyperv_backup_point_id')->nullable();
                 $table->mediumText('disk_manifests_json')->nullable();
+                $table->mediumText('disk_layout_json')->nullable();
+                $table->unsignedBigInteger('disk_total_bytes')->nullable();
+                $table->unsignedBigInteger('disk_used_bytes')->nullable();
+                $table->string('disk_boot_mode', 16)->nullable();
+                $table->string('disk_partition_style', 16)->nullable();
                 $table->timestamp('created_at')->useCurrent();
                 $table->timestamp('finished_at')->nullable();
 
@@ -2555,9 +2603,115 @@ function cloudstorage_upgrade($vars) {
                 $table->index('run_id');
                 $table->index('hyperv_vm_id');
                 $table->index('hyperv_backup_point_id');
+                $table->index('disk_partition_style');
                 $table->unique(['client_id', 'manifest_id'], 'uniq_restore_manifest');
             });
             logModuleCall('cloudstorage', 'upgrade', [], 'Created s3_cloudbackup_restore_points table', [], []);
+        }
+
+        // Add disk layout metadata columns on upgrades
+        if (\WHMCS\Database\Capsule::schema()->hasTable('s3_cloudbackup_restore_points')) {
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_restore_points', 'disk_layout_json')) {
+                try {
+                    \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_restore_points', function ($table) {
+                        $table->mediumText('disk_layout_json')->nullable()->after('disk_manifests_json');
+                        $table->unsignedBigInteger('disk_total_bytes')->nullable()->after('disk_layout_json');
+                        $table->unsignedBigInteger('disk_used_bytes')->nullable()->after('disk_total_bytes');
+                        $table->string('disk_boot_mode', 16)->nullable()->after('disk_used_bytes');
+                        $table->string('disk_partition_style', 16)->nullable()->after('disk_boot_mode');
+                        $table->index('disk_partition_style');
+                    });
+                    logModuleCall('cloudstorage', 'upgrade', [], 'Added disk layout columns to s3_cloudbackup_restore_points', [], []);
+                } catch (\Exception $e) {
+                    logModuleCall('cloudstorage', 'upgrade_add_restore_points_disk_layout_error', [], $e->getMessage(), [], []);
+                }
+            }
+        }
+
+        // Ensure recovery tokens table exists on upgrades
+        if (!\WHMCS\Database\Capsule::schema()->hasTable('s3_cloudbackup_recovery_tokens')) {
+            \WHMCS\Database\Capsule::schema()->create('s3_cloudbackup_recovery_tokens', function ($table) {
+                $table->bigIncrements('id');
+                $table->unsignedInteger('client_id');
+                $table->unsignedInteger('tenant_id')->nullable();
+                $table->unsignedInteger('tenant_user_id')->nullable();
+                $table->unsignedBigInteger('restore_point_id');
+                $table->string('token', 32);
+                $table->string('description', 255)->nullable();
+                $table->dateTime('expires_at')->nullable();
+                $table->dateTime('used_at')->nullable();
+                $table->dateTime('revoked_at')->nullable();
+                $table->string('session_token', 64)->nullable();
+                $table->dateTime('session_expires_at')->nullable();
+                $table->unsignedBigInteger('session_run_id')->nullable();
+                $table->string('created_ip', 45)->nullable();
+                $table->string('created_user_agent', 255)->nullable();
+                $table->dateTime('exchanged_at')->nullable();
+                $table->string('exchanged_ip', 45)->nullable();
+                $table->string('exchanged_user_agent', 255)->nullable();
+                $table->dateTime('started_at')->nullable();
+                $table->string('started_ip', 45)->nullable();
+                $table->string('started_user_agent', 255)->nullable();
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('updated_at')->nullable();
+
+                $table->unique('token');
+                $table->index('client_id');
+                $table->index('tenant_id');
+                $table->index('restore_point_id');
+                $table->index('expires_at');
+                $table->index('used_at');
+                $table->index('session_token');
+            });
+            logModuleCall('cloudstorage', 'upgrade', [], 'Created s3_cloudbackup_recovery_tokens table', [], []);
+        }
+
+        if (\WHMCS\Database\Capsule::schema()->hasTable('s3_cloudbackup_recovery_tokens')) {
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_recovery_tokens', 'created_ip')) {
+                \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_recovery_tokens', function ($table) {
+                    $table->string('created_ip', 45)->nullable()->after('created_at');
+                });
+            }
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_recovery_tokens', 'created_user_agent')) {
+                \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_recovery_tokens', function ($table) {
+                    $table->string('created_user_agent', 255)->nullable()->after('created_ip');
+                });
+            }
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_recovery_tokens', 'exchanged_at')) {
+                \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_recovery_tokens', function ($table) {
+                    $table->dateTime('exchanged_at')->nullable()->after('created_user_agent');
+                });
+            }
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_recovery_tokens', 'exchanged_ip')) {
+                \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_recovery_tokens', function ($table) {
+                    $table->string('exchanged_ip', 45)->nullable()->after('exchanged_at');
+                });
+            }
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_recovery_tokens', 'exchanged_user_agent')) {
+                \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_recovery_tokens', function ($table) {
+                    $table->string('exchanged_user_agent', 255)->nullable()->after('exchanged_ip');
+                });
+            }
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_recovery_tokens', 'started_at')) {
+                \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_recovery_tokens', function ($table) {
+                    $table->dateTime('started_at')->nullable()->after('exchanged_user_agent');
+                });
+            }
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_recovery_tokens', 'started_ip')) {
+                \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_recovery_tokens', function ($table) {
+                    $table->string('started_ip', 45)->nullable()->after('started_at');
+                });
+            }
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_recovery_tokens', 'started_user_agent')) {
+                \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_recovery_tokens', function ($table) {
+                    $table->string('started_user_agent', 255)->nullable()->after('started_ip');
+                });
+            }
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_recovery_tokens', 'updated_at')) {
+                \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_recovery_tokens', function ($table) {
+                    $table->timestamp('updated_at')->nullable()->after('started_user_agent');
+                });
+            }
         }
 
         // Ensure prefix delete queue exists on upgrades
@@ -2941,6 +3095,11 @@ function cloudstorage_clientarea($vars) {
                     $pagetitle = 'e3 Cloud Backup - Hyper-V Restore';
                     $templatefile = 'templates/e3backup_hyperv_restore';
                     $viewVars = require 'pages/e3backup_hyperv_restore.php';
+                    break;
+                case 'disk_image_restore':
+                    $pagetitle = 'e3 Cloud Backup - Disk Image Restore';
+                    $templatefile = 'templates/e3backup_disk_image_restore';
+                    $viewVars = require 'pages/e3backup_disk_image_restore.php';
                     break;
                 case 'dashboard':
                 default:

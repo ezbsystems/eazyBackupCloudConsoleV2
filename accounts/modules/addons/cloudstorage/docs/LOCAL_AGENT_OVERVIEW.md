@@ -44,7 +44,7 @@
 - `s3_cloudbackup_runs`: adds `engine`, `dest_type`, `dest_bucket/prefix`, `dest_local_path`, `stats_json`, `progress_json`, `log_ref`, `policy_snapshot`, `worker_host`, `agent_id`, `disk_manifests_json`, `cancel_requested`.
 - `s3_cloudbackup_run_logs`: structured run log stream.
 - `s3_cloudbackup_run_events`: vendor-agnostic event feed.
-- `s3_cloudbackup_run_commands`: queued commands for agents (`cancel`, `maintenance_quick/full`, `restore`, `mount`, `nas_mount`, `nas_unmount`, `list_hyperv_vms`).
+- `s3_cloudbackup_run_commands`: queued commands for agents (`cancel`, `maintenance_quick/full`, `restore`, `mount`, `nas_mount`, `nas_unmount`, `list_hyperv_vms`, `reset_agent`).
 - `s3_cloudbackup_restore_points`: persistent restore registry (manifest_id, agent/tenant/job metadata, source/dest details, Hyper-V VM context). Designed to survive job deletion.
 - **Hyper-V specific tables**:
   - `s3_hyperv_vms`: VM registry (id, client_id, agent_id, vm_guid, vm_name, state, generation, rct_enabled, last_seen_at).
@@ -56,7 +56,7 @@
 ## Agent-server contract (sync + Kopia)
 - Run assignment: `agent_next_run.php` filters queued runs for that agent (run.agent_id/job.agent_id), claims as `starting`, returns engine, source/dest, policy/retention/schedule JSON, decrypted access keys, endpoint/region.
 - Progress/events: `agent_update_run.php` (progress snapshot, log_ref, stats/progress JSON), `agent_push_events.php` (structured events).
-- Commands: server enqueues in `s3_cloudbackup_run_commands`; agent polls `agent_poll_pending_commands.php`; completion via `agent_complete_command.php`. Supported: cancel, maintenance_quick/full, restore, nas_mount, nas_unmount.
+- Commands: server enqueues in `s3_cloudbackup_run_commands`; agent polls `agent_poll_pending_commands.php`; completion via `agent_complete_command.php`. Supported: cancel, maintenance_quick/full, restore, nas_mount, nas_unmount, reset_agent.
 - Start (manual/UI): `cloudbackup_start_run.php` → `CloudBackupController::startRun()` inserts queued run, binds to agent for `local_agent`, optionally stores engine/dest fields; workers should ignore local_agent runs.
 - Reclaim/watchdog: reclaim stale in-progress for same agent within grace; watchdog cron fails truly stale runs.
 
@@ -84,10 +84,10 @@ crontab -l | grep s3cloudbackup_scheduler.php
 
 ## Heartbeats, watchdog, and resume
 - Heartbeats: `agent_update_run.php` updates `updated_at`; agents should POST every ≤60–90s.
-- Watchdog: `crons/agent_watchdog.php` fails stale `starting/running` runs past `AGENT_WATCHDOG_TIMEOUT_SECONDS` (default 720s) with `AGENT_OFFLINE`.
+- Watchdog: `crons/agent_watchdog.php` first requests cancellation on stale runs, then marks terminal if still stale past `AGENT_WATCHDOG_TIMEOUT_SECONDS` (default 720s) with `AGENT_OFFLINE`.
 - Reclaim: `agent_next_run.php` can return the same agent's in-progress run if heartbeat is older than `AGENT_RECLAIM_GRACE_SECONDS` (default 180s) but before watchdog cutoff.
 - Exclusivity: in-progress runs stay with their agent; reclaim requires matching `run.agent_id` (or job.agent_id legacy).
-- Env knobs: `AGENT_WATCHDOG_TIMEOUT_SECONDS`, `AGENT_RECLAIM_GRACE_SECONDS` (grace < timeout).
+- Env knobs: `AGENT_WATCHDOG_TIMEOUT_SECONDS`, `AGENT_RECLAIM_GRACE_SECONDS` (grace < timeout), `AGENT_DISK_IMAGE_STALL_SECONDS` (default 300).
 
 ---
 
@@ -1829,6 +1829,446 @@ Jobs are a configuration concept; restore data must survive job deletion. The re
 
 ---
 
+## Bare‑Metal Disk Image Restore (Jan 23 2026)
+
+### Overview (target state)
+Disk image backups are treated as **full‑disk** captures (EFI/MSR/Recovery included). Restores are initiated from a dedicated recovery flow and write directly to raw disks.
+
+**Recovery flow (implemented scaffolding):**
+1. WHMCS generates a **Recovery Token** tied to a disk image restore point.
+2. Recovery environment exchanges token for restore context + S3 credentials.
+3. Recovery agent enumerates local disks and streams the snapshot to the selected raw disk.
+4. Boot repair runs (UEFI/BIOS specific).
+
+### Diagrams
+
+**Recovery token exchange (sequence)**
+```mermaid
+sequenceDiagram
+    participant UI as WHMCS UI
+    participant API as Token API
+    participant REC as Recovery Media
+    participant AGENT as Recovery Agent
+    UI->>API: POST cloudbackup_recovery_token_create (restore_point_id)
+    API-->>UI: { token, expires_at }
+    REC->>API: POST cloudbackup_recovery_token_exchange (token)
+    API-->>REC: { session_token, restore_point, storage }
+    REC->>AGENT: launch recovery UI with session
+```
+
+**Disk restore pipeline (recovery media)**
+```mermaid
+sequenceDiagram
+    participant REC as Recovery Agent
+    participant API as Recovery API
+    participant S3 as S3 Repo
+    participant DISK as Target Disk
+    REC->>API: POST cloudbackup_recovery_start_restore
+    API-->>REC: restore_run_id
+    REC->>S3: fetch snapshot data (Kopia)
+    REC->>DISK: write raw blocks
+    REC->>DISK: resize FS (NTFS/ext4) + boot repair
+    REC->>API: POST cloudbackup_recovery_update_run / push_events
+```
+
+### Recovery cancel + diagnostics (Jan 27 2026)
+
+**Cancel flow (recovery mode):**
+1. Recovery UI calls `cloudbackup_recovery_cancel_restore.php` with `session_token` + `run_id`.
+2. Server sets `cancel_requested=1` on `s3_cloudbackup_runs` and emits a `CANCEL_REQUESTED` event.
+3. Recovery agent polls `cloudbackup_recovery_poll_cancel.php` and cancels the restore context when requested.
+4. Disk restore loops check `ctx.Done()` and exit early.
+5. Agent reports `cancelled` status and emits `CANCELLED` event (rollback is not possible for raw‑disk writes).
+
+**Diagnostics (recovery UI):**
+- Recovery UI now polls `cloudbackup_recovery_get_run_status.php` for progress + error summary.
+- Recovery UI now polls `cloudbackup_recovery_get_run_events.php` and renders formatted event messages.
+
+### Key changes and where they live
+
+**Data model + APIs**
+- New table: `s3_cloudbackup_recovery_tokens` in `accounts/modules/addons/cloudstorage/cloudstorage.php`
+- Recovery token audit fields:
+  - `created_ip`, `created_user_agent`, `exchanged_at`, `exchanged_ip`, `exchanged_user_agent`
+  - `started_at`, `started_ip`, `started_user_agent`, `updated_at`
+- Restore point metadata columns in `s3_cloudbackup_restore_points`:
+  - `disk_layout_json`, `disk_total_bytes`, `disk_used_bytes`, `disk_boot_mode`, `disk_partition_style`
+- Recovery token APIs:
+  - `api/cloudbackup_recovery_token_create.php`
+  - `api/cloudbackup_recovery_token_exchange.php`
+  - `api/cloudbackup_recovery_start_restore.php`
+  - `api/cloudbackup_recovery_update_run.php`
+  - `api/cloudbackup_recovery_push_events.php`
+- Recovery cancel/diagnostics APIs:
+  - `api/cloudbackup_recovery_cancel_restore.php`
+  - `api/cloudbackup_recovery_poll_cancel.php`
+  - `api/cloudbackup_recovery_get_run_status.php`
+  - `api/cloudbackup_recovery_get_run_events.php`
+- Disk layout preview API:
+  - `api/cloudbackup_disk_layout_preview.php`
+- Disk image restore queue API (agent‑based):
+  - `api/cloudbackup_disk_image_start_restore.php`
+- Disk list API for UI:
+  - `api/agent_list_disks.php`
+
+**Backup‑time metadata capture**
+- Disk layout collectors:
+  - `e3-backup-agent/internal/agent/disk_layout_windows.go`
+  - `e3-backup-agent/internal/agent/disk_layout_linux.go`
+- Capture wired into disk image backup flow:
+  - `e3-backup-agent/internal/agent/disk_image.go`
+  - `e3-backup-agent/internal/agent/disk_image_windows.go`
+  - `e3-backup-agent/internal/agent/disk_image_linux.go`
+- Restore points are populated with layout metadata via:
+  - `accounts/modules/addons/cloudstorage/lib/Client/CloudBackupController.php`
+
+**Raw‑disk restore pipeline**
+- Command routing for `disk_restore`:
+  - `e3-backup-agent/internal/agent/runner.go`
+  - `accounts/modules/addons/cloudstorage/api/agent_poll_pending_commands.php`
+- Restore handler + shrink planning:
+  - `e3-backup-agent/internal/agent/disk_image_restore.go`
+  - `e3-backup-agent/internal/agent/disk_image_restore_linux.go`
+  - `e3-backup-agent/internal/agent/disk_image_restore_windows.go`
+- Block‑device restore output:
+  - `e3-backup-agent/internal/agent/kopia_disk_restore.go`
+- Disk list support:
+  - `e3-backup-agent/internal/agent/disks.go`
+  - `e3-backup-agent/internal/agent/disks_windows.go`
+  - `e3-backup-agent/internal/agent/disks_linux.go`
+
+**Recovery media + tray wizard**
+- Recovery build scaffolding:
+  - `recovery/README.md`
+  - `recovery/linux/build.sh`
+  - `recovery/winpe/README.md`
+  - `recovery/pxe/README.md`
+  - `recovery/pxe/ipxe-boot.ipxe`
+  - `recovery/manifest.json`
+  - `recovery/sample-recovery.json`
+- Recovery UI executable (Linux recovery environment):
+  - `e3-backup-agent/cmd/recovery/main.go`
+- Tray wizard for USB creation:
+  - `e3-backup-agent/cmd/tray/main_windows.go`
+
+**Recent changes (Jan 27 2026)**
+- Recovery cancel support and polling in recovery mode (server + agent + UI).
+- Disk restore loops are interruptible via context cancellation.
+- Recovery UI now displays server‑side progress + event diagnostics.
+- Recovery tokens store audit fields for created/exchanged/started metadata.
+
+**New or updated files**
+- New recovery APIs:
+  - `accounts/modules/addons/cloudstorage/api/cloudbackup_recovery_cancel_restore.php`
+  - `accounts/modules/addons/cloudstorage/api/cloudbackup_recovery_poll_cancel.php`
+  - `accounts/modules/addons/cloudstorage/api/cloudbackup_recovery_get_run_status.php`
+  - `accounts/modules/addons/cloudstorage/api/cloudbackup_recovery_get_run_events.php`
+- Updated recovery token + schema:
+  - `accounts/modules/addons/cloudstorage/cloudstorage.php`
+  - `accounts/modules/addons/cloudstorage/api/cloudbackup_recovery_token_create.php`
+  - `accounts/modules/addons/cloudstorage/api/cloudbackup_recovery_token_exchange.php`
+  - `accounts/modules/addons/cloudstorage/api/cloudbackup_recovery_start_restore.php`
+- Updated agent + recovery UI:
+  - `e3-backup-agent/internal/agent/disk_image_restore.go`
+  - `e3-backup-agent/internal/agent/kopia_disk_restore.go`
+  - `e3-backup-agent/internal/agent/api_client.go`
+  - `e3-backup-agent/cmd/recovery/main.go`
+  - `e3-backup-agent/internal/agent/get_device_size_other.go`
+
+**WHMCS UI**
+- Dedicated disk image restore page:
+  - `accounts/modules/addons/cloudstorage/pages/e3backup_disk_image_restore.php`
+  - `accounts/modules/addons/cloudstorage/templates/e3backup_disk_image_restore.tpl`
+- Restore points now route disk_image to recovery UI:
+  - `accounts/modules/addons/cloudstorage/templates/e3backup_restores.tpl`
+- Backup wizard disk selection updates:
+  - `accounts/modules/addons/cloudstorage/templates/partials/job_create_wizard.tpl`
+  - `accounts/modules/addons/cloudstorage/templates/e3backup_jobs.tpl`
+
+### Recovery modes: supported vs not supported (current)
+
+**Supported (implemented)**
+- **Agent‑based disk restore**: `cloudbackup_disk_image_start_restore.php` queues `disk_restore` for a running agent.
+- **Recovery UI binary (Linux)**: `cmd/recovery` can exchange tokens, list disks, and invoke disk restore.
+- **Disk layout metadata capture**: GPT/MBR, partitions, boot mode, used bytes, block maps.
+- **Shrink restores (Linux only)**: NTFS/ext4 with used‑bytes guardrail.
+- **Boot repair best‑effort**:
+  - Windows: `bcdboot` + `bootrec`, enable storahci/stornvme in offline registry.
+  - Linux: initramfs regen + GRUB reinstall.
+
+**Not supported / limited (as of this implementation)**
+- **WinPE recovery image build** (placeholder only).
+- **PXE/iPXE + BMC ISO boot artifacts** (placeholders only).
+- **Recovery token exchange → ephemeral S3 creds** (currently returns decrypted static keys).
+- **Recovery JSON injection into media** (not yet embedded by tray wizard).
+- **Dissimilar hardware driver injection** via DISM (not implemented).
+- **Disk restore to smaller disks on Windows** (Linux‑only shrink).
+- **Boot mode conversion** (mismatch is blocked unless explicitly allowed; no conversion yet).
+
+### Placeholder / incomplete artifacts
+- `recovery/linux/build.sh` – placeholder build script.
+- `recovery/winpe/README.md` – WinPE pipeline placeholder.
+- `recovery/pxe/README.md` and `recovery/pxe/ipxe-boot.ipxe` – PXE/iPXE stub.
+- `recovery/manifest.json` – placeholder manifest/checksums.
+- `recovery/sample-recovery.json` – example config payload only.
+- Tray wizard uses a simple local HTML UI and fixed download URL (no manifest wiring yet).
+
+### Outstanding tasks (next steps)
+- Build and publish recovery images (Linux + WinPE), add checksum/signing.
+- Implement manifest + checksum validation in tray wizard; embed `recovery.json` into media.
+- Add DISM driver injection in WinPE recovery path.
+- Implement PXE/iPXE + BMC ISO publishing workflow.
+- Add recovery UI disk‑layout preview and explicit destructive confirmation steps.
+
+### API contract appendix (payloads and examples)
+
+**Recovery token create**
+- Endpoint: `POST api/cloudbackup_recovery_token_create.php`
+- Auth: WHMCS session
+- Request (form or JSON):
+  - `restore_point_id` (int, required)
+  - `description` (string, optional)
+  - `ttl_hours` (int, optional, default 24)
+- Response:
+```json
+{
+  "status": "success",
+  "token": "ABCD1234EF",
+  "expires_at": "2026-01-23 18:00:00"
+}
+```
+
+**Recovery token exchange**
+- Endpoint: `POST api/cloudbackup_recovery_token_exchange.php`
+- Auth: none (token only)
+- Request (JSON):
+```json
+{ "token": "ABCD1234EF" }
+```
+- Response (note: currently returns decrypted static keys, not ephemeral creds):
+```json
+{
+  "status": "success",
+  "session_token": "c0ffee1234...",
+  "session_expires_at": "2026-01-23 18:00:00",
+  "restore_point": {
+    "id": 123,
+    "job_id": 45,
+    "engine": "disk_image",
+    "manifest_id": "kopia:...",
+    "disk_layout_json": "{...}",
+    "disk_total_bytes": 1000204886016,
+    "disk_used_bytes": 590000000000,
+    "disk_boot_mode": "uefi",
+    "disk_partition_style": "gpt"
+  },
+  "storage": {
+    "dest_type": "s3",
+    "bucket": "client-bucket",
+    "prefix": "jobs/45",
+    "endpoint": "https://s3.ca-central-1.eazybackup.com",
+    "region": "ca-central-1",
+    "access_key": "AKIA...",
+    "secret_key": "****"
+  }
+}
+```
+
+**Recovery start restore**
+- Endpoint: `POST api/cloudbackup_recovery_start_restore.php`
+- Auth: session token
+- Request (JSON):
+```json
+{
+  "session_token": "c0ffee1234...",
+  "target_disk": "/dev/sda",
+  "target_disk_bytes": 512110190592,
+  "options": { "shrink_enabled": true }
+}
+```
+- Response:
+```json
+{ "status": "success", "restore_run_id": 987, "restore_run_uuid": "..." }
+```
+
+**Recovery update run**
+- Endpoint: `POST api/cloudbackup_recovery_update_run.php`
+- Auth: session token
+- Request (JSON; same fields as `agent_update_run.php`):
+```json
+{
+  "session_token": "c0ffee1234...",
+  "run_id": 987,
+  "status": "running",
+  "progress_pct": 42.7,
+  "bytes_transferred": 123456789,
+  "bytes_total": 987654321,
+  "current_item": "Restoring disk"
+}
+```
+- Response:
+```json
+{ "status": "success" }
+```
+
+**Recovery push events**
+- Endpoint: `POST api/cloudbackup_recovery_push_events.php`
+- Auth: session token
+- Request (JSON):
+```json
+{
+  "session_token": "c0ffee1234...",
+  "run_id": 987,
+  "events": [
+    {
+      "type": "info",
+      "level": "info",
+      "message_id": "DISK_RESTORE_STARTED",
+      "params_json": { "target_disk": "/dev/sda" }
+    }
+  ]
+}
+```
+- Response:
+```json
+{ "status": "success", "inserted": 1 }
+```
+
+**Recovery cancel restore**
+- Endpoint: `POST api/cloudbackup_recovery_cancel_restore.php`
+- Auth: session token
+- Request (JSON):
+```json
+{ "session_token": "c0ffee1234...", "run_id": 987 }
+```
+- Response:
+```json
+{ "status": "success", "message": "Cancellation requested", "run_id": 987 }
+```
+
+**Recovery cancel poll**
+- Endpoint: `POST api/cloudbackup_recovery_poll_cancel.php`
+- Auth: session token
+- Request (JSON):
+```json
+{ "session_token": "c0ffee1234...", "run_id": 987 }
+```
+- Response:
+```json
+{ "status": "success", "cancel_requested": true }
+```
+
+**Recovery run status**
+- Endpoint: `POST api/cloudbackup_recovery_get_run_status.php`
+- Auth: session token
+- Request (JSON):
+```json
+{ "session_token": "c0ffee1234...", "run_id": 987 }
+```
+- Response:
+```json
+{
+  "status": "success",
+  "run": {
+    "id": 987,
+    "status": "running",
+    "progress_pct": 42.7,
+    "bytes_transferred": 123456789,
+    "bytes_total": 987654321,
+    "speed_bytes_per_sec": 1048576,
+    "eta_seconds": 120,
+    "current_item": "Restoring disk: 42.7%",
+    "error_summary": null,
+    "started_at": "2026-01-27 18:00:00",
+    "finished_at": null
+  }
+}
+```
+
+**Recovery run events**
+- Endpoint: `POST api/cloudbackup_recovery_get_run_events.php`
+- Auth: session token
+- Request (JSON):
+```json
+{ "session_token": "c0ffee1234...", "run_id": 987, "since_id": 100 }
+```
+- Response:
+```json
+{
+  "status": "success",
+  "events": [
+    { "id": 101, "ts": "2026-01-27 18:02:00", "level": "info", "message": "Disk restore started to /dev/sda." }
+  ]
+}
+```
+
+**Disk image restore (agent‑based)**
+- Endpoint: `POST api/cloudbackup_disk_image_start_restore.php`
+- Auth: WHMCS session
+- Request (form):
+  - `restore_point_id` (int, required)
+  - `target_agent_id` (int, required)
+  - `target_disk` (string, required)
+  - `shrink_enabled` ("true"/"false")
+- Response:
+```json
+{ "status": "success", "restore_run_id": 123, "restore_run_uuid": "..." }
+```
+
+**Disk layout preview**
+- Endpoint: `GET api/cloudbackup_disk_layout_preview.php?restore_point_id=123`
+- Auth: WHMCS session
+- Response:
+```json
+{
+  "status": "success",
+  "disk_layout_json": "{...}",
+  "disk_total_bytes": 1000204886016,
+  "disk_used_bytes": 590000000000,
+  "disk_boot_mode": "uefi",
+  "disk_partition_style": "gpt"
+}
+```
+
+**Disk list (UI helper)**
+- Endpoint: `GET api/agent_list_disks.php?agent_id=123`
+- Auth: WHMCS session
+- Response:
+```json
+{
+  "status": "success",
+  "data": { "disks": [ { "path": "/dev/sda", "name": "sda", "size_bytes": 512110190592 } ] }
+}
+```
+
+**Agent command payloads**
+- `agent_poll_pending_commands.php` now returns `disk_restore` and `list_disks` types.
+- `disk_restore` payload (server → agent):
+```json
+{
+  "restore_point_id": 123,
+  "restore_run_id": 987,
+  "manifest_id": "kopia:...",
+  "target_disk": "/dev/sda",
+  "disk_layout_json": "{...}",
+  "disk_total_bytes": 1000204886016,
+  "disk_used_bytes": 590000000000,
+  "disk_boot_mode": "uefi",
+  "disk_partition_style": "gpt",
+  "shrink_enabled": true
+}
+
+### Recovery + disk image stability (Jan 2026)
+- **Watchdog cancellation**: stale runs now get `cancel_requested=1` first; watchdog only marks terminal if still stale after a follow-up pass.
+- **Reset agent command**: new `reset_agent` pending command lets admins restart a stuck agent (agent exits cleanly so the Windows service restarts it).
+- **Disk image stall timeout**: disk image backups cancel after 5 minutes without progress; override with `AGENT_DISK_IMAGE_STALL_SECONDS`.
+- **Disk image progress fixes**: progress updates are restored for disk image runs while keeping Hyper-V’s cumulative tracker isolated.
+- **End-of-device read handling**: Windows raw device reads treat “sector not found” at end-of-device as EOF instead of hard failure.
+
+```
+
+---
+
 ## Hyper-V Restore - Phase 1 (Dec 2025)
 
 ### Overview
@@ -2628,4 +3068,6 @@ GOOS=windows GOARCH=amd64 go build -o e3-backup-agent.exe ./cmd/agent
   - Identity strip (Agent + Job), hero progress block, telemetry tiles (Speed/Processed/Uploaded/Files+Folders), current file panel, and tabbed logs/details.
   - Pause/Resume freezes updates; logs include search, autoscroll toggle, and copy.
   - Files/Folders telemetry is hidden for disk image and Hyper-V runs.
+
+
 

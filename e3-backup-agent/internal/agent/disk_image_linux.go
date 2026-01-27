@@ -16,13 +16,13 @@ import (
 )
 
 // createDiskImageStream for Linux: optional LVM snapshot, then stream device directly to Kopia (no temp file).
-func (r *Runner) createDiskImageStream(ctx context.Context, run *NextRunResponse, opts diskImageOptions) error {
+func (r *Runner) createDiskImageStream(ctx context.Context, run *NextRunResponse, opts diskImageOptions, progressCb func(bytesProcessed int64, bytesUploaded int64)) (string, error) {
 	if err := ctx.Err(); err != nil {
-		return err
+		return "", err
 	}
 	src := opts.SourceVolume
 	if src == "" {
-		return fmt.Errorf("disk image: source volume is empty")
+		return "", fmt.Errorf("disk image: source volume is empty")
 	}
 
 	snapPath, cleanup, err := createLVSnapshotIfPossible(src)
@@ -30,7 +30,7 @@ func (r *Runner) createDiskImageStream(ctx context.Context, run *NextRunResponse
 		log.Printf("agent: lvm snapshot creation failed, falling back to direct device: %v", err)
 	}
 	if err := ctx.Err(); err != nil {
-		return err
+		return "", err
 	}
 	if snapPath != "" {
 		src = snapPath
@@ -52,7 +52,7 @@ func (r *Runner) createDiskImageStream(ctx context.Context, run *NextRunResponse
 	// Get device size for progress tracking
 	size := getDeviceSizeLinux(src)
 	if err := ctx.Err(); err != nil {
-		return err
+		return "", err
 	}
 	if size > 0 {
 		_ = r.client.UpdateRun(RunUpdate{
@@ -76,13 +76,13 @@ func (r *Runner) createDiskImageStream(ctx context.Context, run *NextRunResponse
 	run.Engine = "kopia"
 
 	// Pass the stable source path for SourceInfo to enable proper deduplication
-	_, runErr := r.kopiaSnapshotDiskImage(ctx, run, streamEntry, size, stableSourcePath)
+	manifestID, runErr := r.kopiaSnapshotDiskImageWithProgress(ctx, run, streamEntry, size, stableSourcePath, progressCb, false)
 
 	// Restore
 	run.Engine = originalEngine
 
 	if runErr != nil {
-		return runErr
+		return "", runErr
 	}
 
 	r.pushEvents(run.RunID, RunEvent{
@@ -94,7 +94,7 @@ func (r *Runner) createDiskImageStream(ctx context.Context, run *NextRunResponse
 		},
 	})
 
-	return nil
+	return manifestID, nil
 }
 
 // getDeviceSizeLinux returns the size of a block device in bytes.

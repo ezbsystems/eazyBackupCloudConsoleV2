@@ -1237,6 +1237,21 @@ class CloudBackupController {
                 'finished_at' => $run->finished_at ?? null,
             ];
 
+            // Attach disk layout metadata when present (disk_image engine)
+            if (!empty($run->stats_json)) {
+                $decodedStats = json_decode((string) $run->stats_json, true);
+                if (json_last_error() === JSON_ERROR_NONE && is_array($decodedStats)) {
+                    $layout = $decodedStats['disk_layout'] ?? null;
+                    if (is_array($layout)) {
+                        $base['disk_layout_json'] = json_encode($layout);
+                        $base['disk_total_bytes'] = $layout['total_bytes'] ?? null;
+                        $base['disk_used_bytes'] = $layout['used_bytes'] ?? null;
+                        $base['disk_boot_mode'] = $layout['boot_mode'] ?? null;
+                        $base['disk_partition_style'] = $layout['partition_style'] ?? null;
+                    }
+                }
+            }
+
             $manifestId = (string) ($run->log_ref ?? '');
             if ($manifestId === '' && !empty($run->stats_json)) {
                 $decoded = json_decode((string) $run->stats_json, true);

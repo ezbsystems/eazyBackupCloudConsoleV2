@@ -26,6 +26,7 @@ var (
 	procGetLogicalDrives     = kernel32.NewProc("GetLogicalDrives")
 	procGetDriveTypeW        = kernel32.NewProc("GetDriveTypeW")
 	procGetVolumeInformation = kernel32.NewProc("GetVolumeInformationW")
+	procGetDiskFreeSpace     = kernel32.NewProc("GetDiskFreeSpaceW")
 	procGetDiskFreeSpaceEx   = kernel32.NewProc("GetDiskFreeSpaceExW")
 	procWNetGetConnectionW   = mpr.NewProc("WNetGetConnectionW")
 )

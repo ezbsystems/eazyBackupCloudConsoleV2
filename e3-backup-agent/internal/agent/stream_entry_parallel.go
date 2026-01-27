@@ -123,6 +123,11 @@ func (r *parallelDeviceReader) worker() {
 
 		buf := make([]byte, bufSize)
 		n, readErr := io.ReadFull(f, buf)
+		if readErr != nil && isWindowsSectorNotFound(readErr) {
+			if offset+int64(n) >= r.size {
+				readErr = io.EOF
+			}
+		}
 		if readErr == io.ErrUnexpectedEOF || readErr == io.EOF {
 			// partial chunk ok
 		} else if readErr != nil {

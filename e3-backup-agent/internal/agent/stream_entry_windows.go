@@ -4,6 +4,7 @@
 package agent
 
 import (
+	"errors"
 	"os"
 	"syscall"
 )
@@ -37,5 +38,10 @@ func openDeviceOptimized(path string) (*os.File, error) {
 	}
 
 	return os.NewFile(uintptr(h), path), nil
+}
+
+func isWindowsSectorNotFound(err error) bool {
+	const errSectorNotFound syscall.Errno = 27
+	return errors.Is(err, errSectorNotFound)
 }
 

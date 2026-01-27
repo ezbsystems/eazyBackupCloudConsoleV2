@@ -20,43 +20,51 @@ import (
 )
 
 // createDiskImageStream for Windows: VSS snapshot -> stream device directly to Kopia (no temp file).
-func (r *Runner) createDiskImageStream(ctx context.Context, run *NextRunResponse, opts diskImageOptions) error {
+func (r *Runner) createDiskImageStream(ctx context.Context, run *NextRunResponse, opts diskImageOptions, progressCb func(bytesProcessed int64, bytesUploaded int64)) (string, error) {
 	if err := ctx.Err(); err != nil {
-		return err
+		return "", err
 	}
 	srcVolume := opts.SourceVolume
 	if srcVolume == "" {
-		return fmt.Errorf("disk image: source volume is empty")
+		return "", fmt.Errorf("disk image: source volume is empty")
 	}
 
-	// Ensure Windows volume format (e.g., C: or C:\) for VSS Create
-	volForVSS := srcVolume
-	if len(volForVSS) == 2 && strings.HasSuffix(volForVSS, ":") {
-		volForVSS = volForVSS + "\\"
-	}
+	devicePath := ""
+	cleanup := func() {}
 
-	log.Printf("agent: creating VSS snapshot for volume %s (streaming)", volForVSS)
-	id, err := vss.Create(volForVSS)
-	if err != nil {
-		return fmt.Errorf("vss create: %w", err)
-	}
-	if err := ctx.Err(); err != nil {
-		_ = vss.Remove(id)
-		return err
-	}
-	// VSS requires cleanup to release snapshot
-	cleanup := func() {
-		_ = vss.Remove(id)
-	}
-	defer cleanup()
+	if isWindowsPhysicalDiskPath(srcVolume) {
+		devicePath = normalizeWindowsPhysicalDiskPath(srcVolume)
+		log.Printf("agent: disk image streaming from physical disk %s", devicePath)
+	} else {
+		// Ensure Windows volume format (e.g., C: or C:\) for VSS Create
+		volForVSS := srcVolume
+		if len(volForVSS) == 2 && strings.HasSuffix(volForVSS, ":") {
+			volForVSS = volForVSS + "\\"
+		}
 
-	sc, err := vss.Get(id)
-	if err != nil {
-		return fmt.Errorf("vss get: %w", err)
-	}
-	devicePath := strings.TrimSuffix(sc.DeviceObject, `\`)
-	if devicePath == "" {
-		return fmt.Errorf("vss snapshot returned empty device path")
+		log.Printf("agent: creating VSS snapshot for volume %s (streaming)", volForVSS)
+		id, err := vss.Create(volForVSS)
+		if err != nil {
+			return "", fmt.Errorf("vss create: %w", err)
+		}
+		if err := ctx.Err(); err != nil {
+			_ = vss.Remove(id)
+			return "", err
+		}
+		// VSS requires cleanup to release snapshot
+		cleanup = func() {
+			_ = vss.Remove(id)
+		}
+		defer cleanup()
+
+		sc, err := vss.Get(id)
+		if err != nil {
+			return "", fmt.Errorf("vss get: %w", err)
+		}
+		devicePath = strings.TrimSuffix(sc.DeviceObject, `\`)
+		if devicePath == "" {
+			return "", fmt.Errorf("vss snapshot returned empty device path")
+		}
 	}
 
 	log.Printf("agent: disk image streaming from snapshot device %s", devicePath)
@@ -71,7 +79,7 @@ func (r *Runner) createDiskImageStream(ctx context.Context, run *NextRunResponse
 
 	size, _ := getDeviceSizeWindows(devicePath)
 	if err := ctx.Err(); err != nil {
-		return err
+		return "", err
 	}
 	if size > 0 {
 		_ = r.client.UpdateRun(RunUpdate{
@@ -96,13 +104,13 @@ func (r *Runner) createDiskImageStream(ctx context.Context, run *NextRunResponse
 
 	// Pass the stable source path (volume) for SourceInfo, not the VSS device path.
 	// This allows Kopia to find previous snapshots and deduplicate properly.
-	_, runErr := r.kopiaSnapshotDiskImage(ctx, run, streamEntry, size, stableSourcePath)
+	manifestID, runErr := r.kopiaSnapshotDiskImageWithProgress(ctx, run, streamEntry, size, stableSourcePath, progressCb, false)
 
 	// Restore
 	run.Engine = originalEngine
 
 	if runErr != nil {
-		return runErr
+		return "", runErr
 	}
 
 	r.pushEvents(run.RunID, RunEvent{
@@ -113,7 +121,23 @@ func (r *Runner) createDiskImageStream(ctx context.Context, run *NextRunResponse
 			"device": devicePath,
 		},
 	})
-	return nil
+	return manifestID, nil
+}
+
+func isWindowsPhysicalDiskPath(value string) bool {
+	trimmed := strings.TrimSpace(strings.ToLower(value))
+	return strings.HasPrefix(trimmed, `\\.\physicaldrive`) || strings.HasPrefix(trimmed, `physicaldrive`)
+}
+
+func normalizeWindowsPhysicalDiskPath(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if strings.HasPrefix(strings.ToLower(trimmed), `\\.\physicaldrive`) {
+		return trimmed
+	}
+	if strings.HasPrefix(strings.ToLower(trimmed), `physicaldrive`) {
+		return `\\.\` + trimmed
+	}
+	return trimmed
 }
 
 // getDeviceSizeWindows returns the length of a volume/device using IOCTL_DISK_GET_LENGTH_INFO.

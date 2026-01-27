@@ -13,6 +13,10 @@
            class="px-4 py-1.5 rounded-full transition {if $activeNav == 'restores'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
             Restores
         </a>
+        <a href="index.php?m=cloudstorage&page=e3backup&view=disk_image_restore"
+           class="px-4 py-1.5 rounded-full transition {if $activeNav == 'disk_restore'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
+            Recovery
+        </a>
         <a href="index.php?m=cloudstorage&page=e3backup&view=cloudnas"
            class="px-4 py-1.5 rounded-full transition {if $activeNav == 'cloudnas'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
             Cloud NAS

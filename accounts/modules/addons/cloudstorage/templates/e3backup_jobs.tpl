@@ -2574,6 +2574,7 @@ function fileBrowser() {
         currentPath: '',
         parentPath: '',
         entries: [],
+        disks: [],
         selectedPaths: [],
         networkPathsInfo: [],
         manualPath: '',
@@ -2606,6 +2607,9 @@ function fileBrowser() {
 
         get localVolumes() {
             if (this.currentPath !== '') return [];
+            if (this.isDiskImageMode) {
+                return Array.isArray(this.disks) ? this.disks : [];
+            }
             return this.entries.filter(e => {
                 if (e.icon !== 'drive') return false;
                 if (e.is_network) return false;
@@ -2682,7 +2686,7 @@ function fileBrowser() {
                 this.selectedVolume = latest;
             }
             if (!this.selectedVolume) return;
-            const match = this.localVolumes.find(entry => this.matchesSelectedVolume(entry));
+            const match = (this.localVolumes || []).find(entry => this.matchesSelectedVolume(entry));
             if (match) {
                 if (match.path) {
                     this.selectedVolume = match.path;
@@ -2740,7 +2744,11 @@ function fileBrowser() {
                 this.selectedVolume = diskVolume;
             }
             if (this.agentId) {
-                this.loadDirectory('');
+                if (this.isDiskImageMode) {
+                    this.loadDisks();
+                } else {
+                    this.loadDirectory('');
+                }
             } else {
                 this.error = 'Select an agent to browse.';
             }
@@ -2810,11 +2818,18 @@ function fileBrowser() {
                     this.selectedVolumeInfo = null;
                     this.syncDiskVolumeToWizard();
                 }
-                this.loadDirectory('');
+                if (this.isDiskImageMode) {
+                    this.loadDisks();
+                } else {
+                    this.loadDirectory('');
+                }
             });
         },
 
         async loadDirectory(path) {
+            if (this.isDiskImageMode) {
+                return this.loadDisks();
+            }
             if (!this.agentId) {
                 this.error = 'Select an agent to browse.';
                 return;
@@ -2842,6 +2857,42 @@ function fileBrowser() {
                     this.restoreDiskVolumeSelection();
                 } else {
                     this.error = data.message || 'Failed to load directory';
+                }
+            } catch (e) {
+                this.error = e.message || 'Network error';
+            } finally {
+                this.loading = false;
+                this.syncToWizard();
+            }
+        },
+
+        async loadDisks() {
+            if (!this.agentId) {
+                this.error = 'Select an agent to browse.';
+                return;
+            }
+            this.currentPath = '';
+            this.parentPath = '';
+            this.entries = [];
+            this.disks = [];
+            this.loading = true;
+            this.error = null;
+            try {
+                const resp = await fetch(`modules/addons/cloudstorage/api/agent_list_disks.php?agent_id=${this.agentId}`);
+                const text = await resp.text();
+                let data;
+                try {
+                    data = JSON.parse(text);
+                } catch (e) {
+                    this.error = `Disk list failed (non-JSON response): ${text.slice(0, 120)}...`;
+                    return;
+                }
+                if (data.status === 'success') {
+                    const res = data.data || {};
+                    this.disks = Array.isArray(res.disks) ? res.disks : [];
+                    this.restoreDiskVolumeSelection();
+                } else {
+                    this.error = data.message || 'Failed to load disks';
                 }
             } catch (e) {
                 this.error = e.message || 'Network error';
@@ -3489,7 +3540,7 @@ function localWizardSubmit() {
         return;
     }
     if ((s.engine || '') === 'disk_image' && !s.disk_source_volume) {
-        const msg = 'Disk volume is required for disk image backups';
+        const msg = 'Disk selection is required for disk image backups';
         e3backupNotify('error', msg);
         return;
     }
