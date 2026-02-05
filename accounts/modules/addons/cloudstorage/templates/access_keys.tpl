@@ -76,13 +76,13 @@
                                 </td>
                                 <td class="px-6 py-4 whitespace-nowrap relative">
                                     <input type="text"
-                                           value="{if $HAS_PRIMARY_KEY && !empty($accessKey->access_key_hint)}{$accessKey->access_key_hint}{/if}"
+                                           value="{if $HAS_PRIMARY_KEY && $accessKey->is_user_generated && !empty($accessKey->access_key_hint)}{$accessKey->access_key_hint}{/if}"
                                            placeholder="—"
                                            class="w-full rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500 font-mono"
                                            id="accessKey" readonly>
                                 </td>
                                 <td class="px-6 py-4 whitespace-nowrap">
-                                    {if $HAS_PRIMARY_KEY}
+                                    {if $HAS_PRIMARY_KEY && $accessKey->is_user_generated}
                                         <span class="text-sm text-gray-400" title="Creation Date">{$accessKey->created_at|date_format:"%d %b %Y %I:%M %p"}</span>
                                     {else}
                                         <span class="text-sm text-gray-500">—</span>
@@ -197,61 +197,72 @@
         </div>
 
         <!-- One-time new key modal -->
-        <div class="fixed inset-0 bg-black/75 flex items-center justify-center z-50 hidden" id="newKeysModal">
-            <div class="bg-gray-800 rounded-lg shadow-lg w-full max-w-xl p-6">
-                <div class="flex justify-between items-center mb-4">
-                    <h5 class="text-xl font-semibold text-white">Save your new key</h5>
-                    <button type="button" onclick="closeModal('newKeysModal')" class="text-gray-400 hover:text-white focus:outline-none">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+        <div class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 hidden" id="newKeysModal">
+            <div class="relative bg-slate-900/95 rounded-2xl border border-slate-700 shadow-2xl shadow-black/60 w-full max-w-xl mx-4">
+                <!-- Orange accent line -->
+                <div class="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-[#FE5000]/0 via-[#FE5000]/80 to-amber-400/0 rounded-t-2xl"></div>
+                <div class="p-8">
+                    <div class="flex justify-between items-start mb-6">
+                        <div>
+                            <h5 class="text-2xl font-bold text-white">Save your new key</h5>
+                            <p class="mt-2 text-sm text-slate-300">
+                                This is the <strong class="text-white">only</strong> time you can view the secret key. Store it securely.
+                            </p>
+                        </div>
+                        <button type="button" onclick="closeModal('newKeysModal')" class="text-slate-400 hover:text-white text-2xl leading-none focus:outline-none transition-colors">
+                            &times;
+                        </button>
+                    </div>
+                    <!-- Warning banner -->
+                    <div class="mb-6 flex items-center gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+                        <svg class="w-5 h-5 text-amber-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                         </svg>
-                    </button>
-                </div>
-                <div class="mb-4 rounded-md py-3 text-white text-sm">
-                    This is the <strong>only</strong> time you can view the secret key. Store it securely.
-                </div>
-                <div class="space-y-3">
-                    <div>
-                        <label class="block text-xs text-gray-400 mb-1">Access key</label>
-                        <div class="flex items-center gap-2">
-                            <input type="text" id="newAccessKey" class="w-full rounded-md bg-slate-900 border border-gray-600 rounded-md shadow-sm cursor-default px-3 py-2 focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500 text-sm text-slate-200 font-mono" readonly>
-                            <button
-                                type="button"
-                                class="shrink-0 rounded-md bg-slate-900/70 border border-slate-700 p-2 text-slate-200 hover:text-white hover:border-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-600"
-                                onclick="copyToClipboard('newAccessKey', 'copyIconNewAccessKey')"
-                                aria-label="Copy access key"
-                                title="Copy access key"
-                            >
-                                <span id="copyIconNewAccessKey" class="inline-flex">
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
-                                      <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 0 0-3.375-3.375h-1.5a1.125 1.125 0 0 1-1.125-1.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H9.75" />
-                                    </svg>
-                                </span>
-                            </button>
+                        <span class="text-sm text-amber-200">You won't be able to see this secret key again after closing this window.</span>
+                    </div>
+                    <div class="space-y-5">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-300 mb-2">Access key</label>
+                            <div class="flex items-center gap-3">
+                                <input type="text" id="newAccessKey" class="w-full rounded-lg bg-slate-800/60 border border-slate-600 px-4 py-3 text-base text-white font-mono focus:outline-none focus:ring-2 focus:ring-[#FE5000] focus:border-[#FE5000] transition-all duration-200" readonly>
+                                <button
+                                    type="button"
+                                    class="shrink-0 rounded-lg bg-slate-800 border border-slate-600 p-3 text-slate-300 hover:text-[#FE5000] hover:border-[#FE5000]/50 focus:outline-none focus:ring-2 focus:ring-[#FE5000] transition-all duration-200"
+                                    onclick="copyToClipboard('newAccessKey', 'copyIconNewAccessKey')"
+                                    aria-label="Copy access key"
+                                    title="Copy access key"
+                                >
+                                    <span id="copyIconNewAccessKey" class="inline-flex">
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+                                          <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 0 0-3.375-3.375h-1.5a1.125 1.125 0 0 1-1.125-1.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H9.75" />
+                                        </svg>
+                                    </span>
+                                </button>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-300 mb-2">Secret key</label>
+                            <div class="flex items-center gap-3">
+                                <input type="text" id="newSecretKey" class="w-full rounded-lg bg-slate-800/60 border border-slate-600 px-4 py-3 text-base text-white font-mono focus:outline-none focus:ring-2 focus:ring-[#FE5000] focus:border-[#FE5000] transition-all duration-200" readonly>
+                                <button
+                                    type="button"
+                                    class="shrink-0 rounded-lg bg-slate-800 border border-slate-600 p-3 text-slate-300 hover:text-[#FE5000] hover:border-[#FE5000]/50 focus:outline-none focus:ring-2 focus:ring-[#FE5000] transition-all duration-200"
+                                    onclick="copyToClipboard('newSecretKey', 'copyIconNewSecretKey')"
+                                    aria-label="Copy secret key"
+                                    title="Copy secret key"
+                                >
+                                    <span id="copyIconNewSecretKey" class="inline-flex">
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+                                          <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 0 0-3.375-3.375h-1.5a1.125 1.125 0 0 1-1.125-1.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H9.75" />
+                                        </svg>
+                                    </span>
+                                </button>
+                            </div>
                         </div>
                     </div>
-                    <div>
-                        <label class="block text-xs text-gray-400 mb-1">Secret key</label>
-                        <div class="flex items-center gap-2">
-                            <input type="text" id="newSecretKey" class="w-full rounded-md bg-slate-900 border border-gray-600 rounded-md shadow-sm cursor-default px-3 py-2 focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500 text-sm text-slate-200 font-mono" readonly>
-                            <button
-                                type="button"
-                                class="shrink-0 rounded-md bg-slate-900/70 border border-slate-700 p-2 text-slate-200 hover:text-white hover:border-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-600"
-                                onclick="copyToClipboard('newSecretKey', 'copyIconNewSecretKey')"
-                                aria-label="Copy secret key"
-                                title="Copy secret key"
-                            >
-                                <span id="copyIconNewSecretKey" class="inline-flex">
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
-                                      <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 0 0-3.375-3.375h-1.5a1.125 1.125 0 0 1-1.125-1.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H9.75" />
-                                    </svg>
-                                </span>
-                            </button>
-                        </div>
+                    <div class="flex justify-end mt-8">
+                        <button type="button" class="inline-flex items-center justify-center rounded-full px-4 py-3 text-base font-semibold shadow-lg shadow-[#FE5000]/20 bg-[#FE5000] hover:bg-[#e54700] text-white transition-all duration-200 hover:scale-[1.02]" onclick="closeModal('newKeysModal')">Done</button>
                     </div>
-                </div>
-                <div class="flex justify-end mt-6">
-                    <button type="button" class="bg-sky-600 hover:bg-sky-700 text-white px-4 py-2 rounded-md" onclick="closeModal('newKeysModal')">Done</button>
                 </div>
             </div>
         </div>
@@ -262,12 +273,12 @@
             window.addEventListener('close-decrypt-slideover', () => { isOpen = false });
         " x-show="isOpen" class="fixed inset-0 z-50" style="display:none;">
             <!-- Backdrop -->
-            <div class="absolute inset-0 bg-black/75"
+            <div class="absolute inset-0 bg-black/60"
                  x-show="isOpen"
                  x-transition.opacity
                  onclick="closeDecryptSlideover()"></div>
             <!-- Panel -->
-            <div class="absolute right-0 top-0 h-full w-full max-w-md bg-slate-950 border-l border-slate-800/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] overflow-y-auto"
+            <div class="absolute right-0 top-0 h-full w-full max-w-xl rounded-l-2xl border border-slate-700 bg-slate-900/95 text-white shadow-2xl shadow-black/60 backdrop-blur-sm overflow-y-auto"
                  x-show="isOpen"
                  x-transition:enter="transform transition ease-in-out duration-300"
                  x-transition:enter-start="translate-x-full"
@@ -275,35 +286,39 @@
                  x-transition:leave="transform transition ease-in-out duration-300"
                  x-transition:leave-start="translate-x-0"
                  x-transition:leave-end="translate-x-full">
-                <div class="flex items-center justify-between p-4 border-b border-slate-700">
-                    <h3 class="text-lg font-semibold text-white">Verify Password</h3>
-                    <button class="text-slate-300 hover:text-white" onclick="closeDecryptSlideover()">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                    </button>
-                </div>
-                <div class="p-4">
-                    <div id="passwordErrorMessage" class="bg-red-600 text-white px-4 py-2 rounded-md mb-4 hidden" role="alert"></div>
-                    <div class="mb-4">
-                        <input type="hidden" id="action" value="rollkeys">
-                        <label for="password" class="mb-1 block text-sm font-medium text-gray-400">Enter your account password to continue</label>
-                        <input
-                            type="password"
-                            class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-gray-700 rounded focus:outline-none focus:ring-0 focus:border-sky-600"
-                            id="password"
-                            name="password"
-                            required
-                        >
+                <div class="px-8 py-8 sm:px-10 sm:py-10">
+                    <div class="flex items-start justify-between mb-6">
+                        <div>
+                            <h3 class="text-xl font-bold text-white">Verify Password</h3>
+                            <p class="mt-2 text-sm text-slate-300">Confirm your identity to generate new access keys.</p>
+                        </div>
+                        <button class="text-slate-400 hover:text-white text-2xl leading-none transition-colors" onclick="closeDecryptSlideover()">
+                            &times;
+                        </button>
                     </div>
-                    <div class="flex justify-end space-x-2 mt-6">
-                        <button type="button" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-md" onclick="closeDecryptSlideover()">Cancel</button>
+                    <div id="passwordErrorMessage" class="rounded-lg border border-rose-500/60 bg-rose-500/10 px-4 py-3 text-sm text-rose-100 mb-6 hidden" role="alert"></div>
+                    <div class="space-y-5">
+                        <input type="hidden" id="action" value="rollkeys">
+                        <div class="space-y-2">
+                            <label for="password" class="block text-sm font-medium text-slate-200">Account password</label>
+                            <input
+                                type="password"
+                                class="block w-full rounded-lg border border-slate-600 bg-slate-800/60 px-4 py-3 text-base text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-[#FE5000] focus:border-[#FE5000] transition-all duration-200"
+                                id="password"
+                                name="password"
+                                placeholder="Enter your password"
+                                required
+                            >
+                        </div>
+                    </div>
+                    <div class="flex justify-end gap-3 mt-8">
+                        <button type="button" class="px-5 py-2.5 text-sm font-medium text-slate-300 hover:text-white transition-colors" onclick="closeDecryptSlideover()">Cancel</button>
                         <button
                             type="button"
-                            class="btn-primary"
+                            class="inline-flex items-center justify-center rounded-full px-6 py-3 text-base font-semibold shadow-lg shadow-[#FE5000]/20 bg-[#FE5000] hover:bg-[#e54700] text-white transition-all duration-200 hover:scale-[1.02]"
                             id="submitPassword"
                         >
-                            Submit
+                            Verify & Generate Keys
                         </button>
                     </div>
                 </div>

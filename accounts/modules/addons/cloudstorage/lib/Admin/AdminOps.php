@@ -8,6 +8,8 @@ use GuzzleHttp\Exception\RequestException;
 class AdminOps {
 
     private static $module = 'cloudstorage';
+    public const USER_TRIAL_QUOTA_KB = 1073741824; // 1 TiB in KiB
+    public const USER_TRIAL_QUOTA_BYTES = 1099511627776; // 1 TiB in bytes
 
     /**
      * Create a short-lived S3 key for an RGW user and return ONLY the newly created keypair.
@@ -538,7 +540,8 @@ class AdminOps {
      *   - uid (string|null, optional)
      *   - tenant (string|null, optional)
      *   - enabled (bool|int|string, optional)
-     *   - max_size_kb (int|null, optional)   (-1 means unlimited)
+     *   - max_size (int|null, optional)      (-1 means unlimited, bytes)
+     *   - max_size_kb (int|null, optional)   (-1 means unlimited, KiB)
      *   - max_objects (int|null, optional)   (-1 means unlimited)
      * @return array
      */
@@ -575,6 +578,9 @@ class AdminOps {
                         $boolEnabled = ((string)$enabled === '1');
                     }
                     $q['enabled'] = $boolEnabled ? 'true' : 'false';
+                }
+                if (array_key_exists('max_size', $params) && $params['max_size'] !== null && $params['max_size'] !== '') {
+                    $q['max-size'] = (int)$params['max_size'];
                 }
                 if (array_key_exists('max_size_kb', $params) && $params['max_size_kb'] !== null && $params['max_size_kb'] !== '') {
                     $q['max-size-kb'] = (int)$params['max_size_kb'];
@@ -644,6 +650,197 @@ class AdminOps {
             return ['status' => 'fail', 'message' => 'Set bucket quota failed. Please try again or contact support.'];
         } catch (RequestException $e) {
             $response = ['status' => 'fail', 'message' => 'Set bucket quota failed. Please try again or contact support.'];
+            logModuleCall(self::$module, __FUNCTION__, $params, $e->getMessage());
+            return $response;
+        }
+    }
+
+    /**
+     * Get User Quota (RGW Admin Ops)
+     *
+     * @param string $endpoint
+     * @param string $adminAccessKey
+     * @param string $adminSecretKey
+     * @param array $params
+     *   - uid (string, required)
+     *   - tenant (string|null, optional)
+     * @return array
+     */
+    public static function getUserQuota($endpoint, $adminAccessKey, $adminSecretKey, $params)
+    {
+        try {
+            $uid = isset($params['uid']) ? trim((string)$params['uid']) : '';
+            $tenant = isset($params['tenant']) && $params['tenant'] !== null ? trim((string)$params['tenant']) : '';
+            if ($uid === '') {
+                return ['status' => 'fail', 'message' => 'Missing uid for quota lookup.'];
+            }
+
+            $client = new Client();
+            $date = gmdate('D, d M Y H:i:s T');
+            $url = "{$endpoint}/admin/user";
+
+            $makeQuery = function(string $useUid, ?string $useTenant) {
+                $q = [
+                    'uid' => $useUid,
+                    'quota' => '',
+                    'quota-type' => 'user',
+                    'format' => 'json',
+                ];
+                if (!empty($useTenant)) {
+                    $q['tenant'] = $useTenant;
+                }
+                return $q;
+            };
+
+            $variants = [];
+            $variants[] = ['uid' => $uid, 'tenant' => ($tenant !== '' ? $tenant : null)];
+            if ($tenant !== '' && strpos($uid, '$') === false) {
+                $variants[] = ['uid' => $tenant . '$' . $uid, 'tenant' => null];
+            }
+
+            $stringToSign = "GET\n\n\n{$date}\n/admin/user";
+            $signature = base64_encode(hash_hmac('sha1', $stringToSign, $adminSecretKey, true));
+            $authHeader = "AWS {$adminAccessKey}:{$signature}";
+
+            $lastError = null;
+            foreach ($variants as $v) {
+                try {
+                    $response = $client->get($url, [
+                        'headers' => [
+                            'Authorization' => $authHeader,
+                            'Date' => $date,
+                            'Accept' => 'application/json',
+                        ],
+                        'query' => $makeQuery($v['uid'], $v['tenant']),
+                        'timeout' => 8.0,
+                        'connect_timeout' => 4.0,
+                    ]);
+
+                    $body = (string)$response->getBody();
+                    $data = strlen($body) ? json_decode($body, true) : null;
+                    $quota = [];
+                    if (is_array($data) && isset($data['user_quota']) && is_array($data['user_quota'])) {
+                        $quota = $data['user_quota'];
+                    }
+
+                    return [
+                        'status' => 'success',
+                        'data' => $quota,
+                    ];
+                } catch (RequestException $e) {
+                    $lastError = $e;
+                    continue;
+                }
+            }
+
+            if ($lastError) {
+                throw $lastError;
+            }
+            return ['status' => 'fail', 'message' => 'Get user quota failed. Please try again or contact support.'];
+        } catch (RequestException $e) {
+            $response = ['status' => 'fail', 'message' => 'Get user quota failed. Please try again or contact support.'];
+            logModuleCall(self::$module, __FUNCTION__, $params, $e->getMessage());
+            return $response;
+        }
+    }
+
+    /**
+     * Set User Quota (RGW Admin Ops)
+     *
+     * @param string $endpoint
+     * @param string $adminAccessKey
+     * @param string $adminSecretKey
+     * @param array $params
+     *   - uid (string, required)
+     *   - tenant (string|null, optional)
+     *   - enabled (bool|int|string, optional)
+     *   - max_size_kb (int|null, optional)   (-1 means unlimited)
+     *   - max_objects (int|null, optional)   (-1 means unlimited)
+     * @return array
+     */
+    public static function setUserQuota($endpoint, $adminAccessKey, $adminSecretKey, $params)
+    {
+        try {
+            $uid = isset($params['uid']) ? trim((string)$params['uid']) : '';
+            $tenant = isset($params['tenant']) && $params['tenant'] !== null ? trim((string)$params['tenant']) : '';
+            if ($uid === '') {
+                return ['status' => 'fail', 'message' => 'Missing uid for quota update.'];
+            }
+
+            $client = new Client();
+            $date = gmdate('D, d M Y H:i:s T');
+            $url = "{$endpoint}/admin/user";
+
+            $makeQuery = function(string $useUid, ?string $useTenant) use ($params) {
+                $q = [
+                    'uid' => $useUid,
+                    'quota' => '',
+                    'quota-type' => 'user',
+                    'format' => 'json',
+                ];
+                if (!empty($useTenant)) {
+                    $q['tenant'] = $useTenant;
+                }
+                if (array_key_exists('enabled', $params)) {
+                    $enabled = $params['enabled'];
+                    $boolEnabled = filter_var($enabled, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+                    if ($boolEnabled === null) {
+                        $boolEnabled = ((string)$enabled === '1');
+                    }
+                    $q['enabled'] = $boolEnabled ? 'true' : 'false';
+                }
+                if (array_key_exists('max_size_kb', $params) && $params['max_size_kb'] !== null && $params['max_size_kb'] !== '') {
+                    $q['max-size-kb'] = (int)$params['max_size_kb'];
+                }
+                if (array_key_exists('max_objects', $params) && $params['max_objects'] !== null && $params['max_objects'] !== '') {
+                    $q['max-objects'] = (int)$params['max_objects'];
+                }
+                return $q;
+            };
+
+            $variants = [];
+            $variants[] = ['uid' => $uid, 'tenant' => ($tenant !== '' ? $tenant : null)];
+            if ($tenant !== '' && strpos($uid, '$') === false) {
+                $variants[] = ['uid' => $tenant . '$' . $uid, 'tenant' => null];
+            }
+
+            $stringToSign = "PUT\n\n\n{$date}\n/admin/user";
+            $signature = base64_encode(hash_hmac('sha1', $stringToSign, $adminSecretKey, true));
+            $authHeader = "AWS {$adminAccessKey}:{$signature}";
+
+            $lastError = null;
+            foreach ($variants as $v) {
+                try {
+                    $response = $client->put($url, [
+                        'headers' => [
+                            'Authorization' => $authHeader,
+                            'Date' => $date,
+                            'Accept' => 'application/json',
+                        ],
+                        'query' => $makeQuery($v['uid'], $v['tenant']),
+                        'timeout' => 8.0,
+                        'connect_timeout' => 4.0,
+                    ]);
+
+                    $body = (string)$response->getBody();
+                    $data = strlen($body) ? json_decode($body, true) : null;
+
+                    return [
+                        'status' => 'success',
+                        'data' => $data,
+                    ];
+                } catch (RequestException $e) {
+                    $lastError = $e;
+                    continue;
+                }
+            }
+
+            if ($lastError) {
+                throw $lastError;
+            }
+            return ['status' => 'fail', 'message' => 'Set user quota failed. Please try again or contact support.'];
+        } catch (RequestException $e) {
+            $response = ['status' => 'fail', 'message' => 'Set user quota failed. Please try again or contact support.'];
             logModuleCall(self::$module, __FUNCTION__, $params, $e->getMessage());
             return $response;
         }

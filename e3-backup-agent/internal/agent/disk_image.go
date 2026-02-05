@@ -34,6 +34,17 @@ type diskImageResult struct {
 	BlockCache    *BlockCache
 }
 
+type diskImageStreamResult struct {
+	ManifestID         string
+	ReadMode           string
+	ReadRanges         int
+	ReadBytes          int64
+	UsedBytes          int64
+	PreviousManifestID string
+	CBTState           *CBTState
+	CBTStats           *CBTStats
+}
+
 // runDiskImage orchestrates snapshot → image build → Kopia backup.
 func (r *Runner) runDiskImage(run *NextRunResponse) error {
 	startedAt := time.Now().UTC()
@@ -164,12 +175,16 @@ func (r *Runner) runDiskImage(run *NextRunResponse) error {
 		log.Printf("agent: disk image layout capture failed: %v", layoutErr)
 	}
 
-	// Streaming mode: read snapshot device directly into Kopia (no zero-skip, no temp image).
-	manifestID, err := r.createDiskImageStream(ctx, run, opts, progressCb)
-	
+	// Streaming mode: read snapshot device directly into Kopia.
+	streamResult, err := r.createDiskImageStream(ctx, run, opts, progressCb)
+	manifestID := ""
+	if streamResult != nil {
+		manifestID = streamResult.ManifestID
+	}
+
 	// Determine final status
 	finishedAt := time.Now().UTC().Format(time.RFC3339)
-	
+
 	// Check if cancelled
 	if ctx.Err() != nil {
 		log.Printf("agent: disk image backup cancelled for run %d", run.RunID)
@@ -188,7 +203,7 @@ func (r *Runner) runDiskImage(run *NextRunResponse) error {
 		})
 		return ctx.Err()
 	}
-	
+
 	if err != nil {
 		log.Printf("agent: disk image streaming failed: %v", err)
 		r.pushEvents(run.RunID, RunEvent{
@@ -209,14 +224,44 @@ func (r *Runner) runDiskImage(run *NextRunResponse) error {
 	}
 
 	// Persist disk layout metadata on the run (used for restore points).
-	if layout != nil && manifestID != "" {
+	if manifestID != "" {
+		statsPayload := map[string]any{
+			"manifest_id": manifestID,
+		}
+		if layout != nil {
+			statsPayload["disk_layout"] = layout
+		}
+		if streamResult != nil {
+			if streamResult.ReadMode != "" {
+				statsPayload["disk_image_mode"] = streamResult.ReadMode
+			}
+			if streamResult.ReadRanges > 0 {
+				statsPayload["disk_image_read_ranges"] = streamResult.ReadRanges
+			}
+			if streamResult.ReadBytes > 0 {
+				statsPayload["disk_image_read_bytes"] = streamResult.ReadBytes
+			}
+			if streamResult.UsedBytes > 0 {
+				statsPayload["disk_image_used_bytes"] = streamResult.UsedBytes
+			}
+			if streamResult.PreviousManifestID != "" {
+				statsPayload["disk_image_previous_manifest"] = streamResult.PreviousManifestID
+			}
+			if streamResult.CBTStats != nil {
+				statsPayload["disk_image_cbt"] = streamResult.CBTStats
+			}
+		}
 		_ = r.client.UpdateRun(RunUpdate{
-			RunID: run.RunID,
-			StatsJSON: map[string]any{
-				"manifest_id": manifestID,
-				"disk_layout": layout,
-			},
+			RunID:     run.RunID,
+			StatsJSON: statsPayload,
 		})
+	}
+
+	if streamResult != nil && streamResult.CBTState != nil {
+		streamResult.CBTState.LastManifestID = manifestID
+		if err := streamResult.CBTState.Save(); err != nil {
+			log.Printf("agent: disk image cbt state save failed: %v", err)
+		}
 	}
 
 	// Mark success and emit summary after streaming completes.

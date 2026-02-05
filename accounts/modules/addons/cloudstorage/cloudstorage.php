@@ -14,7 +14,7 @@ function cloudstorage_config()
         'description' => 'This module show the usage of your buckets.',
         'author' => 'eazybackup',
         'language' => 'english',
-        'version' => '2.1.7',
+        'version' => '2.1.8',
         'fields' => [
             's3_region' => [
                 'FriendlyName' => 'S3 Region',
@@ -674,6 +674,8 @@ function cloudstorage_activate() {
             // Non-secret UI hint (e.g., "ABCD…WXYZ") so we can display without decrypting.
             $table->string('access_key_hint', 32)->nullable();
             $table->timestamp('created_at')->useCurrent();
+            // Track whether the key was explicitly created by the user via UI (vs auto-provisioned).
+            $table->tinyInteger('is_user_generated')->default(0);
 
             $table->foreign('user_id')->references('id')->on('s3_users')->onDelete('cascade');
             });
@@ -1614,6 +1616,10 @@ function cloudstorage_activate() {
             Capsule::schema()->create('cloudstorage_trial_selection', function ($table) {
                 $table->unsignedInteger('client_id')->primary();
                 $table->string('product_choice', 32);
+                // Storage tier: 'trial_limited' (free, 1TiB cap) or 'trial_unlimited' (CC provided, no cap)
+                $table->string('storage_tier', 32)->nullable();
+                // Trial status flag for admin visibility: 'trial' or 'paid'
+                $table->string('trial_status', 16)->default('trial');
                 $table->text('meta')->nullable();
                 $table->timestamp('created_at')->useCurrent();
                 $table->timestamp('updated_at')->useCurrent();
@@ -2094,6 +2100,14 @@ function cloudstorage_upgrade($vars) {
                     logModuleCall('cloudstorage', 'upgrade_s3_user_access_keys_add_hint', [], 'Added access_key_hint to s3_user_access_keys', [], []);
                 }
 
+                // Track whether the key was explicitly created by the user via UI (vs auto-provisioned).
+                if (!$schema->hasColumn('s3_user_access_keys', 'is_user_generated')) {
+                    $schema->table('s3_user_access_keys', function ($table) {
+                        $table->tinyInteger('is_user_generated')->default(0)->after('created_at');
+                    });
+                    logModuleCall('cloudstorage', 'upgrade_s3_user_access_keys_add_is_user_generated', [], 'Added is_user_generated to s3_user_access_keys', [], []);
+                }
+
                 // Backfill hints for existing rows (best-effort)
                 try {
                     $encKey = (string) \WHMCS\Database\Capsule::table('tbladdonmodules')
@@ -2187,11 +2201,42 @@ function cloudstorage_upgrade($vars) {
             \WHMCS\Database\Capsule::schema()->create('cloudstorage_trial_selection', function ($table) {
                 $table->unsignedInteger('client_id')->primary();
                 $table->string('product_choice', 32);
+                // Storage tier: 'trial_limited' (free, 1TiB cap) or 'trial_unlimited' (CC provided, no cap)
+                $table->string('storage_tier', 32)->nullable();
+                // Trial status flag for admin visibility: 'trial' or 'paid'
+                $table->string('trial_status', 16)->default('trial');
                 $table->text('meta')->nullable();
                 $table->timestamp('created_at')->useCurrent();
                 $table->timestamp('updated_at')->useCurrent();
                 $table->index('product_choice');
             });
+        }
+
+        // Add storage_tier column to cloudstorage_trial_selection if missing
+        if (\WHMCS\Database\Capsule::schema()->hasTable('cloudstorage_trial_selection')) {
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('cloudstorage_trial_selection', 'storage_tier')) {
+                \WHMCS\Database\Capsule::schema()->table('cloudstorage_trial_selection', function ($table) {
+                    $table->string('storage_tier', 32)->nullable()->after('product_choice');
+                });
+                logModuleCall('cloudstorage', 'upgrade_trial_selection_add_storage_tier', [], 'Added storage_tier column', [], []);
+            }
+        }
+
+        // Add trial_status column to cloudstorage_trial_selection if missing
+        if (\WHMCS\Database\Capsule::schema()->hasTable('cloudstorage_trial_selection')) {
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('cloudstorage_trial_selection', 'trial_status')) {
+                \WHMCS\Database\Capsule::schema()->table('cloudstorage_trial_selection', function ($table) {
+                    $table->string('trial_status', 16)->default('trial')->after('storage_tier');
+                });
+                try {
+                    \WHMCS\Database\Capsule::table('cloudstorage_trial_selection')
+                        ->whereNull('trial_status')
+                        ->update(['trial_status' => 'trial']);
+                } catch (\Throwable $e) {
+                    logModuleCall('cloudstorage', 'upgrade_trial_selection_trial_status_backfill_fail', [], $e->getMessage(), [], []);
+                }
+                logModuleCall('cloudstorage', 'upgrade_trial_selection_add_trial_status', [], 'Added trial_status column', [], []);
+            }
         }
 
         // Add notified_at column to s3_cloudbackup_runs if missing
@@ -2919,7 +2964,10 @@ function cloudstorage_upgrade($vars) {
 }
 
 function cloudstorage_clientarea($vars) {
-    $page = $_GET['page'];
+    $page = $_GET['page'] ?? '';
+    // WHMCS addon client area routes require login by default unless explicitly disabled.
+    // Trial signup + verification must be accessible without an existing session.
+    $requireLogin = true;
     $clientId = isset($_SESSION['uid']) ? (int) $_SESSION['uid'] : 0;
     $clientGroupId = 0;
     if ($clientId > 0) {
@@ -2955,6 +3003,7 @@ function cloudstorage_clientarea($vars) {
         case 'signup':
             $pagetitle = 'e3 Storage Signup';
             $templatefile = 'templates/signup';
+            $requireLogin = false;
             $viewVars = [
                 'TURNSTILE_SITE_KEY' => $turnstileSiteKey,
             ];
@@ -2964,6 +3013,7 @@ function cloudstorage_clientarea($vars) {
             $pagetitle = 'e3 Storage Signup';
             // Re-render the same signup template on POST/validation errors
             $templatefile = 'templates/signup';
+            $requireLogin = false;
             // Make Turnstile keys available to the included page
             $routeVars = (function () use ($turnstileSiteKey, $turnstileSecretKey) {
                 return require __DIR__ . '/pages/handlesignup.php';
@@ -2977,6 +3027,7 @@ function cloudstorage_clientarea($vars) {
         case 'verifytrial':
             $pagetitle = 'Verify e3 Trial';
             $templatefile = 'templates/signup';
+            $requireLogin = false;
             $viewVars = require __DIR__ . '/pages/verifytrial.php';
             if (empty($viewVars['TURNSTILE_SITE_KEY'])) {
                 $viewVars['TURNSTILE_SITE_KEY'] = $turnstileSiteKey;
@@ -2987,7 +3038,11 @@ function cloudstorage_clientarea($vars) {
             $pagetitle = 'Welcome to e3';
             $templatefile = 'templates/welcome';
             // Initially no special vars; template will fetch any needed session/user context
-            $viewVars = [];
+            $tokenPlain = function_exists('generate_token') ? generate_token('plain') : '';
+            $viewVars = [
+                'csrfToken' => $tokenPlain,
+                'token' => $tokenPlain,
+            ];
             $clientArea = new \WHMCS\ClientArea();
             if (!$clientArea->isLoggedIn()) {
                 $redirectUrl = cloudstorage_get_welcome_sso_redirect();
@@ -3170,6 +3225,7 @@ function cloudstorage_clientarea($vars) {
     return [
         'pagetitle' => $pagetitle,
         'templatefile' => $templatefile,
+        'requirelogin' => $requireLogin,
         'vars' => array_merge($viewVars ?? [], [
             'clientGroupId' => $clientGroupId,
             'e3Allowed' => $e3Allowed,

@@ -6,7 +6,7 @@
 - Engines:
   - **Sync (rclone)** – legacy file sync to S3 (embedded rclone).
   - **Backup (Kopia)** – dedup/encrypted snapshots to S3 (embedded Kopia library).
-  - **Disk Image** – block-level backup of volumes via VSS snapshots to S3 (uses Kopia for storage).
+  - **Disk Image** – block-level backup of volumes via VSS snapshots to S3 (uses Kopia for storage, Windows CBT+bitmap read optimization).
   - **Hyper-V** – virtual machine backup with checkpoint-based consistency and RCT incremental support (Windows only).
 - Authentication: per-agent token headers (`X-Agent-ID`, `X-Agent-Token`).
 

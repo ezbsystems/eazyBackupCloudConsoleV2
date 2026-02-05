@@ -322,11 +322,33 @@ class Provisioner
                 return 'index.php?m=cloudstorage&page=dashboard';
             }
         } catch (\Throwable $e) {}
-        // Compute Ceph username from client email (sanitize but keep @ . _ -)
+        // Compute service username and RGW uid from client email
         $email = '';
         try { $email = (string) Capsule::table('tblclients')->where('id', $clientId)->value('email'); } catch (\Throwable $e) { $email = ''; }
-        $serviceUsername = preg_replace('/[^a-z0-9._@-]+/', '', strtolower($email));
-        if ($serviceUsername === '') { $serviceUsername = 'e3user' . $clientId; }
+        $legacyUsername = preg_replace('/[^a-z0-9._@-]+/', '', strtolower($email));
+        if ($legacyUsername === '') { $legacyUsername = 'e3user' . $clientId; }
+
+        $serviceUsername = $legacyUsername;
+        $tenantId = '';
+        $cephBaseUid = '';
+        $existingUser = null;
+        try {
+            $existingUser = \WHMCS\Module\Addon\CloudStorage\Client\DBController::getUser($legacyUsername);
+        } catch (\Throwable $e) {}
+        if ($existingUser) {
+            $tenantId = (string) ($existingUser->tenant_id ?? '');
+            $cephBaseUid = (string) (\WHMCS\Module\Addon\CloudStorage\Client\HelperController::resolveCephBaseUid($existingUser));
+            if ($cephBaseUid === '') {
+                $cephBaseUid = $legacyUsername;
+            }
+            // Preserve legacy usernames for existing users; new users will use RGW-safe uid.
+            $serviceUsername = $cephBaseUid;
+        } else {
+            $tenantId = \WHMCS\Module\Addon\CloudStorage\Client\HelperController::getUniqueTenantId();
+            $cephBaseUid = \WHMCS\Module\Addon\CloudStorage\Client\HelperController::generateCephUserId($legacyUsername, $tenantId);
+            $serviceUsername = $cephBaseUid;
+        }
+
         try { logModuleCall('cloudstorage', 'provision_storage_begin', ['clientId' => $clientId, 'pid' => $pid, 'serviceUsername' => $serviceUsername], ''); } catch (\Throwable $e) {}
         $order = localAPI('AddOrder', [
             'clientid'      => $clientId,
@@ -397,35 +419,15 @@ class Provisioner
             $secretKey  = (string) self::getSetting('ceph_secret_key', '');
             $encKey     = (string) self::getSetting('encryption_key', '');
             if ($endpoint && $accessKey && $secretKey) {
-                // Idempotency: if we already have an s3_users row, reuse its tenant_id / ceph_uid.
-                $existingUser = null;
-                try {
-                    $existingUser = \WHMCS\Module\Addon\CloudStorage\Client\DBController::getUser($serviceUsername);
-                } catch (\Throwable $e) {}
-
-                $tenantId = '';
-                $cephBaseUid = '';
-                if ($existingUser && !empty($existingUser->tenant_id)) {
-                    $tenantId = (string) $existingUser->tenant_id;
-                    $cephBaseUid = (string) (\WHMCS\Module\Addon\CloudStorage\Client\HelperController::resolveCephBaseUid($existingUser));
-                }
-                if ($tenantId === '') {
-                    $tenantId = \WHMCS\Module\Addon\CloudStorage\Client\HelperController::getUniqueTenantId();
-                }
-                if ($cephBaseUid === '') {
-                    // New scheme: RGW-safe uid (avoid email-as-uid which some RGW dashboards reject)
-                    $cephBaseUid = \WHMCS\Module\Addon\CloudStorage\Client\HelperController::generateCephUserId($serviceUsername, $tenantId);
-                }
-
                 // Check for existing RGW user (try new uid first, then legacy email uid)
                 $info = \WHMCS\Module\Addon\CloudStorage\Admin\AdminOps::getUserInfo($endpoint, $accessKey, $secretKey, $cephBaseUid, $tenantId ?: null);
                 try { logModuleCall('cloudstorage', 'provision_storage_adminops_get_user', ['u' => $serviceUsername, 'ceph_uid' => $cephBaseUid, 'tenant' => $tenantId], $info); } catch (\Throwable $e) {}
                 if (!is_array($info) || ($info['status'] ?? '') !== 'success') {
-                    $legacyInfo = \WHMCS\Module\Addon\CloudStorage\Admin\AdminOps::getUserInfo($endpoint, $accessKey, $secretKey, $serviceUsername, $tenantId ?: null);
+                    $legacyInfo = \WHMCS\Module\Addon\CloudStorage\Admin\AdminOps::getUserInfo($endpoint, $accessKey, $secretKey, $legacyUsername, $tenantId ?: null);
                     try { logModuleCall('cloudstorage', 'provision_storage_adminops_get_user_legacy', ['u' => $serviceUsername, 'tenant' => $tenantId], $legacyInfo); } catch (\Throwable $e) {}
                     if (is_array($legacyInfo) && ($legacyInfo['status'] ?? '') === 'success') {
                         // Legacy RGW uid is the email itself; keep cephBaseUid as email for subsequent operations.
-                        $cephBaseUid = $serviceUsername;
+                        $cephBaseUid = $legacyUsername;
                     }
                 }
 
@@ -469,6 +471,59 @@ class Provisioner
                     } else {
                         try { logModuleCall('cloudstorage', 'provision_storage_adminops_create_user_fail', $params, $create); } catch (\Throwable $e) {}
                     }
+                }
+
+                // Apply trial quota for trial-limited storage, or remove quota for paid status.
+                try {
+                    $trialSelection = null;
+                    if (Capsule::schema()->hasTable('cloudstorage_trial_selection')) {
+                        $trialSelection = Capsule::table('cloudstorage_trial_selection')
+                            ->where('client_id', $clientId)
+                            ->first();
+                    }
+                    $storageTier = is_object($trialSelection) ? strtolower((string)($trialSelection->storage_tier ?? '')) : '';
+                    $trialStatus = is_object($trialSelection) ? strtolower((string)($trialSelection->trial_status ?? '')) : '';
+                    try {
+                        logModuleCall('cloudstorage', 'provision_storage_trial_selection', [
+                            'clientId' => $clientId,
+                            'storage_tier' => $storageTier,
+                            'trial_status' => $trialStatus,
+                        ], is_object($trialSelection) ? (array) $trialSelection : 'no selection');
+                    } catch (\Throwable $_) {}
+
+                    $quotaUid = $cephBaseUid;
+                    $quotaTenant = $tenantId ?: null;
+                    $quotaUser = null;
+                    try {
+                        $quotaUser = \WHMCS\Module\Addon\CloudStorage\Client\DBController::getUser($serviceUsername);
+                    } catch (\Throwable $e) {}
+                    if ($quotaUser && !empty($quotaUser->ceph_uid)) {
+                        $quotaUid = (string) $quotaUser->ceph_uid;
+                        $quotaTenant = !empty($quotaUser->tenant_id) ? (string) $quotaUser->tenant_id : $quotaTenant;
+                    }
+
+                    if ($quotaUid !== '') {
+                        if ($storageTier === 'trial_limited') {
+                            $quota = \WHMCS\Module\Addon\CloudStorage\Admin\AdminOps::setUserQuota($endpoint, $accessKey, $secretKey, [
+                                'uid' => $quotaUid,
+                                'tenant' => $quotaTenant,
+                                'enabled' => true,
+                                'max_size' => \WHMCS\Module\Addon\CloudStorage\Admin\AdminOps::USER_TRIAL_QUOTA_BYTES,
+                            ]);
+                            try { logModuleCall('cloudstorage', 'provision_storage_apply_trial_quota', ['uid' => $quotaUid, 'tenant' => $quotaTenant, 'tier' => $storageTier, 'max_size' => \WHMCS\Module\Addon\CloudStorage\Admin\AdminOps::USER_TRIAL_QUOTA_BYTES], $quota); } catch (\Throwable $_) {}
+                        } elseif ($trialStatus === 'paid') {
+                            $quota = \WHMCS\Module\Addon\CloudStorage\Admin\AdminOps::setUserQuota($endpoint, $accessKey, $secretKey, [
+                                'uid' => $quotaUid,
+                                'tenant' => $quotaTenant,
+                                'enabled' => false,
+                            ]);
+                            try { logModuleCall('cloudstorage', 'provision_storage_remove_trial_quota', ['uid' => $quotaUid, 'tenant' => $quotaTenant, 'status' => $trialStatus], $quota); } catch (\Throwable $_) {}
+                        }
+                    } else {
+                        try { logModuleCall('cloudstorage', 'provision_storage_quota_skip_missing_uid', ['clientId' => $clientId], 'No uid'); } catch (\Throwable $_) {}
+                    }
+                } catch (\Throwable $e) {
+                    try { logModuleCall('cloudstorage', 'provision_storage_quota_exception', ['clientId' => $clientId], $e->getMessage()); } catch (\Throwable $_) {}
                 }
             }
         } catch (\Throwable $e) {

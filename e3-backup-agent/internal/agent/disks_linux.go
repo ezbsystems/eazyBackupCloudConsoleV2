@@ -3,10 +3,7 @@
 
 package agent
 
-import (
-	"fmt"
-	"strings"
-)
+import "strings"
 
 func enumerateDisks() ([]DiskInfo, error) {
 	out, err := readLsblk()

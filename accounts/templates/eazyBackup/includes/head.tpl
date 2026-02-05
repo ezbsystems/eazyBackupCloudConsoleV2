@@ -5,10 +5,10 @@
 
 <link href="{$WEB_ROOT}/templates/{$template}/css/tailwind.css?v={$versionHash}" rel="stylesheet">
 
-<script src="modules/addons/eazybackup/assets/js/eazybackup-ui-helpers.js" defer></script>
+<script src="{$WEB_ROOT}/modules/addons/eazybackup/assets/js/eazybackup-ui-helpers.js" defer></script>
 
 <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
-<script defer src="/modules/addons/eazybackup/assets/js/email-reports.js"></script>
+<script defer src="{$WEB_ROOT}/modules/addons/eazybackup/assets/js/email-reports.js"></script>
 
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 

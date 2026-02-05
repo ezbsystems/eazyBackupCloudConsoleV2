@@ -12,21 +12,22 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 	"unsafe"
-	"syscall"
 
+	kopiafs "github.com/kopia/kopia/fs"
 	vss "github.com/mxk/go-vss"
 )
 
 // createDiskImageStream for Windows: VSS snapshot -> stream device directly to Kopia (no temp file).
-func (r *Runner) createDiskImageStream(ctx context.Context, run *NextRunResponse, opts diskImageOptions, progressCb func(bytesProcessed int64, bytesUploaded int64)) (string, error) {
+func (r *Runner) createDiskImageStream(ctx context.Context, run *NextRunResponse, opts diskImageOptions, progressCb func(bytesProcessed int64, bytesUploaded int64)) (*diskImageStreamResult, error) {
 	if err := ctx.Err(); err != nil {
-		return "", err
+		return nil, err
 	}
 	srcVolume := opts.SourceVolume
 	if srcVolume == "" {
-		return "", fmt.Errorf("disk image: source volume is empty")
+		return nil, fmt.Errorf("disk image: source volume is empty")
 	}
 
 	devicePath := ""
@@ -45,11 +46,11 @@ func (r *Runner) createDiskImageStream(ctx context.Context, run *NextRunResponse
 		log.Printf("agent: creating VSS snapshot for volume %s (streaming)", volForVSS)
 		id, err := vss.Create(volForVSS)
 		if err != nil {
-			return "", fmt.Errorf("vss create: %w", err)
+			return nil, fmt.Errorf("vss create: %w", err)
 		}
 		if err := ctx.Err(); err != nil {
 			_ = vss.Remove(id)
-			return "", err
+			return nil, err
 		}
 		// VSS requires cleanup to release snapshot
 		cleanup = func() {
@@ -59,11 +60,11 @@ func (r *Runner) createDiskImageStream(ctx context.Context, run *NextRunResponse
 
 		sc, err := vss.Get(id)
 		if err != nil {
-			return "", fmt.Errorf("vss get: %w", err)
+			return nil, fmt.Errorf("vss get: %w", err)
 		}
 		devicePath = strings.TrimSuffix(sc.DeviceObject, `\`)
 		if devicePath == "" {
-			return "", fmt.Errorf("vss snapshot returned empty device path")
+			return nil, fmt.Errorf("vss snapshot returned empty device path")
 		}
 	}
 
@@ -79,7 +80,7 @@ func (r *Runner) createDiskImageStream(ctx context.Context, run *NextRunResponse
 
 	size, _ := getDeviceSizeWindows(devicePath)
 	if err := ctx.Err(); err != nil {
-		return "", err
+		return nil, err
 	}
 	if size > 0 {
 		_ = r.client.UpdateRun(RunUpdate{
@@ -92,11 +93,62 @@ func (r *Runner) createDiskImageStream(ctx context.Context, run *NextRunResponse
 	// This ensures subsequent snapshots are recognized as the same source for deduplication.
 	stableSourcePath := srcVolume
 	stableSourcePath = strings.TrimSuffix(stableSourcePath, "\\")
+	stableSourcePath = strings.TrimSpace(stableSourcePath)
 
-	streamEntry := &deviceEntry{
-		name: fmt.Sprintf("%s.img", strings.TrimSuffix(stableSourcePath, ":")),
-		path: devicePath, // Read from VSS snapshot device
-		size: size,
+	previousSnapshot, err := r.openPreviousDiskImageSnapshot(ctx, run, stableSourcePath)
+	if err != nil {
+		log.Printf("agent: disk image previous snapshot lookup failed: %v", err)
+	}
+	if previousSnapshot != nil {
+		if _, ok := previousSnapshot.Entry.(kopiafs.File); !ok {
+			log.Printf("agent: disk image previous snapshot entry not file; disabling CBT fallback")
+			previousSnapshot.Close()
+			previousSnapshot = nil
+		}
+	}
+	if previousSnapshot != nil {
+		defer previousSnapshot.Close()
+	}
+
+	readPlan := r.buildDiskImageReadPlanWindows(ctx, run, opts, stableSourcePath, previousSnapshot != nil)
+
+	var streamEntry kopiafs.Entry
+	if readPlan != nil && readPlan.Mode != "full" {
+		var fallback kopiafs.Entry
+		if readPlan.Mode == "cbt" && previousSnapshot != nil {
+			fallback = previousSnapshot.Entry
+		}
+		streamEntry = &rangeAwareDeviceEntry{
+			name:          fmt.Sprintf("%s.img", strings.TrimSuffix(stableSourcePath, ":")),
+			path:          devicePath,
+			size:          size,
+			readRanges:    readPlan.Extents,
+			fallbackEntry: fallback,
+		}
+	} else {
+		streamEntry = &deviceEntry{
+			name: fmt.Sprintf("%s.img", strings.TrimSuffix(stableSourcePath, ":")),
+			path: devicePath, // Read from VSS snapshot device
+			size: size,
+		}
+	}
+
+	if readPlan != nil && readPlan.CBTStats != nil {
+		params := map[string]any{
+			"mode":        readPlan.CBTStats.Mode,
+			"reason":      readPlan.CBTStats.Reason,
+			"read_ranges": readPlan.CBTStats.ReadRanges,
+			"read_bytes":  readPlan.CBTStats.ReadBytes,
+		}
+		if previousSnapshot != nil && previousSnapshot.ManifestID != "" {
+			params["previous_manifest"] = previousSnapshot.ManifestID
+		}
+		r.pushEvents(run.RunID, RunEvent{
+			Type:       "info",
+			Level:      "info",
+			MessageID:  "DISK_IMAGE_CHANGE_MAP",
+			ParamsJSON: params,
+		})
 	}
 
 	originalEngine := run.Engine
@@ -110,7 +162,7 @@ func (r *Runner) createDiskImageStream(ctx context.Context, run *NextRunResponse
 	run.Engine = originalEngine
 
 	if runErr != nil {
-		return "", runErr
+		return nil, runErr
 	}
 
 	r.pushEvents(run.RunID, RunEvent{
@@ -121,7 +173,21 @@ func (r *Runner) createDiskImageStream(ctx context.Context, run *NextRunResponse
 			"device": devicePath,
 		},
 	})
-	return manifestID, nil
+	result := &diskImageStreamResult{
+		ManifestID: manifestID,
+	}
+	if readPlan != nil {
+		result.ReadMode = readPlan.Mode
+		result.ReadRanges = len(readPlan.Extents)
+		result.ReadBytes = readPlan.ReadBytes
+		result.UsedBytes = readPlan.UsedBytes
+		result.CBTState = readPlan.CBTState
+		result.CBTStats = readPlan.CBTStats
+	}
+	if previousSnapshot != nil {
+		result.PreviousManifestID = previousSnapshot.ManifestID
+	}
+	return result, nil
 }
 
 func isWindowsPhysicalDiskPath(value string) bool {
@@ -276,4 +342,3 @@ func writeSparseImage(srcPath, dstPath string, blockSize int64, format string, c
 	}
 	return written, skipped, nil
 }
-
