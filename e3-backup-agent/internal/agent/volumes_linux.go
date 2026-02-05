@@ -4,39 +4,17 @@
 package agent
 
 import (
-	"encoding/json"
-	"fmt"
-	"os/exec"
-	"strconv"
 	"strings"
 )
 
-type lsblkOutput struct {
-	Blockdevices []lsblkDevice `json:"blockdevices"`
-}
-
-type lsblkDevice struct {
-	Name     string        `json:"name"`
-	Type     string        `json:"type"`
-	Size     any           `json:"size"` // can be string or number
-	Label    string        `json:"label"`
-	FSType   string        `json:"fstype"`
-	Children []lsblkDevice `json:"children"`
-}
-
 func enumerateVolumes() ([]VolumeInfo, error) {
-	out, err := exec.Command("lsblk", "-J", "-b", "-o", "NAME,TYPE,SIZE,LABEL,FSTYPE").Output()
+	out, err := readLsblk()
 	if err != nil {
-		return nil, fmt.Errorf("lsblk: %w", err)
-	}
-
-	var parsed lsblkOutput
-	if err := json.Unmarshal(out, &parsed); err != nil {
-		return nil, fmt.Errorf("parse lsblk: %w", err)
+		return nil, err
 	}
 
 	var vols []VolumeInfo
-	walkDevices(parsed.Blockdevices, &vols)
+	walkDevices(out.Blockdevices, &vols)
 	return vols, nil
 }
 
@@ -46,16 +24,19 @@ func walkDevices(devs []lsblkDevice, out *[]VolumeInfo) {
 			walkDevices(d.Children, out)
 			continue
 		}
-		path := devicePath(d.Name)
+		path := d.Path
+		if path == "" {
+			path = devicePath(d.Name)
+		}
 		if path == "" {
 			walkDevices(d.Children, out)
 			continue
 		}
-		size := parseSize(d.Size)
+		size := uint64(parseInt64(d.Size))
 		*out = append(*out, VolumeInfo{
 			Path:       path,
 			Label:      strings.TrimSpace(d.Label),
-			FileSystem: strings.TrimSpace(d.FSType),
+			FileSystem: strings.TrimSpace(d.Fstype),
 			SizeBytes:  size,
 			Type:       strings.TrimSpace(d.Type),
 		})
@@ -81,21 +62,5 @@ func devicePath(name string) string {
 		return name
 	}
 	return "/dev/" + name
-}
-
-func parseSize(val any) uint64 {
-	switch v := val.(type) {
-	case float64:
-		return uint64(v)
-	case json.Number:
-		if n, err := v.Int64(); err == nil {
-			return uint64(n)
-		}
-	case string:
-		if n, err := strconv.ParseUint(v, 10, 64); err == nil {
-			return n
-		}
-	}
-	return 0
 }
 

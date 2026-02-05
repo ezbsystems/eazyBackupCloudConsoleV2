@@ -348,7 +348,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'project'       => $project,
         ]);
 
-        $expiresAt = (new \DateTime('+48 hours'))->format('Y-m-d H:i:s');
+        $expiresAt = (new \DateTime('+24 hours'))->format('Y-m-d H:i:s');
 
         Capsule::table('cloudstorage_trial_verifications')->insert([
             'client_id'  => $clientId,

@@ -264,6 +264,7 @@ To support a cleaner access-key UX and avoid showing full keys in tables:
   - `description` (string, nullable)
   - `key_hint` (string(16), nullable) — non-sensitive “hint” for UI display
   - `is_active` (tinyint, default 1)
+  - `is_user_generated` (tinyint, default 0) — tracks whether the key was explicitly created by the user via the UI (1) vs auto-provisioned (0); used to determine whether to display key hint and date in the Access Keys table
 - **`s3_subusers_keys`** additions:
   - `description` (string, nullable)
   - `key_hint`/`access_key_hint` (string(16), nullable; used for UI hint display)
@@ -305,7 +306,9 @@ Behavior:
 
 #### Customer UX
 - `templates/access_keys.tpl` supports an **empty state**:
-  - Access key and secret key are blank (`—`) until the customer generates their first key.
+  - Access key and Date Created columns are blank (`—`) until the customer explicitly generates their first key.
+  - The template checks the `is_user_generated` flag to determine whether to display the key hint and creation date.
+  - This prevents confusion for new customers who may have auto-provisioned keys they never saw.
   - Creating/rotating keys remains **password-gated**, and the secret is shown **only once**.
   - The “Save your new key” modal includes one-click copy buttons for both access and secret.
 
@@ -769,6 +772,79 @@ The `applyDefaultConfigOptions()` method ensures trial orders receive the correc
 - [ ] Next due date is set to 14 days from now
 - [ ] Customer is redirected to eazyBackup download page
 - [ ] Module call logs show `apply_config_options_success` entry
+
+## Cloud Storage Trial Tier Selection
+
+When a new customer selects **Cloud Storage** from the welcome page, they are presented with a **Plan Selection Drawer** offering two trial tiers:
+
+### Trial Tiers
+
+| Tier | ID | Features | CC Required |
+|------|-----|----------|-------------|
+| **Free Trial** | `trial_limited` | 30 days free, 1 TiB storage limit | No |
+| **Ready to Purchase** | `trial_unlimited` | 30 days free, unlimited storage | Yes |
+
+### User Flow
+
+1. Customer clicks "Cloud Storage" product card on `welcome.tpl`
+2. **Plan Selection Drawer** (`eb-storage-plan-overlay`) opens with two choices
+3. **Choice A (Free Trial)**:
+   - Customer clicks "Start Free Trial"
+   - Password drawer opens immediately (CC drawer is skipped)
+   - `storage_tier` is set to `trial_limited`
+4. **Choice B (Ready to Purchase)**:
+   - Customer clicks "Add Payment Method"
+   - Card drawer opens first
+   - After CC is saved, password drawer opens
+   - `storage_tier` is set to `trial_unlimited`
+
+### Database Changes
+
+**Table: `cloudstorage_trial_selection`**
+
+Added column:
+- `storage_tier VARCHAR(32) NULLABLE` — stores the selected tier: `trial_limited` or `trial_unlimited`
+
+The tier is saved when the password is set via `api/setpassword_and_provision.php`.
+
+### UI Changes
+
+The trial selection and all drawer panels have been updated to use:
+
+- **eazyBackup orange** (`#FE5000`) for accent colors, buttons, and focus rings
+- Larger drawer width (`max-w-xl` instead of `max-w-md`)
+- Increased typography sizes for better readability
+- Consistent styling across all drawers (password, plan selection, card)
+
+### Implementation Files
+
+- **UI**: `templates/welcome.tpl`
+  - New drawer: `eb-storage-plan-overlay` with plan selection buttons
+  - JavaScript: `ebStoragePlanOpen()`, `ebStoragePlanClose()`, `ebSelectStorageTier(tier)`
+- **Backend**: `api/setpassword_and_provision.php`
+  - Accepts `storage_tier` POST parameter
+  - Saves tier to `cloudstorage_trial_selection` table
+- **Schema**: `cloudstorage.php`
+  - `storage_tier` column added to `cloudstorage_trial_selection` table
+  - Upgrade migration adds column to existing installations
+
+### Phase 2: User Quotas (Not Yet Implemented)
+
+In a future phase, the `storage_tier` value will be used to enforce quotas:
+
+- `trial_limited` accounts will have a 1 TiB quota applied at the bucket/user level
+- `trial_unlimited` accounts will have no quota restrictions
+
+This quota enforcement logic is not yet implemented and will be added in Phase 2.
+
+### Testing Checklist
+
+- [ ] Clicking Cloud Storage opens the Plan Selection drawer
+- [ ] "Start Free Trial" skips CC drawer and goes directly to password
+- [ ] "Add Payment Method" opens CC drawer first, then password drawer
+- [ ] `storage_tier` is saved correctly to `cloudstorage_trial_selection` table
+- [ ] All drawers use orange branding (`#FE5000`)
+- [ ] Drawer sizing and typography are larger and more readable
 
 ## Bucket Browser Modernization (UI + Features)
 

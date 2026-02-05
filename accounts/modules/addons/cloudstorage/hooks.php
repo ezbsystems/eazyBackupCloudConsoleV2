@@ -1,7 +1,10 @@
 <?php
 
 use WHMCS\Database\Capsule;
+use WHMCS\Module\Addon\CloudStorage\Admin\AdminOps;
 use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
+use WHMCS\Module\Addon\CloudStorage\Client\DBController;
+use WHMCS\Module\Addon\CloudStorage\Provision\Provisioner;
 
 add_hook('ClientAreaHeadOutput', 1, function($vars) {
     if (isset($_GET['m']) && $_GET['m'] == 'cloudstorage') {
@@ -19,6 +22,163 @@ add_hook('ClientAreaHeadOutput', 1, function($vars) {
     HTML;
     }
 
+});
+
+add_hook('AdminServicesTabFields', 1, function($vars) {
+    $clientId = (int)($vars['userid'] ?? 0);
+    $packageId = (int)($vars['packageid'] ?? 0);
+    $serviceId = (int)($vars['serviceid'] ?? ($vars['id'] ?? 0));
+    if ($clientId <= 0 || $packageId <= 0) {
+        return [];
+    }
+
+    $configuredPid = (int) Provisioner::getSetting('pid_cloud_storage', ProductConfig::$E3_PRODUCT_ID);
+    if ($configuredPid <= 0) {
+        $configuredPid = (int) ProductConfig::$E3_PRODUCT_ID;
+    }
+    if ($packageId !== $configuredPid) {
+        return [];
+    }
+
+    $trialStatus = 'trial';
+    $storageTier = '';
+    $serviceUsername = '';
+    if ($serviceId > 0) {
+        try {
+            $serviceUsername = (string) (Capsule::table('tblhosting')->where('id', $serviceId)->value('username') ?? '');
+        } catch (\Throwable $e) {}
+    }
+    try {
+        if (Capsule::schema()->hasTable('cloudstorage_trial_selection')) {
+            $row = Capsule::table('cloudstorage_trial_selection')->where('client_id', $clientId)->first();
+            if ($row) {
+                $trialStatus = strtolower((string)($row->trial_status ?? 'trial'));
+                $storageTier = strtolower((string)($row->storage_tier ?? ''));
+            }
+        }
+    } catch (\Throwable $e) {}
+
+    $trialSelected = ($trialStatus !== 'paid') ? 'selected' : '';
+    $paidSelected = ($trialStatus === 'paid') ? 'selected' : '';
+    $tierLabel = $storageTier ? ('Current tier: ' . htmlspecialchars($storageTier)) : 'Current tier: unknown';
+    if ($serviceUsername !== '') {
+        $tierLabel .= ' | Service Username: ' . htmlspecialchars($serviceUsername);
+    }
+
+    $html = '<select name="cloudstorage_trial_status" class="form-control select-inline">';
+    $html .= '<option value="trial" ' . $trialSelected . '>Trial</option>';
+    $html .= '<option value="paid" ' . $paidSelected . '>Paid</option>';
+    $html .= '</select>';
+    $html .= '<div class="text-muted" style="margin-top:6px;">' . $tierLabel . '</div>';
+
+    return [
+        'Trial Status' => $html,
+    ];
+});
+
+add_hook('AdminServicesTabFieldsSave', 1, function($vars) {
+    $clientId = (int)($vars['userid'] ?? 0);
+    $packageId = (int)($vars['packageid'] ?? 0);
+    $serviceId = (int)($vars['serviceid'] ?? ($vars['id'] ?? 0));
+    if ($clientId <= 0 || $packageId <= 0) {
+        return;
+    }
+
+    $configuredPid = (int) Provisioner::getSetting('pid_cloud_storage', ProductConfig::$E3_PRODUCT_ID);
+    if ($configuredPid <= 0) {
+        $configuredPid = (int) ProductConfig::$E3_PRODUCT_ID;
+    }
+    if ($packageId !== $configuredPid) {
+        return;
+    }
+
+    $newStatus = strtolower(trim((string)($_POST['cloudstorage_trial_status'] ?? '')));
+    if (!in_array($newStatus, ['trial', 'paid'], true)) {
+        return;
+    }
+
+    $storageTier = '';
+    try {
+        if (Capsule::schema()->hasTable('cloudstorage_trial_selection')) {
+            $row = Capsule::table('cloudstorage_trial_selection')->where('client_id', $clientId)->first();
+            $storageTier = $row ? strtolower((string)($row->storage_tier ?? '')) : '';
+
+            $now = date('Y-m-d H:i:s');
+            if ($row) {
+                Capsule::table('cloudstorage_trial_selection')
+                    ->where('client_id', $clientId)
+                    ->update([
+                        'trial_status' => $newStatus,
+                        'updated_at'   => $now,
+                    ]);
+            } else {
+                Capsule::table('cloudstorage_trial_selection')->insert([
+                    'client_id'      => $clientId,
+                    'product_choice' => 'storage',
+                    'storage_tier'   => $storageTier ?: null,
+                    'trial_status'   => $newStatus,
+                    'meta'           => json_encode([], JSON_UNESCAPED_SLASHES),
+                    'created_at'     => $now,
+                    'updated_at'     => $now,
+                ]);
+            }
+        }
+    } catch (\Throwable $e) {
+        logModuleCall('cloudstorage', 'admin_trial_status_save_error', ['clientId' => $clientId], $e->getMessage(), [], []);
+        return;
+    }
+
+    if ($newStatus === 'paid' || ($newStatus === 'trial' && $storageTier === 'trial_limited')) {
+        $endpoint = (string) Provisioner::getSetting('s3_endpoint', '');
+        $accessKey = (string) Provisioner::getSetting('ceph_access_key', '');
+        $secretKey = (string) Provisioner::getSetting('ceph_secret_key', '');
+        if ($endpoint && $accessKey && $secretKey) {
+            $serviceUsername = '';
+            if ($serviceId > 0) {
+                try {
+                    $serviceUsername = (string) (Capsule::table('tblhosting')->where('id', $serviceId)->value('username') ?? '');
+                } catch (\Throwable $e) {}
+            }
+            try {
+                if ($serviceUsername === '') {
+                    $serviceUsername = (string) (Capsule::table('tblclients')->where('id', $clientId)->value('email') ?? '');
+                }
+            } catch (\Throwable $e) {}
+            $serviceUsername = preg_replace('/[^a-z0-9._@-]+/', '', strtolower($serviceUsername));
+            if ($serviceUsername === '') {
+                $serviceUsername = 'e3user' . $clientId;
+            }
+
+            $quotaUid = $serviceUsername;
+            $quotaTenant = null;
+            try {
+                $quotaUser = DBController::getUser($serviceUsername);
+                if ($quotaUser && !empty($quotaUser->ceph_uid)) {
+                    $quotaUid = (string) $quotaUser->ceph_uid;
+                    $quotaTenant = !empty($quotaUser->tenant_id) ? (string) $quotaUser->tenant_id : null;
+                }
+            } catch (\Throwable $e) {}
+
+            if ($quotaUid !== '') {
+                if ($newStatus === 'paid') {
+                    $quota = AdminOps::setUserQuota($endpoint, $accessKey, $secretKey, [
+                        'uid' => $quotaUid,
+                        'tenant' => $quotaTenant,
+                        'enabled' => false,
+                    ]);
+                    logModuleCall('cloudstorage', 'admin_trial_status_quota_remove', ['uid' => $quotaUid, 'tenant' => $quotaTenant], $quota, [], []);
+                } elseif ($storageTier === 'trial_limited') {
+                    $quota = AdminOps::setUserQuota($endpoint, $accessKey, $secretKey, [
+                        'uid' => $quotaUid,
+                        'tenant' => $quotaTenant,
+                        'enabled' => true,
+                        'max_size' => AdminOps::USER_TRIAL_QUOTA_BYTES,
+                    ]);
+                    logModuleCall('cloudstorage', 'admin_trial_status_quota_apply', ['uid' => $quotaUid, 'tenant' => $quotaTenant, 'max_size' => AdminOps::USER_TRIAL_QUOTA_BYTES], $quota, [], []);
+                }
+            }
+        }
+    }
 });
 
 add_hook('EmailPreSend132', 1, function($vars) {

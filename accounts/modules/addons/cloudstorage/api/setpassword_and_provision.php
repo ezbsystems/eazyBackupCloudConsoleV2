@@ -9,6 +9,62 @@ use WHMCS\Module\Addon\CloudStorage\Provision\Provisioner;
 
 header('Content-Type: application/json');
 
+function cloudstorage_client_has_stripe_card(int $clientId): bool
+{
+    if ($clientId <= 0) {
+        return false;
+    }
+
+    $hasCard = false;
+    try {
+        if (class_exists('\\WHMCS\\Payment\\PayMethod\\PayMethod')) {
+            $pmQuery = \WHMCS\Payment\PayMethod\PayMethod::where('userid', $clientId)
+                ->whereNull('deleted_at')
+                ->whereIn('payment_type', ['CreditCard', 'RemoteCreditCard']);
+            $payMethods = $pmQuery->get();
+            foreach ($payMethods as $pm) {
+                $hasCard = true;
+                break;
+            }
+        }
+    } catch (\Throwable $e) {
+        $hasCard = false;
+    }
+
+    if (!$hasCard) {
+        try {
+            if (Capsule::schema()->hasTable('tblpaymethods')) {
+                $q = Capsule::table('tblpaymethods')
+                    ->where('userid', $clientId)
+                    ->whereNull('deleted_at')
+                    ->whereIn('payment_type', ['CreditCard', 'RemoteCreditCard']);
+                $hasCard = $q->exists();
+            }
+        } catch (\Throwable $e) {
+            $hasCard = false;
+        }
+    }
+
+    if (!$hasCard) {
+        try {
+            $resp = localAPI('GetPayMethods', ['clientid' => $clientId]);
+            if (($resp['result'] ?? '') === 'success' && !empty($resp['paymethods']) && is_array($resp['paymethods'])) {
+                foreach ($resp['paymethods'] as $pm) {
+                    $ptype = strtolower((string) ($pm['payment_type'] ?? ''));
+                    if ($ptype === 'creditcard' || $ptype === 'remotecreditcard') {
+                        $hasCard = true;
+                        break;
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            $hasCard = false;
+        }
+    }
+
+    return $hasCard;
+}
+
 try {
     $ca = new ClientArea();
     if (!$ca->isLoggedIn()) {
@@ -55,6 +111,8 @@ try {
     $newPassword = (string)($_POST['new_password'] ?? '');
     $confirmPassword = (string)($_POST['new_password_confirm'] ?? '');
     $username = (string)($_POST['username'] ?? '');
+    // Storage tier for Cloud Storage product: 'trial_limited' (free, 1TiB cap) or 'trial_unlimited' (CC provided)
+    $storageTier = strtolower(trim((string)($_POST['storage_tier'] ?? '')));
 
     $valid = ['backup','cloudbackup','storage','cloudstorage','ms365','m365','cloud2cloud','cloud-to-cloud'];
     if ($choice === '' || !in_array($choice, $valid, true)) {
@@ -66,6 +124,17 @@ try {
     if (in_array($choice, ['storage','cloudstorage'], true)) $choice = 'storage';
     if (in_array($choice, ['ms365','m365'], true)) $choice = 'ms365';
     if (in_array($choice, ['cloud2cloud','cloud-to-cloud'], true)) $choice = 'cloud2cloud';
+
+    // Validate and normalize storage tier for Cloud Storage
+    if ($choice === 'storage') {
+        if (!in_array($storageTier, ['trial_limited', 'trial_unlimited'], true)) {
+            // Default to trial_limited if not specified
+            $storageTier = 'trial_limited';
+        }
+    } else {
+        // Storage tier only applies to Cloud Storage product
+        $storageTier = '';
+    }
 
     // Password and username validation
     $errors = [];
@@ -181,6 +250,52 @@ try {
     if (!$userUpdated) {
         echo json_encode(['status' => 'error', 'errors' => ['general' => 'Unable to update login password.']] );
         exit;
+    }
+
+    // Persist storage_tier and trial_status before provisioning for Cloud Storage
+    if ($choice === 'storage' && $storageTier !== '') {
+        $hasCard = true;
+        if ($storageTier === 'trial_unlimited') {
+            $hasCard = cloudstorage_client_has_stripe_card($clientId);
+        }
+        $trialStatus = ($storageTier === 'trial_unlimited' && $hasCard) ? 'paid' : 'trial';
+        try {
+            if (Capsule::schema()->hasTable('cloudstorage_trial_selection')) {
+                $now = date('Y-m-d H:i:s');
+                $exists = Capsule::table('cloudstorage_trial_selection')->where('client_id', $clientId)->first();
+                if ($exists) {
+                    Capsule::table('cloudstorage_trial_selection')
+                        ->where('client_id', $clientId)
+                        ->update([
+                            'storage_tier' => $storageTier,
+                            'trial_status' => $trialStatus,
+                            'updated_at'   => $now,
+                        ]);
+                } else {
+                    Capsule::table('cloudstorage_trial_selection')->insert([
+                        'client_id'      => $clientId,
+                        'product_choice' => $choice,
+                        'storage_tier'   => $storageTier,
+                        'trial_status'   => $trialStatus,
+                        'meta'           => json_encode([], JSON_UNESCAPED_SLASHES),
+                        'created_at'     => $now,
+                        'updated_at'     => $now,
+                    ]);
+                }
+            }
+        } catch (\Throwable $e) {
+            // Non-fatal - log for debugging
+            logModuleCall('cloudstorage', 'setpassword_save_storage_tier_error', ['client_id' => $clientId], $e->getMessage(), [], []);
+        }
+
+        if ($storageTier === 'trial_unlimited' && !$hasCard) {
+            echo json_encode([
+                'status' => 'error',
+                'requires_payment_method' => true,
+                'message' => 'Please add a payment method to continue.',
+            ]);
+            exit;
+        }
     }
 
     // 3) Provision based on selection (username is provided for backup/ms365)

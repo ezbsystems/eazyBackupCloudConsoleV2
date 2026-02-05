@@ -1144,7 +1144,8 @@ class BucketController {
             'user_id' => $userId,
             'access_key' => $accessKeyEncrypted,
             'secret_key' => $secretKeyEncrypted,
-            'access_key_hint' => $hint
+            'access_key_hint' => $hint,
+            'is_user_generated' => 1
         ]);
 
 

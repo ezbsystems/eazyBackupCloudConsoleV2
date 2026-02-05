@@ -77,8 +77,11 @@ This document explains the disk image backup path added to the local agent (Kopi
 2) Agent `runRun` routes to `runDiskImage`, normalizes options.
 3) Snapshot + streaming:
    - Windows: VSS shadow copy → snapshot device (no trailing slash) streamed directly.
+     - If previous snapshot exists and CBT is enabled, the agent uses NTFS USN + file extents to read only changed ranges.
+     - If CBT is unavailable/invalid, falls back to NTFS volume bitmap and reads only allocated clusters (unused space becomes zeros).
+     - Physical disk sources fall back to full-device reads.
    - Linux: LVM snapshot when available; otherwise the live device is streamed.
-   - No temp image is written in streaming mode; zero-block skipping is not applied (full device stream).
+   - No temp image is written in streaming mode.
 4) Kopia upload:
    - Agent constructs a virtual file entry pointing at the snapshot device and runs the Kopia snapshot pipeline directly against it.
    - Progress denominator uses device size when available (Windows via IOCTL length; Linux via stat on the device path).
@@ -89,8 +92,8 @@ This document explains the disk image backup path added to the local agent (Kopi
 
 ## Current Limitations / TODOs
 - VHDX writer is still a stub (no BAT/metadata). VHDX behaves like raw sparse writes.
-- Streaming mode does not skip zero blocks; full device content is uploaded (dedup still applies in Kopia).
-- No change-block tracking yet; block cache only records hashes (future CBT).
+- CBT is user‑mode (USN journal + extents) and only applies to NTFS volumes; physical disks fall back to full reads.
+- If USN state is invalid (journal reset/wrap, volume change), the agent falls back to the NTFS bitmap full.
 - Mount-based recovery and synthetic fulls are placeholders (not implemented).
 - LVM snapshot creation is best-effort; if `lvcreate` unavailable, it reads the live device.
 
@@ -101,12 +104,16 @@ This document explains the disk image backup path added to the local agent (Kopi
 - Build Windows: `GOOS=windows GOARCH=amd64 go build -o bin/e3-backup-agent.exe ./cmd/agent`
 - Run (Windows): `.\bin\e3-backup-agent.exe --config "C:\ProgramData\E3Backup\agent.conf"` (Administrator for VSS).
 - Run (Linux): ensure `lvcreate` available for snapshots; otherwise runs directly on device.
+- Policy JSON flags (optional):
+  - `disk_image_cbt` (default true): enable USN+extent change tracking for Windows disk image backups.
+  - `disk_image_change_tracking` (alias for `disk_image_cbt`).
+  - `disk_image_bitmap` (default true): allow NTFS bitmap fulls when CBT is unavailable.
 
 ---
 
 ## Hand-off Pointers
 - For real VHDX support: implement dynamic disk header, BAT, metadata region, block allocation, and sector bitmaps in `internal/agent/vhdx`.
-- For CBT: use `BlockCache` to skip unchanged blocks during image creation and optionally instruct Kopia to skip unchanged regions (or rely on dedup only).
+- For CBT: consider a kernel‑mode driver for true block‑level change tracking (avoids USN/extent enumeration limits).
 - For cleanup: add temp-dir pruning after successful upload.
 - For mounts: wire `kopia_mount.go` to Kopia FUSE on Linux and WinFsp on Windows. Add new command type `mount`/`unmount` to run commands table.
 - For synthetic fulls: implement `createSyntheticFull` to restore from Kopia into a new image, then re-upload as a consolidated snapshot.
