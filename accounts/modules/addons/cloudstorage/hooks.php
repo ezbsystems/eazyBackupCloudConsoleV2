@@ -172,9 +172,9 @@ add_hook('AdminServicesTabFieldsSave', 1, function($vars) {
                         'uid' => $quotaUid,
                         'tenant' => $quotaTenant,
                         'enabled' => true,
-                        'max_size' => AdminOps::USER_TRIAL_QUOTA_BYTES,
+                        'max_size_kb' => AdminOps::USER_TRIAL_QUOTA_KB,
                     ]);
-                    logModuleCall('cloudstorage', 'admin_trial_status_quota_apply', ['uid' => $quotaUid, 'tenant' => $quotaTenant, 'max_size' => AdminOps::USER_TRIAL_QUOTA_BYTES], $quota, [], []);
+                    logModuleCall('cloudstorage', 'admin_trial_status_quota_apply', ['uid' => $quotaUid, 'tenant' => $quotaTenant, 'max_size_kb' => AdminOps::USER_TRIAL_QUOTA_KB], $quota, [], []);
                 }
             }
         }

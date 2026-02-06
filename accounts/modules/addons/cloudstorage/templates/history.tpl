@@ -44,31 +44,48 @@
                     </svg>
                     <h2 class="text-2xl font-semibold text-white">Usage History</h2>
                 </div>
+                {if isset($overdueNotice) && $overdueNotice}
+                    <a href="clientarea.php?action=invoices" class="mt-2 sm:mt-0 inline-flex items-center gap-2 rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-3 py-1.5 text-xs text-yellow-200 hover:bg-yellow-500/20">
+                        <span>{$overdueNotice}</span>
+                        <span class="text-[11px] underline underline-offset-2">View invoice</span>
+                    </a>
+                {/if}
             </div>
 
         <!-- Date Range Selection Card -->
         <div class="bg-slate-900/70 rounded-lg border border-slate-800/80 p-6 mb-8">
-            <div class="flex flex-wrap items-center justify-between gap-4">
-                <div class="flex flex-wrap items-center gap-4">
-                    <button id="currentPeriodButton" 
-                            class="px-4 py-2 rounded focus:outline-none focus:ring-2 focus:ring-opacity-50 
-                                   {if $currentPeriodActive}bg-blue-600 text-white focus:ring-blue-500{else}bg-slate-700 text-white hover:bg-slate-600 focus:ring-slate-500{/if}">
-                        Current Period
+            <div class="space-y-4">
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                    <div class="flex flex-wrap items-center gap-2">
+                    <button id="periodBackButton"
+                            type="button"
+                            title="Previous period"
+                            aria-label="Previous period"
+                            class="h-10 w-10 rounded-lg border border-slate-800/80 bg-slate-900/70 text-slate-200 hover:bg-slate-800/80 focus:outline-none focus:ring-2 focus:ring-slate-500 inline-flex items-center justify-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M21 16.811c0 .864-.933 1.406-1.683.977l-7.108-4.061a1.125 1.125 0 0 1 0-1.954l7.108-4.061A1.125 1.125 0 0 1 21 8.689v8.122ZM11.25 16.811c0 .864-.933 1.406-1.683.977l-7.108-4.061a1.125 1.125 0 0 1 0-1.954l7.108-4.061a1.125 1.125 0 0 1 1.683.977v8.122Z" />
+                        </svg>
                     </button>
-                    <button id="previousPeriodButton" 
-                            class="px-4 py-2 rounded focus:outline-none focus:ring-2 focus:ring-opacity-50 
-                                   {if $prevPeriodActive}bg-slate-500 text-white focus:ring-slate-400{else}bg-slate-700 text-white hover:bg-slate-600 focus:ring-slate-500{/if}">
-                        Previous Period
-                    </button>
-                    <div class="flex items-center gap-2">
-                        <span class="text-sm text-slate-400">Current Service Period: {$billingPeriod.start|date_format:"%d %b %Y"} to {$billingPeriod.end|date_format:"%d %b %Y"}</span>
-                        {if isset($overdueNotice) && $overdueNotice}
-                            <span class="text-xs bg-yellow-500/20 text-yellow-300 border border-yellow-500/40 px-2 py-1 rounded">{$overdueNotice}</span>
-                        {/if}
+                    <div class="inline-flex items-center gap-2 rounded-lg border border-slate-800/80 bg-slate-900/70 px-3 h-10 text-sm text-slate-200">
+                        <span class="text-slate-400">Billing Period:</span>
+                        <span class="font-medium text-slate-100">{$displayedPeriod.start|date_format:"%d %b %Y"} - {$displayedPeriod.end|date_format:"%d %b %Y"}</span>
+                        <span class="ml-2 inline-flex items-center rounded-full border border-slate-700 bg-slate-800 px-2 py-0.5 text-[11px] text-slate-300">
+                            {if $smarty.get.username}{$smarty.get.username}{else}All tenants{/if}
+                        </span>
                     </div>
-                </div>
-                <div class="flex items-center">
-                    <!-- Alpine.js Username Filter Dropdown -->
+                    <button id="periodForwardButton"
+                            type="button"
+                            title="Next period"
+                            aria-label="Next period"
+                            {if !$canNavigateForward}disabled{/if}
+                            class="h-10 w-10 rounded-lg border border-slate-800/80 bg-slate-900/70 text-slate-200 hover:bg-slate-800/80 focus:outline-none focus:ring-2 focus:ring-slate-500 inline-flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 8.689c0-.864.933-1.406 1.683-.977l7.108 4.061a1.125 1.125 0 0 1 0 1.954l-7.108 4.061A1.125 1.125 0 0 1 3 16.811V8.69ZM12.75 8.689c0-.864.933-1.406 1.683-.977l7.108 4.061a1.125 1.125 0 0 1 0 1.954l-7.108 4.061a1.125 1.125 0 0 1-1.683-.977V8.69Z" />
+                        </svg>
+                    </button>
+                    <button id="currentPeriodButton" type="button" class="h-10 px-2 text-xs text-sky-300 hover:text-sky-200 underline underline-offset-2">
+                        Jump to current
+                    </button>
                     <div x-data="{ 
                         open: false, 
                         selected: '{$smarty.get.username|default:""}',
@@ -79,12 +96,128 @@
                                 this.selectedLabel = 'All';
                             }
                         }
-                    }" class="relative w-48">
+                    }" class="relative w-40">
+                        <label class="sr-only">Tenant</label>
                         <!-- Dropdown Button -->
                         <button 
                             @click="open = !open"
                             @click.away="open = false"
-                            class="w-full px-3 py-2 text-left border border-gray-600 bg-[#192331] text-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 flex items-center justify-between hover:bg-[#1e2937] transition-colors duration-200">
+                            class="w-full h-9 px-4 text-left border border-slate-700 bg-slate-900/70 text-slate-200 rounded-full focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 flex items-center justify-between hover:bg-slate-800/80 transition-colors duration-200 text-xs">
+                            <span x-text="selectedLabel"></span>
+                            <svg class="w-4 h-4 transition-transform duration-200" :class="{ 'transform rotate-180': open }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                            </svg>
+                        </button>
+
+                        <!-- Dropdown Menu -->
+                        <div 
+                            x-show="open"
+                            x-cloak
+                            x-transition:enter="transition ease-out duration-200"
+                            x-transition:enter-start="opacity-0 scale-95"
+                            x-transition:enter-end="opacity-100 scale-100"
+                            x-transition:leave="transition ease-in duration-75"
+                            x-transition:leave-start="opacity-100 scale-100"
+                            x-transition:leave-end="opacity-0 scale-95"
+                            class="absolute z-50 w-full mt-1 bg-[#192331] border border-gray-600 rounded-md shadow-lg max-h-60 overflow-auto scrollbar_thin">
+                            
+                            <!-- All Option -->
+                            <div 
+                                @click="selected = ''; selectedLabel = 'All'; open = false; handleUsernameChange('')"
+                                class="px-3 py-2 text-gray-300 hover:bg-[#1e2937] hover:text-white cursor-pointer flex items-center"
+                                :class="{ 'bg-[#1e2937] text-white': selected === '' }">
+                                <span>All</span>
+                                <svg x-show="selected === ''" class="w-4 h-4 ml-auto text-sky-500" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd" d="M16.707 5.293a1.125 1.125 0 010 1.414l-8 8a1.125 1.125 0 01-1.414 0l-4-4a1.125 1.125 0 011.414-1.414L8 12.586l7.293-7.293a1.125 1.125 0 01 1.414 0z" clip-rule="evenodd"></path>
+                                </svg>
+                            </div>
+
+                            <!-- Username Options -->
+                            {foreach from=$usernames item=username}
+                            <div 
+                                @click="selected = '{$username}'; selectedLabel = '{$username}'; open = false; handleUsernameChange('{$username}')"
+                                class="px-3 py-2 text-gray-300 hover:bg-[#1e2937] hover:text-white cursor-pointer flex items-center"
+                                :class="{ 'bg-[#1e2937] text-white': selected === '{$username}' }">
+                                <span>{$username}</span>
+                                <svg x-show="selected === '{$username}'" class="w-4 h-4 ml-auto text-sky-500" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd" d="M16.707 5.293a1.125 1.125 0 010 1.414l-8 8a1.125 1.125 0 01-1.414 0l-4-4a1.125 1.125 0 011.414-1.414L8 12.586l7.293-7.293a1.125 1.125 0 01 1.414 0z" clip-rule="evenodd"></path>
+                                </svg>
+                            </div>
+                            {/foreach}
+                        </div>
+
+                        <!-- Hidden input to maintain compatibility -->
+                        <input type="hidden" id="usernameFilter" name="username" :value="selected">
+                    </div>
+                    </div>
+                    <div class="flex items-center">
+                        <div x-data="{ open: false }" class="relative">
+                            <button type="button" @click="open = !open" class="h-10 px-4 rounded-lg bg-slate-700 text-white hover:bg-slate-600 focus:outline-none focus:ring-2 focus:ring-slate-500 text-sm">
+                                Export...
+                            </button>
+                            <div 
+                                x-show="open"
+                                x-cloak
+                                @click.away="open = false"
+                                class="absolute right-0 mt-2 w-80 rounded-lg border border-slate-700 bg-[#111827] shadow-lg p-4 z-50">
+                                <form method="get" action="index.php" class="space-y-3">
+                                    <input type="hidden" name="m" value="cloudstorage">
+                                    <input type="hidden" name="page" value="history">
+                                    <input type="hidden" name="export" value="csv">
+                                    <div>
+                                        <label class="text-xs text-slate-400">Tenant (optional)</label>
+                                        <select name="username" class="h-10 mt-1 w-full px-3 rounded-lg border border-gray-600 bg-[#192331] text-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500">
+                                            <option value="" {if !$smarty.get.username}selected{/if}>All</option>
+                                            {foreach from=$usernames item=username}
+                                                <option value="{$username}" {if $smarty.get.username == $username}selected{/if}>{$username}</option>
+                                            {/foreach}
+                                        </select>
+                                    </div>
+                                    <div class="grid grid-cols-2 gap-2">
+                                        <div>
+                                            <label for="exportStartDate" class="text-xs text-slate-400">From</label>
+                                            <input id="exportStartDate" type="date" name="start_date" value="{$startDate}" class="h-10 mt-1 w-full px-2.5 rounded-lg border border-gray-600 bg-[#192331] text-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500">
+                                        </div>
+                                        <div>
+                                            <label for="exportEndDate" class="text-xs text-slate-400">To</label>
+                                            <input id="exportEndDate" type="date" name="end_date" value="{$endDate}" class="h-10 mt-1 w-full px-2.5 rounded-lg border border-gray-600 bg-[#192331] text-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500">
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label class="text-xs text-slate-400">Format</label>
+                                        <select name="format" class="h-10 mt-1 w-full px-3 rounded-lg border border-gray-600 bg-[#192331] text-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500">
+                                            <option value="csv" selected>CSV</option>
+                                        </select>
+                                    </div>
+                                    <button type="submit" class="h-10 w-full rounded-lg bg-blue-600 text-white hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                                        Download
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="flex flex-wrap items-center gap-3 hidden">
+                    <div class="flex flex-wrap items-end gap-3">
+                        {* 
+                        <!-- Alpine.js Username Filter Dropdown -->
+                        <div x-data="{ 
+                        open: false, 
+                        selected: '{$smarty.get.username|default:""}',
+                        selectedLabel: '{if $smarty.get.username}{$smarty.get.username}{else}All{/if}',
+                        init() {
+                            // Ensure proper initialization
+                            if (this.selected === '') {
+                                this.selectedLabel = 'All';
+                            }
+                        }
+                    }" class="relative w-48">
+                        <label class="text-xs text-slate-400">Tenant</label>
+                        <!-- Dropdown Button -->
+                        <button 
+                            @click="open = !open"
+                            @click.away="open = false"
+                            class="w-full h-10 px-3 text-left border border-gray-600 bg-[#192331] text-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 flex items-center justify-between hover:bg-[#1e2937] transition-colors duration-200">
                             <span x-text="selectedLabel"></span>
                             <svg class="w-4 h-4 transition-transform duration-200" :class="{ 'transform rotate-180': open }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
@@ -131,7 +264,77 @@
                         <!-- Hidden input to maintain compatibility -->
                         <input type="hidden" id="usernameFilter" name="username" :value="selected">
                     </div>
+                        *}
+                    <div class="flex flex-col">
+                        <label for="rangePreset" class="text-xs text-slate-400">Range</label>
+                        <select id="rangePreset" class="h-10 px-3 rounded-lg border border-gray-600 bg-[#192331] text-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500">
+                            <option value="billing_period" {if $rangePreset == 'billing_period'}selected{/if}>Billing period (default)</option>
+                            <option value="last_7_days" {if $rangePreset == 'last_7_days'}selected{/if}>Last 7 days</option>
+                            <option value="last_30_days" {if $rangePreset == 'last_30_days'}selected{/if}>Last 30 days</option>
+                            <option value="custom" {if $rangePreset == 'custom'}selected{/if}>Custom...</option>
+                        </select>
+                    </div>
+                    <div x-data="{ open: false }" class="relative">
+                        <button type="button" @click="open = !open" class="h-10 px-4 rounded-lg bg-slate-700 text-white hover:bg-slate-600 focus:outline-none focus:ring-2 focus:ring-slate-500 text-sm">
+                            Export...
+                        </button>
+                        <div 
+                            x-show="open"
+                            x-cloak
+                            @click.away="open = false"
+                            class="absolute left-0 mt-2 w-80 rounded-lg border border-slate-700 bg-[#111827] shadow-lg p-4 z-50">
+                            <form method="get" action="index.php" class="space-y-3">
+                                <input type="hidden" name="m" value="cloudstorage">
+                                <input type="hidden" name="page" value="history">
+                                <input type="hidden" name="export" value="csv">
+                                <div>
+                                    <label class="text-xs text-slate-400">Tenant (optional)</label>
+                                    <select name="username" class="h-10 mt-1 w-full px-3 rounded-lg border border-gray-600 bg-[#192331] text-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500">
+                                        <option value="" {if !$smarty.get.username}selected{/if}>All</option>
+                                        {foreach from=$usernames item=username}
+                                            <option value="{$username}" {if $smarty.get.username == $username}selected{/if}>{$username}</option>
+                                        {/foreach}
+                                    </select>
+                                </div>
+                                <div class="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label for="exportStartDate" class="text-xs text-slate-400">From</label>
+                                        <input id="exportStartDate" type="date" name="start_date" value="{$startDate}" class="h-10 mt-1 w-full px-2.5 rounded-lg border border-gray-600 bg-[#192331] text-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500">
+                                    </div>
+                                    <div>
+                                        <label for="exportEndDate" class="text-xs text-slate-400">To</label>
+                                        <input id="exportEndDate" type="date" name="end_date" value="{$endDate}" class="h-10 mt-1 w-full px-2.5 rounded-lg border border-gray-600 bg-[#192331] text-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500">
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="text-xs text-slate-400">Format</label>
+                                    <select name="format" class="h-10 mt-1 w-full px-3 rounded-lg border border-gray-600 bg-[#192331] text-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500">
+                                        <option value="csv" selected>CSV</option>
+                                    </select>
+                                </div>
+                                <button type="submit" class="h-10 w-full rounded-lg bg-blue-600 text-white hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                                    Download
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                    <div id="customRangeFields" class="flex flex-wrap items-end gap-2 {if $rangePreset != 'custom'}hidden{/if}">
+                        <div class="flex flex-col">
+                            <label for="rangeStartDate" class="text-xs text-slate-400">From</label>
+                            <input id="rangeStartDate" type="date" value="{$startDate}" class="h-10 px-2.5 rounded-lg border border-gray-600 bg-[#192331] text-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500">
+                        </div>
+                        <div class="flex flex-col">
+                            <label for="rangeEndDate" class="text-xs text-slate-400">To</label>
+                            <input id="rangeEndDate" type="date" value="{$endDate}" class="h-10 px-2.5 rounded-lg border border-gray-600 bg-[#192331] text-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500">
+                        </div>
+                        <button id="applyRangeButton" type="button" class="h-10 px-3 rounded-lg bg-slate-700 text-white hover:bg-slate-600 focus:outline-none focus:ring-2 focus:ring-slate-500 text-sm">
+                            Apply
+                        </button>
+                    </div>
                 </div>
+            </div>
+            <div id="usageContextLabel" class="text-xs text-slate-400">
+                Showing usage for {if $smarty.get.username}{$smarty.get.username}{else}All tenants{/if} - Billing period
             </div>
         </div>
 
@@ -200,6 +403,7 @@
             </div>
         </div>
 
+        {if $hasUsageData}
         <!-- Charts -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <!-- Ingress Chart -->
@@ -223,6 +427,13 @@
                 <div id="storageUsageChart" class="h-80"></div>
             </div>
         </div>
+        {else}
+        <div class="mb-8">
+            <div class="bg-slate-900/70 rounded-lg border border-slate-800/80 p-6 text-center">
+                <p class="text-slate-400">No activity in this period.</p>
+            </div>
+        </div>
+        {/if}
 
         </div>
     </div>
@@ -248,6 +459,7 @@
     };
     const displayedStartDate = '{$startDate|escape:"javascript"}'; 
     const displayedEndDate = '{$endDate|escape:"javascript"}';   
+    const rangePreset = '{$rangePreset|escape:"javascript"}';
 
     function showLoader() {
         try { if (window.ebShowLoader) window.ebShowLoader(document.body, 'Loading…'); } catch(_) {}
@@ -258,6 +470,10 @@
         showLoader();
         {literal}
         let url = `index.php?m=cloudstorage&page=history&start_date=${displayedStartDate}&end_date=${displayedEndDate}`;
+        const rangeValue = rangePreset || 'billing_period';
+        if (rangeValue) {
+            url += `&range=${encodeURIComponent(rangeValue)}`;
+        }
         if (selectedUsername) {
             url += `&username=${encodeURIComponent(selectedUsername)}`;
         }
@@ -271,7 +487,7 @@
             showLoader();
             const currentUsername = document.getElementById('usernameFilter').value;
             {literal}
-            let url = `index.php?m=cloudstorage&page=history&action=current_period`;
+            let url = `index.php?m=cloudstorage&page=history&action=current_period&range=billing_period`;
             if (currentUsername) {
                 url += `&username=${encodeURIComponent(currentUsername)}`;
             }
@@ -280,18 +496,147 @@
         });
     }
 
-    if (document.getElementById('previousPeriodButton')) {
-        document.getElementById('previousPeriodButton').addEventListener('click', function(e) {
+    if (document.getElementById('periodBackButton')) {
+        document.getElementById('periodBackButton').addEventListener('click', function(e) {
             e.preventDefault();
             showLoader();
             const currentUsername = document.getElementById('usernameFilter').value;
             {literal}
-            let url = `index.php?m=cloudstorage&page=history&action=prev_period&ref_start=${displayedStartDate}`;
+            let url = `index.php?m=cloudstorage&page=history&action=prev_period&ref_start=${displayedStartDate}&range=billing_period`;
             if (currentUsername) {
                 url += `&username=${encodeURIComponent(currentUsername)}`;
             }
             {/literal}
             window.location.href = url;
+        });
+    }
+
+    if (document.getElementById('periodForwardButton')) {
+        document.getElementById('periodForwardButton').addEventListener('click', function(e) {
+            e.preventDefault();
+            showLoader();
+            const currentUsername = document.getElementById('usernameFilter').value;
+            {literal}
+            let url = `index.php?m=cloudstorage&page=history&action=next_period&ref_start=${displayedStartDate}&range=billing_period`;
+            if (currentUsername) {
+                url += `&username=${encodeURIComponent(currentUsername)}`;
+            }
+            {/literal}
+            window.location.href = url;
+        });
+    }
+
+    function formatDateLocal(date) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return year + '-' + month + '-' + day;
+    }
+
+    function getLastDaysRange(days) {
+        const end = new Date();
+        const start = new Date();
+        start.setDate(end.getDate() - (days - 1));
+        return {
+            start: formatDateLocal(start),
+            end: formatDateLocal(end)
+        };
+    }
+
+    function setUsageContextLabel(preset) {
+        const label = document.getElementById('usageContextLabel');
+        if (!label) {
+            return;
+        }
+
+        let rangeLabel = 'Billing period';
+        if (preset === 'last_7_days') {
+            rangeLabel = 'Last 7 days';
+        } else if (preset === 'last_30_days') {
+            rangeLabel = 'Last 30 days';
+        } else if (preset === 'custom') {
+            rangeLabel = 'Custom range';
+        }
+
+        const tenantLabel = '{if $smarty.get.username}{$smarty.get.username|escape:"javascript"}{else}All tenants{/if}';
+        label.textContent = 'Showing usage for ' + tenantLabel + ' - ' + rangeLabel;
+    }
+
+    function navigateToRange(preset, startDate, endDate) {
+        {literal}
+        let url = `index.php?m=cloudstorage&page=history`;
+        if (preset === 'billing_period') {
+            url += `&action=current_period`;
+        } else if (startDate && endDate) {
+            url += `&start_date=${startDate}&end_date=${endDate}`;
+        } else {
+            return;
+        }
+        if (preset) {
+            url += `&range=${encodeURIComponent(preset)}`;
+        }
+        const currentUsername = document.getElementById('usernameFilter').value;
+        if (currentUsername) {
+            url += `&username=${encodeURIComponent(currentUsername)}`;
+        }
+        {/literal}
+        showLoader();
+        window.location.href = url;
+    }
+
+    const rangePresetSelect = document.getElementById('rangePreset');
+    const customRangeFields = document.getElementById('customRangeFields');
+    const applyRangeButton = document.getElementById('applyRangeButton');
+    const rangeStartInput = document.getElementById('rangeStartDate');
+    const rangeEndInput = document.getElementById('rangeEndDate');
+
+    function toggleCustomRangeFields(preset) {
+        if (!customRangeFields) {
+            return;
+        }
+        if (preset === 'custom') {
+            customRangeFields.classList.remove('hidden');
+        } else {
+            customRangeFields.classList.add('hidden');
+        }
+    }
+
+    if (rangePresetSelect) {
+        const initialPreset = rangePreset || 'billing_period';
+        rangePresetSelect.value = initialPreset;
+        toggleCustomRangeFields(initialPreset);
+        setUsageContextLabel(initialPreset);
+
+        rangePresetSelect.addEventListener('change', function() {
+            const preset = this.value;
+            if (preset === 'custom') {
+                toggleCustomRangeFields(preset);
+                setUsageContextLabel(preset);
+                return;
+            }
+
+            toggleCustomRangeFields(preset);
+            if (preset === 'last_7_days') {
+                const range = getLastDaysRange(7);
+                navigateToRange(preset, range.start, range.end);
+                return;
+            }
+            if (preset === 'last_30_days') {
+                const range = getLastDaysRange(30);
+                navigateToRange(preset, range.start, range.end);
+                return;
+            }
+
+            navigateToRange('billing_period');
+        });
+    }
+
+    if (applyRangeButton && rangeStartInput && rangeEndInput) {
+        applyRangeButton.addEventListener('click', function() {
+            if (!rangeStartInput.value || !rangeEndInput.value) {
+                return;
+            }
+            navigateToRange('custom', rangeStartInput.value, rangeEndInput.value);
         });
     }
 

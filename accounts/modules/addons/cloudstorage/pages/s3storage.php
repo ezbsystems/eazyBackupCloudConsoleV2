@@ -53,10 +53,13 @@
         exit;
     }
 
-    // Prefill suggested username from client email
+    // Prefill suggested username from client email (strip '@' and '.' for clean RGW uid)
     $email = '';
     try { $email = (string) $client->email; } catch (\Throwable $e) { $email = ''; }
-    $suggested = preg_replace('/[^a-z0-9._@-]+/', '', strtolower($email));
+    $suggested = \WHMCS\Module\Addon\CloudStorage\Client\HelperController::sanitizeEmailForUsername($email);
+    if ($suggested === '') {
+        $suggested = preg_replace('/[^a-z0-9-]+/', '', strtolower($email));
+    }
 
     return [
         'status' => 'success',

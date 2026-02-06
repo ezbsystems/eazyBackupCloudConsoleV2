@@ -3024,6 +3024,19 @@ function cloudstorage_clientarea($vars) {
             }
             break;
 
+        case 'resendtrial':
+            $pagetitle = 'e3 Storage Signup';
+            $templatefile = 'templates/signup';
+            $requireLogin = false;
+            $routeVars = (function () use ($turnstileSiteKey, $turnstileSecretKey) {
+                return require __DIR__ . '/pages/resendtrial.php';
+            })();
+            $viewVars = is_array($routeVars) ? $routeVars : [];
+            if (empty($viewVars['TURNSTILE_SITE_KEY'])) {
+                $viewVars['TURNSTILE_SITE_KEY'] = $turnstileSiteKey;
+            }
+            break;
+
         case 'verifytrial':
             $pagetitle = 'Verify e3 Trial';
             $templatefile = 'templates/signup';

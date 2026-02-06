@@ -131,6 +131,14 @@ try {
             // Default to trial_limited if not specified
             $storageTier = 'trial_limited';
         }
+        try {
+            logModuleCall('cloudstorage', 'setpassword_storage_tier_input', [
+                'client_id' => $clientId,
+                'choice' => $choice,
+            ], [
+                'storage_tier' => $storageTier,
+            ]);
+        } catch (\Throwable $e) {}
     } else {
         // Storage tier only applies to Cloud Storage product
         $storageTier = '';
@@ -261,8 +269,40 @@ try {
         $trialStatus = ($storageTier === 'trial_unlimited' && $hasCard) ? 'paid' : 'trial';
         try {
             if (Capsule::schema()->hasTable('cloudstorage_trial_selection')) {
+                try {
+                    $schema = Capsule::schema();
+                    $added = [];
+                    if (!$schema->hasColumn('cloudstorage_trial_selection', 'storage_tier')) {
+                        $schema->table('cloudstorage_trial_selection', function ($table) {
+                            $table->string('storage_tier', 32)->nullable()->after('product_choice');
+                        });
+                        $added[] = 'storage_tier';
+                    }
+                    if (!$schema->hasColumn('cloudstorage_trial_selection', 'trial_status')) {
+                        $schema->table('cloudstorage_trial_selection', function ($table) {
+                            $table->string('trial_status', 16)->default('trial')->after('storage_tier');
+                        });
+                        $added[] = 'trial_status';
+                    }
+                    if (!empty($added)) {
+                        try {
+                            logModuleCall('cloudstorage', 'setpassword_trial_selection_columns_added', [
+                                'client_id' => $clientId,
+                            ], [
+                                'added' => $added,
+                            ]);
+                        } catch (\Throwable $e) {}
+                    }
+                } catch (\Throwable $e) {
+                    try {
+                        logModuleCall('cloudstorage', 'setpassword_trial_selection_columns_add_error', [
+                            'client_id' => $clientId,
+                        ], $e->getMessage());
+                    } catch (\Throwable $e) {}
+                }
                 $now = date('Y-m-d H:i:s');
                 $exists = Capsule::table('cloudstorage_trial_selection')->where('client_id', $clientId)->first();
+                $action = $exists ? 'update' : 'insert';
                 if ($exists) {
                     Capsule::table('cloudstorage_trial_selection')
                         ->where('client_id', $clientId)
@@ -282,6 +322,22 @@ try {
                         'updated_at'     => $now,
                     ]);
                 }
+                try {
+                    logModuleCall('cloudstorage', 'setpassword_save_storage_tier', [
+                        'client_id' => $clientId,
+                        'action' => $action,
+                    ], [
+                        'storage_tier' => $storageTier,
+                        'trial_status' => $trialStatus,
+                        'has_card' => $hasCard ? 1 : 0,
+                    ]);
+                } catch (\Throwable $e) {}
+            } else {
+                try {
+                    logModuleCall('cloudstorage', 'setpassword_storage_tier_table_missing', [
+                        'client_id' => $clientId,
+                    ], 'cloudstorage_trial_selection missing');
+                } catch (\Throwable $e) {}
             }
         } catch (\Throwable $e) {
             // Non-fatal - log for debugging
@@ -289,6 +345,14 @@ try {
         }
 
         if ($storageTier === 'trial_unlimited' && !$hasCard) {
+            try {
+                logModuleCall('cloudstorage', 'setpassword_storage_requires_card', [
+                    'client_id' => $clientId,
+                ], [
+                    'storage_tier' => $storageTier,
+                    'trial_status' => $trialStatus,
+                ]);
+            } catch (\Throwable $e) {}
             echo json_encode([
                 'status' => 'error',
                 'requires_payment_method' => true,

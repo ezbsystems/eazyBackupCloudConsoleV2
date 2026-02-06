@@ -237,4 +237,46 @@ class BillingController {
         }
     }
 
+    /**
+     * Calculate the next billing period.
+     * Assumes monthly billing based on the provided current start date.
+     *
+     * @param integer $userId WHMCS User ID
+     * @param integer $packageId Package ID
+     * @param string $currentReferencedStartDate The start date of the current billing period being viewed (Y-m-d).
+     * @return array ['start' => string|null, 'end' => string|null]
+     */
+    public function getNextBillingPeriod(int $userId, int $packageId, string $currentReferencedStartDate): array
+    {
+        // Fetch product to confirm it's active; billing cycle details could be used for more advanced logic later
+        $product = Capsule::table('tblhosting')
+            ->where('userid', $userId)
+            ->where('packageid', $packageId)
+            ->where('domainstatus', 'Active')
+            ->select('nextduedate', 'billingcycle')
+            ->first();
+
+        if (!$product) {
+            logModuleCall('cloudstorage', __METHOD__, [$userId, $packageId, $currentReferencedStartDate], "Product not found or inactive when calculating next period.");
+            return ['start' => null, 'end' => null];
+        }
+
+        try {
+            $currentStartDt = new \DateTime($currentReferencedStartDate);
+
+            // The next period starts one month after currentReferencedStartDate.
+            // The next period ends one month after that, minus one day.
+            $nextPeriodStartDt = (clone $currentStartDt)->modify('+1 month');
+            $nextPeriodEndDt = (clone $nextPeriodStartDt)->modify('+1 month')->modify('-1 day');
+
+            return [
+                'start' => $nextPeriodStartDt->format('Y-m-d'),
+                'end' => $nextPeriodEndDt->format('Y-m-d'),
+            ];
+        } catch (\Exception $e) {
+            logModuleCall('cloudstorage', __METHOD__, [$userId, $packageId, $currentReferencedStartDate, $e->getMessage()], "Exception calculating next period.");
+            return ['start' => null, 'end' => null];
+        }
+    }
+
 }

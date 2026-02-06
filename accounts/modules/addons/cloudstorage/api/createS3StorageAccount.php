@@ -45,9 +45,36 @@ $secretKeyFieldId = 55;
 $billingCycle = 'Monthly';
 $username = $_POST['username'];
 
-// check the username is unique
-$user = DBController::getRow('s3_users', [['username', '=', $username]]);
-if (!is_null($user)) {
+// Derive the storage username from the client's email with '@' and '.' stripped.
+// This ensures the Ceph RGW uid and WHMCS product username are clean and consistent.
+// Example: newuser@mycompany.com → newusermycompanycom
+$clientEmail = '';
+try {
+    $clientEmail = (string) \WHMCS\Database\Capsule::table('tblclients')->where('id', $userId)->value('email');
+} catch (\Throwable $e) {}
+if ($clientEmail !== '') {
+    $username = HelperController::sanitizeEmailForUsername($clientEmail);
+}
+if ($username === '') {
+    $username = preg_replace('/[^a-z0-9-]+/', '', strtolower((string)$_POST['username']));
+}
+if ($username === '') {
+    $username = 'e3user' . $userId;
+}
+
+// Check for existing s3_users record (active or inactive) by ceph_uid or base username.
+// This catches stale records left behind after a cancel→delete cycle.
+$existingS3User = null;
+try {
+    $existingS3User = \WHMCS\Database\Capsule::table('s3_users')
+        ->where(function ($q) use ($username) {
+            $q->where('ceph_uid', $username)
+              ->orWhere('username', $username);
+        })
+        ->first();
+} catch (\Throwable $e) {}
+if (!is_null($existingS3User) && ($existingS3User->is_active ?? 1) == 1) {
+    // An active user already exists with this username — block signup.
     $jsonData = [
         'status' => 'fail',
         'message' => 'Please choose a different username.'
@@ -57,6 +84,7 @@ if (!is_null($user)) {
     $response->send();
     exit();
 }
+// If $existingS3User is set but inactive, we will reactivate it below after Ceph user creation.
 
 $module = DBController::getResult('tbladdonmodules', [
     ['module', '=', 'cloudstorage']
@@ -95,11 +123,10 @@ try {
         throw new \Exception('AddOrder failed: ' . ($order['message'] ?? 'unknown'));
     }
 
-    $accept = localAPI('AcceptOrder', [
+$accept = localAPI('AcceptOrder', [
         'orderid'         => $order['orderid'],
         'autosetup'       => true,
         'sendemail'       => true,
-        'serviceusername' => $username,
     ], $adminUser);
     try { logModuleCall('cloudstorage', 'create_s3_acceptorder', ['orderId' => $order['orderid']], $accept); } catch (\Throwable $_) {}
     if (($accept['result'] ?? '') !== 'success') {
@@ -134,12 +161,43 @@ try {
     try { logModuleCall('cloudstorage', 'create_s3_hosting_update', ['serviceId' => $serviceId], $update); } catch (\Throwable $_) {}
     DBController::updateRecord('tblhosting', $update, [['id', '=', $serviceId]]);
 
-    $tenantId = HelperController::getUniqueTenantId();
-    $cephUid = HelperController::generateCephUserId($username, $tenantId);
+    // Reuse tenant_id from an existing (inactive) s3_users record when possible,
+    // so the customer keeps a consistent identity across cancel→re-signup cycles.
+    if ($existingS3User && !empty($existingS3User->tenant_id)) {
+        $tenantId = (string) $existingS3User->tenant_id;
+    } else {
+        $tenantId = HelperController::getUniqueTenantId();
+    }
+    // $username is already sanitized (email with '@' and '.' stripped) from the top of this file.
+    $baseUsername = $username;
+    if ($baseUsername === '') {
+        $baseUsername = HelperController::generateCephUserId($_POST['username'] ?? '', $tenantId);
+    }
+
+    // Final safety net: ensure '@' and '.' are stripped before any Ceph or DB writes.
+    $baseUsername = HelperController::sanitizeEmailForUsername($baseUsername);
+    if ($baseUsername === '') {
+        $baseUsername = 'e3user' . $userId;
+    }
+
+    $serviceUsername = !empty($tenantId) ? ($tenantId . '$' . $baseUsername) : $baseUsername;
+    // Ensure WHMCS service username matches RGW (tenant-qualified uid).
+    try {
+        $upd = localAPI('UpdateClientProduct', [
+            'serviceid'       => $serviceId,
+            'serviceusername' => $serviceUsername,
+        ], $adminUser);
+        try { logModuleCall('cloudstorage', 'create_s3_update_service_username', ['serviceId' => $serviceId, 'username' => $serviceUsername], $upd); } catch (\Throwable $_) {}
+    } catch (\Throwable $e) {
+        try { logModuleCall('cloudstorage', 'create_s3_update_service_username_fail', ['serviceId' => $serviceId, 'username' => $serviceUsername], $e->getMessage()); } catch (\Throwable $_) {}
+    }
+    DBController::updateRecord('tblhosting', ['username' => $serviceUsername], [['id', '=', $serviceId]]);
+
+    $cephUid = $baseUsername;
     $params = [
         'uid'    => $cephUid,
-        'name'   => $username,
-        'email'  => $username,
+        'name'   => $serviceUsername,
+        'email'  => $serviceUsername,
         'tenant' => $tenantId
     ];
 
@@ -150,11 +208,28 @@ try {
         throw new \Exception($user['message'] ?? 'Admin Ops user creation failed.');
     }
 
-    $s3UserId = DBController::saveUser([
-        'username'  => $username,
-        'ceph_uid'  => $cephUid,
-        'tenant_id' => $tenantId
-    ]);
+    if ($existingS3User && isset($existingS3User->id)) {
+        // Re-provisioning: reactivate the existing s3_users row and purge stale keys.
+        $s3UserId = (int) $existingS3User->id;
+        \WHMCS\Database\Capsule::table('s3_users')->where('id', $s3UserId)->update([
+            'username'   => $serviceUsername,
+            'ceph_uid'   => $cephUid,
+            'tenant_id'  => $tenantId,
+            'is_active'  => 1,
+            'deleted_at' => null,
+        ]);
+        try {
+            \WHMCS\Database\Capsule::table('s3_user_access_keys')->where('user_id', $s3UserId)->delete();
+        } catch (\Throwable $_) {}
+        try { logModuleCall('cloudstorage', 'create_s3_reactivate_user', ['id' => $s3UserId, 'username' => $serviceUsername], 'Reactivated existing s3_users row and purged stale keys'); } catch (\Throwable $_) {}
+    } else {
+        // Brand-new user — insert a fresh row.
+        $s3UserId = DBController::saveUser([
+            'username'  => $serviceUsername,
+            'ceph_uid'  => $cephUid,
+            'tenant_id' => $tenantId
+        ]);
+    }
 
     $accessKey = HelperController::encryptKey($user['data']['keys'][0]['access_key'], $encryptionKey);
     $secretKey = HelperController::encryptKey($user['data']['keys'][0]['secret_key'], $encryptionKey);

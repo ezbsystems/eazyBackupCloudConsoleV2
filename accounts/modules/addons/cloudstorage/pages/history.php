@@ -70,6 +70,11 @@ $billingObject = new BillingController();
 $displayPeriod = $billingObject->calculateDisplayPeriod($loggedInUserId, $packageId);
 $overdueNotice = $billingObject->getOverdueNotice($loggedInUserId, $packageId);
 
+$displayedPeriod = [
+    'start' => $displayPeriod['start'],
+    'end' => $displayPeriod['end']
+];
+
 debugLog('Display Period', [
     'period' => $displayPeriod,
     'loggedInUserId' => $loggedInUserId,
@@ -83,6 +88,7 @@ $requestedEndDate = $_GET['end_date'] ?? null;
 
 $refStartDateForNav = $_GET['ref_start'] ?? null;
 $refEndDateForNav = $_GET['ref_end'] ?? null;
+$rangePreset = $_GET['range'] ?? '';
 
 $startDate = null;
 $endDate = null;
@@ -91,14 +97,53 @@ if ($action === 'current_period') {
     // Use display period for header, but end at today for queries
     $startDate = $displayPeriod['start'];
     $endDate = $displayPeriod['end_for_queries'];
+    $displayedPeriod = [
+        'start' => $displayPeriod['start'],
+        'end' => $displayPeriod['end']
+    ];
 } elseif ($action === 'prev_period' && $refStartDateForNav) {
     try {
         new \DateTime($refStartDateForNav); // Validate date format
         $prevData = $billingObject->getPreviousBillingPeriod($loggedInUserId, $packageId, $refStartDateForNav);
         $startDate = $prevData['start'];
         $endDate = $prevData['end'];
+        if (!is_null($startDate) && !is_null($endDate)) {
+            $displayedPeriod = [
+                'start' => $startDate,
+                'end' => $endDate
+            ];
+        }
     } catch (\Exception $e) {
         debugLog('Date Navigation Error', ['action' => 'prev_period', 'ref_start' => $refStartDateForNav, 'error' => $e->getMessage()], 'Error processing prev_period, falling back.');
+    }
+} elseif ($action === 'next_period' && $refStartDateForNav) {
+    try {
+        new \DateTime($refStartDateForNav); // Validate date format
+        $nextData = $billingObject->getNextBillingPeriod($loggedInUserId, $packageId, $refStartDateForNav);
+
+        if (!empty($nextData['start']) && !empty($nextData['end'])) {
+            $nextStartDt = new \DateTime($nextData['start']);
+            $currentStartDt = new \DateTime($displayPeriod['start']);
+
+            // Prevent navigating beyond the actual current billing period
+            if ($nextStartDt > $currentStartDt) {
+                $startDate = $displayPeriod['start'];
+                $endDate = $displayPeriod['end_for_queries'];
+                $displayedPeriod = [
+                    'start' => $displayPeriod['start'],
+                    'end' => $displayPeriod['end']
+                ];
+            } else {
+                $startDate = $nextData['start'];
+                $endDate = $nextData['end'];
+                $displayedPeriod = [
+                    'start' => $startDate,
+                    'end' => $endDate
+                ];
+            }
+        }
+    } catch (\Exception $e) {
+        debugLog('Date Navigation Error', ['action' => 'next_period', 'ref_start' => $refStartDateForNav, 'error' => $e->getMessage()], 'Error processing next_period, falling back.');
     }
 } elseif (!is_null($requestedStartDate) && !is_null($requestedEndDate)) {
     try {
@@ -106,6 +151,17 @@ if ($action === 'current_period') {
         new \DateTime($requestedEndDate);   // Validate
         $startDate = $requestedStartDate;
         $endDate = $requestedEndDate;
+        if ($startDate === $displayPeriod['start'] && $endDate === $displayPeriod['end_for_queries']) {
+            $displayedPeriod = [
+                'start' => $displayPeriod['start'],
+                'end' => $displayPeriod['end']
+            ];
+        } else {
+            $displayedPeriod = [
+                'start' => $startDate,
+                'end' => $endDate
+            ];
+        }
     } catch (\Exception $e) {
         debugLog('Invalid Custom Date Range', ['start' => $requestedStartDate, 'end' => $requestedEndDate, 'error' => $e->getMessage()], 'Invalid custom dates provided, falling back.');
     }
@@ -116,6 +172,10 @@ if (is_null($startDate) || is_null($endDate)) {
     $startDate = $displayPeriod['start'];
     $endDate = $displayPeriod['end_for_queries'];
     debugLog('Date Fallback Applied', ['reason' => 'Primary logic did not set dates', 'applied_start' => $startDate, 'applied_end' => $endDate], 'Fell back to user actual current billing period.');
+    $displayedPeriod = [
+        'start' => $displayPeriod['start'],
+        'end' => $displayPeriod['end']
+    ];
 }
 
 // Critical fallback: if $userActualCurrentBillingPeriod was also null (e.g. no active product)
@@ -127,6 +187,18 @@ if (is_null($startDate) || is_null($endDate)) {
     debugLog('Critical Date Fallback', [
         'loggedInUserId' => $loggedInUserId, 'packageId' => $packageId
     ], "All date determination failed (even userActualCurrentBillingPeriod was null). Defaulting to {$startDate} - {$endDate}.");
+    $displayedPeriod = [
+        'start' => $startDate,
+        'end' => $endDate
+    ];
+}
+
+if ($rangePreset === '') {
+    if (!is_null($requestedStartDate) && !is_null($requestedEndDate)) {
+        $rangePreset = 'custom';
+    } else {
+        $rangePreset = 'billing_period';
+    }
 }
 
 // $startDate and $endDate are now set for data fetching.
@@ -137,7 +209,8 @@ debugLog('Final Date Selection for Data', [
     'startDate' => $startDate,
     'endDate' => $endDate,
     'userIds' => $userIds,
-    'displayPeriod' => $displayPeriod
+    'displayPeriod' => $displayPeriod,
+    'displayedPeriod' => $displayedPeriod
 ], 'Data range selected for fetching');
 
 // Get the selected username from URL parameters
@@ -279,6 +352,60 @@ if (!empty($aggregatedTransferData)) {
     }
 }
 
+$hasStorageUsage = false;
+foreach ($dailyUsageData as $value) {
+    if ((float)$value > 0) {
+        $hasStorageUsage = true;
+        break;
+    }
+}
+
+$hasTransferUsage = false;
+foreach ($aggregatedTransferData as $data) {
+    if (
+        (float)($data['sent'] ?? 0) > 0
+        || (float)($data['received'] ?? 0) > 0
+        || (int)($data['ops'] ?? 0) > 0
+    ) {
+        $hasTransferUsage = true;
+        break;
+    }
+}
+
+$hasUsageData = $hasStorageUsage || $hasTransferUsage;
+
+$exportRequested = isset($_GET['export']) && $_GET['export'] === 'csv';
+if ($exportRequested) {
+    $filename = 'usage_history_' . $startDate . '_to_' . $endDate . '.csv';
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+
+    $output = fopen('php://output', 'w');
+    fprintf($output, "\xEF\xBB\xBF");
+    fputcsv($output, ['Date', 'Storage', 'Ingress', 'Egress']);
+
+    $transferMap = [];
+    foreach ($aggregatedTransferData as $date => $data) {
+        $transferMap[$date] = $data;
+    }
+
+    foreach ($dailyUsageDates as $index => $date) {
+        $storageBytes = $dailyUsageData[$index] ?? 0;
+        $ingressBytes = $transferMap[$date]['received'] ?? 0;
+        $egressBytes = $transferMap[$date]['sent'] ?? 0;
+
+        fputcsv($output, [
+            $date,
+            HelperController::formatSizeUnits($storageBytes),
+            HelperController::formatSizeUnits($ingressBytes),
+            HelperController::formatSizeUnits($egressBytes)
+        ]);
+    }
+
+    fclose($output);
+    exit;
+}
+
 debugLog('Aggregated Chart Data for Template', [
     'dailyUsageDates' => $dailyUsageDates,
     'dailyUsageData' => $dailyUsageData,
@@ -289,19 +416,17 @@ debugLog('Aggregated Chart Data for Template', [
 ], 'Chart data after aggregation logic.');
 
 // Determine active button state
-$currentPeriodActive = false;
-$prevPeriodActive = false;
-
-if ($action === 'prev_period') {
-    $prevPeriodActive = true;
-} else {
-    // Covers $action === 'current_period' or $action being null (default)
-    $currentPeriodActive = true;
-}
+$isCurrentDisplayPeriod = (
+    $displayedPeriod['start'] === $displayPeriod['start']
+    && $displayedPeriod['end'] === $displayPeriod['end']
+);
+$currentPeriodActive = $isCurrentDisplayPeriod;
+$canNavigateForward = !$isCurrentDisplayPeriod;
 
 // Return variables for the template
 return [
     'billingPeriod' => $displayPeriod, // Rolling display period for header label
+    'displayedPeriod' => $displayedPeriod,
     'overdueNotice' => $overdueNotice,
     'bucketStats' => $bucketStats, // For daily storage chart #sizeChart, from getUserBucketSummary
     
@@ -323,5 +448,7 @@ return [
     'transferOpsData' => $transferOpsData,         // array of operations values
     'transferDates' => $transferDates,          // array of dates for transfer data
     'currentPeriodActive' => $currentPeriodActive,
-    'prevPeriodActive' => $prevPeriodActive
+    'canNavigateForward' => $canNavigateForward,
+    'rangePreset' => $rangePreset,
+    'hasUsageData' => $hasUsageData
 ]; 

@@ -17,6 +17,131 @@
     @apply translate-y-0 shadow-sm;
   }
 
+  .btn-accent-orange {
+    @apply inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-sm font-semibold
+           text-white border-[#fe5000]/40
+           bg-gradient-to-r from-[#fe5000] via-[#fe5000]/85 to-[#fe5000]/70
+           shadow-sm transition ease-out duration-150;
+  }
+
+  .btn-accent-orange:hover {
+    @apply -translate-y-px shadow-lg;
+  }
+
+  .btn-accent-orange:active {
+    @apply translate-y-0 shadow-sm;
+  }
+
+  .btn-accent-orange-alt {
+    @apply inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-sm font-semibold
+           text-white border-[#fe5000]/50
+           bg-gradient-to-r from-[#fe5000] via-[#fa5f02] to-[#f6812b]
+           shadow-sm transition ease-out duration-150;
+  }
+
+  .btn-accent-orange-alt:hover {
+    @apply -translate-y-px shadow-lg;
+  }
+
+  .btn-accent-orange-alt:active {
+    @apply translate-y-0 shadow-sm;
+  }
+
+  .btn-orange-matte {
+    @apply inline-flex items-center justify-center gap-2
+           rounded-lg px-4 py-2 text-sm font-semibold
+           text-white bg-[#fe5000]
+           shadow-sm shadow-black/20
+           transition duration-150 ease-out
+           focus:outline-none focus:ring-2 focus:ring-[#fe5000]/60 focus:ring-offset-2 focus:ring-offset-slate-900;
+  }
+
+  .btn-orange-matte:hover {
+    @apply -translate-y-px shadow-md shadow-black/30;
+  }
+
+  .btn-orange-matte:active {
+    @apply translate-y-0 shadow-sm;
+  }
+
+  .btn-orange-matte:disabled {
+    @apply opacity-50 cursor-not-allowed;
+  }
+
+  .btn-orange-outline-fill {
+    @apply inline-flex items-center justify-center gap-2
+           rounded-lg px-4 py-2 text-sm font-semibold
+           text-[#fe5000]
+           border border-[#fe5000]/55
+           bg-transparent
+           transition duration-150 ease-out
+           focus:outline-none focus:ring-2 focus:ring-[#fe5000]/50 focus:ring-offset-2 focus:ring-offset-slate-900;
+  }
+
+  .btn-orange-outline-fill:hover {
+    @apply bg-[#fe5000]/10 border-[#fe5000]/80;
+  }
+
+  .btn-orange-outline-fill:active {
+    @apply bg-[#fe5000]/15;
+  }
+
+  .btn-orange-outline-fill:disabled {
+    @apply opacity-50 cursor-not-allowed;
+  }
+
+  .btn-orange-glass {
+    @apply inline-flex items-center justify-center gap-2
+           rounded-xl px-4 py-2 text-sm font-semibold
+           text-white
+           border border-white/10
+           bg-white/5
+           ring-1 ring-[#fe5000]/25
+           backdrop-blur
+           transition duration-150 ease-out
+           focus:outline-none focus:ring-2 focus:ring-[#fe5000]/55 focus:ring-offset-2 focus:ring-offset-slate-900;
+  }
+
+  .btn-orange-glass:hover {
+    @apply bg-white/8 ring-[#fe5000]/40;
+  }
+
+  .btn-orange-glass:active {
+    @apply bg-white/6;
+  }
+
+  .btn-orange-glass-glow {
+    @apply inline-flex items-center justify-center gap-2
+           rounded-xl px-4 py-2 text-sm font-semibold
+           text-white
+           border border-[#fe5000]/40
+           bg-white/6
+           ring-1 ring-[#fe5000]/30
+           backdrop-blur
+           shadow-sm shadow-black/25
+           transition duration-150 ease-out
+           focus:outline-none focus:ring-2 focus:ring-[#fe5000]/65 focus:ring-offset-2 focus:ring-offset-slate-900;
+  }
+
+  .btn-orange-glass-glow:hover {
+    @apply -translate-y-px
+           bg-white/8
+           border-[#fe5000]/65
+           ring-[#fe5000]/50;
+    box-shadow:
+      0 10px 20px rgba(0,0,0,.35),
+      0 0 0 1px rgba(254,80,0,.25),
+      0 0 24px rgba(254,80,0,.18);
+  }
+
+  .btn-orange-glass-glow:active {
+    @apply translate-y-0;
+    box-shadow:
+      0 6px 14px rgba(0,0,0,.30),
+      0 0 0 1px rgba(254,80,0,.22),
+      0 0 16px rgba(254,80,0,.14);
+  }
+
   /* Subtle primary action for dark UI (e.g., primary CTA in side panels) */
   .btn-accent-soft {
     @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium
