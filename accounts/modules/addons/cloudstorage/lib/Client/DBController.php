@@ -13,12 +13,56 @@ class DBController {
      * Get User.
      *
      * @param string $username
+     * @param bool   $activeOnly  When true (default), only return rows with is_active = 1.
+     *                            Pass false to include deactivated/cancelled users (e.g. for
+     *                            re-provisioning or deprovision lookups).
      *
      * @return object|null
      */
-    public static function getUser($username)
+    public static function getUser($username, bool $activeOnly = true)
     {
-        $user = Capsule::table('s3_users')->where('username', $username)->first();
+        $username = trim((string) $username);
+        if ($username === '') {
+            return null;
+        }
+
+        $tenantId = null;
+        $base = $username;
+        if (strpos($username, '$') !== false) {
+            $parts = explode('$', $username, 2);
+            if (count($parts) === 2 && $parts[0] !== '' && $parts[1] !== '') {
+                $tenantId = $parts[0];
+                $base = $parts[1];
+            }
+        }
+
+        $query = Capsule::table('s3_users');
+        if ($activeOnly) {
+            $query->where('is_active', 1);
+        }
+        if ($tenantId !== null) {
+            $query->where('tenant_id', $tenantId);
+        }
+        $user = $query->where(function ($q) use ($username, $base) {
+                $q->where('username', $username)
+                  ->orWhere('username', $base)
+                  ->orWhere('ceph_uid', $base);
+            })
+            ->first();
+
+        if (!$user && $tenantId !== null) {
+            $query2 = Capsule::table('s3_users');
+            if ($activeOnly) {
+                $query2->where('is_active', 1);
+            }
+            $user = $query2
+                ->where(function ($q) use ($username, $base) {
+                    $q->where('username', $username)
+                      ->orWhere('username', $base)
+                      ->orWhere('ceph_uid', $base);
+                })
+                ->first();
+        }
 
         return $user;
     }

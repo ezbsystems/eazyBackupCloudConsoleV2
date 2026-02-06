@@ -217,8 +217,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     // --------------------------------------------------------------------------------------------
-    // 4) Create a unique storage username based on company/email
-    $baseUsername = preg_replace('/[^A-Za-z0-9]/', '', strtolower(substr($company ?: $email, 0, 16)));
+    // 4) Create a unique storage username from the customer's email
+    //    Strip '@' and '.' so the Ceph RGW uid is clean and human-readable.
+    //    Example: newuser@mycompany.com → newusermycompanycom
+    $baseUsername = HelperController::sanitizeEmailForUsername($email);
+    if ($baseUsername === '') {
+        $baseUsername = preg_replace('/[^a-z0-9]/', '', strtolower(substr($company ?: 'e3user', 0, 16)));
+    }
     if ($baseUsername === '') {
         $baseUsername = 'e3user';
     }

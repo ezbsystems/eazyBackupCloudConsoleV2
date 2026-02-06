@@ -234,6 +234,23 @@ class HelperController {
     }
 
     /**
+     * Sanitize an email address for use as a storage username.
+     *
+     * Strips '@' and '.' from the email so that the resulting string is safe
+     * for use as a Ceph RGW uid component and produces a human-readable
+     * identifier derived directly from the customer's email.
+     *
+     * Example: "newuser@mycompany.com" → "newusermycompanycom"
+     *
+     * @param string $email
+     * @return string Lowercase email with '@' and '.' removed
+     */
+    public static function sanitizeEmailForUsername(string $email): string
+    {
+        return str_replace(['@', '.'], '', strtolower(trim($email)));
+    }
+
+    /**
      * Generate a Ceph RGW-safe user id (uid) for Admin Ops.
      *
      * Notes:
@@ -269,20 +286,34 @@ class HelperController {
     /**
      * Resolve the base RGW uid for an s3_users row.
      * Prefer s3_users.ceph_uid when present, otherwise fall back to s3_users.username (legacy).
+     *
+     * The result is always sanitized (strip '@' and '.') so that even legacy
+     * records that stored the raw email address produce a valid RGW uid.
      */
     public static function resolveCephBaseUid($user): string
     {
+        $raw = '';
         if (is_object($user)) {
             $ceph = (string)($user->ceph_uid ?? '');
-            if ($ceph !== '') return $ceph;
-            return (string)($user->username ?? '');
-        }
-        if (is_array($user)) {
+            if ($ceph !== '') {
+                $raw = $ceph;
+            } else {
+                $raw = (string)($user->username ?? '');
+            }
+        } elseif (is_array($user)) {
             $ceph = (string)($user['ceph_uid'] ?? '');
-            if ($ceph !== '') return $ceph;
-            return (string)($user['username'] ?? '');
+            if ($ceph !== '') {
+                $raw = $ceph;
+            } else {
+                $raw = (string)($user['username'] ?? '');
+            }
         }
-        return '';
+        if ($raw === '') {
+            return '';
+        }
+        // Always strip '@' and '.' to guarantee a clean RGW uid,
+        // even if the DB still contains an unsanitized legacy email.
+        return self::sanitizeEmailForUsername($raw);
     }
 
     /**

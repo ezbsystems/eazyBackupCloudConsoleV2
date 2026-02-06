@@ -288,6 +288,11 @@
         <!-- Email verification confirmation state -->
         <template x-if="emailSent">
           <div class="mt-6 space-y-4">
+            {if isset($resendMessage) && $resendMessage}
+              <div class="rounded-md border px-4 py-3 text-sm {if $resendStatus|default:'success' == 'error'}border-rose-500/40 bg-rose-500/10 text-rose-100{else}border-emerald-500/40 bg-emerald-500/10 text-emerald-100{/if}">
+                {$resendMessage}
+              </div>
+            {/if}
             <div class="rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-5 py-5">
               <h2 class="text-lg font-semibold tracking-tight text-white">
                 Please check your email
@@ -300,6 +305,15 @@
             <p class="text-sm text-slate-400">
               If you don't see the email in a few minutes, please check your spam or junk folder. You can safely close this page; the link will continue to work until it expires.
             </p>
+            <form action="index.php?m=cloudstorage&amp;page=resendtrial" method="post" class="text-sm text-slate-400">
+              <input type="hidden" name="email" value="{$smarty.post.email|default:$email|escape}" />
+              <p>
+                Didn't receive the verification email?
+                <button type="submit" class="cursor-pointer font-semibold text-emerald-300 hover:text-emerald-200 underline underline-offset-2">
+                  Click here to resend.
+                </button>
+              </p>
+            </form>
           </div>
         </template>
       </div>

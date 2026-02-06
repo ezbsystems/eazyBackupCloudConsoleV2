@@ -283,19 +283,30 @@ This update aligns the service with common industry patterns:
   - **Control plane (our UI)** uses **admin credentials** for management operations that must work even before a customer creates keys.
   - **Data plane** (customer tools + object operations) uses **customer keys**, and is disabled until a key exists.
 
-### 0) RGW-safe User IDs (avoid email-as-uid)
+### 0) RGW-safe User IDs (email-derived, no special chars)
 
-Some Ceph RGW deployments (notably the Dashboard UI) reject email-style usernames like `name@example.com` as an invalid RGW **user id** (`uid`).
+Ceph RGW rejects email-style usernames like `name@example.com` as an invalid RGW **user id** (`uid`).
 
-To avoid this while still letting customers use their email for login/identification in WHMCS, the module now separates:
+To produce a clean, human-readable uid that is still derived directly from the customer's email, the module strips `@` and `.` from the email address:
 
-- **Customer username (WHMCS/UI)**: stored in `s3_users.username` (can be an email)
-- **Ceph RGW uid (Admin Ops / internal)**: stored in `s3_users.ceph_uid` (RGW-safe; no `@`)
+- **Email**: `newuser@mycompany.com`
+- **Ceph RGW uid**: `newusermycompanycom`
+- **Tenant-qualified uid (WHMCS product username)**: `147617887552$newusermycompanycom`
 
-Behavior:
-- New user provisioning generates a safe `ceph_uid` (see `HelperController::generateCephUserId()`).
-- All Admin Ops calls that operate on a user now prefer `ceph_uid` and fall back to `username` for legacy installs.
-- Tenant-qualified RGW identities are formed as: `<tenant_id>$<ceph_uid>` (legacy fallback: `<tenant_id>$<username>`).
+This is implemented by `HelperController::sanitizeEmailForUsername()` and applied consistently across all signup paths:
+
+- `pages/handlesignup.php` (trial signup) — stores the sanitized username in verification meta.
+- `lib/Provision/Provisioner.php` (`provisionCloudStorage()`) — derives `$baseUsername` / `$cephBaseUid` from the client email using the sanitizer.
+- `api/createS3StorageAccount.php` (direct signup) — fetches the client email and sanitizes it for the Ceph uid.
+
+Storage:
+- **`s3_users.username`**: the full tenant-qualified uid (e.g. `147617887552$newusermycompanycom`)
+- **`s3_users.ceph_uid`**: the base RGW uid without tenant prefix (e.g. `newusermycompanycom`)
+- **`tblhosting.username`** (WHMCS product): matches the full tenant-qualified uid
+
+Legacy behavior:
+- All Admin Ops calls prefer `ceph_uid` and fall back to `username` for older installs.
+- Legacy users whose RGW uid contains `@` or `.` are looked up via the legacy path but the WHMCS product username is updated to the sanitized form.
 
 ### 1) Access key lifecycle (Option B)
 
@@ -530,7 +541,7 @@ Additional implementation details:
 - Applies server-side validation to require Company, Full name, Email, Phone, Project, and a numeric Estimated storage.
 - Normalizes the selected use case (`msp`, `saas`, or `internal`).
 - Auto-generates a strong random password and a default country (from WHMCS `DefaultCountry`, falling back to `CA`).
-- Auto-generates a storage username (used for Ceph and the hosting record) and ensures uniqueness by checking Admin Ops.
+- Auto-generates a storage username by stripping `@` and `.` from the customer's email (e.g. `newuser@mycompany.com` → `newusermycompanycom`) via `HelperController::sanitizeEmailForUsername()`, then ensures uniqueness by checking Admin Ops.
 
 The following details are persisted into the WHMCS client admin notes when the client is created:
 

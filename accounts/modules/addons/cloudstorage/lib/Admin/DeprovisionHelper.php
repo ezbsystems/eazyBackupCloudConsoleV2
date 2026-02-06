@@ -62,6 +62,7 @@ class DeprovisionHelper
     /**
      * Compute the Ceph RGW UID for an s3_users row.
      * If tenant_id is set, returns "tenant_id$username", otherwise just "username".
+     * The base uid is always sanitized (strip '@' and '.') to handle legacy records.
      *
      * @param object $user The s3_users row object (must have ->username and optionally ->tenant_id)
      * @return string The Ceph UID
@@ -74,6 +75,8 @@ class DeprovisionHelper
             if ($base === '') {
                 $base = (string)($user->username ?? '');
             }
+            // Sanitize: strip '@' and '.' to guarantee a clean RGW uid
+            $base = \WHMCS\Module\Addon\CloudStorage\Client\HelperController::sanitizeEmailForUsername($base);
             $tenantId = (string)($user->tenant_id ?? '');
             if ($tenantId !== '') {
                 return $tenantId . '$' . $base;
@@ -114,25 +117,12 @@ class DeprovisionHelper
             return null;
         }
 
-        // Find primary user (one with no parent_id, or the first match if all have parent_id)
-        $user = Capsule::table('s3_users')
-            ->where('username', $storageUsername)
-            ->whereNull('parent_id')
-            ->first();
-
-        // If not found as primary, check if it's a sub-tenant and find its parent
-        if ($user === null) {
-            $subTenant = Capsule::table('s3_users')
-                ->where('username', $storageUsername)
-                ->whereNotNull('parent_id')
+        // Find primary user (one with no parent_id, or use parent for sub-tenant)
+        $user = \WHMCS\Module\Addon\CloudStorage\Client\DBController::getUser($storageUsername);
+        if ($user !== null && isset($user->parent_id) && !empty($user->parent_id)) {
+            $user = Capsule::table('s3_users')
+                ->where('id', $user->parent_id)
                 ->first();
-
-            if ($subTenant !== null && $subTenant->parent_id) {
-                // Return the parent as the primary
-                $user = Capsule::table('s3_users')
-                    ->where('id', $subTenant->parent_id)
-                    ->first();
-            }
         }
 
         return $user;
