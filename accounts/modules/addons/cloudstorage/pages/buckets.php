@@ -140,5 +140,7 @@
         'HAS_KEYS_BY_USER_ID' => $hasKeysByUserId,
         'DELETE_JOBS_BY_BUCKET_NAME' => $deleteJobsByBucketName,
         'S3_REGION' => $s3Region,
-        'LIFECYCLE_CLASSES' => $lifecycleClasses
+        'LIFECYCLE_CLASSES' => $lifecycleClasses,
+        'PRIMARY_USERNAME' => $username,
+        'PRIMARY_USER_ID' => $user->id
     ];

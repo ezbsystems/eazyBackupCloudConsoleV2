@@ -69,7 +69,7 @@
                         <tbody class="divide-y divide-gray-800">
                             <tr>
                                 <td class="px-6 py-4 whitespace-nowrap">
-                                    <span class="text-sm text-white">{$username}</span>
+                                    <span class="text-sm text-white">Root user</span>
                                 </td>
                                 <td class="px-6 py-4 whitespace-nowrap">
                                     <span class="text-sm text-white">{$user->tenant_id}</span>
