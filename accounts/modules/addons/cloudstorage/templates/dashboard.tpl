@@ -60,7 +60,7 @@
                     <div x-data="{ 
                         open: false, 
                         selected: '{$smarty.get.username|default:""}',
-                        selectedLabel: '{if $smarty.get.username}{$smarty.get.username}{else}All{/if}',
+                        selectedLabel: '{if $smarty.get.username}{if $smarty.get.username == $PRIMARY_USERNAME}Root user{else}{$smarty.get.username}{/if}{else}All{/if}',
                         init() {
                             // Ensure proper initialization
                             if (this.selected === '') {
@@ -72,7 +72,7 @@
                         <button 
                             @click="open = !open"
                             @click.away="open = false"
-                            class="w-full px-3 py-2 text-left border border-gray-600 bg-[#192331] text-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 flex items-center justify-between hover:bg-[#1e2937] transition-colors duration-200">
+                            class="w-full h-9 px-4 text-left border border-slate-700 bg-slate-900/70 text-slate-200 rounded-full focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 flex items-center justify-between hover:bg-slate-800/80 transition-colors duration-200 text-xs">
                             <span x-text="selectedLabel"></span>
                             <svg class="w-4 h-4 transition-transform duration-200" :class="{ 'transform rotate-180': open }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
@@ -105,10 +105,10 @@
                             <!-- Username Options -->
                             {foreach from=$usernames item=username}
                             <div 
-                                @click="selected = '{$username}'; selectedLabel = '{$username}'; open = false; handleChange('{$username}')"
+                                @click="selected = '{$username}'; selectedLabel = '{if $username == $PRIMARY_USERNAME}Root user{else}{$username}{/if}'; open = false; handleChange('{$username}')"
                                 class="px-3 py-2 text-gray-300 hover:bg-[#1e2937] hover:text-white cursor-pointer flex items-center"
                                 :class="{ 'bg-[#1e2937] text-white': selected === '{$username}' }">
-                                <span>{$username}</span>
+                                <span>{if $username == $PRIMARY_USERNAME}Root user{else}{$username}{/if}</span>
                                 <svg x-show="selected === '{$username}'" class="w-4 h-4 ml-auto text-sky-500" fill="currentColor" viewBox="0 0 20 20">
                                     <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
                                 </svg>

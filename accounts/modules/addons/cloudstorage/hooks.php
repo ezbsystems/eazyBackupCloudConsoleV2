@@ -28,6 +28,22 @@ add_hook('AdminServicesTabFields', 1, function($vars) {
     $clientId = (int)($vars['userid'] ?? 0);
     $packageId = (int)($vars['packageid'] ?? 0);
     $serviceId = (int)($vars['serviceid'] ?? ($vars['id'] ?? 0));
+    if ($serviceId <= 0) {
+        $serviceId = (int)($_REQUEST['id'] ?? ($_REQUEST['productselect'] ?? 0));
+    }
+    if (($clientId <= 0 || $packageId <= 0) && $serviceId > 0) {
+        try {
+            $svc = Capsule::table('tblhosting')->where('id', $serviceId)->first();
+            if ($svc) {
+                if ($clientId <= 0 && isset($svc->userid)) {
+                    $clientId = (int) $svc->userid;
+                }
+                if ($packageId <= 0 && isset($svc->packageid)) {
+                    $packageId = (int) $svc->packageid;
+                }
+            }
+        } catch (\Throwable $e) {}
+    }
     if ($clientId <= 0 || $packageId <= 0) {
         return [];
     }
@@ -66,13 +82,13 @@ add_hook('AdminServicesTabFields', 1, function($vars) {
     }
 
     $html = '<select name="cloudstorage_trial_status" class="form-control select-inline">';
-    $html .= '<option value="trial" ' . $trialSelected . '>Trial</option>';
-    $html .= '<option value="paid" ' . $paidSelected . '>Paid</option>';
+    $html .= '<option value="trial" ' . $trialSelected . '>Trial (No CC)</option>';
+    $html .= '<option value="paid" ' . $paidSelected . '>Paid (CC on file)</option>';
     $html .= '</select>';
     $html .= '<div class="text-muted" style="margin-top:6px;">' . $tierLabel . '</div>';
 
     return [
-        'Trial Status' => $html,
+        'Account Type' => $html,
     ];
 });
 
@@ -80,7 +96,36 @@ add_hook('AdminServicesTabFieldsSave', 1, function($vars) {
     $clientId = (int)($vars['userid'] ?? 0);
     $packageId = (int)($vars['packageid'] ?? 0);
     $serviceId = (int)($vars['serviceid'] ?? ($vars['id'] ?? 0));
+    if ($serviceId <= 0) {
+        $serviceId = (int)($_REQUEST['id'] ?? ($_REQUEST['productselect'] ?? 0));
+    }
+    if (($clientId <= 0 || $packageId <= 0) && $serviceId > 0) {
+        try {
+            $svc = Capsule::table('tblhosting')->where('id', $serviceId)->first();
+            if ($svc) {
+                if ($clientId <= 0 && isset($svc->userid)) {
+                    $clientId = (int) $svc->userid;
+                }
+                if ($packageId <= 0 && isset($svc->packageid)) {
+                    $packageId = (int) $svc->packageid;
+                }
+            }
+        } catch (\Throwable $e) {}
+    }
+    try {
+        logModuleCall('cloudstorage', 'admin_services_tab_fields_save_entry', [
+            'method' => $_SERVER['REQUEST_METHOD'] ?? '',
+            'service_id' => $serviceId,
+            'client_id' => $clientId,
+            'package_id' => $packageId,
+            'req_id' => $_REQUEST['id'] ?? null,
+            'req_productselect' => $_REQUEST['productselect'] ?? null,
+        ], [
+            'posted_trial_status' => $_POST['cloudstorage_trial_status'] ?? null,
+        ]);
+    } catch (\Throwable $e) {}
     if ($clientId <= 0 || $packageId <= 0) {
+        try { logModuleCall('cloudstorage', 'admin_services_tab_fields_save_skip_missing_ids', ['service_id' => $serviceId, 'client_id' => $clientId, 'package_id' => $packageId], 'missing ids'); } catch (\Throwable $e) {}
         return;
     }
 
@@ -89,11 +134,13 @@ add_hook('AdminServicesTabFieldsSave', 1, function($vars) {
         $configuredPid = (int) ProductConfig::$E3_PRODUCT_ID;
     }
     if ($packageId !== $configuredPid) {
+        try { logModuleCall('cloudstorage', 'admin_services_tab_fields_save_skip_pid', ['service_id' => $serviceId, 'package_id' => $packageId, 'configured_pid' => $configuredPid], 'pid mismatch'); } catch (\Throwable $e) {}
         return;
     }
 
     $newStatus = strtolower(trim((string)($_POST['cloudstorage_trial_status'] ?? '')));
     if (!in_array($newStatus, ['trial', 'paid'], true)) {
+        try { logModuleCall('cloudstorage', 'admin_services_tab_fields_save_skip_status', ['service_id' => $serviceId, 'client_id' => $clientId], ['posted_trial_status' => $newStatus]); } catch (\Throwable $e) {}
         return;
     }
 

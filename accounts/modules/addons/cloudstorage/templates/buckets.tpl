@@ -116,9 +116,9 @@
             <div class="mb-6 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-amber-200 text-sm">
                 <div class="flex items-start justify-between gap-4">
                     <div>
-                        <div class="font-semibold text-amber-100">Access keys required for browsing and uploads</div>
+                        <div class="font-semibold text-amber-100">Access keys are required</div>
                         <div class="mt-1 text-amber-200/90">
-                            Create your first access key to browse buckets and use S3 tools.
+                        Create your first access key to access buckets and use S3 tools.
                         </div>
                     </div>
                     <a href="index.php?m=cloudstorage&page=access_keys" class="btn-accent whitespace-nowrap">Create access key</a>
@@ -203,8 +203,9 @@
                             <div>
                                 <div class="flex items-center gap-2">
                                     <h3 class="bucket-title text-sm font-semibold text-white">{$bucket->name}</h3>
+                                    {assign var=ownerName value=$usernames[$bucket->user_id]}
                                     <span class="bucket-owner inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium bg-slate-500/15 text-slate-300">
-                                        Owner: {$usernames[$bucket->user_id]}
+                                        Owner: {if $ownerName == $PRIMARY_USERNAME}Root user{else}{$ownerName}{/if}
                                     </span>
                                     {if $isPendingDelete}
                                         <span id="pendingDeleteBadge{$bucket->id}" class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium bg-amber-500/15 text-amber-200 border border-amber-500/30" title="This bucket is pending deletion">
@@ -533,7 +534,7 @@
                     <div id="bucketCreationMessage" class="bg-red-600 text-white px-4 py-2 rounded-md mb-4 hidden" role="alert"></div>
                     <form action="index.php?m=cloudstorage&page=savebucket" method="post" id="createBucketForm">
                         <div class="mb-4">
-                            <label for="bucketName" class="block text-sm font-medium text-slate-300">Bucket Name</label>
+                            <label for="bucketName" class="block text-sm font-medium text-slate-100">Bucket Name</label>
                             <input
                                 type="text"
                                 class="mt-1 block w-full bg-slate-900 text-gray-300 border border-gray-600 rounded-md shadow-sm focus:ring-sky-500 focus:border-sky-500 focus:outline-none px-4 py-2"
@@ -546,6 +547,7 @@
                                 isOpen: false,
                                 selectedUsername: '',
                                 searchTerm: '',
+                                primaryUsername: '{$PRIMARY_USERNAME|default:""|escape:'javascript'}',
                                 usernames: [
                                     {foreach from=$usernames item=username name=userloop}
                                         '{$username|escape:'javascript'}'{if !$smarty.foreach.userloop.last},{/if}
@@ -560,11 +562,11 @@
                                     });
                                 }
                             }" @click.away="isOpen = false">
-                            <label for="username" class="block text-sm font-medium text-slate-300">Select User</label>
+                            <label for="username" class="block text-sm font-medium text-slate-100">Select Bucket Owner</label>
                             <input type="hidden" name="username" id="username" x-model="selectedUsername">
                             <div class="relative">
                                 <button @click="isOpen = !isOpen" type="button" class="relative w-full px-3 py-2 text-left bg-[#11182759] border border-gray-600 rounded-md shadow-sm cursor-default focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500">
-                                    <span class="block truncate" x-text="selectedUsername || 'Select a user'"></span>
+                                    <span class="block truncate" x-text="selectedUsername ? (selectedUsername === primaryUsername ? 'Root user' : selectedUsername) : 'Select a user'"></span>
                                     <span class="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
                                         <svg class="w-5 h-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                                             <path fill-rule="evenodd" d="M10 3a1 1 0 01.707.293l3 3a1 1 0 01-1.414 1.414L10 5.414 7.707 7.707a1 1 0 01-1.414-1.414l3-3A1 1 0 0110 3zm-3.707 9.293a1 1 0 011.414 0L10 14.586l2.293-2.293a1 1 0 011.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
@@ -588,33 +590,41 @@
                                         <template x-for="username in filteredUsernames" :key="username">
                                             <li @click="selectedUsername = username; isOpen = false"
                                                 class="px-4 py-2 text-gray-300 cursor-pointer select-none hover:bg-gray-700"
-                                                x-text="username">
+                                                x-text="username === primaryUsername ? 'Root user' : username">
                                             </li>
                                         </template>
                                     </ul>
                                 </div>
                             </div>
                         </div>
-                        <div class="mb-4 flex items-center">
-                            <input
-                                type="checkbox"
-                                class="h-4 w-4 text-sky-600 bg-gray-700 border-gray-600 rounded focus:ring-sky-500"
-                                id="versioningToggle"
-                                name="enableVersioning"
-                            >
-                            <label for="versioningToggle" class="ml-2 block text-sm text-slate-300">
-                                Enable Versioning
+                        <div class="mb-4">
+                            <label for="versioningToggle" class="flex items-center justify-between text-sm text-slate-300">
+                                <span>Enable Versioning</span>
+                                <span class="relative inline-flex items-center">
+                                    <input
+                                        type="checkbox"
+                                        class="sr-only peer"
+                                        id="versioningToggle"
+                                        name="enableVersioning"
+                                    >
+                                    <span class="w-11 h-6 bg-slate-700 rounded-full peer-focus:ring-2 peer-focus:ring-sky-500 peer-checked:bg-sky-600 transition"></span>
+                                    <span class="absolute left-1 top-1 h-4 w-4 rounded-full bg-white transition peer-checked:translate-x-5"></span>
+                                </span>
                             </label>
                         </div>
-                        <div class="mb-4 flex items-center">
-                            <input
-                                type="checkbox"
-                                class="h-4 w-4 text-red-600 bg-gray-700 border-gray-600 rounded focus:ring-red-500"
-                                id="objectLockingToggle"
-                                name="enableObjectLocking"
-                            >
-                            <label for="objectLockingToggle" class="ml-2 block text-sm text-slate-300">
-                                Enable Object Locking
+                        <div class="mb-4">
+                            <label for="objectLockingToggle" class="flex items-center justify-between text-sm text-slate-300">
+                                <span>Enable Object Locking</span>
+                                <span class="relative inline-flex items-center">
+                                    <input
+                                        type="checkbox"
+                                        class="sr-only peer"
+                                        id="objectLockingToggle"
+                                        name="enableObjectLocking"
+                                    >
+                                    <span class="w-11 h-6 bg-slate-700 rounded-full peer-focus:ring-2 peer-focus:ring-rose-500 peer-checked:bg-rose-600 transition"></span>
+                                    <span class="absolute left-1 top-1 h-4 w-4 rounded-full bg-white transition peer-checked:translate-x-5"></span>
+                                </span>
                             </label>
                         </div>
                         
@@ -631,8 +641,8 @@
                                     Set a default retention policy for this bucket
                                 </label>
                             </div>
-                            <p class="text-xs text-slate-400 mb-4 ml-6">
-                                Leave this unchecked for applications that manage object locks individually. Check this box to enforce a default immutability rule for all new objects.
+                            <p class="text-sm text-slate-100 mb-4 ml-6">
+                                Leave this unchecked for applications that manage object locks individually (Veeam). Check this box to enforce a default immutability rule for all new objects.
                             </p>
                             
                             <!-- Default Retention Policy Settings -->
@@ -643,30 +653,52 @@
                                         class="w-full text-left px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-t-md focus:outline-none"
                                         onclick="toggleAccordion('objectLockAccordion')"
                                     >
-                                        <span class="text-sm font-medium text-gray-300">Default Retention Policy Settings</span>
+                                        <span class="text-sm font-medium text-slate-100">Default Retention Policy Settings</span>
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 inline-block float-right" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
                                         </svg>
                                     </button>
                                     <div id="objectLockAccordion" class="hidden px-4 py-2">
                                         <!-- Object Lock Mode -->
-                                        <div class="mb-4">
-                                            <label for="objectLockMode" class="block text-sm font-medium text-slate-300">Default Mode</label>
-                                            <select
-                                                class="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm focus:ring-sky-500 focus:border-sky-500 px-4 py-2"
-                                                id="objectLockMode"
-                                                name="objectLockMode"
-                                            >
-                                                <option value="GOVERNANCE">Governance</option>
-                                                <option value="COMPLIANCE">Compliance</option>
-                                            </select>
-                                            <p class="mt-2 text-sm text-slate-300">
+                                        <div class="mb-4" x-data="{ open: false, selected: 'GOVERNANCE' }">
+                                            <label class="block text-sm font-medium text-slate-100">Default Mode</label>
+                                            <input type="hidden" id="objectLockMode" name="objectLockMode" x-model="selected">
+                                            <div class="relative mt-1">
+                                                <button type="button"
+                                                        class="w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm px-4 py-2 text-left text-slate-100 focus:outline-none focus:ring-1 focus:ring-sky-500 flex items-center justify-between"
+                                                        @click="open = !open">
+                                                    <span x-text="selected === 'COMPLIANCE' ? 'Compliance' : 'Governance'"></span>
+                                                    <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                                                    </svg>
+                                                </button>
+                                                <div x-show="open" x-cloak @click.away="open = false"
+                                                     class="absolute z-50 mt-2 w-full rounded-md bg-gray-800 border border-gray-600 shadow-lg overflow-hidden">
+                                                    <button type="button"
+                                                            class="w-full text-left px-4 py-2 text-slate-100 hover:bg-gray-700"
+                                                            @click="selected = 'GOVERNANCE'; open = false">
+                                                        Governance
+                                                    </button>
+                                                    <button type="button"
+                                                            class="w-full text-left px-4 py-2 text-slate-100 hover:bg-gray-700"
+                                                            @click="selected = 'COMPLIANCE'; open = false">
+                                                        Compliance
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <p class="mt-2 text-sm text-slate-100">
                                                 Choose 'Governance' to allow users with specific permissions to override the lock settings. Select 'Compliance' to prevent any users from overriding the lock settings.
                                             </p>
+                                            <div x-show="selected === 'COMPLIANCE'" x-cloak class="mt-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs text-amber-100">
+                                                <p class="font-semibold text-amber-200">Compliance mode is permanent once enabled.</p>
+                                                <p class="mt-2">Objects in this bucket cannot be deleted or overwritten until their retention expires — even by administrators.</p>
+                                                <p class="mt-2">Billing continues for all retained data until the retention date is reached, since the storage can’t be freed early.</p>
+                                                <p class="mt-2">Use this only for strict regulatory/WORM requirements. For most use cases, Governance mode provides strong protection with an emergency override.</p>
+                                            </div>
                                         </div>
                                         <!-- Default Retention Period in Days -->
                                         <div>
-                                            <label for="objectLockDays" class="block text-sm font-medium text-slate-300">Default Retention Period (Days)</label>
+                                            <label for="objectLockDays" class="block text-sm font-medium text-slate-100">Default Retention Period (Days)</label>
                                             <input
                                                 type="number"
                                                 class="mt-1 block w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md shadow-sm focus:ring-sky-500 focus:border-sky-500 focus:outline-none px-4 py-2"
@@ -675,7 +707,7 @@
                                                 min="1"
                                                 value="30"
                                             >
-                                            <p class="mt-2 text-sm text-slate-300">
+                                            <p class="mt-2 text-sm text-slate-100">
                                                 Specify a default retention period for protecting objects against deletion or overwriting. When a bucket is created with object locking enabled, setting a number of days for retention defines how long an object remains immutable once it is written to the bucket.
                                             </p>
                                         </div>
@@ -683,13 +715,15 @@
                                 </div>
                             </div>
                         </div>
-                        <button
-                            type="submit"
-                            class="w-full bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500"
-                            id="submitBucketBtn"
-                        >
-                            Submit
-                        </button>
+                        <div class="flex justify-end">
+                            <button
+                                type="submit"
+                                class="btn-accent"
+                                id="submitBucketBtn"
+                            >
+                                Submit
+                            </button>
+                        </div>
                     </form>
                 </div>
             </div>

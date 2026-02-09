@@ -450,5 +450,6 @@ return [
     'currentPeriodActive' => $currentPeriodActive,
     'canNavigateForward' => $canNavigateForward,
     'rangePreset' => $rangePreset,
-    'hasUsageData' => $hasUsageData
+        'hasUsageData' => $hasUsageData,
+        'PRIMARY_USERNAME' => $username
 ]; 

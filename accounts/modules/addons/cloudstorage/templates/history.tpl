@@ -70,7 +70,9 @@
                         <span class="text-slate-400">Billing Period:</span>
                         <span class="font-medium text-slate-100">{$displayedPeriod.start|date_format:"%d %b %Y"} - {$displayedPeriod.end|date_format:"%d %b %Y"}</span>
                         <span class="ml-2 inline-flex items-center rounded-full border border-slate-700 bg-slate-800 px-2 py-0.5 text-[11px] text-slate-300">
-                            {if $smarty.get.username}{$smarty.get.username}{else}All tenants{/if}
+                            {if $smarty.get.username}
+                                {if $smarty.get.username == $PRIMARY_USERNAME}Root user{else}{$smarty.get.username}{/if}
+                            {else}All tenants{/if}
                         </span>
                     </div>
                     <button id="periodForwardButton"
@@ -89,7 +91,7 @@
                     <div x-data="{ 
                         open: false, 
                         selected: '{$smarty.get.username|default:""}',
-                        selectedLabel: '{if $smarty.get.username}{$smarty.get.username}{else}All{/if}',
+                        selectedLabel: '{if $smarty.get.username}{if $smarty.get.username == $PRIMARY_USERNAME}Root user{else}{$smarty.get.username}{/if}{else}All{/if}',
                         init() {
                             // Ensure proper initialization
                             if (this.selected === '') {
@@ -135,10 +137,10 @@
                             <!-- Username Options -->
                             {foreach from=$usernames item=username}
                             <div 
-                                @click="selected = '{$username}'; selectedLabel = '{$username}'; open = false; handleUsernameChange('{$username}')"
+                                @click="selected = '{$username}'; selectedLabel = '{if $username == $PRIMARY_USERNAME}Root user{else}{$username}{/if}'; open = false; handleUsernameChange('{$username}')"
                                 class="px-3 py-2 text-gray-300 hover:bg-[#1e2937] hover:text-white cursor-pointer flex items-center"
                                 :class="{ 'bg-[#1e2937] text-white': selected === '{$username}' }">
-                                <span>{$username}</span>
+                                <span>{if $username == $PRIMARY_USERNAME}Root user{else}{$username}{/if}</span>
                                 <svg x-show="selected === '{$username}'" class="w-4 h-4 ml-auto text-sky-500" fill="currentColor" viewBox="0 0 20 20">
                                     <path fill-rule="evenodd" d="M16.707 5.293a1.125 1.125 0 010 1.414l-8 8a1.125 1.125 0 01-1.414 0l-4-4a1.125 1.125 0 011.414-1.414L8 12.586l7.293-7.293a1.125 1.125 0 01 1.414 0z" clip-rule="evenodd"></path>
                                 </svg>
@@ -169,7 +171,9 @@
                                         <select name="username" class="h-10 mt-1 w-full px-3 rounded-lg border border-gray-600 bg-[#192331] text-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500">
                                             <option value="" {if !$smarty.get.username}selected{/if}>All</option>
                                             {foreach from=$usernames item=username}
-                                                <option value="{$username}" {if $smarty.get.username == $username}selected{/if}>{$username}</option>
+                                                <option value="{$username}" {if $smarty.get.username == $username}selected{/if}>
+                                                    {if $username == $PRIMARY_USERNAME}Root user{else}{$username}{/if}
+                                                </option>
                                             {/foreach}
                                         </select>
                                     </div>
@@ -292,7 +296,9 @@
                                     <select name="username" class="h-10 mt-1 w-full px-3 rounded-lg border border-gray-600 bg-[#192331] text-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500">
                                         <option value="" {if !$smarty.get.username}selected{/if}>All</option>
                                         {foreach from=$usernames item=username}
-                                            <option value="{$username}" {if $smarty.get.username == $username}selected{/if}>{$username}</option>
+                                            <option value="{$username}" {if $smarty.get.username == $username}selected{/if}>
+                                                {if $username == $PRIMARY_USERNAME}Root user{else}{$username}{/if}
+                                            </option>
                                         {/foreach}
                                     </select>
                                 </div>
@@ -334,7 +340,7 @@
                 </div>
             </div>
             <div id="usageContextLabel" class="text-xs text-slate-400">
-                Showing usage for {if $smarty.get.username}{$smarty.get.username}{else}All tenants{/if} - Billing period
+                Showing usage for {if $smarty.get.username}{if $smarty.get.username == $PRIMARY_USERNAME}Root user{else}{$smarty.get.username}{/if}{else}All tenants{/if} - Billing period
             </div>
         </div>
 
@@ -558,7 +564,7 @@
             rangeLabel = 'Custom range';
         }
 
-        const tenantLabel = '{if $smarty.get.username}{$smarty.get.username|escape:"javascript"}{else}All tenants{/if}';
+        const tenantLabel = '{if $smarty.get.username}{if $smarty.get.username == $PRIMARY_USERNAME}Root user{else}{$smarty.get.username|escape:"javascript"}{/if}{else}All tenants{/if}';
         label.textContent = 'Showing usage for ' + tenantLabel + ' - ' + rangeLabel;
     }
 

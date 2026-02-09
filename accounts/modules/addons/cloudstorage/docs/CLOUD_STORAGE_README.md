@@ -235,6 +235,22 @@ This update refines the customer-facing Users/Keys experience and hardens key ha
   - Updated UX to align with “**show secret only once**” on create/rotate (no “decrypt existing secret” workflow in the UI).
   - The Access Keys table no longer displays a “Secret Key” column; secrets are shown only in the one-time “Save your new key” modal.
 
+### Client Area: Root user labeling (no service username exposure)
+The primary storage account (WHMCS service username / tenant-qualified RGW uid like `tenant$uid`) is now displayed to customers as **Root user** across the UI, while the underlying username values remain unchanged for routing and API calls.
+
+- **Users page (`templates/users_v2.tpl`)**:
+  - Adds a **Root user** row in the Users table (primary account).
+  - Root access keys are managed via **rotate/create** only (uses the existing `api/rollkey.php` flow).
+  - Root cannot be deleted or selected for bulk delete.
+- **Access Keys page (`templates/access_keys.tpl`)**:
+  - Owner column shows **Root user** instead of the service username.
+- **Buckets page (`templates/buckets.tpl`)**:
+  - Bucket owner badge shows **Root user** when the primary account owns the bucket.
+  - Create Bucket user selector displays **Root user** for the primary account while still submitting the real username.
+- **History & Dashboard (`templates/history.tpl`, `templates/dashboard.tpl`)**:
+  - Tenant dropdowns and usage labels display **Root user** for the primary account.
+  - Query parameters continue to use the real username for filtering.
+
 ### Backend/API: “show secret once” model + password-gated operations
 - **Password verification**:
   - Password verification is enforced server-side (session freshness window) before sensitive operations.
@@ -839,14 +855,25 @@ The trial selection and all drawer panels have been updated to use:
   - `storage_tier` column added to `cloudstorage_trial_selection` table
   - Upgrade migration adds column to existing installations
 
-### Phase 2: User Quotas (Not Yet Implemented)
+### User Quotas (Implemented)
 
-In a future phase, the `storage_tier` value will be used to enforce quotas:
+Trial tier now controls RGW **user quotas** during provisioning:
 
-- `trial_limited` accounts will have a 1 TiB quota applied at the bucket/user level
-- `trial_unlimited` accounts will have no quota restrictions
+- `trial_limited` → apply a 1 TiB **user quota**
+- `trial_unlimited` → no quota applied
+- `trial_status = paid` → remove any trial quota
 
-This quota enforcement logic is not yet implemented and will be added in Phase 2.
+**How the quota is assigned:**
+
+1. `api/setpassword_and_provision.php` saves `storage_tier` and `trial_status` to `cloudstorage_trial_selection`.
+2. `Provisioner::provisionCloudStorage()` reads the selection and resolves the RGW identity:
+   - Prefer `s3_users.ceph_uid` and `s3_users.tenant_id` when present.
+   - Fall back to the base Ceph uid + tenant derived during provisioning.
+3. `AdminOps::setUserQuota()` is called with:
+   - `enabled = true`
+   - `max_size_kb = USER_TRIAL_QUOTA_KB` (1 TiB in KiB)
+
+Only **user quotas** are set; no bucket quota changes are applied here.
 
 ### Testing Checklist
 

@@ -98,11 +98,11 @@
                 <td class="px-4 py-3" @click.stop>
                   <input type="checkbox"
                          class="text-sky-600"
-                         :disabled="(u.total_buckets || 0) > 0"
+                         :disabled="(u.total_buckets || 0) > 0 || u.is_root"
                          :checked="selectedUsernames.includes(u.username)"
                          @change="toggleUserSelection(u, $event)">
                 </td>
-                <td class="px-4 py-3 text-slate-200" x-text="u.username"></td>
+                <td class="px-4 py-3 text-slate-200" x-text="u.display_name || u.username"></td>
                 <td class="px-4 py-3">
                   <span class="font-mono text-slate-200" x-text="u.tenant_id ? String(u.tenant_id) : '—'"></span>
                 </td>
@@ -149,7 +149,7 @@
     <div class="absolute right-0 top-0 h-full w-full max-w-3xl bg-slate-950 border-l border-slate-800/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] overflow-y-auto">
       <div class="flex items-center justify-between p-4 border-b border-slate-800">
         <div class="min-w-0">
-          <div class="text-white font-semibold text-lg truncate" x-text="panel.user?.username || 'User'"></div>
+          <div class="text-white font-semibold text-lg truncate" x-text="panel.user?.display_name || panel.user?.username || 'User'"></div>
           <div class="text-xs text-slate-400 mt-1">
             <span class="text-slate-500">Account ID:</span>
             <span class="font-mono text-slate-200" x-text="panel.user?.tenant_id ? String(panel.user.tenant_id) : '—'"></span>
@@ -186,46 +186,70 @@
           <div class="flex items-center justify-between mb-3">
             <h3 class="text-sm font-semibold text-white">Access keys</h3>
             <button class="text-xs bg-sky-600 hover:bg-sky-700 text-white px-3 py-2 rounded-md"
-                    @click="openCreateKey(panel.user)">
-              + Create access key
+                    @click="openCreateKey(panel.user)"
+                    x-text="panel.user?.is_root ? (panel.user?.has_root_key ? 'Rotate access key' : 'Create access key') : '+ Create access key'">
             </button>
           </div>
 
-          <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-slate-800">
-              <thead class="text-xs text-slate-400">
-                <tr>
-                  <th class="py-2 pr-4 text-left">Key</th>
-                  <th class="py-2 pr-4 text-left">Description</th>
-                  <th class="py-2 pr-4 text-left">Permission</th>
-                  <th class="py-2 pr-4 text-left">Created</th>
-                  <th class="py-2 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-slate-800 text-sm">
-                <template x-for="k in (panel.user?.access_keys || [])" :key="k.key_id">
+          <div x-show="panel.user?.is_root" x-cloak>
+            <div class="overflow-x-auto">
+              <table class="min-w-full divide-y divide-slate-800">
+                <thead class="text-xs text-slate-400">
                   <tr>
-                    <td class="py-2 pr-4 font-mono text-slate-200" x-text="k.access_key_hint || '—'"></td>
-                    <td class="py-2 pr-4 text-slate-200" x-text="k.description || '—'"></td>
-                    <td class="py-2 pr-4 text-slate-200" x-text="permissionLabel(k.permission)"></td>
-                    <td class="py-2 pr-4 text-slate-400" x-text="formatDate(k.created_at)"></td>
-                    <td class="py-2 text-right">
-                      <button class="text-rose-400 hover:text-rose-300 text-sm"
-                              @click="confirmDeleteKey(panel.user, k)">
-                        Delete
-                      </button>
-                    </td>
+                    <th class="py-2 pr-4 text-left">Key</th>
+                    <th class="py-2 pr-4 text-left">Created</th>
                   </tr>
-                </template>
-                <tr x-show="(panel.user?.access_keys || []).length === 0" x-cloak>
-                  <td colspan="5" class="py-4 text-center text-slate-400 text-sm">No access keys yet.</td>
-                </tr>
-              </tbody>
-            </table>
+                </thead>
+                <tbody class="divide-y divide-slate-800 text-sm">
+                  <tr>
+                    <td class="py-2 pr-4 font-mono text-slate-200" x-text="panel.user?.root_access_key_hint || '—'"></td>
+                    <td class="py-2 pr-4 text-slate-400" x-text="formatDate(panel.user?.root_access_key_created_at)"></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="mt-3 text-xs text-slate-400">
+              For security, the secret key is shown <span class="text-slate-200 font-semibold">only once</span> when you rotate the key.
+            </div>
           </div>
 
-          <div class="mt-3 text-xs text-slate-400">
-            For security, the secret key is shown <span class="text-slate-200 font-semibold">only once</span> when you create a key.
+          <div x-show="!panel.user?.is_root" x-cloak>
+            <div class="overflow-x-auto">
+              <table class="min-w-full divide-y divide-slate-800">
+                <thead class="text-xs text-slate-400">
+                  <tr>
+                    <th class="py-2 pr-4 text-left">Key</th>
+                    <th class="py-2 pr-4 text-left">Description</th>
+                    <th class="py-2 pr-4 text-left">Permission</th>
+                    <th class="py-2 pr-4 text-left">Created</th>
+                    <th class="py-2 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-800 text-sm">
+                  <template x-for="k in (panel.user?.access_keys || [])" :key="k.key_id">
+                    <tr>
+                      <td class="py-2 pr-4 font-mono text-slate-200" x-text="k.access_key_hint || '—'"></td>
+                      <td class="py-2 pr-4 text-slate-200" x-text="k.description || '—'"></td>
+                      <td class="py-2 pr-4 text-slate-200" x-text="permissionLabel(k.permission)"></td>
+                      <td class="py-2 pr-4 text-slate-400" x-text="formatDate(k.created_at)"></td>
+                      <td class="py-2 text-right">
+                        <button class="text-rose-400 hover:text-rose-300 text-sm"
+                                @click="confirmDeleteKey(panel.user, k)">
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  </template>
+                  <tr x-show="(panel.user?.access_keys || []).length === 0" x-cloak>
+                    <td colspan="5" class="py-4 text-center text-slate-400 text-sm">No access keys yet.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="mt-3 text-xs text-slate-400">
+              For security, the secret key is shown <span class="text-slate-200 font-semibold">only once</span> when you create a key.
+            </div>
           </div>
         </div>
       </div>
@@ -492,6 +516,11 @@ function usersV2Manager() {
       // Normalize counts / arrays
       this.users = (this.users || []).map(u => {
         u.access_keys = u.access_keys || [];
+        u.display_name = u.display_name || u.username;
+        u.is_root = !!u.is_root;
+        u.has_root_key = !!u.has_root_key;
+        u.root_access_key_hint = u.root_access_key_hint || '';
+        u.root_access_key_created_at = u.root_access_key_created_at || null;
         return u;
       });
     },
@@ -499,7 +528,11 @@ function usersV2Manager() {
     get filteredUsers() {
       const term = (this.searchTerm || '').trim().toLowerCase();
       if (!term) return this.users;
-      return this.users.filter(u => (u.username || '').toLowerCase().includes(term));
+      return this.users.filter(u => {
+        const name = (u.username || '').toLowerCase();
+        const label = (u.display_name || '').toLowerCase();
+        return name.includes(term) || label.includes(term);
+      });
     },
 
     toastSuccess(message) { this.toast.show(message, 'success'); },
@@ -507,14 +540,18 @@ function usersV2Manager() {
     toastInfo(message) { this.toast.show(message, 'info'); },
 
     get allSelectableChecked() {
-      const selectable = this.filteredUsers.filter(u => (u.total_buckets || 0) === 0).map(u => u.username);
+      const selectable = this.filteredUsers
+        .filter(u => (u.total_buckets || 0) === 0 && !u.is_root)
+        .map(u => u.username);
       if (selectable.length === 0) return false;
       return selectable.every(u => this.selectedUsernames.includes(u));
     },
 
     toggleSelectAll(evt) {
       const checked = !!evt.target.checked;
-      const selectable = this.filteredUsers.filter(u => (u.total_buckets || 0) === 0).map(u => u.username);
+      const selectable = this.filteredUsers
+        .filter(u => (u.total_buckets || 0) === 0 && !u.is_root)
+        .map(u => u.username);
       if (checked) {
         const set = new Set(this.selectedUsernames);
         selectable.forEach(u => set.add(u));
@@ -526,6 +563,7 @@ function usersV2Manager() {
 
     toggleUserSelection(user, evt) {
       const checked = !!evt.target.checked;
+      if (user.is_root) return;
       const uname = user.username;
       if (!uname) return;
       if (checked) {
@@ -538,7 +576,7 @@ function usersV2Manager() {
     get canDeleteSelectedUsers() {
       if (this.selectedUsernames.length === 0) return false;
       const selected = this.selectedUsernames.map(u => this.users.find(x => x.username === u)).filter(Boolean);
-      return selected.length > 0 && selected.every(u => (u.total_buckets || 0) === 0);
+      return selected.length > 0 && selected.every(u => (u.total_buckets || 0) === 0 && !u.is_root);
     },
 
     openUser(u) {
@@ -571,6 +609,8 @@ function usersV2Manager() {
         if (res.status === 'success') {
           const newUser = {
             username: res.data.username,
+            display_name: res.data.username,
+            is_root: false,
             tenant_id: res.data.tenant_id || null,
             total_buckets: 0,
             total_storage: '0 B',
@@ -642,8 +682,50 @@ function usersV2Manager() {
 
     openCreateKey(user) {
       if (!user) return;
+      if (user.is_root) {
+        this.requestRollRootKey(user);
+        return;
+      }
       this.createKeyForm = { username: user.username, description: '', permission: 'full' };
       this.modals.createKey = true;
+    },
+
+    requestRollRootKey(user) {
+      if (!user) return;
+      this.pendingAction = { type: 'rollRootKey', payload: { username: user.username } };
+      this.executeRollRootKey();
+    },
+
+    executeRollRootKey() {
+      this.loading = true;
+      this.loadingText = 'Rotating access key…';
+      this.apiCall('modules/addons/cloudstorage/api/rollkey.php', {})
+        .then(res => {
+          if (res.status === 'success') {
+            const hint = res.data?.access_key_hint || '';
+            const now = new Date().toISOString();
+            if (this.panel.user && this.panel.user.is_root) {
+              this.panel.user.root_access_key_hint = hint;
+              this.panel.user.root_access_key_created_at = now;
+              this.panel.user.has_root_key = !!hint;
+              this.panel.user.access_keys = hint ? [{ key_id: 'root', access_key_hint: hint, created_at: now }] : [];
+            }
+            this.pendingAction = null;
+            this.toastSuccess(res.message || 'Access key updated.');
+          } else if ((res.message || '').toLowerCase().includes('verify your password')) {
+            this.pendingAction = { type: 'rollRootKey', payload: {} };
+            this.openPassword();
+          } else {
+            this.pendingAction = null;
+            this.toastError(res.message || 'Failed to update access key.');
+          }
+        })
+        .catch(() => {
+          this.toastError('Failed to update access key.');
+        })
+        .finally(() => {
+          this.loading = false;
+        });
     },
 
     submitCreateKey() {
@@ -759,6 +841,8 @@ function usersV2Manager() {
             } else if (pending && pending.type === 'deleteUsers') {
               const usernames = pending.payload?.usernames || [];
               this.executeDeleteSelectedUsers(usernames);
+            } else if (pending && pending.type === 'rollRootKey') {
+              this.executeRollRootKey();
             }
           } else {
             this.passwordError = res.message || 'Password verification failed.';

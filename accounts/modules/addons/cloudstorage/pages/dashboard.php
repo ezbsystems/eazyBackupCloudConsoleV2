@@ -89,9 +89,9 @@
     $bucketInfo = $bucketObject->getTotalBucketSizeForUser($buckets);
     $transferdata = $bucketObject->getUserTransferSummary($userIds);
     // Query through today to keep charts live regardless of invoice state
-    // Use billed instantaneous snapshots for storage line + peak
-    $bucketStats = $bucketObject->getDailyBillableUsageFromPrices((int)$user->id, $displayPeriod['start'], $displayPeriod['end_for_queries']);
-    $peakForDisplay = $bucketObject->findPeakBillableUsageFromPrices((int)$user->id, [
+    // Use real usage snapshots for storage line + peak (honor tenant selection)
+    $bucketStats = $bucketObject->getUserBucketSummary($userIds, $displayPeriod['start'], $displayPeriod['end_for_queries']);
+    $peakForDisplay = $bucketObject->findPeakBucketUsage($userIds, [
         'start' => $displayPeriod['start'],
         'end' => $displayPeriod['end_for_queries']
     ]);
@@ -115,6 +115,7 @@
         'topBuckets' => $topBuckets,
         'totalBucketCount' => $totalBucketCount,
         'totalObjects' => $bucketInfo['total_objects'],
-        'usernames' => $usernames
+        'usernames' => $usernames,
+        'PRIMARY_USERNAME' => $username
     ];
 
