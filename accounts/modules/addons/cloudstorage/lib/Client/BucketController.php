@@ -1250,6 +1250,61 @@ class BucketController {
                 $totalOps           += $transferStatsSummary->total_ops;
             }
         }
+        // #region agent log
+        try {
+            $currentBucketIds = Capsule::table('s3_buckets')
+                ->whereIn('user_id', $userIds)
+                ->where('is_active', 1)
+                ->pluck('id')
+                ->all();
+            $cutoverDate = null;
+            if (!empty($currentBucketIds)) {
+                $cutoverDate = Capsule::table('s3_transfer_stats_summary')
+                    ->whereIn('user_id', $userIds)
+                    ->whereIn('bucket_id', $currentBucketIds)
+                    ->selectRaw('MIN(DATE(created_at)) as cutover')
+                    ->value('cutover');
+            }
+            $currentOnlyTotals = Capsule::table('s3_transfer_stats_summary')
+                ->selectRaw('SUM(bytes_sent) as total_bytes_sent, SUM(bytes_received) as total_bytes_received, SUM(ops) as total_ops')
+                ->whereIn('user_id', $userIds)
+                ->when(!empty($startDate), function ($q) use ($startDate) {
+                    $q->whereDate('created_at', '>=', $startDate);
+                })
+                ->when(!empty($endDate), function ($q) use ($endDate) {
+                    $q->whereDate('created_at', '<=', $endDate);
+                })
+                ->when(!empty($currentBucketIds), function ($q) use ($currentBucketIds) {
+                    $q->whereIn('bucket_id', $currentBucketIds);
+                })
+                ->first();
+            file_put_contents(
+                '/var/www/eazybackup.ca/.cursor/debug.log',
+                json_encode([
+                    'id' => uniqid('log_', true),
+                    'timestamp' => (int)round(microtime(true) * 1000),
+                    'location' => 'lib/Client/BucketController.php:getTotalUsageForBillingPeriod',
+                    'message' => 'Transfer totals vs current buckets',
+                    'data' => [
+                        'userIds' => $userIds,
+                        'startDate' => $startDate,
+                        'endDate' => $endDate,
+                        'cutoverDate' => $cutoverDate,
+                        'currentBucketIdsCount' => is_array($currentBucketIds) ? count($currentBucketIds) : 0,
+                        'totalBytesSent' => $totalBytesSent,
+                        'totalBytesReceived' => $totalBytesReceived,
+                        'totalOps' => $totalOps,
+                        'currentOnlyBytesSent' => $currentOnlyTotals->total_bytes_sent ?? 0,
+                        'currentOnlyBytesReceived' => $currentOnlyTotals->total_bytes_received ?? 0,
+                        'currentOnlyOps' => $currentOnlyTotals->total_ops ?? 0
+                    ],
+                    'runId' => 'pre-fix-2',
+                    'hypothesisId' => 'H5'
+                ]) . PHP_EOL,
+                FILE_APPEND
+            );
+        } catch (\Throwable $e) {}
+        // #endregion
 
         return [
             'total_bytes_sent'     => $totalBytesSent,
@@ -1472,6 +1527,40 @@ class BucketController {
                 ->orderBy('usage_period', 'ASC')
                 ->get();
         }
+        // #region agent log
+        try {
+            $rowsCount = is_iterable($transferStatsSummary) ? count($transferStatsSummary) : 0;
+            $sumReceived = 0.0;
+            $sumSent = 0.0;
+            if (is_iterable($transferStatsSummary)) {
+                foreach ($transferStatsSummary as $row) {
+                    $sumReceived += (float)($row->total_bytes_received ?? 0);
+                    $sumSent += (float)($row->total_bytes_sent ?? 0);
+                }
+            }
+            file_put_contents(
+                '/var/www/eazybackup.ca/.cursor/debug.log',
+                json_encode([
+                    'id' => uniqid('log_', true),
+                    'timestamp' => (int)round(microtime(true) * 1000),
+                    'location' => 'lib/Client/BucketController.php:getUserTransferSummary',
+                    'message' => 'Transfer series summary',
+                    'data' => [
+                        'userIds' => $userIds,
+                        'limit' => $limit,
+                        'cutoverDate' => $cutoverDate,
+                        'currentBucketIdsCount' => is_array($currentBucketIds) ? count($currentBucketIds) : 0,
+                        'rowsCount' => $rowsCount,
+                        'sumReceived' => $sumReceived,
+                        'sumSent' => $sumSent
+                    ],
+                    'runId' => 'pre-fix-2',
+                    'hypothesisId' => 'H5'
+                ]) . PHP_EOL,
+                FILE_APPEND
+            );
+        } catch (\Throwable $e) {}
+        // #endregion
 
         $aggregatedTransferSummary = [];
 
@@ -3578,6 +3667,44 @@ class BucketController {
             ->orderBy('date')
             ->get()
             ->toArray();
+        // #region agent log
+        try {
+            $dailyCount = is_array($dailyUsageQuery) ? count($dailyUsageQuery) : 0;
+            $transferCount = is_array($transferDataQuery) ? count($transferDataQuery) : 0;
+            $peakDay = null;
+            $peakStorage = 0.0;
+            if (is_array($dailyUsageQuery)) {
+                foreach ($dailyUsageQuery as $row) {
+                    $value = (float)($row->total_storage ?? 0);
+                    if ($value >= $peakStorage) {
+                        $peakStorage = $value;
+                        $peakDay = $row->date ?? $peakDay;
+                    }
+                }
+            }
+            file_put_contents(
+                '/var/www/eazybackup.ca/.cursor/debug.log',
+                json_encode([
+                    'id' => uniqid('log_', true),
+                    'timestamp' => (int)round(microtime(true) * 1000),
+                    'location' => 'lib/Client/BucketController.php:getHistoricalUsage',
+                    'message' => 'Historical usage aggregates',
+                    'data' => [
+                        'userIds' => $userIds,
+                        'startDate' => $startDate,
+                        'endDate' => $endDate,
+                        'dailyCount' => $dailyCount,
+                        'transferCount' => $transferCount,
+                        'peakDay' => $peakDay,
+                        'peakStorage' => $peakStorage
+                    ],
+                    'runId' => 'pre-fix-2',
+                    'hypothesisId' => 'H6'
+                ]) . PHP_EOL,
+                FILE_APPEND
+            );
+        } catch (\Throwable $e) {}
+        // #endregion
 
         // Find peak usage (date and size of the highest storage day) - FIXED: Use aggregated totals
         $peakUsageQuery = Capsule::table('s3_historical_stats')
