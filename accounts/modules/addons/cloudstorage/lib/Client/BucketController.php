@@ -1647,8 +1647,11 @@ class BucketController {
                 $or->where(function ($before) use ($cutoverDate, $currentBucketIds) {
                     $before->whereDate('t.created_at', '<', $cutoverDate)
                         ->whereNotIn('t.bucket_id', $currentBucketIds);
+                })->orWhere(function ($cutover) use ($cutoverDate, $currentBucketIds) {
+                    $cutover->whereDate('t.created_at', '=', $cutoverDate)
+                        ->whereNotIn('t.bucket_id', $currentBucketIds);
                 })->orWhere(function ($after) use ($cutoverDate, $currentBucketIds) {
-                    $after->whereDate('t.created_at', '>=', $cutoverDate)
+                    $after->whereDate('t.created_at', '>', $cutoverDate)
                         ->whereIn('t.bucket_id', $currentBucketIds);
                 });
             });
