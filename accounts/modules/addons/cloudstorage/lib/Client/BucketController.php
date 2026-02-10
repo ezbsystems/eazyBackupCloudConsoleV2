@@ -1287,30 +1287,91 @@ class BucketController {
             $limit = 1;
         }
 
-        // Using a direct SQL approach with a single subquery for better performance
-        $query = Capsule::table('s3_bucket_stats_summary AS s')
-            ->join('s3_buckets AS b', 'b.id', '=', 's.bucket_id')
-            ->selectRaw('
-                DATE(s.created_at) AS date,
-                SUM(
-                    (
-                        SELECT MAX(total_usage)
-                        FROM s3_bucket_stats_summary AS inner_s
-                        WHERE inner_s.user_id = s.user_id
-                        AND inner_s.bucket_id = s.bucket_id
-                        AND DATE(inner_s.created_at) = DATE(s.created_at)
-                    )
-                ) AS total_usage
-            ')
-            ->where('b.is_active', 1)
-            ->whereIn('s.user_id', $userIds)
-            ->whereDate('s.created_at', '>=', $startDate)
-            ->whereDate('s.created_at', '<=', $endDate)
-            ->groupBy('date')
-            ->orderBy('date', 'ASC')
-            ->limit($limit);
+        $currentBucketIds = Capsule::table('s3_buckets')
+            ->whereIn('user_id', $userIds)
+            ->where('is_active', 1)
+            ->pluck('id')
+            ->all();
 
-        $bucketStatsSummary = $query->get();
+        $cutoverDate = null;
+        if (!empty($currentBucketIds)) {
+            $cutoverDate = Capsule::table('s3_bucket_stats_summary')
+                ->whereIn('user_id', $userIds)
+                ->whereIn('bucket_id', $currentBucketIds)
+                ->selectRaw('MIN(DATE(created_at)) as cutover')
+                ->value('cutover');
+        }
+
+        $bucketStatsSummary = collect();
+        if (!empty($currentBucketIds) && !empty($cutoverDate)) {
+            // Before cutover: use legacy bucket IDs (not in current list)
+            $beforeRows = Capsule::table('s3_bucket_stats_summary AS s')
+                ->selectRaw('
+                    DATE(s.created_at) AS date,
+                    SUM(
+                        (
+                            SELECT MAX(total_usage)
+                            FROM s3_bucket_stats_summary AS inner_s
+                            WHERE inner_s.user_id = s.user_id
+                            AND inner_s.bucket_id = s.bucket_id
+                            AND DATE(inner_s.created_at) = DATE(s.created_at)
+                        )
+                    ) AS total_usage
+                ')
+                ->whereIn('s.user_id', $userIds)
+                ->whereDate('s.created_at', '>=', $startDate)
+                ->whereDate('s.created_at', '<', $cutoverDate)
+                ->whereNotIn('s.bucket_id', $currentBucketIds)
+                ->groupBy('date')
+                ->orderBy('date', 'ASC')
+                ->get();
+
+            // After cutover: use current bucket IDs only
+            $afterRows = Capsule::table('s3_bucket_stats_summary AS s')
+                ->selectRaw('
+                    DATE(s.created_at) AS date,
+                    SUM(
+                        (
+                            SELECT MAX(total_usage)
+                            FROM s3_bucket_stats_summary AS inner_s
+                            WHERE inner_s.user_id = s.user_id
+                            AND inner_s.bucket_id = s.bucket_id
+                            AND DATE(inner_s.created_at) = DATE(s.created_at)
+                        )
+                    ) AS total_usage
+                ')
+                ->whereIn('s.user_id', $userIds)
+                ->whereDate('s.created_at', '>=', $cutoverDate)
+                ->whereDate('s.created_at', '<=', $endDate)
+                ->whereIn('s.bucket_id', $currentBucketIds)
+                ->groupBy('date')
+                ->orderBy('date', 'ASC')
+                ->get();
+
+            $bucketStatsSummary = $beforeRows->merge($afterRows);
+        } else {
+            // Fallback to original behavior if cutover cannot be determined
+            $bucketStatsSummary = Capsule::table('s3_bucket_stats_summary AS s')
+                ->selectRaw('
+                    DATE(s.created_at) AS date,
+                    SUM(
+                        (
+                            SELECT MAX(total_usage)
+                            FROM s3_bucket_stats_summary AS inner_s
+                            WHERE inner_s.user_id = s.user_id
+                            AND inner_s.bucket_id = s.bucket_id
+                            AND DATE(inner_s.created_at) = DATE(s.created_at)
+                        )
+                    ) AS total_usage
+                ')
+                ->whereIn('s.user_id', $userIds)
+                ->whereDate('s.created_at', '>=', $startDate)
+                ->whereDate('s.created_at', '<=', $endDate)
+                ->groupBy('date')
+                ->orderBy('date', 'ASC')
+                ->limit($limit)
+                ->get();
+        }
 
         $aggregatedBucketSummary = [];
         foreach ($bucketStatsSummary as $row) {
@@ -1351,9 +1412,23 @@ class BucketController {
      */
     public function getUserTransferSummary($userIds, $limit = 24)
     {
+        $currentBucketIds = Capsule::table('s3_buckets')
+            ->whereIn('user_id', $userIds)
+            ->where('is_active', 1)
+            ->pluck('id')
+            ->all();
+
+        $cutoverDate = null;
+        if (!empty($currentBucketIds)) {
+            $cutoverDate = Capsule::table('s3_transfer_stats_summary')
+                ->whereIn('user_id', $userIds)
+                ->whereIn('bucket_id', $currentBucketIds)
+                ->selectRaw('MIN(DATE(created_at)) as cutover')
+                ->value('cutover');
+        }
+
         if ($limit == 24 || $limit == 'day') {
             $transferStatsSummary = Capsule::table('s3_transfer_stats_summary AS t')
-                ->join('s3_buckets AS b', 'b.id', '=', 't.bucket_id')
                 ->select(
                     't.created_at as usage_period',
                     Capsule::raw('SUM(t.bytes_sent) as total_bytes_sent'),
@@ -1361,16 +1436,17 @@ class BucketController {
                     Capsule::raw('SUM(t.ops) as total_ops'),
                     Capsule::raw('SUM(t.successful_ops) as total_successful_ops')
                 )
-                ->where('b.is_active', 1)
                 ->whereIn('t.user_id', $userIds)
                 ->whereDate('t.created_at', date('Y-m-d'))
+                ->when(!empty($currentBucketIds) && !empty($cutoverDate), function ($q) use ($currentBucketIds) {
+                    $q->whereIn('t.bucket_id', $currentBucketIds);
+                })
                 ->groupBy('usage_period')
                 ->orderBy('usage_period', 'ASC')
                 ->get();
         } else {
             $periods = HelperController::getDateRange($limit);
             $transferStatsSummary = Capsule::table('s3_transfer_stats_summary AS t')
-                ->join('s3_buckets AS b', 'b.id', '=', 't.bucket_id')
                 ->select(
                     Capsule::raw('DATE_FORMAT(t.created_at, "%Y-%m-%d") AS usage_period'),
                     Capsule::raw('SUM(t.bytes_sent) as total_bytes_sent'),
@@ -1378,10 +1454,20 @@ class BucketController {
                     Capsule::raw('SUM(t.ops) as total_ops'),
                     Capsule::raw('SUM(t.successful_ops) as total_successful_ops')
                 )
-                ->where('b.is_active', 1)
                 ->whereIn('t.user_id', $userIds)
                 ->whereDate('t.created_at', '>=', $periods['start'])
                 ->whereDate('t.created_at', '<=', $periods['end'])
+                ->when(!empty($currentBucketIds) && !empty($cutoverDate), function ($q) use ($cutoverDate, $currentBucketIds) {
+                    $q->where(function ($or) use ($cutoverDate, $currentBucketIds) {
+                        $or->where(function ($before) use ($cutoverDate, $currentBucketIds) {
+                            $before->whereDate('t.created_at', '<', $cutoverDate)
+                                ->whereNotIn('t.bucket_id', $currentBucketIds);
+                        })->orWhere(function ($after) use ($cutoverDate, $currentBucketIds) {
+                            $after->whereDate('t.created_at', '>=', $cutoverDate)
+                                ->whereIn('t.bucket_id', $currentBucketIds);
+                        });
+                    });
+                })
                 ->groupBy('usage_period')
                 ->orderBy('usage_period', 'ASC')
                 ->get();
@@ -1473,19 +1559,26 @@ class BucketController {
     */
     public function findPeakBucketUsage($userIds, $billingPeriod)
     {
-        return Capsule::table('s3_bucket_stats_summary AS s')
-            ->join('s3_buckets AS b', 'b.id', '=', 's.bucket_id')
-            ->selectRaw('
-                DATE(s.created_at) AS exact_timestamp,
-                SUM(s.total_usage) AS total_size
-            ')
-            ->where('b.is_active', 1)
-            ->whereIn('s.user_id', $userIds)
-            ->whereDate('s.created_at', '>=', $billingPeriod['start'])
-            ->whereDate('s.created_at', '<=', $billingPeriod['end'])
-            ->groupBy('exact_timestamp')
-            ->orderBy('total_size', 'DESC')
-            ->first();
+        $daily = $this->getUserBucketSummary($userIds, $billingPeriod['start'], $billingPeriod['end']);
+        if (empty($daily)) {
+            return (object)[
+                'exact_timestamp' => null,
+                'total_size' => 0
+            ];
+        }
+        $peakSize = 0;
+        $peakDate = null;
+        foreach ($daily as $row) {
+            $value = isset($row['total_usage']) ? (float)$row['total_usage'] : 0;
+            if ($value >= $peakSize) {
+                $peakSize = $value;
+                $peakDate = $row['period'] ?? $peakDate;
+            }
+        }
+        return (object)[
+            'exact_timestamp' => $peakDate,
+            'total_size' => $peakSize
+        ];
     }
 
     /**
