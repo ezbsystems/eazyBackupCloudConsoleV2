@@ -298,6 +298,44 @@ if (is_array($pricesDaily)) {
         }
     }
 }
+// #region agent log
+try {
+    $bucketSummaryCount = is_array($bucketStats) ? count($bucketStats) : 0;
+    $pricesDailyCount = is_array($pricesDaily) ? count($pricesDaily) : 0;
+    $pricesPeak = 0.0;
+    $pricesPeakDate = null;
+    if (is_array($pricesDaily)) {
+        foreach ($pricesDaily as $row) {
+            $value = (float)($row['total_usage'] ?? 0);
+            if ($value >= $pricesPeak) {
+                $pricesPeak = $value;
+                $pricesPeakDate = $row['period'] ?? $pricesPeakDate;
+            }
+        }
+    }
+    file_put_contents(
+        '/var/www/eazybackup.ca/.cursor/debug.log',
+        json_encode([
+            'id' => uniqid('log_', true),
+            'timestamp' => (int)round(microtime(true) * 1000),
+            'location' => 'pages/history.php:chart_sources',
+            'message' => 'History chart sources',
+            'data' => [
+                'userIds' => $userIds,
+                'startDate' => $startDate,
+                'endDate' => $endDate,
+                'bucketSummaryCount' => $bucketSummaryCount,
+                'pricesDailyCount' => $pricesDailyCount,
+                'pricesPeakDate' => $pricesPeakDate,
+                'pricesPeakBytes' => $pricesPeak
+            ],
+            'runId' => 'pre-fix-2',
+            'hypothesisId' => 'H7'
+        ]) . PHP_EOL,
+        FILE_APPEND
+    );
+} catch (\Throwable $e) {}
+// #endregion
 
 // Fill forward across the requested date range
 try {
@@ -351,6 +389,38 @@ if (!empty($aggregatedTransferData)) {
         $transferOpsData[] = $data['ops'];
     }
 }
+// #region agent log
+try {
+    $transferDatesCount = count($transferDates);
+    $transferPeakReceived = 0.0;
+    $transferPeakDate = null;
+    foreach ($transferDates as $idx => $date) {
+        $value = (float)($transferReceivedData[$idx] ?? 0);
+        if ($value >= $transferPeakReceived) {
+            $transferPeakReceived = $value;
+            $transferPeakDate = $date;
+        }
+    }
+    file_put_contents(
+        '/var/www/eazybackup.ca/.cursor/debug.log',
+        json_encode([
+            'id' => uniqid('log_', true),
+            'timestamp' => (int)round(microtime(true) * 1000),
+            'location' => 'pages/history.php:transfer_series',
+            'message' => 'History transfer series',
+            'data' => [
+                'userIds' => $userIds,
+                'transferDatesCount' => $transferDatesCount,
+                'transferPeakDate' => $transferPeakDate,
+                'transferPeakReceived' => $transferPeakReceived
+            ],
+            'runId' => 'pre-fix-2',
+            'hypothesisId' => 'H6'
+        ]) . PHP_EOL,
+        FILE_APPEND
+    );
+} catch (\Throwable $e) {}
+// #endregion
 
 $hasStorageUsage = false;
 foreach ($dailyUsageData as $value) {
