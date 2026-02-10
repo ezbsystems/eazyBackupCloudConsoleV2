@@ -654,6 +654,44 @@ function cloudstorage_activate() {
             logModuleCall('cloudstorage', 'activate', [], 'Created s3_users table', [], []);
         }
 
+        // Ensure newer columns exist on s3_users (common on deactivate/activate where table is kept)
+        if (Capsule::schema()->hasTable('s3_users')) {
+            $s3UserColDefs = [
+                'ceph_uid'   => function ($table) { $table->string('ceph_uid', 191)->nullable()->after('username'); },
+                'is_active'  => function ($table) { $table->tinyInteger('is_active')->default(1)->after('tenant_id'); },
+                'deleted_at' => function ($table) { $table->timestamp('deleted_at')->nullable()->after('created_at'); },
+            ];
+            foreach ($s3UserColDefs as $col => $adder) {
+                if (!Capsule::schema()->hasColumn('s3_users', $col)) {
+                    try {
+                        Capsule::schema()->table('s3_users', function ($table) use ($adder) {
+                            $adder($table);
+                        });
+                        logModuleCall('cloudstorage', 'activate', [], "Ensured {$col} on s3_users", [], []);
+                    } catch (\Throwable $e) {
+                        logModuleCall('cloudstorage', "activate_ensure_s3_users_{$col}", [], $e->getMessage(), [], []);
+                    }
+                }
+            }
+            // Ensure indexes exist (best-effort; ignore if they already exist)
+            try {
+                if (!Capsule::schema()->hasColumn('s3_users', 'is_active')) {
+                    // Column must exist for index, skip
+                } else {
+                    Capsule::schema()->table('s3_users', function ($table) {
+                        $table->index('is_active');
+                    });
+                }
+            } catch (\Throwable $e) { /* index already exists */ }
+            try {
+                if (Capsule::schema()->hasColumn('s3_users', 'ceph_uid')) {
+                    Capsule::schema()->table('s3_users', function ($table) {
+                        $table->index('ceph_uid');
+                    });
+                }
+            } catch (\Throwable $e) { /* index already exists */ }
+        }
+
         if (!Capsule::schema()->hasTable('s3_prices')) {
             Capsule::schema()->create('s3_prices', function ($table) {
             $table->increments('id');

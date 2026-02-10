@@ -31,15 +31,20 @@ class BucketSizeMonitor {
             $errors = [];
             
             // Get WHMCS bucket mappings for reference (but don't limit collection to them)
+            $hasCephUidCol = false;
+            try { $hasCephUidCol = Capsule::schema()->hasColumn('s3_users', 'ceph_uid'); } catch (\Throwable $_) {}
+            $selectCols = [
+                's3_buckets.name as bucket_name',
+                's3_users.username as owner_username',
+                's3_users.tenant_id',
+                's3_buckets.is_active'
+            ];
+            if ($hasCephUidCol) {
+                $selectCols[] = 's3_users.ceph_uid as owner_ceph_uid';
+            }
             $whmcsBucketCollection = Capsule::table('s3_buckets')
                 ->join('s3_users', 's3_buckets.user_id', '=', 's3_users.id')
-                ->select([
-                    's3_buckets.name as bucket_name',
-                    's3_users.username as owner_username',
-                    's3_users.ceph_uid as owner_ceph_uid',
-                    's3_users.tenant_id',
-                    's3_buckets.is_active'
-                ])
+                ->select($selectCols)
                 ->where('s3_buckets.is_active', 1)
                 ->get();
 
@@ -52,7 +57,7 @@ class BucketSizeMonitor {
                 }
                 $whmcsMapping[$bucketName][] = [
                     'owner' => $bucket->owner_username,
-                    'ceph_uid' => $bucket->owner_ceph_uid,
+                    'ceph_uid' => $bucket->owner_ceph_uid ?? '',
                     'tenant_id' => $bucket->tenant_id
                 ];
             }

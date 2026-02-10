@@ -123,6 +123,48 @@
             $periodTotals['total_bytes_received'] += $item['total_bytes_received'];
         }
     }
+    // #region agent log
+    try {
+        $transferCount = is_array($transferdata) ? count($transferdata) : 0;
+        $transferSumReceived = 0.0;
+        $transferSumSent = 0.0;
+        $transferMaxReceived = 0.0;
+        if (is_array($transferdata)) {
+            foreach ($transferdata as $row) {
+                $received = isset($row['total_bytes_received']) ? (float)$row['total_bytes_received'] : 0.0;
+                $sent = isset($row['total_bytes_sent']) ? (float)$row['total_bytes_sent'] : 0.0;
+                $transferSumReceived += $received;
+                $transferSumSent += $sent;
+                if ($received > $transferMaxReceived) {
+                    $transferMaxReceived = $received;
+                }
+            }
+        }
+        file_put_contents(
+            '/var/www/eazybackup.ca/.cursor/debug.log',
+            json_encode([
+                'id' => uniqid('log_', true),
+                'timestamp' => (int)round(microtime(true) * 1000),
+                'location' => 'api/updatechart.php:transfer_totals',
+                'message' => 'Transfer totals for ajax refresh',
+                'data' => [
+                    'time' => $_POST['time'] ?? null,
+                    'selectedUsername' => $_POST['username'] ?? '',
+                    'userIds' => $userIds,
+                    'transferCount' => $transferCount,
+                    'transferSumReceived' => $transferSumReceived,
+                    'transferSumSent' => $transferSumSent,
+                    'transferMaxReceived' => $transferMaxReceived,
+                    'periodTotalsReceived' => $periodTotals['total_bytes_received'] ?? 0,
+                    'periodTotalsSent' => $periodTotals['total_bytes_sent'] ?? 0
+                ],
+                'runId' => 'pre-fix',
+                'hypothesisId' => 'H4'
+            ]) . PHP_EOL,
+            FILE_APPEND
+        );
+    } catch (\Throwable $e) {}
+    // #endregion
 
     $result = [
         'status' => 'success',

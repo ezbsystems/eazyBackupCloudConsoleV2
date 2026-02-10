@@ -110,7 +110,9 @@ if (!$endpoint || !$adminAccessKey || !$adminSecretKey) {
 }
 
 // Compute RGW uid for the bucket owner (prefer separate tenant param when available)
-$ownerUser = Capsule::table('s3_users')->where('id', $ownerId)->first(['id', 'username', 'ceph_uid', 'tenant_id']);
+$ownerSelectCols = ['id', 'username', 'tenant_id'];
+try { if (Capsule::schema()->hasColumn('s3_users', 'ceph_uid')) { $ownerSelectCols[] = 'ceph_uid'; } } catch (\Throwable $_) {}
+$ownerUser = Capsule::table('s3_users')->where('id', $ownerId)->first($ownerSelectCols);
 if (!$ownerUser) {
     (new JsonResponse(['status' => 'fail', 'message' => 'Service unavailable.'], 200))->send();
     exit;
