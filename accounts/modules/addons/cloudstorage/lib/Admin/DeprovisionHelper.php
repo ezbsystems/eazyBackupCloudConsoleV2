@@ -62,7 +62,9 @@ class DeprovisionHelper
     /**
      * Compute the Ceph RGW UID for an s3_users row.
      * If tenant_id is set, returns "tenant_id$username", otherwise just "username".
-     * The base uid is always sanitized (strip '@' and '.') to handle legacy records.
+     *
+     * Returns the uid exactly as stored — no sanitization.  Legacy users may have
+     * email-style uids that genuinely exist in Ceph RGW.
      *
      * @param object $user The s3_users row object (must have ->username and optionally ->tenant_id)
      * @return string The Ceph UID
@@ -75,8 +77,6 @@ class DeprovisionHelper
             if ($base === '') {
                 $base = (string)($user->username ?? '');
             }
-            // Sanitize: strip '@' and '.' to guarantee a clean RGW uid
-            $base = \WHMCS\Module\Addon\CloudStorage\Client\HelperController::sanitizeEmailForUsername($base);
             $tenantId = (string)($user->tenant_id ?? '');
             if ($tenantId !== '') {
                 return $tenantId . '$' . $base;
