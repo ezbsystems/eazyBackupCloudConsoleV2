@@ -26,6 +26,10 @@ class DBController {
             return null;
         }
 
+        // Cache column existence checks to avoid repeated schema queries
+        $hasIsActive = self::s3UsersHasColumn('is_active');
+        $hasCephUid  = self::s3UsersHasColumn('ceph_uid');
+
         $tenantId = null;
         $base = $username;
         if (strpos($username, '$') !== false) {
@@ -37,34 +41,57 @@ class DBController {
         }
 
         $query = Capsule::table('s3_users');
-        if ($activeOnly) {
+        if ($activeOnly && $hasIsActive) {
             $query->where('is_active', 1);
         }
         if ($tenantId !== null) {
             $query->where('tenant_id', $tenantId);
         }
-        $user = $query->where(function ($q) use ($username, $base) {
+        $user = $query->where(function ($q) use ($username, $base, $hasCephUid) {
                 $q->where('username', $username)
-                  ->orWhere('username', $base)
-                  ->orWhere('ceph_uid', $base);
+                  ->orWhere('username', $base);
+                if ($hasCephUid) {
+                    $q->orWhere('ceph_uid', $base);
+                }
             })
             ->first();
 
         if (!$user && $tenantId !== null) {
             $query2 = Capsule::table('s3_users');
-            if ($activeOnly) {
+            if ($activeOnly && $hasIsActive) {
                 $query2->where('is_active', 1);
             }
             $user = $query2
-                ->where(function ($q) use ($username, $base) {
+                ->where(function ($q) use ($username, $base, $hasCephUid) {
                     $q->where('username', $username)
-                      ->orWhere('username', $base)
-                      ->orWhere('ceph_uid', $base);
+                      ->orWhere('username', $base);
+                    if ($hasCephUid) {
+                        $q->orWhere('ceph_uid', $base);
+                    }
                 })
                 ->first();
         }
 
         return $user;
+    }
+
+    /**
+     * Check (and cache) whether a column exists on s3_users.
+     *
+     * @param string $column
+     * @return bool
+     */
+    private static function s3UsersHasColumn(string $column): bool
+    {
+        $key = 's3_users.' . $column;
+        if (!isset(self::$schemaCache[$key])) {
+            try {
+                self::$schemaCache[$key] = Capsule::schema()->hasColumn('s3_users', $column);
+            } catch (\Throwable $e) {
+                self::$schemaCache[$key] = false;
+            }
+        }
+        return self::$schemaCache[$key];
     }
 
     /**

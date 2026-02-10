@@ -415,8 +415,14 @@ class S3Billing {
     {
         $totalBucketSize = 0;
         try {
+            $tenantCols = ['id', 'username', 'tenant_id'];
+            try {
+                if (Capsule::schema()->hasColumn('s3_users', 'ceph_uid')) {
+                    $tenantCols[] = 'ceph_uid';
+                }
+            } catch (\Throwable $_) {}
             $tenants = Capsule::table('s3_users')
-                ->select('id', 'username', 'ceph_uid', 'tenant_id')
+                ->select($tenantCols)
                 ->where('parent_id', $parentUserId)
                 ->get();
 

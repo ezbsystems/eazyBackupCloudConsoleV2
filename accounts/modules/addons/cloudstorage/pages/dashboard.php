@@ -96,10 +96,125 @@
         'end' => $displayPeriod['end_for_queries']
     ]);
     $formattedTotalBucketSize = HelperController::formatSizeUnits($peakForDisplay->total_size ?? 0);
+    // #region agent log
+    try {
+        $bucketStatsCount = is_array($bucketStats) ? count($bucketStats) : 0;
+        $bucketStatsMax = 0.0;
+        $bucketStatsMaxDate = null;
+        if (is_array($bucketStats)) {
+            foreach ($bucketStats as $row) {
+                $value = isset($row['total_usage']) ? (float)$row['total_usage'] : 0.0;
+                if ($value >= $bucketStatsMax) {
+                    $bucketStatsMax = $value;
+                    $bucketStatsMaxDate = $row['period'] ?? $bucketStatsMaxDate;
+                }
+            }
+        }
+        file_put_contents(
+            '/var/www/eazybackup.ca/.cursor/debug.log',
+            json_encode([
+                'id' => uniqid('log_', true),
+                'timestamp' => (int)round(microtime(true) * 1000),
+                'location' => 'pages/dashboard.php:usage_series',
+                'message' => 'Daily peak usage inputs',
+                'data' => [
+                    'selectedUsername' => $_GET['username'] ?? '',
+                    'userIds' => $userIds,
+                    'periodStart' => $displayPeriod['start'] ?? null,
+                    'periodEnd' => $displayPeriod['end_for_queries'] ?? null,
+                    'bucketStatsCount' => $bucketStatsCount,
+                    'bucketStatsMax' => $bucketStatsMax,
+                    'bucketStatsMaxDate' => $bucketStatsMaxDate,
+                    'peakDate' => $peakForDisplay->exact_timestamp ?? null,
+                    'peakBytes' => $peakForDisplay->total_size ?? 0
+                ],
+                'runId' => 'pre-fix',
+                'hypothesisId' => 'H1'
+            ]) . PHP_EOL,
+            FILE_APPEND
+        );
+    } catch (\Throwable $e) {}
+    // #endregion
+    // #region agent log
+    try {
+        $peakDateForBreakdown = $peakForDisplay->exact_timestamp ? date('Y-m-d', strtotime($peakForDisplay->exact_timestamp)) : null;
+        $perUserPeakTotals = [];
+        if (!empty($peakDateForBreakdown) && !empty($userIds)) {
+            $rows = Capsule::table('s3_bucket_stats_summary')
+                ->selectRaw('user_id, SUM(total_usage) AS total_usage')
+                ->whereIn('user_id', $userIds)
+                ->whereDate('created_at', '=', $peakDateForBreakdown)
+                ->groupBy('user_id')
+                ->get();
+            foreach ($rows as $row) {
+                $perUserPeakTotals[(string)$row->user_id] = (float)($row->total_usage ?? 0);
+            }
+        }
+        file_put_contents(
+            '/var/www/eazybackup.ca/.cursor/debug.log',
+            json_encode([
+                'id' => uniqid('log_', true),
+                'timestamp' => (int)round(microtime(true) * 1000),
+                'location' => 'pages/dashboard.php:peak_breakdown',
+                'message' => 'Peak date per-user totals',
+                'data' => [
+                    'peakDate' => $peakDateForBreakdown,
+                    'userIds' => $userIds,
+                    'perUserTotals' => $perUserPeakTotals
+                ],
+                'runId' => 'pre-fix',
+                'hypothesisId' => 'H2'
+            ]) . PHP_EOL,
+            FILE_APPEND
+        );
+    } catch (\Throwable $e) {}
+    // #endregion
     $dataIngress = HelperController::formatSizeUnits($totalUsage['total_bytes_received']);
     $dataEgress = HelperController::formatSizeUnits($totalUsage['total_bytes_sent']);
     $totalOps = htmlspecialchars($totalUsage['total_ops']);
     $topBuckets = HelperController::sortBucket($bucketInfo['buckets']);
+    // #region agent log
+    try {
+        $transferCount = is_array($transferdata) ? count($transferdata) : 0;
+        $transferSumReceived = 0.0;
+        $transferSumSent = 0.0;
+        $transferMaxReceived = 0.0;
+        if (is_array($transferdata)) {
+            foreach ($transferdata as $row) {
+                $received = isset($row['total_bytes_received']) ? (float)$row['total_bytes_received'] : 0.0;
+                $sent = isset($row['total_bytes_sent']) ? (float)$row['total_bytes_sent'] : 0.0;
+                $transferSumReceived += $received;
+                $transferSumSent += $sent;
+                if ($received > $transferMaxReceived) {
+                    $transferMaxReceived = $received;
+                }
+            }
+        }
+        file_put_contents(
+            '/var/www/eazybackup.ca/.cursor/debug.log',
+            json_encode([
+                'id' => uniqid('log_', true),
+                'timestamp' => (int)round(microtime(true) * 1000),
+                'location' => 'pages/dashboard.php:transfer_summary',
+                'message' => 'Transfer totals for initial render',
+                'data' => [
+                    'selectedUsername' => $_GET['username'] ?? '',
+                    'userIds' => $userIds,
+                    'today' => $today,
+                    'transferCount' => $transferCount,
+                    'transferSumReceived' => $transferSumReceived,
+                    'transferSumSent' => $transferSumSent,
+                    'transferMaxReceived' => $transferMaxReceived,
+                    'totalUsageReceived' => $totalUsage['total_bytes_received'] ?? 0,
+                    'totalUsageSent' => $totalUsage['total_bytes_sent'] ?? 0
+                ],
+                'runId' => 'pre-fix',
+                'hypothesisId' => 'H3'
+            ]) . PHP_EOL,
+            FILE_APPEND
+        );
+    } catch (\Throwable $e) {}
+    // #endregion
     $dailyUsageChart = HelperController::prepareDailyUsageChart($displayPeriod['start'], $bucketStats);
 
     return [
