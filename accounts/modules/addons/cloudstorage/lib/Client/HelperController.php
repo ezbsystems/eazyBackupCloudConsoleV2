@@ -287,33 +287,24 @@ class HelperController {
      * Resolve the base RGW uid for an s3_users row.
      * Prefer s3_users.ceph_uid when present, otherwise fall back to s3_users.username (legacy).
      *
-     * The result is always sanitized (strip '@' and '.') so that even legacy
-     * records that stored the raw email address produce a valid RGW uid.
+     * IMPORTANT: This returns the uid exactly as stored in the database, without
+     * sanitization.  Legacy users may have email-style uids (e.g. user@example.com)
+     * that genuinely exist in Ceph RGW.  Sanitization (stripping '@' and '.') must
+     * only happen at **user creation time** in the provisioning flows — never here.
      */
     public static function resolveCephBaseUid($user): string
     {
-        $raw = '';
         if (is_object($user)) {
             $ceph = (string)($user->ceph_uid ?? '');
-            if ($ceph !== '') {
-                $raw = $ceph;
-            } else {
-                $raw = (string)($user->username ?? '');
-            }
-        } elseif (is_array($user)) {
+            if ($ceph !== '') return $ceph;
+            return (string)($user->username ?? '');
+        }
+        if (is_array($user)) {
             $ceph = (string)($user['ceph_uid'] ?? '');
-            if ($ceph !== '') {
-                $raw = $ceph;
-            } else {
-                $raw = (string)($user['username'] ?? '');
-            }
+            if ($ceph !== '') return $ceph;
+            return (string)($user['username'] ?? '');
         }
-        if ($raw === '') {
-            return '';
-        }
-        // Always strip '@' and '.' to guarantee a clean RGW uid,
-        // even if the DB still contains an unsanitized legacy email.
-        return self::sanitizeEmailForUsername($raw);
+        return '';
     }
 
     /**
