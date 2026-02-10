@@ -1289,6 +1289,7 @@ class BucketController {
 
         // Using a direct SQL approach with a single subquery for better performance
         $query = Capsule::table('s3_bucket_stats_summary AS s')
+            ->join('s3_buckets AS b', 'b.id', '=', 's.bucket_id')
             ->selectRaw('
                 DATE(s.created_at) AS date,
                 SUM(
@@ -1301,6 +1302,7 @@ class BucketController {
                     )
                 ) AS total_usage
             ')
+            ->where('b.is_active', 1)
             ->whereIn('s.user_id', $userIds)
             ->whereDate('s.created_at', '>=', $startDate)
             ->whereDate('s.created_at', '<=', $endDate)
@@ -1350,32 +1352,36 @@ class BucketController {
     public function getUserTransferSummary($userIds, $limit = 24)
     {
         if ($limit == 24 || $limit == 'day') {
-            $transferStatsSummary = Capsule::table('s3_transfer_stats_summary')
+            $transferStatsSummary = Capsule::table('s3_transfer_stats_summary AS t')
+                ->join('s3_buckets AS b', 'b.id', '=', 't.bucket_id')
                 ->select(
-                    'created_at as usage_period',
-                    Capsule::raw('SUM(bytes_sent) as total_bytes_sent'),
-                    Capsule::raw('SUM(bytes_received) as total_bytes_received'),
-                    Capsule::raw('SUM(ops) as total_ops'),
-                    Capsule::raw('SUM(successful_ops) as total_successful_ops')
+                    't.created_at as usage_period',
+                    Capsule::raw('SUM(t.bytes_sent) as total_bytes_sent'),
+                    Capsule::raw('SUM(t.bytes_received) as total_bytes_received'),
+                    Capsule::raw('SUM(t.ops) as total_ops'),
+                    Capsule::raw('SUM(t.successful_ops) as total_successful_ops')
                 )
-                ->whereIn('user_id', $userIds)
-                ->whereDate('created_at', date('Y-m-d'))
+                ->where('b.is_active', 1)
+                ->whereIn('t.user_id', $userIds)
+                ->whereDate('t.created_at', date('Y-m-d'))
                 ->groupBy('usage_period')
                 ->orderBy('usage_period', 'ASC')
                 ->get();
         } else {
             $periods = HelperController::getDateRange($limit);
-            $transferStatsSummary = Capsule::table('s3_transfer_stats_summary')
+            $transferStatsSummary = Capsule::table('s3_transfer_stats_summary AS t')
+                ->join('s3_buckets AS b', 'b.id', '=', 't.bucket_id')
                 ->select(
-                    Capsule::raw('DATE_FORMAT(created_at, "%Y-%m-%d") AS usage_period'),
-                    Capsule::raw('SUM(bytes_sent) as total_bytes_sent'),
-                    Capsule::raw('SUM(bytes_received) as total_bytes_received'),
-                    Capsule::raw('SUM(ops) as total_ops'),
-                    Capsule::raw('SUM(successful_ops) as total_successful_ops')
+                    Capsule::raw('DATE_FORMAT(t.created_at, "%Y-%m-%d") AS usage_period'),
+                    Capsule::raw('SUM(t.bytes_sent) as total_bytes_sent'),
+                    Capsule::raw('SUM(t.bytes_received) as total_bytes_received'),
+                    Capsule::raw('SUM(t.ops) as total_ops'),
+                    Capsule::raw('SUM(t.successful_ops) as total_successful_ops')
                 )
-                ->whereIn('user_id', $userIds)
-                ->whereDate('created_at', '>=', $periods['start'])
-                ->whereDate('created_at', '<=', $periods['end'])
+                ->where('b.is_active', 1)
+                ->whereIn('t.user_id', $userIds)
+                ->whereDate('t.created_at', '>=', $periods['start'])
+                ->whereDate('t.created_at', '<=', $periods['end'])
                 ->groupBy('usage_period')
                 ->orderBy('usage_period', 'ASC')
                 ->get();
@@ -1467,14 +1473,16 @@ class BucketController {
     */
     public function findPeakBucketUsage($userIds, $billingPeriod)
     {
-        return Capsule::table('s3_bucket_stats_summary')
+        return Capsule::table('s3_bucket_stats_summary AS s')
+            ->join('s3_buckets AS b', 'b.id', '=', 's.bucket_id')
             ->selectRaw('
-                DATE(created_at) AS exact_timestamp,
-                SUM(total_usage) AS total_size
+                DATE(s.created_at) AS exact_timestamp,
+                SUM(s.total_usage) AS total_size
             ')
-            ->whereIn('user_id', $userIds)
-            ->whereDate('created_at', '>=', $billingPeriod['start'])
-            ->whereDate('created_at', '<=', $billingPeriod['end'])
+            ->where('b.is_active', 1)
+            ->whereIn('s.user_id', $userIds)
+            ->whereDate('s.created_at', '>=', $billingPeriod['start'])
+            ->whereDate('s.created_at', '<=', $billingPeriod['end'])
             ->groupBy('exact_timestamp')
             ->orderBy('total_size', 'DESC')
             ->first();
