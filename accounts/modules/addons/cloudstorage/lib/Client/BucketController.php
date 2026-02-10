@@ -1225,23 +1225,17 @@ class BucketController {
         $totalBytesReceived = 0;
         $totalOps = 0;
 
-        $query = Capsule::table('s3_transfer_stats_summary')
+        [$currentBucketIds, $cutoverDate, $firstSeenSub] = $this->getTransferCutoverContext($userIds);
+        $query = Capsule::table('s3_transfer_stats_summary AS t')
             ->selectRaw('
-                SUM(bytes_sent) as total_bytes_sent,
-                SUM(bytes_received) as total_bytes_received,
-                SUM(ops) as total_ops
+                SUM(t.bytes_sent) as total_bytes_sent,
+                SUM(t.bytes_received) as total_bytes_received,
+                SUM(t.ops) as total_ops
             ')
-            ->whereIn('user_id', $userIds);
+            ->whereIn('t.user_id', $userIds);
+        $this->applyTransferCutoverFilters($query, $currentBucketIds, $cutoverDate, $firstSeenSub, $startDate, $endDate);
 
-        if (!empty($startDate)) {
-            $query->whereDate('created_at', '>=', $startDate);
-        }
-
-        if (!empty($endDate)) {
-            $query->whereDate('created_at', '<=', $endDate);
-        }
-
-        $transferStatsSummaries = $query->groupBy('user_id')->get();
+        $transferStatsSummaries = $query->groupBy('t.user_id')->get();
 
         if (count($transferStatsSummaries)) {
             foreach ($transferStatsSummaries as $transferStatsSummary) {
@@ -1467,23 +1461,10 @@ class BucketController {
      */
     public function getUserTransferSummary($userIds, $limit = 24)
     {
-        $currentBucketIds = Capsule::table('s3_buckets')
-            ->whereIn('user_id', $userIds)
-            ->where('is_active', 1)
-            ->pluck('id')
-            ->all();
-
-        $cutoverDate = null;
-        if (!empty($currentBucketIds)) {
-            $cutoverDate = Capsule::table('s3_transfer_stats_summary')
-                ->whereIn('user_id', $userIds)
-                ->whereIn('bucket_id', $currentBucketIds)
-                ->selectRaw('MIN(DATE(created_at)) as cutover')
-                ->value('cutover');
-        }
+        [$currentBucketIds, $cutoverDate, $firstSeenSub] = $this->getTransferCutoverContext($userIds);
 
         if ($limit == 24 || $limit == 'day') {
-            $transferStatsSummary = Capsule::table('s3_transfer_stats_summary AS t')
+            $transferQuery = Capsule::table('s3_transfer_stats_summary AS t')
                 ->select(
                     't.created_at as usage_period',
                     Capsule::raw('SUM(t.bytes_sent) as total_bytes_sent'),
@@ -1492,16 +1473,15 @@ class BucketController {
                     Capsule::raw('SUM(t.successful_ops) as total_successful_ops')
                 )
                 ->whereIn('t.user_id', $userIds)
-                ->whereDate('t.created_at', date('Y-m-d'))
-                ->when(!empty($currentBucketIds) && !empty($cutoverDate), function ($q) use ($currentBucketIds) {
-                    $q->whereIn('t.bucket_id', $currentBucketIds);
-                })
+                ->whereDate('t.created_at', date('Y-m-d'));
+            $this->applyTransferCutoverFilters($transferQuery, $currentBucketIds, $cutoverDate, $firstSeenSub);
+            $transferStatsSummary = $transferQuery
                 ->groupBy('usage_period')
                 ->orderBy('usage_period', 'ASC')
                 ->get();
         } else {
             $periods = HelperController::getDateRange($limit);
-            $transferStatsSummary = Capsule::table('s3_transfer_stats_summary AS t')
+            $transferQuery = Capsule::table('s3_transfer_stats_summary AS t')
                 ->select(
                     Capsule::raw('DATE_FORMAT(t.created_at, "%Y-%m-%d") AS usage_period'),
                     Capsule::raw('SUM(t.bytes_sent) as total_bytes_sent'),
@@ -1511,18 +1491,9 @@ class BucketController {
                 )
                 ->whereIn('t.user_id', $userIds)
                 ->whereDate('t.created_at', '>=', $periods['start'])
-                ->whereDate('t.created_at', '<=', $periods['end'])
-                ->when(!empty($currentBucketIds) && !empty($cutoverDate), function ($q) use ($cutoverDate, $currentBucketIds) {
-                    $q->where(function ($or) use ($cutoverDate, $currentBucketIds) {
-                        $or->where(function ($before) use ($cutoverDate, $currentBucketIds) {
-                            $before->whereDate('t.created_at', '<', $cutoverDate)
-                                ->whereNotIn('t.bucket_id', $currentBucketIds);
-                        })->orWhere(function ($after) use ($cutoverDate, $currentBucketIds) {
-                            $after->whereDate('t.created_at', '>=', $cutoverDate)
-                                ->whereIn('t.bucket_id', $currentBucketIds);
-                        });
-                    });
-                })
+                ->whereDate('t.created_at', '<=', $periods['end']);
+            $this->applyTransferCutoverFilters($transferQuery, $currentBucketIds, $cutoverDate, $firstSeenSub);
+            $transferStatsSummary = $transferQuery
                 ->groupBy('usage_period')
                 ->orderBy('usage_period', 'ASC')
                 ->get();
@@ -1575,6 +1546,124 @@ class BucketController {
         }
 
         return $aggregatedTransferSummary;
+    }
+
+    /**
+     * Get transfer summary for a custom date range (daily buckets).
+     *
+     * @param array $userIds
+     * @param string $startDate Y-m-d
+     * @param string $endDate Y-m-d
+     * @return array
+     */
+    public function getTransferSummaryForRange(array $userIds, string $startDate, string $endDate): array
+    {
+        [$currentBucketIds, $cutoverDate, $firstSeenSub] = $this->getTransferCutoverContext($userIds);
+        $transferQuery = Capsule::table('s3_transfer_stats_summary AS t')
+            ->select(
+                Capsule::raw('DATE_FORMAT(t.created_at, "%Y-%m-%d") AS usage_period'),
+                Capsule::raw('SUM(t.bytes_sent) as total_bytes_sent'),
+                Capsule::raw('SUM(t.bytes_received) as total_bytes_received'),
+                Capsule::raw('SUM(t.ops) as total_ops'),
+                Capsule::raw('SUM(t.successful_ops) as total_successful_ops')
+            )
+            ->whereIn('t.user_id', $userIds)
+            ->whereDate('t.created_at', '>=', $startDate)
+            ->whereDate('t.created_at', '<=', $endDate);
+        $this->applyTransferCutoverFilters($transferQuery, $currentBucketIds, $cutoverDate, $firstSeenSub);
+        $transferStatsSummary = $transferQuery
+            ->groupBy('usage_period')
+            ->orderBy('usage_period', 'ASC')
+            ->get();
+
+        $aggregatedTransferSummary = [];
+        foreach ($transferStatsSummary as $row) {
+            $aggregatedTransferSummary[] = [
+                'period' => $row->usage_period,
+                'total_bytes_sent' => $row->total_bytes_sent,
+                'total_bytes_received' => $row->total_bytes_received,
+                'total_ops' => $row->total_ops,
+                'total_successful_ops' => $row->total_successful_ops
+            ];
+        }
+
+        return $aggregatedTransferSummary;
+    }
+
+    /**
+     * Determine cutover context for transfer summaries.
+     *
+     * @param array $userIds
+     * @return array [currentBucketIds, cutoverDate, firstSeenSubquery]
+     */
+    private function getTransferCutoverContext(array $userIds): array
+    {
+        $currentBucketIds = Capsule::table('s3_buckets')
+            ->whereIn('user_id', $userIds)
+            ->where('is_active', 1)
+            ->pluck('id')
+            ->all();
+
+        $cutoverDate = null;
+        if (!empty($currentBucketIds)) {
+            $cutoverDate = Capsule::table('s3_transfer_stats_summary')
+                ->whereIn('user_id', $userIds)
+                ->whereIn('bucket_id', $currentBucketIds)
+                ->selectRaw('MIN(DATE(created_at)) as cutover')
+                ->value('cutover');
+        }
+
+        $firstSeenSub = Capsule::table('s3_transfer_stats_summary')
+            ->selectRaw('bucket_id, MIN(created_at) AS first_seen')
+            ->whereIn('user_id', $userIds)
+            ->groupBy('bucket_id');
+
+        return [$currentBucketIds, $cutoverDate, $firstSeenSub];
+    }
+
+    /**
+     * Apply cutover filtering and exclude first snapshot rows on cutover date.
+     *
+     * @param \Illuminate\Database\Query\Builder $query
+     * @param array $currentBucketIds
+     * @param string|null $cutoverDate
+     * @param \Illuminate\Database\Query\Builder $firstSeenSub
+     * @param string|null $startDate
+     * @param string|null $endDate
+     * @return void
+     */
+    private function applyTransferCutoverFilters($query, array $currentBucketIds, ?string $cutoverDate, $firstSeenSub, ?string $startDate = null, ?string $endDate = null): void
+    {
+        if (!empty($startDate)) {
+            $query->whereDate('t.created_at', '>=', $startDate);
+        }
+        if (!empty($endDate)) {
+            $query->whereDate('t.created_at', '<=', $endDate);
+        }
+        $query->leftJoinSub($firstSeenSub, 'fs', 'fs.bucket_id', '=', 't.bucket_id');
+
+        if (!empty($currentBucketIds) && !empty($cutoverDate)) {
+            $query->where(function ($or) use ($cutoverDate, $currentBucketIds) {
+                $or->where(function ($before) use ($cutoverDate, $currentBucketIds) {
+                    $before->whereDate('t.created_at', '<', $cutoverDate)
+                        ->whereNotIn('t.bucket_id', $currentBucketIds);
+                })->orWhere(function ($after) use ($cutoverDate, $currentBucketIds) {
+                    $after->whereDate('t.created_at', '>=', $cutoverDate)
+                        ->whereIn('t.bucket_id', $currentBucketIds);
+                });
+            });
+        }
+
+        if (!empty($cutoverDate)) {
+            $query->where(function ($q) use ($cutoverDate) {
+                $q->whereNull('fs.first_seen')
+                    ->orWhereDate('fs.first_seen', '!=', $cutoverDate)
+                    ->orWhere(function ($q2) use ($cutoverDate) {
+                        $q2->whereDate('fs.first_seen', '=', $cutoverDate)
+                            ->whereRaw('t.created_at <> fs.first_seen');
+                    });
+            });
+        }
     }
 
     /**

@@ -241,25 +241,20 @@ debugLog('Raw Historical Data from getHistoricalUsage', [
 // Populate variables for the template from $historicalData
 
 // Peak Usage (billed instantaneous) from s3_prices
-$peakFromPrices = $bucketController->findPeakBillableUsageFromPrices((int)$user->id, [
+$peakFromUsage = $bucketController->findPeakBucketUsage($userIds, [
     'start' => $startDate,
     'end' => $endDate
 ]);
 $peakUsageForTemplate = [
-    'date' => ($peakFromPrices && $peakFromPrices->exact_timestamp) ? date('Y-m-d', strtotime($peakFromPrices->exact_timestamp)) : 'N/A',
-    'size' => HelperController::formatSizeUnits($peakFromPrices->total_size ?? 0)
+    'date' => ($peakFromUsage && $peakFromUsage->exact_timestamp) ? date('Y-m-d', strtotime($peakFromUsage->exact_timestamp)) : 'N/A',
+    'size' => HelperController::formatSizeUnits($peakFromUsage->total_size ?? 0)
 ];
 
 // Ingress, Egress, Operations from summary
-$totalIngressFormatted = '0 Bytes';
-$totalEgressFormatted = '0 Bytes';
-$totalOpsFormatted = '0';
-
-if (isset($historicalData['summary'])) {
-    $totalIngressFormatted = HelperController::formatSizeUnits($historicalData['summary']->total_bytes_received ?? 0);
-    $totalEgressFormatted = HelperController::formatSizeUnits($historicalData['summary']->total_bytes_sent ?? 0);
-    $totalOpsFormatted = number_format($historicalData['summary']->total_operations ?? 0);
-}
+$totalUsageRange = $bucketController->getTotalUsageForBillingPeriod($userIds, $startDate, $endDate);
+$totalIngressFormatted = HelperController::formatSizeUnits($totalUsageRange['total_bytes_received'] ?? 0);
+$totalEgressFormatted = HelperController::formatSizeUnits($totalUsageRange['total_bytes_sent'] ?? 0);
+$totalOpsFormatted = number_format($totalUsageRange['total_ops'] ?? 0);
 
 // Get bucket stats for the period (legacy, kept for compatibility if referenced elsewhere)
 $bucketStats = $bucketObject->getUserBucketSummary($userIds, $startDate, $endDate); // Daily usage chart uses dailyUsageData below
@@ -288,54 +283,15 @@ $transferReceivedData = [];
 $transferOpsData = []; 
 $transferDates = [];
 
-// Aggregation for Daily Usage (Storage) from billed instantaneous snapshots (s3_prices)
+// Aggregation for Daily Usage (Storage) from real usage snapshots
 $aggregatedDailyUsage = [];
-$pricesDaily = $bucketController->getDailyBillableUsageFromPrices((int)$user->id, $startDate, $endDate);
-if (is_array($pricesDaily)) {
-    foreach ($pricesDaily as $row) {
+if (is_array($bucketStats)) {
+    foreach ($bucketStats as $row) {
         if (is_array($row) && isset($row['period'])) {
             $aggregatedDailyUsage[$row['period']] = (float)($row['total_usage'] ?? 0);
         }
     }
 }
-// #region agent log
-try {
-    $bucketSummaryCount = is_array($bucketStats) ? count($bucketStats) : 0;
-    $pricesDailyCount = is_array($pricesDaily) ? count($pricesDaily) : 0;
-    $pricesPeak = 0.0;
-    $pricesPeakDate = null;
-    if (is_array($pricesDaily)) {
-        foreach ($pricesDaily as $row) {
-            $value = (float)($row['total_usage'] ?? 0);
-            if ($value >= $pricesPeak) {
-                $pricesPeak = $value;
-                $pricesPeakDate = $row['period'] ?? $pricesPeakDate;
-            }
-        }
-    }
-    file_put_contents(
-        '/var/www/eazybackup.ca/.cursor/debug.log',
-        json_encode([
-            'id' => uniqid('log_', true),
-            'timestamp' => (int)round(microtime(true) * 1000),
-            'location' => 'pages/history.php:chart_sources',
-            'message' => 'History chart sources',
-            'data' => [
-                'userIds' => $userIds,
-                'startDate' => $startDate,
-                'endDate' => $endDate,
-                'bucketSummaryCount' => $bucketSummaryCount,
-                'pricesDailyCount' => $pricesDailyCount,
-                'pricesPeakDate' => $pricesPeakDate,
-                'pricesPeakBytes' => $pricesPeak
-            ],
-            'runId' => 'pre-fix-2',
-            'hypothesisId' => 'H7'
-        ]) . PHP_EOL,
-        FILE_APPEND
-    );
-} catch (\Throwable $e) {}
-// #endregion
 
 // Fill forward across the requested date range
 try {
@@ -361,11 +317,12 @@ try {
 }
 
 // Aggregation for Transfer Data (Ingress, Egress, Ops)
+$transferSummary = $bucketController->getTransferSummaryForRange($userIds, $startDate, $endDate);
 $aggregatedTransferData = [];
-if (isset($historicalData['transfer_data']) && is_array($historicalData['transfer_data'])) {
-    foreach ($historicalData['transfer_data'] as $transfer) {
-        if (is_object($transfer) && isset($transfer->date)) { 
-            $date = $transfer->date;
+if (is_array($transferSummary)) {
+    foreach ($transferSummary as $transfer) {
+        if (is_array($transfer) && isset($transfer['period'])) {
+            $date = $transfer['period'];
             if (!isset($aggregatedTransferData[$date])) {
                 $aggregatedTransferData[$date] = [
                     'sent' => 0,
@@ -373,9 +330,9 @@ if (isset($historicalData['transfer_data']) && is_array($historicalData['transfe
                     'ops' => 0
                 ];
             }
-            $aggregatedTransferData[$date]['sent'] += (float)($transfer->bytes_sent ?? 0);
-            $aggregatedTransferData[$date]['received'] += (float)($transfer->bytes_received ?? 0);
-            $aggregatedTransferData[$date]['ops'] += (int)($transfer->operations ?? 0);
+            $aggregatedTransferData[$date]['sent'] += (float)($transfer['total_bytes_sent'] ?? 0);
+            $aggregatedTransferData[$date]['received'] += (float)($transfer['total_bytes_received'] ?? 0);
+            $aggregatedTransferData[$date]['ops'] += (int)($transfer['total_ops'] ?? 0);
         }
     }
 }
@@ -389,6 +346,44 @@ if (!empty($aggregatedTransferData)) {
         $transferOpsData[] = $data['ops'];
     }
 }
+// #region agent log
+try {
+    $bucketSummaryCount = is_array($bucketStats) ? count($bucketStats) : 0;
+    $transferSummaryCount = is_array($transferSummary) ? count($transferSummary) : 0;
+    $usagePeak = 0.0;
+    $usagePeakDate = null;
+    if (is_array($bucketStats)) {
+        foreach ($bucketStats as $row) {
+            $value = (float)($row['total_usage'] ?? 0);
+            if ($value >= $usagePeak) {
+                $usagePeak = $value;
+                $usagePeakDate = $row['period'] ?? $usagePeakDate;
+            }
+        }
+    }
+    file_put_contents(
+        '/var/www/eazybackup.ca/.cursor/debug.log',
+        json_encode([
+            'id' => uniqid('log_', true),
+            'timestamp' => (int)round(microtime(true) * 1000),
+            'location' => 'pages/history.php:chart_sources',
+            'message' => 'History chart sources',
+            'data' => [
+                'userIds' => $userIds,
+                'startDate' => $startDate,
+                'endDate' => $endDate,
+                'bucketSummaryCount' => $bucketSummaryCount,
+                'transferSummaryCount' => $transferSummaryCount,
+                'usagePeakDate' => $usagePeakDate,
+                'usagePeakBytes' => $usagePeak
+            ],
+            'runId' => 'pre-fix-2',
+            'hypothesisId' => 'H7'
+        ]) . PHP_EOL,
+        FILE_APPEND
+    );
+} catch (\Throwable $e) {}
+// #endregion
 // #region agent log
 try {
     $transferDatesCount = count($transferDates);
