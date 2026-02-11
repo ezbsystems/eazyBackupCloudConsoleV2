@@ -86,7 +86,7 @@ try {
     $browseCommands = Capsule::table('s3_cloudbackup_run_commands')
         ->where('agent_id', $agent->id)
         ->where('status', 'pending')
-        ->whereIn('type', ['browse_directory', 'list_hyperv_vms', 'list_hyperv_vm_details', 'list_disks', 'reset_agent'])
+        ->whereIn('type', ['browse_directory', 'list_hyperv_vms', 'list_hyperv_vm_details', 'list_disks', 'reset_agent', 'refresh_inventory', 'fetch_log_tail'])
         ->orderBy('id', 'asc')
         ->limit(5)
         ->get(['id as command_id', 'run_id', 'type', 'payload_json']);
@@ -250,6 +250,19 @@ try {
             }
         }
 
+        $policyJSON = null;
+        if (!empty($restorePoint->job_id)) {
+            $policyRaw = Capsule::table('s3_cloudbackup_jobs')
+                ->where('id', $restorePoint->job_id)
+                ->value('policy_json');
+            if ($policyRaw !== null && $policyRaw !== '') {
+                $dec = json_decode($policyRaw, true);
+                if (json_last_error() === JSON_ERROR_NONE && is_array($dec)) {
+                    $policyJSON = $dec;
+                }
+            }
+        }
+
         $jobContext = [
             'job_id' => (int) ($restorePoint->job_id ?? 0),
             'run_id' => (int) ($payload['restore_run_id'] ?? 0),
@@ -265,6 +278,7 @@ try {
             'dest_secret_key' => is_string($decSk) ? $decSk : '',
             'local_bandwidth_limit_kbps' => 0,
             'manifest_id' => $restorePoint->manifest_id ?? '',
+            'policy_json' => $policyJSON,
         ];
 
         $commands[] = [
@@ -313,7 +327,8 @@ try {
             'j.dest_type',
             'j.dest_local_path',
             'j.s3_user_id',
-            'j.local_bandwidth_limit_kbps'
+            'j.local_bandwidth_limit_kbps',
+            'j.policy_json'
         )
         ->orderBy('c.id', 'asc')
         ->limit(5)
@@ -396,6 +411,14 @@ try {
                     $decSk = $decSkSecondary;
                 }
             }
+
+            $policyJSON = null;
+            if (!empty($cmd->policy_json)) {
+                $dec = json_decode($cmd->policy_json, true);
+                if (json_last_error() === JSON_ERROR_NONE && is_array($dec)) {
+                    $policyJSON = $dec;
+                }
+            }
             
             $jobContext = [
                 'job_id' => (int) $cmd->job_id,
@@ -412,6 +435,7 @@ try {
                 'dest_secret_key' => is_string($decSk) ? $decSk : '',
                 'local_bandwidth_limit_kbps' => (int) ($cmd->local_bandwidth_limit_kbps ?? 0),
                 'manifest_id' => $cmd->manifest_id ?? '', // From the backup run's log_ref
+                'policy_json' => $policyJSON,
             ];
         }
         

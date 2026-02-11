@@ -19,6 +19,15 @@ function respond(array $data, int $httpCode = 200): void
     exit;
 }
 
+function respondError(string $code, string $message, int $httpCode = 200, array $extra = []): void
+{
+    respond(array_merge([
+        'status' => 'fail',
+        'code' => $code,
+        'message' => $message,
+    ], $extra), $httpCode);
+}
+
 function getBodyJson(): array
 {
     $raw = file_get_contents('php://input');
@@ -31,35 +40,202 @@ function getBodyJson(): array
 
 function generateSessionToken(): string
 {
-    return bin2hex(random_bytes(16));
+    return bin2hex(random_bytes(24));
+}
+
+function normalizeToken(string $token): string
+{
+    return strtoupper(trim($token));
+}
+
+function hashToken(string $token): string
+{
+    return hash('sha256', normalizeToken($token));
+}
+
+function getClientIp(): string
+{
+    $ip = trim((string) ($_SERVER['REMOTE_ADDR'] ?? ''));
+    if ($ip === '') {
+        return 'unknown';
+    }
+    return $ip;
+}
+
+function hashIp(string $ip): string
+{
+    return hash('sha256', $ip);
+}
+
+function ensureTokenHashColumn(string $table): void
+{
+    if (Capsule::schema()->hasColumn($table, 'token_hash')) {
+        return;
+    }
+    try {
+        Capsule::statement("ALTER TABLE `{$table}` ADD COLUMN `token_hash` VARCHAR(64) NULL");
+    } catch (\Throwable $e) {
+        // Continue; it may already exist under race conditions.
+    }
+    if (!Capsule::schema()->hasColumn($table, 'token_hash')) {
+        throw new \RuntimeException('token_hash column is missing');
+    }
+    try {
+        Capsule::statement("UPDATE `{$table}` SET `token_hash` = SHA2(UPPER(TRIM(`token`)), 256) WHERE (`token_hash` IS NULL OR `token_hash` = '') AND `token` IS NOT NULL AND `token` != ''");
+    } catch (\Throwable $e) {
+        logModuleCall('cloudstorage', 'cloudbackup_recovery_token_exchange_token_hash_backfill_fail', [
+            'table' => $table,
+        ], $e->getMessage());
+    }
+}
+
+function resetIpLimiterIfWindowExpired(object $limiterRow): void
+{
+    if (empty($limiterRow->window_started_at)) {
+        return;
+    }
+    $windowStartedTs = strtotime((string) $limiterRow->window_started_at);
+    if ($windowStartedTs === false) {
+        return;
+    }
+    if ($windowStartedTs + 600 > time()) {
+        return;
+    }
+    Capsule::table('s3_cloudbackup_recovery_exchange_limits')
+        ->where('id', (int) $limiterRow->id)
+        ->update([
+            'attempt_count' => 0,
+            'window_started_at' => date('Y-m-d H:i:s'),
+            'locked_until' => null,
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+}
+
+function failIpLimiter(string $ip, string $reason): void
+{
+    $ipHash = hashIp($ip);
+    $now = date('Y-m-d H:i:s');
+    $limiter = Capsule::table('s3_cloudbackup_recovery_exchange_limits')
+        ->where('ip_hash', $ipHash)
+        ->first();
+    if (!$limiter) {
+        Capsule::table('s3_cloudbackup_recovery_exchange_limits')->insert([
+            'ip_hash' => $ipHash,
+            'attempt_count' => 1,
+            'window_started_at' => $now,
+            'locked_until' => null,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+        return;
+    }
+
+    resetIpLimiterIfWindowExpired($limiter);
+    $limiter = Capsule::table('s3_cloudbackup_recovery_exchange_limits')
+        ->where('id', (int) $limiter->id)
+        ->first();
+    if (!$limiter) {
+        return;
+    }
+
+    $attemptCount = (int) ($limiter->attempt_count ?? 0) + 1;
+    $update = [
+        'attempt_count' => $attemptCount,
+        'updated_at' => $now,
+    ];
+    if ($attemptCount >= 8) {
+        $update['locked_until'] = date('Y-m-d H:i:s', time() + 900);
+    }
+    Capsule::table('s3_cloudbackup_recovery_exchange_limits')
+        ->where('id', (int) $limiter->id)
+        ->update($update);
+
+    logModuleCall('cloudstorage', 'cloudbackup_recovery_token_exchange_fail', [
+        'reason' => $reason,
+        'ip_hash' => $ipHash,
+    ], ['attempt_count' => $attemptCount]);
+}
+
+function isIpLocked(string $ip): bool
+{
+    $limiter = Capsule::table('s3_cloudbackup_recovery_exchange_limits')
+        ->where('ip_hash', hashIp($ip))
+        ->first();
+    if (!$limiter) {
+        return false;
+    }
+    if (empty($limiter->locked_until)) {
+        resetIpLimiterIfWindowExpired($limiter);
+        return false;
+    }
+    $lockedUntilTs = strtotime((string) $limiter->locked_until);
+    if ($lockedUntilTs === false || $lockedUntilTs <= time()) {
+        Capsule::table('s3_cloudbackup_recovery_exchange_limits')
+            ->where('id', (int) $limiter->id)
+            ->update([
+                'locked_until' => null,
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+        return false;
+    }
+    return true;
 }
 
 $body = getBodyJson();
 $token = trim((string) ($_POST['token'] ?? ($body['token'] ?? '')));
+$ip = getClientIp();
 
 if ($token === '') {
-    respond(['status' => 'fail', 'message' => 'token is required'], 400);
+    respondError('invalid_request', 'token is required', 400);
 }
 
 if (!Capsule::schema()->hasTable('s3_cloudbackup_recovery_tokens')) {
-    respond(['status' => 'fail', 'message' => 'Recovery tokens not supported'], 500);
+    respondError('schema_upgrade_required', 'Recovery tokens not supported', 500);
+}
+if (!Capsule::schema()->hasTable('s3_cloudbackup_recovery_exchange_limits')) {
+    respondError('schema_upgrade_required', 'Recovery exchange limiter not supported. Please run module upgrade.', 500);
 }
 
+if (isIpLocked($ip)) {
+    respondError('rate_limited', 'Too many recovery token attempts. Try again later.', 429);
+}
+
+$tokenTable = 's3_cloudbackup_recovery_tokens';
+try {
+    ensureTokenHashColumn($tokenTable);
+} catch (\Throwable $e) {
+    respondError('schema_upgrade_required', 'Recovery token schema is incomplete. Please run module upgrade.', 500, [
+        'missing_columns' => ['token_hash'],
+    ]);
+}
+
+$tokenHash = hashToken($token);
 $row = Capsule::table('s3_cloudbackup_recovery_tokens')
-    ->where('token', $token)
+    ->where('token_hash', $tokenHash)
     ->first();
 if (!$row) {
-    respond(['status' => 'fail', 'message' => 'Invalid recovery token'], 404);
+    failIpLimiter($ip, 'token_not_found');
+    respondError('invalid_token', 'Invalid recovery token', 404);
 }
 
+if (!hash_equals((string) ($row->token_hash ?? ''), $tokenHash)) {
+    failIpLimiter($ip, 'token_hash_mismatch');
+    respondError('invalid_token', 'Invalid recovery token', 404);
+}
+if (!empty($row->locked_until) && strtotime((string) $row->locked_until) > time()) {
+    respondError('token_locked', 'Recovery token is temporarily locked', 429);
+}
 if (!empty($row->revoked_at)) {
-    respond(['status' => 'fail', 'message' => 'Recovery token has been revoked'], 403);
+    respondError('token_revoked', 'Recovery token has been revoked', 403);
 }
 if (!empty($row->used_at)) {
-    respond(['status' => 'fail', 'message' => 'Recovery token has already been used'], 403);
+    respondError('token_used', 'Recovery token has already been used', 403);
+}
+if ((int) ($row->exchange_count ?? 0) > 0) {
+    respondError('token_exchanged', 'Recovery token has already been exchanged', 403);
 }
 if (!empty($row->expires_at) && strtotime((string) $row->expires_at) < time()) {
-    respond(['status' => 'fail', 'message' => 'Recovery token has expired'], 403);
+    respondError('token_expired', 'Recovery token has expired', 403);
 }
 
 $restorePoint = Capsule::table('s3_cloudbackup_restore_points')
@@ -67,11 +243,24 @@ $restorePoint = Capsule::table('s3_cloudbackup_restore_points')
     ->where('client_id', $row->client_id)
     ->first();
 if (!$restorePoint) {
-    respond(['status' => 'fail', 'message' => 'Restore point not found'], 404);
+    respondError('not_found', 'Restore point not found', 404);
+}
+
+$policyJSON = null;
+if (!empty($restorePoint->job_id)) {
+    $jobPolicyRaw = Capsule::table('s3_cloudbackup_jobs')
+        ->where('id', $restorePoint->job_id)
+        ->value('policy_json');
+    if ($jobPolicyRaw !== null && $jobPolicyRaw !== '') {
+        $dec = json_decode($jobPolicyRaw, true);
+        if (json_last_error() === JSON_ERROR_NONE && is_array($dec)) {
+            $policyJSON = $dec;
+        }
+    }
 }
 
 if (!in_array(($restorePoint->status ?? ''), ['success', 'warning'], true)) {
-    respond(['status' => 'fail', 'message' => 'Restore point is not available for recovery'], 400);
+    respondError('invalid_state', 'Restore point is not available for recovery', 400);
 }
 
 // Get bucket and access keys
@@ -141,7 +330,7 @@ if ($decAk === '' || $decSk === '') {
 }
 
 $sessionToken = generateSessionToken();
-$sessionExpiry = (new DateTime())->modify('+6 hours')->format('Y-m-d H:i:s');
+$sessionExpiry = (new DateTime())->modify('+1 hour')->format('Y-m-d H:i:s');
 $exchangedIp = $_SERVER['REMOTE_ADDR'] ?? null;
 $exchangedUA = $_SERVER['HTTP_USER_AGENT'] ?? null;
 
@@ -150,9 +339,20 @@ Capsule::table('s3_cloudbackup_recovery_tokens')
     ->update([
         'session_token' => $sessionToken,
         'session_expires_at' => $sessionExpiry,
+        'exchange_count' => Capsule::raw('COALESCE(exchange_count, 0) + 1'),
+        'failed_attempts' => 0,
+        'locked_until' => null,
         'exchanged_at' => date('Y-m-d H:i:s'),
         'exchanged_ip' => $exchangedIp,
         'exchanged_user_agent' => $exchangedUA,
+        'updated_at' => date('Y-m-d H:i:s'),
+    ]);
+
+Capsule::table('s3_cloudbackup_recovery_exchange_limits')
+    ->where('ip_hash', hashIp($ip))
+    ->update([
+        'attempt_count' => 0,
+        'locked_until' => null,
         'updated_at' => date('Y-m-d H:i:s'),
     ]);
 
@@ -170,6 +370,7 @@ respond([
         'disk_used_bytes' => $restorePoint->disk_used_bytes ?? null,
         'disk_boot_mode' => $restorePoint->disk_boot_mode ?? null,
         'disk_partition_style' => $restorePoint->disk_partition_style ?? null,
+        'policy_json' => $policyJSON,
     ],
     'storage' => [
         'dest_type' => $restorePoint->dest_type ?? 's3',

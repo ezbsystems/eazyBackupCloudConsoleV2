@@ -290,6 +290,10 @@ func (r *Runner) executePendingCommand(cmd PendingCommand) {
 		log.Printf("agent: reset_agent command %d received; exiting for restart", cmd.CommandID)
 		_ = r.client.CompleteCommand(cmd.CommandID, "completed", "agent reset")
 		os.Exit(0)
+	case "refresh_inventory":
+		r.executeRefreshInventoryCommand(cmd)
+	case "fetch_log_tail":
+		r.executeFetchLogTailCommand(cmd)
 	default:
 		log.Printf("agent: unknown pending command type: %s", cmd.Type)
 		_ = r.client.CompleteCommand(cmd.CommandID, "failed", "unknown command type")
@@ -1171,6 +1175,54 @@ func (r *Runner) pushEvents(runID int64, events ...RunEvent) {
 	}
 	if err := r.client.PushEvents(runID, events); err != nil {
 		log.Printf("agent: push events for run %d failed: %v", runID, err)
+		if summary, ok := fallbackSummaryFromEvents(events); ok {
+			if upErr := r.client.UpdateRun(RunUpdate{
+				RunID:        runID,
+				ErrorSummary: summary,
+				CurrentItem:  "Event delivery degraded; fallback summary recorded.",
+			}); upErr != nil {
+				log.Printf("agent: fallback summary update for run %d failed: %v", runID, upErr)
+			}
+		}
+	}
+}
+
+func fallbackSummaryFromEvents(events []RunEvent) (string, bool) {
+	for i := len(events) - 1; i >= 0; i-- {
+		ev := events[i]
+		level := strings.ToLower(strings.TrimSpace(ev.Level))
+		typ := strings.ToLower(strings.TrimSpace(ev.Type))
+		if level != "error" && typ != "error" {
+			continue
+		}
+		if ev.ParamsJSON != nil {
+			if summary, ok := ev.ParamsJSON["summary"].(string); ok && strings.TrimSpace(summary) != "" {
+				hint, _ := ev.ParamsJSON["hint"].(string)
+				if strings.TrimSpace(hint) != "" {
+					return strings.TrimSpace(summary) + " " + strings.TrimSpace(hint), true
+				}
+				return strings.TrimSpace(summary), true
+			}
+			if msg, ok := ev.ParamsJSON["message"].(string); ok && strings.TrimSpace(msg) != "" {
+				return strings.TrimSpace(msg), true
+			}
+			if msg, ok := ev.ParamsJSON["error"].(string); ok && strings.TrimSpace(msg) != "" {
+				return strings.TrimSpace(msg), true
+			}
+		}
+		if strings.TrimSpace(ev.MessageID) != "" {
+			return "Backup failed and event delivery was degraded. Review connection and retry.", true
+		}
+	}
+	return "", false
+}
+
+func (r *Runner) pushRecoveryLogs(runID int64, logs ...RunLogEntry) {
+	if len(logs) == 0 {
+		return
+	}
+	if err := r.client.PushRecoveryLogs(runID, logs); err != nil {
+		log.Printf("agent: push recovery logs for run %d failed: %v", runID, err)
 	}
 }
 

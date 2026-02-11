@@ -27,14 +27,14 @@ if ($payloadRaw) {
     }
 }
 
-if (!in_array($type, ['maintenance_quick', 'maintenance_full', 'reset_agent'], true)) {
+if (!in_array($type, ['maintenance_quick', 'maintenance_full', 'reset_agent', 'refresh_inventory'], true)) {
     (new JsonResponse(['status' => 'fail', 'message' => 'Invalid command type'], 200))->send();
     exit;
 }
 
-if ($type === 'reset_agent') {
+if ($type === 'reset_agent' || $type === 'refresh_inventory') {
     if ($agentId <= 0) {
-        (new JsonResponse(['status' => 'fail', 'message' => 'agent_id is required for reset_agent'], 200))->send();
+        (new JsonResponse(['status' => 'fail', 'message' => 'agent_id is required for agent-scoped commands'], 200))->send();
         exit;
     }
     if (!Capsule::schema()->hasColumn('s3_cloudbackup_run_commands', 'agent_id')) {
@@ -42,8 +42,25 @@ if ($type === 'reset_agent') {
         exit;
     }
 } else {
+    if ($runId <= 0 && $agentId > 0) {
+        $runId = (int) Capsule::table('s3_cloudbackup_runs')
+            ->where('agent_id', $agentId)
+            ->whereIn('status', ['queued', 'starting', 'running'])
+            ->orderByDesc('created_at')
+            ->value('id');
+    }
+    if ($runId > 0 && $agentId > 0) {
+        $match = Capsule::table('s3_cloudbackup_runs')
+            ->where('id', $runId)
+            ->where('agent_id', $agentId)
+            ->exists();
+        if (!$match) {
+            (new JsonResponse(['status' => 'fail', 'message' => 'run_id does not belong to selected agent'], 200))->send();
+            exit;
+        }
+    }
     if ($runId <= 0) {
-        (new JsonResponse(['status' => 'fail', 'message' => 'run_id is required for maintenance commands'], 200))->send();
+        (new JsonResponse(['status' => 'fail', 'message' => 'No eligible run found for maintenance command'], 200))->send();
         exit;
     }
 }
@@ -55,13 +72,13 @@ if (!Capsule::schema()->hasTable('s3_cloudbackup_run_commands')) {
 
 try {
     $insert = [
-        'run_id' => $type === 'reset_agent' ? null : $runId,
+        'run_id' => in_array($type, ['reset_agent', 'refresh_inventory'], true) ? null : $runId,
         'type' => $type,
         'payload_json' => $payload ? json_encode($payload) : null,
         'status' => 'pending',
         'created_at' => Capsule::raw('NOW()'),
     ];
-    if ($type === 'reset_agent') {
+    if (in_array($type, ['reset_agent', 'refresh_inventory'], true)) {
         $insert['agent_id'] = $agentId;
     }
     $cmdId = Capsule::table('s3_cloudbackup_run_commands')->insertGetId($insert);

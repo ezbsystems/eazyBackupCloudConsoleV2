@@ -228,8 +228,32 @@ func (r *Runner) kopiaSnapshotWithEntry(ctx context.Context, run *NextRunRespons
 		},
 	})
 
+	preflight := runStoragePreflight(ctx, opts.endpoint)
+	if !preflight.Reachable {
+		params := storageFailureParams(preflight.Class)
+		params["stage"] = "storage_preflight"
+		r.pushEvents(run.RunID, RunEvent{
+			Type:       "error",
+			Level:      "error",
+			Code:       preflight.Class.ReasonCode,
+			MessageID:  preflight.Class.MessageID,
+			ParamsJSON: params,
+		})
+		return fmt.Errorf("kopia: storage preflight: %s", storageFailureSummary(preflight.Class))
+	}
+
 	st, err := opts.storage(ctx)
 	if err != nil {
+		classified := classifyStorageInitError(opts.endpoint, err)
+		params := storageFailureParams(classified)
+		params["stage"] = "storage_init"
+		r.pushEvents(run.RunID, RunEvent{
+			Type:       "error",
+			Level:      "error",
+			Code:       classified.ReasonCode,
+			MessageID:  classified.MessageID,
+			ParamsJSON: params,
+		})
 		return fmt.Errorf("kopia: storage init: %w", err)
 	}
 
@@ -592,9 +616,9 @@ func (r *Runner) kopiaSnapshotWithEntry(ctx context.Context, run *NextRunRespons
 			RunID:      run.RunID,
 			ManifestID: manifestID,
 			StatsJSON: map[string]any{
-				"manifest_id": manifestID,
-				"files_done":  filesDone,
-				"files_total": filesTotal,
+				"manifest_id":  manifestID,
+				"files_done":   filesDone,
+				"files_total":  filesTotal,
 				"folders_done": foldersDone,
 			},
 		}); err != nil {
@@ -677,9 +701,9 @@ func (r *Runner) kopiaSnapshotWithEntry(ctx context.Context, run *NextRunRespons
 			RunID:      run.RunID,
 			ManifestID: manifestID,
 			StatsJSON: map[string]any{
-				"manifest_id": manifestID,
-				"files_done":  filesDone,
-				"files_total": filesTotal,
+				"manifest_id":  manifestID,
+				"files_done":   filesDone,
+				"files_total":  filesTotal,
 				"folders_done": foldersDone,
 			},
 		}); err != nil {
@@ -746,8 +770,32 @@ func (r *Runner) kopiaSnapshotDiskImageWithProgress(ctx context.Context, run *Ne
 		},
 	})
 
+	preflight := runStoragePreflight(ctx, opts.endpoint)
+	if !preflight.Reachable {
+		params := storageFailureParams(preflight.Class)
+		params["stage"] = "storage_preflight"
+		r.pushEvents(run.RunID, RunEvent{
+			Type:       "error",
+			Level:      "error",
+			Code:       preflight.Class.ReasonCode,
+			MessageID:  preflight.Class.MessageID,
+			ParamsJSON: params,
+		})
+		return "", fmt.Errorf("kopia: storage preflight: %s", storageFailureSummary(preflight.Class))
+	}
+
 	st, err := opts.storage(ctx)
 	if err != nil {
+		classified := classifyStorageInitError(opts.endpoint, err)
+		params := storageFailureParams(classified)
+		params["stage"] = "storage_init"
+		r.pushEvents(run.RunID, RunEvent{
+			Type:       "error",
+			Level:      "error",
+			Code:       classified.ReasonCode,
+			MessageID:  classified.MessageID,
+			ParamsJSON: params,
+		})
 		return "", fmt.Errorf("kopia: storage init: %w", err)
 	}
 
@@ -844,6 +892,93 @@ func (r *Runner) kopiaSnapshotDiskImageWithProgress(ctx context.Context, run *Ne
 		run.RunID, ep.CompressionPolicy.CompressorName, parallelUploads)
 
 	progressCounter := newKopiaProgressCounterWithCallback(r, run.RunID, progressCb, skipRunUpdate)
+	var uploadStage atomic.Value
+	uploadStage.Store("write_session")
+	var stallDumped int32
+	heartbeatDone := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-heartbeatDone:
+				return
+			case <-ticker.C:
+				snapshot := progressCounter.DebugSnapshot()
+				if stage := uploadStage.Load(); stage != nil {
+					snapshot["stage"] = stage.(string)
+				}
+				if err := ctx.Err(); err != nil {
+					snapshot["ctx_error"] = err.Error()
+				}
+				debugLog(run.RunID, "kopia_upload_heartbeat", snapshot, "H1")
+				log.Printf(
+					"agent: kopia heartbeat run=%d stage=%s bytes_hashed=%d bytes_uploaded=%d bytes_total=%d since_hash=%ds since_upload=%ds",
+					run.RunID,
+					snapshot["stage"],
+					snapshot["bytes_hashed"],
+					snapshot["bytes_uploaded"],
+					snapshot["bytes_total"],
+					snapshot["seconds_since_last_hash"],
+					snapshot["seconds_since_last_upload"],
+				)
+				stage, _ := snapshot["stage"].(string)
+				secondsSinceHash, _ := snapshot["seconds_since_last_hash"].(int64)
+				secondsSinceUpload, _ := snapshot["seconds_since_last_upload"].(int64)
+				if stage == "uploading" && (secondsSinceHash >= 180 || secondsSinceUpload >= 180) {
+					if atomic.CompareAndSwapInt32(&stallDumped, 0, 1) {
+						buf := make([]byte, 1<<20)
+						n := runtime.Stack(buf, true)
+						runDir := filepath.Join(r.cfg.RunDir, fmt.Sprintf("run_%d", run.RunID))
+						if err := os.MkdirAll(runDir, 0o755); err != nil {
+							log.Printf("agent: kopia stall dump mkdir failed run=%d err=%v", run.RunID, err)
+						}
+						dumpPath := filepath.Join(runDir, fmt.Sprintf("kopia_stall_dump_%s.txt", time.Now().UTC().Format("20060102_150405")))
+						snapshotJSON, snapErr := json.MarshalIndent(snapshot, "", "  ")
+						if snapErr != nil {
+							snapshotJSON = []byte(fmt.Sprintf("%v", snapshot))
+						}
+						dumpBody := strings.Builder{}
+						dumpBody.WriteString("kopia upload stall snapshot:\n")
+						dumpBody.Write(snapshotJSON)
+						dumpBody.WriteString("\n\nstack dump:\n")
+						dumpBody.WriteString(string(buf[:n]))
+						if writeErr := os.WriteFile(dumpPath, []byte(dumpBody.String()), 0o600); writeErr != nil {
+							log.Printf("agent: kopia stall dump write failed run=%d err=%v", run.RunID, writeErr)
+						} else {
+							log.Printf("agent: kopia stall dump written run=%d path=%s", run.RunID, dumpPath)
+						}
+						debugLog(run.RunID, "kopia_upload_stall_dump", map[string]any{
+							"snapshot": snapshot,
+							"stack":    string(buf[:n]),
+							"path":     dumpPath,
+						}, "H1")
+						log.Printf(
+							"agent: kopia upload stalled run=%d stage=%s since_hash=%ds since_upload=%ds (stack dump written)",
+							run.RunID,
+							stage,
+							secondsSinceHash,
+							secondsSinceUpload,
+						)
+					}
+				}
+			}
+		}
+	}()
+	defer close(heartbeatDone)
+	uploadCallStartedAt := time.Now()
+	r.pushEvents(run.RunID, RunEvent{
+		Type:      "info",
+		Level:     "info",
+		MessageID: "KOPIA_UPLOAD_CALL_START",
+		ParamsJSON: map[string]any{
+			"stable_source": stableSourcePath,
+			"bucket":        opts.bucket,
+			"prefix":        opts.prefix,
+		},
+	})
 	var manifestID string
 
 	// OnUpload callback is required to track bytes actually written to blob storage
@@ -857,6 +992,13 @@ func (r *Runner) kopiaSnapshotDiskImageWithProgress(ctx context.Context, run *Ne
 			u.ParallelUploads = parallelUploads
 		}
 
+		uploadStage.Store("uploading")
+		debugLog(run.RunID, "kopia_upload_begin", map[string]any{
+			"stable_source":    stableSourcePath,
+			"parallel_uploads": u.ParallelUploads,
+			"compression":      ep.CompressionPolicy.CompressorName,
+		}, "H1")
+		uploadStart := time.Now()
 		r.pushEvents(run.RunID, RunEvent{
 			Type:      "info",
 			Level:     "info",
@@ -873,6 +1015,17 @@ func (r *Runner) kopiaSnapshotDiskImageWithProgress(ctx context.Context, run *Ne
 
 		// Pass previous manifests to enable incremental deduplication
 		man, err := u.Upload(wctx, entryOverride, pol, srcInfo, previousManifests...)
+		uploadDurationMs := time.Since(uploadStart).Milliseconds()
+		if err != nil {
+			debugLog(run.RunID, "kopia_upload_done", map[string]any{
+				"duration_ms": uploadDurationMs,
+				"error":       sanitizeErrorMessage(err),
+			}, "H1")
+		} else {
+			debugLog(run.RunID, "kopia_upload_done", map[string]any{
+				"duration_ms": uploadDurationMs,
+			}, "H1")
+		}
 		if err != nil {
 			// Check if this is a cancellation error - don't report as failure
 			if isCancellationError(err) {
@@ -903,7 +1056,23 @@ func (r *Runner) kopiaSnapshotDiskImageWithProgress(ctx context.Context, run *Ne
 		}
 
 		// Save the snapshot manifest
+		uploadStage.Store("saving_manifest")
+		debugLog(run.RunID, "kopia_save_snapshot_begin", map[string]any{
+			"stable_source": stableSourcePath,
+		}, "H1")
+		saveStart := time.Now()
 		savedID, saveErr := snapshot.SaveSnapshot(wctx, w, man)
+		saveDurationMs := time.Since(saveStart).Milliseconds()
+		if saveErr != nil {
+			debugLog(run.RunID, "kopia_save_snapshot_done", map[string]any{
+				"duration_ms": saveDurationMs,
+				"error":       sanitizeErrorMessage(saveErr),
+			}, "H1")
+		} else {
+			debugLog(run.RunID, "kopia_save_snapshot_done", map[string]any{
+				"duration_ms": saveDurationMs,
+			}, "H1")
+		}
 		if saveErr != nil {
 			return fmt.Errorf("kopia: save snapshot: %w", saveErr)
 		}
@@ -933,9 +1102,37 @@ func (r *Runner) kopiaSnapshotDiskImageWithProgress(ctx context.Context, run *Ne
 		return nil
 	})
 
+	uploadDurationMs := time.Since(uploadCallStartedAt).Milliseconds()
 	if uploadErr != nil {
+		debugLog(run.RunID, "kopia_write_session_done", map[string]any{
+			"duration_ms": uploadDurationMs,
+			"error":       sanitizeErrorMessage(uploadErr),
+		}, "H1")
+	} else {
+		debugLog(run.RunID, "kopia_write_session_done", map[string]any{
+			"duration_ms": uploadDurationMs,
+		}, "H1")
+	}
+	if uploadErr != nil {
+		r.pushEvents(run.RunID, RunEvent{
+			Type:      "error",
+			Level:     "error",
+			MessageID: "KOPIA_UPLOAD_CALL_DONE",
+			ParamsJSON: map[string]any{
+				"duration_ms": uploadDurationMs,
+				"error":       sanitizeErrorMessage(uploadErr),
+			},
+		})
 		return "", fmt.Errorf("kopia: upload: %w", uploadErr)
 	}
+	r.pushEvents(run.RunID, RunEvent{
+		Type:      "info",
+		Level:     "info",
+		MessageID: "KOPIA_UPLOAD_CALL_DONE",
+		ParamsJSON: map[string]any{
+			"duration_ms": uploadDurationMs,
+		},
+	})
 
 	// Send final stats after upload completes (includes any bytes written during flush)
 	finalBytesProcessed, finalBytesUploaded := progressCounter.GetFinalStats()
@@ -971,7 +1168,9 @@ type kopiaProgressCounter struct {
 	dirsFinished    int64
 	totalBytes      int64
 	totalFiles      int64
-	
+	lastHashAt      int64
+	lastUploadAt    int64
+
 	// Optional external progress callback (for Hyper-V cumulative progress)
 	externalProgressCb func(bytesProcessed int64, bytesUploaded int64)
 	skipRunUpdate      bool
@@ -999,24 +1198,80 @@ func (p *kopiaProgressCounter) UploadStarted() {
 	defer p.mu.Unlock()
 	p.startTime = time.Now()
 	p.lastReportAt = p.startTime
+	atomic.StoreInt64(&p.lastHashAt, 0)
+	atomic.StoreInt64(&p.lastUploadAt, 0)
 	p.reportProgressLocked(true)
 }
 
 func (p *kopiaProgressCounter) UploadFinished() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	
+
 	// Log final stats for debugging
 	bytesHashed := atomic.LoadInt64(&p.bytesHashed)
 	bytesUploaded := atomic.LoadInt64(&p.bytesUploaded)
 	log.Printf("agent: kopia UploadFinished: bytesHashed=%d bytesUploaded=%d", bytesHashed, bytesUploaded)
-	
+	p.runner.pushEvents(p.runID, RunEvent{
+		Type:      "info",
+		Level:     "info",
+		MessageID: "KOPIA_UPLOAD_FINISHED",
+		ParamsJSON: map[string]any{
+			"bytes_hashed":   bytesHashed,
+			"bytes_uploaded": bytesUploaded,
+		},
+	})
+
 	p.reportProgressLocked(true)
 }
 
 // GetFinalStats returns the final stats after upload completes
 func (p *kopiaProgressCounter) GetFinalStats() (bytesHashed, bytesUploaded int64) {
 	return atomic.LoadInt64(&p.bytesHashed), atomic.LoadInt64(&p.bytesUploaded)
+}
+
+// DebugSnapshot returns a structured snapshot of current progress counters.
+func (p *kopiaProgressCounter) DebugSnapshot() map[string]any {
+	now := time.Now()
+	p.mu.Lock()
+	currentItem := p.currentFile
+	lastReportAt := p.lastReportAt
+	startTime := p.startTime
+	p.mu.Unlock()
+
+	bytesHashed := atomic.LoadInt64(&p.bytesHashed)
+	bytesUploaded := atomic.LoadInt64(&p.bytesUploaded)
+	totalBytes := atomic.LoadInt64(&p.totalBytes)
+	filesHashed := atomic.LoadInt64(&p.filesHashed)
+	filesCached := atomic.LoadInt64(&p.filesCached)
+	dirsFinished := atomic.LoadInt64(&p.dirsFinished)
+	lastHashAt := atomic.LoadInt64(&p.lastHashAt)
+	lastUploadAt := atomic.LoadInt64(&p.lastUploadAt)
+
+	secsSince := func(ts int64) int64 {
+		if ts == 0 {
+			return -1
+		}
+		return int64(now.Sub(time.Unix(0, ts)).Seconds())
+	}
+	progressPct := 0.0
+	if totalBytes > 0 {
+		progressPct = math.Min(100.0, (float64(bytesHashed)/float64(totalBytes))*100.0)
+	}
+
+	return map[string]any{
+		"bytes_hashed":              bytesHashed,
+		"bytes_uploaded":            bytesUploaded,
+		"bytes_total":               totalBytes,
+		"files_hashed":              filesHashed,
+		"files_cached":              filesCached,
+		"dirs_finished":             dirsFinished,
+		"progress_pct":              progressPct,
+		"elapsed_seconds":           int64(now.Sub(startTime).Seconds()),
+		"seconds_since_last_hash":   secsSince(lastHashAt),
+		"seconds_since_last_upload": secsSince(lastUploadAt),
+		"seconds_since_last_report": int64(now.Sub(lastReportAt).Seconds()),
+		"current_item":              currentItem,
+	}
 }
 
 func (p *kopiaProgressCounter) GetCounts() (filesDone, filesTotal, foldersDone int64) {
@@ -1032,6 +1287,7 @@ func (p *kopiaProgressCounter) CachedFile(fname string, numBytes int64) {
 	atomic.AddInt64(&p.filesCached, 1)
 	// Treat cached bytes as processed for progress.
 	atomic.AddInt64(&p.bytesHashed, numBytes)
+	atomic.StoreInt64(&p.lastHashAt, time.Now().UnixNano())
 	p.setCurrentFile(fname)
 	p.reportProgress(false)
 }
@@ -1050,12 +1306,14 @@ func (p *kopiaProgressCounter) ExcludedDir(dirname string) {
 
 func (p *kopiaProgressCounter) FinishedHashingFile(fname string, numBytes int64) {
 	atomic.AddInt64(&p.filesHashed, 1)
+	atomic.StoreInt64(&p.lastHashAt, time.Now().UnixNano())
 	p.setCurrentFile(fname)
 	p.reportProgress(false)
 }
 
 func (p *kopiaProgressCounter) HashedBytes(numBytes int64) {
 	atomic.AddInt64(&p.bytesHashed, numBytes)
+	atomic.StoreInt64(&p.lastHashAt, time.Now().UnixNano())
 	p.reportProgress(false)
 }
 
@@ -1067,6 +1325,7 @@ func (p *kopiaProgressCounter) Error(path string, err error, isIgnored bool) {
 
 func (p *kopiaProgressCounter) UploadedBytes(numBytes int64) {
 	newTotal := atomic.AddInt64(&p.bytesUploaded, numBytes)
+	atomic.StoreInt64(&p.lastUploadAt, time.Now().UnixNano())
 	log.Printf("agent: kopia UploadedBytes callback: +%d bytes (total: %d)", numBytes, newTotal)
 	p.reportProgress(false)
 }
@@ -1182,15 +1441,15 @@ func (p *kopiaProgressCounter) reportProgressLocked(force bool) {
 		Level:     "info",
 		MessageID: "KOPIA_PROGRESS_UPDATE",
 		ParamsJSON: map[string]any{
-			"pct":            progressPct,
+			"pct":             progressPct,
 			"bytes_processed": bytesHashed,   // Source bytes scanned
-			"bytes_uploaded": bytesUploaded,  // Actual upload (with dedup)
-			"bytes_total":    totalBytes,
-			"files_done":     filesHashed + filesCached,
-			"files_total":    totalFiles,
-			"speed_bps":      speed,
-			"eta_seconds":    etaSeconds,
-			"current":        currentItem,
+			"bytes_uploaded":  bytesUploaded, // Actual upload (with dedup)
+			"bytes_total":     totalBytes,
+			"files_done":      filesHashed + filesCached,
+			"files_total":     totalFiles,
+			"speed_bps":       speed,
+			"eta_seconds":     etaSeconds,
+			"current":         currentItem,
 		},
 	})
 }
@@ -1354,8 +1613,8 @@ func (r *Runner) kopiaRestoreWithProgress(ctx context.Context, run *NextRunRespo
 	})
 
 	stats, err := restore.Entry(ctx, rep, out, rootEntry, restore.Options{
-		ProgressCallback: progressCounter.onProgress,
-		Parallel:         4, // Use parallel restore for better performance
+		ProgressCallback:       progressCounter.onProgress,
+		Parallel:               4, // Use parallel restore for better performance
 		RestoreDirEntryAtDepth: math.MaxInt32,
 	})
 
@@ -1490,8 +1749,8 @@ func (r *Runner) kopiaRestoreSelectedPaths(ctx context.Context, run *NextRunResp
 		out := &fullRestoreOutput{fsOut}
 
 		if _, err := restore.Entry(ctx, rep, out, entry, restore.Options{
-			ProgressCallback: progressCounter.onProgress,
-			Parallel:         4,
+			ProgressCallback:       progressCounter.onProgress,
+			Parallel:               4,
 			RestoreDirEntryAtDepth: math.MaxInt32,
 		}); err != nil {
 			return err
@@ -1627,7 +1886,7 @@ func (s *singleFileRestoreOutput) WriteFile(ctx context.Context, relativePath st
 	if fileSize <= 0 {
 		fileSize = e.Size()
 	}
-	
+
 	// If size is still 0, try to get it by opening the file reader
 	if fileSize <= 0 {
 		testReader, err := e.Open(ctx)
@@ -1635,16 +1894,16 @@ func (s *singleFileRestoreOutput) WriteFile(ctx context.Context, relativePath st
 			// The reader interface has Length() - check if we can access it
 			if lr, ok := testReader.(interface{ Length() int64 }); ok {
 				fileSize = lr.Length()
-				log.Printf("agent: kopia VHDX got size from reader.Length(): %d bytes (%.2f GB)", 
+				log.Printf("agent: kopia VHDX got size from reader.Length(): %d bytes (%.2f GB)",
 					fileSize, float64(fileSize)/(1024*1024*1024))
 			}
 			testReader.Close()
 		}
 	}
-	
-	log.Printf("agent: kopia VHDX WriteFile: path=%s knownSize=%d entrySize=%d actualSize=%d", 
+
+	log.Printf("agent: kopia VHDX WriteFile: path=%s knownSize=%d entrySize=%d actualSize=%d",
 		s.targetPath, s.knownFileSize, e.Size(), fileSize)
-	
+
 	// For small files (< 64MB) or unknown size, use simple sequential copy
 	if fileSize < 64*1024*1024 {
 		log.Printf("agent: kopia VHDX using sequential restore (fileSize=%d < 64MB threshold)", fileSize)
@@ -1652,7 +1911,7 @@ func (s *singleFileRestoreOutput) WriteFile(ctx context.Context, relativePath st
 	}
 
 	// For large files, use parallel segment restore
-	log.Printf("agent: kopia VHDX using parallel segment restore (fileSize=%d = %.2f GB)", 
+	log.Printf("agent: kopia VHDX using parallel segment restore (fileSize=%d = %.2f GB)",
 		fileSize, float64(fileSize)/(1024*1024*1024))
 	return s.writeFileParallel(ctx, e, fileSize)
 }
@@ -1696,7 +1955,7 @@ func (s *singleFileRestoreOutput) writeFileSequential(ctx context.Context, e kop
 
 // writeFileParallel performs parallel segment download for large files
 func (s *singleFileRestoreOutput) writeFileParallel(ctx context.Context, e kopiafs.File, fileSize int64) error {
-	
+
 	// Determine number of parallel workers based on file size and CPU count
 	// Use more workers for very large files, but cap at reasonable limits
 	numWorkers := runtime.NumCPU()
@@ -1706,7 +1965,7 @@ func (s *singleFileRestoreOutput) writeFileParallel(ctx context.Context, e kopia
 	if numWorkers > 32 {
 		numWorkers = 32
 	}
-	
+
 	// For really large files, use more workers
 	if fileSize > 10*1024*1024*1024 { // > 10GB
 		numWorkers = numWorkers * 2
@@ -1736,7 +1995,7 @@ func (s *singleFileRestoreOutput) writeFileParallel(ctx context.Context, e kopia
 	if err != nil {
 		return fmt.Errorf("create target file: %w", err)
 	}
-	
+
 	// Truncate/extend file to final size for sparse file optimization
 	if err := outFile.Truncate(fileSize); err != nil {
 		outFile.Close()
@@ -1755,9 +2014,9 @@ func (s *singleFileRestoreOutput) writeFileParallel(ctx context.Context, e kopia
 		bytesWritten += n
 		current := bytesWritten
 		progressMu.Unlock()
-		
+
 		now := time.Now()
-		
+
 		// Log progress every 256MB
 		if current-lastProgressLog >= 256*1024*1024 {
 			lastProgressLog = current
@@ -1765,7 +2024,7 @@ func (s *singleFileRestoreOutput) writeFileParallel(ctx context.Context, e kopia
 			log.Printf("agent: kopia VHDX parallel restore progress: %d / %d bytes (%.1f%%)",
 				current, fileSize, pct)
 		}
-		
+
 		// Report to server every 2 seconds
 		if s.serverProgressFn != nil && now.Sub(lastServerReport) >= 2*time.Second {
 			lastServerReport = now
@@ -1784,7 +2043,7 @@ func (s *singleFileRestoreOutput) writeFileParallel(ctx context.Context, e kopia
 
 	// Create worker goroutines
 	var wg sync.WaitGroup
-	
+
 	for i := 0; i < numWorkers; i++ {
 		startOffset := int64(i) * segmentSize
 		endOffset := startOffset + segmentSize
@@ -1794,22 +2053,22 @@ func (s *singleFileRestoreOutput) writeFileParallel(ctx context.Context, e kopia
 		if startOffset >= fileSize {
 			break
 		}
-		
+
 		wg.Add(1)
 		go func(workerID int, start, end int64) {
 			defer wg.Done()
 			workerStart := time.Now()
 			segmentBytes := end - start
-			log.Printf("agent: kopia parallel worker %d starting: offset=%d-%d size=%d (%.1f MB)", 
+			log.Printf("agent: kopia parallel worker %d starting: offset=%d-%d size=%d (%.1f MB)",
 				workerID, start, end, segmentBytes, float64(segmentBytes)/(1024*1024))
-			
+
 			// Check for cancellation or prior error
 			select {
 			case <-ctx.Done():
 				return
 			default:
 			}
-			
+
 			errMu.Lock()
 			if firstErr != nil {
 				errMu.Unlock()
@@ -1873,7 +2132,7 @@ func (s *singleFileRestoreOutput) writeFileParallel(ctx context.Context, e kopia
 					return
 				default:
 				}
-				
+
 				// Check for error from other workers
 				errMu.Lock()
 				if firstErr != nil {
@@ -1914,11 +2173,11 @@ func (s *singleFileRestoreOutput) writeFileParallel(ctx context.Context, e kopia
 					return
 				}
 			}
-			
+
 			// Worker completion logging
 			workerDuration := time.Since(workerStart)
 			workerSpeed := float64(segmentWritten) / workerDuration.Seconds() / (1024 * 1024)
-			log.Printf("agent: kopia parallel worker %d complete: %d bytes in %.1fs (%.1f MB/s)", 
+			log.Printf("agent: kopia parallel worker %d complete: %d bytes in %.1fs (%.1f MB/s)",
 				workerID, segmentWritten, workerDuration.Seconds(), workerSpeed)
 		}(i, startOffset, endOffset)
 	}
@@ -1933,7 +2192,7 @@ func (s *singleFileRestoreOutput) writeFileParallel(ctx context.Context, e kopia
 	elapsed := time.Since(startTime)
 	speedMBps := float64(bytesWritten) / elapsed.Seconds() / (1024 * 1024)
 	speedGbps := speedMBps * 8 / 1000 // Convert MB/s to Gbps
-	
+
 	log.Printf("agent: kopia VHDX parallel restore complete: %d bytes (%.2f GB) to %s using %d workers in %.1fs (%.1f MB/s = %.2f Gbps)",
 		bytesWritten, float64(bytesWritten)/(1024*1024*1024), s.targetPath, numWorkers, elapsed.Seconds(), speedMBps, speedGbps)
 	return nil
@@ -2159,7 +2418,7 @@ func (r *Runner) kopiaRestoreVHDX(ctx context.Context, run *NextRunResponse, man
 			// For single-file entries, we need to wrap in a virtual directory
 			// so that restore.Entry works correctly
 			knownSize := man.RootEntry.FileSize
-			log.Printf("agent: kopia VHDX restore using parallel restore with %d workers, file size=%d bytes (%.2f GB)", 
+			log.Printf("agent: kopia VHDX restore using parallel restore with %d workers, file size=%d bytes (%.2f GB)",
 				parallelFactor, knownSize, float64(knownSize)/(1024*1024*1024))
 
 			// Create a single-file output that writes directly to targetFilePath
@@ -2177,17 +2436,17 @@ func (r *Runner) kopiaRestoreVHDX(ctx context.Context, run *NextRunResponse, man
 							progressPct = 99.9
 						}
 					}
-					
+
 					// Calculate ETA
 					var etaSeconds int64
 					if speedBps > 0 && bytesTotal > bytesWritten {
 						remaining := bytesTotal - bytesWritten
 						etaSeconds = int64(float64(remaining) / speedBps)
 					}
-					
+
 					elapsed := time.Since(restoreStartTime)
 					speedMBps := float64(bytesWritten) / elapsed.Seconds() / (1024 * 1024)
-					
+
 					_ = r.client.UpdateRun(RunUpdate{
 						RunID:            runID,
 						Status:           "running",
@@ -2202,8 +2461,8 @@ func (r *Runner) kopiaRestoreVHDX(ctx context.Context, run *NextRunResponse, man
 			}
 
 			stats, err := restore.Entry(ctx, rep, singleFileOut, rootEntry, restore.Options{
-				ProgressCallback: progressCounter.onProgress,
-				Parallel:         parallelFactor,
+				ProgressCallback:       progressCounter.onProgress,
+				Parallel:               parallelFactor,
 				RestoreDirEntryAtDepth: math.MaxInt32,
 			})
 
@@ -2242,8 +2501,8 @@ func (r *Runner) kopiaRestoreVHDX(ctx context.Context, run *NextRunResponse, man
 			out := &fullRestoreOutput{fsOut}
 
 			stats, err := restore.Entry(ctx, rep, out, rootEntry, restore.Options{
-				ProgressCallback: progressCounter.onProgress,
-				Parallel:         parallelFactor,
+				ProgressCallback:       progressCounter.onProgress,
+				Parallel:               parallelFactor,
 				RestoreDirEntryAtDepth: math.MaxInt32,
 			})
 

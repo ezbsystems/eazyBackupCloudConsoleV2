@@ -38,7 +38,7 @@ func getVMByNameOrGUID(ctx context.Context, mgr *hyperv.Manager, vmName, vmGUID 
 		}
 		log.Printf("agent: GetVMByGUID(%s) failed: %v, trying by name", vmGUID, err)
 	}
-	
+
 	// If vmName looks like a GUID, try GUID lookup first
 	if isGUID(vmName) {
 		vm, err := mgr.GetVMByGUID(ctx, vmName)
@@ -47,27 +47,27 @@ func getVMByNameOrGUID(ctx context.Context, mgr *hyperv.Manager, vmName, vmGUID 
 		}
 		// Fall through to try by name anyway (in case it's actually a VM named with a GUID-like string)
 	}
-	
+
 	// Try by name
 	return mgr.GetVM(ctx, vmName)
 }
 
 // hypervProgressTracker tracks cumulative progress across multiple VMs.
 type hypervProgressTracker struct {
-	runner         *Runner
-	runID          int64
-	totalBytes     int64
-	completedBytes int64 // Bytes from fully completed VMs/disks
-	currentBytes   int64 // Bytes processed in current disk (atomic)
+	runner                 *Runner
+	runID                  int64
+	totalBytes             int64
+	completedBytes         int64 // Bytes from fully completed VMs/disks
+	currentBytes           int64 // Bytes processed in current disk (atomic)
 	completedUploadedBytes int64 // Uploaded bytes from completed disks
 	currentUploaded        int64 // Uploaded bytes for current disk (atomic)
-	startTime      time.Time
-	currentVM      string
-	currentVMIndex int
-	totalVMs       int
-	completedVMs   int
-	mu             sync.Mutex
-	lastReportAt   time.Time
+	startTime              time.Time
+	currentVM              string
+	currentVMIndex         int
+	totalVMs               int
+	completedVMs           int
+	mu                     sync.Mutex
+	lastReportAt           time.Time
 }
 
 // addCompletedBytes adds bytes from a completed disk to the cumulative total.
@@ -155,7 +155,9 @@ func (r *Runner) runHyperV(run *NextRunResponse) error {
 		StartedAt: startedAt.Format(time.RFC3339),
 	})
 	resetParallelReads := setParallelDiskReadsOverride(policyBool(run.PolicyJSON, "parallel_disk_reads"))
+	resetStrictReadErrors := setStrictReadErrorsOverride(policyBool(run.PolicyJSON, "disk_image_strict_read_errors"))
 	defer resetParallelReads()
+	defer resetStrictReadErrors()
 
 	r.pushEvents(run.RunID, RunEvent{
 		Type:      "info",
@@ -202,7 +204,7 @@ func (r *Runner) runHyperV(run *NextRunResponse) error {
 		}
 	}()
 	defer func() {
-		cancel() // Ensure context is cancelled to stop polling goroutine
+		cancel()         // Ensure context is cancelled to stop polling goroutine
 		<-cancelPollDone // Wait for polling goroutine to finish
 	}()
 
@@ -296,11 +298,11 @@ func (r *Runner) runHyperV(run *NextRunResponse) error {
 			log.Printf("agent: hyperv backup cancelled before starting VM=%s", vmRun.VMName)
 			break
 		}
-		
+
 		progressTracker.currentVM = vmRun.VMName
 		progressTracker.currentVMIndex = vmIdx
 		progressTracker.reportProgress(true) // Force initial progress report for this VM
-		
+
 		log.Printf("agent: hyperv backup starting VM=%s (id=%d)", vmRun.VMName, vmRun.VMID)
 		r.pushEvents(run.RunID, RunEvent{
 			Type:      "info",
@@ -369,7 +371,7 @@ func (r *Runner) runHyperV(run *NextRunResponse) error {
 				vmRun.VMName, result.BackupType, result.CheckpointID)
 			successCount++
 			successVMs = append(successVMs, vmRun.VMName)
-			
+
 			// Mark VM as complete and add its bytes to cumulative total
 			progressTracker.addCompletedBytes(result.TotalBytes)
 			progressTracker.vmCompleted()
@@ -418,7 +420,7 @@ func (r *Runner) runHyperV(run *NextRunResponse) error {
 	errMsg := ""
 	var summaryMessage string
 	summaryLevel := "info"
-	
+
 	// Check if cancelled
 	wasCancelled := ctx.Err() != nil
 
@@ -478,15 +480,15 @@ func (r *Runner) runHyperV(run *NextRunResponse) error {
 		Level:     summaryLevel,
 		MessageID: "HYPERV_BACKUP_COMPLETE",
 		ParamsJSON: map[string]any{
-			"success_count":  successCount,
-			"fail_count":     failCount,
-			"warning_count":  warningCount,
-			"total_count":    len(run.HyperVVMs),
-			"status":         status,
-			"message":        summaryMessage,
-			"success_vms":    successVMs,
-			"failed_vms":     failedVMs,
-			"warning_vms":    warningVMs,
+			"success_count": successCount,
+			"fail_count":    failCount,
+			"warning_count": warningCount,
+			"total_count":   len(run.HyperVVMs),
+			"status":        status,
+			"message":       summaryMessage,
+			"success_vms":   successVMs,
+			"failed_vms":    failedVMs,
+			"warning_vms":   warningVMs,
 		},
 	})
 
@@ -637,7 +639,7 @@ func (r *Runner) backupHyperVVM(
 		})
 
 		var manifestID string
-		
+
 		// Progress callback for cumulative tracking
 		progressCallback := func(bytesProcessed int64, bytesUploaded int64) {
 			if progressTracker != nil {
@@ -661,7 +663,7 @@ func (r *Runner) backupHyperVVM(
 		} else {
 			manifestID, err = r.backupVHDXFull(ctx, run, disk.Path, disk.SizeBytes, progressCallback)
 		}
-		
+
 		// After disk completes, add its bytes to cumulative total
 		if err == nil && progressTracker != nil {
 			progressTracker.addCompletedBytes(disk.SizeBytes)
@@ -801,7 +803,7 @@ func (r *Runner) executeListHypervVMsCommand(ctx context.Context, cmd PendingCom
 
 	log.Printf("agent: discovered %d Hyper-V VMs for command %d", len(vms), cmd.CommandID)
 
-    // Convert to JSON-friendly format
+	// Convert to JSON-friendly format
 	vmList := make([]map[string]interface{}, 0, len(vms))
 	for _, vm := range vms {
 		vmData := map[string]interface{}{
@@ -814,7 +816,7 @@ func (r *Runner) executeListHypervVMsCommand(ctx context.Context, cmd PendingCom
 			"integration_services": vm.IntegrationSvcs,
 			"is_linux":             vm.IsLinux,
 			"rct_enabled":          vm.RCTEnabled,
-            "disk_count":           len(vm.Disks),
+			"disk_count":           len(vm.Disks),
 		}
 
 		vmList = append(vmList, vmData)
@@ -826,11 +828,11 @@ func (r *Runner) executeListHypervVMsCommand(ctx context.Context, cmd PendingCom
 		"count": len(vmList),
 	}
 
-    if err := r.client.ReportBrowseResult(cmd.CommandID, result); err != nil {
-        log.Printf("agent: list_hyperv_vms command %d failed to report: %v", cmd.CommandID, err)
-        _ = r.client.CompleteCommand(cmd.CommandID, "failed", "report hyperv vms failed: "+err.Error())
-        return
-    }
+	if err := r.client.ReportBrowseResult(cmd.CommandID, result); err != nil {
+		log.Printf("agent: list_hyperv_vms command %d failed to report: %v", cmd.CommandID, err)
+		_ = r.client.CompleteCommand(cmd.CommandID, "failed", "report hyperv vms failed: "+err.Error())
+		return
+	}
 
 	log.Printf("agent: list_hyperv_vms command %d completed successfully", cmd.CommandID)
 }
@@ -838,87 +840,87 @@ func (r *Runner) executeListHypervVMsCommand(ctx context.Context, cmd PendingCom
 // executeListHypervVMDetailsCommand handles the list_hyperv_vm_details command from the server.
 // This returns disk details for selected VMs only.
 func (r *Runner) executeListHypervVMDetailsCommand(ctx context.Context, cmd PendingCommand) {
-    log.Printf("agent: executing list_hyperv_vm_details command %d", cmd.CommandID)
+	log.Printf("agent: executing list_hyperv_vm_details command %d", cmd.CommandID)
 
-    vmIDs := []string{}
-    if cmd.Payload != nil {
-        if v, ok := cmd.Payload["vm_ids"]; ok {
-            switch t := v.(type) {
-            case []any:
-                for _, item := range t {
-                    if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
-                        vmIDs = append(vmIDs, strings.TrimSpace(s))
-                    }
-                }
-            case []string:
-                for _, s := range t {
-                    if strings.TrimSpace(s) != "" {
-                        vmIDs = append(vmIDs, strings.TrimSpace(s))
-                    }
-                }
-            case string:
-                trimmed := strings.TrimSpace(t)
-                if trimmed != "" {
-                    var decoded []string
-                    if err := json.Unmarshal([]byte(trimmed), &decoded); err == nil {
-                        for _, s := range decoded {
-                            if strings.TrimSpace(s) != "" {
-                                vmIDs = append(vmIDs, strings.TrimSpace(s))
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
+	vmIDs := []string{}
+	if cmd.Payload != nil {
+		if v, ok := cmd.Payload["vm_ids"]; ok {
+			switch t := v.(type) {
+			case []any:
+				for _, item := range t {
+					if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+						vmIDs = append(vmIDs, strings.TrimSpace(s))
+					}
+				}
+			case []string:
+				for _, s := range t {
+					if strings.TrimSpace(s) != "" {
+						vmIDs = append(vmIDs, strings.TrimSpace(s))
+					}
+				}
+			case string:
+				trimmed := strings.TrimSpace(t)
+				if trimmed != "" {
+					var decoded []string
+					if err := json.Unmarshal([]byte(trimmed), &decoded); err == nil {
+						for _, s := range decoded {
+							if strings.TrimSpace(s) != "" {
+								vmIDs = append(vmIDs, strings.TrimSpace(s))
+							}
+						}
+					}
+				}
+			}
+		}
+	}
 
-    if len(vmIDs) == 0 {
-        _ = r.client.CompleteCommand(cmd.CommandID, "failed", "vm_ids is required")
-        return
-    }
+	if len(vmIDs) == 0 {
+		_ = r.client.CompleteCommand(cmd.CommandID, "failed", "vm_ids is required")
+		return
+	}
 
-    mgr := hyperv.NewManager()
-    details := make([]map[string]interface{}, 0, len(vmIDs))
+	mgr := hyperv.NewManager()
+	details := make([]map[string]interface{}, 0, len(vmIDs))
 
-    for _, vmID := range vmIDs {
-        vm, err := getVMByNameOrGUID(ctx, mgr, vmID, vmID)
-        if err != nil {
-            log.Printf("agent: list_hyperv_vm_details command %d failed for %s: %v", cmd.CommandID, vmID, err)
-            continue
-        }
+	for _, vmID := range vmIDs {
+		vm, err := getVMByNameOrGUID(ctx, mgr, vmID, vmID)
+		if err != nil {
+			log.Printf("agent: list_hyperv_vm_details command %d failed for %s: %v", cmd.CommandID, vmID, err)
+			continue
+		}
 
-        disks := make([]map[string]interface{}, 0, len(vm.Disks))
-        for _, disk := range vm.Disks {
-            disks = append(disks, map[string]interface{}{
-                "path":            disk.Path,
-                "size_bytes":      disk.SizeBytes,
-                "used_bytes":      disk.UsedBytes,
-                "vhd_format":      disk.VHDFormat,
-                "rct_enabled":     disk.RCTEnabled,
-                "controller_type": disk.ControllerType,
-            })
-        }
+		disks := make([]map[string]interface{}, 0, len(vm.Disks))
+		for _, disk := range vm.Disks {
+			disks = append(disks, map[string]interface{}{
+				"path":            disk.Path,
+				"size_bytes":      disk.SizeBytes,
+				"used_bytes":      disk.UsedBytes,
+				"vhd_format":      disk.VHDFormat,
+				"rct_enabled":     disk.RCTEnabled,
+				"controller_type": disk.ControllerType,
+			})
+		}
 
-        details = append(details, map[string]interface{}{
-            "id":         vm.ID,
-            "name":       vm.Name,
-            "disk_count": len(vm.Disks),
-            "disks":      disks,
-        })
-    }
+		details = append(details, map[string]interface{}{
+			"id":         vm.ID,
+			"name":       vm.Name,
+			"disk_count": len(vm.Disks),
+			"disks":      disks,
+		})
+	}
 
-    result := map[string]interface{}{
-        "details": details,
-        "count":   len(details),
-    }
+	result := map[string]interface{}{
+		"details": details,
+		"count":   len(details),
+	}
 
-    if err := r.client.ReportBrowseResult(cmd.CommandID, result); err != nil {
-        log.Printf("agent: list_hyperv_vm_details command %d failed to report: %v", cmd.CommandID, err)
-        _ = r.client.CompleteCommand(cmd.CommandID, "failed", "report hyperv vm details failed: "+err.Error())
-        return
-    }
+	if err := r.client.ReportBrowseResult(cmd.CommandID, result); err != nil {
+		log.Printf("agent: list_hyperv_vm_details command %d failed to report: %v", cmd.CommandID, err)
+		_ = r.client.CompleteCommand(cmd.CommandID, "failed", "report hyperv vm details failed: "+err.Error())
+		return
+	}
 
-    log.Printf("agent: list_hyperv_vm_details command %d completed successfully", cmd.CommandID)
+	log.Printf("agent: list_hyperv_vm_details command %d completed successfully", cmd.CommandID)
 }
 
 // checkContextCancelled checks if the context has been cancelled.
@@ -1060,4 +1062,3 @@ func simplifyError(err error) string {
 
 	return msg
 }
-

@@ -115,6 +115,14 @@ func openBlockDeviceForWrite(target string) (*os.File, error) {
 	return os.OpenFile(target, os.O_RDWR, 0)
 }
 
+func prepareBlockDeviceForWrite(target string) error {
+	return nil
+}
+
+func openBlockDeviceForWriteNoPreflight(target string) (*os.File, error) {
+	return os.OpenFile(target, os.O_RDWR, 0)
+}
+
 func currentBootMode() string {
 	if _, err := os.Stat("/sys/firmware/efi"); err == nil {
 		return "uefi"

@@ -12,6 +12,7 @@ use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
 use WHMCS\Module\Addon\CloudStorage\Client\SanitizedLogFormatter;
+use WHMCS\Module\Addon\CloudStorage\Client\TimezoneHelper;
 
 $ca = new ClientArea();
 if (!$ca->isLoggedIn()) {
@@ -44,6 +45,7 @@ if (!$run) {
     $response->send();
     exit();
 }
+$userTz = TimezoneHelper::resolveUserTimezone($loggedInUserId, $run['job_id'] ?? null);
 
 $logExcerpt = $run['log_excerpt'] ?? '';
 $hash = $logExcerpt ? md5($logExcerpt) : null;
@@ -60,7 +62,7 @@ if ($hash && $clientHash && hash_equals($hash, $clientHash)) {
     exit();
 }
 
-$sanitized = $logExcerpt ? SanitizedLogFormatter::sanitizeAndStructure($logExcerpt, $run['status'] ?? null) : ['entries'=>[],'formatted_log'=>'','hash'=>null,'sanitized'=>true];
+$sanitized = $logExcerpt ? SanitizedLogFormatter::sanitizeAndStructure($logExcerpt, $run['status'] ?? null, $userTz) : ['entries'=>[],'formatted_log'=>'','hash'=>null,'sanitized'=>true];
 
 $response = new JsonResponse([
     'status' => 'success',

@@ -14,12 +14,14 @@ import (
 // rangeAwareDeviceEntry reads selected ranges from the device and falls back to
 // a previous snapshot entry (or zeros) for unchanged ranges.
 type rangeAwareDeviceEntry struct {
-	name          string
-	path          string
-	size          int64
-	modTime       time.Time
-	readRanges    []DiskExtent
-	fallbackEntry kopiafs.Entry
+	name            string
+	path            string
+	size            int64
+	modTime         time.Time
+	readRanges      []DiskExtent
+	fallbackEntry   kopiafs.Entry
+	physicalSource  bool
+	warningCallback diskReadWarningCallback
 }
 
 var _ kopiafs.File = (*rangeAwareDeviceEntry)(nil)
@@ -63,32 +65,38 @@ func (d *rangeAwareDeviceEntry) Open(ctx context.Context) (kopiafs.Reader, error
 		}
 	}
 
-	reader := newRangeAwareReader(f, fallback, d.size, d.readRanges, d)
+	reader := newRangeAwareReader(f, fallback, d.path, d.size, d.readRanges, d, d.physicalSource, d.warningCallback)
 	return reader, nil
 }
 
 // rangeAwareReader reads from primary for specified ranges and from fallback (or zeros) for the rest.
 type rangeAwareReader struct {
-	primary   io.ReadSeekCloser
-	fallback  io.ReadSeekCloser
-	totalSize int64
-	ranges    []DiskExtent
-	position  int64
-	index     int
-	closed    bool
-	entry     kopiafs.Entry
+	primary         io.ReadSeekCloser
+	fallback        io.ReadSeekCloser
+	path            string
+	totalSize       int64
+	ranges          []DiskExtent
+	position        int64
+	index           int
+	closed          bool
+	entry           kopiafs.Entry
+	physicalSource  bool
+	warningCallback diskReadWarningCallback
 }
 
 var _ kopiafs.Reader = (*rangeAwareReader)(nil)
 
-func newRangeAwareReader(primary io.ReadSeekCloser, fallback io.ReadSeekCloser, totalSize int64, ranges []DiskExtent, entry kopiafs.Entry) *rangeAwareReader {
+func newRangeAwareReader(primary io.ReadSeekCloser, fallback io.ReadSeekCloser, path string, totalSize int64, ranges []DiskExtent, entry kopiafs.Entry, physicalSource bool, warningCallback diskReadWarningCallback) *rangeAwareReader {
 	merged := mergeDiskExtents(ranges)
 	return &rangeAwareReader{
-		primary:   primary,
-		fallback:  fallback,
-		totalSize: totalSize,
-		ranges:    merged,
-		entry:     entry,
+		primary:         primary,
+		fallback:        fallback,
+		path:            path,
+		totalSize:       totalSize,
+		ranges:          merged,
+		entry:           entry,
+		physicalSource:  physicalSource,
+		warningCallback: warningCallback,
 	}
 }
 
@@ -125,13 +133,13 @@ func (r *rangeAwareReader) Read(p []byte) (int, error) {
 		buf := p[readTotal : readTotal+chunk]
 		var err error
 		if inRange {
-			err = readAt(r.primary, r.position, buf)
+			err = readAt(r.primary, r.path, "range-primary", r.position, buf, r.totalSize, r.physicalSource, r.warningCallback)
 			if err != nil && err != io.EOF {
 				return readTotal, err
 			}
 		} else {
 			if r.fallback != nil {
-				err = readAt(r.fallback, r.position, buf)
+				err = readAt(r.fallback, r.path, "range-fallback", r.position, buf, r.totalSize, false, nil)
 				if err != nil && err != io.EOF {
 					return readTotal, err
 				}
@@ -210,7 +218,7 @@ func (r *rangeAwareReader) locateRange(offset int64) (bool, int64, int64) {
 	return false, 0, r.totalSize
 }
 
-func readAt(rs io.ReadSeeker, offset int64, p []byte) error {
+func readAt(rs io.ReadSeeker, path, readerName string, offset int64, p []byte, totalSize int64, physicalSource bool, warningCallback diskReadWarningCallback) error {
 	if rs == nil {
 		return io.EOF
 	}
@@ -218,6 +226,37 @@ func readAt(rs io.ReadSeeker, offset int64, p []byte) error {
 		return err
 	}
 	n, err := io.ReadFull(rs, p)
+	if err != nil && isWindowsSectorNotFound(err) && physicalSource {
+		if isStrictReadErrors() {
+			return err
+		}
+		requestedBytes := int64(len(p))
+		requestedEnd := offset + requestedBytes
+		nearTail := shouldTreatSectorNotFoundAsEOF(totalSize, requestedEnd)
+		zeroFilled := requestedBytes - int64(n)
+		if zeroFilled < 0 {
+			zeroFilled = 0
+		}
+		for i := n; i < len(p); i++ {
+			p[i] = 0
+		}
+		if warningCallback != nil {
+			warningCallback(diskReadWarning{
+				Path:            path,
+				Reader:          readerName,
+				OffsetBytes:     offset,
+				RequestedBytes:  requestedBytes,
+				ReadBytes:       int64(n),
+				ZeroFilledBytes: zeroFilled,
+				NearTail:        nearTail,
+				Error:           err.Error(),
+			})
+		}
+		if nearTail && n == 0 {
+			return io.EOF
+		}
+		return nil
+	}
 	if err == io.ErrUnexpectedEOF || err == io.EOF {
 		if n > 0 {
 			for i := n; i < len(p); i++ {

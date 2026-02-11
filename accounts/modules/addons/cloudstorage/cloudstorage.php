@@ -14,7 +14,7 @@ function cloudstorage_config()
         'description' => 'This module show the usage of your buckets.',
         'author' => 'eazybackup',
         'language' => 'english',
-        'version' => '2.1.8',
+        'version' => '2.1.10',
         'fields' => [
             's3_region' => [
                 'FriendlyName' => 'S3 Region',
@@ -1061,6 +1061,11 @@ function cloudstorage_activate() {
                 $table->string('device_id', 64)->nullable();
                 $table->string('install_id', 64)->nullable();
                 $table->string('device_name', 191)->nullable();
+                $table->string('agent_version', 64)->nullable();
+                $table->string('agent_os', 32)->nullable();
+                $table->string('agent_arch', 16)->nullable();
+                $table->string('agent_build', 64)->nullable();
+                $table->dateTime('metadata_updated_at')->nullable();
                 $table->enum('status', ['active', 'disabled'])->default('active');
                 $table->enum('agent_type', ['workstation', 'server', 'hypervisor'])->default('workstation');
                 $table->dateTime('last_seen_at')->nullable();
@@ -1363,11 +1368,17 @@ function cloudstorage_activate() {
                 $table->unsignedInteger('tenant_id')->nullable();
                 $table->unsignedInteger('tenant_user_id')->nullable();
                 $table->unsignedBigInteger('restore_point_id');
-                $table->string('token', 32); // short recovery code
+                $table->string('token', 32); // non-sensitive legacy identifier
+                $table->string('token_hash', 64)->nullable();
                 $table->string('description', 255)->nullable();
                 $table->dateTime('expires_at')->nullable();
                 $table->dateTime('used_at')->nullable();
                 $table->dateTime('revoked_at')->nullable();
+                $table->unsignedInteger('exchange_count')->default(0);
+                $table->unsignedInteger('failed_attempts')->default(0);
+                $table->dateTime('last_failed_at')->nullable();
+                $table->string('last_failed_ip', 45)->nullable();
+                $table->dateTime('locked_until')->nullable();
                 $table->string('session_token', 64)->nullable();
                 $table->dateTime('session_expires_at')->nullable();
                 $table->unsignedBigInteger('session_run_id')->nullable();
@@ -1383,14 +1394,31 @@ function cloudstorage_activate() {
                 $table->timestamp('updated_at')->nullable();
 
                 $table->unique('token');
+                $table->unique('token_hash');
                 $table->index('client_id');
                 $table->index('tenant_id');
                 $table->index('restore_point_id');
                 $table->index('expires_at');
                 $table->index('used_at');
                 $table->index('session_token');
+                $table->index('locked_until');
             });
             logModuleCall('cloudstorage', 'activate', [], 'Created s3_cloudbackup_recovery_tokens table', [], []);
+        }
+
+        if (!Capsule::schema()->hasTable('s3_cloudbackup_recovery_exchange_limits')) {
+            Capsule::schema()->create('s3_cloudbackup_recovery_exchange_limits', function ($table) {
+                $table->bigIncrements('id');
+                $table->string('ip_hash', 64);
+                $table->unsignedInteger('attempt_count')->default(0);
+                $table->dateTime('window_started_at')->nullable();
+                $table->dateTime('locked_until')->nullable();
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('updated_at')->nullable();
+                $table->unique('ip_hash');
+                $table->index('locked_until');
+            });
+            logModuleCall('cloudstorage', 'activate', [], 'Created s3_cloudbackup_recovery_exchange_limits table', [], []);
         }
 
         if (!Capsule::schema()->hasTable('s3_backup_usage_snapshots')) {
@@ -1478,6 +1506,36 @@ function cloudstorage_activate() {
                     $table->string('device_name', 191)->nullable()->after('install_id');
                 });
                 logModuleCall('cloudstorage', 'activate', [], 'Added device_name to s3_cloudbackup_agents', [], []);
+            }
+            if (!Capsule::schema()->hasColumn('s3_cloudbackup_agents', 'agent_version')) {
+                Capsule::schema()->table('s3_cloudbackup_agents', function ($table) {
+                    $table->string('agent_version', 64)->nullable()->after('device_name');
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Added agent_version to s3_cloudbackup_agents', [], []);
+            }
+            if (!Capsule::schema()->hasColumn('s3_cloudbackup_agents', 'agent_os')) {
+                Capsule::schema()->table('s3_cloudbackup_agents', function ($table) {
+                    $table->string('agent_os', 32)->nullable()->after('agent_version');
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Added agent_os to s3_cloudbackup_agents', [], []);
+            }
+            if (!Capsule::schema()->hasColumn('s3_cloudbackup_agents', 'agent_arch')) {
+                Capsule::schema()->table('s3_cloudbackup_agents', function ($table) {
+                    $table->string('agent_arch', 16)->nullable()->after('agent_os');
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Added agent_arch to s3_cloudbackup_agents', [], []);
+            }
+            if (!Capsule::schema()->hasColumn('s3_cloudbackup_agents', 'agent_build')) {
+                Capsule::schema()->table('s3_cloudbackup_agents', function ($table) {
+                    $table->string('agent_build', 64)->nullable()->after('agent_arch');
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Added agent_build to s3_cloudbackup_agents', [], []);
+            }
+            if (!Capsule::schema()->hasColumn('s3_cloudbackup_agents', 'metadata_updated_at')) {
+                Capsule::schema()->table('s3_cloudbackup_agents', function ($table) {
+                    $table->dateTime('metadata_updated_at')->nullable()->after('agent_build');
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Added metadata_updated_at to s3_cloudbackup_agents', [], []);
             }
         }
 
@@ -2462,6 +2520,19 @@ function cloudstorage_upgrade($vars) {
                     logModuleCall('cloudstorage', 'upgrade_add_kopia_fields_runs', [], $e->getMessage(), [], []);
                 }
             }
+            // Ensure engine enum includes disk_image and hyperv on upgraded installs.
+            try {
+                $colType = \WHMCS\Database\Capsule::select("SHOW COLUMNS FROM s3_cloudbackup_runs WHERE Field = 'engine'");
+                if (!empty($colType)) {
+                    $type = strtolower((string) ($colType[0]->Type ?? ''));
+                    if (strpos($type, "enum(") !== false && (strpos($type, "'disk_image'") === false || strpos($type, "'hyperv'") === false)) {
+                        \WHMCS\Database\Capsule::statement("ALTER TABLE s3_cloudbackup_runs MODIFY COLUMN engine ENUM('sync', 'kopia', 'disk_image', 'hyperv') NOT NULL DEFAULT 'sync'");
+                        logModuleCall('cloudstorage', 'upgrade_extend_runs_engine_enum', [], 'Extended runs.engine enum to include disk_image and hyperv', [], []);
+                    }
+                }
+            } catch (\Throwable $e) {
+                logModuleCall('cloudstorage', 'upgrade_extend_runs_engine_enum_fail', [], $e->getMessage(), [], []);
+            }
         }
 
         // Add run_uuid to s3_cloudbackup_runs for customer-facing identifiers
@@ -2720,10 +2791,16 @@ function cloudstorage_upgrade($vars) {
                 $table->unsignedInteger('tenant_user_id')->nullable();
                 $table->unsignedBigInteger('restore_point_id');
                 $table->string('token', 32);
+                $table->string('token_hash', 64)->nullable();
                 $table->string('description', 255)->nullable();
                 $table->dateTime('expires_at')->nullable();
                 $table->dateTime('used_at')->nullable();
                 $table->dateTime('revoked_at')->nullable();
+                $table->unsignedInteger('exchange_count')->default(0);
+                $table->unsignedInteger('failed_attempts')->default(0);
+                $table->dateTime('last_failed_at')->nullable();
+                $table->string('last_failed_ip', 45)->nullable();
+                $table->dateTime('locked_until')->nullable();
                 $table->string('session_token', 64)->nullable();
                 $table->dateTime('session_expires_at')->nullable();
                 $table->unsignedBigInteger('session_run_id')->nullable();
@@ -2739,17 +2816,87 @@ function cloudstorage_upgrade($vars) {
                 $table->timestamp('updated_at')->nullable();
 
                 $table->unique('token');
+                $table->unique('token_hash');
                 $table->index('client_id');
                 $table->index('tenant_id');
                 $table->index('restore_point_id');
                 $table->index('expires_at');
                 $table->index('used_at');
                 $table->index('session_token');
+                $table->index('locked_until');
             });
             logModuleCall('cloudstorage', 'upgrade', [], 'Created s3_cloudbackup_recovery_tokens table', [], []);
         }
 
+        if (!\WHMCS\Database\Capsule::schema()->hasTable('s3_cloudbackup_recovery_exchange_limits')) {
+            \WHMCS\Database\Capsule::schema()->create('s3_cloudbackup_recovery_exchange_limits', function ($table) {
+                $table->bigIncrements('id');
+                $table->string('ip_hash', 64);
+                $table->unsignedInteger('attempt_count')->default(0);
+                $table->dateTime('window_started_at')->nullable();
+                $table->dateTime('locked_until')->nullable();
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('updated_at')->nullable();
+                $table->unique('ip_hash');
+                $table->index('locked_until');
+            });
+            logModuleCall('cloudstorage', 'upgrade', [], 'Created s3_cloudbackup_recovery_exchange_limits table', [], []);
+        }
+
         if (\WHMCS\Database\Capsule::schema()->hasTable('s3_cloudbackup_recovery_tokens')) {
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_recovery_tokens', 'token_hash')) {
+                $tokenHashAdded = false;
+                try {
+                    \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_recovery_tokens', function ($table) {
+                        $table->string('token_hash', 64)->nullable()->after('token');
+                    });
+                    $tokenHashAdded = true;
+                } catch (\Throwable $__e) {
+                    // Fallback for database engines/installations where doctrine alter with "after" fails.
+                    try {
+                        \WHMCS\Database\Capsule::statement("ALTER TABLE `s3_cloudbackup_recovery_tokens` ADD COLUMN `token_hash` VARCHAR(64) NULL");
+                        $tokenHashAdded = true;
+                    } catch (\Throwable $__e2) {
+                        logModuleCall('cloudstorage', 'upgrade_add_recovery_token_hash_fail', [], [
+                            'primary_error' => $__e->getMessage(),
+                            'fallback_error' => $__e2->getMessage(),
+                        ], [], []);
+                    }
+                }
+                try {
+                    \WHMCS\Database\Capsule::statement("UPDATE `s3_cloudbackup_recovery_tokens` SET `token_hash` = SHA2(UPPER(TRIM(`token`)), 256) WHERE (`token_hash` IS NULL OR `token_hash` = '') AND `token` IS NOT NULL AND `token` != ''");
+                } catch (\Throwable $__e) {
+                    logModuleCall('cloudstorage', 'upgrade_backfill_recovery_token_hash_fail', [], $__e->getMessage(), [], []);
+                }
+                if ($tokenHashAdded) {
+                    logModuleCall('cloudstorage', 'upgrade', [], 'Added token_hash to s3_cloudbackup_recovery_tokens', [], []);
+                }
+            }
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_recovery_tokens', 'exchange_count')) {
+                \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_recovery_tokens', function ($table) {
+                    $table->unsignedInteger('exchange_count')->default(0)->after('revoked_at');
+                });
+            }
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_recovery_tokens', 'failed_attempts')) {
+                \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_recovery_tokens', function ($table) {
+                    $table->unsignedInteger('failed_attempts')->default(0)->after('exchange_count');
+                });
+            }
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_recovery_tokens', 'last_failed_at')) {
+                \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_recovery_tokens', function ($table) {
+                    $table->dateTime('last_failed_at')->nullable()->after('failed_attempts');
+                });
+            }
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_recovery_tokens', 'last_failed_ip')) {
+                \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_recovery_tokens', function ($table) {
+                    $table->string('last_failed_ip', 45)->nullable()->after('last_failed_at');
+                });
+            }
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_recovery_tokens', 'locked_until')) {
+                \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_recovery_tokens', function ($table) {
+                    $table->dateTime('locked_until')->nullable()->after('last_failed_ip');
+                });
+            }
             if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_recovery_tokens', 'created_ip')) {
                 \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_recovery_tokens', function ($table) {
                     $table->string('created_ip', 45)->nullable()->after('created_at');
@@ -2794,6 +2941,16 @@ function cloudstorage_upgrade($vars) {
                 \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_recovery_tokens', function ($table) {
                     $table->timestamp('updated_at')->nullable()->after('started_user_agent');
                 });
+            }
+            try {
+                \WHMCS\Database\Capsule::statement("ALTER TABLE `s3_cloudbackup_recovery_tokens` ADD UNIQUE INDEX `uniq_recovery_token_hash` (`token_hash`)");
+            } catch (\Throwable $__e) {
+                // Ignore if index already exists or cannot be created due to duplicate historical data.
+            }
+            try {
+                \WHMCS\Database\Capsule::statement("ALTER TABLE `s3_cloudbackup_recovery_tokens` ADD INDEX `idx_recovery_locked_until` (`locked_until`)");
+            } catch (\Throwable $__e) {
+                // Ignore if index already exists.
             }
         }
 

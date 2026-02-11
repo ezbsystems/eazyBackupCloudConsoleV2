@@ -311,6 +311,176 @@
                     </table>
                 </div>
             </div>
+
+            <div class="panel panel-default" id="cb-agents">
+                <div class="panel-heading">
+                    <h3 class="panel-title">Agents ({$agents_total|default:0})</h3>
+                </div>
+                <div class="panel-body">
+                    <form method="get" action="addonmodules.php" class="form-inline" style="margin-bottom: 15px;">
+                        <input type="hidden" name="module" value="cloudstorage">
+                        <input type="hidden" name="action" value="cloudbackup_admin">
+                        <input type="hidden" name="agents_sort" value="{$agents_sort|default:'created_at'}">
+                        <input type="hidden" name="agents_dir" value="{$agents_dir|default:'desc'}">
+                        <input type="hidden" name="agents_page" value="1">
+                        <div class="form-group" style="margin-right:10px;">
+                            <label class="sr-only" for="agents_q">Search</label>
+                            <input type="text" class="form-control" id="agents_q" name="agents_q" value="{$agents_filters.q|default:''}" placeholder="Search hostname, device, name, email, ID" style="min-width: 320px;">
+                        </div>
+                        <div class="form-group" style="margin-right:10px;">
+                            <select name="agents_client_id" class="form-control">
+                                <option value="">All Clients</option>
+                                {foreach from=$clients item=client}
+                                    <option value="{$client.id}" {if $agents_filters.client_id eq $client.id}selected{/if}>{$client.firstname} {$client.lastname} ({$client.email})</option>
+                                {/foreach}
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-right:10px;">
+                            <select name="agents_status" class="form-control">
+                                <option value="">All Status</option>
+                                <option value="active" {if $agents_filters.status eq 'active'}selected{/if}>Active</option>
+                                <option value="disabled" {if $agents_filters.status eq 'disabled'}selected{/if}>Disabled</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-right:10px;">
+                            <select name="agents_type" class="form-control">
+                                <option value="">All Types</option>
+                                <option value="workstation" {if $agents_filters.agent_type eq 'workstation'}selected{/if}>Workstation</option>
+                                <option value="server" {if $agents_filters.agent_type eq 'server'}selected{/if}>Server</option>
+                                <option value="hypervisor" {if $agents_filters.agent_type eq 'hypervisor'}selected{/if}>Hypervisor</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-right:10px;">
+                            <select name="agents_online" class="form-control">
+                                <option value="">Any Connection</option>
+                                <option value="online" {if $agents_filters.online_status eq 'online'}selected{/if}>Online</option>
+                                <option value="offline" {if $agents_filters.online_status eq 'offline'}selected{/if}>Offline</option>
+                                <option value="never" {if $agents_filters.online_status eq 'never'}selected{/if}>Never Seen</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-right:10px;">
+                            <select name="agents_tenant_id" class="form-control">
+                                <option value="">All Tenants</option>
+                                <option value="direct" {if $agents_filters.tenant_id eq 'direct'}selected{/if}>Direct</option>
+                                {foreach from=$agent_tenants item=tenant}
+                                    <option value="{$tenant.id}" {if $agents_filters.tenant_id eq $tenant.id}selected{/if}>{$tenant.name}</option>
+                                {/foreach}
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-right:10px;">
+                            <select name="agents_per_page" class="form-control">
+                                <option value="25" {if $agents_per_page eq 25}selected{/if}>25</option>
+                                <option value="50" {if $agents_per_page eq 50}selected{/if}>50</option>
+                                <option value="100" {if $agents_per_page eq 100}selected{/if}>100</option>
+                                <option value="200" {if $agents_per_page eq 200}selected{/if}>200</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Apply</button>
+                        <a class="btn btn-default" href="addonmodules.php?module=cloudstorage&action=cloudbackup_admin#cb-agents">Reset</a>
+                    </form>
+
+                    {assign var=agentBaseUrl value="addonmodules.php?module=cloudstorage&action=cloudbackup_admin&agents_q=`$agents_filters.q|escape:'url'`&agents_client_id=`$agents_filters.client_id|escape:'url'`&agents_status=`$agents_filters.status|escape:'url'`&agents_type=`$agents_filters.agent_type|escape:'url'`&agents_online=`$agents_filters.online_status|escape:'url'`&agents_tenant_id=`$agents_filters.tenant_id|escape:'url'`&agents_per_page=`$agents_per_page`&agents_page=1"}
+
+                    <div class="table-responsive">
+                        <table class="table table-striped table-hover">
+                            <thead>
+                                <tr>
+                                    <th><a href="{$agentBaseUrl}&agents_sort=online_status&agents_dir={if $agents_sort eq 'online_status' && $agents_dir eq 'asc'}desc{else}asc{/if}#cb-agents">Connection</a></th>
+                                    <th><a href="{$agentBaseUrl}&agents_sort=id&agents_dir={if $agents_sort eq 'id' && $agents_dir eq 'asc'}desc{else}asc{/if}#cb-agents">ID</a></th>
+                                    <th><a href="{$agentBaseUrl}&agents_sort=hostname&agents_dir={if $agents_sort eq 'hostname' && $agents_dir eq 'asc'}desc{else}asc{/if}#cb-agents">Hostname</a></th>
+                                    <th><a href="{$agentBaseUrl}&agents_sort=device_id&agents_dir={if $agents_sort eq 'device_id' && $agents_dir eq 'asc'}desc{else}asc{/if}#cb-agents">Device ID</a></th>
+                                    <th><a href="{$agentBaseUrl}&agents_sort=device_name&agents_dir={if $agents_sort eq 'device_name' && $agents_dir eq 'asc'}desc{else}asc{/if}#cb-agents">Device Name</a></th>
+                                    <th><a href="{$agentBaseUrl}&agents_sort=tenant&agents_dir={if $agents_sort eq 'tenant' && $agents_dir eq 'asc'}desc{else}asc{/if}#cb-agents">Tenant</a></th>
+                                    <th><a href="{$agentBaseUrl}&agents_sort=agent_type&agents_dir={if $agents_sort eq 'agent_type' && $agents_dir eq 'asc'}desc{else}asc{/if}#cb-agents">Type</a></th>
+                                    <th>Version</th>
+                                    <th>OS/Arch</th>
+                                    <th>Build</th>
+                                    <th><a href="{$agentBaseUrl}&agents_sort=status&agents_dir={if $agents_sort eq 'status' && $agents_dir eq 'asc'}desc{else}asc{/if}#cb-agents">Status</a></th>
+                                    <th><a href="{$agentBaseUrl}&agents_sort=last_seen_at&agents_dir={if $agents_sort eq 'last_seen_at' && $agents_dir eq 'asc'}desc{else}asc{/if}#cb-agents">Last Seen</a></th>
+                                    <th><a href="{$agentBaseUrl}&agents_sort=created_at&agents_dir={if $agents_sort eq 'created_at' && $agents_dir eq 'asc'}desc{else}asc{/if}#cb-agents">Created</a></th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {if count($agents) > 0}
+                                    {foreach from=$agents item=agent}
+                                        <tr>
+                                            <td>
+                                                {if $agent.online_status eq 'online'}
+                                                    <span class="label label-success">Online</span>
+                                                {elseif $agent.online_status eq 'offline'}
+                                                    <span class="label label-danger">Offline</span>
+                                                {else}
+                                                    <span class="label label-default">Never</span>
+                                                {/if}
+                                            </td>
+                                            <td>{$agent.id}</td>
+                                            <td>
+                                                {$agent.hostname|default:'-'}
+                                                <div class="text-muted small">{$agent.client_name|default:'Unknown Client'}{if $agent.email} ({$agent.email}){/if}</div>
+                                            </td>
+                                            <td><code>{$agent.device_id|default:'-'}</code></td>
+                                            <td>{$agent.device_name|default:'-'}</td>
+                                            <td>{$agent.tenant_name|default:'Direct'}</td>
+                                            <td>{$agent.agent_type|default:'workstation'}</td>
+                                            <td>{$agent.agent_version|default:'-'}</td>
+                                            <td>{if $agent.agent_os || $agent.agent_arch}{$agent.agent_os|default:'?'} / {$agent.agent_arch|default:'?'}{else}-{/if}</td>
+                                            <td>{$agent.agent_build|default:'-'}</td>
+                                            <td>
+                                                <span class="label label-{if $agent.status eq 'active'}success{else}default{/if}">
+                                                    {$agent.status|ucfirst}
+                                                </span>
+                                            </td>
+                                            <td>{if $agent.last_seen_at}{$agent.last_seen_at|date_format:"%d %b %Y %H:%M"}{else}-{/if}</td>
+                                            <td>{if $agent.created_at}{$agent.created_at|date_format:"%d %b %Y %H:%M"}{else}-{/if}</td>
+                                            <td>
+                                                <div class="btn-group">
+                                                    <button type="button" class="btn btn-default btn-xs dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                                                        Manage <span class="caret"></span>
+                                                    </button>
+                                                    <ul class="dropdown-menu dropdown-menu-right">
+                                                        <li><a href="#" onclick="openAgentLogs({$agent.id}); return false;">Agent Logs</a></li>
+                                                        <li><a href="#" onclick="openTrayLogs({$agent.id}); return false;">Tray Logs</a></li>
+                                                        <li role="separator" class="divider"></li>
+                                                        <li><a href="#" onclick="adminResetAgent({$agent.id}); return false;">Reset Agent</a></li>
+                                                        <li><a href="#" onclick="adminMaintenanceForAgent({$agent.id}, 'maintenance_quick', {$agent.active_run_id|default:0}); return false;">Maintenance Quick</a></li>
+                                                        <li><a href="#" onclick="adminMaintenanceForAgent({$agent.id}, 'maintenance_full', {$agent.active_run_id|default:0}); return false;">Maintenance Full</a></li>
+                                                        <li><a href="#" onclick="adminRefreshInventory({$agent.id}); return false;">Request Inventory Refresh</a></li>
+                                                        <li role="separator" class="divider"></li>
+                                                        <li><a href="addonmodules.php?module=cloudstorage&action=cloudbackup_admin&agent_id={$agent.id}#cb-runs">View This Agent's Runs</a></li>
+                                                        <li><a href="index.php?m=cloudstorage&page=e3backup&view=jobs&open_create=1&prefill_source=local_agent&prefill_agent_id={$agent.id}" target="_blank" rel="noopener">Create Job (Prefilled)</a></li>
+                                                        <li><a href="index.php?m=cloudstorage&page=e3backup&view=restores&agent_id={$agent.id}" target="_blank" rel="noopener">Restore Points For Agent</a></li>
+                                                    </ul>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    {/foreach}
+                                {else}
+                                    <tr>
+                                        <td colspan="14" class="text-center">No agents found</td>
+                                    </tr>
+                                {/if}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <p class="text-muted" style="margin-top:8px;">
+                                Showing page {$agents_page|default:1} of {$agents_pages|default:1} ({$agents_total|default:0} total)
+                            </p>
+                        </div>
+                        <div class="col-md-6 text-right">
+                            {if $agents_page > 1}
+                                <a class="btn btn-default btn-sm" href="{$agentBaseUrl}&agents_sort={$agents_sort|escape:'url'}&agents_dir={$agents_dir|escape:'url'}&agents_page={$agents_page-1}#cb-agents">Previous</a>
+                            {/if}
+                            {if $agents_page < $agents_pages}
+                                <a class="btn btn-default btn-sm" href="{$agentBaseUrl}&agents_sort={$agents_sort|escape:'url'}&agents_dir={$agents_dir|escape:'url'}&agents_page={$agents_page+1}#cb-agents">Next</a>
+                            {/if}
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -334,6 +504,46 @@
                     </div>
                     <div class="tab-pane" id="validationLog">
                         <pre id="validationLogContent" style="max-height: 400px; overflow-y: auto; background: #f5f5f5; padding: 10px; border-radius: 4px;"></pre>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Agent Manage Modal -->
+<div class="modal fade" id="agentManageModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <h4 class="modal-title">Agent Logs & Diagnostics <span id="agentManageTitle" class="text-muted"></span></h4>
+            </div>
+            <div class="modal-body">
+                <ul class="nav nav-tabs">
+                    <li class="active"><a href="#agentLogsTab" data-toggle="tab">Agent Logs</a></li>
+                    <li><a href="#trayLogsTab" data-toggle="tab">Tray Logs</a></li>
+                    <li><a href="#agentDiagnosticsTab" data-toggle="tab">Diagnostics</a></li>
+                </ul>
+                <div class="tab-content" style="margin-top: 15px;">
+                    <div class="tab-pane active" id="agentLogsTab">
+                        <div id="agentLogMeta" class="text-muted small" style="margin-bottom:8px;"></div>
+                        <pre id="agentLogContent" style="max-height: 420px; overflow-y: auto; background: #f5f5f5; padding: 10px; border-radius: 4px;">Select Agent Logs to load content.</pre>
+                    </div>
+                    <div class="tab-pane" id="trayLogsTab">
+                        <div id="trayLogMeta" class="text-muted small" style="margin-bottom:8px;"></div>
+                        <pre id="trayLogContent" style="max-height: 420px; overflow-y: auto; background: #f5f5f5; padding: 10px; border-radius: 4px;">Select Tray Logs to load content.</pre>
+                    </div>
+                    <div class="tab-pane" id="agentDiagnosticsTab">
+                        <div id="agentDiagnosticsMeta" class="text-muted small" style="margin-bottom:8px;">
+                            Storage/network diagnostics
+                        </div>
+                        <div id="agentDiagnosticsContent" style="max-height: 420px; overflow-y: auto; background: #f5f5f5; padding: 10px; border-radius: 4px;">
+                            Loading diagnostics...
+                        </div>
                     </div>
                 </div>
             </div>
@@ -393,6 +603,132 @@ function enqueueMaintenance(runId, type) {
         }
     })
     .catch(() => alert('Error enqueuing maintenance'));
+}
+
+function adminEnqueueAgentCommand(payload) {
+    return fetch('modules/addons/cloudstorage/api/admin_cloudbackup_request_command.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams(payload)
+    }).then(r => r.json());
+}
+
+function adminResetAgent(agentId) {
+    if (!confirm('Reset this agent now? The agent process will restart.')) {
+        return;
+    }
+    adminEnqueueAgentCommand({ agent_id: agentId, type: 'reset_agent' })
+        .then(data => {
+            if (data.status === 'success') {
+                alert('Reset command queued for agent ' + agentId);
+            } else {
+                alert(data.message || 'Failed to queue reset command');
+            }
+        })
+        .catch(() => alert('Failed to queue reset command'));
+}
+
+function adminMaintenanceForAgent(agentId, type, activeRunId) {
+    const payload = { type: type, agent_id: agentId };
+    if (activeRunId && Number(activeRunId) > 0) {
+        payload.run_id = activeRunId;
+    }
+    adminEnqueueAgentCommand(payload)
+        .then(data => {
+            if (data.status === 'success') {
+                alert('Maintenance command queued for agent ' + agentId);
+            } else {
+                alert(data.message || 'Failed to queue maintenance command');
+            }
+        })
+        .catch(() => alert('Failed to queue maintenance command'));
+}
+
+function adminRefreshInventory(agentId) {
+    adminEnqueueAgentCommand({ agent_id: agentId, type: 'refresh_inventory' })
+        .then(data => {
+            if (data.status === 'success') {
+                alert('Inventory refresh queued for agent ' + agentId);
+            } else {
+                alert(data.message || 'Failed to queue inventory refresh');
+            }
+        })
+        .catch(() => alert('Failed to queue inventory refresh'));
+}
+
+function formatLogMeta(data) {
+    if (!data || data.status !== 'success') {
+        return '';
+    }
+    const details = [];
+    if (data.path) details.push(data.path);
+    if (data.retrieved_at) details.push('retrieved ' + data.retrieved_at);
+    if (data.truncated) details.push('truncated');
+    return details.join(' | ');
+}
+
+function fetchAgentLogTail(agentId, logKind, contentEl, metaEl) {
+    const contentNode = document.getElementById(contentEl);
+    const metaNode = document.getElementById(metaEl);
+    if (!contentNode || !metaNode) {
+        return;
+    }
+    contentNode.textContent = 'Loading...';
+    metaNode.textContent = '';
+    fetch('modules/addons/cloudstorage/api/admin_cloudbackup_fetch_log_tail.php?agent_id=' + encodeURIComponent(agentId) + '&log_kind=' + encodeURIComponent(logKind))
+        .then(r => r.json())
+        .then(data => {
+            if (data.status !== 'success') {
+                contentNode.textContent = data.message || 'Failed to load log';
+                return;
+            }
+            metaNode.textContent = formatLogMeta(data);
+            contentNode.textContent = data.content || '[empty log]';
+        })
+        .catch(() => {
+            contentNode.textContent = 'Failed to load log';
+        });
+}
+
+function loadAgentDiagnostics(agentId) {
+    const diagnostics = document.getElementById('agentDiagnosticsContent');
+    diagnostics.textContent = 'Loading diagnostics...';
+    fetch('modules/addons/cloudstorage/api/admin_cloudbackup_agent_diagnostics.php?agent_id=' + encodeURIComponent(agentId) + '&limit=100')
+        .then(r => r.json())
+        .then(data => {
+            if (data.status !== 'success') {
+                diagnostics.textContent = data.message || 'Failed to load diagnostics';
+                return;
+            }
+            if (!data.events || data.events.length === 0) {
+                diagnostics.textContent = 'No recent diagnostic events.';
+                return;
+            }
+            const lines = data.events.map(function (e) {
+                return '[' + (e.ts || '-') + '] [' + (e.level || 'info').toUpperCase() + '] '
+                    + (e.code || 'EVENT') + ' (run #' + (e.run_id || '-') + '): ' + (e.message || '');
+            });
+            diagnostics.textContent = lines.join('\n');
+        })
+        .catch(() => {
+            diagnostics.textContent = 'Failed to load diagnostics';
+        });
+}
+
+function openAgentLogs(agentId) {
+    document.getElementById('agentManageTitle').textContent = '(Agent #' + agentId + ')';
+    $('#agentManageModal').modal('show');
+    $('#agentManageModal ul.nav-tabs a[href="#agentLogsTab"]').tab('show');
+    fetchAgentLogTail(agentId, 'agent', 'agentLogContent', 'agentLogMeta');
+    loadAgentDiagnostics(agentId);
+}
+
+function openTrayLogs(agentId) {
+    document.getElementById('agentManageTitle').textContent = '(Agent #' + agentId + ')';
+    $('#agentManageModal').modal('show');
+    $('#agentManageModal ul.nav-tabs a[href="#trayLogsTab"]').tab('show');
+    fetchAgentLogTail(agentId, 'tray', 'trayLogContent', 'trayLogMeta');
+    loadAgentDiagnostics(agentId);
 }
 </script>
 

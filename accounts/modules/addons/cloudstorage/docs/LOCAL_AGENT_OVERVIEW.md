@@ -87,7 +87,7 @@ crontab -l | grep s3cloudbackup_scheduler.php
 - Watchdog: `crons/agent_watchdog.php` first requests cancellation on stale runs, then marks terminal if still stale past `AGENT_WATCHDOG_TIMEOUT_SECONDS` (default 720s) with `AGENT_OFFLINE`.
 - Reclaim: `agent_next_run.php` can return the same agent's in-progress run if heartbeat is older than `AGENT_RECLAIM_GRACE_SECONDS` (default 180s) but before watchdog cutoff.
 - Exclusivity: in-progress runs stay with their agent; reclaim requires matching `run.agent_id` (or job.agent_id legacy).
-- Env knobs: `AGENT_WATCHDOG_TIMEOUT_SECONDS`, `AGENT_RECLAIM_GRACE_SECONDS` (grace < timeout), `AGENT_DISK_IMAGE_STALL_SECONDS` (default 300).
+- Env knobs: `AGENT_WATCHDOG_TIMEOUT_SECONDS`, `AGENT_RECLAIM_GRACE_SECONDS` (grace < timeout), `AGENT_DISK_IMAGE_STALL_SECONDS` (default 60).
 
 ---
 
@@ -1562,6 +1562,35 @@ For Hyper-V backups, cancelled VMs:
 
 ---
 
+## Storage Init Diagnostics and Delivery Hardening (Feb 2026)
+
+### What Changed
+
+- Backup and disk-image flows now run a storage preflight check before Kopia storage initialization.
+- Storage-init failures are classified into stable reason codes and emitted as explicit events (instead of relying on generic nested error text).
+- Event delivery uses retry/backoff and a compact transport mode for large payloads.
+- If event delivery still fails, the agent writes a concise fallback `error_summary` through `agent_update_run.php` so the UI still shows a user-facing cause.
+
+### Reason Code Taxonomy
+
+| Reason code | Event message ID | Meaning |
+|---|---|---|
+| `dns_lookup_failed` | `STORAGE_DNS_FAILED` | Hostname cannot be resolved by DNS. |
+| `tcp_refused` | `STORAGE_TCP_REFUSED` | Endpoint is reachable but port is actively refusing connections. |
+| `tcp_timeout` | `STORAGE_TCP_TIMEOUT` | TCP connection attempt timed out. |
+| `tls_failed` | `STORAGE_TLS_FAILED` | TLS handshake/certificate path failed. |
+| `http_blocked` | `STORAGE_HTTP_BLOCKED` | Request blocked upstream (for example WAF/proxy policy page). |
+| `endpoint_unreachable` | `STORAGE_ENDPOINT_UNREACHABLE` | Generic fallback for connectivity failures that do not match specific buckets. |
+
+### New Agent/Server Behaviors
+
+- Agent preflight and classification logic lives in `internal/agent/storage_diagnostics.go`.
+- Backup paths invoke classification/probe from `internal/agent/kopia.go`.
+- Disk-image final failure path emits classified storage events from `internal/agent/disk_image.go`.
+- Event transport hardening is in `internal/agent/api_client.go` (`PushEvents` retries + compact payload).
+- Compact event payload decode support is in `api/agent_push_events.php` (`events_encoding`, `events_b64`).
+- Fallback summary behavior on push failure is in `internal/agent/runner.go` (`pushEvents` wrapper).
+
 ## Critical Bug Fixes (Dec 11, 2025)
 
 ### 1. Bytes Uploaded Always Zero
@@ -2007,7 +2036,7 @@ sequenceDiagram
 
 ### Placeholder / incomplete artifacts
 - `recovery/linux/build.sh` – placeholder build script.
-- `recovery/winpe/README.md` – WinPE pipeline placeholder.
+- `recovery/winpe/README.md` – documents current WinPE build flow, including explicit dev/prod `-ApiBase` targeting.
 - `recovery/pxe/README.md` and `recovery/pxe/ipxe-boot.ipxe` – PXE/iPXE stub.
 - `recovery/manifest.json` – placeholder manifest/checksums.
 - `recovery/sample-recovery.json` – example config payload only.
@@ -2261,7 +2290,8 @@ sequenceDiagram
 ### Recovery + disk image stability (Jan 2026)
 - **Watchdog cancellation**: stale runs now get `cancel_requested=1` first; watchdog only marks terminal if still stale after a follow-up pass.
 - **Reset agent command**: new `reset_agent` pending command lets admins restart a stuck agent (agent exits cleanly so the Windows service restarts it).
-- **Disk image stall timeout**: disk image backups cancel after 5 minutes without progress; override with `AGENT_DISK_IMAGE_STALL_SECONDS`.
+- **Disk image stall timeout**: main data phase cancels after `AGENT_DISK_IMAGE_STALL_SECONDS` without progress (default 60s).
+- **Disk image finalization guard**: when remaining data is ≤1% or ≤128 MiB, stall cancel is suppressed; logs `DISK_IMAGE_FINALIZING_SLOW` once and `DISK_IMAGE_FINALIZING_STALLED` if finalization exceeds 5× the stall window.
 - **Disk image progress fixes**: progress updates are restored for disk image runs while keeping Hyper-V’s cumulative tracker isolated.
 - **End-of-device read handling**: Windows raw device reads treat “sector not found” at end-of-device as EOF instead of hard failure.
 

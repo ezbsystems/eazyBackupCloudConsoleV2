@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -14,6 +15,31 @@ import (
 
 	vhdxwriter "github.com/your-org/e3-backup-agent/internal/agent/vhdx"
 )
+
+// #region agent log
+func debugLog(runID int64, message string, data map[string]any, hypothesisId string) {
+	entry := map[string]any{
+		"id":           fmt.Sprintf("log_%d", time.Now().UnixNano()),
+		"timestamp":    time.Now().UnixMilli(),
+		"location":     "disk_image.go:debug",
+		"message":      message,
+		"data":         data,
+		"runId":        fmt.Sprintf("run_%d", runID),
+		"hypothesisId": hypothesisId,
+	}
+	b, err := json.Marshal(entry)
+	if err != nil {
+		return
+	}
+	f, err := os.OpenFile("/var/www/eazybackup.ca/.cursor/debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	_, _ = f.Write(append(b, '\n'))
+	_ = f.Close()
+}
+
+// #endregion
 
 // diskImageOptions captures the normalized inputs for creating a disk image.
 type diskImageOptions struct {
@@ -54,7 +80,9 @@ func (r *Runner) runDiskImage(run *NextRunResponse) error {
 		StartedAt: startedAt.Format(time.RFC3339),
 	})
 	resetParallelReads := setParallelDiskReadsOverride(policyBool(run.PolicyJSON, "parallel_disk_reads"))
+	resetStrictReadErrors := setStrictReadErrorsOverride(policyBool(run.PolicyJSON, "disk_image_strict_read_errors"))
 	defer resetParallelReads()
+	defer resetStrictReadErrors()
 
 	r.pushEvents(run.RunID, RunEvent{
 		Type:      "info",
@@ -89,6 +117,11 @@ func (r *Runner) runDiskImage(run *NextRunResponse) error {
 					continue
 				}
 				if cancelReq {
+					// #region agent log
+					debugLog(run.RunID, "disk_image_cancel_requested", map[string]any{
+						"source_volume": run.DiskSourceVolume,
+					}, "H3")
+					// #endregion
 					log.Printf("agent: disk image cancel requested for run %d", run.RunID)
 					r.pushEvents(run.RunID, RunEvent{
 						Type:      "cancelled",
@@ -106,17 +139,46 @@ func (r *Runner) runDiskImage(run *NextRunResponse) error {
 	}()
 	stallSeconds := diskImageStallSeconds()
 	var lastProgressAt int64
+	var lastProgressBytesProcessed int64
+	var lastProgressBytesUploaded int64
+	var lastProgressLogAt int64
+	var lastBytesTotal int64
 	atomic.StoreInt64(&lastProgressAt, time.Now().UnixNano())
+	// #region agent log
+	debugLog(run.RunID, "disk_image_start", map[string]any{
+		"source_volume": run.DiskSourceVolume,
+		"engine":        run.Engine,
+		"stall_seconds": stallSeconds,
+	}, "H4")
+	// #endregion
 	progressCb := func(bytesProcessed int64, bytesUploaded int64) {
-		atomic.StoreInt64(&lastProgressAt, time.Now().UnixNano())
+		now := time.Now()
+		atomic.StoreInt64(&lastProgressAt, now.UnixNano())
+		atomic.StoreInt64(&lastProgressBytesProcessed, bytesProcessed)
+		atomic.StoreInt64(&lastProgressBytesUploaded, bytesUploaded)
+		lastLogAt := atomic.LoadInt64(&lastProgressLogAt)
+		if lastLogAt == 0 || now.Sub(time.Unix(0, lastLogAt)) >= 60*time.Second {
+			atomic.StoreInt64(&lastProgressLogAt, now.UnixNano())
+			// #region agent log
+			debugLog(run.RunID, "disk_image_progress", map[string]any{
+				"bytes_processed": bytesProcessed,
+				"bytes_uploaded":  bytesUploaded,
+				"stall_seconds":   stallSeconds,
+			}, "H1")
+			// #endregion
+		}
 	}
 	stallDone := make(chan struct{})
 	if stallSeconds > 0 {
+		var finalizeStart int64
+		finalizeLogged := false
+		finalizeStallLogged := false
 		go func() {
 			defer close(stallDone)
 			ticker := time.NewTicker(15 * time.Second)
 			defer ticker.Stop()
 			timeout := time.Duration(stallSeconds) * time.Second
+			finalizeTimeout := time.Duration(stallSeconds*5) * time.Second
 			for {
 				select {
 				case <-ctx.Done():
@@ -124,14 +186,105 @@ func (r *Runner) runDiskImage(run *NextRunResponse) error {
 				case <-ticker.C:
 					last := time.Unix(0, atomic.LoadInt64(&lastProgressAt))
 					if time.Since(last) >= timeout {
+						total := atomic.LoadInt64(&lastBytesTotal)
+						processed := atomic.LoadInt64(&lastProgressBytesProcessed)
+						remaining := int64(-1)
+						if total > 0 {
+							remaining = total - processed
+						}
+						threshold := int64(128 << 20) // 128 MiB
+						if total > 0 {
+							onePct := total / 100
+							if onePct > threshold {
+								threshold = onePct
+							}
+						}
+						nearDone := total > 0 && processed > 0 && remaining >= 0 && remaining <= threshold
+						if nearDone {
+							if finalizeStart == 0 {
+								finalizeStart = time.Now().UnixNano()
+							}
+							finalizeElapsed := time.Since(time.Unix(0, finalizeStart))
+							if !finalizeLogged {
+								finalizeLogged = true
+								log.Printf(
+									"agent: disk image finalizing (run=%d) remaining=%d total=%d timeout=%ds",
+									run.RunID,
+									remaining,
+									total,
+									int(finalizeTimeout.Seconds()),
+								)
+								r.pushEvents(run.RunID, RunEvent{
+									Type:      "warn",
+									Level:     "warn",
+									MessageID: "DISK_IMAGE_FINALIZING_SLOW",
+									ParamsJSON: map[string]any{
+										"message":                  "Disk image is finalizing; suppressing stall cancel.",
+										"stall_seconds":            stallSeconds,
+										"finalize_timeout_seconds": int(finalizeTimeout.Seconds()),
+										"bytes_total":              total,
+										"bytes_processed":          processed,
+										"bytes_remaining":          remaining,
+									},
+								})
+							}
+							if finalizeTimeout > 0 && finalizeElapsed >= finalizeTimeout && !finalizeStallLogged {
+								finalizeStallLogged = true
+								log.Printf(
+									"agent: disk image finalization slow (run=%d) elapsed=%.0fs remaining=%d total=%d",
+									run.RunID,
+									finalizeElapsed.Seconds(),
+									remaining,
+									total,
+								)
+								r.pushEvents(run.RunID, RunEvent{
+									Type:      "warn",
+									Level:     "warn",
+									MessageID: "DISK_IMAGE_FINALIZING_STALLED",
+									ParamsJSON: map[string]any{
+										"message":                  "Disk image finalization exceeded expected time; continuing to wait.",
+										"finalize_timeout_seconds": int(finalizeTimeout.Seconds()),
+										"bytes_total":              total,
+										"bytes_processed":          processed,
+										"bytes_remaining":          remaining,
+									},
+								})
+							}
+							// Keep the stall timer alive while finalizing.
+							atomic.StoreInt64(&lastProgressAt, time.Now().UnixNano())
+							continue
+						}
+						// #region agent log
+						debugLog(run.RunID, "disk_image_stall_detected", map[string]any{
+							"stall_seconds":    stallSeconds,
+							"since_seconds":    time.Since(last).Seconds(),
+							"last_progress_at": last.Format(time.RFC3339Nano),
+							"bytes_processed":  atomic.LoadInt64(&lastProgressBytesProcessed),
+							"bytes_uploaded":   atomic.LoadInt64(&lastProgressBytesUploaded),
+							"bytes_total":      total,
+							"bytes_remaining":  remaining,
+							"finalize_elapsed": func() float64 {
+								if finalizeStart == 0 {
+									return 0
+								}
+								return time.Since(time.Unix(0, finalizeStart)).Seconds()
+							}(),
+						}, "H1")
+						// #endregion
 						log.Printf("agent: disk image stalled for %ds, cancelling run %d", stallSeconds, run.RunID)
 						r.pushEvents(run.RunID, RunEvent{
 							Type:      "error",
 							Level:     "error",
 							MessageID: "DISK_IMAGE_STALLED",
 							ParamsJSON: map[string]any{
-								"message":       "Disk image backup stalled; cancelling run.",
-								"stall_seconds": stallSeconds,
+								"message":                  "Disk image backup stalled; cancelling run.",
+								"stall_seconds":            stallSeconds,
+								"finalize_timeout_seconds": int(finalizeTimeout.Seconds()),
+								"last_progress_at":         last.Format(time.RFC3339Nano),
+								"last_bytes_processed":     atomic.LoadInt64(&lastProgressBytesProcessed),
+								"last_bytes_uploaded":      atomic.LoadInt64(&lastProgressBytesUploaded),
+								"bytes_total":              total,
+								"bytes_remaining":          remaining,
 							},
 						})
 						cancel()
@@ -150,6 +303,11 @@ func (r *Runner) runDiskImage(run *NextRunResponse) error {
 	}()
 
 	opts := normalizeDiskImageOptions(r, run)
+	// #region agent log
+	debugLog(run.RunID, "disk_image_read_flags", map[string]any{
+		"parallel_reader": useParallelReader(),
+	}, "H4")
+	// #endregion
 	if opts.SourceVolume == "" {
 		err := fmt.Errorf("disk image: missing source volume")
 		log.Printf("agent: disk image failed before start: %v", err)
@@ -176,7 +334,18 @@ func (r *Runner) runDiskImage(run *NextRunResponse) error {
 	}
 
 	// Streaming mode: read snapshot device directly into Kopia.
-	streamResult, err := r.createDiskImageStream(ctx, run, opts, progressCb)
+	setTotal := func(total int64) {
+		if total <= 0 {
+			return
+		}
+		atomic.StoreInt64(&lastBytesTotal, total)
+		// #region agent log
+		debugLog(run.RunID, "disk_image_total", map[string]any{
+			"bytes_total": total,
+		}, "H4")
+		// #endregion
+	}
+	streamResult, err := r.createDiskImageStream(ctx, run, opts, layout, progressCb, setTotal)
 	manifestID := ""
 	if streamResult != nil {
 		manifestID = streamResult.ManifestID
@@ -206,6 +375,19 @@ func (r *Runner) runDiskImage(run *NextRunResponse) error {
 
 	if err != nil {
 		log.Printf("agent: disk image streaming failed: %v", err)
+		endpoint := normalizeEndpoint(firstNonEmpty(run.DestEndpoint, r.cfg.DestEndpoint))
+		classified := classifyStorageInitError(endpoint, err)
+		if strings.Contains(strings.ToLower(err.Error()), "storage init") || classified.ReasonCode != "endpoint_unreachable" {
+			params := storageFailureParams(classified)
+			params["stage"] = "storage_init"
+			r.pushEvents(run.RunID, RunEvent{
+				Type:       "error",
+				Level:      "error",
+				Code:       classified.ReasonCode,
+				MessageID:  classified.MessageID,
+				ParamsJSON: params,
+			})
+		}
 		r.pushEvents(run.RunID, RunEvent{
 			Type:      "error",
 			Level:     "error",
@@ -323,7 +505,7 @@ func diskImageStallSeconds() int {
 			return secs
 		}
 	}
-	return 300
+	return 60
 }
 
 type sparseWriter interface {

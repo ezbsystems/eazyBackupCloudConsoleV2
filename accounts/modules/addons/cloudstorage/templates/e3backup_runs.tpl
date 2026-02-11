@@ -103,7 +103,7 @@
                 <tbody class="bg-slate-800 divide-y divide-slate-700">
                     {if count($runs) > 0}
                         {foreach from=$runs item=run}
-                            <tr>
+                            <tr class="run-row hover:bg-slate-700/40 cursor-pointer" data-run-id="{$run.run_uuid|default:$run.id}" title="Click to view log">
                                 <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-300">
                                     {if $run.started_at}
                                         {$run.started_at|date_format:"%d %b %Y %H:%M:%S"}
@@ -167,9 +167,12 @@
                                 </td>
                                 <td class="px-6 py-4 whitespace-nowrap text-sm">
                                     {if $run.status eq 'running'}
-                                        <a href="index.php?m=cloudstorage&page=e3backup&view=live&run_id={$run.run_uuid|default:$run.id}" class="text-sky-400 hover:text-sky-500">View Live</a>
-                                    {elseif $run.log_excerpt}
-                                        <button onclick="showRunDetails('{$run.run_uuid|default:$run.id}')" class="text-sky-400 hover:text-sky-500">View Details</button>
+                                        <div class="flex items-center gap-3">
+                                            <a href="index.php?m=cloudstorage&page=e3backup&view=live&run_id={$run.run_uuid|default:$run.id}" class="text-sky-400 hover:text-sky-500">View Live</a>
+                                            <button type="button" onclick="showRunDetails('{$run.run_uuid|default:$run.id}')" class="text-sky-400 hover:text-sky-500">View Log</button>
+                                        </div>
+                                    {else}
+                                        <button type="button" onclick="showRunDetails('{$run.run_uuid|default:$run.id}')" class="text-sky-400 hover:text-sky-500">View Log</button>
                                     {/if}
                                 </td>
                             </tr>
@@ -344,7 +347,7 @@ function showRunDetails(runId) {
     }
     
     // Fetch structured logs (includes s3_cloudbackup_run_logs when available)
-    fetch('modules/addons/cloudstorage/api/cloudbackup_get_run_logs.php?run_uuid=' + encodeURIComponent(runId))
+    fetch('modules/addons/cloudstorage/api/cloudbackup_get_run_logs.php?run_uuid=' + encodeURIComponent(runId) + '&limit=5000')
         .then(response => response.json())
         .then(data => {
             if (data.status === 'success') {
@@ -378,5 +381,17 @@ function showRunDetails(runId) {
             }
         });
 }
+
+document.querySelectorAll('tr[data-run-id]').forEach(row => {
+    row.addEventListener('click', event => {
+        if (event.target.closest('a,button')) {
+            return;
+        }
+        const runId = row.getAttribute('data-run-id');
+        if (runId) {
+            showRunDetails(runId);
+        }
+    });
+});
 </script>
 

@@ -15,24 +15,26 @@ const (
 )
 
 type parallelDeviceReader struct {
-	path      string
-	size      int64
-	chunkSize int64
-	workers   int
+	path            string
+	size            int64
+	chunkSize       int64
+	workers         int
+	physicalSource  bool
+	warningCallback diskReadWarningCallback
 
-	mu        sync.Mutex
-	ctx       context.Context
-	cancel    context.CancelFunc
-	tasks     chan int64
-	results   chan chunkResult
-	pending   map[int64][]byte
-	expected  int64
-	curBuf    []byte
-	curPos    int
-	chunkStart int64
-	nextSend  int64
-	inflight  int
-	err       error
+	mu            sync.Mutex
+	ctx           context.Context
+	cancel        context.CancelFunc
+	tasks         chan int64
+	results       chan chunkResult
+	pending       map[int64][]byte
+	expected      int64
+	curBuf        []byte
+	curPos        int
+	chunkStart    int64
+	nextSend      int64
+	inflight      int
+	err           error
 	currentOffset int64
 }
 
@@ -49,7 +51,7 @@ type readSeekCloser interface {
 	io.Closer
 }
 
-func newParallelDeviceReader(ctx context.Context, path string, size int64) (readSeekCloser, error) {
+func newParallelDeviceReader(ctx context.Context, path string, size int64, physicalSource bool, warningCallback diskReadWarningCallback) (readSeekCloser, error) {
 	chunkSize := int64(defaultParallelChunkSize)
 	workers := defaultParallelWorkers
 	if workers > runtime.NumCPU() {
@@ -63,11 +65,13 @@ func newParallelDeviceReader(ctx context.Context, path string, size int64) (read
 	}
 
 	pdr := &parallelDeviceReader{
-		path:      path,
-		size:      size,
-		chunkSize: chunkSize,
-		workers:   workers,
-		pending:   make(map[int64][]byte),
+		path:            path,
+		size:            size,
+		chunkSize:       chunkSize,
+		workers:         workers,
+		physicalSource:  physicalSource,
+		warningCallback: warningCallback,
+		pending:         make(map[int64][]byte),
 	}
 	pdr.resetPipeline(ctx, 0)
 	return pdr, nil
@@ -123,9 +127,24 @@ func (r *parallelDeviceReader) worker() {
 
 		buf := make([]byte, bufSize)
 		n, readErr := io.ReadFull(f, buf)
-		if readErr != nil && isWindowsSectorNotFound(readErr) {
-			if offset+int64(n) >= r.size {
+		if readErr != nil && isWindowsSectorNotFound(readErr) && r.physicalSource {
+			requestedEnd := offset + bufSize
+			if isStrictReadErrors() {
+				// Keep original readErr in strict mode.
+			} else if shouldTreatSectorNotFoundAsEOF(r.size, requestedEnd) {
+				r.emitReadWarning(offset, bufSize, int64(n), 0, true, readErr)
 				readErr = io.EOF
+			} else {
+				zeroFilled := bufSize - int64(n)
+				if zeroFilled < 0 {
+					zeroFilled = 0
+				}
+				for i := n; i < int(bufSize); i++ {
+					buf[i] = 0
+				}
+				n = int(bufSize)
+				r.emitReadWarning(offset, bufSize, int64(n)-zeroFilled, zeroFilled, false, readErr)
+				readErr = nil
 			}
 		}
 		if readErr == io.ErrUnexpectedEOF || readErr == io.EOF {
@@ -174,6 +193,14 @@ func (r *parallelDeviceReader) fetchNextChunk() error {
 				r.chunkStart = r.expected
 				r.expected += r.chunkSize
 				return nil
+			}
+			// No expected chunk available and no more workers/tasks in flight:
+			// avoid waiting forever when a worker returned EOF/short read without data.
+			if r.inflight == 0 && r.nextSend >= r.size {
+				if r.err != nil {
+					return r.err
+				}
+				return io.EOF
 			}
 			// Otherwise continue waiting
 		}
@@ -264,6 +291,26 @@ func (r *parallelDeviceReader) Close() error {
 	return nil
 }
 
+func (r *parallelDeviceReader) emitReadWarning(offsetBytes, requestedBytes, readBytes, zeroFilledBytes int64, nearTail bool, readErr error) {
+	if r.warningCallback == nil {
+		return
+	}
+	msg := ""
+	if readErr != nil {
+		msg = readErr.Error()
+	}
+	r.warningCallback(diskReadWarning{
+		Path:            r.path,
+		Reader:          "parallel",
+		OffsetBytes:     offsetBytes,
+		RequestedBytes:  requestedBytes,
+		ReadBytes:       readBytes,
+		ZeroFilledBytes: zeroFilledBytes,
+		NearTail:        nearTail,
+		Error:           msg,
+	})
+}
+
 // compile-time check
 var _ interface {
 	io.Reader
@@ -282,4 +329,3 @@ func minInt(a, b int) int {
 func ceilDiv(x, y int64) int64 {
 	return int64(math.Ceil(float64(x) / float64(y)))
 }
-

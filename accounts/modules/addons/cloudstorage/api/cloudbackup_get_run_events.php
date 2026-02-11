@@ -12,6 +12,7 @@ use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupEventFormatter;
+use WHMCS\Module\Addon\CloudStorage\Client\TimezoneHelper;
 
 $ca = new ClientArea();
 if (!$ca->isLoggedIn()) {
@@ -47,6 +48,7 @@ if (!$run) {
     exit;
 }
 $runId = (int) ($run['id'] ?? 0);
+$userTz = TimezoneHelper::resolveUserTimezone($userId, $run['job_id'] ?? null);
 
 // Fetch events
 $query = Capsule::table('s3_cloudbackup_run_events')
@@ -74,7 +76,7 @@ foreach ($events as $e) {
     $safeMessageId = sanitizeEventId((string) $e->message_id);
     $out[] = [
         'id' => (int) $e->id,
-        'ts' => (string) $e->ts,
+        'ts' => TimezoneHelper::formatTimestamp($e->ts, $userTz),
         'type' => (string) $e->type,
         'level' => (string) $e->level,
         'code' => $safeCode,
@@ -97,7 +99,7 @@ try {
         $summaryMsg = CloudBackupEventFormatter::render('SUMMARY_TOTAL', ['bytes_done' => $bytes]);
         $out[] = [
             'id' => $out ? ((int) end($out)['id'] + 1) : 1,
-            'ts' => (string) ($run['finished_at'] ?? date('Y-m-d H:i:s')),
+            'ts' => TimezoneHelper::formatTimestamp($run['finished_at'] ?? date('Y-m-d H:i:s'), $userTz),
             'type' => 'summary',
             'level' => 'info',
             'code' => 'SUMMARY_TOTAL',

@@ -13,7 +13,23 @@ use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
 use WHMCS\Module\Addon\CloudStorage\Client\SanitizedLogFormatter;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupEmailService;
+use WHMCS\Module\Addon\CloudStorage\Client\TimezoneHelper;
 use WHMCS\Database\Capsule;
+
+$debugLogPath = '/var/www/eazybackup.ca/.cursor/debug.log';
+function progressDebugLog(string $message, array $data, string $hypothesisId, string $logPath): void
+{
+    $entry = [
+        'id' => uniqid('log_', true),
+        'timestamp' => (int) round(microtime(true) * 1000),
+        'location' => 'cloudbackup_progress.php:debug',
+        'message' => $message,
+        'data' => $data,
+        'runId' => isset($data['run_id']) ? ('run_' . $data['run_id']) : 'run_unknown',
+        'hypothesisId' => $hypothesisId,
+    ];
+    @file_put_contents($logPath, json_encode($entry) . PHP_EOL, FILE_APPEND);
+}
 
 $ca = new ClientArea();
 if (!$ca->isLoggedIn()) {
@@ -61,6 +77,7 @@ if (!$run) {
     $response->send();
     exit();
 }
+$userTz = TimezoneHelper::resolveUserTimezone($loggedInUserId, $run['job_id'] ?? null);
 
 $statsJson = null;
 if (!empty($run['stats_json'])) {
@@ -126,7 +143,7 @@ if (!empty($run['log_excerpt'])) {
     // Light caching: avoid formatting if client already has same hash (client passes ?log_hash=...)
     $clientHash = isset($_GET['log_hash']) ? (string)$_GET['log_hash'] : null;
     if ($clientHash !== $logHash) {
-        $san = SanitizedLogFormatter::sanitizeAndStructure($run['log_excerpt'], $run['status'] ?? null);
+        $san = SanitizedLogFormatter::sanitizeAndStructure($run['log_excerpt'], $run['status'] ?? null, $userTz);
         $formattedLog = $san['formatted_log'];
         $structuredEntries = $san['entries'];
     }
@@ -137,6 +154,13 @@ $runStatus = (string)($run['status'] ?? '');
 $isTerminalState = in_array($runStatus, ['success','warning','failed','cancelled'], true);
 if ($isTerminalState) {
     $structuredEntries = [];
+    progressDebugLog('progress_terminal', [
+        'run_id' => (int)($run['id'] ?? 0),
+        'status' => $runStatus,
+        'progress_pct' => $run['progress_pct'] ?? null,
+        'bytes_processed' => $run['bytes_processed'] ?? null,
+        'bytes_transferred' => $run['bytes_transferred'] ?? null,
+    ], 'H5', $debugLogPath);
 }
 
 $jsonData = [
@@ -257,6 +281,9 @@ try {
 }
 
 $response = new JsonResponse($jsonData, 200);
+$response->headers->set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+$response->headers->set('Pragma', 'no-cache');
+$response->headers->set('Expires', '0');
 $response->send();
 exit();
 

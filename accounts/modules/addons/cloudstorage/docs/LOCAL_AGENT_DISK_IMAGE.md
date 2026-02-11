@@ -20,15 +20,24 @@ This document explains the disk image backup path added to the local agent (Kopi
 - `internal/agent/disk_image.go`
   - Orchestration for disk image runs (`runDiskImage` via `runRun` engine `disk_image`).
   - Normalizes options (source volume/device, format, temp dir, block size, cache).
-  - Uses per-OS `createDiskImage` to produce the image, then reuses `runKopia` to upload it.
+  - Captures disk layout metadata and passes it into streaming read-plan selection.
+  - Uses per-OS `createDiskImageStream` for direct device streaming into Kopia.
   - Sparse writer helper (`openSparseWriter`) with VHDX stub + raw writer.
   - Block cache scaffold (`BlockCache`) for future change-detection.
 - `internal/agent/disk_image_windows.go`
-  - Uses VSS: `vss.Create(volume)` → shadow copy ID; fetches device path via `vss.Get`.
-  - Copies snapshot device into sparse image, skipping zero blocks; records block hashes (sha256) into cache.
+  - Uses VSS for volume sources: `vss.Create(volume)` → shadow copy device path via `vss.Get`.
+  - For physical-disk sources, streams directly from `\\.\PhysicalDriveN`.
+  - Builds stream entries with warning callbacks for recovered read errors.
+- `internal/agent/disk_image_cbt_windows.go`
+  - Windows read-plan builder for CBT/bitmap/physical-layout modes.
+  - Physical-disk mode now prefers disk-layout extents + metadata extents (header/GPT tail) over full-disk reads.
 - `internal/agent/disk_image_linux.go`
   - Tries to create LVM snapshot (`lvcreate -s -L 5%ORIGIN`) when the source is an LVM device; falls back to direct device.
-  - Copies snapshot/device into sparse image, skipping zero blocks; records block hashes.
+  - Streams snapshot/device directly to Kopia.
+- `internal/agent/stream_entry.go`, `internal/agent/stream_entry_parallel.go`, `internal/agent/range_reader.go`
+  - Device reader implementations (sequential/parallel/range-aware).
+  - Handle Windows `ERROR_SECTOR_NOT_FOUND` in best-effort mode with tail-EOF conversion or zero-fill recovery.
+  - Support strict fail-fast mode via policy/env override.
 - `internal/agent/disk_image_stub.go`
   - Stub for unsupported platforms.
 - `internal/agent/block_cache.go`
@@ -52,6 +61,25 @@ This document explains the disk image backup path added to the local agent (Kopi
   - Validates `disk_image` engine requires agent + `disk_source_volume`; stores `disk_image_format` (default vhdx) and optional `disk_temp_dir`.
 - `accounts/modules/addons/cloudstorage/api/cloudbackup_update_job.php`
   - Same validations on update; persists disk image fields.
+
+---
+
+## Recovery Session Token Behavior (Long Restores)
+- Session token expiry now slides forward on activity to avoid long restore failures.
+  - Extension window: `+6 hours`.
+  - Minimum refresh threshold: only updates when expiry is within 30 minutes.
+  - Activity endpoints that refresh:
+    - `cloudbackup_recovery_update_run.php`
+    - `cloudbackup_recovery_push_events.php`
+    - `cloudbackup_recovery_get_run_status.php`
+    - `cloudbackup_recovery_get_run_events.php`
+    - `cloudbackup_recovery_poll_cancel.php`
+- Dedicated refresh endpoint:
+  - `cloudbackup_recovery_refresh_session.php`
+  - Auth: `session_token` + `run_id`, validates run ownership, returns `session_expires_at`.
+- Recovery UI behavior:
+  - The WinPE recovery UI polls `/api/refresh-session` every 5 minutes while a restore is running.
+  - This prevents “Session token expired” during multi‑hour or multi‑day restores.
 
 ---
 
@@ -79,23 +107,45 @@ This document explains the disk image backup path added to the local agent (Kopi
    - Windows: VSS shadow copy → snapshot device (no trailing slash) streamed directly.
      - If previous snapshot exists and CBT is enabled, the agent uses NTFS USN + file extents to read only changed ranges.
      - If CBT is unavailable/invalid, falls back to NTFS volume bitmap and reads only allocated clusters (unused space becomes zeros).
-     - Physical disk sources fall back to full-device reads.
+     - Physical disk sources now prefer disk-layout extents (used partition extents + metadata extents) to avoid full-device reads.
+     - If no usable extents are available, the agent falls back to full-device streaming and emits a fallback warning event.
    - Linux: LVM snapshot when available; otherwise the live device is streamed.
    - No temp image is written in streaming mode.
 4) Kopia upload:
-   - Agent constructs a virtual file entry pointing at the snapshot device and runs the Kopia snapshot pipeline directly against it.
-   - Progress denominator uses device size when available (Windows via IOCTL length; Linux via stat on the device path).
-   - Events: `DISK_IMAGE_STREAM_START`, `KOPIA_*` stages, `DISK_IMAGE_STREAM_COMPLETED` (or `DISK_IMAGE_FAILED` on error).
+  - Agent constructs a virtual file entry pointing at the snapshot device and runs the Kopia snapshot pipeline directly against it.
+  - Before `storage_init`, the agent runs a storage preflight probe (DNS/TCP/TLS and policy-block check) and emits explicit failure events when endpoint connectivity fails.
+  - Progress denominator uses device size when available (Windows via IOCTL length; Linux via stat on the device path).
+  - Events: `DISK_IMAGE_STREAM_START`, `KOPIA_*` stages, storage diagnostics events (`STORAGE_DNS_FAILED`, `STORAGE_TCP_REFUSED`, `STORAGE_TCP_TIMEOUT`, `STORAGE_TLS_FAILED`, `STORAGE_HTTP_BLOCKED`, `STORAGE_ENDPOINT_UNREACHABLE`), `DISK_IMAGE_READ_PLAN_FALLBACK`, `DISK_IMAGE_READ_RECOVERED`, `DISK_IMAGE_FINALIZING_SLOW`/`DISK_IMAGE_FINALIZING_STALLED` (tail end only), `DISK_IMAGE_STREAM_COMPLETED` (or `DISK_IMAGE_FAILED` on error).
+  - Stall detection is suppressed for the final ~1% (or 128 MiB) of data; the agent logs finalizing events and waits for the upload to finish.
+  - Windows physical read hardening:
+    - Near-tail `ERROR_SECTOR_NOT_FOUND` is treated as EOF (tail-tolerant, not strict size equality).
+    - Mid-stream `ERROR_SECTOR_NOT_FOUND` in best-effort mode is zero-filled for the affected read span and logged as a warning event.
+    - Strict mode disables recovery and fails fast on read errors.
 5) Cleanup: snapshots removed (VSS Remove / LVM lvremove). No temp image exists to prune in streaming mode.
+
+---
+
+## Disk Image Restore Performance Updates (Feb 2026)
+- Raw disk restores now support parallel segment downloads/writes for higher throughput.
+  - Uses per-worker readers and per-worker block device handles.
+  - Segment size and worker count are policy-controlled (see Policy JSON flags).
+- Restore uses extents whenever the disk layout provides used extents.
+  - Extents are merged and normalized; metadata ranges are always included to preserve boot data.
+  - GPT backup headers (last 34 sectors) are included when partition style is GPT.
+- Kopia restore parallelism is now configurable via policy.
+- Recovery and agent restore contexts now carry `policy_json` so restore settings are applied consistently.
 
 ---
 
 ## Current Limitations / TODOs
 - VHDX writer is still a stub (no BAT/metadata). VHDX behaves like raw sparse writes.
-- CBT is user‑mode (USN journal + extents) and only applies to NTFS volumes; physical disks fall back to full reads.
+- CBT is user‑mode (USN journal + extents) and only applies to NTFS volumes.
+- Physical-disk extent planning depends on disk layout/partition block maps; if unavailable, the agent falls back to full-device reads.
+- Best-effort mode may zero-fill unreadable physical-disk spans on `ERROR_SECTOR_NOT_FOUND`; enable strict mode to fail fast instead.
 - If USN state is invalid (journal reset/wrap, volume change), the agent falls back to the NTFS bitmap full.
 - Mount-based recovery and synthetic fulls are placeholders (not implemented).
 - LVM snapshot creation is best-effort; if `lvcreate` unavailable, it reads the live device.
+- Kopia S3 storage does not expose HTTP transport tuning (MaxIdleConnsPerHost/MaxConnsPerHost); higher parallelism may require an upstream change or fork.
 
 ---
 
@@ -108,6 +158,13 @@ This document explains the disk image backup path added to the local agent (Kopi
   - `disk_image_cbt` (default true): enable USN+extent change tracking for Windows disk image backups.
   - `disk_image_change_tracking` (alias for `disk_image_cbt`).
   - `disk_image_bitmap` (default true): allow NTFS bitmap fulls when CBT is unavailable.
+  - `disk_image_strict_read_errors` (default false): fail fast on disk read errors instead of best-effort recovery.
+  - `parallel_disk_reads` (optional): per-run override for parallel disk readers.
+  - `restore_parallel_workers` (default 8-16): number of parallel disk-restore workers.
+  - `restore_segment_size_mb` (default 32): per-worker segment size in MiB.
+  - `restore_kopia_parallel` (default workers, capped 1-32): Kopia restore parallelism.
+- Environment flags:
+  - `AGENT_DISK_IMAGE_STRICT_READ_ERRORS` (default false): global strict read-error fallback when policy is unset.
 
 ---
 

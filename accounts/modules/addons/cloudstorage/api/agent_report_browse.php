@@ -76,7 +76,7 @@ $cmd = Capsule::table('s3_cloudbackup_run_commands')
 if (!$cmd || (int) $cmd->agent_id !== (int) $agentId) {
     respond(['status' => 'fail', 'message' => 'Command not found'], 404);
 }
-$validTypes = ['browse_directory', 'list_hyperv_vms', 'list_hyperv_vm_details', 'browse_snapshot', 'list_disks'];
+$validTypes = ['browse_directory', 'list_hyperv_vms', 'list_hyperv_vm_details', 'browse_snapshot', 'list_disks', 'fetch_log_tail'];
 if (!in_array(strtolower((string) $cmd->type), $validTypes, true)) {
     respond(['status' => 'fail', 'message' => 'Invalid command type for browse/discovery'], 400);
 }
