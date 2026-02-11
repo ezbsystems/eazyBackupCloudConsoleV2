@@ -10,6 +10,22 @@ if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
 }
 
+// #region agent log
+function debugLog(string $message, array $data, string $hypothesisId): void
+{
+    $entry = [
+        'id' => uniqid('log_', true),
+        'timestamp' => (int) round(microtime(true) * 1000),
+        'location' => 'agent_update_run.php:debug',
+        'message' => $message,
+        'data' => $data,
+        'runId' => isset($data['run_id']) ? ('run_' . $data['run_id']) : 'run_unknown',
+        'hypothesisId' => $hypothesisId,
+    ];
+    @file_put_contents('/var/www/eazybackup.ca/.cursor/debug.log', json_encode($entry) . PHP_EOL, FILE_APPEND);
+}
+// #endregion
+
 function respond(array $data, int $httpCode = 200): void
 {
     $response = new JsonResponse($data, $httpCode);
@@ -48,6 +64,46 @@ function getBodyJson(): array
     }
     $decoded = json_decode($raw, true);
     return is_array($decoded) ? $decoded : [];
+}
+
+function updateAgentMetadata(int $agentId, array $body): void
+{
+    $version = trim((string) ($_POST['agent_version'] ?? ($body['agent_version'] ?? '')));
+    $os = trim((string) ($_POST['agent_os'] ?? ($body['agent_os'] ?? '')));
+    $arch = trim((string) ($_POST['agent_arch'] ?? ($body['agent_arch'] ?? '')));
+    $build = trim((string) ($_POST['agent_build'] ?? ($body['agent_build'] ?? '')));
+
+    if ($version === '' && $os === '' && $arch === '' && $build === '') {
+        return;
+    }
+
+    $update = ['updated_at' => Capsule::raw('NOW()')];
+    $hasAny = false;
+    if (Capsule::schema()->hasColumn('s3_cloudbackup_agents', 'agent_version') && $version !== '') {
+        $update['agent_version'] = $version;
+        $hasAny = true;
+    }
+    if (Capsule::schema()->hasColumn('s3_cloudbackup_agents', 'agent_os') && $os !== '') {
+        $update['agent_os'] = $os;
+        $hasAny = true;
+    }
+    if (Capsule::schema()->hasColumn('s3_cloudbackup_agents', 'agent_arch') && $arch !== '') {
+        $update['agent_arch'] = $arch;
+        $hasAny = true;
+    }
+    if (Capsule::schema()->hasColumn('s3_cloudbackup_agents', 'agent_build') && $build !== '') {
+        $update['agent_build'] = $build;
+        $hasAny = true;
+    }
+    if (Capsule::schema()->hasColumn('s3_cloudbackup_agents', 'metadata_updated_at')) {
+        $update['metadata_updated_at'] = Capsule::raw('NOW()');
+    }
+
+    if ($hasAny) {
+        Capsule::table('s3_cloudbackup_agents')
+            ->where('id', $agentId)
+            ->update($update);
+    }
 }
 
 function recordForcedRunFailureEvent(int $runId, string $summary): void
@@ -94,6 +150,7 @@ if (!$runId) {
 }
 
 $agent = authenticateAgent();
+updateAgentMetadata((int) $agent->id, $body);
 
 $run = Capsule::table('s3_cloudbackup_runs as r')
     ->join('s3_cloudbackup_jobs as j', 'r.job_id', '=', 'j.id')
@@ -151,11 +208,30 @@ foreach ($fields as $field) {
         continue;
     }
     if (in_array($field, ['error_summary', 'log_excerpt', 'validation_log_excerpt'], true) && is_string($val)) {
-        $update[$field] = sanitizeBranding($val);
+        $sanitized = sanitizeBranding($val);
+        if ($field === 'error_summary' && strlen($sanitized) > 700) {
+            $sanitized = substr($sanitized, 0, 699) . '…';
+        }
+        $update[$field] = $sanitized;
     } else {
         $update[$field] = $val;
     }
 }
+
+// #region agent log
+if (!empty($update)) {
+    debugLog('agent_update_run', [
+        'run_id' => (int) $runId,
+        'status' => $update['status'] ?? null,
+        'progress_pct' => $update['progress_pct'] ?? null,
+        'bytes_processed' => $update['bytes_processed'] ?? null,
+        'bytes_transferred' => $update['bytes_transferred'] ?? null,
+        'bytes_total' => $update['bytes_total'] ?? null,
+        'eta_seconds' => $update['eta_seconds'] ?? null,
+        'speed_bps' => $update['speed_bytes_per_sec'] ?? null,
+    ], 'H1');
+}
+// #endregion
 
 // Allow manifest_id alias to log_ref (e.g., agents posting manifest separately)
 if (array_key_exists('manifest_id', $body) && !array_key_exists('log_ref', $body)) {

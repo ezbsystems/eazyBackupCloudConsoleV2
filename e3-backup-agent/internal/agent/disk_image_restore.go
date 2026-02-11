@@ -8,6 +8,7 @@ import (
 	"log"
 	"math"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 )
@@ -197,13 +198,25 @@ func (r *Runner) executeDiskRestoreCommand(ctx context.Context, cmd PendingComma
 	}
 
 	var extents []DiskExtent
-	if needsShrink {
-		extents, planErr = buildRestoreExtents(restoreCtx, layout, plan)
-		if planErr != nil {
-			r.finishDiskRestoreWithError(trackingRunID, cmd.CommandID, planErr)
-			return
+	if layoutHasUsedExtents(layout) {
+		if needsShrink {
+			extents, planErr = buildRestoreExtents(restoreCtx, layout, plan)
+			if planErr != nil {
+				r.finishDiskRestoreWithError(trackingRunID, cmd.CommandID, planErr)
+				return
+			}
+		} else {
+			extents = buildRestoreExtentsFromLayout(layout)
 		}
-		if len(extents) == 0 {
+		if len(extents) > 0 {
+			diskBytes := layout.TotalBytes
+			if targetSize > 0 {
+				diskBytes = targetSize
+			}
+			extents = addDiskMetadataExtents(extents, diskBytes, layout.PartitionStyle)
+			extents = normalizeDiskExtents(extents, diskBytes)
+		}
+		if needsShrink && len(extents) == 0 {
 			r.finishDiskRestoreWithError(trackingRunID, cmd.CommandID, fmt.Errorf("no block map available for shrink restore"))
 			return
 		}
@@ -223,6 +236,7 @@ func (r *Runner) executeDiskRestoreCommand(ctx context.Context, cmd PendingComma
 		DestAccessKey:           cmd.JobContext.DestAccessKey,
 		DestSecretKey:           cmd.JobContext.DestSecretKey,
 		LocalBandwidthLimitKbps: cmd.JobContext.LocalBandwidthLimitKbps,
+		PolicyJSON:              cmd.JobContext.PolicyJSON,
 	}
 
 	if err := r.kopiaRestoreDiskImageToDevice(restoreCtx, run, payload.ManifestID, payload.TargetDisk, extents, trackingRunID); err != nil {
@@ -406,6 +420,120 @@ func buildRestoreExtents(ctx context.Context, layout *DiskLayout, plan []partiti
 		}
 	}
 	return extents, nil
+}
+
+func layoutHasUsedExtents(layout *DiskLayout) bool {
+	if layout == nil {
+		return false
+	}
+	for _, p := range layout.Partitions {
+		if len(p.UsedExtents) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func buildRestoreExtentsFromLayout(layout *DiskLayout) []DiskExtent {
+	if layout == nil {
+		return nil
+	}
+	var extents []DiskExtent
+	for _, p := range layout.Partitions {
+		if len(p.UsedExtents) == 0 {
+			continue
+		}
+		for _, e := range p.UsedExtents {
+			if e.LengthBytes <= 0 {
+				continue
+			}
+			globalOffset := p.StartBytes + e.OffsetBytes
+			extents = append(extents, DiskExtent{
+				OffsetBytes: globalOffset,
+				LengthBytes: e.LengthBytes,
+			})
+		}
+	}
+	return extents
+}
+
+func addDiskMetadataExtents(extents []DiskExtent, diskBytes int64, partitionStyle string) []DiskExtent {
+	if diskBytes <= 0 {
+		return extents
+	}
+	const headerBytes = int64(2 * 1024 * 1024)
+	primaryLen := headerBytes
+	if primaryLen > diskBytes {
+		primaryLen = diskBytes
+	}
+	extents = append(extents, DiskExtent{OffsetBytes: 0, LengthBytes: primaryLen})
+
+	if strings.EqualFold(partitionStyle, "gpt") {
+		const sectorSize = int64(512)
+		const gptBackupSectors = int64(34)
+		tailBytes := gptBackupSectors * sectorSize
+		if tailBytes < diskBytes {
+			extents = append(extents, DiskExtent{
+				OffsetBytes: diskBytes - tailBytes,
+				LengthBytes: tailBytes,
+			})
+		}
+	}
+	return extents
+}
+
+func normalizeDiskExtents(extents []DiskExtent, diskBytes int64) []DiskExtent {
+	cleaned := make([]DiskExtent, 0, len(extents))
+	for _, e := range extents {
+		offset := e.OffsetBytes
+		length := e.LengthBytes
+		if length <= 0 {
+			continue
+		}
+		if offset < 0 {
+			length += offset
+			offset = 0
+		}
+		if diskBytes > 0 {
+			if offset >= diskBytes {
+				continue
+			}
+			if offset+length > diskBytes {
+				length = diskBytes - offset
+			}
+		}
+		if length <= 0 {
+			continue
+		}
+		cleaned = append(cleaned, DiskExtent{
+			OffsetBytes: offset,
+			LengthBytes: length,
+		})
+	}
+	if len(cleaned) == 0 {
+		return cleaned
+	}
+	sort.Slice(cleaned, func(i, j int) bool {
+		return cleaned[i].OffsetBytes < cleaned[j].OffsetBytes
+	})
+	merged := make([]DiskExtent, 0, len(cleaned))
+	for _, e := range cleaned {
+		if len(merged) == 0 {
+			merged = append(merged, e)
+			continue
+		}
+		last := &merged[len(merged)-1]
+		lastEnd := last.OffsetBytes + last.LengthBytes
+		if e.OffsetBytes <= lastEnd {
+			end := e.OffsetBytes + e.LengthBytes
+			if end > lastEnd {
+				last.LengthBytes = end - last.OffsetBytes
+			}
+			continue
+		}
+		merged = append(merged, e)
+	}
+	return merged
 }
 
 func alignMiB(value int64) int64 {

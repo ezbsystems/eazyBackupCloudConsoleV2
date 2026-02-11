@@ -188,7 +188,17 @@ function diskImageRestorePage() {
                     this.generatedToken = data.token || '';
                     this.tokenExpiry = data.expires_at ? `Expires: ${data.expires_at}` : '';
                 } else {
-                    alert(data.message || 'Failed to generate token');
+                    const code = data.code || '';
+                    if (code === 'schema_upgrade_required') {
+                        const missing = Array.isArray(data.missing_columns) && data.missing_columns.length
+                            ? ` Missing columns: ${data.missing_columns.join(', ')}.`
+                            : '';
+                        alert(`Recovery token schema is incomplete on this installation. Please run module upgrade.${missing}`);
+                    } else if (code === 'invalid_request') {
+                        alert(data.message || 'Missing required request fields.');
+                    } else {
+                        alert(data.message || 'Failed to generate token');
+                    }
                 }
             } catch (e) {
                 alert('Failed to generate token');

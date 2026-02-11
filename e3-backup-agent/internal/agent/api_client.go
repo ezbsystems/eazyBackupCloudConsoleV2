@@ -5,24 +5,27 @@ import (
 	"compress/gzip"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"runtime"
 	"strings"
 	"time"
 )
 
 // Client wraps HTTP calls to the WHMCS agent API.
 type Client struct {
-	httpClient *http.Client
-	baseURL    string
-	agentID    string
-	token      string
-	deviceID   string
-	installID  string
-	deviceName string
-	userAgent  string
+	httpClient           *http.Client
+	baseURL              string
+	agentID              string
+	token                string
+	deviceID             string
+	installID            string
+	deviceName           string
+	userAgent            string
 	recoverySessionToken string
 }
 
@@ -41,9 +44,9 @@ func NewClient(cfg *AgentConfig) *Client {
 
 func NewRecoveryClient(apiBaseURL, sessionToken string) *Client {
 	return &Client{
-		httpClient: &http.Client{Timeout: 30 * time.Second},
-		baseURL:    strings.TrimRight(apiBaseURL, "/"),
-		userAgent:  "e3-backup-agent-recovery/1.0",
+		httpClient:           &http.Client{Timeout: 30 * time.Second},
+		baseURL:              strings.TrimRight(apiBaseURL, "/"),
+		userAgent:            "e3-backup-agent-recovery/1.0",
 		recoverySessionToken: sessionToken,
 	}
 }
@@ -86,13 +89,29 @@ func (s *jsonString) UnmarshalJSON(b []byte) error {
 
 // EnrollResponse represents the enrollment payload returned by the server.
 type EnrollResponse struct {
-	Status     string `json:"status"`
+	Status     string     `json:"status"`
 	AgentID    jsonString `json:"agent_id"`
 	ClientID   jsonString `json:"client_id"`
-	AgentToken string `json:"agent_token"`
-	APIBaseURL string `json:"api_base_url"`
-	TenantID   *int   `json:"tenant_id,omitempty"`
-	Message    string `json:"message"`
+	AgentToken string     `json:"agent_token"`
+	APIBaseURL string     `json:"api_base_url"`
+	TenantID   *int       `json:"tenant_id,omitempty"`
+	Message    string     `json:"message"`
+}
+
+func (c *Client) addAgentMetadata(form url.Values) {
+	version := ""
+	ua := strings.TrimSpace(c.userAgent)
+	if idx := strings.Index(ua, "/"); idx > -1 && idx < len(ua)-1 {
+		version = strings.TrimSpace(ua[idx+1:])
+	}
+	if version != "" {
+		form.Set("agent_version", version)
+	}
+	form.Set("agent_os", runtime.GOOS)
+	form.Set("agent_arch", runtime.GOARCH)
+	if b := strings.TrimSpace(os.Getenv("E3_AGENT_BUILD")); b != "" {
+		form.Set("agent_build", b)
+	}
 }
 
 // EnrollWithToken enrolls the agent using an enrollment token (MSP/RMM flow).
@@ -109,6 +128,7 @@ func (c *Client) EnrollWithToken(token, hostname string) (*EnrollResponse, error
 	if c.deviceName != "" {
 		form.Set("device_name", c.deviceName)
 	}
+	c.addAgentMetadata(form)
 
 	endpoint := c.baseURL + "/agent_enroll.php"
 	req, err := http.NewRequest(http.MethodPost, endpoint, strings.NewReader(form.Encode()))
@@ -155,6 +175,7 @@ func (c *Client) EnrollWithCredentials(email, password, hostname string) (*Enrol
 	if c.deviceName != "" {
 		form.Set("device_name", c.deviceName)
 	}
+	c.addAgentMetadata(form)
 
 	endpoint := c.baseURL + "/agent_login.php"
 	req, err := http.NewRequest(http.MethodPost, endpoint, strings.NewReader(form.Encode()))
@@ -243,8 +264,8 @@ type NextRunResponse struct {
 	// Network share credentials for UNC paths
 	NetworkCredentials *NetworkCredentials `json:"network_credentials,omitempty"`
 	// Hyper-V specific fields
-	HyperVConfig *HyperVConfig  `json:"hyperv_config,omitempty"`
-	HyperVVMs    []HyperVVMRun  `json:"hyperv_vms,omitempty"`
+	HyperVConfig *HyperVConfig `json:"hyperv_config,omitempty"`
+	HyperVVMs    []HyperVVMRun `json:"hyperv_vms,omitempty"`
 }
 
 // HyperVConfig contains job-level Hyper-V settings.
@@ -511,59 +532,190 @@ type RunEvent struct {
 	ParamsJSON map[string]any `json:"params_json,omitempty"`
 }
 
+type RunLogEntry struct {
+	Level       string         `json:"level,omitempty"`
+	Code        string         `json:"code,omitempty"`
+	Message     string         `json:"message,omitempty"`
+	DetailsJSON map[string]any `json:"details_json,omitempty"`
+}
+
 func (c *Client) PushEvents(runID int64, events []RunEvent) error {
 	if len(events) == 0 {
 		return nil
 	}
+	compactEvents := compactEventsForTransport(events)
 	if c.recoverySessionToken != "" {
 		endpoint := c.baseURL + "/cloudbackup_recovery_push_events.php"
-		body := map[string]any{"run_id": runID, "events": events, "session_token": c.recoverySessionToken}
-		buf, _ := json.Marshal(body)
+		lastErr := error(nil)
+		for attempt := 0; attempt < 3; attempt++ {
+			body := map[string]any{"run_id": runID, "events": compactEvents, "session_token": c.recoverySessionToken}
+			buf, _ := json.Marshal(body)
+			req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(buf))
+			if err != nil {
+				return err
+			}
+			req.Header.Set("Content-Type", "application/json")
+			c.applyUserAgent(req)
+			resp, err := c.httpClient.Do(req)
+			if err != nil {
+				lastErr = err
+				if !isTransientNetErr(err) || attempt == 2 {
+					return err
+				}
+				time.Sleep(time.Duration(attempt+1) * 300 * time.Millisecond)
+				continue
+			}
+			b, _ := io.ReadAll(io.LimitReader(resp.Body, 900))
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return nil
+			}
+			msg := strings.TrimSpace(string(b))
+			lastErr = fmt.Errorf("recovery push events status %d body=%s", resp.StatusCode, msg)
+			if !shouldRetryStatus(resp.StatusCode) || attempt == 2 {
+				return lastErr
+			}
+			time.Sleep(time.Duration(attempt+1) * 300 * time.Millisecond)
+		}
+		return lastErr
+	}
+	endpoint := c.baseURL + "/agent_push_events.php"
+	payload, useCompactPayload, payloadErr := buildPushEventsPayload(runID, events, compactEvents, false)
+	if payloadErr != nil {
+		return payloadErr
+	}
+	lastErr := error(nil)
+	for attempt := 0; attempt < 4; attempt++ {
+		buf, _ := json.Marshal(payload)
 		req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(buf))
 		if err != nil {
 			return err
 		}
-		req.Header.Set("Content-Type", "application/json")
-		c.applyUserAgent(req)
+		c.authHeaders(req)
+
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
-			return err
+			lastErr = err
+			if !isTransientNetErr(err) || attempt == 3 {
+				return err
+			}
+			time.Sleep(time.Duration(attempt+1) * 300 * time.Millisecond)
+			continue
 		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			b, _ := io.ReadAll(resp.Body)
-			msg := strings.TrimSpace(string(b))
-			return fmt.Errorf("recovery push events status %d body=%s", resp.StatusCode, msg)
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 900))
+		resp.Body.Close()
+
+		if resp.StatusCode == http.StatusOK {
+			return nil
 		}
-		return nil
-	}
-	endpoint := c.baseURL + "/agent_push_events.php"
-	body := map[string]any{"run_id": runID, "events": events}
-	buf, _ := json.Marshal(body)
 
-	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(buf))
-	if err != nil {
-		return err
-	}
-	c.authHeaders(req)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		// Surface response body to distinguish app-level 403 (JSON) from proxy/WAF 403 (HTML).
-		b, _ := io.ReadAll(resp.Body)
 		msg := strings.TrimSpace(string(b))
 		if len(msg) > 600 {
 			msg = msg[:600] + "…"
 		}
 		if msg != "" {
-			return fmt.Errorf("push events status %d body=%s", resp.StatusCode, msg)
+			lastErr = fmt.Errorf("push events status %d body=%s", resp.StatusCode, msg)
+		} else {
+			lastErr = fmt.Errorf("push events status %d", resp.StatusCode)
 		}
-		return fmt.Errorf("push events status %d", resp.StatusCode)
+
+		// If a 403 is caused by content policy/WAF, retry once with compact payload.
+		if resp.StatusCode == http.StatusForbidden && !useCompactPayload {
+			payload, useCompactPayload, payloadErr = buildPushEventsPayload(runID, events, compactEvents, true)
+			if payloadErr != nil {
+				return payloadErr
+			}
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+
+		if !shouldRetryStatus(resp.StatusCode) || attempt == 3 {
+			return lastErr
+		}
+		time.Sleep(time.Duration(attempt+1) * 300 * time.Millisecond)
+	}
+	return lastErr
+}
+
+func buildPushEventsPayload(runID int64, events []RunEvent, compactEvents []RunEvent, forceCompact bool) (map[string]any, bool, error) {
+	body := map[string]any{"run_id": runID, "events": events}
+	buf, _ := json.Marshal(body)
+	if !forceCompact && len(buf) < 48*1024 {
+		return body, false, nil
+	}
+	var gz bytes.Buffer
+	zw := gzip.NewWriter(&gz)
+	rawCompact, _ := json.Marshal(compactEvents)
+	if _, err := zw.Write(rawCompact); err != nil {
+		_ = zw.Close()
+		return nil, true, err
+	}
+	if err := zw.Close(); err != nil {
+		return nil, true, err
+	}
+	compactBody := map[string]any{
+		"run_id":          runID,
+		"events_encoding": "gzip+base64",
+		"events_b64":      base64.StdEncoding.EncodeToString(gz.Bytes()),
+	}
+	return compactBody, true, nil
+}
+
+func (c *Client) PushRecoveryLogs(runID int64, logs []RunLogEntry) error {
+	if c.recoverySessionToken == "" || len(logs) == 0 {
+		return nil
+	}
+	endpoint := c.baseURL + "/cloudbackup_recovery_push_events.php"
+	body := map[string]any{"run_id": runID, "logs": logs, "session_token": c.recoverySessionToken}
+	buf, _ := json.Marshal(body)
+	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(buf))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	c.applyUserAgent(req)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		msg := strings.TrimSpace(string(b))
+		return fmt.Errorf("recovery push logs status %d body=%s", resp.StatusCode, msg)
+	}
+	return nil
+}
+
+func (c *Client) PushRecoveryDebugLog(runID int64, level, code, message string, details map[string]any) error {
+	if c.recoverySessionToken == "" {
+		return nil
+	}
+	endpoint := c.baseURL + "/cloudbackup_recovery_debug_log.php"
+	body := map[string]any{
+		"run_id":        runID,
+		"session_token": c.recoverySessionToken,
+		"level":         level,
+		"code":          code,
+		"message":       message,
+		"details":       details,
+	}
+	buf, _ := json.Marshal(body)
+	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(buf))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	c.applyUserAgent(req)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		msg := strings.TrimSpace(string(b))
+		return fmt.Errorf("recovery debug log status %d body=%s", resp.StatusCode, msg)
 	}
 	return nil
 }
@@ -604,7 +756,7 @@ func (c *Client) PollRecoveryCancel(runID int64) (bool, error) {
 		if out.Message == "" {
 			out.Message = "cancel poll failed"
 		}
-		return false, fmt.Errorf(out.Message)
+		return false, errors.New(out.Message)
 	}
 	return out.CancelRequested, nil
 }
@@ -714,23 +866,24 @@ type PendingCommand struct {
 
 // JobContext provides the job configuration needed to execute commands like restore.
 type JobContext struct {
-	JobID                   int64  `json:"job_id"`
-	RunID                   int64  `json:"run_id"`
-	Engine                  string `json:"engine"`
-	SourcePath              string `json:"source_path"`
-	DestType                string `json:"dest_type"`
-	DestBucketName          string `json:"dest_bucket_name"`
-	DestPrefix              string `json:"dest_prefix"`
-	DestLocalPath           string `json:"dest_local_path"`
-	DestEndpoint            string `json:"dest_endpoint"`
-	DestRegion              string `json:"dest_region"`
-	DestAccessKey           string `json:"dest_access_key"`
-	DestSecretKey           string `json:"dest_secret_key"`
-	LocalBandwidthLimitKbps int    `json:"local_bandwidth_limit_kbps"`
-	ManifestID              string `json:"manifest_id"`
-	DiskSourceVolume        string `json:"disk_source_volume"`
-	DiskImageFormat         string `json:"disk_image_format"`
-	DiskTempDir             string `json:"disk_temp_dir"`
+	JobID                   int64          `json:"job_id"`
+	RunID                   int64          `json:"run_id"`
+	Engine                  string         `json:"engine"`
+	SourcePath              string         `json:"source_path"`
+	DestType                string         `json:"dest_type"`
+	DestBucketName          string         `json:"dest_bucket_name"`
+	DestPrefix              string         `json:"dest_prefix"`
+	DestLocalPath           string         `json:"dest_local_path"`
+	DestEndpoint            string         `json:"dest_endpoint"`
+	DestRegion              string         `json:"dest_region"`
+	DestAccessKey           string         `json:"dest_access_key"`
+	DestSecretKey           string         `json:"dest_secret_key"`
+	LocalBandwidthLimitKbps int            `json:"local_bandwidth_limit_kbps"`
+	ManifestID              string         `json:"manifest_id"`
+	DiskSourceVolume        string         `json:"disk_source_volume"`
+	DiskImageFormat         string         `json:"disk_image_format"`
+	DiskTempDir             string         `json:"disk_temp_dir"`
+	PolicyJSON              map[string]any `json:"policy_json"`
 }
 
 // PollPendingCommands fetches pending commands (restore, maintenance) for this agent.

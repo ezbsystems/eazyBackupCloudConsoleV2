@@ -100,6 +100,24 @@ function cloudbackup_get_watchdog_status(): array
     ];
 }
 
+function cloudbackup_get_tenants_for_filter(): array
+{
+    try {
+        if (!Capsule::schema()->hasTable('s3_backup_tenants')) {
+            return [];
+        }
+        $rows = Capsule::table('s3_backup_tenants')
+            ->select('id', 'name')
+            ->orderBy('name', 'asc')
+            ->get();
+        return array_map(function ($item) {
+            return (array) $item;
+        }, $rows->toArray());
+    } catch (\Throwable $e) {
+        return [];
+    }
+}
+
 function cloudstorage_admin_cloudbackup($vars)
 {
     ob_start();
@@ -258,6 +276,7 @@ function cloudstorage_admin_cloudbackup($vars)
         'status' => $_GET['status'] ?? null,
         'source_type' => $_GET['source_type'] ?? null,
         'job_id' => $_GET['job_id'] ?? null,
+        'agent_id' => $_GET['agent_id'] ?? null,
         'date_from' => $_GET['date_from'] ?? null,
         'date_to' => $_GET['date_to'] ?? null,
         'job_name' => $_GET['job_name'] ?? null,
@@ -268,6 +287,39 @@ function cloudstorage_admin_cloudbackup($vars)
     
     // Get all runs
     $runs = CloudBackupAdminController::getAllRuns($filters);
+
+    $agentFilters = [
+        'q' => isset($_GET['agents_q']) ? trim((string) $_GET['agents_q']) : '',
+        'client_id' => $_GET['agents_client_id'] ?? null,
+        'status' => $_GET['agents_status'] ?? null,
+        'agent_type' => $_GET['agents_type'] ?? null,
+        'tenant_id' => $_GET['agents_tenant_id'] ?? null,
+        'online_status' => $_GET['agents_online'] ?? null,
+    ];
+    $agentSortField = (string) ($_GET['agents_sort'] ?? 'created_at');
+    $agentSortDir = strtolower((string) ($_GET['agents_dir'] ?? 'desc'));
+    if (!in_array($agentSortDir, ['asc', 'desc'], true)) {
+        $agentSortDir = 'desc';
+    }
+    $agentPage = (int) ($_GET['agents_page'] ?? 1);
+    if ($agentPage < 1) {
+        $agentPage = 1;
+    }
+    $agentPerPage = (int) ($_GET['agents_per_page'] ?? 50);
+    if ($agentPerPage < 1) {
+        $agentPerPage = 50;
+    }
+    if ($agentPerPage > 200) {
+        $agentPerPage = 200;
+    }
+    $agentOffset = ($agentPage - 1) * $agentPerPage;
+    $agents = CloudBackupAdminController::getAllAgents($agentFilters, ['field' => $agentSortField, 'dir' => $agentSortDir], $agentPerPage, $agentOffset);
+    $agentsTotal = CloudBackupAdminController::countAllAgents($agentFilters);
+    $agentsPages = $agentPerPage > 0 ? (int) ceil($agentsTotal / $agentPerPage) : 1;
+    if ($agentsPages < 1) {
+        $agentsPages = 1;
+    }
+    $agentTenants = cloudbackup_get_tenants_for_filter();
     
     // Get all clients for filter dropdown
     $clients = Capsule::table('tblclients')
@@ -300,6 +352,15 @@ function cloudstorage_admin_cloudbackup($vars)
     $templateVars = [
         'jobs' => $jobs,
         'runs' => $runs,
+        'agents' => $agents,
+        'agents_filters' => $agentFilters,
+        'agents_sort' => $agentSortField,
+        'agents_dir' => $agentSortDir,
+        'agents_page' => $agentPage,
+        'agents_per_page' => $agentPerPage,
+        'agents_total' => $agentsTotal,
+        'agents_pages' => $agentsPages,
+        'agent_tenants' => $agentTenants,
         'clients' => $clients,
         'filters' => $filters,
         'worker_host' => $workerHost,

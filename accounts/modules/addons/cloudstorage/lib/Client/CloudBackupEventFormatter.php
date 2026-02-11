@@ -122,12 +122,29 @@ class CloudBackupEventFormatter
             'DISK_IMAGE_STARTING' => 'Starting disk image backup of {volume}.',
             'DISK_IMAGE_STREAM_START' => 'Streaming disk image to cloud storage.',
             'DISK_IMAGE_STREAM_COMPLETED' => 'Disk image stream completed.',
+            'DISK_IMAGE_FINALIZING_SLOW' => 'Disk image is finalizing; upload may appear slow.',
+            'DISK_IMAGE_FINALIZING_STALLED' => 'Disk image finalization is taking longer than expected; still waiting.',
+            'DISK_IMAGE_STALLED' => 'Disk image backup stalled; cancelling run.',
             'DISK_IMAGE_COMPLETED' => 'Disk image backup completed.',
             'DISK_IMAGE_FAILED' => 'Disk image backup failed: {error}.',
+            'STORAGE_PREFLIGHT_OK' => 'Storage connectivity check succeeded for {host}:{port}.',
+            'STORAGE_DNS_FAILED' => 'Cannot resolve cloud storage host "{host}". Check DNS settings and endpoint configuration.',
+            'STORAGE_TCP_REFUSED' => 'Cloud storage endpoint {host}:{port} refused the connection. Ensure the service is online and listening.',
+            'STORAGE_TCP_TIMEOUT' => 'Connection to cloud storage endpoint {host}:{port} timed out. Check firewall/network path and endpoint availability.',
+            'STORAGE_TLS_FAILED' => 'TLS handshake with cloud storage endpoint {host}:{port} failed. Check certificate and TLS settings.',
+            'STORAGE_HTTP_BLOCKED' => 'Request to cloud storage/API was blocked by a security policy (HTTP 403). Check proxy/WAF rules.',
+            'STORAGE_ENDPOINT_UNREACHABLE' => 'Cloud storage endpoint is unreachable: {summary} {hint}',
             'DISK_RESTORE_STARTING' => 'Starting disk restore to {target_disk}.',
             'DISK_RESTORE_STARTED' => 'Disk restore started to {target_disk}.',
             'DISK_RESTORE_COMPLETED' => 'Disk restore completed successfully.',
             'DISK_RESTORE_FAILED' => 'Disk restore failed: {error}.',
+            
+            // Recovery time sync diagnostics
+            'RECOVERY_TIME_SYNC_ATTEMPT' => 'Recovery time sync attempt against {api_base_url}.',
+            'RECOVERY_TIME_DIAGNOSTICS' => 'Time sync diagnostics: local={local_time_utc}, api={api_time_utc} (skew {api_skew_seconds}s), s3={s3_time_utc} (delta {api_s3_delta_seconds}s).',
+            'RECOVERY_TIME_SYNC_OK' => 'Time sync successful at {synced_at_utc} (local {local_time_utc}, skew {skew_seconds}s).',
+            'RECOVERY_TIME_SYNC_FAILED' => 'Time sync failed: {error}.',
+            'RECOVERY_STORAGE_INIT_FAILED' => 'Storage init failed after time sync: {error}.',
         ];
     }
 

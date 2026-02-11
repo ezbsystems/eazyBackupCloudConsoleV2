@@ -21,7 +21,7 @@ import (
 )
 
 // createDiskImageStream for Windows: VSS snapshot -> stream device directly to Kopia (no temp file).
-func (r *Runner) createDiskImageStream(ctx context.Context, run *NextRunResponse, opts diskImageOptions, progressCb func(bytesProcessed int64, bytesUploaded int64)) (*diskImageStreamResult, error) {
+func (r *Runner) createDiskImageStream(ctx context.Context, run *NextRunResponse, opts diskImageOptions, layout *DiskLayout, progressCb func(bytesProcessed int64, bytesUploaded int64), setTotal func(int64)) (*diskImageStreamResult, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -83,6 +83,9 @@ func (r *Runner) createDiskImageStream(ctx context.Context, run *NextRunResponse
 		return nil, err
 	}
 	if size > 0 {
+		if setTotal != nil {
+			setTotal(size)
+		}
 		_ = r.client.UpdateRun(RunUpdate{
 			RunID:      run.RunID,
 			BytesTotal: Int64Ptr(size),
@@ -110,7 +113,62 @@ func (r *Runner) createDiskImageStream(ctx context.Context, run *NextRunResponse
 		defer previousSnapshot.Close()
 	}
 
-	readPlan := r.buildDiskImageReadPlanWindows(ctx, run, opts, stableSourcePath, previousSnapshot != nil)
+	readPlan := r.buildDiskImageReadPlanWindows(ctx, run, stableSourcePath, previousSnapshot != nil, layout, size)
+	if isWindowsPhysicalDiskPath(srcVolume) && (readPlan == nil || readPlan.Mode == "full") {
+		reason := "physical_disk_no_extents"
+		if readPlan != nil && strings.TrimSpace(readPlan.Reason) != "" {
+			reason = readPlan.Reason
+		}
+		r.pushEvents(run.RunID, RunEvent{
+			Type:      "warn",
+			Level:     "warn",
+			MessageID: "DISK_IMAGE_READ_PLAN_FALLBACK",
+			ParamsJSON: map[string]any{
+				"source": srcVolume,
+				"reason": reason,
+				"mode":   "full",
+			},
+		})
+	}
+	physicalSource := isWindowsPhysicalDiskPath(srcVolume)
+	warnReadRecovery := func(details diskReadWarning) {
+		r.pushEvents(run.RunID, RunEvent{
+			Type:      "warn",
+			Level:     "warn",
+			MessageID: "DISK_IMAGE_READ_RECOVERED",
+			ParamsJSON: map[string]any{
+				"source":            srcVolume,
+				"device":            devicePath,
+				"path":              details.Path,
+				"reader":            details.Reader,
+				"offset_bytes":      details.OffsetBytes,
+				"requested_bytes":   details.RequestedBytes,
+				"read_bytes":        details.ReadBytes,
+				"zero_filled_bytes": details.ZeroFilledBytes,
+				"near_tail":         details.NearTail,
+				"error":             details.Error,
+				"mode":              "best_effort",
+			},
+		})
+	}
+	readMode := "full"
+	readRanges := 0
+	usedBytes := int64(0)
+	if readPlan != nil {
+		readMode = readPlan.Mode
+		readRanges = len(readPlan.Extents)
+		usedBytes = readPlan.UsedBytes
+	}
+	// #region agent log
+	debugLog(run.RunID, "disk_image_stream_setup", map[string]any{
+		"device":        devicePath,
+		"size_bytes":    size,
+		"read_mode":     readMode,
+		"read_ranges":   readRanges,
+		"used_bytes":    usedBytes,
+		"stable_source": stableSourcePath,
+	}, "H2")
+	// #endregion
 
 	var streamEntry kopiafs.Entry
 	if readPlan != nil && readPlan.Mode != "full" {
@@ -119,17 +177,24 @@ func (r *Runner) createDiskImageStream(ctx context.Context, run *NextRunResponse
 			fallback = previousSnapshot.Entry
 		}
 		streamEntry = &rangeAwareDeviceEntry{
-			name:          fmt.Sprintf("%s.img", strings.TrimSuffix(stableSourcePath, ":")),
-			path:          devicePath,
-			size:          size,
-			readRanges:    readPlan.Extents,
-			fallbackEntry: fallback,
+			name:            fmt.Sprintf("%s.img", strings.TrimSuffix(stableSourcePath, ":")),
+			path:            devicePath,
+			size:            size,
+			readRanges:      readPlan.Extents,
+			fallbackEntry:   fallback,
+			physicalSource:  physicalSource,
+			warningCallback: warnReadRecovery,
 		}
 	} else {
 		streamEntry = &deviceEntry{
-			name: fmt.Sprintf("%s.img", strings.TrimSuffix(stableSourcePath, ":")),
-			path: devicePath, // Read from VSS snapshot device
-			size: size,
+			name:            fmt.Sprintf("%s.img", strings.TrimSuffix(stableSourcePath, ":")),
+			path:            devicePath, // Read from VSS snapshot device
+			size:            size,
+			physicalSource:  physicalSource,
+			warningCallback: warnReadRecovery,
+			// PhysicalDrive reads have shown tail-end hangs with parallel chunking.
+			// Force sequential reads for this path to avoid deadlocks.
+			forceSequential: physicalSource,
 		}
 	}
 

@@ -9,6 +9,22 @@ if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
 }
 
+// #region agent log
+function debugLog(string $message, array $data, string $hypothesisId): void
+{
+    $entry = [
+        'id' => uniqid('log_', true),
+        'timestamp' => (int) round(microtime(true) * 1000),
+        'location' => 'agent_push_events.php:debug',
+        'message' => $message,
+        'data' => $data,
+        'runId' => isset($data['run_id']) ? ('run_' . $data['run_id']) : 'run_unknown',
+        'hypothesisId' => $hypothesisId,
+    ];
+    @file_put_contents('/var/www/eazybackup.ca/.cursor/debug.log', json_encode($entry) . PHP_EOL, FILE_APPEND);
+}
+// #endregion
+
 function respond(array $data, int $httpCode = 200): void
 {
     $response = new JsonResponse($data, $httpCode);
@@ -56,6 +72,29 @@ $logEntries = $body['logs'] ?? [];
 // Accept manifest_id as an alias for log_ref for agents that send manifest explicitly
 $logRef = $body['log_ref'] ?? ($body['manifest_id'] ?? null);
 
+// Support compact transport for large event batches: gzip+base64 encoded JSON array.
+if ((!is_array($events) || empty($events)) && isset($body['events_b64'])) {
+    $encoding = strtolower((string)($body['events_encoding'] ?? 'base64'));
+    $b64 = (string)$body['events_b64'];
+    $bin = base64_decode($b64, true);
+    if ($bin === false) {
+        respond(['status' => 'fail', 'message' => 'Invalid events_b64 payload'], 400);
+    }
+    if ($encoding === 'gzip+base64' || $encoding === 'gzip' || $encoding === 'gz+b64') {
+        $decoded = @gzdecode($bin);
+        if ($decoded === false) {
+            respond(['status' => 'fail', 'message' => 'Failed to decode compressed events payload'], 400);
+        }
+    } else {
+        $decoded = $bin;
+    }
+    $decodedEvents = json_decode($decoded, true);
+    if (!is_array($decodedEvents)) {
+        respond(['status' => 'fail', 'message' => 'Decoded events payload is invalid JSON'], 400);
+    }
+    $events = $decodedEvents;
+}
+
 if (!$runId) {
     respond(['status' => 'fail', 'message' => 'run_id is required'], 400);
 }
@@ -83,6 +122,23 @@ if (!empty($run->agent_id) && (int)$run->agent_id !== (int)$agent->id) {
 
 $rows = [];
 $nowMicro = microtime(true);
+$eventCodes = [];
+$interestingCodes = [
+    'KOPIA_PROGRESS_UPDATE' => true,
+    'DISK_IMAGE_STALLED' => true,
+    'DISK_IMAGE_FINALIZING_SLOW' => true,
+    'DISK_IMAGE_FINALIZING_STALLED' => true,
+    'DISK_IMAGE_STREAM_START' => true,
+    'DISK_IMAGE_STREAM_COMPLETED' => true,
+    'KOPIA_UPLOAD_START' => true,
+    'KOPIA_UPLOAD_CALL_START' => true,
+    'KOPIA_UPLOAD_CALL_DONE' => true,
+    'KOPIA_UPLOAD_FINISHED' => true,
+    'KOPIA_UPLOAD_FAILED' => true,
+    'KOPIA_PREVIOUS_SNAPSHOTS' => true,
+    'CANCEL_REQUESTED' => true,
+    'CANCELLED' => true,
+];
 
 foreach ($events as $event) {
     if (!is_array($event)) {
@@ -111,6 +167,29 @@ foreach ($events as $event) {
         'message_id' => $event['message_id'] ?? null,
         'params_json' => $params,
     ];
+    $eventCodes[] = (string) $code;
+    if (isset($interestingCodes[$code])) {
+        $paramsPreview = '';
+        $paramsDecoded = null;
+        if (is_string($params) && $params !== '') {
+            $paramsPreview = strlen($params) > 400 ? substr($params, 0, 400) . '…' : $params;
+            $decoded = json_decode($params, true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $paramsDecoded = $decoded;
+            }
+        }
+        // #region agent log
+        debugLog('agent_event', [
+            'run_id' => (int) $runId,
+            'code' => (string) $code,
+            'type' => (string) ($event['type'] ?? ''),
+            'level' => (string) ($event['level'] ?? ''),
+            'has_params' => $params !== '',
+            'params_preview' => $paramsPreview,
+            'params_decoded' => $paramsDecoded,
+        ], 'H1');
+        // #endregion
+    }
 }
 
 if (!empty($rows)) {
@@ -147,6 +226,16 @@ if ($logRef !== null && Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'log
         ->where('id', $runId)
         ->update(['log_ref' => $logRef, 'updated_at' => Capsule::raw('NOW()')]);
 }
+
+// #region agent log
+debugLog('agent_events_batch', [
+    'run_id' => (int) $runId,
+    'events_count' => is_array($events) ? count($events) : 0,
+    'logs_count' => is_array($logEntries) ? count($logEntries) : 0,
+    'log_ref' => $logRef !== null ? (string) $logRef : null,
+    'codes_sample' => array_slice($eventCodes, 0, 5),
+], 'H2');
+// #endregion
 
 respond(['status' => 'success', 'inserted' => count($rows), 'logs_inserted' => $logRowsInserted, 'log_ref' => $logRef]);
 

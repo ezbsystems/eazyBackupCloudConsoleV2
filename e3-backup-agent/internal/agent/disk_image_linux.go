@@ -16,7 +16,7 @@ import (
 )
 
 // createDiskImageStream for Linux: optional LVM snapshot, then stream device directly to Kopia (no temp file).
-func (r *Runner) createDiskImageStream(ctx context.Context, run *NextRunResponse, opts diskImageOptions, progressCb func(bytesProcessed int64, bytesUploaded int64)) (*diskImageStreamResult, error) {
+func (r *Runner) createDiskImageStream(ctx context.Context, run *NextRunResponse, opts diskImageOptions, _ *DiskLayout, progressCb func(bytesProcessed int64, bytesUploaded int64), setTotal func(int64)) (*diskImageStreamResult, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -55,6 +55,9 @@ func (r *Runner) createDiskImageStream(ctx context.Context, run *NextRunResponse
 		return nil, err
 	}
 	if size > 0 {
+		if setTotal != nil {
+			setTotal(size)
+		}
 		_ = r.client.UpdateRun(RunUpdate{
 			RunID:      run.RunID,
 			BytesTotal: Int64Ptr(size),

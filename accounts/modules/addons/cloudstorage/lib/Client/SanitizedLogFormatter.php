@@ -10,12 +10,23 @@ class SanitizedLogFormatter
 	 *
 	 * @param string|null $rawLogJson
 	 * @param string|null $runStatus e.g. success|failed|running|cancelled
+	 * @param \DateTimeZone|string|null $timezone
 	 * @return array{entries: array<int, array{time: string|null, level: string, message: string}>, formatted_log: string, hash: string|null, sanitized: bool}
 	 */
-	public static function sanitizeAndStructure($rawLogJson, $runStatus = null)
+	public static function sanitizeAndStructure($rawLogJson, $runStatus = null, $timezone = null)
 	{
 		$entries = [];
 		$hash = $rawLogJson ? md5($rawLogJson) : null;
+		$tzObj = null;
+		if ($timezone instanceof \DateTimeZone) {
+			$tzObj = $timezone;
+		} elseif (is_string($timezone) && trim($timezone) !== '') {
+			try {
+				$tzObj = new \DateTimeZone(trim($timezone));
+			} catch (\Throwable $e) {
+				$tzObj = null;
+			}
+		}
 
 		if (empty($rawLogJson)) {
 			return [
@@ -66,7 +77,7 @@ class SanitizedLogFormatter
 			if (!is_array($entry)) continue;
 			$origLevel = strtolower($entry['level'] ?? 'info');
 			$msg = (string)($entry['msg'] ?? '');
-			$time = isset($entry['time']) ? self::formatTime($entry['time']) : null;
+			$time = isset($entry['time']) ? self::formatTime($entry['time'], $tzObj) : null;
 
 			// Build sanitized message (no emojis/icons, redactions applied)
 			$sanitizedMsg = self::sanitizeMessage($msg);
@@ -113,9 +124,15 @@ class SanitizedLogFormatter
 		];
 	}
 
-	private static function formatTime($timestamp)
+	private static function formatTime($timestamp, $tzObj = null)
 	{
 		try {
+			if ($tzObj instanceof \DateTimeZone) {
+				$converted = TimezoneHelper::formatTimeOnly($timestamp, $tzObj);
+				if ($converted !== null) {
+					return $converted;
+				}
+			}
 			$dt = new \DateTime($timestamp);
 			return $dt->format('H:i:s');
 		} catch (\Exception $e) {

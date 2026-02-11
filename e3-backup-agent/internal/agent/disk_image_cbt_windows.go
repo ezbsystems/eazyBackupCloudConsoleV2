@@ -118,12 +118,29 @@ type fileIdDescriptor struct {
 	FileId uint64
 }
 
-func (r *Runner) buildDiskImageReadPlanWindows(ctx context.Context, run *NextRunResponse, opts diskImageOptions, stableSourcePath string, prevAvailable bool) *diskImageReadPlan {
+func (r *Runner) buildDiskImageReadPlanWindows(ctx context.Context, run *NextRunResponse, stableSourcePath string, prevAvailable bool, layout *DiskLayout, deviceSize int64) *diskImageReadPlan {
 	plan := &diskImageReadPlan{
 		Mode: "full",
 	}
 	if isWindowsPhysicalDiskPath(stableSourcePath) {
-		plan.Reason = "physical_disk"
+		extents, usedBytes := buildPhysicalDiskReadExtents(layout, deviceSize)
+		if len(extents) > 0 {
+			plan.Mode = "layout"
+			plan.Reason = "physical_disk_extents"
+			plan.Extents = extents
+			plan.ReadBytes = sumExtentsBytes(extents)
+			plan.UsedBytes = usedBytes
+			plan.CBTStats = &CBTStats{
+				Mode:           "layout",
+				Reason:         plan.Reason,
+				ReadRanges:     len(extents),
+				ReadBytes:      plan.ReadBytes,
+				ChangedExtents: len(extents),
+				ChangedBytes:   plan.ReadBytes,
+			}
+			return plan
+		}
+		plan.Reason = "physical_disk_no_extents"
 		plan.CBTStats = &CBTStats{Mode: "full", Reason: plan.Reason}
 		return plan
 	}
@@ -189,6 +206,43 @@ func (r *Runner) buildDiskImageReadPlanWindows(ctx context.Context, run *NextRun
 
 	plan.CBTStats = &CBTStats{Mode: "full", Reason: plan.Reason}
 	return plan
+}
+
+func buildPhysicalDiskReadExtents(layout *DiskLayout, deviceSize int64) ([]DiskExtent, int64) {
+	if layout == nil {
+		return nil, 0
+	}
+
+	usedBytes := layout.UsedBytes
+	if usedBytes <= 0 {
+		for _, p := range layout.Partitions {
+			if p.UsedBytes > 0 {
+				usedBytes += p.UsedBytes
+			}
+		}
+	}
+
+	if !layoutHasUsedExtents(layout) {
+		return nil, usedBytes
+	}
+
+	extents := buildRestoreExtentsFromLayout(layout)
+	if len(extents) == 0 {
+		return nil, usedBytes
+	}
+
+	diskBytes := deviceSize
+	if diskBytes <= 0 {
+		diskBytes = layout.TotalBytes
+	}
+
+	if diskBytes > 0 {
+		extents = addDiskMetadataExtents(extents, diskBytes, layout.PartitionStyle)
+		extents = normalizeDiskExtents(extents, diskBytes)
+	} else {
+		extents = mergeDiskExtents(extents)
+	}
+	return extents, usedBytes
 }
 
 func policyBoolDefault(policy map[string]any, key string, def bool) bool {

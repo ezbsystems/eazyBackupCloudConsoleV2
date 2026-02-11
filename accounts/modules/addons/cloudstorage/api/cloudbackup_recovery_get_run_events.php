@@ -38,6 +38,33 @@ function sanitizeEventId(string $value): string
     return str_ireplace('KOPIA', 'EAZYBACKUP', $value);
 }
 
+function refreshSessionExpiry(object $tokenRow, int $runId, int $hours = 6, int $minRemainingMinutes = 30): void
+{
+    if (!isset($tokenRow->id)) {
+        return;
+    }
+    $now = new DateTime();
+    $refreshAt = (clone $now)->modify('+' . $minRemainingMinutes . ' minutes');
+    $expiresAt = null;
+    if (!empty($tokenRow->session_expires_at)) {
+        $tmp = DateTime::createFromFormat('Y-m-d H:i:s', (string) $tokenRow->session_expires_at);
+        if ($tmp !== false) {
+            $expiresAt = $tmp;
+        }
+    }
+    if ($expiresAt !== null && $expiresAt > $refreshAt) {
+        return;
+    }
+    $newExpiry = (clone $now)->modify('+' . $hours . ' hours')->format('Y-m-d H:i:s');
+    $update = ['session_expires_at' => $newExpiry];
+    if (Capsule::schema()->hasColumn('s3_cloudbackup_recovery_tokens', 'updated_at')) {
+        $update['updated_at'] = date('Y-m-d H:i:s');
+    }
+    Capsule::table('s3_cloudbackup_recovery_tokens')
+        ->where('id', (int) $tokenRow->id)
+        ->update($update);
+}
+
 $body = getBodyJson();
 $sessionToken = trim((string) ($_POST['session_token'] ?? ($body['session_token'] ?? '')));
 $runId = $_POST['run_id'] ?? ($body['run_id'] ?? null);
@@ -70,6 +97,8 @@ if (!$runId) {
 if (!empty($tokenRow->session_run_id) && (int) $tokenRow->session_run_id !== (int) $runId) {
     respond(['status' => 'fail', 'message' => 'Session token does not match run_id'], 403);
 }
+
+refreshSessionExpiry($tokenRow, (int) $runId);
 
 $run = Capsule::table('s3_cloudbackup_runs')
     ->where('id', (int) $runId)

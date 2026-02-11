@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -26,6 +27,8 @@ type recoveryState struct {
 	jobMessage   string
 	jobProgress  int
 	restoreRunID int64
+	debugEnabled bool
+	buildInfo    string
 }
 
 type exchangeRestorePoint struct {
@@ -38,6 +41,7 @@ type exchangeRestorePoint struct {
 	DiskUsedBytes      int64  `json:"disk_used_bytes"`
 	DiskBootMode       string `json:"disk_boot_mode"`
 	DiskPartitionStyle string `json:"disk_partition_style"`
+	PolicyJSON         map[string]any `json:"policy_json"`
 }
 
 type exchangeStorage struct {
@@ -55,7 +59,11 @@ func main() {
 	apiBase := flag.String("api", defaultRecoveryAPI, "API base URL")
 	flag.Parse()
 
-	state := &recoveryState{apiBaseURL: *apiBase}
+	state := &recoveryState{
+		apiBaseURL:   *apiBase,
+		debugEnabled: strings.TrimSpace(os.Getenv("E3_RECOVERY_DEBUG_LOG")) == "1",
+		buildInfo:    loadBuildInfo(),
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", state.handleIndex)
@@ -66,8 +74,13 @@ func main() {
 	mux.HandleFunc("/api/run-events", state.handleRunEvents)
 	mux.HandleFunc("/api/cancel", state.handleCancel)
 	mux.HandleFunc("/api/status", state.handleStatus)
+	mux.HandleFunc("/api/refresh-session", state.handleRefreshSession)
+	mux.HandleFunc("/api/debug-status", state.handleDebugStatus)
+	mux.HandleFunc("/api/debug-toggle", state.handleDebugToggle)
+	mux.HandleFunc("/api/debug-logs", state.handleDebugLogs)
 
 	log.Printf("recovery UI listening on %s", *listen)
+	log.Printf("recovery API base %s", *apiBase)
 	if err := http.ListenAndServe(*listen, mux); err != nil {
 		log.Fatal(err)
 	}
@@ -330,6 +343,122 @@ func (s *recoveryState) handleStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *recoveryState) handleRefreshSession(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	sessionToken := s.sessionToken
+	runID := s.restoreRunID
+	apiBase := s.apiBaseURL
+	s.mu.Unlock()
+
+	if sessionToken == "" || runID == 0 {
+		writeJSON(w, map[string]any{"status": "fail", "message": "restore not started"})
+		return
+	}
+
+	endpoint := strings.TrimRight(apiBase, "/") + "/cloudbackup_recovery_refresh_session.php"
+	payload := map[string]any{
+		"session_token": sessionToken,
+		"run_id":        runID,
+	}
+	buf, _ := json.Marshal(payload)
+	resp, err := http.Post(endpoint, "application/json", bytes.NewReader(buf))
+	if err != nil {
+		writeJSON(w, map[string]any{"status": "fail", "message": err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+
+	var out map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		writeJSON(w, map[string]any{"status": "fail", "message": "invalid response"})
+		return
+	}
+	writeJSON(w, out)
+}
+
+func (s *recoveryState) handleDebugStatus(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	writeJSON(w, map[string]any{
+		"status":        "success",
+		"debug_enabled": s.debugEnabled && isDevAPIBase(s.apiBaseURL),
+		"dev_allowed":   isDevAPIBase(s.apiBaseURL),
+		"api_base":      s.apiBaseURL,
+		"build_info":    s.buildInfo,
+	})
+}
+
+func (s *recoveryState) handleDebugToggle(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(405)
+		return
+	}
+	var payload struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writeJSON(w, map[string]any{"status": "fail", "message": "invalid payload"})
+		return
+	}
+	if !isDevAPIBase(s.apiBaseURL) {
+		writeJSON(w, map[string]any{"status": "fail", "message": "debug toggle disabled for non-dev API"})
+		return
+	}
+	s.mu.Lock()
+	s.debugEnabled = payload.Enabled
+	if payload.Enabled {
+		_ = os.Setenv("E3_RECOVERY_DEBUG_LOG", "1")
+	} else {
+		_ = os.Unsetenv("E3_RECOVERY_DEBUG_LOG")
+	}
+	s.mu.Unlock()
+	writeJSON(w, map[string]any{"status": "success", "debug_enabled": payload.Enabled})
+}
+
+func (s *recoveryState) handleDebugLogs(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	sessionToken := s.sessionToken
+	runID := s.restoreRunID
+	apiBase := s.apiBaseURL
+	s.mu.Unlock()
+
+	if !isDevAPIBase(apiBase) {
+		writeJSON(w, map[string]any{"status": "fail", "message": "debug logs disabled for non-dev API"})
+		return
+	}
+
+	if sessionToken == "" || runID == 0 {
+		writeJSON(w, map[string]any{"status": "fail", "message": "restore not started"})
+		return
+	}
+
+	payload := map[string]any{
+		"session_token": sessionToken,
+		"run_id":        runID,
+	}
+	if sinceID := strings.TrimSpace(r.URL.Query().Get("since_id")); sinceID != "" {
+		payload["since_id"] = sinceID
+	}
+	if limit := strings.TrimSpace(r.URL.Query().Get("limit")); limit != "" {
+		payload["limit"] = limit
+	}
+	endpoint := strings.TrimRight(apiBase, "/") + "/cloudbackup_recovery_debug_tail.php"
+	buf, _ := json.Marshal(payload)
+	resp, err := http.Post(endpoint, "application/json", bytes.NewReader(buf))
+	if err != nil {
+		writeJSON(w, map[string]any{"status": "fail", "message": err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+
+	var out map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		writeJSON(w, map[string]any{"status": "fail", "message": "invalid response"})
+		return
+	}
+	writeJSON(w, out)
+}
+
 func (s *recoveryState) runRestore(sessionToken string, runID int64, targetDisk string, targetDiskBytes int64, rp exchangeRestorePoint, storage exchangeStorage, shrink bool) {
 	s.setJobStatus("running", "Restore in progress", 0)
 
@@ -355,6 +484,7 @@ func (s *recoveryState) runRestore(sessionToken string, runID int64, targetDisk 
 		DestAccessKey:  storage.AccessKey,
 		DestSecretKey:  storage.SecretKey,
 		ManifestID:     rp.ManifestID,
+		PolicyJSON:     rp.PolicyJSON,
 	}
 
 	payload := map[string]any{
@@ -409,6 +539,31 @@ func lookupDiskSize(targetPath string) int64 {
 func writeJSON(w http.ResponseWriter, payload map[string]any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func isDevAPIBase(apiBase string) bool {
+	apiBase = strings.ToLower(strings.TrimSpace(apiBase))
+	return strings.Contains(apiBase, "dev.eazybackup.ca")
+}
+
+func loadBuildInfo() string {
+	candidates := []string{}
+	if pf := strings.TrimSpace(os.Getenv("ProgramFiles")); pf != "" {
+		candidates = append(candidates, filepath.Join(pf, "E3Recovery", "build-info.txt"))
+	}
+	candidates = append(candidates,
+		`C:\Program Files\E3Recovery\build-info.txt`,
+		`X:\Program Files\E3Recovery\build-info.txt`,
+	)
+	for _, p := range candidates {
+		if p == "" {
+			continue
+		}
+		if data, err := os.ReadFile(p); err == nil {
+			return strings.TrimSpace(string(data))
+		}
+	}
+	return ""
 }
 
 const recoveryHTML = `<!doctype html>
@@ -853,6 +1008,28 @@ const recoveryHTML = `<!doctype html>
     </label>
   </div>
 
+  <!-- Debug Card -->
+  <div class="card" id="debugCard">
+    <div class="card-header">
+      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M9.75 3a.75.75 0 01.75.75V6h3V3.75a.75.75 0 011.5 0V6h1.5a2.25 2.25 0 012.25 2.25V9h-2.25V8.25a.75.75 0 00-.75-.75H6.75a.75.75 0 00-.75.75V9H3.75V8.25A2.25 2.25 0 016 6h1.5V3.75a.75.75 0 01.75-.75z"/>
+        <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 9h15v5.25a2.25 2.25 0 01-2.25 2.25h-1.5v3.75l-3-3H9a2.25 2.25 0 01-2.25-2.25V9z"/>
+      </svg>
+      Debug Controls
+    </div>
+    <label class="toggle-field">
+      <div class="toggle">
+        <input type="checkbox" id="debugEnabled" onchange="toggleDebug()"/>
+        <span class="toggle-slider"></span>
+      </div>
+      <div>
+        <div class="toggle-label">Enable recovery debug logging</div>
+        <div class="toggle-hint">Show detailed diagnostics for every recovery step (dev only).</div>
+      </div>
+    </label>
+    <div class="text-muted mt-2" id="debugMeta">Loading debug status...</div>
+  </div>
+
   <!-- Action Card -->
   <div class="card">
     <div class="card-header">
@@ -916,11 +1093,27 @@ const recoveryHTML = `<!doctype html>
     </div>
   </div>
 
+  <!-- Debug Log Panel -->
+  <div class="card hidden" id="debugPanel">
+    <div class="card-header">
+      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6l4 2m6-2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+      </svg>
+      Debug Log
+    </div>
+    <div id="debugLogs" class="events">
+      <div class="event-line"><span class="msg">Enable debug logging to view diagnostics.</span></div>
+    </div>
+  </div>
+
 <script>
 var lastEventId = 0;
 var polling = false;
 var tokenValidated = false;
 var currentStep = 1;
+var debugEnabled = false;
+var lastDebugId = 0;
+var lastRefreshAt = 0;
 
 function updateSteps(step) {
   currentStep = step;
@@ -977,6 +1170,112 @@ function xhrJson(method, url, body, cb) {
   } else {
     xhr.send();
   }
+}
+
+function setDebugPanelVisible(show) {
+  var panel = document.getElementById('debugPanel');
+  if (!panel) return;
+  panel.className = show ? 'card' : 'card hidden';
+}
+
+function loadDebugStatus() {
+  xhrJson('GET', '/api/debug-status', null, function (_status, data) {
+    if (!data || data.status !== 'success') {
+      var meta = document.getElementById('debugMeta');
+      if (meta) meta.textContent = 'Debug status unavailable';
+      return;
+    }
+    var devAllowed = !!data.dev_allowed;
+    debugEnabled = !!data.debug_enabled && devAllowed;
+    var toggle = document.getElementById('debugEnabled');
+    var debugCard = document.getElementById('debugCard');
+    if (!devAllowed) {
+      if (debugCard) debugCard.className = 'card hidden';
+      setDebugPanelVisible(false);
+      return;
+    }
+    if (debugCard) debugCard.className = 'card';
+    if (toggle) {
+      toggle.checked = debugEnabled;
+      toggle.disabled = false;
+    }
+    setDebugPanelVisible(debugEnabled);
+    var metaText = '';
+    if (data.build_info) {
+      metaText = String(data.build_info).replace(/\r?\n/g, ' | ');
+    }
+    if (data.api_base) {
+      metaText = (metaText ? metaText + ' | ' : '') + 'API: ' + data.api_base;
+    }
+    var meta = document.getElementById('debugMeta');
+    if (meta) meta.textContent = metaText || 'Debug logging available';
+  });
+}
+
+function toggleDebug() {
+  var toggle = document.getElementById('debugEnabled');
+  var enabled = toggle && toggle.checked;
+  xhrJson('POST', '/api/debug-toggle', { enabled: enabled }, function (_status, data) {
+    debugEnabled = !!(data && data.debug_enabled);
+    if (toggle) toggle.checked = debugEnabled;
+    setDebugPanelVisible(debugEnabled);
+    if (!debugEnabled) {
+      lastDebugId = 0;
+      var container = document.getElementById('debugLogs');
+      if (container) {
+        container.innerHTML = '<div class="event-line"><span class="msg">Debug logging disabled.</span></div>';
+      }
+    }
+  });
+}
+
+function addDebugLog(entry) {
+  var container = document.getElementById('debugLogs');
+  if (!container) return;
+  var line = document.createElement('div');
+  line.className = 'event-line';
+  var ts = entry.time || new Date().toLocaleTimeString();
+  var level = (entry.level || 'info').toUpperCase();
+  var code = entry.code ? (' ' + entry.code) : '';
+  var msg = entry.message || '';
+  line.innerHTML = '<span class="ts">[' + ts + ']</span> <span class="msg">[' + level + ']' + code + ' ' + msg + '</span>';
+  container.appendChild(line);
+  if (entry.details) {
+    var detailsLine = document.createElement('div');
+    detailsLine.className = 'event-line';
+    var detailsText = '';
+    try {
+      detailsText = JSON.stringify(entry.details);
+    } catch (e) {
+      detailsText = String(entry.details);
+    }
+    detailsLine.innerHTML = '<span class="msg">' + detailsText + '</span>';
+    container.appendChild(detailsLine);
+  }
+  container.scrollTop = container.scrollHeight;
+}
+
+function pollDebugLogs(cb) {
+  if (!debugEnabled) {
+    if (cb) cb();
+    return;
+  }
+  var url = lastDebugId > 0 ? '/api/debug-logs?since_id=' + encodeURIComponent(String(lastDebugId)) : '/api/debug-logs';
+  xhrJson('GET', url, null, function (_status, data) {
+    if (!data || data.status !== 'success') {
+      if (cb) cb();
+      return;
+    }
+    var logs = data.logs || [];
+    for (var i = 0; i < logs.length; i++) {
+      var entry = logs[i];
+      addDebugLog(entry);
+      if (typeof entry.id === 'number' && entry.id > lastDebugId) {
+        lastDebugId = entry.id;
+      }
+    }
+    if (cb) cb();
+  });
 }
 
 function exchange() {
@@ -1048,7 +1347,13 @@ function startRestore() {
       return;
     }
     lastEventId = 0;
+    lastDebugId = 0;
+    lastRefreshAt = 0;
     document.getElementById('events').innerHTML = '';
+    var debugContainer = document.getElementById('debugLogs');
+    if (debugContainer) {
+      debugContainer.innerHTML = '';
+    }
     addEvent('Restore started');
     startPolling();
   });
@@ -1161,6 +1466,13 @@ function pollRunEvents(cb) {
   });
 }
 
+function refreshSession(cb) {
+  xhrJson('POST', '/api/refresh-session', {}, function (_status, _data) {
+    lastRefreshAt = Date.now();
+    if (cb) cb();
+  });
+}
+
 function startPolling() {
   if (polling) return;
   polling = true;
@@ -1168,11 +1480,16 @@ function startPolling() {
     if (!polling) return;
     pollRunStatus(function (terminal) {
       pollRunEvents(function () {
-        if (terminal) {
-          polling = false;
-          return;
-        }
-        setTimeout(tick, 1500);
+        pollDebugLogs(function () {
+          if (terminal) {
+            polling = false;
+            return;
+          }
+          if (!lastRefreshAt || (Date.now() - lastRefreshAt) > 5 * 60 * 1000) {
+            refreshSession(function () {});
+          }
+          setTimeout(tick, 1500);
+        });
       });
     });
   };
@@ -1182,6 +1499,7 @@ function startPolling() {
 // Initialize
 updateSteps(1);
 loadDisks();
+loadDebugStatus();
 </script>
 </body>
 </html>`

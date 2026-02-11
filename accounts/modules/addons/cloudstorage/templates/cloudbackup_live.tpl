@@ -507,7 +507,8 @@ function parseRunTimestamp(value) {
 
 function updateProgress() {
     if (isPaused) return;
-    fetch('modules/addons/cloudstorage/api/cloudbackup_progress.php?run_uuid={$run.run_uuid|default:$run.id}')
+    const ts = Date.now();
+    fetch('modules/addons/cloudstorage/api/cloudbackup_progress.php?run_uuid={$run.run_uuid|default:$run.id}&ts=' + ts, { cache: 'no-store' })
         .then(response => response.json())
         .then(data => {
             if (data.status === 'success' && data.run) {
@@ -1158,11 +1159,11 @@ function setStructuredLogs(entries) {
 }
 
 function updateFormattedLogs() {
-    let url = 'modules/addons/cloudstorage/api/cloudbackup_get_live_logs.php?run_uuid={$run.run_uuid|default:$run.id}';
+    let url = 'modules/addons/cloudstorage/api/cloudbackup_get_live_logs.php?run_uuid={$run.run_uuid|default:$run.id}&ts=' + Date.now();
     if (lastLogsHash) {
         url += '&hash=' + encodeURIComponent(lastLogsHash);
     }
-    fetch(url)
+    fetch(url, { cache: 'no-store' })
         .then(r => r.json())
         .then(d => {
             if (d.status === 'success' && !d.unchanged) {
@@ -1182,11 +1183,11 @@ function updateFormattedLogs() {
 let terminalEventSeen = false;
 function updateEventLogs() {
     if (isPaused) return;
-    let url = 'modules/addons/cloudstorage/api/cloudbackup_get_run_events.php?run_uuid={$run.run_uuid|default:$run.id}&limit=500';
+    let url = 'modules/addons/cloudstorage/api/cloudbackup_get_run_events.php?run_uuid={$run.run_uuid|default:$run.id}&limit=500&ts=' + Date.now();
     if (lastEventId > 0) {
         url += '&since_id=' + encodeURIComponent(String(lastEventId));
     }
-    fetch(url)
+    fetch(url, { cache: 'no-store' })
         .then(r => r.json())
         .then(d => {
             if (d.status !== 'success' || !Array.isArray(d.events)) return;
