@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -728,14 +729,33 @@ func (a *trayApp) handleRecoveryStart(w http.ResponseWriter, r *http.Request) {
 		DiskNumber int64  `json:"disk_number"`
 		ImageURL   string `json:"image_url"`
 		Checksum   string `json:"checksum"`
+		MediaType  string `json:"media_type"` // "winpe" (default) or "linux"
 	}
 	dec := json.NewDecoder(r.Body)
 	if err := dec.Decode(&payload); err != nil {
 		writeJSON(w, map[string]any{"status": "fail", "message": "invalid payload"})
 		return
 	}
-	if payload.DiskNumber < 0 || payload.ImageURL == "" {
-		writeJSON(w, map[string]any{"status": "fail", "message": "disk_number and image_url required"})
+	payload.MediaType = strings.ToLower(strings.TrimSpace(payload.MediaType))
+	if payload.MediaType == "" {
+		payload.MediaType = "winpe"
+	}
+	if payload.DiskNumber < 0 {
+		writeJSON(w, map[string]any{"status": "fail", "message": "disk_number required"})
+		return
+	}
+
+	// Server-side defaults (UI should always send image_url, but keep this robust).
+	if strings.TrimSpace(payload.ImageURL) == "" {
+		if payload.MediaType == "linux" {
+			payload.ImageURL = "https://downloads.eazybackup.ca/recovery/e3-recovery-linux.img"
+		} else {
+			payload.MediaType = "winpe"
+			payload.ImageURL = "https://downloads.eazybackup.ca/recovery/e3-recovery-winpe-prod-2026.02.11.iso"
+		}
+	}
+	if payload.MediaType != "winpe" && payload.MediaType != "linux" {
+		writeJSON(w, map[string]any{"status": "fail", "message": "media_type must be winpe or linux"})
 		return
 	}
 
@@ -745,7 +765,7 @@ func (a *trayApp) handleRecoveryStart(w http.ResponseWriter, r *http.Request) {
 	}
 	job := &recoveryJob{ID: jobID, Status: "queued", Progress: 0}
 	a.storeRecoveryJob(job)
-	go a.runRecoveryJob(job.ID, payload.DiskNumber, payload.ImageURL, payload.Checksum)
+	go a.runRecoveryJob(job.ID, payload.DiskNumber, payload.ImageURL, payload.Checksum, payload.MediaType)
 
 	writeJSON(w, map[string]any{"status": "success", "job_id": job.ID})
 }
@@ -803,11 +823,23 @@ func (a *trayApp) getRecoveryJob(id string) *recoveryJob {
 	return a.recoveryJobs[id]
 }
 
-func (a *trayApp) runRecoveryJob(jobID string, diskNumber int64, imageURL, checksum string) {
+func (a *trayApp) runRecoveryJob(jobID string, diskNumber int64, imageURL, checksum, mediaType string) {
 	a.updateRecoveryJob(jobID, "downloading", "Downloading recovery image", 0)
 	cacheDir := filepath.Join(os.Getenv("ProgramData"), "E3Backup", "recovery-cache")
 	_ = os.MkdirAll(cacheDir, 0o755)
-	imagePath := filepath.Join(cacheDir, filepath.Base(imageURL))
+	// Use URL path basename (avoids "?v=..." breaking filenames).
+	fileName := ""
+	if u, err := url.Parse(strings.TrimSpace(imageURL)); err == nil && u != nil {
+		fileName = path.Base(u.Path)
+	}
+	if fileName == "" || fileName == "." || fileName == "/" {
+		fileName = filepath.Base(imageURL)
+	}
+	fileName = strings.TrimSpace(fileName)
+	if fileName == "" {
+		fileName = fmt.Sprintf("recovery-%d", time.Now().UnixNano())
+	}
+	imagePath := filepath.Join(cacheDir, fileName)
 
 	if err := downloadWithProgress(imageURL, imagePath, func(p int) {
 		a.updateRecoveryJob(jobID, "downloading", "Downloading recovery image", p)
@@ -824,15 +856,100 @@ func (a *trayApp) runRecoveryJob(jobID string, diskNumber int64, imageURL, check
 		}
 	}
 
-	a.updateRecoveryJob(jobID, "writing", "Writing image to USB", 0)
-	if err := writeImageToDisk(imagePath, diskNumber, func(p int) {
-		a.updateRecoveryJob(jobID, "writing", "Writing image to USB", p)
-	}); err != nil {
-		a.updateRecoveryJob(jobID, "failed", err.Error(), -1)
-		return
+	mediaType = strings.ToLower(strings.TrimSpace(mediaType))
+	if mediaType == "" {
+		// Default to WinPE going forward.
+		mediaType = "winpe"
+	}
+	// Allow auto-detection as a fallback (eg. older UI).
+	if mediaType != "winpe" && mediaType != "linux" {
+		if strings.HasSuffix(strings.ToLower(imageURL), ".iso") {
+			mediaType = "winpe"
+		} else {
+			mediaType = "linux"
+		}
+	}
+
+	if mediaType == "winpe" {
+		a.updateRecoveryJob(jobID, "writing", "Creating WinPE recovery USB", 0)
+		if err := writeWinPEISOToDisk(imagePath, diskNumber, func(p int) {
+			a.updateRecoveryJob(jobID, "writing", "Creating WinPE recovery USB", p)
+		}); err != nil {
+			a.updateRecoveryJob(jobID, "failed", err.Error(), -1)
+			return
+		}
+	} else {
+		a.updateRecoveryJob(jobID, "writing", "Writing Linux image to USB", 0)
+		if err := writeImageToDisk(imagePath, diskNumber, func(p int) {
+			a.updateRecoveryJob(jobID, "writing", "Writing Linux image to USB", p)
+		}); err != nil {
+			a.updateRecoveryJob(jobID, "failed", err.Error(), -1)
+			return
+		}
 	}
 
 	a.updateRecoveryJob(jobID, "completed", "Recovery media created", 100)
+}
+
+func writeWinPEISOToDisk(isoPath string, diskNumber int64, update func(int)) error {
+	// WinPE media build strategy:
+	// - wipe and format the USB as FAT32
+	// - mount ISO
+	// - copy ISO contents to the USB
+	//
+	// This avoids raw-writing an ISO (which is often not a hybrid-USB image).
+	update(2)
+	script := fmt.Sprintf(`
+$ErrorActionPreference = 'Stop'
+$diskNumber = %d
+$isoPath = %s
+
+Set-Disk -Number $diskNumber -IsOffline $false -IsReadOnly $false | Out-Null
+
+# Wipe and create a single FAT32 partition (UEFI-friendly).
+update-progress 10
+Clear-Disk -Number $diskNumber -RemoveData -Confirm:$false | Out-Null
+Initialize-Disk -Number $diskNumber -PartitionStyle MBR | Out-Null
+$part = New-Partition -DiskNumber $diskNumber -UseMaximumSize -AssignDriveLetter
+$vol = Format-Volume -Partition $part -FileSystem FAT32 -NewFileSystemLabel 'E3RECOVERY' -Confirm:$false
+
+$usbLetter = $vol.DriveLetter
+if (-not $usbLetter) {
+  $usbLetter = (Get-Partition -DiskNumber $diskNumber | Get-Volume | Select-Object -First 1 -ExpandProperty DriveLetter)
+}
+if (-not $usbLetter) { throw 'Failed to determine USB drive letter' }
+
+update-progress 30
+$img = Mount-DiskImage -ImagePath $isoPath -PassThru
+Start-Sleep -Milliseconds 500
+$isoLetter = (($img | Get-Volume | Select-Object -First 1).DriveLetter)
+if (-not $isoLetter) {
+  Dismount-DiskImage -ImagePath $isoPath -ErrorAction SilentlyContinue | Out-Null
+  throw 'Failed to determine ISO drive letter'
+}
+
+update-progress 50
+Copy-Item -Path ($isoLetter + ':\*') -Destination ($usbLetter + ':\') -Recurse -Force
+
+update-progress 95
+Dismount-DiskImage -ImagePath $isoPath | Out-Null
+`, diskNumber, psQuote(isoPath))
+
+	// We can't stream copy progress cheaply; instead we update coarse milestones.
+	// Replace our pseudo "update-progress X" markers with no-ops.
+	// (The Go-side update callback handles progress updates.)
+	script = strings.ReplaceAll(script, "update-progress 10", "")
+	script = strings.ReplaceAll(script, "update-progress 30", "")
+	script = strings.ReplaceAll(script, "update-progress 50", "")
+	script = strings.ReplaceAll(script, "update-progress 95", "")
+
+	update(10)
+	_, err := runPowerShell(script)
+	if err != nil {
+		return err
+	}
+	update(100)
+	return nil
 }
 
 func listRemovableDisks() ([]recoveryDisk, error) {
@@ -921,7 +1038,12 @@ func verifyFileChecksum(path, expected string) error {
 }
 
 func writeImageToDisk(imagePath string, diskNumber int64, update func(int)) error {
-	_ = exec.Command("powershell", "-NoProfile", "-Command", fmt.Sprintf("Set-Disk -Number %d -IsReadOnly $false -IsOffline $true", diskNumber)).Run()
+	// Hide PowerShell windows (this runs from the recovery UI which should be fully silent).
+	{
+		cmd := exec.Command("powershell.exe", "-NoProfile", "-Command", fmt.Sprintf("Set-Disk -Number %d -IsReadOnly $false -IsOffline $true", diskNumber))
+		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+		_ = cmd.Run()
+	}
 
 	imageFile, err := os.Open(imagePath)
 	if err != nil {
@@ -959,7 +1081,11 @@ func writeImageToDisk(imagePath string, diskNumber int64, update func(int)) erro
 		}
 	}
 
-	_ = exec.Command("powershell", "-NoProfile", "-Command", fmt.Sprintf("Set-Disk -Number %d -IsOffline $false", diskNumber)).Run()
+	{
+		cmd := exec.Command("powershell.exe", "-NoProfile", "-Command", fmt.Sprintf("Set-Disk -Number %d -IsOffline $false", diskNumber))
+		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+		_ = cmd.Run()
+	}
 	return nil
 }
 
@@ -985,12 +1111,20 @@ func renderRecoveryPage(w http.ResponseWriter) {
 <body>
   <h2>Create Recovery Media</h2>
   <div class="card">
+    <label>Recovery Media Type</label>
+    <select id="mediaType" onchange="onMediaTypeChange()">
+      <option value="winpe" selected>Windows (WinPE) - Recommended</option>
+      <option value="linux">Linux</option>
+    </select>
+    <small>Choose Windows (WinPE) for most Windows bare-metal recoveries.</small>
+  </div>
+  <div class="card">
     <label>USB Disk</label>
     <select id="diskSelect"></select>
   </div>
   <div class="card">
     <label>Recovery Image URL</label>
-    <input id="imageUrl" value="https://downloads.eazybackup.ca/recovery/e3-recovery-linux.img"/>
+    <input id="imageUrl" value="https://downloads.eazybackup.ca/recovery/e3-recovery-winpe-prod-2026.02.11.iso"/>
     <small>Download will start automatically when you create media.</small>
   </div>
   <div class="card">
@@ -998,6 +1132,17 @@ func renderRecoveryPage(w http.ResponseWriter) {
     <div id="status" style="margin-top: 8px;"></div>
   </div>
 <script>
+const DEFAULT_WINPE_URL = 'https://downloads.eazybackup.ca/recovery/e3-recovery-winpe-prod-2026.02.11.iso';
+const DEFAULT_LINUX_URL = 'https://downloads.eazybackup.ca/recovery/e3-recovery-linux.img';
+
+function onMediaTypeChange() {
+  const mt = (document.getElementById('mediaType').value || 'winpe');
+  const urlInput = document.getElementById('imageUrl');
+  if (!urlInput.value || urlInput.value === DEFAULT_WINPE_URL || urlInput.value === DEFAULT_LINUX_URL) {
+    urlInput.value = (mt === 'linux') ? DEFAULT_LINUX_URL : DEFAULT_WINPE_URL;
+  }
+}
+
 async function loadDisks() {
   const resp = await fetch('/recovery/api/disks');
   const data = await resp.json();
@@ -1013,7 +1158,8 @@ async function loadDisks() {
 async function start() {
   const diskNumber = Number(document.getElementById('diskSelect').value);
   const imageUrl = document.getElementById('imageUrl').value;
-  const resp = await fetch('/recovery/api/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ disk_number: diskNumber, image_url: imageUrl })});
+  const mediaType = (document.getElementById('mediaType').value || 'winpe');
+  const resp = await fetch('/recovery/api/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ disk_number: diskNumber, image_url: imageUrl, media_type: mediaType })});
   const data = await resp.json();
   if (data.status !== 'success') {
     document.getElementById('status').textContent = data.message || 'Failed';
@@ -1032,6 +1178,7 @@ async function pollStatus(jobId) {
     }
   }
 }
+onMediaTypeChange();
 loadDisks();
 </script>
 </body>
@@ -1041,7 +1188,10 @@ loadDisks();
 }
 
 func runPowerShell(script string) (string, error) {
-	cmd := exec.Command("powershell", "-NoProfile", "-Command", script)
+	// Note: without HideWindow, Windows will often create a visible console window
+	// (especially when launched from the tray/recovery UI).
+	cmd := exec.Command("powershell.exe", "-NoProfile", "-Command", script)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
