@@ -1833,7 +1833,7 @@
                                             </template>
                                         </div>
                                         <div x-show="localVolumes.length === 0" class="text-center py-12 text-sm text-slate-500">
-                                            No local disks found
+                                            No disks were returned. If this machine has local disks, try again or check the agent.
                                         </div>
                                     </div>
 

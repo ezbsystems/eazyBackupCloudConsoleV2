@@ -377,6 +377,7 @@
                         </div>
                         <button type="submit" class="btn btn-primary">Apply</button>
                         <a class="btn btn-default" href="addonmodules.php?module=cloudstorage&action=cloudbackup_admin#cb-agents">Reset</a>
+                        <button type="button" class="btn btn-info" data-toggle="modal" data-target="#agentHelpModal">Help</button>
                     </form>
 
                     {assign var=agentBaseUrl value="addonmodules.php?module=cloudstorage&action=cloudbackup_admin&agents_q=`$agents_filters.q|escape:'url'`&agents_client_id=`$agents_filters.client_id|escape:'url'`&agents_status=`$agents_filters.status|escape:'url'`&agents_type=`$agents_filters.agent_type|escape:'url'`&agents_online=`$agents_filters.online_status|escape:'url'`&agents_tenant_id=`$agents_filters.tenant_id|escape:'url'`&agents_per_page=`$agents_per_page`&agents_page=1"}
@@ -442,9 +443,14 @@
                                                         <li><a href="#" onclick="openAgentLogs({$agent.id}); return false;">Agent Logs</a></li>
                                                         <li><a href="#" onclick="openTrayLogs({$agent.id}); return false;">Tray Logs</a></li>
                                                         <li role="separator" class="divider"></li>
-                                                        <li><a href="#" onclick="adminResetAgent({$agent.id}); return false;">Reset Agent</a></li>
-                                                        <li><a href="#" onclick="adminMaintenanceForAgent({$agent.id}, 'maintenance_quick', {$agent.active_run_id|default:0}); return false;">Maintenance Quick</a></li>
-                                                        <li><a href="#" onclick="adminMaintenanceForAgent({$agent.id}, 'maintenance_full', {$agent.active_run_id|default:0}); return false;">Maintenance Full</a></li>
+                                                        <li><a href="#" onclick="adminResetAgent({$agent.id}); return false;">Reset Agent (Restart Service)</a></li>
+                                                        {if $agent.active_run_id|default:0}
+                                                            <li><a href="#" onclick="adminMaintenanceForAgent({$agent.id}, 'maintenance_quick', {$agent.active_run_id|default:0}); return false;">Maintenance Quick</a></li>
+                                                            <li><a href="#" onclick="adminMaintenanceForAgent({$agent.id}, 'maintenance_full', {$agent.active_run_id|default:0}); return false;">Maintenance Full</a></li>
+                                                        {else}
+                                                            <li><span class="text-muted" style="display:block; padding:3px 20px;" title="No active run available for this agent">Maintenance Quick</span></li>
+                                                            <li><span class="text-muted" style="display:block; padding:3px 20px;" title="No active run available for this agent">Maintenance Full</span></li>
+                                                        {/if}
                                                         <li><a href="#" onclick="adminRefreshInventory({$agent.id}); return false;">Request Inventory Refresh</a></li>
                                                         <li role="separator" class="divider"></li>
                                                         <li><a href="addonmodules.php?module=cloudstorage&action=cloudbackup_admin&agent_id={$agent.id}#cb-runs">View This Agent's Runs</a></li>
@@ -480,6 +486,70 @@
                         </div>
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Agent Actions Help Modal -->
+<div class="modal fade" id="agentHelpModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <h4 class="modal-title">Agents Manage Menu Help</h4>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted">Quick reference for each action in the Agents table Manage menu.</p>
+                <table class="table table-bordered table-striped">
+                    <thead>
+                        <tr>
+                            <th style="width: 220px;">Action</th>
+                            <th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>Agent Logs</strong></td>
+                            <td>Loads and displays the latest tail of <code>C:\ProgramData\E3Backup\logs\agent.log</code> from the selected device.</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Tray Logs</strong></td>
+                            <td>Loads and displays the latest tail of <code>C:\ProgramData\E3Backup\logs\tray.log</code> from the selected device.</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Reset Agent</strong></td>
+                            <td>Queues a reset command to restart the agent process/service on the endpoint. Use this after updates or if command handling appears stale.</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Maintenance Quick</strong></td>
+                            <td>Queues quick repository maintenance for the agent's current active run context. Disabled when no active run exists.</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Maintenance Full</strong></td>
+                            <td>Queues full repository maintenance for the agent's current active run context. Disabled when no active run exists.</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Request Inventory Refresh</strong></td>
+                            <td>Forces an immediate volume/device inventory update from the agent and refreshes cached source-selection metadata.</td>
+                        </tr>
+                        <tr>
+                            <td><strong>View This Agent's Runs</strong></td>
+                            <td>Navigates to the Runs section filtered to the selected agent.</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Create Job (Prefilled)</strong></td>
+                            <td>Opens the e3 Backup job wizard with local-agent source and this agent preselected.</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Restore Points For Agent</strong></td>
+                            <td>Opens restore points scoped to the selected agent.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
             </div>
         </div>
     </div>
@@ -530,10 +600,16 @@
                 </ul>
                 <div class="tab-content" style="margin-top: 15px;">
                     <div class="tab-pane active" id="agentLogsTab">
+                        <div style="margin-bottom:8px;">
+                            <button type="button" class="btn btn-default btn-xs" onclick="refreshAgentLogTab()">Refresh Agent Log</button>
+                        </div>
                         <div id="agentLogMeta" class="text-muted small" style="margin-bottom:8px;"></div>
                         <pre id="agentLogContent" style="max-height: 420px; overflow-y: auto; background: #f5f5f5; padding: 10px; border-radius: 4px;">Select Agent Logs to load content.</pre>
                     </div>
                     <div class="tab-pane" id="trayLogsTab">
+                        <div style="margin-bottom:8px;">
+                            <button type="button" class="btn btn-default btn-xs" onclick="refreshTrayLogTab()">Refresh Tray Log</button>
+                        </div>
                         <div id="trayLogMeta" class="text-muted small" style="margin-bottom:8px;"></div>
                         <pre id="trayLogContent" style="max-height: 420px; overflow-y: auto; background: #f5f5f5; padding: 10px; border-radius: 4px;">Select Tray Logs to load content.</pre>
                     </div>
@@ -548,6 +624,20 @@
                 </div>
             </div>
             <div class="modal-footer">
+                <label style="font-weight: normal; margin-right: 8px;">
+                    <input type="checkbox" id="agentLogAutoRefreshEnabled" onchange="updateAgentLogAutoRefresh()">
+                    Auto-refresh
+                </label>
+                <label style="font-weight: normal; margin-right: 12px;">
+                    Every
+                    <select id="agentLogAutoRefreshSeconds" onchange="updateAgentLogAutoRefresh()" style="display:inline-block; width:auto;">
+                        <option value="5">5s</option>
+                        <option value="10" selected>10s</option>
+                        <option value="15">15s</option>
+                        <option value="30">30s</option>
+                        <option value="60">60s</option>
+                    </select>
+                </label>
                 <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
             </div>
         </div>
@@ -555,6 +645,10 @@
 </div>
 
 <script>
+let agentManageCurrentAgentId = 0;
+let agentManageCurrentLogKind = 'agent';
+let agentManageAutoRefreshTimer = null;
+
 function forceCancelRun(runId) {
     if (!confirm('Are you sure you want to force stop this run?')) {
         return;
@@ -589,7 +683,7 @@ function showRunLogs(runId) {
 }
 
 function enqueueMaintenance(runId, type) {
-    fetch('modules/addons/cloudstorage/api/admin_cloudbackup_request_command.php', {
+    fetch('/modules/addons/cloudstorage/api/admin_cloudbackup_request_command.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({ run_id: runId, type })
@@ -606,7 +700,7 @@ function enqueueMaintenance(runId, type) {
 }
 
 function adminEnqueueAgentCommand(payload) {
-    return fetch('modules/addons/cloudstorage/api/admin_cloudbackup_request_command.php', {
+    return fetch('/modules/addons/cloudstorage/api/admin_cloudbackup_request_command.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams(payload)
@@ -614,13 +708,13 @@ function adminEnqueueAgentCommand(payload) {
 }
 
 function adminResetAgent(agentId) {
-    if (!confirm('Reset this agent now? The agent process will restart.')) {
+    if (!confirm('Reset this agent now? This will restart the Windows agent service.')) {
         return;
     }
     adminEnqueueAgentCommand({ agent_id: agentId, type: 'reset_agent' })
         .then(data => {
             if (data.status === 'success') {
-                alert('Reset command queued for agent ' + agentId);
+                alert('Service restart command queued for agent ' + agentId);
             } else {
                 alert(data.message || 'Failed to queue reset command');
             }
@@ -675,7 +769,7 @@ function fetchAgentLogTail(agentId, logKind, contentEl, metaEl) {
     }
     contentNode.textContent = 'Loading...';
     metaNode.textContent = '';
-    fetch('modules/addons/cloudstorage/api/admin_cloudbackup_fetch_log_tail.php?agent_id=' + encodeURIComponent(agentId) + '&log_kind=' + encodeURIComponent(logKind))
+    fetch('/modules/addons/cloudstorage/api/admin_cloudbackup_fetch_log_tail.php?agent_id=' + encodeURIComponent(agentId) + '&log_kind=' + encodeURIComponent(logKind))
         .then(r => r.json())
         .then(data => {
             if (data.status !== 'success') {
@@ -693,7 +787,7 @@ function fetchAgentLogTail(agentId, logKind, contentEl, metaEl) {
 function loadAgentDiagnostics(agentId) {
     const diagnostics = document.getElementById('agentDiagnosticsContent');
     diagnostics.textContent = 'Loading diagnostics...';
-    fetch('modules/addons/cloudstorage/api/admin_cloudbackup_agent_diagnostics.php?agent_id=' + encodeURIComponent(agentId) + '&limit=100')
+    fetch('/modules/addons/cloudstorage/api/admin_cloudbackup_agent_diagnostics.php?agent_id=' + encodeURIComponent(agentId) + '&limit=100')
         .then(r => r.json())
         .then(data => {
             if (data.status !== 'success') {
@@ -715,20 +809,95 @@ function loadAgentDiagnostics(agentId) {
         });
 }
 
+function refreshAgentLogTab() {
+    if (!agentManageCurrentAgentId) {
+        return;
+    }
+    fetchAgentLogTail(agentManageCurrentAgentId, 'agent', 'agentLogContent', 'agentLogMeta');
+}
+
+function refreshTrayLogTab() {
+    if (!agentManageCurrentAgentId) {
+        return;
+    }
+    fetchAgentLogTail(agentManageCurrentAgentId, 'tray', 'trayLogContent', 'trayLogMeta');
+}
+
+function clearAgentLogAutoRefreshTimer() {
+    if (agentManageAutoRefreshTimer) {
+        clearInterval(agentManageAutoRefreshTimer);
+        agentManageAutoRefreshTimer = null;
+    }
+}
+
+function refreshActiveLogTab() {
+    if (agentManageCurrentLogKind === 'agent') {
+        refreshAgentLogTab();
+    } else if (agentManageCurrentLogKind === 'tray') {
+        refreshTrayLogTab();
+    }
+}
+
+function updateAgentLogAutoRefresh() {
+    clearAgentLogAutoRefreshTimer();
+    const enabled = document.getElementById('agentLogAutoRefreshEnabled');
+    const secondsInput = document.getElementById('agentLogAutoRefreshSeconds');
+    if (!enabled || !enabled.checked || !secondsInput) {
+        return;
+    }
+    const seconds = Math.max(3, Number(secondsInput.value || 10));
+    agentManageAutoRefreshTimer = setInterval(function() {
+        const modalVisible = document.getElementById('agentManageModal').classList.contains('in');
+        if (!modalVisible) {
+            clearAgentLogAutoRefreshTimer();
+            return;
+        }
+        refreshActiveLogTab();
+    }, seconds * 1000);
+}
+
+function initAgentManageModalHandlers() {
+    const modal = $('#agentManageModal');
+    modal.on('hidden.bs.modal', function() {
+        clearAgentLogAutoRefreshTimer();
+        agentManageCurrentAgentId = 0;
+    });
+    modal.find('a[data-toggle="tab"]').on('shown.bs.tab', function(e) {
+        const href = $(e.target).attr('href') || '';
+        if (href === '#agentLogsTab') {
+            agentManageCurrentLogKind = 'agent';
+            refreshAgentLogTab();
+        } else if (href === '#trayLogsTab') {
+            agentManageCurrentLogKind = 'tray';
+            refreshTrayLogTab();
+        } else {
+            agentManageCurrentLogKind = '';
+        }
+    });
+}
+
 function openAgentLogs(agentId) {
+    agentManageCurrentAgentId = Number(agentId);
+    agentManageCurrentLogKind = 'agent';
     document.getElementById('agentManageTitle').textContent = '(Agent #' + agentId + ')';
     $('#agentManageModal').modal('show');
     $('#agentManageModal ul.nav-tabs a[href="#agentLogsTab"]').tab('show');
     fetchAgentLogTail(agentId, 'agent', 'agentLogContent', 'agentLogMeta');
     loadAgentDiagnostics(agentId);
+    updateAgentLogAutoRefresh();
 }
 
 function openTrayLogs(agentId) {
+    agentManageCurrentAgentId = Number(agentId);
+    agentManageCurrentLogKind = 'tray';
     document.getElementById('agentManageTitle').textContent = '(Agent #' + agentId + ')';
     $('#agentManageModal').modal('show');
     $('#agentManageModal ul.nav-tabs a[href="#trayLogsTab"]').tab('show');
     fetchAgentLogTail(agentId, 'tray', 'trayLogContent', 'trayLogMeta');
     loadAgentDiagnostics(agentId);
+    updateAgentLogAutoRefresh();
 }
+
+initAgentManageModalHandlers();
 </script>
 
