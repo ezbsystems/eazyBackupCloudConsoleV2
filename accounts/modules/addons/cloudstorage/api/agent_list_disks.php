@@ -64,7 +64,7 @@ try {
 
     $commandId = $cmdTable->insertGetId($insert);
 
-    $deadline = microtime(true) + 10.0;
+    $deadline = microtime(true) + 30.0;
     while (microtime(true) < $deadline) {
         $cmd = Capsule::table('s3_cloudbackup_run_commands')
             ->where('id', $commandId)
@@ -85,7 +85,7 @@ try {
             respond(['status' => 'fail', 'message' => $cmd->result_message ?: 'Disk list failed']);
         }
 
-        usleep(200000);
+        usleep(500000);
     }
 
     respond(['status' => 'fail', 'message' => 'Timeout waiting for agent response'], 504);

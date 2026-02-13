@@ -2877,29 +2877,50 @@ function fileBrowser() {
             this.disks = [];
             this.loading = true;
             this.error = null;
-            try {
-                const resp = await fetch(`modules/addons/cloudstorage/api/agent_list_disks.php?agent_id=${this.agentId}`);
-                const text = await resp.text();
-                let data;
+            const maxAttempts = 3;
+            const retryDelayMs = 2500;
+            const delay = (ms) => new Promise(r => setTimeout(r, ms));
+            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
                 try {
-                    data = JSON.parse(text);
-                } catch (e) {
-                    this.error = `Disk list failed (non-JSON response): ${text.slice(0, 120)}...`;
-                    return;
-                }
-                if (data.status === 'success') {
-                    const res = data.data || {};
-                    this.disks = Array.isArray(res.disks) ? res.disks : [];
-                    this.restoreDiskVolumeSelection();
-                } else {
+                    const resp = await fetch(`modules/addons/cloudstorage/api/agent_list_disks.php?agent_id=${this.agentId}`);
+                    const text = await resp.text();
+                    let data;
+                    try {
+                        data = JSON.parse(text);
+                    } catch (e) {
+                        this.error = `Disk list failed (non-JSON response): ${text.slice(0, 120)}...`;
+                        break;
+                    }
+                    if (data.status === 'success') {
+                        const res = data.data || {};
+                        this.disks = Array.isArray(res.disks) ? res.disks : [];
+                        this.restoreDiskVolumeSelection();
+                        break;
+                    }
+                    const isTimeout = resp.status === 504 || (data.message && String(data.message).indexOf('Timeout') !== -1);
+                    if (isTimeout && attempt < maxAttempts) {
+                        this.error = 'Taking longer than usual, retrying…';
+                        this.syncToWizard();
+                        await delay(retryDelayMs);
+                        this.error = null;
+                        continue;
+                    }
                     this.error = data.message || 'Failed to load disks';
+                    break;
+                } catch (e) {
+                    if (attempt < maxAttempts) {
+                        this.error = 'Taking longer than usual, retrying…';
+                        this.syncToWizard();
+                        await delay(retryDelayMs);
+                        this.error = null;
+                        continue;
+                    }
+                    this.error = e.message || 'Network error';
+                    break;
                 }
-            } catch (e) {
-                this.error = e.message || 'Network error';
-            } finally {
-                this.loading = false;
-                this.syncToWizard();
             }
+            this.loading = false;
+            this.syncToWizard();
         },
 
         navigateTo(path) {

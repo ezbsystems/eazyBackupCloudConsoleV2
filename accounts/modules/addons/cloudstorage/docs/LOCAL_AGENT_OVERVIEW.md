@@ -2289,7 +2289,7 @@ sequenceDiagram
 
 ### Recovery + disk image stability (Jan 2026)
 - **Watchdog cancellation**: stale runs now get `cancel_requested=1` first; watchdog only marks terminal if still stale after a follow-up pass.
-- **Reset agent command**: new `reset_agent` pending command lets admins restart a stuck agent (agent exits cleanly so the Windows service restarts it).
+- **Reset agent command**: new `reset_agent` pending command lets admins remotely restart the Windows agent service (agent schedules a service restart and exits).
 - **Disk image stall timeout**: main data phase cancels after `AGENT_DISK_IMAGE_STALL_SECONDS` without progress (default 60s).
 - **Disk image finalization guard**: when remaining data is ≤1% or ≤128 MiB, stall cancel is suppressed; logs `DISK_IMAGE_FINALIZING_SLOW` once and `DISK_IMAGE_FINALIZING_STALLED` if finalization exceeds 5× the stall window.
 - **Disk image progress fixes**: progress updates are restored for disk image runs while keeping Hyper-V’s cumulative tracker isolated.

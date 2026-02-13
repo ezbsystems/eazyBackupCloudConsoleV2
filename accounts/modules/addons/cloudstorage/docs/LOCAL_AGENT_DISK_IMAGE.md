@@ -165,6 +165,7 @@ This document explains the disk image backup path added to the local agent (Kopi
   - `restore_kopia_parallel` (default workers, capped 1-32): Kopia restore parallelism.
 - Environment flags:
   - `AGENT_DISK_IMAGE_STRICT_READ_ERRORS` (default false): global strict read-error fallback when policy is unset.
+- Volume selection (disk image job wizard): the server waits up to 30 s for the agent’s disk list (`agent_list_disks.php`); the client retries on timeout (up to 3 attempts with delay) for robustness on slow or just-started agents (e.g. Windows 11).
 
 ---
 

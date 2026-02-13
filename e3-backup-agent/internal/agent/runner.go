@@ -287,9 +287,15 @@ func (r *Runner) executePendingCommand(cmd PendingCommand) {
 	case "disk_restore":
 		r.executeDiskRestoreCommand(ctx, cmd)
 	case "reset_agent":
-		log.Printf("agent: reset_agent command %d received; exiting for restart", cmd.CommandID)
-		_ = r.client.CompleteCommand(cmd.CommandID, "completed", "agent reset")
-		os.Exit(0)
+		log.Printf("agent: reset_agent command %d received; scheduling Windows service restart", cmd.CommandID)
+		if err := triggerAgentServiceRestart(); err != nil {
+			log.Printf("agent: reset_agent command %d could not schedule service restart: %v", cmd.CommandID, err)
+			_ = r.client.CompleteCommand(cmd.CommandID, "failed", "could not schedule service restart: "+sanitizeErrorMessage(err))
+			return
+		}
+		_ = r.client.CompleteCommand(cmd.CommandID, "completed", "service restart scheduled")
+		// Exit non-zero so SCM recovery can also restart if configured.
+		os.Exit(2)
 	case "refresh_inventory":
 		r.executeRefreshInventoryCommand(cmd)
 	case "fetch_log_tail":
