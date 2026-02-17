@@ -8,11 +8,9 @@
 
     use Symfony\Component\HttpFoundation\JsonResponse;
     use WHMCS\ClientArea;
-    use WHMCS\User\Client;
     use WHMCS\User\User;
     use WHMCS\Authentication\Auth;
     use WHMCS\Database\Capsule;
-    use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 
     $ca = new ClientArea();
     if (!$ca->isLoggedIn()) {
@@ -37,296 +35,211 @@
         exit();
     }
 
-    $password = $_POST["password"];
+    $password = (string) $_POST["password"];
 
-    // Resolve identity from the current authentication context (WHMCS v8+)
-    $email = null;
-    $resolvedFrom = 'unknown';
-    $clientId = (int) $ca->getUserID(); // In this module, used as tblclients.id
-    $authUserId = null;
-    $contactId = 0;
-    if (isset($_SESSION['contactid']) && (int)$_SESSION['contactid'] > 0) {
-        $contactId = (int) $_SESSION['contactid'];
-    } elseif (isset($_SESSION['cid']) && (int)$_SESSION['cid'] > 0) {
-        $contactId = (int) $_SESSION['cid'];
+    // Resolve tblusers_clients column names across WHMCS schema variants.
+    $linkUserCol = 'userid';
+    $linkClientCol = 'clientid';
+    try {
+        if (Capsule::schema()->hasColumn('tblusers_clients', 'auth_user_id')) {
+            $linkUserCol = 'auth_user_id';
+        }
+        if (Capsule::schema()->hasColumn('tblusers_clients', 'client_id')) {
+            $linkClientCol = 'client_id';
+        }
+    } catch (\Throwable $__) {
+        // keep legacy defaults when schema introspection is unavailable
     }
+
+    // Resolve active client account first, then resolve owner for that client.
+    $clientId = 0;
+    $loggedInUserId = 0;
+    $resolvedClientFrom = 'unknown';
+    $caId = (int) $ca->getUserID();
     try {
         if (class_exists(Auth::class) && method_exists(Auth::class, 'user')) {
             $authUser = Auth::user();
-            if ($authUser && !empty($authUser->email)) {
-                $email = $authUser->email;
-                $authUserId = $authUser->id ?? null;
-                $resolvedFrom = 'authUser';
+            if ($authUser && isset($authUser->id)) {
+                $loggedInUserId = (int) $authUser->id;
             }
         }
-        // If not resolved, attempt to get the OWNER user linked to this client (v8 model)
-        if (empty($email)) {
-            try {
-                $ownerLink = Capsule::table('tblusers_clients')
-                    ->where('clientid', $clientId)
-                    ->where('owner', 1)
-                    ->first();
-                if ($ownerLink && isset($ownerLink->userid)) {
-                    $ownerUser = User::find($ownerLink->userid);
-                    if ($ownerUser && !empty($ownerUser->email)) {
-                        $email = $ownerUser->email;
-                        $authUserId = $ownerUser->id ?? null;
-                        $resolvedFrom = 'ownerUserLink';
-                    }
-                }
-            } catch (\Throwable $__) {
-                // ignore; continue to legacy fallback
+    } catch (\Throwable $__) {
+        // ignore
+    }
+    try {
+        if (class_exists(Auth::class) && method_exists(Auth::class, 'client')) {
+            $authClient = Auth::client();
+            if ($authClient && isset($authClient->id)) {
+                $clientId = (int) $authClient->id;
+                $resolvedClientFrom = 'authClient';
             }
         }
-        // If still not resolved, try subaccount/contact email
-        if (empty($email) && $contactId > 0) {
-            try {
-                $contact = Capsule::table('tblcontacts')->where('id', $contactId)->first();
-                if ($contact && !empty($contact->email)) {
-                    $email = $contact->email;
-                    $resolvedFrom = 'contact';
-                }
-            } catch (\Throwable $__) {
-                // ignore
-            }
-        }
-        // Final fallback to legacy client email if user email not available
-        if (empty($email)) {
-            $clientModel = Client::find($clientId);
-            if ($clientModel && !empty($clientModel->email)) {
-                $email = $clientModel->email;
-                $resolvedFrom = 'clientModel';
-            }
-        }
-    } catch (\Throwable $e) {
-        // Will handle as failure below
+    } catch (\Throwable $__) {
+        // ignore
     }
 
-    // Log session context to assist diagnostics (no secrets)
-    logModuleCall(
-        'cloudstorage',
-        'ValidatePasswordSession',
-        [
-            'clientId' => $clientId,
-            'contactId' => $contactId,
-            'resolvedFrom' => $resolvedFrom,
-        ],
-        null
-    );
+    // In WHMCS client area, session uid is the most reliable active account id.
+    if ($clientId <= 0 && isset($_SESSION['uid']) && (int) $_SESSION['uid'] > 0) {
+        $clientId = (int) $_SESSION['uid'];
+        $resolvedClientFrom = 'sessionUid';
+    }
 
-    // Diagnostics: capture more context to help troubleshooting
-    try {
-        $clientEmailDiag = null;
-        $clientHasPassword = null;
-        $contactEmailDiag = null;
-        $linkedUserIds = [];
+    // Some installs expose the active client account via ClientArea::getUserID().
+    if ($clientId <= 0 && $caId > 0) {
         try {
-            $c = Client::find($clientId);
-            if ($c) {
-                $clientEmailDiag = $c->email ?? null;
-                // Hash presence only (do not log hash)
-                $clientHasPassword = isset($c->password) && (string)$c->password !== '';
+            $caIsClient = Capsule::table('tblclients')->where('id', $caId)->exists();
+            if ($caIsClient) {
+                if ($loggedInUserId > 0) {
+                    $isLinked = Capsule::table('tblusers_clients')
+                        ->where($linkClientCol, $caId)
+                        ->where($linkUserCol, $loggedInUserId)
+                        ->exists();
+                    if ($isLinked) {
+                        $clientId = $caId;
+                        $resolvedClientFrom = 'caUserIdAsClientLinked';
+                    }
+                } else {
+                    $clientId = $caId;
+                    $resolvedClientFrom = 'caUserIdAsClient';
+                }
             }
-        } catch (\Throwable $__) {}
-        if ($contactId > 0) {
-            try {
-                $con = Capsule::table('tblcontacts')->where('id',$contactId)->first();
-                if ($con) { $contactEmailDiag = $con->email ?? null; }
-            } catch (\Throwable $__) {}
+        } catch (\Throwable $__) {
+            // ignore
         }
+    }
+
+    // Fallback: derive client account from authenticated WHMCS user link.
+    if ($clientId <= 0 && $loggedInUserId > 0) {
         try {
-            $linksDiag = Capsule::table('tblusers_clients')->where('clientid',$clientId)->pluck('userid');
-            if ($linksDiag && count($linksDiag) > 0) { $linkedUserIds = array_values(array_filter((array)$linksDiag)); }
-        } catch (\Throwable $__) {}
+            $link = Capsule::table('tblusers_clients')
+                ->where($linkUserCol, $loggedInUserId)
+                ->orderBy('owner', 'desc')
+                ->first();
+            if ($link && isset($link->{$linkClientCol})) {
+                $clientId = (int) $link->{$linkClientCol};
+                $resolvedClientFrom = 'authUserLink';
+            }
+        } catch (\Throwable $__) {
+            // ignore
+        }
+    }
+
+    // Last-resort legacy fallback: if getUserID is not a client id, treat it as auth user id.
+    if ($clientId <= 0 && $caId > 0) {
+        try {
+            $caIsClient = Capsule::table('tblclients')->where('id', $caId)->exists();
+            if (!$caIsClient) {
+                $link = Capsule::table('tblusers_clients')
+                    ->where($linkUserCol, $caId)
+                    ->orderBy('owner', 'desc')
+                    ->first();
+                if ($link && isset($link->{$linkClientCol})) {
+                    $clientId = (int) $link->{$linkClientCol};
+                    $resolvedClientFrom = 'caUserIdAsAuthUser';
+                }
+            }
+        } catch (\Throwable $__) {
+            // ignore
+        }
+    }
+
+    if ($clientId <= 0) {
         logModuleCall(
             'cloudstorage',
-            'ValidatePasswordDiagnostics',
+            'ValidatePasswordClientResolveFail',
             [
-                'attemptEmail' => $email,
-                'clientId' => $clientId,
-                'clientEmail' => $clientEmailDiag,
-                'clientHasPassword' => $clientHasPassword,
-                'contactId' => $contactId,
-                'contactEmail' => $contactEmailDiag,
-                'linkedUserCount' => count($linkedUserIds),
-                'resolvedFrom' => $resolvedFrom,
+                'caUserId' => $caId,
+                'loggedInUserId' => $loggedInUserId,
             ],
-            null
+            'Unable to resolve active client account for password verification'
         );
-    } catch (\Throwable $__) {}
-
-    if (empty($email)) {
-        // Log and return a readable error if we cannot determine the email to validate against
-        logModuleCall(
-            'cloudstorage',
-            'ValidatePasswordEmailResolveFail',
-            [
-                'clientId' => $clientId,
-                'authUserId' => $authUserId,
-            ],
-            'Could not resolve email for ValidateLogin'
-        );
-
         $jsonData = [
             'status' => 'fail',
             'message' => 'Unable to verify password at this time. Please try again or contact support.'
         ];
-
         $response = new JsonResponse($jsonData, 200);
         $response->send();
         exit();
     }
 
-    $command = "ValidateLogin";
-    $postData = [
-        'email' => $email,
-        'password2' => $password
-    ];
+    $ownerUserId = 0;
+    $ownerEmail = '';
+    try {
+        $ownerLink = Capsule::table('tblusers_clients')
+            ->where($linkClientCol, $clientId)
+            ->where('owner', 1)
+            ->first();
+        if ($ownerLink && isset($ownerLink->{$linkUserCol})) {
+            $ownerUserId = (int) $ownerLink->{$linkUserCol};
+            $ownerUser = User::find($ownerUserId);
+            if ($ownerUser && !empty($ownerUser->email)) {
+                $ownerEmail = (string) $ownerUser->email;
+            }
+        }
+    } catch (\Throwable $__) {
+        // ignore and fail below
+    }
 
-    // Log resolved identity and request context (password masked)
     logModuleCall(
         'cloudstorage',
-        'ValidatePasswordRequest',
+        'ValidatePasswordOwnerContext',
         [
-            'email' => $email,
             'clientId' => $clientId,
-            'authUserId' => $authUserId,
-            'resolvedFrom' => $resolvedFrom,
+            'loggedInUserId' => $loggedInUserId,
+            'resolvedClientFrom' => $resolvedClientFrom,
+            'linkUserCol' => $linkUserCol,
+            'linkClientCol' => $linkClientCol,
+            'ownerUserId' => $ownerUserId,
+            'ownerEmailResolved' => ($ownerEmail !== ''),
         ],
         null
     );
 
-    $results = localAPI($command, $postData);
+    if ($ownerUserId <= 0 || $ownerEmail === '') {
+        $jsonData = [
+            'status' => 'fail',
+            'message' => 'Unable to verify password at this time. Please contact support.'
+        ];
+        $response = new JsonResponse($jsonData, 200);
+        $response->send();
+        exit();
+    }
 
-    // Log response for diagnostics (no secrets)
+    $results = localAPI('ValidateLogin', [
+        'email' => $ownerEmail,
+        'password2' => $password,
+    ]);
+
+    $resultStatus = (string) ($results['result'] ?? '');
+    $resultUserId = (int) ($results['userid'] ?? 0);
+    $userIdMatchesOwner = ($resultUserId > 0 && $resultUserId === $ownerUserId);
+    $isSuccess = ($resultStatus === 'success' && $userIdMatchesOwner);
+
     logModuleCall(
         'cloudstorage',
-        'ValidatePasswordResponse',
+        'ValidatePasswordOwnerResult',
         [
-            'email' => $email,
             'clientId' => $clientId,
-            'authUserId' => $authUserId,
-            'resolvedFrom' => $resolvedFrom,
+            'ownerUserId' => $ownerUserId,
+            'apiResult' => $resultStatus,
+            'apiUserId' => $resultUserId,
+            'userIdMatchesOwner' => $userIdMatchesOwner,
+            'twoFactorEnabled' => $results['twoFactorEnabled'] ?? null,
         ],
-        $results
+        null
     );
 
-    if ($results['result'] === 'success' && $results['userid'] > 0) {
+    if ($isSuccess) {
         $_SESSION['cloudstorage_pw_verified_at'] = time();
         $jsonData = [
             'status' => 'success',
             'message' => 'Password is correct.'
         ];
     } else {
-        // Try alternative param (password) in case installation expects it
-        try {
-            $altRes = localAPI($command, [ 'email' => $email, 'password' => $password ]);
-            logModuleCall('cloudstorage','ValidatePasswordAltParam',[ 'email'=>$email ], $altRes);
-            if (($altRes['result'] ?? '') === 'success' && ($altRes['userid'] ?? 0) > 0) {
-                $_SESSION['cloudstorage_pw_verified_at'] = time();
-                $jsonData = [ 'status' => 'success', 'message' => 'Password is correct.' ];
-                $response = new JsonResponse($jsonData, 200);
-                $response->send();
-                exit();
-            }
-        } catch (\Throwable $__) { /* ignore */ }
-
-        // Direct hash check fallback: verify against tblusers.password when available
-        try {
-            $userRow = Capsule::table('tblusers')->where('email', $email)->first();
-            if ($userRow && !empty($userRow->password)) {
-                $hash = (string)$userRow->password;
-                $match = false;
-                try {
-                    $match = password_verify($password, $hash);
-                } catch (\Throwable $__) { $match = false; }
-                logModuleCall('cloudstorage','ValidatePasswordDirectHash',[ 'email'=>$email, 'userFound'=>true, 'hasHash'=>($hash!==''), 'matched'=>$match ], null);
-                if ($match) {
-                    $_SESSION['cloudstorage_pw_verified_at'] = time();
-                    $jsonData = [ 'status' => 'success', 'message' => 'Password is correct.' ];
-                    $response = new JsonResponse($jsonData, 200);
-                    $response->send();
-                    exit();
-                }
-            } else {
-                logModuleCall('cloudstorage','ValidatePasswordDirectHash',[ 'email'=>$email, 'userFound'=>false ], null);
-            }
-        } catch (\Throwable $__) { /* ignore */ }
-
-        // Fallback probe: try all linked user emails for this client
-        $probeSuccess = false;
-        try {
-            $candidateEmails = [];
-            try {
-                $links = Capsule::table('tblusers_clients')
-                    ->where('clientid', $clientId)
-                    ->pluck('userid');
-                if ($links && count($links) > 0) {
-                    $users = User::whereIn('id', $links)->get();
-                    foreach ($users as $u) {
-                        if (!empty($u->email)) {
-                            $candidateEmails[] = $u->email;
-                        }
-                    }
-                }
-            } catch (\Throwable $__) {
-                // ignore
-            }
-
-            $candidateEmails = array_values(array_unique(array_filter($candidateEmails)));
-            // Avoid retrying the same email
-            $candidateEmails = array_values(array_diff($candidateEmails, [$email]));
-
-            // Include contact email if present and not already tested
-            if ($contactId > 0) {
-                try {
-                    $contact = Capsule::table('tblcontacts')->where('id', $contactId)->first();
-                    if ($contact && !empty($contact->email) && !in_array($contact->email, $candidateEmails, true) && $contact->email !== $email) {
-                        $candidateEmails[] = $contact->email;
-                    }
-                } catch (\Throwable $__) {}
-            }
-
-            logModuleCall(
-                'cloudstorage',
-                'ValidatePasswordFallbackProbe',
-                [
-                    'clientId' => $clientId,
-                    'numCandidates' => count($candidateEmails),
-                ],
-                null
-            );
-
-            foreach ($candidateEmails as $probeEmail) {
-                $probeRes = localAPI($command, [ 'email' => $probeEmail, 'password2' => $password ]);
-                if (($probeRes['result'] ?? '') === 'success' && ($probeRes['userid'] ?? 0) > 0) {
-                    logModuleCall(
-                        'cloudstorage',
-                        'ValidatePasswordFallbackSuccess',
-                        [
-                            'clientId' => $clientId,
-                            'matchedEmail' => $probeEmail,
-                        ],
-                        $probeRes
-                    );
-                    $jsonData = [
-                        'status' => 'success',
-                        'message' => 'Password is correct.'
-                    ];
-                    $probeSuccess = true;
-                    break;
-                }
-            }
-        } catch (\Throwable $__) {
-            // ignore and fall through to fail
-        }
-
-        if (!$probeSuccess) {
-            $jsonData = [
-                'status' => 'fail',
-                'message' => 'Password is incorrect.'
-            ];
-        }
+        $jsonData = [
+            'status' => 'fail',
+            'message' => 'Password is incorrect.'
+        ];
     }
 
     $response = new JsonResponse($jsonData, 200);

@@ -329,14 +329,14 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=www-data
-Group=www-data
 WorkingDirectory=/var/www/eazybackup.ca/accounts/modules/addons/eazybackup
 Environment=COMET_PROFILE=%i
 # Optional debug toggles:
 # Environment=EB_WS_DEBUG=1
 # Environment=EB_DB_DEBUG=1
-ExecStart=/usr/bin/php bin/comet_ws_worker.php
+# NOTE (2026-02-17): direct systemd->php launch crashed with status=11/SEGV.
+# Stable production launch uses runuser + clean env.
+ExecStart=/bin/bash -lc 'exec runuser -u www-data -- /bin/bash -lc "cd /var/www/eazybackup.ca/accounts/modules/addons/eazybackup && exec env -i COMET_PROFILE=%i HOME=/var/www PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin LANG=en_US.UTF-8 /usr/bin/php -dopcache.enable_cli=0 bin/comet_ws_worker.php"'
 Restart=always
 RestartSec=5
 
@@ -369,7 +369,7 @@ WantedBy=multi-user.target
   # -------- Comet: obc --------
   COMET_obc_NAME="OBC"
   COMET_obc_URL="wss://csw.obcbackup.com/api/v1/events/stream"
-  COMET_obc_ORIGIN="https://eazybackup.local"
+  COMET_obc_ORIGIN="https://csw.obcbackup.com"
   COMET_obc_USERNAME="websocket"
   COMET_obc_AUTHTYPE="Password"
   COMET_obc_PASSWORD=""
@@ -393,6 +393,21 @@ WantedBy=multi-user.target
   # Debug toggles (optional):
   # EB_WS_DEBUG=1 ? log raw frames and parsed events.
   # EB_DB_DEBUG=1 ? log database writes.
+
+**Worker Stability Incident (2026-02-17)**
+- Symptom: both `eazybackup-comet-ws@obc.service` and `eazybackup-comet-ws@cometbackup.service` repeatedly exited with `status=11/SEGV`, causing missed device/addon notification emails.
+- Evidence:
+  - `journalctl -u eazybackup-comet-ws@obc.service -n 100 --no-pager` showed repeated `code=dumped, status=11/SEGV`.
+  - `journalctl -k` showed segfaults in `php8.2`, `mbstring.so`, and `ioncube_loader_lin_8.2.so`.
+  - Reproduced with `systemd-run ... /usr/bin/php ... comet_ws_worker.php`.
+- Root cause class: native PHP runtime/extension instability (not WHMCS mail-template logic and not COMET origin config).
+- Confirmed workaround:
+  - Start worker through `runuser` with a clean environment (the `ExecStart` above).
+  - Keep `-dopcache.enable_cli=0` for worker process.
+- Post-change validation:
+  - `systemctl show eazybackup-comet-ws@obc.service -p ActiveState -p SubState -p NRestarts`
+  - `systemctl show eazybackup-comet-ws@cometbackup.service -p ActiveState -p SubState -p NRestarts`
+  - Expected: `ActiveState=active`, `SubState=running`, `NRestarts=0`.
 
 
 **Database Schema**
