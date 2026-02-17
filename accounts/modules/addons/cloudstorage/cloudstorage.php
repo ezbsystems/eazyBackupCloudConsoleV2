@@ -250,6 +250,18 @@ function cloudstorage_config()
                 'Size' => '100',
                 'Description' => 'Optional separate encryption key for cloud backup source configs (leave empty to use main encryption key).'
             ],
+            'recovery_media_broad_bundle_url' => [
+                'FriendlyName' => 'Recovery Media Broad Driver Bundle URL',
+                'Type' => 'text',
+                'Size' => '250',
+                'Description' => 'Optional public URL to a ZIP containing broad fallback drivers for Recovery Media builds.'
+            ],
+            'recovery_media_broad_bundle_sha256' => [
+                'FriendlyName' => 'Recovery Media Broad Driver Bundle SHA256',
+                'Type' => 'text',
+                'Size' => '128',
+                'Description' => 'Optional SHA256 checksum (hex) for the broad driver bundle ZIP.'
+            ],
             'cloudbackup_email_template' => [
                 'FriendlyName' => 'Backup Job Notification Email Template',
                 'Type' => 'dropdown',
@@ -3363,6 +3375,11 @@ function cloudstorage_clientarea($vars) {
                     $pagetitle = 'e3 Cloud Backup - Disk Image Restore';
                     $templatefile = 'templates/e3backup_disk_image_restore';
                     $viewVars = require 'pages/e3backup_disk_image_restore.php';
+                    break;
+                case 'recovery_media':
+                    $pagetitle = 'e3 Cloud Backup - Recovery Media';
+                    $templatefile = 'templates/e3backup_recovery_media';
+                    $viewVars = require 'pages/e3backup_recovery_media.php';
                     break;
                 case 'dashboard':
                 default:

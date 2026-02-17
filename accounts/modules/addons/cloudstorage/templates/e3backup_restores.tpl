@@ -223,8 +223,9 @@
                             </td>
                             <td class="px-4 py-3">
                                 <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
-                                      :class="point.status === 'success' ? 'bg-emerald-500/15 text-emerald-200' : (point.status === 'warning' ? 'bg-amber-500/15 text-amber-200' : 'bg-slate-700 text-slate-300')"
+                                      :class="point.status === 'success' ? 'bg-emerald-500/15 text-emerald-200' : (point.status === 'warning' ? 'bg-amber-500/15 text-amber-200' : (point.status === 'metadata_incomplete' ? 'bg-rose-500/15 text-rose-200' : 'bg-slate-700 text-slate-300'))"
                                       x-text="point.status || 'unknown'"></span>
+                                <div class="text-[11px] text-amber-300 mt-1" x-show="!point.is_restorable && point.non_restorable_reason" x-text="point.non_restorable_reason"></div>
                             </td>
                             <td class="px-4 py-3 text-slate-300">
                                 <div class="text-xs" x-text="point.source_display_name || point.source_type || '—'"></div>
@@ -243,15 +244,27 @@
                                     </a>
                                 </template>
                                 <template x-if="!point.hyperv_backup_point_id && String(point.engine || '').toLowerCase() === 'disk_image'">
-                                    <a :href="'index.php?m=cloudstorage&page=e3backup&view=disk_image_restore&restore_point_id=' + point.id"
-                                       class="text-xs px-2 py-1 rounded bg-purple-600/20 border border-purple-500/40 text-purple-200 hover:bg-purple-600/30 hover:border-purple-400 transition">
-                                        Disk Recovery
-                                    </a>
+                                    <span>
+                                        <a x-show="point.is_restorable"
+                                           :href="'index.php?m=cloudstorage&page=e3backup&view=disk_image_restore&restore_point_id=' + point.id"
+                                           class="text-xs px-2 py-1 rounded bg-purple-600/20 border border-purple-500/40 text-purple-200 hover:bg-purple-600/30 hover:border-purple-400 transition">
+                                            Disk Recovery
+                                        </a>
+                                        <button x-show="!point.is_restorable"
+                                                type="button"
+                                                class="text-xs px-2 py-1 rounded bg-slate-800 border border-slate-700 text-slate-500 cursor-not-allowed"
+                                                :title="point.non_restorable_reason || 'Restore point is not restorable'"
+                                                disabled>
+                                            Unavailable
+                                        </button>
+                                    </span>
                                 </template>
                                 <template x-if="!point.hyperv_backup_point_id && String(point.engine || '').toLowerCase() !== 'disk_image'">
                                     <button @click="openRestoreModal(point)"
-                                            class="text-xs px-2 py-1 rounded bg-sky-600/20 border border-sky-500/40 text-sky-300 hover:bg-sky-600/30 hover:border-sky-400 transition">
-                                        Restore
+                                            :class="point.is_restorable ? 'text-xs px-2 py-1 rounded bg-sky-600/20 border border-sky-500/40 text-sky-300 hover:bg-sky-600/30 hover:border-sky-400 transition' : 'text-xs px-2 py-1 rounded bg-slate-800 border border-slate-700 text-slate-500 cursor-not-allowed'"
+                                            :title="point.non_restorable_reason || 'Restore point is not restorable'"
+                                            :disabled="!point.is_restorable">
+                                        <span x-text="point.is_restorable ? 'Restore' : 'Unavailable'"></span>
                                     </button>
                                 </template>
                             </td>
@@ -587,6 +600,13 @@ function restoresApp() {
         },
 
         openRestoreModal(point) {
+            if (point && point.is_restorable === false) {
+                if (point.non_restorable_reason) {
+                    if (window.toast) toast.error(point.non_restorable_reason);
+                    else alert(point.non_restorable_reason);
+                }
+                return;
+            }
             window.openRestorePointModal(point);
         }
     };

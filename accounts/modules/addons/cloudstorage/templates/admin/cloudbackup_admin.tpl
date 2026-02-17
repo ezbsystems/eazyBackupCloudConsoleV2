@@ -3,13 +3,13 @@
         <div class="col-md-12">
             <h2>Cloud Backup Administration</h2>
             <ul class="nav nav-pills" style="margin-bottom:15px;">
-                <li class="active"><a href="#cb-dashboard">Dashboard</a></li>
-                <li><a href="#cb-jobs">Jobs</a></li>
-                <li><a href="#cb-runs">Runs</a></li>
-                <li><a href="#cb-agents">Agents</a></li>
-                <li><a href="#cb-clients">Clients</a></li>
+                <li{if $active_tab eq 'dashboard'} class="active"{/if}><a href="addonmodules.php?module=cloudstorage&action=cloudbackup_admin&tab=dashboard">Dashboard</a></li>
+                <li{if $active_tab eq 'jobs'} class="active"{/if}><a href="addonmodules.php?module=cloudstorage&action=cloudbackup_admin&tab=jobs">Jobs</a></li>
+                <li{if $active_tab eq 'runs'} class="active"{/if}><a href="addonmodules.php?module=cloudstorage&action=cloudbackup_admin&tab=runs">Runs</a></li>
+                <li{if $active_tab eq 'agents'} class="active"{/if}><a href="addonmodules.php?module=cloudstorage&action=cloudbackup_admin&tab=agents">Agents</a></li>
+                <li{if $active_tab eq 'clients'} class="active"{/if}><a href="addonmodules.php?module=cloudstorage&action=cloudbackup_admin&tab=clients">Clients</a></li>
             </ul>
-            
+            {if $active_tab eq 'dashboard'}
             <div class="panel panel-default" id="cb-dashboard">
                 <div class="panel-heading">
                     <h3 class="panel-title">Configuration</h3>
@@ -55,6 +55,7 @@
                         </div>
                     </div>
                     <form method="post" action="addonmodules.php?module=cloudstorage&action=cloudbackup_admin">
+                        <input type="hidden" name="tab" value="dashboard">
                         <input type="hidden" name="update_watchdog_settings" value="1">
                         <div class="row">
                             <div class="col-md-4">
@@ -137,7 +138,9 @@
                     </div>
                 </div>
             </div>
+            {/if}
 
+            {if $active_tab eq 'jobs' || $active_tab eq 'runs'}
             <div class="panel panel-default" id="cb-filters">
                 <div class="panel-heading">
                     <h3 class="panel-title">Filters</h3>
@@ -146,6 +149,7 @@
                     <form method="get" action="addonmodules.php">
                         <input type="hidden" name="module" value="cloudstorage">
                         <input type="hidden" name="action" value="cloudbackup_admin">
+                        <input type="hidden" name="tab" value="{$active_tab}">
                         <div class="row">
                             <div class="col-md-2">
                                 <label>Client:</label>
@@ -192,14 +196,16 @@
                         <div class="row" style="margin-top: 15px;">
                             <div class="col-md-12">
                                 <button type="submit" class="btn btn-primary">Filter</button>
-                                <a href="addonmodules.php?module=cloudstorage&action=cloudbackup_admin&export=csv" class="btn btn-success">Export CSV</a>
-                                <a href="addonmodules.php?module=cloudstorage&action=cloudbackup_admin" class="btn btn-default">Clear Filters</a>
+                                <a href="addonmodules.php?module=cloudstorage&action=cloudbackup_admin&tab={$active_tab}&export=csv" class="btn btn-success">Export CSV</a>
+                                <a href="addonmodules.php?module=cloudstorage&action=cloudbackup_admin&tab={$active_tab}" class="btn btn-default">Clear Filters</a>
                             </div>
                         </div>
                     </form>
                 </div>
             </div>
+            {/if}
 
+            {if $active_tab eq 'jobs'}
             <div class="panel panel-default" id="cb-jobs">
                 <div class="panel-heading">
                     <h3 class="panel-title">Jobs ({count($jobs)})</h3>
@@ -247,7 +253,9 @@
                     </table>
                 </div>
             </div>
+            {/if}
 
+            {if $active_tab eq 'runs'}
             <div class="panel panel-default" id="cb-runs">
                 <div class="panel-heading">
                     <h3 class="panel-title">Recent Runs</h3>
@@ -311,7 +319,9 @@
                     </table>
                 </div>
             </div>
+            {/if}
 
+            {if $active_tab eq 'agents'}
             <div class="panel panel-default" id="cb-agents">
                 <div class="panel-heading">
                     <h3 class="panel-title">Agents ({$agents_total|default:0})</h3>
@@ -320,6 +330,7 @@
                     <form method="get" action="addonmodules.php" class="form-inline" style="margin-bottom: 15px;">
                         <input type="hidden" name="module" value="cloudstorage">
                         <input type="hidden" name="action" value="cloudbackup_admin">
+                        <input type="hidden" name="tab" value="agents">
                         <input type="hidden" name="agents_sort" value="{$agents_sort|default:'created_at'}">
                         <input type="hidden" name="agents_dir" value="{$agents_dir|default:'desc'}">
                         <input type="hidden" name="agents_page" value="1">
@@ -376,29 +387,29 @@
                             </select>
                         </div>
                         <button type="submit" class="btn btn-primary">Apply</button>
-                        <a class="btn btn-default" href="addonmodules.php?module=cloudstorage&action=cloudbackup_admin#cb-agents">Reset</a>
+                        <a class="btn btn-default" href="addonmodules.php?module=cloudstorage&action=cloudbackup_admin&tab=agents">Reset</a>
                         <button type="button" class="btn btn-info" data-toggle="modal" data-target="#agentHelpModal">Help</button>
                     </form>
 
-                    {assign var=agentBaseUrl value="addonmodules.php?module=cloudstorage&action=cloudbackup_admin&agents_q=`$agents_filters.q|escape:'url'`&agents_client_id=`$agents_filters.client_id|escape:'url'`&agents_status=`$agents_filters.status|escape:'url'`&agents_type=`$agents_filters.agent_type|escape:'url'`&agents_online=`$agents_filters.online_status|escape:'url'`&agents_tenant_id=`$agents_filters.tenant_id|escape:'url'`&agents_per_page=`$agents_per_page`&agents_page=1"}
+                    {assign var=agentBaseUrl value="addonmodules.php?module=cloudstorage&action=cloudbackup_admin&tab=agents&agents_q=`$agents_filters.q|escape:'url'`&agents_client_id=`$agents_filters.client_id|escape:'url'`&agents_status=`$agents_filters.status|escape:'url'`&agents_type=`$agents_filters.agent_type|escape:'url'`&agents_online=`$agents_filters.online_status|escape:'url'`&agents_tenant_id=`$agents_filters.tenant_id|escape:'url'`&agents_per_page=`$agents_per_page`&agents_page=1"}
 
                     <div class="table-responsive">
                         <table class="table table-striped table-hover">
                             <thead>
                                 <tr>
-                                    <th><a href="{$agentBaseUrl}&agents_sort=online_status&agents_dir={if $agents_sort eq 'online_status' && $agents_dir eq 'asc'}desc{else}asc{/if}#cb-agents">Connection</a></th>
-                                    <th><a href="{$agentBaseUrl}&agents_sort=id&agents_dir={if $agents_sort eq 'id' && $agents_dir eq 'asc'}desc{else}asc{/if}#cb-agents">ID</a></th>
-                                    <th><a href="{$agentBaseUrl}&agents_sort=hostname&agents_dir={if $agents_sort eq 'hostname' && $agents_dir eq 'asc'}desc{else}asc{/if}#cb-agents">Hostname</a></th>
-                                    <th><a href="{$agentBaseUrl}&agents_sort=device_id&agents_dir={if $agents_sort eq 'device_id' && $agents_dir eq 'asc'}desc{else}asc{/if}#cb-agents">Device ID</a></th>
-                                    <th><a href="{$agentBaseUrl}&agents_sort=device_name&agents_dir={if $agents_sort eq 'device_name' && $agents_dir eq 'asc'}desc{else}asc{/if}#cb-agents">Device Name</a></th>
-                                    <th><a href="{$agentBaseUrl}&agents_sort=tenant&agents_dir={if $agents_sort eq 'tenant' && $agents_dir eq 'asc'}desc{else}asc{/if}#cb-agents">Tenant</a></th>
-                                    <th><a href="{$agentBaseUrl}&agents_sort=agent_type&agents_dir={if $agents_sort eq 'agent_type' && $agents_dir eq 'asc'}desc{else}asc{/if}#cb-agents">Type</a></th>
+                                    <th><a href="{$agentBaseUrl}&agents_sort=online_status&agents_dir={if $agents_sort eq 'online_status' && $agents_dir eq 'asc'}desc{else}asc{/if}">Connection</a></th>
+                                    <th><a href="{$agentBaseUrl}&agents_sort=id&agents_dir={if $agents_sort eq 'id' && $agents_dir eq 'asc'}desc{else}asc{/if}">ID</a></th>
+                                    <th><a href="{$agentBaseUrl}&agents_sort=hostname&agents_dir={if $agents_sort eq 'hostname' && $agents_dir eq 'asc'}desc{else}asc{/if}">Hostname</a></th>
+                                    <th><a href="{$agentBaseUrl}&agents_sort=device_id&agents_dir={if $agents_sort eq 'device_id' && $agents_dir eq 'asc'}desc{else}asc{/if}">Device ID</a></th>
+                                    <th><a href="{$agentBaseUrl}&agents_sort=device_name&agents_dir={if $agents_sort eq 'device_name' && $agents_dir eq 'asc'}desc{else}asc{/if}">Device Name</a></th>
+                                    <th><a href="{$agentBaseUrl}&agents_sort=tenant&agents_dir={if $agents_sort eq 'tenant' && $agents_dir eq 'asc'}desc{else}asc{/if}">Tenant</a></th>
+                                    <th><a href="{$agentBaseUrl}&agents_sort=agent_type&agents_dir={if $agents_sort eq 'agent_type' && $agents_dir eq 'asc'}desc{else}asc{/if}">Type</a></th>
                                     <th>Version</th>
                                     <th>OS/Arch</th>
                                     <th>Build</th>
-                                    <th><a href="{$agentBaseUrl}&agents_sort=status&agents_dir={if $agents_sort eq 'status' && $agents_dir eq 'asc'}desc{else}asc{/if}#cb-agents">Status</a></th>
-                                    <th><a href="{$agentBaseUrl}&agents_sort=last_seen_at&agents_dir={if $agents_sort eq 'last_seen_at' && $agents_dir eq 'asc'}desc{else}asc{/if}#cb-agents">Last Seen</a></th>
-                                    <th><a href="{$agentBaseUrl}&agents_sort=created_at&agents_dir={if $agents_sort eq 'created_at' && $agents_dir eq 'asc'}desc{else}asc{/if}#cb-agents">Created</a></th>
+                                    <th><a href="{$agentBaseUrl}&agents_sort=status&agents_dir={if $agents_sort eq 'status' && $agents_dir eq 'asc'}desc{else}asc{/if}">Status</a></th>
+                                    <th><a href="{$agentBaseUrl}&agents_sort=last_seen_at&agents_dir={if $agents_sort eq 'last_seen_at' && $agents_dir eq 'asc'}desc{else}asc{/if}">Last Seen</a></th>
+                                    <th><a href="{$agentBaseUrl}&agents_sort=created_at&agents_dir={if $agents_sort eq 'created_at' && $agents_dir eq 'asc'}desc{else}asc{/if}">Created</a></th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
@@ -453,7 +464,7 @@
                                                         {/if}
                                                         <li><a href="#" onclick="adminRefreshInventory({$agent.id}); return false;">Request Inventory Refresh</a></li>
                                                         <li role="separator" class="divider"></li>
-                                                        <li><a href="addonmodules.php?module=cloudstorage&action=cloudbackup_admin&agent_id={$agent.id}#cb-runs">View This Agent's Runs</a></li>
+                                                        <li><a href="addonmodules.php?module=cloudstorage&action=cloudbackup_admin&tab=runs&agent_id={$agent.id}">View This Agent's Runs</a></li>
                                                         <li><a href="index.php?m=cloudstorage&page=e3backup&view=jobs&open_create=1&prefill_source=local_agent&prefill_agent_id={$agent.id}" target="_blank" rel="noopener">Create Job (Prefilled)</a></li>
                                                         <li><a href="index.php?m=cloudstorage&page=e3backup&view=restores&agent_id={$agent.id}" target="_blank" rel="noopener">Restore Points For Agent</a></li>
                                                     </ul>
@@ -478,15 +489,50 @@
                         </div>
                         <div class="col-md-6 text-right">
                             {if $agents_page > 1}
-                                <a class="btn btn-default btn-sm" href="{$agentBaseUrl}&agents_sort={$agents_sort|escape:'url'}&agents_dir={$agents_dir|escape:'url'}&agents_page={$agents_page-1}#cb-agents">Previous</a>
+                                <a class="btn btn-default btn-sm" href="{$agentBaseUrl}&agents_sort={$agents_sort|escape:'url'}&agents_dir={$agents_dir|escape:'url'}&agents_page={$agents_page-1}">Previous</a>
                             {/if}
                             {if $agents_page < $agents_pages}
-                                <a class="btn btn-default btn-sm" href="{$agentBaseUrl}&agents_sort={$agents_sort|escape:'url'}&agents_dir={$agents_dir|escape:'url'}&agents_page={$agents_page+1}#cb-agents">Next</a>
+                                <a class="btn btn-default btn-sm" href="{$agentBaseUrl}&agents_sort={$agents_sort|escape:'url'}&agents_dir={$agents_dir|escape:'url'}&agents_page={$agents_page+1}">Next</a>
                             {/if}
                         </div>
                     </div>
                 </div>
             </div>
+            {/if}
+
+            {if $active_tab eq 'clients'}
+            <div class="panel panel-default" id="cb-clients">
+                <div class="panel-heading">
+                    <h3 class="panel-title">Clients ({count($clients)})</h3>
+                </div>
+                <div class="panel-body">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Name</th>
+                                <th>Email</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {if count($clients) > 0}
+                                {foreach from=$clients item=client}
+                                    <tr>
+                                        <td>{$client.id}</td>
+                                        <td>{$client.firstname} {$client.lastname}</td>
+                                        <td>{$client.email}</td>
+                                    </tr>
+                                {/foreach}
+                            {else}
+                                <tr>
+                                    <td colspan="3" class="text-center">No clients found</td>
+                                </tr>
+                            {/if}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {/if}
         </div>
     </div>
 </div>

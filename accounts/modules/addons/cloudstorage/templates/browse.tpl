@@ -331,7 +331,14 @@
                             </svg>
                         </button>
                     </div>
-                    <div id="breadcrumbs" class="mt-3 w-full rounded-lg bg-slate-900/70 border border-slate-800 px-3 py-1.5 text-xs text-slate-300 flex flex-wrap items-center gap-1"></div>
+                    <div class="mt-3 flex items-center gap-2">
+                        <button type="button" class="icon-btn" id="btnUpOneLevel" onclick="goUpOneLevel()" title="Up one level" disabled>
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.75v10.5m0-10.5 4.5 4.5M12 6.75l-4.5 4.5M3.75 17.25h16.5" />
+                            </svg>
+                        </button>
+                        <div id="breadcrumbs" class="w-full rounded-lg bg-slate-900/70 border border-slate-800 px-3 py-1.5 text-xs text-slate-300 flex flex-wrap items-center gap-1"></div>
+                    </div>
                 </div>
                 <div class="flex items-center gap-3">
                     <button type="button" class="btn-run-now" onclick="triggerUpload()">
@@ -411,7 +418,7 @@
                                 letter-spacing: normal !important;
                             }
                         </style>
-                        <div class="table-scroll-container overflow-auto" style="max-height: 520px;">
+                        <div class="table-scroll-container overflow-auto" style="min-height: 625px; max-height: 625px;">
                             <table id="bucketContents" class="table-auto w-full text-sm text-slate-200">
                                 <thead class="bg-slate-900/90 border-b border-slate-800 text-[11px] tracking-normal text-slate-400 sticky top-0 z-10">
                                 <tr>
@@ -671,7 +678,31 @@
             const username   = jQuery('#username').val();
 
             // We'll keep folderPath updated here
-            let folderPath   = jQuery('#folderPath').val() || '';
+            let folderPath   = '';
+
+            function normalizeFolderPath(path) {
+                return String(path || '')
+                    .replace(/\\/g, '/')
+                    .replace(/^\/+|\/+$/g, '');
+            }
+
+            function setFolderPath(path) {
+                folderPath = normalizeFolderPath(path);
+                jQuery('#folderPath').val(folderPath);
+                updateUpOneLevelButton();
+            }
+
+            function buildBrowseUrl(path) {
+                const safePath = normalizeFolderPath(path);
+                return `index.php?m=cloudstorage&page=browse&bucket=${encodeURIComponent(bucketName)}&username=${encodeURIComponent(username)}&folder_path=${encodeURIComponent(safePath)}`;
+            }
+
+            function updateUpOneLevelButton() {
+                const currentPath = normalizeFolderPath(jQuery('#folderPath').val() || '');
+                jQuery('#btnUpOneLevel').prop('disabled', currentPath === '');
+            }
+
+            setFolderPath(jQuery('#folderPath').val() || '');
 
             // API endpoint to retrieve objects
             const normalUrl = '/modules/addons/cloudstorage/api/bucketobjects.php';
@@ -816,29 +847,37 @@
                                         return `<span class="text-gray-300 pl-6 inline-block">${row.name ? row.name : ''}</span>`;
                                     }
                                 }
-                                let name = (data || '').replace(/^@/, '');
-                                if (row.type === 'file') {
+                                const rawName = (data || '').replace(/^@/, '');
+                                const normalizedName = String(rawName).replace(/^\/+/, '');
+                                const isFolder = String(row.type || '').toLowerCase() === 'folder' || normalizedName.endsWith('/');
+                                const displayName = isFolder ? normalizedName.replace(/\/+$/g, '') : normalizedName;
+                                if (!isFolder) {
                                     // File icon
                                     return `
-                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="inline-block h-5 w-5 mr-2 text-gray-400">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
-                                        </svg>
-                                        <span class="object-name">${name}</span>
-                                        <span class="ml-2 align-middle inline-flex items-center text-xs font-medium chip chip-neutral hidden" title="" aria-label=""></span>
+                                        <span class="inline-flex items-start max-w-full">
+                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-5 w-5 mr-2 mt-0.5 text-gray-400 flex-shrink-0">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                                            </svg>
+                                            <span class="object-name break-all">${displayName}</span>
+                                            <span class="ml-2 mt-0.5 inline-flex items-center text-xs font-medium chip chip-neutral hidden" title="" aria-label=""></span>
+                                        </span>
                                     `;
                                 } else {
+                                    const safeFolderName = normalizedName
+                                        .replace(/\\/g, '\\\\')
+                                        .replace(/'/g, "\\'");
                                     // Folder icon + AJAX-based down one level
                                     return `
                                         <a href="javascript:void(0);"
-                                        class="flex items-center"
-                                        onclick="navigateToFolder('${name}')">
+                                        class="inline-flex items-start max-w-full"
+                                        onclick="navigateToFolder('${safeFolderName}')">
                                             <svg xmlns="http://www.w3.org/2000/svg"
-                                                class="inline-block h-5 w-5 mr-2 text-yellow-400"
+                                                class="h-5 w-5 mr-2 mt-0.5 text-yellow-400 flex-shrink-0"
                                                 fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                                     d="M3 7a4 4 0 014-4h6l2 2h6a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
                                             </svg>
-                                            <span class="object-name">${name}</span>
+                                            <span class="object-name break-all">${displayName}</span>
                                         </a>
                                     `;
                                 }
@@ -1534,20 +1573,15 @@
 
             // Up One Level
             function goUpOneLevel() {
-                let currentPath = jQuery('#folderPath').val() || '';
+                let currentPath = normalizeFolderPath(jQuery('#folderPath').val() || '');
                 if (!currentPath) {
                     return;
                 }
-                currentPath = currentPath.replace(/\/$/, '');
-
-                let parts = currentPath.split('/');
+                const parts = currentPath.split('/').filter(Boolean);
                 parts.pop();
-                let parentPath = parts.join('/');
-
-                folderPath = parentPath;
-                jQuery('#folderPath').val(parentPath);
-
-                history.pushState(null, '', `index.php?m=cloudstorage&page=browse&bucket=${bucketName}&username=${encodeURIComponent(username)}&folder_path=${parentPath}`);
+                const parentPath = normalizeFolderPath(parts.join('/'));
+                setFolderPath(parentPath);
+                history.pushState(null, '', buildBrowseUrl(parentPath));
                 if (showVersions) { window.__allowNextIndexReload = true; }
                 jQuery('#bucketContents').DataTable().ajax.reload();
                 // Keep breadcrumbs in sync when navigating up
@@ -1563,19 +1597,16 @@
             });
 
             function navigateToFolder(folderName) {
-                let currentPath = jQuery('#folderPath').val().trim();
-                currentPath = currentPath.replace(/\/$/, '');
-
-                let newPath;
-                if (folderName.includes('/')) {
-                    newPath = folderName;
-                } else {
-                    newPath = currentPath ? currentPath + '/' + folderName : folderName;
+                const currentPath = normalizeFolderPath(jQuery('#folderPath').val() || '');
+                const targetFolder = normalizeFolderPath(folderName || '');
+                if (!targetFolder) {
+                    return;
                 }
-                folderPath = newPath;
-                jQuery('#folderPath').val(newPath);
-
-                history.pushState(null, '', `index.php?m=cloudstorage&page=browse&bucket=${bucketName}&username=${encodeURIComponent(username)}&folder_path=${newPath}`);
+                const newPath = currentPath
+                    ? normalizeFolderPath(currentPath + '/' + targetFolder)
+                    : targetFolder;
+                setFolderPath(newPath);
+                history.pushState(null, '', buildBrowseUrl(newPath));
                 if (showVersions) { window.__allowNextIndexReload = true; }
                 jQuery('#bucketContents').DataTable().ajax.reload();
                 // Update breadcrumbs when navigating down into a folder
@@ -2506,23 +2537,24 @@
                 try {
                     const label = `<span class="mr-2 uppercase tracking-wide text-slate-400">Path</span>`;
                     const rootHtml = `<a href="javascript:void(0)" class="text-slate-200 hover:text-white" onclick="goToPrefix('')">root</a>`;
-                    const fp = (jQuery('#folderPath').val() || '').replace(/^[\\/]+|[\\/]+$/g,'');
+                    const fp = normalizeFolderPath(jQuery('#folderPath').val() || '');
+                    updateUpOneLevelButton();
                     if (!fp) { jQuery('#breadcrumbs').html(label + rootHtml); return; }
                     const parts = fp.split('/').filter(Boolean);
                     const crumbs = [label + rootHtml];
                     let acc = '';
                     parts.forEach((p, idx) => {
                         acc = acc ? (acc + '/' + p) : p;
-                        crumbs.push(`<span class="mx-1 text-slate-500">/</span><a href="javascript:void(0)" class="text-slate-200 hover:text-white" onclick="goToPrefix('${acc}')">${p}</a>`);
+                        const encodedAcc = encodeURIComponent(acc);
+                        crumbs.push(`<span class="mx-1 text-slate-500">/</span><a href="javascript:void(0)" class="text-slate-200 hover:text-white" onclick="goToPrefix(decodeURIComponent('${encodedAcc}'))">${p}</a>`);
                     });
                     jQuery('#breadcrumbs').html(crumbs.join(''));
                 } catch (e) {}
             }
             function goToPrefix(prefix) {
-                const bucketName = jQuery('#bucketName').val();
-                folderPath = prefix || '';
-                jQuery('#folderPath').val(folderPath);
-                history.pushState(null, '', `index.php?m=cloudstorage&page=browse&bucket=${bucketName}&username=${encodeURIComponent(username)}&folder_path=${prefix}`);
+                const normalizedPrefix = normalizeFolderPath(prefix || '');
+                setFolderPath(normalizedPrefix);
+                history.pushState(null, '', buildBrowseUrl(normalizedPrefix));
                 if (showVersions) { window.__allowNextIndexReload = true; }
                 jQuery('#bucketContents').DataTable().ajax.reload(() => {
                     renderBreadcrumbs();

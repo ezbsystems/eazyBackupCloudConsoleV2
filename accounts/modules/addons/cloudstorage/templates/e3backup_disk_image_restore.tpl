@@ -62,9 +62,15 @@
                                 <td class="px-4 py-3 text-slate-300" x-text="formatBytes(point.disk_total_bytes || 0)"></td>
                                 <td class="px-4 py-3">
                                     <span class="text-xs px-2 py-1 rounded bg-slate-800 border border-slate-700 text-slate-300" x-text="point.status || 'unknown'"></span>
+                                    <div class="text-[11px] text-amber-300 mt-1" x-show="!point.is_restorable && point.non_restorable_reason" x-text="point.non_restorable_reason"></div>
                                 </td>
                                 <td class="px-4 py-3 text-right">
-                                    <button class="text-xs px-3 py-1 rounded bg-sky-700/30 border border-sky-600 text-sky-200" @click="selectPoint(point)">Select</button>
+                                    <button class="text-xs px-3 py-1 rounded border"
+                                            :class="point.is_restorable ? 'bg-sky-700/30 border-sky-600 text-sky-200' : 'bg-slate-800 border-slate-700 text-slate-500 cursor-not-allowed'"
+                                            @click="selectPoint(point)"
+                                            :disabled="!point.is_restorable">
+                                        <span x-text="point.is_restorable ? 'Select' : 'Unavailable'"></span>
+                                    </button>
                                 </td>
                             </tr>
                         </template>
@@ -90,6 +96,7 @@
                         <div class="text-xs text-slate-500">Used: <span x-text="formatBytes(selectedPoint.disk_used_bytes || 0)"></span></div>
                         <div class="text-xs text-slate-500">Boot: <span x-text="selectedPoint.disk_boot_mode || 'unknown'"></span></div>
                         <div class="text-xs text-slate-500">Partition: <span x-text="selectedPoint.disk_partition_style || 'unknown'"></span></div>
+                        <div class="text-xs text-amber-300" x-show="!selectedPoint.is_restorable && selectedPoint.non_restorable_reason" x-text="selectedPoint.non_restorable_reason"></div>
                     </div>
                 </template>
             </div>
@@ -112,7 +119,11 @@
                 <div class="text-xs text-slate-500">Use this code on the recovery media to start a bare‑metal restore.</div>
                 <input type="text" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100" placeholder="Token will appear here" x-model="generatedToken" readonly>
                 <div class="flex items-center gap-2">
-                    <button class="text-xs px-3 py-2 rounded bg-emerald-600/30 border border-emerald-500 text-emerald-200" @click="generateToken()" :disabled="loadingToken">Generate Token</button>
+                    <button class="text-xs px-3 py-2 rounded bg-emerald-600/30 border border-emerald-500 text-emerald-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                            @click="generateToken()"
+                            :disabled="loadingToken || !selectedPoint || !selectedPoint.is_restorable">
+                        Generate Token
+                    </button>
                     <span class="text-xs text-slate-500" x-text="tokenExpiry"></span>
                 </div>
             </div>
@@ -164,6 +175,12 @@ function diskImageRestorePage() {
         },
 
         selectPoint(point) {
+            if (!point || point.is_restorable === false) {
+                if (point && point.non_restorable_reason) {
+                    alert(point.non_restorable_reason);
+                }
+                return;
+            }
             this.selectedPoint = point;
             this.generatedToken = '';
             this.tokenExpiry = '';

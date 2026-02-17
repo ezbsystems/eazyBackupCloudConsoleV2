@@ -156,6 +156,178 @@ scp e3-backup-agent-setup.exe user@server:/var/www/eazybackup.ca/accounts/client
 
 ---
 
+## Optional: Build WinPE Recovery ISO (Development and Production)
+
+Use this section when you need to build/update the WinPE recovery media ISO used by the tray recovery-media builder.
+
+### Prerequisites (Windows build host)
+
+- Windows ADK + WinPE add-on installed
+- Elevated PowerShell
+- WinPE build script available at: `/var/www/eazybackup.ca/recovery/winpe/build.ps1`
+- Recovery binary: `e3-recovery-agent.exe` built from `e3-backup-agent/cmd/recovery`
+
+### Step A: Build the WinPE recovery binary
+
+Run on Linux (or any Go build host):
+
+```bash
+cd /var/www/eazybackup.ca/e3-backup-agent
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
+  go build -trimpath -ldflags="-s -w" \
+  -o e3-recovery-agent.exe ./cmd/recovery
+```
+
+Copy `e3-recovery-agent.exe` to your Windows WinPE build folder (for example, `recovery\winpe\`).
+
+### Step B: Prepare WinPE driver packs (critical + full profiles)
+
+The WinPE build supports layered driver injection:
+
+```text
+recovery/winpe/drivers/
+  common-nic/                  # large generic NIC pack
+  models/<model-key>/          # optional per-model overlay
+  machines/<machine-key>/      # optional per-device overlay
+```
+
+If no drivers are present, WinPE is built with inbox drivers only.
+
+For large OEM driver trees (for example `C:\e3\WinPE Drivers`), use the staging helper to auto-build two packs:
+
+```powershell
+# Fast boot profile (Net + Storage + RAID focused)
+powershell -ExecutionPolicy Bypass -File .\stage-driver-packs.ps1 `
+  -SourceRoot "C:\e3\WinPE Drivers" `
+  -OutputRoot "C:\e3\drivers-critical" `
+  -Profile critical `
+  -CleanOutput
+
+# Broad compatibility profile (all discovered classes)
+powershell -ExecutionPolicy Bypass -File .\stage-driver-packs.ps1 `
+  -SourceRoot "C:\e3\WinPE Drivers" `
+  -OutputRoot "C:\e3\drivers-full" `
+  -Profile full `
+  -CleanOutput
+```
+
+Recommended operational model:
+- daily/default recovery ISO -> `drivers-critical` (faster startup)
+- fallback extended ISO -> `drivers-full` (maximum hardware coverage)
+
+### Step C: Build Development ISO
+
+Run on Windows from the `recovery\winpe` folder:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\build.ps1 `
+  -RecoveryExe .\e3-recovery-agent.exe `
+  -ApiBase "https://dev.eazybackup.ca/modules/addons/cloudstorage/api" `
+  -Version "dev-2026.02.14" `
+  -DriversDir "C:\e3\drivers-critical"
+```
+
+### Step D: Build Production ISO
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\build.ps1 `
+  -RecoveryExe .\e3-recovery-agent.exe `
+  -ApiBase "https://accounts.eazybackup.ca/modules/addons/cloudstorage/api" `
+  -Version "prod-2026.02.14" `
+  -DriversDir "C:\e3\drivers-critical"
+```
+
+### Optional: Build extended full-driver ISO
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\build.ps1 `
+  -RecoveryExe .\e3-recovery-agent.exe `
+  -ApiBase "https://accounts.eazybackup.ca/modules/addons/cloudstorage/api" `
+  -Version "prod-2026.02.14-full" `
+  -DriversDir "C:\e3\drivers-full"
+```
+
+### Optional flags for hardware-specific overlays
+
+Add these when needed:
+
+```powershell
+-DriverModel "hp-elitedesk-800-g6" `
+-DriverMachine "minit-b1rpgg9"
+```
+
+If vendor INF packages are unsigned, also add:
+
+```powershell
+-ForceUnsignedDrivers
+```
+
+### Build outputs
+
+`build.ps1` writes:
+
+- `recovery/winpe/out/e3-recovery-winpe-<version>.iso`
+- `recovery/winpe/out/e3-recovery-winpe.iso` (latest copy)
+
+Use `dev-*` versions for development builds and `prod-*` versions for production builds so published artifacts are easy to identify.
+
+### Runtime driver layering model (current)
+
+The base ISO stays lean. Driver packs are layered onto USB media at creation time:
+
+- **Fast / Same Hardware**: base ISO + latest source bundle (`essential`, fallback `full`, then broad extras)
+- **Dissimilar Hardware**: base ISO + broad extras (and source bundle when available)
+- WinPE startup loads drivers in this order:
+  1. `\e3\drivers\source\`
+  2. `\e3\drivers\broad\`
+
+Driver load log is written to:
+
+```text
+%SystemRoot%\Temp\e3-driver-load.log
+```
+
+### Build the portable Recovery Media Creator (Windows)
+
+Use this for the dead-source-PC flow (no tray/agent install required on the machine writing USB):
+
+```bash
+cd /var/www/eazybackup.ca/e3-backup-agent
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
+  go build -trimpath -ldflags="-s -w" \
+  -o bin/e3-recovery-media-creator.exe ./cmd/recovery-media-creator
+```
+
+Suggested publish location:
+
+```text
+/var/www/eazybackup.ca/accounts/client_installer/e3-recovery-media-creator.exe
+```
+
+### Required addon settings for media flow
+
+Set these in `tbladdonmodules` for module `cloudstorage`:
+
+- `recovery_media_base_iso_url` (default: `https://accounts.eazybackup.ca/recovery_media/e3-recovery-winpe-prod.iso`)
+- `recovery_media_base_iso_sha256` (optional but recommended)
+- `recovery_media_broad_bundle_url` (optional broad fallback pack zip)
+- `recovery_media_broad_bundle_sha256` (optional)
+- `recovery_media_creator_download_url` (client-area download link target)
+- `recovery_media_bundle_base_url` (base URL used when agents upload source bundles)
+
+### QA matrix (minimum)
+
+Validate these before release:
+
+- Tray flow (healthy source): `fast` mode writes USB and stages source drivers.
+- Tray flow fallback: no source bundle available -> warning shown, broad pack staged.
+- Client area flow (dead source): token creation + portable tool token exchange works.
+- Portable tool flow: USB write + source and/or broad bundle layering.
+- WinPE runtime: `%SystemRoot%\Temp\e3-driver-load.log` confirms source-first load order.
+- Invalid token scenarios: expired/invalid token rejected by exchange API.
+
+---
+
 ## Step 4: Install on Target Windows Machine
 
 ### Interactive Install (End Users)
@@ -299,3 +471,6 @@ run_dir: "C:\\ProgramData\\E3Backup\\runs"
 - Supported backends: local, S3
 - Poll interval configurable via `poll_interval_secs` (default: 5 seconds)
 - The tray helper auto-opens the enrollment page if the device is not enrolled
+- Driver bundles for recovery media are stored in customer destination buckets using:
+  - `dest_prefix/driver-bundles/<agentid>/<profile>.zip`
+- Driver bundle downloads in media manifests are pre-signed (12-hour TTL), so generated URLs are intentionally temporary.

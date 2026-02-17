@@ -1,0 +1,5 @@
+#!ipxe
+set base-url https://downloads.eazybackup.ca/recovery
+kernel ${base-url}/linux/vmlinuz initrd=initrd.img boot=live
+initrd ${base-url}/linux/initrd.img
+boot

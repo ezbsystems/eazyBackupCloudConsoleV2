@@ -1,128 +1,173 @@
-<script src="{$BASE_PATH_JS}/PasswordStrength.js"></script>
-<script>
-    window.langPasswordStrength = "{lang key="pwstrength"}";
-    window.langPasswordWeak = "{lang key="pwstrengthweak"}";
-    window.langPasswordModerate = "{lang key="pwstrengthmoderate"}";
-    window.langPasswordStrong = "{lang key="pwstrengthstrong"}";
-    jQuery(document).ready(function() {
-        jQuery("#inputPassword").keyup(registerFormPasswordStrengthFeedback);
-    });
-</script>
+<style>
+    .eb-invite-input {
+        width: 100%;
+        border-radius: 0.75rem;
+        border: 1px solid rgba(51, 65, 85, 0.9);
+        background: rgba(15, 23, 42, 0.7);
+        color: rgb(226, 232, 240);
+        padding: 0.625rem 0.875rem;
+        transition: border-color .2s ease, box-shadow .2s ease;
+    }
+    .eb-invite-input:focus {
+        outline: none;
+        border-color: rgb(56, 189, 248);
+        box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.5);
+    }
+    .eb-invite-label {
+        display: block;
+        margin-bottom: 0.45rem;
+        font-size: 0.8125rem;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        color: rgb(148, 163, 184);
+    }
+    .eb-invite-btn-primary {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        border-radius: 0.75rem;
+        border: 1px solid rgba(56, 189, 248, 0.5);
+        background: linear-gradient(to right, rgb(14 165 233), rgb(59 130 246));
+        color: white;
+        font-weight: 700;
+        padding: 0.625rem 1.15rem;
+        transition: transform .15s ease, box-shadow .2s ease;
+    }
+    .eb-invite-btn-primary:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 12px 26px rgba(56, 189, 248, 0.2);
+    }
+</style>
 
-<div class="mx-auto {if $loggedin || !$invite} max-w-3xl {/if} bg-gray-700 rounded shadow my-4">
-    <div class="px-5 py-5 text-center text-gray-300 bg-gray-800">
-        {if $invite}
-            <h2 class="mb-4">
-                <i class="fas fa-info fa-2x text-blue-400 pb-4"></i>
-                <br>
-                {lang key="accountInvite.youHaveBeenInvited" clientName=$invite->getClientName()}
-            </h2>
-
-            {include file="$template/includes/flashmessage.tpl"}
-
-            <p class="mb-4">
-                {lang key="accountInvite.givenAccess" senderName=$invite->getSenderName() clientName=$invite->getClientName() ot="<strong>" ct="</strong>"}
-            </p>
-
-            {if $loggedin}
-                <p class="mb-4">{lang key="accountInvite.inviteAcceptLoggedIn"}</p>
-            {else}
-                <p class="mb-4">{lang key="accountInvite.inviteAcceptLoggedOut"}</p>
-            {/if}
-
-            {if $loggedin}
-                <form method="post" action="{routePath('invite-validate', $invite->token)}">
-                    <p>
-                        <button type="submit" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded">
-                            {lang key="accountInvite.accept"}
-                        </button>
+<div class="mx-auto {if $loggedin || !$invite}max-w-3xl{else}max-w-6xl{/if} my-8 px-4">
+    <div class="relative overflow-hidden rounded-3xl border border-slate-800/80 bg-slate-950/85 shadow-[0_18px_60px_rgba(0,0,0,0.6)]">
+        <div class="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.10),_transparent_60%)]"></div>
+        <div class="relative px-6 py-8 sm:px-10 sm:py-10 text-slate-200">
+            {if $invite}
+                <div class="mb-6 text-center">
+                    <div class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-sky-500/30 bg-sky-500/10 text-sky-300">
+                        <i class="fas fa-user-check text-2xl"></i>
+                    </div>
+                    <h2 class="text-2xl font-semibold text-white">
+                        {lang key="accountInvite.youHaveBeenInvited" clientName=$invite->getClientName()}
+                    </h2>
+                    <p class="mt-3 text-base text-slate-300">
+                        {lang key="accountInvite.givenAccess" senderName=$invite->getSenderName() clientName=$invite->getClientName() ot="<strong class='text-white'>" ct="</strong>"}
                     </p>
-                </form>
-            {else}
-                <div class="flex flex-col lg:flex-row gap-4">
-                    <div class="w-full lg:w-1/2">
-                        <div class="bg-gray-800 p-6 rounded shadow">
-                            <h2 class="text-xl mb-4">{lang key="login"}</h2>
-                            <form method="post" action="{routePath('login-validate')}" class="text-left">
-                                <div class="mb-4">
-                                    <label for="inputLoginEmail" class="block mb-1">{lang key="loginemail"}</label>
-                                    <input type="email" name="username" id="inputLoginEmail" placeholder="{lang key="loginemail"}" value="{$formdata.email}" class="w-full p-2 rounded border border-gray-600 bg-gray-700 text-gray-300 focus:outline-none focus:border-blue-500">
+                    <p class="mt-2 text-sm text-slate-400">
+                        {if $loggedin}
+                            {lang key="accountInvite.inviteAcceptLoggedIn"}
+                        {else}
+                            {lang key="accountInvite.inviteAcceptLoggedOut"}
+                        {/if}
+                    </p>
+                </div>
+
+                <div class="mb-6">
+                    {include file="$template/includes/flashmessage.tpl"}
+                </div>
+
+                {if $loggedin}
+                    <div class="rounded-2xl border border-slate-800 bg-slate-900/65 p-8 text-center">
+                        <p class="mb-5 text-slate-300">{lang key="accountInvite.inviteAcceptLoggedIn"}</p>
+                        <form method="post" action="{routePath('invite-validate', $invite->token)}">
+                            <button type="submit" class="eb-invite-btn-primary">
+                                <i class="fas fa-check"></i>
+                                {lang key="accountInvite.accept"}
+                            </button>
+                        </form>
+                    </div>
+                {else}
+                    <div class="grid grid-cols-1 gap-6 xl:grid-cols-2">
+                        <div class="rounded-2xl border border-slate-800 bg-slate-900/65 p-6 sm:p-7">
+                            <h3 class="text-lg font-semibold text-white mb-1">{lang key="login"}</h3>
+                            <p class="text-xs uppercase tracking-wide text-slate-400 mb-6">{lang key="accountInvite.accept"}</p>
+                            <form method="post" action="{routePath('login-validate')}" class="text-left space-y-4">
+                                <div>
+                                    <label for="inputLoginEmail" class="eb-invite-label">{lang key="loginemail"}</label>
+                                    <input type="email" name="username" id="inputLoginEmail" placeholder="{lang key='loginemail'}" value="{$formdata.email}" class="eb-invite-input">
                                 </div>
-                                <div class="mb-4">
-                                    <label for="inputLoginPassword" class="block mb-1">{lang key="loginpassword"}</label>
-                                    <input type="password" name="password" id="inputLoginPassword" placeholder="{lang key="loginpassword"}" class="w-full p-2 rounded border border-gray-600 bg-gray-700 text-gray-300 focus:outline-none focus:border-blue-500">
+                                <div>
+                                    <label for="inputLoginPassword" class="eb-invite-label">{lang key="loginpassword"}</label>
+                                    <input type="password" name="password" id="inputLoginPassword" placeholder="{lang key='loginpassword'}" class="eb-invite-input">
                                 </div>
-                                {include file="$template/includes/captcha.tpl" captchaForm=$captchaForm containerClass="flex flex-wrap gap-4" nocache}
-                                <div class="text-center">
-                                    <button type="submit" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded{$captcha->getButtonClass($captchaForm)}">
-                                        {lang key="login"}
+
+                                <div class="pt-2">
+                                    {include file="$template/includes/captcha.tpl" captchaForm=$captchaForm containerClass="flex flex-wrap gap-4" nocache}
+                                </div>
+
+                                <div class="pt-2">
+                                    <button
+                                        type="submit"
+                                        class="group relative inline-flex w-full items-center justify-center overflow-hidden rounded-full px-[2px] py-[2px] focus:outline-none{$captcha->getButtonClass($captchaForm)}"
+                                    >
+                                        <span
+                                            class="relative inline-flex w-full items-center justify-center rounded-full bg-gradient-to-r from-[#FE5000] via-[#ff8a3a] to-[#FE5000] px-4 py-2 text-sm font-semibold text-white shadow-[0_0_25px_rgba(254,80,0,0.55)] transition duration-300 group-hover:shadow-[0_0_40px_rgba(254,80,0,0.85)] group-hover:translate-y-[1px]"
+                                        >
+                                            {lang key="login"}
+                                        </span>
                                     </button>
                                 </div>
                             </form>
                         </div>
-                    </div>
-                    <div class="w-full lg:w-1/2">
-                        <div class="bg-gray-800 p-6 rounded shadow">
-                            <h2 class="text-xl mb-4">{lang key="register"}</h2>
-                            <form method="post" action="{routePath('invite-validate', $invite->token)}" class="text-left">
-                                <div class="mb-4">
-                                    <label for="inputFirstName" class="block mb-1">{lang key="clientareafirstname"}</label>
-                                    <input type="text" name="firstname" id="inputFirstName" placeholder="{lang key="clientareafirstname"}" value="{$formdata.firstname}" class="w-full p-2 rounded border border-gray-600 bg-gray-700 text-gray-300 focus:outline-none focus:border-blue-500">
-                                </div>
-                                <div class="mb-4">
-                                    <label for="inputLastName" class="block mb-1">{lang key="clientarealastname"}</label>
-                                    <input type="text" name="lastname" id="inputLastName" placeholder="{lang key="clientarealastname"}" value="{$formdata.lastname}" class="w-full p-2 rounded border border-gray-600 bg-gray-700 text-gray-300 focus:outline-none focus:border-blue-500">
-                                </div>
-                                <div class="mb-4">
-                                    <label for="inputEmail" class="block mb-1">{lang key="loginemail"}</label>
-                                    <input type="email" name="email" id="inputEmail" placeholder="{lang key="loginemail"}" value="{$formdata.email}" class="w-full p-2 rounded border border-gray-600 bg-gray-700 text-gray-300 focus:outline-none focus:border-blue-500">
-                                </div>
-                                <div class="mb-4">
-                                    <label for="inputPassword" class="block mb-1">{lang key="loginpassword"}</label>
-                                    <div class="flex">
-                                        <input type="password" name="password" id="inputPassword" data-error-threshold="{$pwStrengthErrorThreshold}" data-warning-threshold="{$pwStrengthWarningThreshold}" placeholder="{lang key="loginpassword"}" autocomplete="off" class="flex-grow p-2 rounded-l border-t border-l border-b border-gray-600 bg-gray-700 text-gray-300 focus:outline-none focus:border-blue-500" />
-                                        <button type="button" class="bg-blue-500 hover:bg-blue-600 text-white font-bold px-4 rounded-r generate-password" data-targetfields="inputPassword">
-                                            {lang key="generatePassword.btnShort"}
-                                        </button>
-                                    </div>
 
-                                    <div class="mt-3">
-                                        <div class="w-full bg-gray-600 rounded h-2">
-                                            <div class="bg-green-500 rounded h-2 bg-striped" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" id="passwordStrengthMeterBar" style="width: 0%;"></div>
-                                        </div>
-                                        <p class="text-center text-sm text-gray-400 mt-2" id="passwordStrengthTextLabel">
-                                            {lang key="pwstrength"}: {lang key="pwstrengthenter"}
-                                        </p>
+                        <div class="rounded-2xl border border-slate-800 bg-slate-900/65 p-6 sm:p-7">
+                            <h3 class="text-lg font-semibold text-white mb-1">{lang key="register"}</h3>
+                            <p class="text-xs uppercase tracking-wide text-slate-400 mb-6">{lang key="accountInvite.accept"}</p>
+                            <form method="post" action="{routePath('invite-validate', $invite->token)}" class="text-left space-y-4">
+                                <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                    <div>
+                                        <label for="inputFirstName" class="eb-invite-label">{lang key="clientareafirstname"}</label>
+                                        <input type="text" name="firstname" id="inputFirstName" placeholder="{lang key='clientareafirstname'}" value="{$formdata.firstname}" class="eb-invite-input">
+                                    </div>
+                                    <div>
+                                        <label for="inputLastName" class="eb-invite-label">{lang key="clientarealastname"}</label>
+                                        <input type="text" name="lastname" id="inputLastName" placeholder="{lang key='clientarealastname'}" value="{$formdata.lastname}" class="eb-invite-input">
                                     </div>
                                 </div>
+
+                                <div>
+                                    <label for="inputEmail" class="eb-invite-label">{lang key="loginemail"}</label>
+                                    <input type="email" name="email" id="inputEmail" placeholder="{lang key='loginemail'}" value="{$formdata.email}" class="eb-invite-input">
+                                </div>
+
+                                <div>
+                                    <label for="inputPassword" class="eb-invite-label">{lang key="loginpassword"}</label>
+                                    <input type="password" name="password" id="inputPassword" placeholder="{lang key='loginpassword'}" autocomplete="off" class="eb-invite-input" />
+                                </div>
+
                                 {if $accept_tos}
-                                    <div class="mb-4 text-center">
-                                        <label class="inline-flex items-center">
-                                            <input type="checkbox" name="accept" id="accept" class="form-checkbox h-4 w-4 text-blue-500">
-                                            <span class="ml-2">{lang key='ordertosagreement'} <a href="{$tos_url}" target="_blank" class="text-blue-400 hover:underline">{lang key='ordertos'}</a></span>
+                                    <div class="rounded-xl border border-slate-800 bg-slate-900/50 px-4 py-3">
+                                        <label class="inline-flex items-start gap-3 text-sm text-slate-300">
+                                            <input type="checkbox" name="accept" id="accept" class="mt-0.5 h-4 w-4 rounded border-slate-600 bg-slate-800 text-sky-500">
+                                            <span>{lang key='ordertosagreement'} <a href="{$tos_url}" target="_blank" class="font-semibold text-sky-300 hover:text-sky-200 hover:underline">{lang key='ordertos'}</a></span>
                                         </label>
                                     </div>
                                 {/if}
-                                {include file="$template/includes/captcha.tpl" captchaForm=$captchaFormRegister containerClass="flex flex-wrap gap-4" nocache}
-                                <div class="text-center">
-                                    <button type="submit" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded{$captcha->getButtonClass($captchaFormRegister)}">
+
+                                <div class="pt-2">
+                                    {include file="$template/includes/captcha.tpl" captchaForm=$captchaFormRegister containerClass="flex flex-wrap gap-4" nocache}
+                                </div>
+
+                                <div class="pt-2 text-right">
+                                    <button type="submit" class="btn-accent{$captcha->getButtonClass($captchaFormRegister)}">
                                         {lang key="register"}
                                     </button>
                                 </div>
                             </form>
                         </div>
                     </div>
+                {/if}
+            {else}
+                <div class="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-6 py-8 text-center">
+                    <div class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-rose-500/30 bg-rose-500/10 text-rose-300">
+                        <i class="fas fa-times text-2xl"></i>
+                    </div>
+                    <h2 class="text-2xl font-semibold text-white">{lang key="accountInvite.notFound"}</h2>
+                    <p class="mt-3 text-slate-300">{lang key="accountInvite.contactAdministrator"}</p>
                 </div>
             {/if}
-        {else}
-            <h2 class="mb-4">
-                <i class="fas fa-times fa-2x text-red-500 pb-4"></i><br>
-                {lang key="accountInvite.notFound"}
-            </h2>
-
-            <p class="pt-4">{lang key="accountInvite.contactAdministrator"}</p>
-        {/if}
+        </div>
     </div>
 </div>
-
-<br><br>

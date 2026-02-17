@@ -3136,6 +3136,58 @@ class BucketController {
     }
 
     /**
+     * Normalize a listed key/prefix relative to the active prefix.
+     *
+     * @param string $name
+     * @param string $currentPrefix
+     * @param bool $isFolder
+     *
+     * @return string
+     */
+    private function normalizeListedName($name, $currentPrefix = '', $isFolder = false)
+    {
+        $name = ltrim((string)$name, '/');
+        $currentPrefix = ltrim(trim((string)$currentPrefix), '/');
+        if ($currentPrefix !== '' && substr($currentPrefix, -1) !== '/') {
+            $currentPrefix .= '/';
+        }
+
+        if ($currentPrefix !== '' && strpos($name, $currentPrefix) === 0) {
+            $name = substr($name, strlen($currentPrefix));
+        }
+
+        $name = ltrim((string)$name, '/');
+        if ($isFolder) {
+            $name = rtrim($name, '/');
+            if ($name !== '') {
+                $name .= '/';
+            }
+        }
+
+        return $name;
+    }
+
+    /**
+     * Normalize a browse prefix for listObjectsV2.
+     *
+     * For folder traversal, S3 Prefix should end with '/' when non-empty,
+     * otherwise delimiter grouping can collapse into the same prefix.
+     *
+     * @param string $prefix
+     *
+     * @return string
+     */
+    private function normalizeBrowsePrefix($prefix = '')
+    {
+        $prefix = trim((string)$prefix);
+        $prefix = ltrim($prefix, '/');
+        if ($prefix !== '' && substr($prefix, -1) !== '/') {
+            $prefix .= '/';
+        }
+        return $prefix;
+    }
+
+    /**
      * Get the bucket objects
      *
      * @param array $options
@@ -3144,6 +3196,7 @@ class BucketController {
      */
     private function getBucketObjects($options)
     {
+        $normalizedPrefix = $this->normalizeBrowsePrefix($options['prefix'] ?? '');
         $params = [
             'Bucket' => $options['bucket'],
             'Delimiter' => $options['delimiter']
@@ -3153,8 +3206,8 @@ class BucketController {
             $params['MaxKeys'] = $options['max_keys'];
         }
 
-        if (!empty($options['prefix'])) {
-            $params['Prefix'] = $options['prefix'];
+        if ($normalizedPrefix !== '') {
+            $params['Prefix'] = $normalizedPrefix;
         }
 
         if (!empty($options['continuation_token'])) {
@@ -3162,6 +3215,7 @@ class BucketController {
         }
 
         $objects = [];
+        $seenFolders = [];
         $count = 0;
         $continuationToken = null;
 
@@ -3173,8 +3227,13 @@ class BucketController {
                     if (!isset($prefix['Prefix'])) {
                         continue;
                     }
+                    $name = $this->normalizeListedName($prefix['Prefix'], $normalizedPrefix, true);
+                    if ($name === '' || isset($seenFolders[$name])) {
+                        continue;
+                    }
+                    $seenFolders[$name] = true;
                     $objects[] = [
-                        'name' => $prefix['Prefix'],
+                        'name' => $name,
                         'size' => '0',
                         'type' => 'folder',
                         'modified' => ''
@@ -3188,8 +3247,13 @@ class BucketController {
                     if (!isset($content['Key'])) {
                         continue;
                     }
+                    $name = $this->normalizeListedName($content['Key'], $normalizedPrefix, false);
+                    if ($name === '') {
+                        // Ignore the current folder marker object (e.g. "path/to/folder/").
+                        continue;
+                    }
                     $objects[] = [
-                       'name' => $content['Key'],
+                       'name' => $name,
                        'size' => HelperController::formatSizeUnits($content['Size']),
                        'type' => 'file',
                        'modified' => $content['LastModified']->format("d M Y")
@@ -3198,9 +3262,67 @@ class BucketController {
                 }
             }
 
-            if ($result['IsTruncated']) {
-                $continuationToken = $result['NextContinuationToken'];
+            $continuationToken = $result['IsTruncated'] ? ($result['NextContinuationToken'] ?? null) : null;
+
+            // On initial page load, walk additional pages to discover all folder prefixes
+            // at this level (without pulling all file rows into the UI response).
+            if (empty($options['continuation_token']) && $continuationToken) {
+                $prefixParams = [
+                    'Bucket' => $options['bucket'],
+                    'Delimiter' => $options['delimiter'],
+                    'MaxKeys' => 1000
+                ];
+                if ($normalizedPrefix !== '') {
+                    $prefixParams['Prefix'] = $normalizedPrefix;
+                }
+
+                $prefixScanToken = null;
+                $prefixPagesScanned = 0;
+                $maxPrefixScanPages = 50;
+                do {
+                    if ($prefixScanToken) {
+                        $prefixParams['ContinuationToken'] = $prefixScanToken;
+                    } else {
+                        unset($prefixParams['ContinuationToken']);
+                    }
+
+                    $prefixResult = $this->s3Client->listObjectsV2($prefixParams);
+                    if (isset($prefixResult['CommonPrefixes'])) {
+                        foreach ($prefixResult['CommonPrefixes'] as $prefix) {
+                            if (!isset($prefix['Prefix'])) {
+                                continue;
+                            }
+                            $name = $this->normalizeListedName($prefix['Prefix'], $normalizedPrefix, true);
+                            if ($name === '' || isset($seenFolders[$name])) {
+                                continue;
+                            }
+                            $seenFolders[$name] = true;
+                            $objects[] = [
+                                'name' => $name,
+                                'size' => '0',
+                                'type' => 'folder',
+                                'modified' => ''
+                            ];
+                            $count++;
+                        }
+                    }
+
+                    $prefixScanToken = (!empty($prefixResult['IsTruncated']) && !empty($prefixResult['NextContinuationToken']))
+                        ? $prefixResult['NextContinuationToken']
+                        : null;
+                    $prefixPagesScanned++;
+                } while ($prefixScanToken && $prefixPagesScanned < $maxPrefixScanPages);
             }
+
+            usort($objects, function ($a, $b) {
+                $aType = strtolower((string)($a['type'] ?? 'file'));
+                $bType = strtolower((string)($b['type'] ?? 'file'));
+                if ($aType !== $bType) {
+                    return $aType === 'folder' ? -1 : 1;
+                }
+                return strcasecmp((string)($a['name'] ?? ''), (string)($b['name'] ?? ''));
+            });
+
             $status = 'success';
             $message = 'Objects retrieved successfully.';
         } catch (S3Exception $e) {
@@ -3234,6 +3356,7 @@ class BucketController {
      */
     private function getAllBucketObjects($options)
     {
+        $normalizedPrefix = $this->normalizeBrowsePrefix($options['prefix'] ?? '');
         $objects = [];
         $count = 0;
         $continuationToken = null;
@@ -3246,8 +3369,8 @@ class BucketController {
             $params['MaxKeys'] = $options['max_keys'];
         }
 
-        if (!empty($options['prefix'])) {
-            $params['Prefix'] = $options['prefix'];
+        if ($normalizedPrefix !== '') {
+            $params['Prefix'] = $normalizedPrefix;
         }
 
         if (!empty($options['continuation_token'])) {
@@ -3267,8 +3390,12 @@ class BucketController {
                         if (!isset($prefix['Prefix'])) {
                             continue;
                         }
+                        $name = $this->normalizeListedName($prefix['Prefix'], $normalizedPrefix, true);
+                        if ($name === '') {
+                            continue;
+                        }
                         $objects[] = [
-                            'name' => $prefix['Prefix'],
+                            'name' => $name,
                             'size' => '0',
                             'type' => 'folder',
                             'modified' => ''
@@ -3282,8 +3409,13 @@ class BucketController {
                         if (!isset($content['Key'])) {
                             continue;
                         }
+                        $name = $this->normalizeListedName($content['Key'], $normalizedPrefix, false);
+                        if ($name === '') {
+                            // Ignore the current folder marker object (e.g. "path/to/folder/").
+                            continue;
+                        }
                         $objects[] = [
-                           'name' => $content['Key'],
+                           'name' => $name,
                            'size' => HelperController::formatSizeUnits($content['Size']),
                            'type' => 'file',
                            'modified' => $content['LastModified']->format("d M Y")

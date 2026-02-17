@@ -165,6 +165,19 @@ if (!$restorePoint) {
     respondError('not_found', 'Restore point not found', 404);
 }
 
+if (($restorePoint->status ?? '') === 'metadata_incomplete') {
+    respondError('metadata_incomplete', 'Restore metadata is incomplete for this restore point. Create a fresh disk image backup and try again.', 400);
+}
+if (!in_array(($restorePoint->status ?? ''), ['success', 'warning'], true)) {
+    respondError('invalid_restore_point', 'Restore point is not available for recovery', 400);
+}
+
+$restoreEngine = strtolower((string) ($restorePoint->engine ?? ''));
+$restoreLayout = trim((string) ($restorePoint->disk_layout_json ?? ''));
+if ($restoreEngine === 'disk_image' && $restoreLayout === '') {
+    respondError('invalid_restore_point', 'Restore point is missing disk layout metadata. Create a new disk image backup and retry.', 400);
+}
+
 $jobId = (int) ($restorePoint->job_id ?? 0);
 if ($jobId <= 0) {
     respondError('invalid_state', 'Restore point missing job reference', 400);

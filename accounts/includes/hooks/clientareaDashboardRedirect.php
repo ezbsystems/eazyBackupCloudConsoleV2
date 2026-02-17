@@ -9,8 +9,11 @@ add_hook('ClientAreaPage', 500, function($vars) {
         return;
     }
 
-    // Only fire this hook when the URL is exactly '/clientarea.php'
-    // This prevents the redirect from triggering on other pages.
+    // Temporary: disable query-string aware redirect check while testing.
+    // $requestPath = parse_url((string) ($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH);
+    // if ($requestPath !== '/clientarea.php') {
+    //     return;
+    // }
     if (($_SERVER['REQUEST_URI'] ?? '') !== '/clientarea.php') {
         return;
     }

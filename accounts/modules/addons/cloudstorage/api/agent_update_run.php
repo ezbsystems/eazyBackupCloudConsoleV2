@@ -155,7 +155,7 @@ updateAgentMetadata((int) $agent->id, $body);
 $run = Capsule::table('s3_cloudbackup_runs as r')
     ->join('s3_cloudbackup_jobs as j', 'r.job_id', '=', 'j.id')
     ->where('r.id', $runId)
-    ->select('r.id', 'r.status', 'r.job_id', 'j.client_id')
+    ->select('r.id', 'r.status', 'r.job_id', 'r.stats_json', 'j.client_id')
     ->first();
 
 if (!$run || (int)$run->client_id !== (int)$agent->client_id) {
@@ -204,7 +204,20 @@ foreach ($fields as $field) {
         continue;
     }
     if (in_array($field, ['progress_json', 'stats_json'], true)) {
-        $update[$field] = is_array($val) ? json_encode($val) : $val;
+        if ($field === 'stats_json' && is_array($val)) {
+            $existingStats = [];
+            if (!empty($run->stats_json) && is_string($run->stats_json)) {
+                $decodedExisting = json_decode($run->stats_json, true);
+                if (json_last_error() === JSON_ERROR_NONE && is_array($decodedExisting)) {
+                    $existingStats = $decodedExisting;
+                }
+            }
+            // Merge incremental stats updates so metadata (e.g. disk_layout) is preserved.
+            $mergedStats = array_replace_recursive($existingStats, $val);
+            $update[$field] = json_encode($mergedStats);
+        } else {
+            $update[$field] = is_array($val) ? json_encode($val) : $val;
+        }
         continue;
     }
     if (in_array($field, ['error_summary', 'log_excerpt', 'validation_log_excerpt'], true) && is_string($val)) {
