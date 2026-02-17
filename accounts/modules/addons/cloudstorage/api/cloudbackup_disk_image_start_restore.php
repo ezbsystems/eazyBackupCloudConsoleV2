@@ -51,8 +51,24 @@ if (!$restorePoint) {
     respond(['status' => 'fail', 'message' => 'Restore point not found']);
 }
 
+if (($restorePoint->status ?? '') === 'metadata_incomplete') {
+    respond([
+        'status' => 'fail',
+        'message' => 'Restore metadata is incomplete for this restore point. Create a fresh disk image backup and try again.',
+    ]);
+}
+
 if (!in_array(($restorePoint->status ?? ''), ['success', 'warning'], true)) {
     respond(['status' => 'fail', 'message' => 'Restore point is not available']);
+}
+
+$restoreEngine = strtolower((string) ($restorePoint->engine ?? ''));
+$restoreLayout = trim((string) ($restorePoint->disk_layout_json ?? ''));
+if ($restoreEngine === 'disk_image' && $restoreLayout === '') {
+    respond([
+        'status' => 'fail',
+        'message' => 'Restore point is missing disk layout metadata. Create a new disk image backup and retry.',
+    ]);
 }
 
 if (MspController::isMspClient($clientId) && !empty($restorePoint->tenant_id)) {

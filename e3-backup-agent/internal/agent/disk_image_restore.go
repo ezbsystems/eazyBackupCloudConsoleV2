@@ -14,13 +14,13 @@ import (
 )
 
 type DiskRestorePayload struct {
-	ManifestID       string `json:"manifest_id"`
-	RestoreRunID     int64  `json:"restore_run_id"`
-	TargetDisk       string `json:"target_disk"`
-	TargetDiskBytes  int64  `json:"target_disk_bytes"`
-	DiskLayoutJSON   any    `json:"disk_layout_json"`
-	ShrinkEnabled    bool   `json:"shrink_enabled"`
-	AllowBootMismatch bool  `json:"allow_boot_mismatch"`
+	ManifestID        string `json:"manifest_id"`
+	RestoreRunID      int64  `json:"restore_run_id"`
+	TargetDisk        string `json:"target_disk"`
+	TargetDiskBytes   int64  `json:"target_disk_bytes"`
+	DiskLayoutJSON    any    `json:"disk_layout_json"`
+	ShrinkEnabled     bool   `json:"shrink_enabled"`
+	AllowBootMismatch bool   `json:"allow_boot_mismatch"`
 }
 
 type partitionPlan struct {
@@ -146,7 +146,9 @@ func (r *Runner) executeDiskRestoreCommand(ctx context.Context, cmd PendingComma
 
 	layout := parseDiskLayoutPayload(payload.DiskLayoutJSON)
 	if layout == nil {
-		layout = &DiskLayout{}
+		err := fmt.Errorf("restore point is missing disk layout metadata; create a new disk image backup and retry restore")
+		r.finishDiskRestoreWithError(trackingRunID, cmd.CommandID, err)
+		return
 	}
 
 	if layout.BootMode != "" && layout.BootMode != "unknown" {

@@ -1214,6 +1214,18 @@ class CloudBackupController {
                     ->first();
             }
 
+            $decodedStats = [];
+            if (!empty($run->stats_json)) {
+                $decoded = json_decode((string) $run->stats_json, true);
+                if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                    $decodedStats = $decoded;
+                }
+            }
+            $driverBundles = [];
+            if (!empty($decodedStats['driver_bundles']) && is_array($decodedStats['driver_bundles'])) {
+                $driverBundles = $decodedStats['driver_bundles'];
+            }
+
             $base = [
                 'client_id' => (int) $job->client_id,
                 'tenant_id' => $agent->tenant_id ?? null,
@@ -1238,26 +1250,30 @@ class CloudBackupController {
             ];
 
             // Attach disk layout metadata when present (disk_image engine)
-            if (!empty($run->stats_json)) {
-                $decodedStats = json_decode((string) $run->stats_json, true);
-                if (json_last_error() === JSON_ERROR_NONE && is_array($decodedStats)) {
-                    $layout = $decodedStats['disk_layout'] ?? null;
-                    if (is_array($layout)) {
-                        $base['disk_layout_json'] = json_encode($layout);
-                        $base['disk_total_bytes'] = $layout['total_bytes'] ?? null;
-                        $base['disk_used_bytes'] = $layout['used_bytes'] ?? null;
-                        $base['disk_boot_mode'] = $layout['boot_mode'] ?? null;
-                        $base['disk_partition_style'] = $layout['partition_style'] ?? null;
-                    }
+            $layout = $decodedStats['disk_layout'] ?? null;
+            if (is_array($layout)) {
+                $base['disk_layout_json'] = json_encode($layout);
+                $base['disk_total_bytes'] = $layout['total_bytes'] ?? null;
+                $base['disk_used_bytes'] = $layout['used_bytes'] ?? null;
+                $base['disk_boot_mode'] = $layout['boot_mode'] ?? null;
+                $base['disk_partition_style'] = $layout['partition_style'] ?? null;
+            }
+
+            // Disk image readiness gate:
+            // keep data-successful runs, but classify non-restorable points as metadata_incomplete.
+            if ((string) ($base['engine'] ?? '') === 'disk_image') {
+                $readiness = $decodedStats['restore_readiness'] ?? null;
+                $readinessStatus = strtolower((string) ($readiness['status'] ?? ''));
+                $readinessFailed = ($readinessStatus === 'metadata_incomplete');
+                $hasDiskLayout = is_array($layout);
+                if ($readinessFailed || !$hasDiskLayout) {
+                    $base['status'] = 'metadata_incomplete';
                 }
             }
 
             $manifestId = (string) ($run->log_ref ?? '');
-            if ($manifestId === '' && !empty($run->stats_json)) {
-                $decoded = json_decode((string) $run->stats_json, true);
-                if (json_last_error() === JSON_ERROR_NONE && !empty($decoded['manifest_id'])) {
-                    $manifestId = (string) $decoded['manifest_id'];
-                }
+            if ($manifestId === '' && !empty($decodedStats['manifest_id'])) {
+                $manifestId = (string) $decodedStats['manifest_id'];
             }
 
             $results = [];
@@ -1306,12 +1322,65 @@ class CloudBackupController {
             }
 
             $base['manifest_id'] = $manifestId;
-            $results[] = self::upsertRestorePoint($base);
+            $upsert = self::upsertRestorePoint($base);
+            $results[] = $upsert;
+            if (!empty($driverBundles)) {
+                self::persistDriverBundlesForRun($run, $job, $driverBundles, (int) ($upsert['id'] ?? 0));
+            }
 
             return ['status' => 'success', 'count' => count($results)];
         } catch (\Throwable $e) {
             logModuleCall(self::$module, 'recordRestorePointsForRun', ['run_id' => $runId], $e->getMessage());
             return ['status' => 'fail', 'message' => 'Failed to record restore points'];
+        }
+    }
+
+    /**
+     * Persist source driver bundle metadata from run stats_json.
+     *
+     * @param object $run
+     * @param object $job
+     * @param array $driverBundles
+     * @param int $restorePointId
+     * @return void
+     */
+    private static function persistDriverBundlesForRun(object $run, object $job, array $driverBundles, int $restorePointId = 0): void
+    {
+        try {
+            RecoveryMediaBundleService::ensureSchema();
+            foreach ($driverBundles as $profile => $bundle) {
+                if (!is_array($bundle)) {
+                    continue;
+                }
+                $artifactURL = trim((string) ($bundle['artifact_url'] ?? ''));
+                if ($artifactURL === '') {
+                    continue;
+                }
+                $payload = [
+                    'client_id' => (int) ($job->client_id ?? 0),
+                    'tenant_id' => $run->tenant_id ?? null,
+                    'agent_id' => (int) ($run->agent_id ?? $job->agent_id ?? 0),
+                    'run_id' => (int) ($run->id ?? 0),
+                    'restore_point_id' => $restorePointId > 0 ? $restorePointId : null,
+                    'profile' => RecoveryMediaBundleService::normalizeProfile((string) $profile),
+                    'bundle_kind' => 'source',
+                    'status' => 'ready',
+                    'artifact_name' => (string) ($bundle['artifact_name'] ?? ('drivers-' . $profile . '.zip')),
+                    'artifact_url' => $artifactURL,
+                    'artifact_path' => isset($bundle['artifact_path']) ? (string) $bundle['artifact_path'] : null,
+                    'dest_bucket_id' => isset($bundle['dest_bucket_id']) ? (int) $bundle['dest_bucket_id'] : null,
+                    'dest_prefix' => isset($bundle['dest_prefix']) ? (string) $bundle['dest_prefix'] : null,
+                    's3_user_id' => isset($bundle['s3_user_id']) ? (int) $bundle['s3_user_id'] : null,
+                    'sha256' => (string) ($bundle['sha256'] ?? ''),
+                    'size_bytes' => isset($bundle['size_bytes']) ? (int) $bundle['size_bytes'] : null,
+                    'backup_finished_at' => $run->finished_at ?? null,
+                ];
+                RecoveryMediaBundleService::upsertBundle($payload);
+            }
+        } catch (\Throwable $e) {
+            logModuleCall(self::$module, 'persistDriverBundlesForRun', [
+                'run_id' => (int) ($run->id ?? 0),
+            ], $e->getMessage());
         }
     }
 

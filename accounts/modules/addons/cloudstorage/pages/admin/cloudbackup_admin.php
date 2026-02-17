@@ -121,6 +121,11 @@ function cloudbackup_get_tenants_for_filter(): array
 function cloudstorage_admin_cloudbackup($vars)
 {
     ob_start();
+    $allowedTabs = ['dashboard', 'jobs', 'runs', 'agents', 'clients'];
+    $activeTab = strtolower(trim((string) ($_REQUEST['tab'] ?? 'dashboard')));
+    if (!in_array($activeTab, $allowedTabs, true)) {
+        $activeTab = 'dashboard';
+    }
     
     // Handle force cancel run
     if (isset($_GET['cancel_run'])) {
@@ -350,6 +355,7 @@ function cloudstorage_admin_cloudbackup($vars)
     
     // Prepare template variables
     $templateVars = [
+        'active_tab' => $activeTab,
         'jobs' => $jobs,
         'runs' => $runs,
         'agents' => $agents,

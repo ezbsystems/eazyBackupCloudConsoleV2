@@ -2030,7 +2030,7 @@ sequenceDiagram
 - **PXE/iPXE + BMC ISO boot artifacts** (placeholders only).
 - **Recovery token exchange → ephemeral S3 creds** (currently returns decrypted static keys).
 - **Recovery JSON injection into media** (not yet embedded by tray wizard).
-- **Dissimilar hardware driver injection** via DISM (not implemented).
+- **Dissimilar hardware driver injection** via DISM (`recovery/winpe/build.ps1`) with common NIC pack + model/per-machine overlays.
 - **Disk restore to smaller disks on Windows** (Linux‑only shrink).
 - **Boot mode conversion** (mismatch is blocked unless explicitly allowed; no conversion yet).
 
@@ -2045,7 +2045,7 @@ sequenceDiagram
 ### Outstanding tasks (next steps)
 - Build and publish recovery images (Linux + WinPE), add checksum/signing.
 - Implement manifest + checksum validation in tray wizard; embed `recovery.json` into media.
-- Add DISM driver injection in WinPE recovery path.
+- Curate and maintain the WinPE common NIC pack; add model/per-machine overlays as new hardware is validated.
 - Implement PXE/iPXE + BMC ISO publishing workflow.
 - Add recovery UI disk‑layout preview and explicit destructive confirmation steps.
 
@@ -2714,6 +2714,71 @@ The sidebar navigation now includes a "Download Agent" menu item that opens a fl
 Both buttons use orange styling (`bg-orange-600`) and include platform icons.
 
 **Location**: `accounts/templates/eazyBackup/header.tpl` (sidebar navigation)
+
+---
+
+## Recovery Media Builder (Dual Path, Feb 2026)
+
+### New backend pieces
+
+- `s3_cloudbackup_driver_bundles` (lazy-created) stores source bundle metadata:
+  - `client_id`, `agent_id`, `run_id`, `restore_point_id`
+  - `profile` (`essential|full|broad`)
+  - `artifact_url`, `artifact_path`, `sha256`, `size_bytes`
+  - destination linkage: `dest_bucket_id`, `dest_prefix`, `s3_user_id`
+  - `backup_finished_at`
+- Source bundles now live in each customer destination bucket (not webserver filesystem):
+  - Object key convention: `dest_prefix/driver-bundles/<agentid>/<profile>.zip`
+- Retention coupling: none for driver bundles (kept indefinitely unless manually removed).
+- Server-side selector fallback:
+  1. latest `essential` source bundle
+  2. latest `full` source bundle
+  3. broad extras URL (with warning)
+
+### New APIs
+
+- Agent APIs:
+  - `api/agent_driver_bundle_exists.php`
+  - `api/agent_upload_driver_bundle.php`
+  - `api/agent_get_media_manifest.php`
+- Client/token APIs:
+  - `api/cloudbackup_media_build_token_create.php`
+  - `api/cloudbackup_media_build_token_exchange.php`
+
+### Driver bundle capture policy
+
+- Default capture profile is `essential` (network + storage classes).
+- After each successful disk-image run, the agent checks whether the destination already has a source bundle for that profile.
+- If missing, the agent captures and uploads the bundle.
+- If present, capture/upload is skipped (one copy per device per destination path).
+- Bundle operations remain best-effort and do not fail the backup run.
+
+### Bundle access model
+
+- Media manifest APIs return short-lived pre-signed `GetObject` URLs for source bundles.
+- Presign TTL is 12 hours.
+- This applies to both tray (`agent_get_media_manifest.php`) and portable token exchange (`cloudbackup_media_build_token_exchange.php`).
+
+### Client-area flow
+
+- New page: `index.php?m=cloudstorage&page=e3backup&view=recovery_media`
+- User selects source agent and mode (`fast` / `dissimilar`)
+- Page issues signed media-build token for portable writer tool
+
+### Tray flow
+
+- Tray recovery builder now sends `build_mode`
+- Tray resolves media manifest via agent-auth API
+- For WinPE, tray writes base ISO then layers bundles onto USB:
+  - `\e3\drivers\source\`
+  - `\e3\drivers\broad\`
+
+### WinPE runtime load order
+
+- Startup script loads USB driver overlays in order:
+  1. source
+  2. broad
+- Log path: `%SystemRoot%\Temp\e3-driver-load.log`
 
 ---
 

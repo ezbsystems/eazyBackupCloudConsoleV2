@@ -23,6 +23,26 @@
 !/e3-backup-agent/
 !/e3-backup-agent/**
 
+# Recovery media scripts/docs (track these)
+!/recovery/
+!/recovery/**
+
+# Keep generated recovery build artifacts out of git
+/recovery/**/out/
+/recovery/**/work/
+/recovery/**/*.iso
+/recovery/**/*.img
+/recovery/**/*.wim
+/recovery/**/*.vhd
+/recovery/**/*.vhdx
+
+# Keep local driver payloads out of git (track docs/placeholders only)
+/recovery/winpe/drivers/**
+!/recovery/winpe/drivers/
+!/recovery/winpe/drivers/**/
+!/recovery/winpe/drivers/README.md
+!/recovery/winpe/drivers/**/.gitkeep
+
 # Our backup script
 !/backup_whmcs_db.sh
 

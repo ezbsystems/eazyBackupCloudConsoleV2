@@ -1,0 +1,89 @@
+<html>
+<head>
+  <title>E3 Recovery Controls</title>
+  <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+  <hta:application
+    id="E3RecoveryLauncher"
+    border="thin"
+    caption="yes"
+    showintaskbar="yes"
+    singleinstance="yes"
+    sysmenu="yes"
+    windowstate="normal"
+  />
+  <style type="text/css">
+    body {
+      font-family: Segoe UI, Arial, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      margin: 0;
+      padding: 16px;
+    }
+    h2 { margin: 0 0 12px 0; font-size: 18px; }
+    .card {
+      background: #111827;
+      border: 1px solid #1f2937;
+      border-radius: 12px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    button {
+      background: #0ea5e9;
+      color: #fff;
+      border: 0;
+      padding: 8px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      margin: 4px 6px 4px 0;
+    }
+    button.warn { background: #f59e0b; }
+    button.danger { background: #ef4444; }
+    .muted { color: #94a3b8; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h2>E3 Recovery Controls</h2>
+  <div class="card">
+    <button onclick="launchUI()">Open Recovery UI</button>
+    <button onclick="openCmd()">Open CMD</button>
+    <button onclick="openPowerShell()">Open PowerShell</button>
+    <button class="warn" onclick="openDriverLog()">Driver Load Log</button>
+  </div>
+  <div class="card">
+    <button class="warn" onclick="reboot()">Restart</button>
+    <button class="danger" onclick="shutdown()">Shutdown</button>
+  </div>
+  <div class="card muted">
+    Recovery UI: http://127.0.0.1:8080/
+    <br/>Driver log: %SystemRoot%\Temp\e3-driver-load.log
+  </div>
+  <script type="text/javascript">
+    function shellRun(cmd) {
+      try {
+        var sh = new ActiveXObject("WScript.Shell");
+        sh.Run(cmd, 1, false);
+      } catch (e) {
+        alert("Failed to run: " + cmd + "\n" + e.message);
+      }
+    }
+    function launchUI() {
+      shellRun('mshta.exe http://127.0.0.1:8080/');
+    }
+    function openCmd() {
+      shellRun('cmd.exe');
+    }
+    function openPowerShell() {
+      shellRun('powershell.exe');
+    }
+    function openDriverLog() {
+      shellRun('cmd.exe /c notepad.exe %SystemRoot%\\Temp\\e3-driver-load.log');
+    }
+    function reboot() {
+      shellRun('wpeutil reboot');
+    }
+    function shutdown() {
+      shellRun('wpeutil shutdown');
+    }
+  </script>
+</body>
+</html>

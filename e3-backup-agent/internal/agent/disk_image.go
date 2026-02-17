@@ -71,6 +71,16 @@ type diskImageStreamResult struct {
 	CBTStats           *CBTStats
 }
 
+type diskImageRestoreReadiness struct {
+	Ready          bool
+	ReasonCode     string
+	ReasonDetail   string
+	Partitions     int
+	HasUsedExtents bool
+	Attempts       int
+	LastCheckedAt  string
+}
+
 // runDiskImage orchestrates snapshot → image build → Kopia backup.
 func (r *Runner) runDiskImage(run *NextRunResponse) error {
 	startedAt := time.Now().UTC()
@@ -405,39 +415,123 @@ func (r *Runner) runDiskImage(run *NextRunResponse) error {
 		return err
 	}
 
-	// Persist disk layout metadata on the run (used for restore points).
-	if manifestID != "" {
-		statsPayload := map[string]any{
-			"manifest_id": manifestID,
-		}
-		if layout != nil {
-			statsPayload["disk_layout"] = layout
-		}
-		if streamResult != nil {
-			if streamResult.ReadMode != "" {
-				statsPayload["disk_image_mode"] = streamResult.ReadMode
-			}
-			if streamResult.ReadRanges > 0 {
-				statsPayload["disk_image_read_ranges"] = streamResult.ReadRanges
-			}
-			if streamResult.ReadBytes > 0 {
-				statsPayload["disk_image_read_bytes"] = streamResult.ReadBytes
-			}
-			if streamResult.UsedBytes > 0 {
-				statsPayload["disk_image_used_bytes"] = streamResult.UsedBytes
-			}
-			if streamResult.PreviousManifestID != "" {
-				statsPayload["disk_image_previous_manifest"] = streamResult.PreviousManifestID
-			}
-			if streamResult.CBTStats != nil {
-				statsPayload["disk_image_cbt"] = streamResult.CBTStats
-			}
-		}
-		_ = r.client.UpdateRun(RunUpdate{
-			RunID:     run.RunID,
-			StatsJSON: statsPayload,
-		})
+	readiness := diskImageRestoreReadiness{
+		Ready:        manifestID != "",
+		ReasonCode:   "manifest_missing",
+		ReasonDetail: "manifest_id is missing",
+		Attempts:     0,
 	}
+	if manifestID != "" {
+		r.pushEvents(run.RunID, RunEvent{
+			Type:      "info",
+			Level:     "info",
+			MessageID: "DISK_IMAGE_RESTORE_READINESS_VERIFYING",
+			ParamsJSON: map[string]any{
+				"attempt": 1,
+			},
+		})
+		readiness = verifyDiskImageRestoreReadiness(manifestID, layout)
+		readiness.Attempts = 1
+		retryBackoff := []time.Duration{2 * time.Second, 5 * time.Second, 10 * time.Second}
+		for idx, delay := range retryBackoff {
+			if readiness.Ready {
+				break
+			}
+			r.pushEvents(run.RunID, RunEvent{
+				Type:      "warn",
+				Level:     "warn",
+				MessageID: "DISK_IMAGE_RESTORE_READINESS_RETRY",
+				ParamsJSON: map[string]any{
+					"attempt":             idx + 2,
+					"max_attempts":        len(retryBackoff) + 1,
+					"reason_code":         readiness.ReasonCode,
+					"reason_detail":       readiness.ReasonDetail,
+					"retry_after_seconds": int(delay.Seconds()),
+				},
+			})
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(delay):
+			}
+			retryLayout, retryErr := CollectDiskLayout(opts.SourceVolume)
+			if retryErr == nil && retryLayout != nil {
+				layout = retryLayout
+			} else if retryErr != nil {
+				log.Printf("agent: disk image readiness metadata recollect failed: %v", retryErr)
+			}
+			readiness = verifyDiskImageRestoreReadiness(manifestID, layout)
+			readiness.Attempts = idx + 2
+		}
+
+		if readiness.Ready {
+			r.pushEvents(run.RunID, RunEvent{
+				Type:      "info",
+				Level:     "info",
+				MessageID: "DISK_IMAGE_RESTORE_READY",
+				ParamsJSON: map[string]any{
+					"attempts": readiness.Attempts,
+				},
+			})
+		} else {
+			r.pushEvents(run.RunID, RunEvent{
+				Type:      "warn",
+				Level:     "warn",
+				MessageID: "DISK_IMAGE_RESTORE_READINESS_FAILED",
+				ParamsJSON: map[string]any{
+					"reason_code":   readiness.ReasonCode,
+					"reason_detail": readiness.ReasonDetail,
+					"attempts":      readiness.Attempts,
+					"max_attempts":  len(retryBackoff) + 1,
+				},
+			})
+		}
+	}
+
+	// Persist disk layout metadata and readiness diagnostics on the run.
+	statsPayload := map[string]any{}
+	if manifestID != "" {
+		statsPayload["manifest_id"] = manifestID
+	}
+	if layout != nil {
+		statsPayload["disk_layout"] = layout
+	}
+	if streamResult != nil {
+		if streamResult.ReadMode != "" {
+			statsPayload["disk_image_mode"] = streamResult.ReadMode
+		}
+		if streamResult.ReadRanges > 0 {
+			statsPayload["disk_image_read_ranges"] = streamResult.ReadRanges
+		}
+		if streamResult.ReadBytes > 0 {
+			statsPayload["disk_image_read_bytes"] = streamResult.ReadBytes
+		}
+		if streamResult.UsedBytes > 0 {
+			statsPayload["disk_image_used_bytes"] = streamResult.UsedBytes
+		}
+		if streamResult.PreviousManifestID != "" {
+			statsPayload["disk_image_previous_manifest"] = streamResult.PreviousManifestID
+		}
+		if streamResult.CBTStats != nil {
+			statsPayload["disk_image_cbt"] = streamResult.CBTStats
+		}
+	}
+	statsPayload["restore_readiness"] = map[string]any{
+		"status":           map[bool]string{true: "ready", false: "metadata_incomplete"}[readiness.Ready],
+		"reason_code":      readiness.ReasonCode,
+		"reason_detail":    readiness.ReasonDetail,
+		"attempts":         readiness.Attempts,
+		"partitions":       readiness.Partitions,
+		"has_used_extents": readiness.HasUsedExtents,
+		"checked_at":       readiness.LastCheckedAt,
+	}
+	if driverBundles := marshalDriverBundlesForStats(r.captureAndUploadDriverBundles(ctx, run, run.RunID, finishedAt)); driverBundles != nil {
+		statsPayload["driver_bundles"] = driverBundles
+	}
+	_ = r.client.UpdateRun(RunUpdate{
+		RunID:     run.RunID,
+		StatsJSON: statsPayload,
+	})
 
 	if streamResult != nil && streamResult.CBTState != nil {
 		streamResult.CBTState.LastManifestID = manifestID
@@ -534,4 +628,75 @@ func allZero(b []byte) bool {
 		}
 	}
 	return true
+}
+
+func verifyDiskImageRestoreReadiness(manifestID string, layout *DiskLayout) diskImageRestoreReadiness {
+	result := diskImageRestoreReadiness{
+		Ready:         true,
+		ReasonCode:    "ok",
+		ReasonDetail:  "restore metadata complete",
+		LastCheckedAt: time.Now().UTC().Format(time.RFC3339),
+	}
+
+	if strings.TrimSpace(manifestID) == "" {
+		result.Ready = false
+		result.ReasonCode = "manifest_missing"
+		result.ReasonDetail = "manifest_id is missing"
+		return result
+	}
+
+	if layout == nil {
+		result.Ready = false
+		result.ReasonCode = "disk_layout_missing"
+		result.ReasonDetail = "disk_layout metadata is missing"
+		return result
+	}
+
+	if len(layout.Partitions) == 0 {
+		result.Ready = false
+		result.ReasonCode = "disk_layout_no_partitions"
+		result.ReasonDetail = "disk_layout has no partitions"
+		return result
+	}
+	result.Partitions = len(layout.Partitions)
+
+	partitionStyle := strings.ToLower(strings.TrimSpace(layout.PartitionStyle))
+	if partitionStyle != "gpt" && partitionStyle != "mbr" {
+		result.Ready = false
+		result.ReasonCode = "partition_style_invalid"
+		result.ReasonDetail = fmt.Sprintf("unsupported partition_style: %q", layout.PartitionStyle)
+		return result
+	}
+
+	bootMode := strings.ToLower(strings.TrimSpace(layout.BootMode))
+	if bootMode != "uefi" && bootMode != "bios" && bootMode != "unknown" {
+		result.Ready = false
+		result.ReasonCode = "boot_mode_invalid"
+		result.ReasonDetail = fmt.Sprintf("unsupported boot_mode: %q", layout.BootMode)
+		return result
+	}
+
+	if layout.TotalBytes <= 0 {
+		result.Ready = false
+		result.ReasonCode = "disk_total_bytes_invalid"
+		result.ReasonDetail = "disk_total_bytes must be greater than zero"
+		return result
+	}
+
+	hasUsedExtents := false
+	for _, p := range layout.Partitions {
+		if len(p.UsedExtents) > 0 {
+			hasUsedExtents = true
+			break
+		}
+	}
+	result.HasUsedExtents = hasUsedExtents
+	if strings.TrimSpace(layout.BlockMapSource) != "" && !hasUsedExtents {
+		result.Ready = false
+		result.ReasonCode = "used_extents_missing"
+		result.ReasonDetail = "block_map_source is present but partition used_extents are empty"
+		return result
+	}
+
+	return result
 }

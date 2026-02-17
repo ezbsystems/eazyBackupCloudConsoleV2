@@ -1,0 +1,18 @@
+{
+  "version": "0.0.0",
+  "generated_at": "",
+  "images": [
+    {
+      "name": "linux",
+      "filename": "e3-recovery-linux.img",
+      "sha256": "",
+      "size_bytes": 0
+    },
+    {
+      "name": "winpe",
+      "filename": "e3-recovery-winpe.iso",
+      "sha256": "",
+      "size_bytes": 0
+    }
+  ]
+}

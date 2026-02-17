@@ -21,6 +21,7 @@ This document explains the disk image backup path added to the local agent (Kopi
   - Orchestration for disk image runs (`runDiskImage` via `runRun` engine `disk_image`).
   - Normalizes options (source volume/device, format, temp dir, block size, cache).
   - Captures disk layout metadata and passes it into streaming read-plan selection.
+  - Implements end-of-backup restore-readiness verification and metadata-only retries.
   - Uses per-OS `createDiskImageStream` for direct device streaming into Kopia.
   - Sparse writer helper (`openSparseWriter`) with VHDX stub + raw writer.
   - Block cache scaffold (`BlockCache`) for future change-detection.
@@ -61,6 +62,17 @@ This document explains the disk image backup path added to the local agent (Kopi
   - Validates `disk_image` engine requires agent + `disk_source_volume`; stores `disk_image_format` (default vhdx) and optional `disk_temp_dir`.
 - `accounts/modules/addons/cloudstorage/api/cloudbackup_update_job.php`
   - Same validations on update; persists disk image fields.
+- `accounts/modules/addons/cloudstorage/lib/Client/CloudBackupController.php`
+  - `recordRestorePointsForRun(...)` classifies disk-image restore points as `metadata_incomplete` when restore-readiness metadata indicates failure (or when disk layout metadata is missing).
+- `accounts/modules/addons/cloudstorage/api/agent_update_run.php`
+  - Merges incremental `stats_json` with `array_replace_recursive(...)` so previously posted metadata (including `restore_readiness` and `disk_layout`) is preserved when later progress updates arrive.
+- `accounts/modules/addons/cloudstorage/api/e3backup_restore_points_list.php`
+  - Adds `is_restorable` and `non_restorable_reason` fields per restore point.
+- `accounts/modules/addons/cloudstorage/api/cloudbackup_disk_image_start_restore.php`
+- `accounts/modules/addons/cloudstorage/api/cloudbackup_recovery_start_restore.php`
+- `accounts/modules/addons/cloudstorage/api/cloudbackup_recovery_token_create.php`
+- `accounts/modules/addons/cloudstorage/api/cloudbackup_recovery_token_exchange.php`
+  - All four endpoints explicitly block `metadata_incomplete` restore points and return a clear, user-facing reason.
 
 ---
 
@@ -88,6 +100,13 @@ This document explains the disk image backup path added to the local agent (Kopi
   - Adds “Disk Image” engine button.
   - Disk image fields: volume/device, image format (vhdx/raw), temp dir.
   - Posting fields: `disk_source_volume`, `disk_image_format`, `disk_temp_dir`. When engine is `disk_image`, `source_path` is set to the volume/device for server storage.
+- `accounts/modules/addons/cloudstorage/templates/e3backup_disk_image_restore.tpl`
+  - Uses `is_restorable`/`non_restorable_reason` from the restore-point list API.
+  - Disables point selection and token generation for non-restorable points.
+  - Displays explicit reason text to the user.
+- `accounts/modules/addons/cloudstorage/templates/e3backup_restores.tpl`
+  - Surfaces non-restorable reason text in the main restore-point grid.
+  - Disables restore actions and replaces action labels with `Unavailable` where applicable.
 
 ---
 
@@ -122,6 +141,149 @@ This document explains the disk image backup path added to the local agent (Kopi
     - Mid-stream `ERROR_SECTOR_NOT_FOUND` in best-effort mode is zero-filled for the affected read span and logged as a warning event.
     - Strict mode disables recovery and fails fast on read errors.
 5) Cleanup: snapshots removed (VSS Remove / LVM lvremove). No temp image exists to prune in streaming mode.
+
+---
+
+## Disk-Image Restore Readiness Verification (Feb 2026)
+
+This feature ensures a disk-image backup can be *started for restore* before the restore point is considered fully restorable.  
+The backup upload itself can still be successful, but restore-start operations are blocked when critical restore metadata is incomplete.
+
+### Why this exists
+- Some runs can finish data upload and produce a `manifest_id`, but still miss required restore metadata (for example, missing/invalid disk layout fields).
+- Previously, these points could appear valid until restore start, causing confusing late failures.
+- The readiness gate moves this check into backup finalization and marks the restore point as explicitly non-startable (`metadata_incomplete`) when metadata remains incomplete after retries.
+
+### End-to-end behavior
+1) Streaming upload completes and `manifest_id` is available.
+2) Agent verifies restore metadata readiness.
+3) If verification fails, agent retries **metadata capture only** (`CollectDiskLayout(...)`) with backoff:
+   - attempt 2: `+2s`
+   - attempt 3: `+5s`
+   - attempt 4: `+10s`
+4) Retry path does **not** restart snapshot creation, upload, or dedup pipeline; it only recollects/reposts metadata.
+5) Agent writes readiness outcome into `stats_json.restore_readiness`.
+6) Server restore-point recorder reads readiness status:
+   - readiness pass: restore point keeps run terminal status (`success` or `warning`)
+   - readiness fail: restore point status becomes `metadata_incomplete`
+7) All restore start/token entry points block `metadata_incomplete`.
+8) UI renders non-restorable state and disables restore actions.
+
+### Agent verification rules
+Implemented in `verifyDiskImageRestoreReadiness(...)` within `internal/agent/disk_image.go`.
+
+Required conditions:
+- `manifest_id` present and non-empty.
+- `disk_layout` present.
+- `disk_layout.partitions` contains at least one partition.
+- `partition_style` is one of `gpt|mbr`.
+- `boot_mode` is one of `uefi|bios|unknown`.
+- `disk_total_bytes > 0`.
+- For shrink-capable/block-map-backed layouts: when `block_map_source` is present, at least one partition must include non-empty `used_extents`.
+
+### Agent observability events
+Added in `internal/agent/disk_image.go`:
+- `DISK_IMAGE_RESTORE_READINESS_VERIFYING`
+- `DISK_IMAGE_RESTORE_READINESS_RETRY`
+- `DISK_IMAGE_RESTORE_READINESS_FAILED`
+- `DISK_IMAGE_RESTORE_READY`
+
+### Agent `stats_json` payload shape
+Readiness details are persisted via `UpdateRun(... StatsJSON ...)`:
+
+```json
+{
+  "manifest_id": "kopia-manifest-id",
+  "disk_layout": { "...": "..." },
+  "restore_readiness": {
+    "status": "ready | metadata_incomplete",
+    "reason_code": "ok | manifest_missing | disk_layout_missing | disk_layout_no_partitions | partition_style_invalid | boot_mode_invalid | disk_total_bytes_invalid | used_extents_missing",
+    "reason_detail": "human-readable explanation",
+    "attempts": 1,
+    "partitions": 3,
+    "has_used_extents": true,
+    "checked_at": "RFC3339 UTC timestamp"
+  }
+}
+```
+
+Notes:
+- `agent_update_run.php` merges `stats_json` recursively, so incremental progress updates do not erase readiness metadata.
+- Existing stream/read-plan fields (mode, ranges, bytes, CBT stats, previous manifest) remain intact.
+
+### Server-side restore-point classification
+`CloudBackupController::recordRestorePointsForRun(...)` now:
+- decodes `run.stats_json` once,
+- extracts `disk_layout` fields into restore-point disk columns,
+- checks `restore_readiness.status`,
+- sets restore point `status = metadata_incomplete` when:
+  - readiness status is `metadata_incomplete`, or
+  - disk-image layout metadata is missing.
+
+No schema migration is required for this status value because restore-point status is already string-based.
+
+### Restore-start API enforcement
+The following endpoints now explicitly block `metadata_incomplete`:
+- `cloudbackup_disk_image_start_restore.php`
+- `cloudbackup_recovery_start_restore.php`
+- `cloudbackup_recovery_token_create.php`
+- `cloudbackup_recovery_token_exchange.php`
+
+Response intent:
+- return a clear error that restore metadata is incomplete,
+- instruct user/operator to run a fresh disk-image backup.
+
+### Restore-point list API contract
+`e3backup_restore_points_list.php` appends:
+- `is_restorable` (boolean)
+- `non_restorable_reason` (string)
+
+Classification currently considers:
+- `status === metadata_incomplete` -> non-restorable.
+- non-terminal statuses (anything outside `success|warning`) -> non-restorable.
+- disk-image point with missing `disk_layout_json` -> non-restorable.
+
+### UI behavior
+`e3backup_disk_image_restore.tpl`:
+- disabled `Select` and `Generate Token` on non-restorable points,
+- shows reason text next to status/selected point.
+
+`e3backup_restores.tpl`:
+- shows non-restorable reason text in the restore-point table,
+- disables relevant action buttons and shows `Unavailable`,
+- blocks modal open when point is non-restorable.
+
+### Files created/modified for this feature
+No new permanent production files were added for readiness.  
+Feature was implemented by modifying these files:
+
+- Agent:
+  - `e3-backup-agent/internal/agent/disk_image.go`
+- Server/API:
+  - `accounts/modules/addons/cloudstorage/lib/Client/CloudBackupController.php`
+  - `accounts/modules/addons/cloudstorage/api/cloudbackup_disk_image_start_restore.php`
+  - `accounts/modules/addons/cloudstorage/api/cloudbackup_recovery_start_restore.php`
+  - `accounts/modules/addons/cloudstorage/api/cloudbackup_recovery_token_create.php`
+  - `accounts/modules/addons/cloudstorage/api/cloudbackup_recovery_token_exchange.php`
+  - `accounts/modules/addons/cloudstorage/api/e3backup_restore_points_list.php`
+- UI:
+  - `accounts/modules/addons/cloudstorage/templates/e3backup_disk_image_restore.tpl`
+  - `accounts/modules/addons/cloudstorage/templates/e3backup_restores.tpl`
+
+### Quick verification checklist (developer)
+- Readiness pass scenario:
+  - complete disk-image run with valid metadata,
+  - confirm `restore_readiness.status = ready`,
+  - restore point remains `success` or `warning`,
+  - restore/token APIs and UI actions remain enabled.
+- Readiness failure scenario:
+  - force layout metadata failure (for example, missing used extents with `block_map_source` present),
+  - confirm retry cadence `2s -> 5s -> 10s`,
+  - confirm no re-upload/re-stream occurs,
+  - confirm `restore_readiness.status = metadata_incomplete`,
+  - confirm restore point status `metadata_incomplete`,
+  - confirm all restore start/token APIs return explicit metadata-incomplete errors,
+  - confirm UI shows reason and disables restore actions.
 
 ---
 
@@ -175,4 +337,13 @@ This document explains the disk image backup path added to the local agent (Kopi
 - For cleanup: add temp-dir pruning after successful upload.
 - For mounts: wire `kopia_mount.go` to Kopia FUSE on Linux and WinFsp on Windows. Add new command type `mount`/`unmount` to run commands table.
 - For synthetic fulls: implement `createSyntheticFull` to restore from Kopia into a new image, then re-upload as a consolidated snapshot.
+
+---
+
+## Driver Bundle Behavior (Recovery Media)
+- After each successful disk-image backup, the agent checks destination object storage for:
+  - `dest_prefix/driver-bundles/<agentid>/essential.zip`
+- If present, bundle capture/upload is skipped.
+- If missing, the agent captures the essential bundle and uploads it to the same destination bucket.
+- Recovery media manifest APIs return 12-hour pre-signed URLs for source bundle downloads.
 

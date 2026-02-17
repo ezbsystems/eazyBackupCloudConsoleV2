@@ -54,6 +54,38 @@ function parseDateBound(string $raw, bool $endOfDay): ?string
     }
 }
 
+function classifyRestorePointRestorable(object $point): array
+{
+    $status = strtolower(trim((string) ($point->status ?? '')));
+    $engine = strtolower(trim((string) ($point->engine ?? '')));
+
+    if ($status === 'metadata_incomplete') {
+        return [
+            'is_restorable' => false,
+            'reason' => 'Restore metadata is incomplete. Create a fresh disk image backup.',
+        ];
+    }
+
+    if (!in_array($status, ['success', 'warning'], true)) {
+        return [
+            'is_restorable' => false,
+            'reason' => 'Restore point is not available.',
+        ];
+    }
+
+    if ($engine === 'disk_image' && trim((string) ($point->disk_layout_json ?? '')) === '') {
+        return [
+            'is_restorable' => false,
+            'reason' => 'Restore point is missing disk layout metadata. Create a fresh disk image backup.',
+        ];
+    }
+
+    return [
+        'is_restorable' => true,
+        'reason' => '',
+    ];
+}
+
 $fromDate = parseDateBound($fromDateRaw, false);
 $toDate = parseDateBound($toDateRaw, true);
 
@@ -197,6 +229,11 @@ try {
     $hasMore = $points->count() > $limit;
     if ($hasMore) {
         $points = $points->slice(0, $limit)->values();
+    }
+    foreach ($points as $point) {
+        $classification = classifyRestorePointRestorable($point);
+        $point->is_restorable = (bool) $classification['is_restorable'];
+        $point->non_restorable_reason = (string) $classification['reason'];
     }
 
     (new JsonResponse([

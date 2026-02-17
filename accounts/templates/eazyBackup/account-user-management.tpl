@@ -169,7 +169,7 @@
         </div>
 
         <!-- Remove User Modal -->
-        <div id="modalRemoveUser" x-show="removeUserModal" x-cloak class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50">
+        <div id="modalRemoveUser" x-show="removeUserModal" x-cloak class="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
             <form method="post" action="{routePath('account-users-remove')}" class="bg-gray-800 rounded-lg shadow-lg w-full max-w-lg p-6">
                 <input type="hidden" name="userid" :value="currentUserId" id="inputRemoveUserId">
                 <div class="flex justify-between items-center mb-4">
@@ -196,7 +196,7 @@
         </div>
 
         <!-- Cancel Invite Modal -->
-        <div id="modalCancelInvite" x-show="cancelInviteModal" x-cloak class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50">
+        <div id="modalCancelInvite" x-show="cancelInviteModal" x-cloak class="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
             <form method="post" action="{routePath('account-users-invite-cancel')}" class="bg-gray-800 rounded-lg shadow-lg w-full max-w-lg p-6">
                 <input type="hidden" name="inviteid" :value="currentInviteId" id="inputCancelInviteId">
                 <div class="flex justify-between items-center mb-4">

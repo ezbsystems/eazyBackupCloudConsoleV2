@@ -3,11 +3,13 @@ package agent
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os"
@@ -918,4 +920,223 @@ func (c *Client) PollPendingCommands() ([]PendingCommand, error) {
 		return nil, fmt.Errorf("poll pending commands failed: %s", out.Message)
 	}
 	return out.Commands, nil
+}
+
+type DriverBundleUploadResponse struct {
+	Status       string `json:"status"`
+	Message      string `json:"message,omitempty"`
+	BundleID     int64  `json:"bundle_id,omitempty"`
+	Profile      string `json:"profile,omitempty"`
+	ArtifactURL  string `json:"artifact_url,omitempty"`
+	ArtifactPath string `json:"artifact_path,omitempty"`
+	DestBucketID int64  `json:"dest_bucket_id,omitempty"`
+	DestPrefix   string `json:"dest_prefix,omitempty"`
+	S3UserID     int64  `json:"s3_user_id,omitempty"`
+	SHA256       string `json:"sha256,omitempty"`
+	SizeBytes    int64  `json:"size_bytes,omitempty"`
+}
+
+func (c *Client) UploadDriverBundle(runID int64, profile, artifactName string, bundle []byte, backupFinishedAt string) (*DriverBundleUploadResponse, error) {
+	if len(bundle) == 0 {
+		return nil, fmt.Errorf("bundle payload is empty")
+	}
+	endpoint := c.baseURL + "/agent_upload_driver_bundle.php"
+	var payload bytes.Buffer
+	mp := multipart.NewWriter(&payload)
+	_ = mp.WriteField("run_id", fmt.Sprintf("%d", runID))
+	_ = mp.WriteField("profile", profile)
+	_ = mp.WriteField("artifact_name", artifactName)
+	_ = mp.WriteField("sha256", fmt.Sprintf("%x", sha256Bytes(bundle)))
+	_ = mp.WriteField("size_bytes", fmt.Sprintf("%d", len(bundle)))
+	if strings.TrimSpace(backupFinishedAt) != "" {
+		_ = mp.WriteField("backup_finished_at", backupFinishedAt)
+	}
+	fw, err := mp.CreateFormFile("bundle_file", artifactName)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := fw.Write(bundle); err != nil {
+		return nil, err
+	}
+	if err := mp.Close(); err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, endpoint, &payload)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("X-Agent-ID", c.agentID)
+	req.Header.Set("X-Agent-Token", c.token)
+	req.Header.Set("Content-Type", mp.FormDataContentType())
+	c.applyUserAgent(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	bodyText := strings.TrimSpace(string(bodyBytes))
+	if resp.StatusCode != http.StatusOK {
+		if bodyText == "" {
+			bodyText = "empty response body"
+		}
+		return nil, fmt.Errorf("bundle upload status %d body=%s", resp.StatusCode, bodyText)
+	}
+
+	var out DriverBundleUploadResponse
+	if err := json.Unmarshal(bodyBytes, &out); err != nil {
+		if len(bodyText) > 180 {
+			bodyText = bodyText[:180] + "..."
+		}
+		return nil, fmt.Errorf("bundle upload returned non-json response: %s", bodyText)
+	}
+	if out.Status != "success" {
+		if out.Message == "" {
+			out.Message = "bundle upload failed"
+		}
+		return &out, errors.New(out.Message)
+	}
+	return &out, nil
+}
+
+type DriverBundleExistsResponse struct {
+	Status    string `json:"status"`
+	Message   string `json:"message,omitempty"`
+	RunID     int64  `json:"run_id,omitempty"`
+	Profile   string `json:"profile,omitempty"`
+	Exists    bool   `json:"exists"`
+	ObjectKey string `json:"object_key,omitempty"`
+}
+
+func (c *Client) DriverBundleExists(runID int64, profile string) (*DriverBundleExistsResponse, error) {
+	endpoint := c.baseURL + "/agent_driver_bundle_exists.php"
+	body := map[string]any{
+		"run_id":  runID,
+		"profile": profile,
+	}
+	buf, _ := json.Marshal(body)
+	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(buf))
+	if err != nil {
+		return nil, err
+	}
+	c.authHeaders(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("bundle exists check status %d body=%s", resp.StatusCode, strings.TrimSpace(string(bodyBytes)))
+	}
+	var out DriverBundleExistsResponse
+	if err := json.Unmarshal(bodyBytes, &out); err != nil {
+		return nil, err
+	}
+	if out.Status == "unsupported" {
+		// Treat unsupported destination as "exists" from the agent perspective to skip capture.
+		out.Exists = true
+		return &out, nil
+	}
+	if out.Status != "success" {
+		if out.Message == "" {
+			out.Message = "bundle existence check failed"
+		}
+		return &out, errors.New(out.Message)
+	}
+	return &out, nil
+}
+
+func sha256Bytes(data []byte) []byte {
+	sum := sha256.Sum256(data)
+	return sum[:]
+}
+
+type MediaBuildManifest struct {
+	Mode                string `json:"mode"`
+	SourceAgentID       int64  `json:"source_agent_id"`
+	SourceAgentHostname string `json:"source_agent_hostname"`
+	BaseISOURL          string `json:"base_iso_url"`
+	BaseISOSHA256       string `json:"base_iso_sha256"`
+	SourceBundleURL     string `json:"source_bundle_url"`
+	SourceBundleSHA256  string `json:"source_bundle_sha256"`
+	SourceBundleProfile string `json:"source_bundle_profile"`
+	BroadExtrasURL      string `json:"broad_extras_url"`
+	BroadExtrasSHA256   string `json:"broad_extras_sha256"`
+	HasSourceBundle     bool   `json:"has_source_bundle"`
+	Warning             string `json:"warning"`
+}
+
+type MediaManifestResponse struct {
+	Status   string             `json:"status"`
+	Message  string             `json:"message,omitempty"`
+	Manifest MediaBuildManifest `json:"manifest"`
+}
+
+func (c *Client) GetMediaManifest(mode string, sourceAgentID int64) (*MediaBuildManifest, error) {
+	endpoint := c.baseURL + "/agent_get_media_manifest.php"
+	body := map[string]any{
+		"mode": mode,
+	}
+	if sourceAgentID > 0 {
+		body["source_agent_id"] = sourceAgentID
+	}
+	buf, _ := json.Marshal(body)
+	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(buf))
+	if err != nil {
+		return nil, err
+	}
+	c.authHeaders(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var out MediaManifestResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	if out.Status != "success" {
+		if out.Message == "" {
+			out.Message = "manifest request failed"
+		}
+		return nil, errors.New(out.Message)
+	}
+	return &out.Manifest, nil
+}
+
+func ExchangeMediaBuildToken(apiBaseURL, token string) (*MediaBuildManifest, error) {
+	endpoint := strings.TrimRight(apiBaseURL, "/") + "/cloudbackup_media_build_token_exchange.php"
+	body := map[string]any{"token": token}
+	buf, _ := json.Marshal(body)
+	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(buf))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "e3-recovery-media-creator/1.0")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var out MediaManifestResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	if out.Status != "success" {
+		if out.Message == "" {
+			out.Message = "token exchange failed"
+		}
+		return nil, errors.New(out.Message)
+	}
+	return &out.Manifest, nil
 }

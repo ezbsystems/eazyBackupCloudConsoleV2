@@ -259,6 +259,10 @@ if (!empty($restorePoint->job_id)) {
     }
 }
 
+if (($restorePoint->status ?? '') === 'metadata_incomplete') {
+    respondError('metadata_incomplete', 'Restore metadata is incomplete for this restore point. Create a fresh disk image backup and try again.', 400);
+}
+
 if (!in_array(($restorePoint->status ?? ''), ['success', 'warning'], true)) {
     respondError('invalid_state', 'Restore point is not available for recovery', 400);
 }
