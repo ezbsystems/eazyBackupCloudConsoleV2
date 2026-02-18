@@ -46,6 +46,7 @@
 - `s3_cloudbackup_run_events`: vendor-agnostic event feed.
 - `s3_cloudbackup_run_commands`: queued commands for agents (`cancel`, `maintenance_quick/full`, `restore`, `mount`, `nas_mount`, `nas_unmount`, `list_hyperv_vms`, `reset_agent`).
 - `s3_cloudbackup_restore_points`: persistent restore registry (manifest_id, agent/tenant/job metadata, source/dest details, Hyper-V VM context). Designed to survive job deletion.
+- `s3_backup_users`: e3 Cloud Backup Username registry (`client_id`, nullable `tenant_id`, `username`, `password_hash`, `email`, `status`, timestamps) with scoped uniqueness by `(client_id, tenant_id, username)`.
 - **Hyper-V specific tables**:
   - `s3_hyperv_vms`: VM registry (id, client_id, agent_id, vm_guid, vm_name, state, generation, rct_enabled, last_seen_at).
   - `s3_hyperv_vm_disks`: VM disk details (id, vm_id, disk_path, size_bytes, rct_id, controller_type).
@@ -2714,6 +2715,109 @@ The sidebar navigation now includes a "Download Agent" menu item that opens a fl
 Both buttons use orange styling (`bg-orange-600`) and include platform icons.
 
 **Location**: `accounts/templates/eazyBackup/header.tpl` (sidebar navigation)
+
+---
+
+## e3 Cloud Backup Users Feature (Feb 2026)
+
+See also: `accounts/modules/addons/cloudstorage/docs/E3_CLOUD_BACKUP_USERS_ARCHITECTURE.md` for the focused architecture and implementation notes for the Username domain.
+
+### Database Schema Notes
+
+New table: `s3_backup_users`
+
+- `id` (PK)
+- `client_id` (required)
+- `tenant_id` (nullable; MSP tenant scope, `NULL` for direct scope)
+- `username` (required)
+- `password_hash` (required)
+- `email` (required; report destination)
+- `status` (`active|disabled`)
+- `created_at`, `updated_at`
+
+Indexes / constraints:
+
+- unique scoped username: `(client_id, tenant_id, username)` (`uniq_backup_users_scope_username`)
+- secondary indexes: `client_id`, `tenant_id`, `status`, `email`
+
+Migration behavior:
+
+- Added in both `cloudstorage_activate()` and `cloudstorage_upgrade()` in `cloudstorage.php`
+- Defensive column/index ensures for upgrade-safe installs
+- No remap/backfill of existing vault/job/agent ownership in this phase
+
+### Routes and Pages
+
+Client area routing (`cloudstorage_clientarea()`):
+
+- `index.php?m=cloudstorage&page=e3backup&view=users`
+  - page controller: `pages/e3backup_users.php`
+  - template: `templates/e3backup_users.tpl`
+- `index.php?m=cloudstorage&page=e3backup&view=user_detail&user_id=<id>`
+  - page controller: `pages/e3backup_user_detail.php`
+  - template: `templates/e3backup_user_detail.tpl`
+
+Navigation updates:
+
+- Sidebar e3 Cloud Backup menu (`accounts/templates/eazyBackup/header.tpl`) now includes `Users` between `Dashboard` and `Agents`
+- e3 sub-nav (`templates/partials/e3backup_nav.tpl`) includes `Users`
+
+### APIs
+
+New APIs under `accounts/modules/addons/cloudstorage/api/`:
+
+- `e3backup_user_list.php`
+  - list users scoped to current `client_id`
+  - optional MSP tenant filter (`tenant_id` or `direct`)
+  - returns derived scope metrics (`#vaults`, `#jobs`, `#agents`, `last_backup`, `online_devices`)
+- `e3backup_user_create.php`
+- `e3backup_user_get.php`
+- `e3backup_user_update.php`
+- `e3backup_user_reset_password.php`
+- `e3backup_user_delete.php`
+
+### Validation
+
+Create/update/reset validation rules:
+
+- `username`:
+  - required
+  - pattern: `^[A-Za-z0-9._-]{3,64}$`
+  - uniqueness in scope (`client_id + tenant_id`)
+- `email`:
+  - required
+  - must pass `FILTER_VALIDATE_EMAIL`
+- `password`:
+  - required on create/reset
+  - min length 8
+  - confirmation match required where provided
+- `status`:
+  - allowed values: `active`, `disabled`
+- `tenant_id`:
+  - optional for MSP users
+  - rejected for direct/non-MSP users
+
+Validation responses return JSON with:
+
+- `status`
+- `message`
+- field-level `errors` map (when applicable)
+
+### Authorization and Scope Enforcement
+
+- All user APIs require WHMCS client-area authentication.
+- All read/write operations are constrained by `client_id`.
+- MSP scope:
+  - tenant assignment allowed only when tenant belongs to requesting MSP account
+  - both tenant and direct (`tenant_id=NULL`) users supported
+- Direct scope:
+  - tenant assignment not allowed
+  - only direct users are accessible
+- Detail/update/delete/reset endpoints enforce ownership via joined tenant checks when `tenant_id` is present.
+
+### Metrics Note (Current Phase)
+
+Per-username metrics are intentionally **derived by scope** (tenant/direct) without schema remap of existing backup resource ownership. Existing jobs/agents/vault flows remain unchanged.
 
 ---
 

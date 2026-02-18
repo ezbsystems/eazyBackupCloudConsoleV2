@@ -1352,6 +1352,77 @@ function cloudstorage_activate() {
             logModuleCall('cloudstorage', 'activate', [], 'Created s3_backup_tenant_users table', [], []);
         }
 
+        if (!Capsule::schema()->hasTable('s3_backup_users')) {
+            Capsule::schema()->create('s3_backup_users', function ($table) {
+                $table->increments('id');
+                $table->unsignedInteger('client_id');
+                $table->unsignedInteger('tenant_id')->nullable();
+                $table->string('username', 191);
+                $table->string('password_hash', 255);
+                $table->string('email', 255);
+                $table->enum('status', ['active', 'disabled'])->default('active');
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('updated_at')->useCurrent();
+
+                $table->unique(['client_id', 'tenant_id', 'username'], 'uniq_backup_users_scope_username');
+                $table->index('client_id');
+                $table->index('tenant_id');
+                $table->index('status');
+                $table->index('email');
+            });
+            logModuleCall('cloudstorage', 'activate', [], 'Created s3_backup_users table', [], []);
+        }
+
+        if (Capsule::schema()->hasTable('s3_backup_users')) {
+            $backupUserColDefs = [
+                'client_id' => function ($table) { $table->unsignedInteger('client_id'); },
+                'tenant_id' => function ($table) { $table->unsignedInteger('tenant_id')->nullable(); },
+                'username' => function ($table) { $table->string('username', 191); },
+                'password_hash' => function ($table) { $table->string('password_hash', 255); },
+                'email' => function ($table) { $table->string('email', 255); },
+                'status' => function ($table) { $table->enum('status', ['active', 'disabled'])->default('active'); },
+                'created_at' => function ($table) { $table->timestamp('created_at')->useCurrent(); },
+                'updated_at' => function ($table) { $table->timestamp('updated_at')->useCurrent(); },
+            ];
+            foreach ($backupUserColDefs as $col => $adder) {
+                if (!Capsule::schema()->hasColumn('s3_backup_users', $col)) {
+                    try {
+                        Capsule::schema()->table('s3_backup_users', function ($table) use ($adder) {
+                            $adder($table);
+                        });
+                        logModuleCall('cloudstorage', 'activate', [], "Ensured {$col} on s3_backup_users", [], []);
+                    } catch (\Throwable $e) {
+                        logModuleCall('cloudstorage', "activate_ensure_s3_backup_users_{$col}", [], $e->getMessage(), [], []);
+                    }
+                }
+            }
+            try {
+                Capsule::schema()->table('s3_backup_users', function ($table) {
+                    $table->unique(['client_id', 'tenant_id', 'username'], 'uniq_backup_users_scope_username');
+                });
+            } catch (\Throwable $e) { /* index exists */ }
+            try {
+                Capsule::schema()->table('s3_backup_users', function ($table) {
+                    $table->index('client_id');
+                });
+            } catch (\Throwable $e) { /* index exists */ }
+            try {
+                Capsule::schema()->table('s3_backup_users', function ($table) {
+                    $table->index('tenant_id');
+                });
+            } catch (\Throwable $e) { /* index exists */ }
+            try {
+                Capsule::schema()->table('s3_backup_users', function ($table) {
+                    $table->index('status');
+                });
+            } catch (\Throwable $e) { /* index exists */ }
+            try {
+                Capsule::schema()->table('s3_backup_users', function ($table) {
+                    $table->index('email');
+                });
+            } catch (\Throwable $e) { /* index exists */ }
+        }
+
         if (!Capsule::schema()->hasTable('s3_agent_enrollment_tokens')) {
             Capsule::schema()->create('s3_agent_enrollment_tokens', function ($table) {
                 $table->increments('id');
@@ -3163,6 +3234,81 @@ function cloudstorage_upgrade($vars) {
             logModuleCall('cloudstorage', 'upgrade_ceph_pool_usage_history_fail', [], $e->getMessage(), [], []);
         }
 
+        // Username management table for e3 Cloud Backup users
+        try {
+            $schema = \WHMCS\Database\Capsule::schema();
+            if (!$schema->hasTable('s3_backup_users')) {
+                $schema->create('s3_backup_users', function ($table) {
+                    $table->increments('id');
+                    $table->unsignedInteger('client_id');
+                    $table->unsignedInteger('tenant_id')->nullable();
+                    $table->string('username', 191);
+                    $table->string('password_hash', 255);
+                    $table->string('email', 255);
+                    $table->enum('status', ['active', 'disabled'])->default('active');
+                    $table->timestamp('created_at')->useCurrent();
+                    $table->timestamp('updated_at')->useCurrent();
+                    $table->unique(['client_id', 'tenant_id', 'username'], 'uniq_backup_users_scope_username');
+                    $table->index('client_id');
+                    $table->index('tenant_id');
+                    $table->index('status');
+                    $table->index('email');
+                });
+                logModuleCall('cloudstorage', 'upgrade', [], 'Created s3_backup_users table', [], []);
+            }
+
+            $backupUserColDefs = [
+                'client_id' => function ($table) { $table->unsignedInteger('client_id'); },
+                'tenant_id' => function ($table) { $table->unsignedInteger('tenant_id')->nullable(); },
+                'username' => function ($table) { $table->string('username', 191); },
+                'password_hash' => function ($table) { $table->string('password_hash', 255); },
+                'email' => function ($table) { $table->string('email', 255); },
+                'status' => function ($table) { $table->enum('status', ['active', 'disabled'])->default('active'); },
+                'created_at' => function ($table) { $table->timestamp('created_at')->useCurrent(); },
+                'updated_at' => function ($table) { $table->timestamp('updated_at')->useCurrent(); },
+            ];
+            foreach ($backupUserColDefs as $col => $adder) {
+                if (!$schema->hasColumn('s3_backup_users', $col)) {
+                    try {
+                        $schema->table('s3_backup_users', function ($table) use ($adder) {
+                            $adder($table);
+                        });
+                        logModuleCall('cloudstorage', 'upgrade', [], "Added {$col} to s3_backup_users", [], []);
+                    } catch (\Throwable $e) {
+                        logModuleCall('cloudstorage', "upgrade_add_s3_backup_users_{$col}", [], $e->getMessage(), [], []);
+                    }
+                }
+            }
+
+            try {
+                $schema->table('s3_backup_users', function ($table) {
+                    $table->unique(['client_id', 'tenant_id', 'username'], 'uniq_backup_users_scope_username');
+                });
+            } catch (\Throwable $e) {}
+            try {
+                $schema->table('s3_backup_users', function ($table) {
+                    $table->index('client_id');
+                });
+            } catch (\Throwable $e) {}
+            try {
+                $schema->table('s3_backup_users', function ($table) {
+                    $table->index('tenant_id');
+                });
+            } catch (\Throwable $e) {}
+            try {
+                $schema->table('s3_backup_users', function ($table) {
+                    $table->index('status');
+                });
+            } catch (\Throwable $e) {}
+            try {
+                $schema->table('s3_backup_users', function ($table) {
+                    $table->index('email');
+                });
+            } catch (\Throwable $e) {}
+        } catch (\Throwable $e) {
+            logModuleCall('cloudstorage', 'upgrade_s3_backup_users_fail', [], $e->getMessage(), [], []);
+        }
+
         return ['status' => 'success'];
     } catch (\Exception $e) {
         logModuleCall('cloudstorage', 'upgrade', $vars, $e->getMessage());
@@ -3316,6 +3462,16 @@ function cloudstorage_clientarea($vars) {
         case 'e3backup':
             $view = $_GET['view'] ?? 'dashboard';
             switch ($view) {
+                case 'users':
+                    $pagetitle = 'e3 Cloud Backup - Users';
+                    $templatefile = 'templates/e3backup_users';
+                    $viewVars = require 'pages/e3backup_users.php';
+                    break;
+                case 'user_detail':
+                    $pagetitle = 'e3 Cloud Backup - User Detail';
+                    $templatefile = 'templates/e3backup_user_detail';
+                    $viewVars = require 'pages/e3backup_user_detail.php';
+                    break;
                 case 'live':
                     $pagetitle = 'e3 Cloud Backup - Live Progress';
                     $templatefile = 'templates/cloudbackup_live';
