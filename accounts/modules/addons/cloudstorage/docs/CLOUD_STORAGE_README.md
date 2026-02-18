@@ -67,6 +67,87 @@ Defined in `cloudstorage.php` activation:
 - `s3_bucket_sizes_history` — collected size/object history for analytics
 - `s3_historical_stats` — per-user daily historical aggregates
 - `ceph_pool_usage_history` — Ceph pool usage time-series used to forecast when the pool reaches an % threshold (e.g., 80% full)
+- `s3_backup_users` — e3 Cloud Backup Username records (client-scoped, optional tenant scope, login/reporting profile fields)
+
+## e3 Cloud Backup: Username domain (Users page)
+
+This module now includes a dedicated **Username** management domain for e3 Cloud Backup with a separate table and routes. Customer-facing copy uses **Username** terminology.
+
+### Scope model
+
+- MSP context: `Tenant -> Username -> Vaults/Jobs/Agents/Logs` (derived scope metrics in this phase)
+- Direct context: `Account -> Username -> Vaults/Jobs/Agents/Logs` (derived scope metrics in this phase)
+
+### Important implementation note (current phase)
+
+- This rollout **does not remap existing vault/job/agent ownership records**.
+- Existing flows remain unchanged; per-username counts are derived by scope (client + tenant/direct).
+- This keeps the rollout incremental and safe for existing installs.
+
+### New/updated e3 backup routes
+
+- `index.php?m=cloudstorage&page=e3backup&view=users`
+  - Controller: `accounts/modules/addons/cloudstorage/pages/e3backup_users.php`
+  - Template: `accounts/modules/addons/cloudstorage/templates/e3backup_users.tpl`
+- `index.php?m=cloudstorage&page=e3backup&view=user_detail&user_id=<id>`
+  - Controller: `accounts/modules/addons/cloudstorage/pages/e3backup_user_detail.php`
+  - Template: `accounts/modules/addons/cloudstorage/templates/e3backup_user_detail.tpl`
+
+### New APIs
+
+- `accounts/modules/addons/cloudstorage/api/e3backup_user_list.php`
+- `accounts/modules/addons/cloudstorage/api/e3backup_user_create.php`
+- `accounts/modules/addons/cloudstorage/api/e3backup_user_get.php`
+- `accounts/modules/addons/cloudstorage/api/e3backup_user_update.php`
+- `accounts/modules/addons/cloudstorage/api/e3backup_user_reset_password.php`
+- `accounts/modules/addons/cloudstorage/api/e3backup_user_delete.php`
+
+### Validation and authorization rules
+
+- Auth required via WHMCS Client Area session.
+- All operations are scoped by `client_id`.
+- MSP:
+  - `tenant_id` may be assigned when it belongs to the MSP client.
+  - Direct (`tenant_id = NULL`) users are allowed.
+- Direct customers:
+  - User records must remain direct (`tenant_id = NULL`).
+- Validation:
+  - `username`: required, regex constrained, uniqueness in account scope (`client_id + tenant_id` logical scope).
+  - `email`: required, valid format.
+  - `password`: required on create, minimum length, confirmation match.
+  - `status`: limited to `active` or `disabled`.
+
+### UI behavior delivered
+
+- New Users table with:
+  - sortable columns
+  - column show/hide controls
+  - show entries control (`10/25/50/100`)
+  - Add User modal (Username, Password, Confirm Password, Email, Tenant assignment for MSP)
+  - row click to user detail view
+- Dropdowns/menus on this page are Alpine components (custom menus, not native select menus for custom UI controls).
+
+### QA checklist (Username feature)
+
+- MSP + tenant scope:
+  - create user under tenant
+  - filter by tenant and direct scope
+  - uniqueness enforced within tenant scope
+- Direct customer scope:
+  - create user without tenant assignment
+  - reject tenant assignment attempts
+- Add User validation:
+  - required fields
+  - password confirmation mismatch
+  - invalid email
+  - duplicate username in same scope
+- Table UX:
+  - sort by each enabled column
+  - toggle columns on/off
+  - change show entries between 10/25/50/100
+- Navigation:
+  - e3 Cloud Backup menu shows `Users` between `Dashboard` and `Agents`
+  - row click opens `user_detail` view
 
 ## Admin: Cloud Storage Bucket Monitor (usage charts + forecasting)
 

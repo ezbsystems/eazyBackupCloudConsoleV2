@@ -5,6 +5,14 @@
            class="px-4 py-1.5 rounded-full transition {if $activeNav == 'dashboard'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
             Dashboard
         </a>
+        <a href="index.php?m=cloudstorage&page=e3backup&view=users"
+           class="px-4 py-1.5 rounded-full transition {if $activeNav == 'users'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
+            Users
+        </a>
+        <a href="index.php?m=cloudstorage&page=e3backup&view=agents"
+           class="px-4 py-1.5 rounded-full transition {if $activeNav == 'agents'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
+            Agents
+        </a>
         <a href="index.php?m=cloudstorage&page=e3backup&view=jobs"
            class="px-4 py-1.5 rounded-full transition {if $activeNav == 'jobs'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
             Jobs
@@ -28,10 +36,6 @@
         <a href="index.php?m=cloudstorage&page=e3backup&view=hyperv"
            class="px-4 py-1.5 rounded-full transition {if $activeNav == 'hyperv'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
             Hyper-V
-        </a>
-        <a href="index.php?m=cloudstorage&page=e3backup&view=agents"
-           class="px-4 py-1.5 rounded-full transition {if $activeNav == 'agents'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-            Agents
         </a>
         <button @click="downloadFlyoutOpen = true"
            class="px-4 py-1.5 rounded-full transition hover:text-slate-200 flex items-center gap-1">
