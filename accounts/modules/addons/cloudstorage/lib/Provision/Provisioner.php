@@ -68,6 +68,143 @@ class Provisioner
     }
 
     /**
+     * Ensure the client has an active Cloud Storage service.
+     *
+     * Idempotent: if an active service already exists, it returns success without creating anything.
+     * When autoOrder=true and no active service exists, it creates + accepts an order and verifies
+     * that an Active service record exists before returning success.
+     */
+    public static function ensureCloudStorageProductActive(int $clientId, bool $autoOrder = true): array
+    {
+        $pid = (int) self::getSetting('pid_cloud_storage', 0);
+        if ($pid <= 0) {
+            return [
+                'status' => 'fail',
+                'message' => 'Cloud Storage Product PID is not configured.',
+            ];
+        }
+
+        $active = DBController::getActiveProduct($clientId, $pid);
+        if ($active) {
+            return [
+                'status' => 'success',
+                'service_id' => (int) ($active->id ?? 0),
+                'already_active' => true,
+                'ordered' => false,
+            ];
+        }
+
+        if (!$autoOrder) {
+            return [
+                'status' => 'fail',
+                'message' => 'Cloud Storage service is not active for this account.',
+            ];
+        }
+
+        $lockName = 'cloudstorage:ensure_active:' . $clientId;
+        $lockAcquired = self::acquireNamedDbLock($lockName, 15);
+
+        try {
+            // Double-check under lock to avoid duplicate orders in concurrent calls.
+            $activeUnderLock = DBController::getActiveProduct($clientId, $pid);
+            if ($activeUnderLock) {
+                return [
+                    'status' => 'success',
+                    'service_id' => (int) ($activeUnderLock->id ?? 0),
+                    'already_active' => true,
+                    'ordered' => false,
+                ];
+            }
+
+            $adminUser = 'API';
+            $order = localAPI('AddOrder', [
+                'clientid'      => $clientId,
+                'pid'           => [$pid],
+                'billingcycle'  => ['monthly'],
+                'paymentmethod' => 'stripe',
+                'noinvoice'     => true,
+                'noemail'       => true,
+            ], $adminUser);
+
+            if (($order['result'] ?? '') !== 'success') {
+                return [
+                    'status' => 'fail',
+                    'message' => 'Unable to create Cloud Storage order: ' . ($order['message'] ?? 'unknown error'),
+                    'order_result' => $order,
+                ];
+            }
+
+            $accept = localAPI('AcceptOrder', [
+                'orderid'   => $order['orderid'],
+                'autosetup' => true,
+                'sendemail' => true,
+            ], $adminUser);
+
+            if (($accept['result'] ?? '') !== 'success') {
+                return [
+                    'status' => 'fail',
+                    'message' => 'Cloud Storage order was created but activation failed: ' . ($accept['message'] ?? 'unknown error'),
+                    'order_result' => $order,
+                    'accept_result' => $accept,
+                ];
+            }
+
+            $activeAfter = DBController::getActiveProduct($clientId, $pid);
+            if (!$activeAfter) {
+                return [
+                    'status' => 'fail',
+                    'message' => 'Cloud Storage order was accepted but no active service was found.',
+                    'order_result' => $order,
+                    'accept_result' => $accept,
+                ];
+            }
+
+            return [
+                'status' => 'success',
+                'service_id' => (int) ($activeAfter->id ?? 0),
+                'already_active' => false,
+                'ordered' => true,
+                'order_result' => $order,
+                'accept_result' => $accept,
+            ];
+        } catch (\Throwable $e) {
+            return [
+                'status' => 'fail',
+                'message' => 'Failed to ensure active Cloud Storage service: ' . $e->getMessage(),
+            ];
+        } finally {
+            if ($lockAcquired) {
+                self::releaseNamedDbLock($lockName);
+            }
+        }
+    }
+
+    /**
+     * Best-effort named DB lock using MySQL GET_LOCK.
+     */
+    private static function acquireNamedDbLock(string $name, int $timeoutSeconds = 10): bool
+    {
+        try {
+            $row = Capsule::select('SELECT GET_LOCK(?, ?) AS l', [$name, $timeoutSeconds]);
+            if (is_array($row) && isset($row[0]) && isset($row[0]->l)) {
+                return ((int) $row[0]->l) === 1;
+            }
+        } catch (\Throwable $e) {
+            // Continue without lock on unsupported DB engines.
+        }
+        return false;
+    }
+
+    private static function releaseNamedDbLock(string $name): void
+    {
+        try {
+            Capsule::select('SELECT RELEASE_LOCK(?) AS l', [$name]);
+        } catch (\Throwable $e) {
+            // no-op
+        }
+    }
+
+    /**
      * Apply default config options (qty=1) for a newly provisioned service.
      *
      * This ensures trial orders get the correct initial quantities for:

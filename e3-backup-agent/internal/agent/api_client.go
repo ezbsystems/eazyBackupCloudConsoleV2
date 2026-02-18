@@ -256,6 +256,10 @@ type NextRunResponse struct {
 	DestAutoCreateBucket    bool           `json:"dest_auto_create_bucket"`
 	DestAccessKey           string         `json:"dest_access_key"`
 	DestSecretKey           string         `json:"dest_secret_key"`
+	RepositoryID            string         `json:"repository_id,omitempty"`
+	RepositoryPassword      string         `json:"repository_password,omitempty"`
+	RepoPasswordMode        string         `json:"repo_password_mode,omitempty"`
+	PayloadVersion          string         `json:"payload_version,omitempty"`
 	ScheduleJSON            map[string]any `json:"schedule_json"`
 	RetentionJSON           map[string]any `json:"retention_json"`
 	PolicyJSON              map[string]any `json:"policy_json"`
@@ -880,6 +884,10 @@ type JobContext struct {
 	DestRegion              string         `json:"dest_region"`
 	DestAccessKey           string         `json:"dest_access_key"`
 	DestSecretKey           string         `json:"dest_secret_key"`
+	RepositoryID            string         `json:"repository_id,omitempty"`
+	RepositoryPassword      string         `json:"repository_password,omitempty"`
+	RepoPasswordMode        string         `json:"repo_password_mode,omitempty"`
+	PayloadVersion          string         `json:"payload_version,omitempty"`
 	LocalBandwidthLimitKbps int            `json:"local_bandwidth_limit_kbps"`
 	ManifestID              string         `json:"manifest_id"`
 	DiskSourceVolume        string         `json:"disk_source_volume"`

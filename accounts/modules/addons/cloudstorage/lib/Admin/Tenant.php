@@ -74,6 +74,10 @@ class Tenant {
                     'message' => 'Tenant ' . $username . ' not found.'
                 ];
             }
+            $manageGate = self::ensureManageUnlocked($tenant);
+            if ($manageGate !== null) {
+                return $manageGate;
+            }
 
             $tenantKey = DBController::getRow('s3_user_access_keys', [
                 ['id', '=', $id],
@@ -173,6 +177,10 @@ class Tenant {
                     'status' => 'fail',
                     'message' => 'Tenant ' . $username . ' not found.'
                 ];
+            }
+            $manageGate = self::ensureManageUnlocked($tenant);
+            if ($manageGate !== null) {
+                return $manageGate;
             }
 
             // get the subuser key
@@ -606,7 +614,7 @@ class Tenant {
                 ['username', '=', $username],
                 ['parent_id', '=', $parentUserId],
             ], [
-                'id', 'username', 'tenant_id'
+                'id', 'username', 'tenant_id', 'manage_locked', 'is_system_managed'
             ]);
 
             if (is_null($tenant)) {
@@ -614,6 +622,10 @@ class Tenant {
                     'status' => 'fail',
                     'message' => 'Tenant ' . $username . ' not found.'
                 ];
+            }
+            $manageGate = self::ensureManageUnlocked($tenant);
+            if ($manageGate !== null) {
+                return $manageGate;
             }
 
             // get the key from db
@@ -696,7 +708,7 @@ class Tenant {
                 ['username', '=', $username],
                 ['parent_id', '=', $parentUserId],
             ], [
-                'id', 'username'
+                'id', 'username', 'manage_locked', 'is_system_managed'
             ]);
 
             if (is_null($tenant)) {
@@ -704,6 +716,10 @@ class Tenant {
                     'status' => 'fail',
                     'message' => 'Tenant ' . $username . ' not found.'
                 ];
+            }
+            $manageGate = self::ensureManageUnlocked($tenant);
+            if ($manageGate !== null) {
+                return $manageGate;
             }
 
             // get the subuser key
@@ -813,6 +829,10 @@ class Tenant {
                     'status' => 'fail',
                     'message' => 'Tenant ' . $username . ' not found.'
                 ];
+            }
+            $manageGate = self::ensureManageUnlocked($tenant);
+            if ($manageGate !== null) {
+                return $manageGate;
             }
 
             $module = DBController::getResult('tbladdonmodules', [
@@ -962,6 +982,10 @@ class Tenant {
             if (is_null($tenant)) {
                 return ['status' => 'fail', 'message' => 'User not found.'];
             }
+            $manageGate = self::ensureManageUnlocked($tenant);
+            if ($manageGate !== null) {
+                return $manageGate;
+            }
 
             $module = DBController::getResult('tbladdonmodules', [
                 ['module', '=', 'cloudstorage']
@@ -1109,6 +1133,10 @@ class Tenant {
             if (is_null($tenant)) {
                 return ['status' => 'fail', 'message' => 'User not found.'];
             }
+            $manageGate = self::ensureManageUnlocked($tenant);
+            if ($manageGate !== null) {
+                return $manageGate;
+            }
 
             $schema = Capsule::schema();
             $fkCol = $schema->hasColumn('s3_subusers_keys', 'subuser_id') ? 'subuser_id' : ($schema->hasColumn('s3_subusers_keys', 'sub_user_id') ? 'sub_user_id' : null);
@@ -1174,6 +1202,18 @@ class Tenant {
         $freshWindow = 15 * 60;
         if ($verifiedAt <= 0 || (time() - $verifiedAt) > $freshWindow) {
             return ['status' => 'fail', 'message' => 'Please verify your password to manage access keys.'];
+        }
+        return null;
+    }
+
+    private static function ensureManageUnlocked($tenant): ?array
+    {
+        if (!$tenant) {
+            return ['status' => 'fail', 'message' => 'User not found.'];
+        }
+        $isLocked = !empty($tenant->manage_locked) || !empty($tenant->is_system_managed);
+        if ($isLocked) {
+            return ['status' => 'fail', 'message' => 'This user is system managed and cannot be modified.'];
         }
         return null;
     }

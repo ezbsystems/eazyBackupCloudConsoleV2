@@ -8,6 +8,7 @@ if (!defined("WHMCS")) {
 
 use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\ClientArea;
+use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 use WHMCS\Module\Addon\CloudStorage\Admin\Tenant;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
@@ -38,6 +39,21 @@ $parentUser = DBController::getUser($parentUsername);
 if (is_null($parentUser)) {
     (new JsonResponse(['status' => 'fail', 'message' => 'Your account has been suspended. Please contact support.'], 200))->send();
     exit();
+}
+
+$targetUsername = trim((string)($_POST['username'] ?? ''));
+if ($targetUsername !== '') {
+    $targetUser = Capsule::table('s3_users')
+        ->where('username', $targetUsername)
+        ->where('parent_id', (int)$parentUser->id)
+        ->first(['id', 'is_system_managed', 'manage_locked']);
+    if ($targetUser && (!empty($targetUser->manage_locked) || !empty($targetUser->is_system_managed))) {
+        (new JsonResponse([
+            'status' => 'fail',
+            'message' => 'This user is system managed and cannot be modified.'
+        ], 200))->send();
+        exit();
+    }
 }
 
 // Basic input validation

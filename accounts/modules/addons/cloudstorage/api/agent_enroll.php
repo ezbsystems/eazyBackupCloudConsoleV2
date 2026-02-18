@@ -1,9 +1,11 @@
 <?php
 
 require_once __DIR__ . '/../../../../init.php';
+require_once __DIR__ . '/../lib/Client/CloudBackupBootstrapService.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Symfony\Component\HttpFoundation\JsonResponse;
+use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupBootstrapService;
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -247,6 +249,19 @@ try {
             'api_base_url' => $systemUrl . '/modules/addons/cloudstorage/api',
         ];
     });
+
+    $destResult = CloudBackupBootstrapService::ensureAgentDestination((int) $result['agent_id']);
+    if (($destResult['status'] ?? 'fail') !== 'success') {
+        logModuleCall('cloudstorage', 'agent_enroll_ensure_destination_failed', [
+            'agent_id' => $result['agent_id'],
+            'client_id' => $result['client_id'],
+            'tenant_id' => $result['tenant_id'],
+        ], $destResult);
+        respond([
+            'status' => 'fail',
+            'message' => $destResult['message'] ?? 'Failed to initialize agent destination'
+        ], 500);
+    }
 
     respond([
         'status' => 'success',

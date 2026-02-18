@@ -101,13 +101,18 @@ class MspController
             ];
         }
 
-        // MSP clients: validate agent/tenant chain if job has an agent
+        $jobTenantId = null;
+        if (Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'tenant_id')) {
+            $jobTenantId = $job->tenant_id !== null ? (int) $job->tenant_id : null;
+        }
+
+        // MSP clients: always validate agent ownership when present.
+        $agent = null;
         if (!empty($job->agent_id)) {
             $agent = Capsule::table('s3_cloudbackup_agents')
                 ->where('id', $job->agent_id)
                 ->where('client_id', $clientId)
                 ->first();
-
             if (!$agent) {
                 return [
                     'valid' => false,
@@ -115,17 +120,25 @@ class MspController
                     'job' => null,
                 ];
             }
+        }
 
-            // If agent belongs to a tenant, verify the tenant is owned by this MSP
-            if (!empty($agent->tenant_id)) {
-                $tenant = self::getTenant((int) $agent->tenant_id, $clientId);
-                if (!$tenant) {
-                    return [
-                        'valid' => false,
-                        'message' => 'Tenant not found or does not belong to this account.',
-                        'job' => null,
-                    ];
-                }
+        // Primary ownership source: jobs.tenant_id snapshot.
+        if ($jobTenantId !== null) {
+            $tenant = self::getTenant($jobTenantId, $clientId);
+            if (!$tenant) {
+                return [
+                    'valid' => false,
+                    'message' => 'Tenant not found or does not belong to this account.',
+                    'job' => null,
+                ];
+            }
+            // Secondary sanity check only: if agent tenant exists, it must match snapshot.
+            if ($agent && !empty($agent->tenant_id) && (int) $agent->tenant_id !== $jobTenantId) {
+                return [
+                    'valid' => false,
+                    'message' => 'Job tenant ownership mismatch detected.',
+                    'job' => null,
+                ];
             }
         }
 

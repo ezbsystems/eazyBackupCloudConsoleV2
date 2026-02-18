@@ -139,6 +139,8 @@ class CloudBackupController {
             // Prepare job data
             $jobData = [
                 'client_id' => $data['client_id'],
+                'tenant_id' => $data['tenant_id'] ?? null,
+                'repository_id' => $data['repository_id'] ?? null,
                 's3_user_id' => $data['s3_user_id'],
                 'name' => $data['name'],
                 'source_type' => $data['source_type'],
@@ -193,6 +195,8 @@ class CloudBackupController {
             // Only include optional columns that exist in the schema
             $optionalCols = [
                 'source_connection_id',
+                'tenant_id',
+                'repository_id',
                 'engine',
                 'dest_type',
                 'dest_local_path',
@@ -248,6 +252,18 @@ class CloudBackupController {
                 return ['status' => 'fail', 'message' => 'Job not found or access denied'];
             }
 
+            $hasRepositoryIdCol = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'repository_id');
+            $jobRepositoryId = $hasRepositoryIdCol ? trim((string) ($job['repository_id'] ?? '')) : '';
+            $repository = null;
+            if ($jobRepositoryId !== '') {
+                $repository = Capsule::table('s3_cloudbackup_repositories')
+                    ->where('repository_id', $jobRepositoryId)
+                    ->first();
+                if (!$repository) {
+                    return ['status' => 'fail', 'message' => 'Repository identity is missing for this job.'];
+                }
+            }
+
             // Prepare update data
             $updateData = [
                 'updated_at' => date('Y-m-d H:i:s'),
@@ -272,6 +288,27 @@ class CloudBackupController {
             }
             if (array_key_exists('source_connection_id', $data)) {
                 $updateData['source_connection_id'] = $data['source_connection_id'];
+            }
+            if (array_key_exists('tenant_id', $data)) {
+                $updateData['tenant_id'] = $data['tenant_id'];
+            }
+            if (array_key_exists('repository_id', $data)) {
+                $incomingRepositoryId = trim((string) $data['repository_id']);
+                if ($jobRepositoryId !== '' && $incomingRepositoryId !== '' && $incomingRepositoryId !== $jobRepositoryId) {
+                    return ['status' => 'fail', 'message' => 'Repository identity is immutable for this job.'];
+                }
+                if ($jobRepositoryId === '' && $incomingRepositoryId !== '') {
+                    $jobRepositoryId = $incomingRepositoryId;
+                    $repository = Capsule::table('s3_cloudbackup_repositories')
+                        ->where('repository_id', $jobRepositoryId)
+                        ->first();
+                    if (!$repository) {
+                        return ['status' => 'fail', 'message' => 'Repository identity is invalid.'];
+                    }
+                    if ($hasRepositoryIdCol) {
+                        $updateData['repository_id'] = $jobRepositoryId;
+                    }
+                }
             }
             if (isset($data['dest_bucket_id'])) {
                 $updateData['dest_bucket_id'] = $data['dest_bucket_id'];
@@ -350,6 +387,29 @@ class CloudBackupController {
             }
             if (isset($data['status'])) {
                 $updateData['status'] = $data['status'];
+            }
+
+            if ($repository) {
+                $lockedBucketId = (int) ($repository->bucket_id ?? 0);
+                $lockedPrefix = trim(trim((string) ($repository->root_prefix ?? '')), '/');
+                if (isset($data['dest_bucket_id']) && (int) $data['dest_bucket_id'] !== $lockedBucketId) {
+                    return ['status' => 'fail', 'message' => 'Repository destination bucket is immutable.'];
+                }
+                if (isset($data['dest_prefix'])) {
+                    $incomingPrefix = trim(trim((string) $data['dest_prefix']), '/');
+                    if ($incomingPrefix !== $lockedPrefix) {
+                        return ['status' => 'fail', 'message' => 'Repository destination prefix is immutable.'];
+                    }
+                }
+
+                $updateData['dest_bucket_id'] = $lockedBucketId;
+                $updateData['dest_prefix'] = $lockedPrefix;
+                if ($hasRepositoryIdCol) {
+                    $updateData['repository_id'] = (string) $repository->repository_id;
+                }
+                if (Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'tenant_id')) {
+                    $updateData['tenant_id'] = $repository->tenant_id !== null ? (int) $repository->tenant_id : null;
+                }
             }
 
             // Defensive: only update columns that exist (older installs may lack optional columns).
@@ -611,6 +671,8 @@ class CloudBackupController {
             $hasEngineCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'engine');
             $hasWorkerHostCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'worker_host');
             $hasRunUuidCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_uuid');
+            $hasRunTenantCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'tenant_id');
+            $hasRunRepositoryCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'repository_id');
 
             $runInsert = [
                 'job_id' => $jobId,
@@ -620,6 +682,12 @@ class CloudBackupController {
             ];
             if ($hasRunUuidCol) {
                 $runInsert['run_uuid'] = self::generateUuid();
+            }
+            if ($hasRunTenantCol) {
+                $runInsert['tenant_id'] = $job['tenant_id'] ?? null;
+            }
+            if ($hasRunRepositoryCol) {
+                $runInsert['repository_id'] = $job['repository_id'] ?? null;
             }
             if ($hasEngineCol) {
                 $runInsert['engine'] = $job['engine'] ?? 'sync';
@@ -1149,6 +1217,14 @@ class CloudBackupController {
             $existing = $query->first();
             $payload = $data;
             unset($payload['id']);
+            try {
+                $columns = array_fill_keys(Capsule::schema()->getColumnListing('s3_cloudbackup_restore_points'), true);
+                foreach (array_keys($payload) as $key) {
+                    if (!isset($columns[$key])) {
+                        unset($payload[$key]);
+                    }
+                }
+            } catch (\Throwable $__) {}
 
             if ($existing) {
                 unset($payload['created_at']);
@@ -1228,8 +1304,9 @@ class CloudBackupController {
 
             $base = [
                 'client_id' => (int) $job->client_id,
-                'tenant_id' => $agent->tenant_id ?? null,
-                'tenant_user_id' => $agent->tenant_user_id ?? null,
+                'tenant_id' => $run->tenant_id ?? $job->tenant_id ?? null,
+                'repository_id' => $run->repository_id ?? $job->repository_id ?? null,
+                'tenant_user_id' => $job->tenant_user_id ?? ($agent->tenant_user_id ?? null),
                 'agent_id' => $agentId > 0 ? $agentId : null,
                 'job_id' => (int) $job->id,
                 'job_name' => (string) ($job->name ?? ''),

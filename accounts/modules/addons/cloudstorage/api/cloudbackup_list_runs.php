@@ -45,11 +45,45 @@ if (!$accessCheck['valid']) {
     exit;
 }
 
-$runs = Capsule::table('s3_cloudbackup_runs')
-    ->where('job_id', $jobId)
-    ->orderBy('id', 'desc')
+$hasRunTenantCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'tenant_id');
+$hasJobTenantCol = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'tenant_id');
+$hasRunRepositoryCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'repository_id');
+$hasJobRepositoryCol = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'repository_id');
+
+$tenantExpr = 'NULL as tenant_id';
+if ($hasRunTenantCol && $hasJobTenantCol) {
+    $tenantExpr = 'COALESCE(r.tenant_id, j.tenant_id) as tenant_id';
+} elseif ($hasRunTenantCol) {
+    $tenantExpr = 'r.tenant_id as tenant_id';
+} elseif ($hasJobTenantCol) {
+    $tenantExpr = 'j.tenant_id as tenant_id';
+}
+
+$repositoryExpr = 'NULL as repository_id';
+if ($hasRunRepositoryCol && $hasJobRepositoryCol) {
+    $repositoryExpr = 'COALESCE(r.repository_id, j.repository_id) as repository_id';
+} elseif ($hasRunRepositoryCol) {
+    $repositoryExpr = 'r.repository_id as repository_id';
+} elseif ($hasJobRepositoryCol) {
+    $repositoryExpr = 'j.repository_id as repository_id';
+}
+
+$runs = Capsule::table('s3_cloudbackup_runs as r')
+    ->join('s3_cloudbackup_jobs as j', 'r.job_id', '=', 'j.id')
+    ->where('r.job_id', $jobId)
+    ->orderBy('r.id', 'desc')
     ->limit($limit)
-    ->get(['id','status','started_at','finished_at','log_ref','engine','stats_json']);
+    ->get([
+        'r.id',
+        'r.status',
+        'r.started_at',
+        'r.finished_at',
+        'r.log_ref',
+        'r.engine',
+        'r.stats_json',
+        Capsule::raw($tenantExpr),
+        Capsule::raw($repositoryExpr),
+    ]);
 
 $out = [];
 foreach ($runs as $r) {
@@ -69,6 +103,8 @@ foreach ($runs as $r) {
         'finished_at' => (string) ($r->finished_at ?? ''),
         'log_ref' => $logRef,
         'engine' => (string) ($r->engine ?? 'sync'),
+        'tenant_id' => $r->tenant_id !== null ? (int) $r->tenant_id : null,
+        'repository_id' => isset($r->repository_id) ? (string) $r->repository_id : null,
     ];
 }
 

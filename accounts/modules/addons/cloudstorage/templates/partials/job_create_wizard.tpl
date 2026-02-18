@@ -1405,11 +1405,12 @@
                             <div id="localWizardS3Fields">
                                 <label class="block text-sm font-medium text-slate-200 mb-1">
                                     e3 Storage Location
-                                    <span class="ml-1 text-xs font-normal text-slate-400">(Bucket)</span>
+                                    <span class="ml-1 text-xs font-normal text-slate-400">(Policy Managed)</span>
                                 </label>
-                                <p class="text-xs text-slate-500 mb-2">Choose where your backup data will be stored. Each bucket is a secure container in our e3 cloud storage.</p>
+                                <p class="text-xs text-slate-500 mb-2">Bucket and root prefix are assigned automatically from the enrolled agent destination policy.</p>
                                 <div
                                     id="localWizardBucketDropdown"
+                                    class="hidden"
                                     x-data="{
                                         isOpen: false,
                                         search: '',
@@ -1479,17 +1480,27 @@
                                         </div>
                                     </div>
                                 </div>
-                                <div class="mt-3">
+                                <div class="mt-3 hidden">
                                     <label class="block text-sm font-medium text-slate-200 mb-2">Directory (optional)</label>
                                     <input id="localWizardPrefix" type="text" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50" placeholder="backups/job123/">
                                 </div>
-                                <div class="mt-3">
+                                <div class="mt-3 hidden">
                                     <button type="button" class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-slate-600 text-slate-400 hover:text-sky-400 hover:border-sky-500/50 transition text-sm" onclick="openBucketCreateModal(onLocalWizardBucketCreated)">
                                         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                                         </svg>
                                         Create new bucket
                                     </button>
+                                </div>
+                                <div class="mt-2 rounded-lg border border-slate-700 bg-slate-900/60 p-3 space-y-2">
+                                    <div>
+                                        <div class="text-xs text-slate-400">Bucket</div>
+                                        <div id="localWizardBucketLabel" class="text-sm text-slate-100">Auto-assigned from selected agent</div>
+                                    </div>
+                                    <div>
+                                        <div class="text-xs text-slate-400">Prefix</div>
+                                        <div id="localWizardPrefixLabel" class="text-sm text-slate-100">Device-scoped immutable prefix</div>
+                                    </div>
                                 </div>
                             </div>
                             <div id="localWizardLocalFields" class="hidden">

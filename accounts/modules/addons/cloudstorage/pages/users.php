@@ -30,7 +30,7 @@
     }
 
     $tenants = Capsule::table('s3_users')
-        ->select('id', 'username', 'tenant_id')
+        ->select('id', 'username', 'tenant_id', 'is_system_managed', 'system_key', 'manage_locked')
         ->where('parent_id', $user->id)
         ->orderBy('id', 'DESC')
         ->get();
@@ -50,6 +50,9 @@
         'tenant_id' => $user->tenant_id,
         'is_root' => true,
         'display_name' => 'Root user',
+        'is_system_managed' => false,
+        'system_key' => null,
+        'manage_locked' => false,
         'has_root_key' => $rootHasKey,
         'root_access_key_hint' => $rootHasKey ? $rootKey->access_key_hint : '',
         'root_access_key_created_at' => $rootHasKey ? $rootKey->created_at : null,
@@ -71,6 +74,9 @@
     foreach ($users as $tenant) {
         $tenant->display_name = $tenant->display_name ?? $tenant->username;
         $tenant->is_root = $tenant->is_root ?? false;
+        $tenant->is_system_managed = !empty($tenant->is_system_managed);
+        $tenant->manage_locked = !empty($tenant->manage_locked);
+        $tenant->system_key = $tenant->system_key ?? null;
 
         if (!$tenant->is_root) {
             // Legacy fields for backward compatibility with older templates (no secrets included)

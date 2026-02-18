@@ -8,6 +8,7 @@
 
     use Symfony\Component\HttpFoundation\JsonResponse;
     use WHMCS\ClientArea;
+    use WHMCS\Database\Capsule;
     use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
     use WHMCS\Module\Addon\CloudStorage\Request\TenantRequest;
     use WHMCS\Module\Addon\CloudStorage\Admin\Tenant;
@@ -64,6 +65,22 @@
         exit();
     }
     $parentUserId = $parentUser->id;
+
+    $targetUsername = trim((string)($_POST['username'] ?? ''));
+    if (in_array($_POST['action'], ['decryptkey', 'addkey', 'deletekey', 'deletetenant'], true) && $targetUsername !== '') {
+        $targetUser = Capsule::table('s3_users')
+            ->where('username', $targetUsername)
+            ->where('parent_id', $parentUserId)
+            ->first(['id', 'is_system_managed', 'manage_locked']);
+        if ($targetUser && (!empty($targetUser->manage_locked) || !empty($targetUser->is_system_managed))) {
+            $response = new JsonResponse([
+                'status' => 'fail',
+                'message' => 'This user is system managed and cannot be modified.'
+            ], 200);
+            $response->send();
+            exit();
+        }
+    }
 
     if ($_POST['action'] == 'decryptkey') {
         TenantRequest::validateDecryptKey($_POST);

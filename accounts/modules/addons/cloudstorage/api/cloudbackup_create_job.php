@@ -2,6 +2,8 @@
 
 require_once __DIR__ . '/../../../../init.php';
 require_once __DIR__ . '/../lib/Client/MspController.php';
+require_once __DIR__ . '/../lib/Client/CloudBackupBootstrapService.php';
+require_once __DIR__ . '/../lib/Client/RepositoryService.php';
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -15,6 +17,8 @@ use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
 use WHMCS\Module\Addon\CloudStorage\Client\HelperController;
 use WHMCS\Module\Addon\CloudStorage\Client\AwsS3Validator;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
+use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupBootstrapService;
+use WHMCS\Module\Addon\CloudStorage\Client\RepositoryService;
 use WHMCS\Database\Capsule;
 
 function respondJson(array $data, int $status = 200): void
@@ -201,6 +205,7 @@ if (empty($sourcePaths) && $primarySourcePath !== '') {
 // Validate agent assignment for local_agent jobs when provided/required
 $hasAgentIdJobs = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'agent_id');
 $agentIdForJob = null;
+$agentRow = null;
 if (($sourceType === 'local_agent' || isset($_POST['agent_id'])) && $hasAgentIdJobs) {
     $agentIdForJob = isset($_POST['agent_id']) ? (int)$_POST['agent_id'] : 0;
     if ($agentIdForJob <= 0) {
@@ -230,34 +235,87 @@ if (isset($_POST['dest_type']) && $_POST['dest_type'] !== 's3') {
     respondJson(['status' => 'fail', 'message' => 'Only S3 destinations are supported at this time.'], 200);
 }
 
-$destBucketId = isset($_POST['dest_bucket_id']) ? (int) $_POST['dest_bucket_id'] : 0;
-if ($destBucketId <= 0) {
-    respondJson(['status' => 'fail', 'message' => 'Destination bucket is required.'], 200);
-}
-
-// Resolve storage user and validate bucket ownership (parent + tenants)
-$username = $product->username;
-$user = DBController::getUser($username);
-if (!$user) {
-    respondJson(['status' => 'fail', 'message' => 'Storage user not found'], 200);
-}
-$allowedUserIds = [$user->id];
-try {
-    $childIds = Capsule::table('s3_users')->where('parent_id', $user->id)->pluck('id')->toArray();
-    if (!empty($childIds)) {
-        $allowedUserIds = array_values(array_unique(array_merge($allowedUserIds, $childIds)));
+$destBucketId = 0;
+$destPrefix = '';
+$s3UserId = 0;
+$repositoryId = null;
+$resolvedTenantId = $tenantId > 0 ? $tenantId : null;
+if ($sourceType === 'local_agent') {
+    if (!$agentIdForJob) {
+        respondJson(['status' => 'fail', 'message' => 'Agent is required for Local Agent jobs.'], 200);
     }
-} catch (\Throwable $e) {}
+    $destResult = CloudBackupBootstrapService::ensureAgentDestination((int) $agentIdForJob);
+    if (($destResult['status'] ?? 'fail') !== 'success') {
+        respondJson(['status' => 'fail', 'message' => $destResult['message'] ?? 'Failed to resolve policy destination.'], 200);
+    }
+    $dest = $destResult['destination'];
+    $destBucketId = (int) ($dest->dest_bucket_id ?? 0);
+    $destPrefix = (string) ($dest->root_prefix ?? '');
+    $s3UserId = (int) ($dest->s3_user_id ?? 0);
+    $resolvedTenantId = $dest->tenant_id !== null ? (int) $dest->tenant_id : ($agentRow->tenant_id ?? null);
 
-$bucket = Capsule::table('s3_buckets')
-    ->where('id', $destBucketId)
-    ->whereIn('user_id', $allowedUserIds)
-    ->where('is_active', 1)
-    ->first();
-if (!$bucket) {
-    respondJson(['status' => 'fail', 'message' => 'Destination bucket not found, inactive, or access denied.'], 200);
+    if ($destBucketId <= 0 || $s3UserId <= 0) {
+        respondJson(['status' => 'fail', 'message' => 'Invalid policy destination mapping for agent.'], 200);
+    }
+
+    $repoResult = RepositoryService::createOrAttachForAgent(
+        (int) $agentIdForJob,
+        (string) ($_POST['engine'] ?? 'kopia'),
+        'managed_recovery',
+        $loggedInUserId
+    );
+    $repoStatus = (string) ($repoResult['status'] ?? 'fail');
+    if ($repoStatus === 'success') {
+        $repository = $repoResult['repository'] ?? null;
+        if (!$repository || empty($repository->repository_id)) {
+            respondJson(['status' => 'fail', 'message' => 'Repository identity could not be resolved.'], 200);
+        }
+        $repositoryId = (string) $repository->repository_id;
+        $destBucketId = (int) ($repository->bucket_id ?? $destBucketId);
+        $destPrefix = (string) ($repository->root_prefix ?? $destPrefix);
+        if ($repository->tenant_id !== null) {
+            $resolvedTenantId = (int) $repository->tenant_id;
+        }
+    } elseif ($repoStatus === 'skip' || !RepositoryService::isFeatureReady()) {
+        // Compatibility mode for partially upgraded environments: keep job creation working.
+        logModuleCall('cloudstorage', 'cloudbackup_create_job_repository_fallback', [
+            'client_id' => $loggedInUserId,
+            'agent_id' => (int) $agentIdForJob,
+        ], $repoResult);
+    } else {
+        respondJson(['status' => 'fail', 'message' => $repoResult['message'] ?? 'Failed to initialize repository identity.'], 200);
+    }
+} else {
+    $destBucketId = isset($_POST['dest_bucket_id']) ? (int) $_POST['dest_bucket_id'] : 0;
+    if ($destBucketId <= 0) {
+        respondJson(['status' => 'fail', 'message' => 'Destination bucket is required.'], 200);
+    }
+
+    // Resolve storage user and validate bucket ownership (parent + tenants)
+    $username = $product->username;
+    $user = DBController::getUser($username);
+    if (!$user) {
+        respondJson(['status' => 'fail', 'message' => 'Storage user not found'], 200);
+    }
+    $allowedUserIds = [$user->id];
+    try {
+        $childIds = Capsule::table('s3_users')->where('parent_id', $user->id)->pluck('id')->toArray();
+        if (!empty($childIds)) {
+            $allowedUserIds = array_values(array_unique(array_merge($allowedUserIds, $childIds)));
+        }
+    } catch (\Throwable $e) {}
+
+    $bucket = Capsule::table('s3_buckets')
+        ->where('id', $destBucketId)
+        ->whereIn('user_id', $allowedUserIds)
+        ->where('is_active', 1)
+        ->first();
+    if (!$bucket) {
+        respondJson(['status' => 'fail', 'message' => 'Destination bucket not found, inactive, or access denied.'], 200);
+    }
+    $s3UserId = (int) $bucket->user_id;
+    $destPrefix = isset($_POST['dest_prefix']) ? (string) $_POST['dest_prefix'] : '';
 }
-$s3UserId = (int) $bucket->user_id;
 
 // Build or decode source_config
 $sourceConfig = null;
@@ -351,7 +409,7 @@ $jobData = [
     'source_connection_id' => isset($_POST['source_connection_id']) ? (int)$_POST['source_connection_id'] : null,
     'source_path' => $_POST['source_path'] ?? '',
     'dest_bucket_id' => $destBucketId,
-    'dest_prefix' => $_POST['dest_prefix'] ?? '',
+    'dest_prefix' => $destPrefix,
     'backup_mode' => $_POST['backup_mode'] ?? 'sync',
     'engine' => $_POST['engine'] ?? 'sync',
     'dest_type' => 's3',
@@ -383,6 +441,12 @@ $jobData = [
 
 if ($agentIdForJob) {
     $jobData['agent_id'] = $agentIdForJob;
+}
+if (Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'tenant_id')) {
+    $jobData['tenant_id'] = $resolvedTenantId;
+}
+if ($repositoryId !== null && Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'repository_id')) {
+    $jobData['repository_id'] = $repositoryId;
 }
 if (!empty($sourcePaths)) {
     $jobData['source_paths_json'] = json_encode($sourcePaths, JSON_UNESCAPED_SLASHES);

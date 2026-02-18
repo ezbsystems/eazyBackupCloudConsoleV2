@@ -5,6 +5,8 @@ require_once __DIR__ . '/../../../../init.php';
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\Module\Addon\CloudStorage\Client\HelperController;
+use WHMCS\Module\Addon\CloudStorage\Client\RepositoryService;
+use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupBootstrapService;
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -281,6 +283,19 @@ try {
             ->where('user_id', $keyUserId)
             ->orderByDesc('id')
             ->first() : null;
+        if (!$keys && $job && $keyUserId > 0) {
+            $ownerUser = Capsule::table('s3_users')
+                ->where('id', (int) $keyUserId)
+                ->first(['id', 'is_system_managed', 'system_key', 'manage_locked']);
+            if ($ownerUser && (int) ($ownerUser->is_system_managed ?? 0) === 1 && (string) ($ownerUser->system_key ?? '') === 'cloudbackup_owner') {
+                $bootstrap = CloudBackupBootstrapService::ensureBackupOwnerUser((int) ($job->client_id ?? 0));
+                $debugInfo['owner_key_bootstrap'] = $bootstrap['status'] ?? 'fail';
+                $keys = Capsule::table('s3_user_access_keys')
+                    ->where('user_id', $keyUserId)
+                    ->orderByDesc('id')
+                    ->first();
+            }
+        }
 
         // Addon settings for endpoint/region
         $settings = Capsule::table('tbladdonmodules')
@@ -366,6 +381,21 @@ try {
             $engineVal = 'kopia'; // sensible default for local agent jobs
         }
 
+        $repositoryId = trim((string) ($run->repository_id ?? $job->repository_id ?? ''));
+        $repositoryPassword = null;
+        $repoPasswordMode = 'legacy';
+        if ($repositoryId !== '') {
+            $repoSecret = RepositoryService::getRepositoryPassword($repositoryId);
+            if (($repoSecret['status'] ?? 'fail') === 'success') {
+                $repositoryPassword = (string) ($repoSecret['repository_password'] ?? '');
+                if ($repositoryPassword !== '') {
+                    $repoPasswordMode = 'v2';
+                }
+            } else {
+                $debugInfo['repository_secret_error'] = $repoSecret['message'] ?? 'unknown_error';
+            }
+        }
+
         // Decrypt network credentials if present in source_config
         $sourceConfig = json_decode($job->source_config ?? '{}', true) ?? [];
         $networkCreds = null;
@@ -432,6 +462,10 @@ try {
             'dest_region' => $agentRegion,
             'dest_access_key' => $accessKeyRaw,
             'dest_secret_key' => $secretKeyRaw,
+            'repository_id' => $repositoryId !== '' ? $repositoryId : null,
+            'repository_password' => $repositoryPassword,
+            'repo_password_mode' => $repoPasswordMode,
+            'payload_version' => 'v2',
             'schedule_json' => json_decode($job->schedule_json ?? 'null', true),
             'retention_json' => json_decode($job->retention_json ?? 'null', true),
             'policy_json' => json_decode($job->policy_json ?? 'null', true),
@@ -535,6 +569,9 @@ try {
         
         $debugInfo['has_access_key'] = !empty($runData['dest_access_key']);
         $debugInfo['has_secret_key'] = !empty($runData['dest_secret_key']);
+        $debugInfo['has_repository_id'] = !empty($runData['repository_id']);
+        $debugInfo['has_repository_password'] = !empty($runData['repository_password']);
+        $debugInfo['repo_password_mode'] = $runData['repo_password_mode'];
         $debugInfo['dest_bucket'] = $runData['dest_bucket_name'];
         $debugInfo['dest_prefix'] = $runData['dest_prefix'];
         $debugInfo['reclaimed'] = $isReclaim;

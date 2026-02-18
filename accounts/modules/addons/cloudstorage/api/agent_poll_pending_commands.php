@@ -15,6 +15,7 @@ require_once __DIR__ . '/../../../../init.php';
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\Module\Addon\CloudStorage\Client\HelperController;
+use WHMCS\Module\Addon\CloudStorage\Client\RepositoryService;
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -60,6 +61,32 @@ function getModuleSetting(string $key, $default = null)
     } catch (\Throwable $e) {
         return $default;
     }
+}
+
+function buildRepositoryContext(?string $repositoryId): array
+{
+    $repositoryId = trim((string) $repositoryId);
+    $context = [
+        'repository_id' => $repositoryId !== '' ? $repositoryId : null,
+        'repository_password' => null,
+        'repo_password_mode' => 'legacy',
+        'payload_version' => 'v2',
+    ];
+
+    if ($repositoryId === '') {
+        return $context;
+    }
+
+    $repoSecret = RepositoryService::getRepositoryPassword($repositoryId);
+    if (($repoSecret['status'] ?? 'fail') === 'success') {
+        $password = (string) ($repoSecret['repository_password'] ?? '');
+        if ($password !== '') {
+            $context['repository_password'] = $password;
+            $context['repo_password_mode'] = 'v2';
+        }
+    }
+
+    return $context;
 }
 
 $agent = authenticateAgent();
@@ -263,6 +290,14 @@ try {
             }
         }
 
+        $repositoryId = trim((string) ($restorePoint->repository_id ?? ''));
+        if ($repositoryId === '' && !empty($restorePoint->job_id)) {
+            $repositoryId = trim((string) Capsule::table('s3_cloudbackup_jobs')
+                ->where('id', (int) $restorePoint->job_id)
+                ->value('repository_id'));
+        }
+        $repoCtx = buildRepositoryContext($repositoryId);
+
         $jobContext = [
             'job_id' => (int) ($restorePoint->job_id ?? 0),
             'run_id' => (int) ($payload['restore_run_id'] ?? 0),
@@ -279,6 +314,10 @@ try {
             'local_bandwidth_limit_kbps' => 0,
             'manifest_id' => $restorePoint->manifest_id ?? '',
             'policy_json' => $policyJSON,
+            'repository_id' => $repoCtx['repository_id'],
+            'repository_password' => $repoCtx['repository_password'],
+            'repo_password_mode' => $repoCtx['repo_password_mode'],
+            'payload_version' => $repoCtx['payload_version'],
         ];
 
         $commands[] = [
@@ -320,6 +359,7 @@ try {
             'c.payload_json',
             'r.job_id',
             'r.log_ref as manifest_id', // The manifest_id from the backup run
+            'r.repository_id as run_repository_id',
             'j.source_path',
             'j.engine',
             'j.dest_bucket_id',
@@ -327,6 +367,7 @@ try {
             'j.dest_type',
             'j.dest_local_path',
             'j.s3_user_id',
+            'j.repository_id as job_repository_id',
             'j.local_bandwidth_limit_kbps',
             'j.policy_json'
         )
@@ -419,6 +460,8 @@ try {
                     $policyJSON = $dec;
                 }
             }
+
+            $repoCtx = buildRepositoryContext((string) ($cmd->run_repository_id ?? $cmd->job_repository_id ?? ''));
             
             $jobContext = [
                 'job_id' => (int) $cmd->job_id,
@@ -436,6 +479,10 @@ try {
                 'local_bandwidth_limit_kbps' => (int) ($cmd->local_bandwidth_limit_kbps ?? 0),
                 'manifest_id' => $cmd->manifest_id ?? '', // From the backup run's log_ref
                 'policy_json' => $policyJSON,
+                'repository_id' => $repoCtx['repository_id'],
+                'repository_password' => $repoCtx['repository_password'],
+                'repo_password_mode' => $repoCtx['repo_password_mode'],
+                'payload_version' => $repoCtx['payload_version'],
             ];
         }
         

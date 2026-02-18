@@ -24,8 +24,12 @@ $tenantFilter = $_GET['tenant_id'] ?? null;
 $agentFilter = $_GET['agent_id'] ?? null;
 
 try {
+    $hasJobTenantCol = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'tenant_id');
+    $hasJobRepositoryCol = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'repository_id');
+    $tenantColumn = $hasJobTenantCol ? 'j.tenant_id' : 'a.tenant_id';
+
     $query = Capsule::table('s3_cloudbackup_jobs as j')
-        ->join('s3_cloudbackup_agents as a', 'j.agent_id', '=', 'a.id')
+        ->leftJoin('s3_cloudbackup_agents as a', 'j.agent_id', '=', 'a.id')
         ->where('j.client_id', $clientId)
         ->where('j.status', '!=', 'deleted')
         ->select([
@@ -46,20 +50,22 @@ try {
             'j.dest_bucket_id',
             'j.dest_prefix',
             'j.encryption_enabled',
+            $hasJobRepositoryCol ? 'j.repository_id' : Capsule::raw('NULL as repository_id'),
             'a.id as agent_id',
             'a.hostname as agent_hostname',
-            'a.tenant_id',
+            Capsule::raw($tenantColumn . ' as tenant_id'),
+            'a.tenant_id as agent_tenant_id',
         ]);
 
     if ($isMsp) {
-        $query->leftJoin('s3_backup_tenants as t', 'a.tenant_id', '=', 't.id')
+        $query->leftJoin('s3_backup_tenants as t', $tenantColumn, '=', 't.id')
               ->addSelect('t.name as tenant_name');
 
         if ($tenantFilter !== null) {
             if ($tenantFilter === 'direct') {
-                $query->whereNull('a.tenant_id');
+                $query->whereNull($tenantColumn);
             } elseif ((int)$tenantFilter > 0) {
-                $query->where('a.tenant_id', (int)$tenantFilter);
+                $query->where($tenantColumn, (int)$tenantFilter);
             }
         }
     }
