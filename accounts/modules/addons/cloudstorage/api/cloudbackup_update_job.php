@@ -2,6 +2,8 @@
 
 require_once __DIR__ . '/../../../../init.php';
 require_once __DIR__ . '/../lib/Client/MspController.php';
+require_once __DIR__ . '/../lib/Client/CloudBackupBootstrapService.php';
+require_once __DIR__ . '/../lib/Client/RepositoryService.php';
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -14,6 +16,8 @@ use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
 use WHMCS\Module\Addon\CloudStorage\Client\AwsS3Validator;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
+use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupBootstrapService;
+use WHMCS\Module\Addon\CloudStorage\Client\RepositoryService;
 use WHMCS\Database\Capsule;
 
 /**
@@ -181,6 +185,12 @@ if (!$existingJob) {
     $response->send();
     exit();
 }
+$existingRepositoryId = trim((string) ($existingJob['repository_id'] ?? ''));
+if ($existingRepositoryId !== '' && isset($_POST['repository_id']) && trim((string) $_POST['repository_id']) !== $existingRepositoryId) {
+    $response = new JsonResponse(['status' => 'fail', 'message' => 'Repository identity is immutable for this job.'], 200);
+    $response->send();
+    exit();
+}
 
 // MSP tenant authorization check
 $accessCheck = MspController::validateJobAccess((int)$jobId, $loggedInUserId);
@@ -262,6 +272,9 @@ $hypervVms = decodeJsonArray($_POST['hyperv_vms'] ?? null);
 // Validate agent assignment for local_agent jobs when provided/required
 $hasAgentIdJobs = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'agent_id');
 $agentIdForJob = null;
+$isLocalAgentJob = (($sourceTypeForPath === 'local_agent') || (($existingJob['source_type'] ?? '') === 'local_agent'));
+$policyDestination = null;
+$repositoryRecord = null;
 if (($sourceTypeForPath === 'local_agent' || isset($_POST['agent_id'])) && $hasAgentIdJobs) {
     $agentIdForJob = isset($_POST['agent_id']) ? (int)$_POST['agent_id'] : ($existingJob['agent_id'] ?? 0);
     if ($agentIdForJob <= 0) {
@@ -281,6 +294,62 @@ if (($sourceTypeForPath === 'local_agent' || isset($_POST['agent_id'])) && $hasA
     }
     $updateData['agent_id'] = $agentIdForJob;
 }
+if ($isLocalAgentJob) {
+    if (!$agentIdForJob && !empty($existingJob['agent_id'])) {
+        $agentIdForJob = (int) $existingJob['agent_id'];
+    }
+    if ($agentIdForJob <= 0) {
+        $response = new JsonResponse(['status' => 'fail', 'message' => 'Agent is required for Local Agent jobs.'], 200);
+        $response->send();
+        exit();
+    }
+    $destResult = CloudBackupBootstrapService::ensureAgentDestination((int) $agentIdForJob);
+    if (($destResult['status'] ?? 'fail') !== 'success') {
+        $response = new JsonResponse(['status' => 'fail', 'message' => $destResult['message'] ?? 'Failed to resolve policy destination.'], 200);
+        $response->send();
+        exit();
+    }
+    $policyDestination = $destResult['destination'];
+
+    if ($existingRepositoryId !== '') {
+        $repositoryRecord = RepositoryService::getByRepositoryId($existingRepositoryId);
+        if (!$repositoryRecord && RepositoryService::isFeatureReady()) {
+            $response = new JsonResponse(['status' => 'fail', 'message' => 'Repository identity could not be resolved for this job.'], 200);
+            $response->send();
+            exit();
+        }
+    } else {
+        $repoRes = RepositoryService::createOrAttachForAgent(
+            (int) $agentIdForJob,
+            (string) ($_POST['engine'] ?? ($existingJob['engine'] ?? 'kopia')),
+            'managed_recovery',
+            $loggedInUserId
+        );
+        $repoStatus = (string) ($repoRes['status'] ?? 'fail');
+        if ($repoStatus === 'success') {
+            $repositoryRecord = $repoRes['repository'] ?? null;
+            if (!$repositoryRecord || empty($repositoryRecord->repository_id)) {
+                $response = new JsonResponse(['status' => 'fail', 'message' => 'Repository identity could not be resolved for this job.'], 200);
+                $response->send();
+                exit();
+            }
+            if (Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'repository_id')) {
+                $updateData['repository_id'] = (string) $repositoryRecord->repository_id;
+            }
+        } elseif ($repoStatus === 'skip' || !RepositoryService::isFeatureReady()) {
+            logModuleCall('cloudstorage', 'cloudbackup_update_job_repository_fallback', [
+                'client_id' => $loggedInUserId,
+                'job_id' => (int) $jobId,
+                'agent_id' => (int) $agentIdForJob,
+            ], $repoRes);
+            $repositoryRecord = null;
+        } else {
+            $response = new JsonResponse(['status' => 'fail', 'message' => $repoRes['message'] ?? 'Failed to initialize repository identity.'], 200);
+            $response->send();
+            exit();
+        }
+    }
+}
 
 if (isset($_POST['source_path'])) {
     // Do not overwrite an existing source_path with empty string (common when editing without revisiting Source step).
@@ -292,12 +361,81 @@ if (isset($_POST['source_path'])) {
 if ($hasSourcePathsJson && !empty($sourcePaths)) {
     $updateData['source_paths_json'] = json_encode($sourcePaths, JSON_UNESCAPED_SLASHES);
 }
-if (isset($_POST['dest_bucket_id'])) {
-    $updateData['dest_bucket_id'] = $_POST['dest_bucket_id'];
+if ($isLocalAgentJob) {
+    if ($policyDestination) {
+        $policyBucketId = (int) ($policyDestination->dest_bucket_id ?? 0);
+        $policyPrefix = (string) ($policyDestination->root_prefix ?? '');
+        $lockedBucketId = $policyBucketId;
+        $lockedPrefix = $policyPrefix;
+        if ($repositoryRecord) {
+            $lockedBucketId = (int) ($repositoryRecord->bucket_id ?? $policyBucketId);
+            $lockedPrefix = (string) ($repositoryRecord->root_prefix ?? $policyPrefix);
+            if ($policyBucketId !== $lockedBucketId || trim($policyPrefix, '/') !== trim($lockedPrefix, '/')) {
+                $response = new JsonResponse(['status' => 'fail', 'message' => 'Agent destination no longer matches repository identity.'], 200);
+                $response->send();
+                exit();
+            }
+        }
+        if (isset($_POST['dest_bucket_id']) && (int) $_POST['dest_bucket_id'] !== $lockedBucketId) {
+            $response = new JsonResponse(['status' => 'fail', 'message' => 'Destination bucket is policy-managed and cannot be edited.'], 200);
+            $response->send();
+            exit();
+        }
+        if (isset($_POST['dest_prefix']) && trim((string) $_POST['dest_prefix'], '/') !== trim($lockedPrefix, '/')) {
+            $response = new JsonResponse(['status' => 'fail', 'message' => 'Destination prefix is policy-managed and cannot be edited.'], 200);
+            $response->send();
+            exit();
+        }
+        $updateData['dest_bucket_id'] = $lockedBucketId;
+        $updateData['dest_prefix'] = trim($lockedPrefix, '/');
+        $updateData['s3_user_id'] = (int) ($policyDestination->s3_user_id ?? 0);
+        if ($repositoryRecord && Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'repository_id')) {
+            $updateData['repository_id'] = (string) $repositoryRecord->repository_id;
+        }
+        if (Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'tenant_id')) {
+            $updateData['tenant_id'] = $repositoryRecord && $repositoryRecord->tenant_id !== null
+                ? (int) $repositoryRecord->tenant_id
+                : ($policyDestination->tenant_id !== null ? (int) $policyDestination->tenant_id : null);
+        }
+    }
+} else {
+    if (isset($_POST['dest_bucket_id'])) {
+        $updateData['dest_bucket_id'] = $_POST['dest_bucket_id'];
+    }
+    if (isset($_POST['dest_prefix'])) {
+        // Destination prefix is optional; allow empty string.
+        $updateData['dest_prefix'] = (string)$_POST['dest_prefix'];
+    }
 }
-if (isset($_POST['dest_prefix'])) {
-    // Destination prefix is optional; allow empty string.
-    $updateData['dest_prefix'] = (string)$_POST['dest_prefix'];
+if (!$isLocalAgentJob && $existingRepositoryId !== '') {
+    $repositoryRecord = RepositoryService::getByRepositoryId($existingRepositoryId);
+    if (!$repositoryRecord && RepositoryService::isFeatureReady()) {
+        $response = new JsonResponse(['status' => 'fail', 'message' => 'Repository identity could not be resolved for this job.'], 200);
+        $response->send();
+        exit();
+    }
+    if ($repositoryRecord) {
+        $lockedBucketId = (int) ($repositoryRecord->bucket_id ?? 0);
+        $lockedPrefix = trim((string) ($repositoryRecord->root_prefix ?? ''), '/');
+        if (isset($_POST['dest_bucket_id']) && (int) $_POST['dest_bucket_id'] !== $lockedBucketId) {
+            $response = new JsonResponse(['status' => 'fail', 'message' => 'Repository destination bucket is immutable.'], 200);
+            $response->send();
+            exit();
+        }
+        if (isset($_POST['dest_prefix']) && trim((string) $_POST['dest_prefix'], '/') !== $lockedPrefix) {
+            $response = new JsonResponse(['status' => 'fail', 'message' => 'Repository destination prefix is immutable.'], 200);
+            $response->send();
+            exit();
+        }
+        $updateData['dest_bucket_id'] = $lockedBucketId;
+        $updateData['dest_prefix'] = $lockedPrefix;
+        if (Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'repository_id')) {
+            $updateData['repository_id'] = (string) $repositoryRecord->repository_id;
+        }
+        if (Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'tenant_id')) {
+            $updateData['tenant_id'] = $repositoryRecord->tenant_id !== null ? (int) $repositoryRecord->tenant_id : null;
+        }
+    }
 }
 if (isset($_POST['dest_local_path'])) {
     $updateData['dest_local_path'] = $_POST['dest_local_path'];
@@ -537,7 +675,7 @@ if (is_array($reconstructed)) {
 // --- end merge ---
 
 // Validate destination bucket if it's being changed
-if (isset($_POST['dest_bucket_id'])) {
+if (!$isLocalAgentJob && isset($_POST['dest_bucket_id'])) {
     $username = $product->username;
     $user = DBController::getUser($username);
     if (!$user) {

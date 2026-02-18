@@ -65,6 +65,12 @@ $restorePoint = null;
 $job = null;
 $manifestId = '';
 $targetAgent = null;
+$restoreTenantId = null;
+$restoreRepositoryId = '';
+$hasJobTenantCol = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'tenant_id');
+$hasJobRepositoryCol = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'repository_id');
+$hasRunTenantCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'tenant_id');
+$hasRunRepositoryCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'repository_id');
 
 if ($restorePointId > 0) {
     if (!Capsule::schema()->hasTable('s3_cloudbackup_restore_points')) {
@@ -106,10 +112,17 @@ if ($restorePointId > 0) {
         respond(['status' => 'fail', 'message' => 'Restore point missing job reference. Cannot create restore run.']);
     }
 
+    $jobSelect = ['j.id as job_id', 'j.name as job_name', 'j.agent_id', 'j.engine', 'j.source_type'];
+    if ($hasJobTenantCol) {
+        $jobSelect[] = 'j.tenant_id';
+    }
+    if ($hasJobRepositoryCol) {
+        $jobSelect[] = 'j.repository_id';
+    }
     $job = Capsule::table('s3_cloudbackup_jobs as j')
         ->where('j.id', $jobId)
         ->where('j.client_id', $clientId)
-        ->select('j.id as job_id', 'j.name as job_name', 'j.agent_id', 'j.engine', 'j.source_type')
+        ->select($jobSelect)
         ->first();
     if (!$job) {
         respond(['status' => 'fail', 'message' => 'Backup job not found for this restore point']);
@@ -133,7 +146,8 @@ if ($restorePointId > 0) {
         respond(['status' => 'fail', 'message' => 'Selected agent not found or inactive.']);
     }
 
-    $restoreTenantId = $restorePoint->tenant_id ?? null;
+    $restoreTenantId = $restorePoint->tenant_id ?? ($job->tenant_id ?? null);
+    $restoreRepositoryId = trim((string) ($restorePoint->repository_id ?? ($job->repository_id ?? '')));
     if ($restoreTenantId) {
         if ((int) $targetAgent->tenant_id !== (int) $restoreTenantId) {
             respond(['status' => 'fail', 'message' => 'Destination agent does not belong to the same tenant.']);
@@ -156,10 +170,17 @@ if ($restorePointId > 0) {
     }
 
     // Load job for additional context/fields
+    $jobSelect = ['j.id as job_id', 'j.name as job_name', 'j.agent_id', 'j.engine', 'j.source_type'];
+    if ($hasJobTenantCol) {
+        $jobSelect[] = 'j.tenant_id';
+    }
+    if ($hasJobRepositoryCol) {
+        $jobSelect[] = 'j.repository_id';
+    }
     $job = Capsule::table('s3_cloudbackup_jobs as j')
         ->where('j.id', $backupRun['job_id'] ?? 0)
         ->where('j.client_id', $clientId)
-        ->select('j.id as job_id', 'j.name as job_name', 'j.agent_id', 'j.engine', 'j.source_type')
+        ->select($jobSelect)
         ->first();
 
     if (!$job) {
@@ -188,6 +209,15 @@ if ($restorePointId > 0) {
     if (empty($manifestId)) {
         respond(['status' => 'fail', 'message' => 'This backup run has no manifest ID. Cannot restore.']);
     }
+
+    $restoreTenantId = $hasRunTenantCol ? ($backupRun['tenant_id'] ?? null) : null;
+    if ($restoreTenantId === null && isset($job->tenant_id)) {
+        $restoreTenantId = $job->tenant_id;
+    }
+    $restoreRepositoryId = $hasRunRepositoryCol ? trim((string) ($backupRun['repository_id'] ?? '')) : '';
+    if ($restoreRepositoryId === '' && isset($job->repository_id)) {
+        $restoreRepositoryId = trim((string) $job->repository_id);
+    }
 }
 
 // Check if commands table exists
@@ -200,12 +230,14 @@ try {
     $restoreRunUuid = null;
     $commandId = null;
 
-    Capsule::connection()->transaction(function () use ($backupRun, $backupRunId, $restorePoint, $manifestId, $targetPath, $mount, $job, $targetAgent, $targetAgentId, &$restoreRunId, &$restoreRunUuid, &$commandId) {
+    Capsule::connection()->transaction(function () use ($backupRun, $backupRunId, $restorePoint, $manifestId, $targetPath, $mount, $selectedPaths, $job, $targetAgent, $targetAgentId, $restoreTenantId, $restoreRepositoryId, &$restoreRunId, &$restoreRunUuid, &$commandId) {
         // Determine which columns exist for the runs table
         $hasAgentIdRuns = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'agent_id');
         $hasEngineColumn = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'engine');
         $hasRunTypeColumn = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_type');
         $hasRunUuidColumn = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_uuid');
+        $hasRunTenantColumn = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'tenant_id');
+        $hasRunRepositoryColumn = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'repository_id');
         
         // Create a restore run for tracking progress
         $runData = [
@@ -230,6 +262,12 @@ try {
         }
         if ($hasRunUuidColumn) {
             $runData['run_uuid'] = CloudBackupController::generateUuid();
+        }
+        if ($hasRunTenantColumn) {
+            $runData['tenant_id'] = $restoreTenantId !== null ? (int) $restoreTenantId : null;
+        }
+        if ($hasRunRepositoryColumn) {
+            $runData['repository_id'] = $restoreRepositoryId !== '' ? $restoreRepositoryId : null;
         }
         
         // Store restore metadata in stats_json or progress_json
@@ -276,6 +314,7 @@ try {
                 'selected_paths' => !empty($selectedPaths) ? $selectedPaths : null,
                 'restore_run_id' => $restoreRunId, // Reference to progress tracking run
                 'restore_run_uuid' => $restoreRunUuid,
+                'repository_id' => $restoreRepositoryId !== '' ? $restoreRepositoryId : null,
             ]),
             'status' => 'pending',
             'created_at' => Capsule::raw('NOW()'),

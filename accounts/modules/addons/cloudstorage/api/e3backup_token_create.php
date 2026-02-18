@@ -2,10 +2,14 @@
 
 require_once __DIR__ . '/../../../../init.php';
 require_once __DIR__ . '/../lib/Client/MspController.php';
+require_once __DIR__ . '/../lib/Provision/Provisioner.php';
+require_once __DIR__ . '/../lib/Client/CloudBackupBootstrapService.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\ClientArea;
+use WHMCS\Module\Addon\CloudStorage\Provision\Provisioner;
+use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupBootstrapService;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 
 if (!defined("WHMCS")) {
@@ -20,6 +24,20 @@ if (!$ca->isLoggedIn()) {
 $clientId = $ca->getUserID();
 
 $isMsp = MspController::isMspClient($clientId);
+
+// Ensure Cloud Storage product is active before allowing token creation.
+$ensureProduct = Provisioner::ensureCloudStorageProductActive((int) $clientId, true);
+logModuleCall('cloudstorage', 'e3backup_token_create_ensure_active_product', [
+    'client_id' => $clientId,
+], $ensureProduct);
+if (($ensureProduct['status'] ?? 'fail') !== 'success') {
+    $message = $ensureProduct['message'] ?? 'Unable to ensure active Cloud Storage service.';
+    (new JsonResponse([
+        'status' => 'fail',
+        'message' => $message . ' Please verify product configuration and try again.'
+    ], 400))->send();
+    exit;
+}
 
 $description = trim($_POST['description'] ?? '');
 $tenantId = isset($_POST['tenant_id']) && $_POST['tenant_id'] !== '' ? (int)$_POST['tenant_id'] : null;
@@ -38,6 +56,34 @@ if ($tenantId !== null && $tenantId > 0) {
         (new JsonResponse(['status' => 'fail', 'message' => 'Tenant not found'], 404))->send();
         exit;
     }
+}
+
+$bootstrapOwner = CloudBackupBootstrapService::ensureBackupOwnerUser((int) $clientId);
+logModuleCall('cloudstorage', 'e3backup_token_create_bootstrap_owner', [
+    'client_id' => $clientId,
+    'tenant_id' => $tenantId,
+], $bootstrapOwner);
+if (($bootstrapOwner['status'] ?? 'fail') !== 'success') {
+    (new JsonResponse([
+        'status' => 'fail',
+        'message' => $bootstrapOwner['message'] ?? 'Failed to bootstrap backup owner.'
+    ], 500))->send();
+    exit;
+}
+
+$bootstrapBucket = $tenantId !== null && $tenantId > 0
+    ? CloudBackupBootstrapService::ensureTenantBucket((int) $clientId, (int) $tenantId)
+    : CloudBackupBootstrapService::ensureDirectBucket((int) $clientId);
+logModuleCall('cloudstorage', 'e3backup_token_create_bootstrap_bucket', [
+    'client_id' => $clientId,
+    'tenant_id' => $tenantId,
+], $bootstrapBucket);
+if (($bootstrapBucket['status'] ?? 'fail') !== 'success') {
+    (new JsonResponse([
+        'status' => 'fail',
+        'message' => $bootstrapBucket['message'] ?? 'Failed to provision destination bucket.'
+    ], 500))->send();
+    exit;
 }
 
 // Generate token

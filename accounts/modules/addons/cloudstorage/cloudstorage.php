@@ -671,6 +671,9 @@ function cloudstorage_activate() {
             $s3UserColDefs = [
                 'ceph_uid'   => function ($table) { $table->string('ceph_uid', 191)->nullable()->after('username'); },
                 'is_active'  => function ($table) { $table->tinyInteger('is_active')->default(1)->after('tenant_id'); },
+                'is_system_managed' => function ($table) { $table->tinyInteger('is_system_managed')->default(0)->after('is_active'); },
+                'system_key' => function ($table) { $table->string('system_key', 64)->nullable()->after('is_system_managed'); },
+                'manage_locked' => function ($table) { $table->tinyInteger('manage_locked')->default(0)->after('system_key'); },
                 'deleted_at' => function ($table) { $table->timestamp('deleted_at')->nullable()->after('created_at'); },
             ];
             foreach ($s3UserColDefs as $col => $adder) {
@@ -699,6 +702,27 @@ function cloudstorage_activate() {
                 if (Capsule::schema()->hasColumn('s3_users', 'ceph_uid')) {
                     Capsule::schema()->table('s3_users', function ($table) {
                         $table->index('ceph_uid');
+                    });
+                }
+            } catch (\Throwable $e) { /* index already exists */ }
+            try {
+                if (Capsule::schema()->hasColumn('s3_users', 'manage_locked')) {
+                    Capsule::schema()->table('s3_users', function ($table) {
+                        $table->index('manage_locked');
+                    });
+                }
+            } catch (\Throwable $e) { /* index already exists */ }
+            try {
+                if (Capsule::schema()->hasColumn('s3_users', 'system_key')) {
+                    Capsule::schema()->table('s3_users', function ($table) {
+                        $table->index('system_key');
+                    });
+                }
+            } catch (\Throwable $e) { /* index already exists */ }
+            try {
+                if (Capsule::schema()->hasColumn('s3_users', 'parent_id') && Capsule::schema()->hasColumn('s3_users', 'system_key')) {
+                    Capsule::schema()->table('s3_users', function ($table) {
+                        $table->index(['parent_id', 'system_key'], 'idx_s3_users_parent_system_key');
                     });
                 }
             } catch (\Throwable $e) { /* index already exists */ }
@@ -1098,6 +1122,8 @@ function cloudstorage_activate() {
             Capsule::schema()->create('s3_cloudbackup_jobs', function ($table) {
             $table->increments('id');
             $table->unsignedInteger('client_id');
+            $table->unsignedInteger('tenant_id')->nullable();
+            $table->string('repository_id', 64)->nullable();
             $table->unsignedInteger('s3_user_id');
             $table->string('name', 191);
             $table->enum('source_type', ['s3_compatible', 'aws', 'sftp', 'google_drive', 'dropbox', 'smb', 'nas', 'local_agent'])->default('s3_compatible');
@@ -1127,6 +1153,8 @@ function cloudstorage_activate() {
             $table->timestamp('updated_at')->useCurrent();
 
             $table->index('client_id');
+            $table->index('tenant_id');
+            $table->index('repository_id');
             $table->index('s3_user_id');
             $table->index('dest_bucket_id');
             $table->index(['schedule_type', 'status']);
@@ -1140,6 +1168,8 @@ function cloudstorage_activate() {
             $table->bigIncrements('id');
             $table->string('run_uuid', 36)->nullable();
             $table->unsignedInteger('job_id');
+            $table->unsignedInteger('tenant_id')->nullable();
+            $table->string('repository_id', 64)->nullable();
             $table->enum('trigger_type', ['manual', 'schedule', 'validation'])->default('manual');
             $table->enum('status', ['queued', 'starting', 'running', 'success', 'warning', 'failed', 'cancelled'])->default('queued');
             $table->timestamp('created_at')->useCurrent();
@@ -1165,6 +1195,8 @@ function cloudstorage_activate() {
             $table->mediumText('validation_log_excerpt')->nullable();
 
             $table->index('job_id');
+            $table->index('tenant_id');
+            $table->index('repository_id');
             $table->index('status');
             $table->index('started_at');
             $table->index('run_uuid');
@@ -1213,6 +1245,7 @@ function cloudstorage_activate() {
                 $table->bigIncrements('id');
                 $table->unsignedInteger('client_id');
                 $table->unsignedInteger('tenant_id')->nullable();
+                $table->string('repository_id', 64)->nullable();
                 $table->unsignedInteger('tenant_user_id')->nullable();
                 $table->unsignedInteger('agent_id')->nullable();
                 $table->unsignedInteger('job_id')->nullable();
@@ -1245,6 +1278,7 @@ function cloudstorage_activate() {
 
                 $table->index('client_id');
                 $table->index('tenant_id');
+                $table->index('repository_id');
                 $table->index('agent_id');
                 $table->index('manifest_id');
                 $table->index('run_id');
@@ -1254,6 +1288,13 @@ function cloudstorage_activate() {
                 $table->unique(['client_id', 'manifest_id'], 'uniq_restore_manifest');
             });
             logModuleCall('cloudstorage', 'activate', [], 'Created s3_cloudbackup_restore_points table', [], []);
+        }
+        if (Capsule::schema()->hasTable('s3_cloudbackup_restore_points') && !Capsule::schema()->hasColumn('s3_cloudbackup_restore_points', 'repository_id')) {
+            Capsule::schema()->table('s3_cloudbackup_restore_points', function ($table) {
+                $table->string('repository_id', 64)->nullable()->after('tenant_id');
+                $table->index('repository_id');
+            });
+            logModuleCall('cloudstorage', 'activate', [], 'Added repository_id to s3_cloudbackup_restore_points', [], []);
         }
 
         // Cloud Backup reusable sources table
@@ -1624,6 +1665,20 @@ function cloudstorage_activate() {
 
         // Add source_connection_id to jobs if missing
         if (\WHMCS\Database\Capsule::schema()->hasTable('s3_cloudbackup_jobs')) {
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'tenant_id')) {
+                \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_jobs', function ($table) {
+                    $table->unsignedInteger('tenant_id')->nullable()->after('client_id');
+                    $table->index('tenant_id');
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Added tenant_id to s3_cloudbackup_jobs', [], []);
+            }
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'repository_id')) {
+                \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_jobs', function ($table) {
+                    $table->string('repository_id', 64)->nullable()->after('tenant_id');
+                    $table->index('repository_id');
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Added repository_id to s3_cloudbackup_jobs', [], []);
+            }
             if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'source_connection_id')) {
                 \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_jobs', function ($table) {
                     $table->unsignedInteger('source_connection_id')->nullable()->after('source_config_enc');
@@ -1689,6 +1744,20 @@ function cloudstorage_activate() {
 
         // Backfill columns on runs table for agent support and timestamps
         if (\WHMCS\Database\Capsule::schema()->hasTable('s3_cloudbackup_runs')) {
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'tenant_id')) {
+                \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_runs', function ($table) {
+                    $table->unsignedInteger('tenant_id')->nullable()->after('job_id');
+                    $table->index('tenant_id');
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Added tenant_id to s3_cloudbackup_runs', [], []);
+            }
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'repository_id')) {
+                \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_runs', function ($table) {
+                    $table->string('repository_id', 64)->nullable()->after('tenant_id');
+                    $table->index('repository_id');
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Added repository_id to s3_cloudbackup_runs', [], []);
+            }
             if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'agent_id')) {
                 \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_runs', function ($table) {
                     $table->unsignedInteger('agent_id')->nullable()->after('job_id');
@@ -1717,6 +1786,76 @@ function cloudstorage_activate() {
                 });
                 logModuleCall('cloudstorage', 'activate', [], 'Added Kopia/engine fields to s3_cloudbackup_runs', [], []);
             }
+        }
+
+        if (!Capsule::schema()->hasTable('s3_cloudbackup_agent_destinations')) {
+            Capsule::schema()->create('s3_cloudbackup_agent_destinations', function ($table) {
+                $table->bigIncrements('id');
+                $table->unsignedBigInteger('agent_id');
+                $table->unsignedInteger('client_id');
+                $table->unsignedInteger('tenant_id')->nullable();
+                $table->unsignedInteger('s3_user_id');
+                $table->unsignedInteger('dest_bucket_id');
+                $table->string('root_prefix', 1024);
+                $table->tinyInteger('is_locked')->default(1);
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('updated_at')->useCurrent();
+
+                $table->unique('agent_id');
+                $table->unique(['dest_bucket_id', 'root_prefix'], 'uniq_cloudbackup_dest_bucket_prefix');
+                $table->index('client_id');
+                $table->index('tenant_id');
+                $table->index('s3_user_id');
+                $table->index('dest_bucket_id');
+                $table->foreign('agent_id')->references('id')->on('s3_cloudbackup_agents')->onDelete('cascade');
+                $table->foreign('s3_user_id')->references('id')->on('s3_users')->onDelete('cascade');
+                $table->foreign('dest_bucket_id')->references('id')->on('s3_buckets')->onDelete('cascade');
+            });
+            logModuleCall('cloudstorage', 'activate', [], 'Created s3_cloudbackup_agent_destinations table', [], []);
+        }
+
+        if (!Capsule::schema()->hasTable('s3_cloudbackup_repositories')) {
+            Capsule::schema()->create('s3_cloudbackup_repositories', function ($table) {
+                $table->bigIncrements('id');
+                $table->string('repository_id', 64)->unique();
+                $table->unsignedInteger('client_id');
+                $table->unsignedInteger('tenant_id')->nullable();
+                $table->unsignedInteger('tenant_user_id')->nullable();
+                $table->unsignedInteger('bucket_id');
+                $table->string('root_prefix', 1024);
+                $table->string('engine', 32)->default('kopia');
+                $table->enum('status', ['active', 'archived', 'deleted'])->default('active');
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('updated_at')->useCurrent();
+
+                $table->index('client_id');
+                $table->index('tenant_id');
+                $table->index('tenant_user_id');
+                $table->index('bucket_id');
+                $table->index('status');
+                $table->index(['client_id', 'tenant_id', 'bucket_id']);
+            });
+            logModuleCall('cloudstorage', 'activate', [], 'Created s3_cloudbackup_repositories table', [], []);
+        }
+
+        if (!Capsule::schema()->hasTable('s3_cloudbackup_repository_keys')) {
+            Capsule::schema()->create('s3_cloudbackup_repository_keys', function ($table) {
+                $table->bigIncrements('id');
+                $table->string('repository_ref', 64);
+                $table->unsignedInteger('key_version')->default(1);
+                $table->string('wrap_alg', 64)->default('aes-256-cbc');
+                $table->mediumText('wrapped_repo_secret');
+                $table->string('kek_ref', 191)->nullable();
+                $table->enum('mode', ['managed_recovery', 'strict_customer_managed'])->default('managed_recovery');
+                $table->timestamp('created_at')->useCurrent();
+                $table->unsignedInteger('created_by')->nullable();
+
+                $table->index('repository_ref');
+                $table->index('key_version');
+                $table->index('mode');
+                $table->unique(['repository_ref', 'key_version'], 'uniq_repository_key_version');
+            });
+            logModuleCall('cloudstorage', 'activate', [], 'Created s3_cloudbackup_repository_keys table', [], []);
         }
 
         // Run logs table for Kopia/local agent
@@ -2175,6 +2314,308 @@ function cloudstorage_upgrade($vars) {
             }
         }
 
+        // Phase 1 guardrails: schema additions for system-managed users, tenant snapshots, and agent destinations.
+        try {
+            $schema = \WHMCS\Database\Capsule::schema();
+
+            if ($schema->hasTable('s3_users')) {
+                if (!$schema->hasColumn('s3_users', 'is_system_managed')) {
+                    $schema->table('s3_users', function ($table) {
+                        $table->tinyInteger('is_system_managed')->default(0)->after('is_active');
+                    });
+                }
+                if (!$schema->hasColumn('s3_users', 'system_key')) {
+                    $schema->table('s3_users', function ($table) {
+                        $table->string('system_key', 64)->nullable()->after('is_system_managed');
+                    });
+                }
+                if (!$schema->hasColumn('s3_users', 'manage_locked')) {
+                    $schema->table('s3_users', function ($table) {
+                        $table->tinyInteger('manage_locked')->default(0)->after('system_key');
+                    });
+                }
+
+                try {
+                    if ($schema->hasColumn('s3_users', 'manage_locked')) {
+                        $schema->table('s3_users', function ($table) { $table->index('manage_locked'); });
+                    }
+                } catch (\Throwable $__) {}
+                try {
+                    if ($schema->hasColumn('s3_users', 'system_key')) {
+                        $schema->table('s3_users', function ($table) { $table->index('system_key'); });
+                    }
+                } catch (\Throwable $__) {}
+                try {
+                    if ($schema->hasColumn('s3_users', 'parent_id') && $schema->hasColumn('s3_users', 'system_key')) {
+                        $schema->table('s3_users', function ($table) { $table->index(['parent_id', 'system_key'], 'idx_s3_users_parent_system_key'); });
+                    }
+                } catch (\Throwable $__) {}
+            }
+
+            if ($schema->hasTable('s3_cloudbackup_jobs') && !$schema->hasColumn('s3_cloudbackup_jobs', 'tenant_id')) {
+                $schema->table('s3_cloudbackup_jobs', function ($table) {
+                    $table->unsignedInteger('tenant_id')->nullable()->after('client_id');
+                    $table->index('tenant_id');
+                });
+                logModuleCall('cloudstorage', 'upgrade', [], 'Added tenant_id to s3_cloudbackup_jobs', [], []);
+            }
+
+            if ($schema->hasTable('s3_cloudbackup_runs') && !$schema->hasColumn('s3_cloudbackup_runs', 'tenant_id')) {
+                $schema->table('s3_cloudbackup_runs', function ($table) {
+                    $table->unsignedInteger('tenant_id')->nullable()->after('job_id');
+                    $table->index('tenant_id');
+                });
+                logModuleCall('cloudstorage', 'upgrade', [], 'Added tenant_id to s3_cloudbackup_runs', [], []);
+            }
+
+            if ($schema->hasTable('s3_cloudbackup_jobs') && !$schema->hasColumn('s3_cloudbackup_jobs', 'repository_id')) {
+                $schema->table('s3_cloudbackup_jobs', function ($table) {
+                    $table->string('repository_id', 64)->nullable()->after('tenant_id');
+                    $table->index('repository_id');
+                });
+                logModuleCall('cloudstorage', 'upgrade', [], 'Added repository_id to s3_cloudbackup_jobs', [], []);
+            }
+
+            if ($schema->hasTable('s3_cloudbackup_runs') && !$schema->hasColumn('s3_cloudbackup_runs', 'repository_id')) {
+                $schema->table('s3_cloudbackup_runs', function ($table) {
+                    $table->string('repository_id', 64)->nullable()->after('tenant_id');
+                    $table->index('repository_id');
+                });
+                logModuleCall('cloudstorage', 'upgrade', [], 'Added repository_id to s3_cloudbackup_runs', [], []);
+            }
+
+            if ($schema->hasTable('s3_cloudbackup_restore_points') && !$schema->hasColumn('s3_cloudbackup_restore_points', 'repository_id')) {
+                $schema->table('s3_cloudbackup_restore_points', function ($table) {
+                    $table->string('repository_id', 64)->nullable()->after('tenant_id');
+                    $table->index('repository_id');
+                });
+                logModuleCall('cloudstorage', 'upgrade', [], 'Added repository_id to s3_cloudbackup_restore_points', [], []);
+            }
+
+            if (!$schema->hasTable('s3_cloudbackup_repositories')) {
+                $schema->create('s3_cloudbackup_repositories', function ($table) {
+                    $table->bigIncrements('id');
+                    $table->string('repository_id', 64)->unique();
+                    $table->unsignedInteger('client_id');
+                    $table->unsignedInteger('tenant_id')->nullable();
+                    $table->unsignedInteger('tenant_user_id')->nullable();
+                    $table->unsignedInteger('bucket_id');
+                    $table->string('root_prefix', 1024);
+                    $table->string('engine', 32)->default('kopia');
+                    $table->enum('status', ['active', 'archived', 'deleted'])->default('active');
+                    $table->timestamp('created_at')->useCurrent();
+                    $table->timestamp('updated_at')->useCurrent();
+
+                    $table->index('client_id');
+                    $table->index('tenant_id');
+                    $table->index('tenant_user_id');
+                    $table->index('bucket_id');
+                    $table->index('status');
+                    $table->index(['client_id', 'tenant_id', 'bucket_id']);
+                });
+                logModuleCall('cloudstorage', 'upgrade', [], 'Created s3_cloudbackup_repositories table', [], []);
+            }
+
+            if (!$schema->hasTable('s3_cloudbackup_repository_keys')) {
+                $schema->create('s3_cloudbackup_repository_keys', function ($table) {
+                    $table->bigIncrements('id');
+                    $table->string('repository_ref', 64);
+                    $table->unsignedInteger('key_version')->default(1);
+                    $table->string('wrap_alg', 64)->default('aes-256-cbc');
+                    $table->mediumText('wrapped_repo_secret');
+                    $table->string('kek_ref', 191)->nullable();
+                    $table->enum('mode', ['managed_recovery', 'strict_customer_managed'])->default('managed_recovery');
+                    $table->timestamp('created_at')->useCurrent();
+                    $table->unsignedInteger('created_by')->nullable();
+
+                    $table->index('repository_ref');
+                    $table->index('key_version');
+                    $table->index('mode');
+                    $table->unique(['repository_ref', 'key_version'], 'uniq_repository_key_version');
+                });
+                logModuleCall('cloudstorage', 'upgrade', [], 'Created s3_cloudbackup_repository_keys table', [], []);
+            }
+
+            if (
+                !$schema->hasTable('s3_cloudbackup_agent_destinations')
+                && $schema->hasTable('s3_cloudbackup_agents')
+                && $schema->hasTable('s3_users')
+                && $schema->hasTable('s3_buckets')
+            ) {
+                $schema->create('s3_cloudbackup_agent_destinations', function ($table) {
+                    $table->bigIncrements('id');
+                    $table->unsignedBigInteger('agent_id');
+                    $table->unsignedInteger('client_id');
+                    $table->unsignedInteger('tenant_id')->nullable();
+                    $table->unsignedInteger('s3_user_id');
+                    $table->unsignedInteger('dest_bucket_id');
+                    $table->string('root_prefix', 1024);
+                    $table->tinyInteger('is_locked')->default(1);
+                    $table->timestamp('created_at')->useCurrent();
+                    $table->timestamp('updated_at')->useCurrent();
+
+                    $table->unique('agent_id');
+                    $table->unique(['dest_bucket_id', 'root_prefix'], 'uniq_cloudbackup_dest_bucket_prefix');
+                    $table->index('client_id');
+                    $table->index('tenant_id');
+                    $table->index('s3_user_id');
+                    $table->index('dest_bucket_id');
+                    $table->foreign('agent_id')->references('id')->on('s3_cloudbackup_agents')->onDelete('cascade');
+                    $table->foreign('s3_user_id')->references('id')->on('s3_users')->onDelete('cascade');
+                    $table->foreign('dest_bucket_id')->references('id')->on('s3_buckets')->onDelete('cascade');
+                });
+                logModuleCall('cloudstorage', 'upgrade', [], 'Created s3_cloudbackup_agent_destinations table', [], []);
+            }
+
+            // Backfill jobs.tenant_id from current agent mapping where available.
+            if (
+                $schema->hasTable('s3_cloudbackup_jobs') &&
+                $schema->hasTable('s3_cloudbackup_agents') &&
+                $schema->hasColumn('s3_cloudbackup_jobs', 'tenant_id') &&
+                $schema->hasColumn('s3_cloudbackup_jobs', 'agent_id') &&
+                $schema->hasColumn('s3_cloudbackup_agents', 'tenant_id')
+            ) {
+                $updatedJobs = 0;
+                $lastJobId = 0;
+                $chunk = 500;
+                while (true) {
+                    $rows = \WHMCS\Database\Capsule::table('s3_cloudbackup_jobs as j')
+                        ->join('s3_cloudbackup_agents as a', 'a.id', '=', 'j.agent_id')
+                        ->where('j.id', '>', $lastJobId)
+                        ->whereNull('j.tenant_id')
+                        ->select(['j.id as job_id', 'a.tenant_id as agent_tenant_id'])
+                        ->orderBy('j.id', 'asc')
+                        ->limit($chunk)
+                        ->get();
+                    if (!$rows || count($rows) === 0) {
+                        break;
+                    }
+                    foreach ($rows as $row) {
+                        $lastJobId = (int) $row->job_id;
+                        try {
+                            $updatedJobs += (int) \WHMCS\Database\Capsule::table('s3_cloudbackup_jobs')
+                                ->where('id', (int) $row->job_id)
+                                ->whereNull('tenant_id')
+                                ->update(['tenant_id' => $row->agent_tenant_id !== null ? (int) $row->agent_tenant_id : null]);
+                        } catch (\Throwable $__) {}
+                    }
+                }
+                logModuleCall('cloudstorage', 'upgrade_backfill_jobs_tenant_id', [], ['updated' => $updatedJobs], [], []);
+            }
+
+            // Backfill runs.tenant_id from jobs.tenant_id snapshots.
+            if (
+                $schema->hasTable('s3_cloudbackup_runs') &&
+                $schema->hasTable('s3_cloudbackup_jobs') &&
+                $schema->hasColumn('s3_cloudbackup_runs', 'tenant_id') &&
+                $schema->hasColumn('s3_cloudbackup_runs', 'job_id') &&
+                $schema->hasColumn('s3_cloudbackup_jobs', 'tenant_id')
+            ) {
+                $updatedRuns = 0;
+                $lastRunId = 0;
+                $chunk = 500;
+                while (true) {
+                    $rows = \WHMCS\Database\Capsule::table('s3_cloudbackup_runs as r')
+                        ->join('s3_cloudbackup_jobs as j', 'j.id', '=', 'r.job_id')
+                        ->where('r.id', '>', $lastRunId)
+                        ->whereNull('r.tenant_id')
+                        ->select(['r.id as run_id', 'j.tenant_id as job_tenant_id'])
+                        ->orderBy('r.id', 'asc')
+                        ->limit($chunk)
+                        ->get();
+                    if (!$rows || count($rows) === 0) {
+                        break;
+                    }
+                    foreach ($rows as $row) {
+                        $lastRunId = (int) $row->run_id;
+                        try {
+                            $updatedRuns += (int) \WHMCS\Database\Capsule::table('s3_cloudbackup_runs')
+                                ->where('id', (int) $row->run_id)
+                                ->whereNull('tenant_id')
+                                ->update(['tenant_id' => $row->job_tenant_id !== null ? (int) $row->job_tenant_id : null]);
+                        } catch (\Throwable $__) {}
+                    }
+                }
+                logModuleCall('cloudstorage', 'upgrade_backfill_runs_tenant_id', [], ['updated' => $updatedRuns], [], []);
+            }
+
+            // Backfill runs.repository_id from jobs.repository_id snapshots.
+            if (
+                $schema->hasTable('s3_cloudbackup_runs') &&
+                $schema->hasTable('s3_cloudbackup_jobs') &&
+                $schema->hasColumn('s3_cloudbackup_runs', 'repository_id') &&
+                $schema->hasColumn('s3_cloudbackup_runs', 'job_id') &&
+                $schema->hasColumn('s3_cloudbackup_jobs', 'repository_id')
+            ) {
+                $updatedRunRepos = 0;
+                $lastRunRepoId = 0;
+                $chunk = 500;
+                while (true) {
+                    $rows = \WHMCS\Database\Capsule::table('s3_cloudbackup_runs as r')
+                        ->join('s3_cloudbackup_jobs as j', 'j.id', '=', 'r.job_id')
+                        ->where('r.id', '>', $lastRunRepoId)
+                        ->whereNull('r.repository_id')
+                        ->whereNotNull('j.repository_id')
+                        ->select(['r.id as run_id', 'j.repository_id as job_repository_id'])
+                        ->orderBy('r.id', 'asc')
+                        ->limit($chunk)
+                        ->get();
+                    if (!$rows || count($rows) === 0) {
+                        break;
+                    }
+                    foreach ($rows as $row) {
+                        $lastRunRepoId = (int) $row->run_id;
+                        try {
+                            $updatedRunRepos += (int) \WHMCS\Database\Capsule::table('s3_cloudbackup_runs')
+                                ->where('id', (int) $row->run_id)
+                                ->whereNull('repository_id')
+                                ->update(['repository_id' => (string) $row->job_repository_id]);
+                        } catch (\Throwable $__) {}
+                    }
+                }
+                logModuleCall('cloudstorage', 'upgrade_backfill_runs_repository_id', [], ['updated' => $updatedRunRepos], [], []);
+            }
+
+            // Backfill restore_points.repository_id from runs.repository_id snapshots.
+            if (
+                $schema->hasTable('s3_cloudbackup_restore_points') &&
+                $schema->hasTable('s3_cloudbackup_runs') &&
+                $schema->hasColumn('s3_cloudbackup_restore_points', 'repository_id') &&
+                $schema->hasColumn('s3_cloudbackup_restore_points', 'run_id') &&
+                $schema->hasColumn('s3_cloudbackup_runs', 'repository_id')
+            ) {
+                $updatedRestoreRepos = 0;
+                $lastRestoreId = 0;
+                $chunk = 500;
+                while (true) {
+                    $rows = \WHMCS\Database\Capsule::table('s3_cloudbackup_restore_points as rp')
+                        ->join('s3_cloudbackup_runs as r', 'r.id', '=', 'rp.run_id')
+                        ->where('rp.id', '>', $lastRestoreId)
+                        ->whereNull('rp.repository_id')
+                        ->whereNotNull('r.repository_id')
+                        ->select(['rp.id as restore_id', 'r.repository_id as run_repository_id'])
+                        ->orderBy('rp.id', 'asc')
+                        ->limit($chunk)
+                        ->get();
+                    if (!$rows || count($rows) === 0) {
+                        break;
+                    }
+                    foreach ($rows as $row) {
+                        $lastRestoreId = (int) $row->restore_id;
+                        try {
+                            $updatedRestoreRepos += (int) \WHMCS\Database\Capsule::table('s3_cloudbackup_restore_points')
+                                ->where('id', (int) $row->restore_id)
+                                ->whereNull('repository_id')
+                                ->update(['repository_id' => (string) $row->run_repository_id]);
+                        } catch (\Throwable $__) {}
+                    }
+                }
+                logModuleCall('cloudstorage', 'upgrade_backfill_restore_points_repository_id', [], ['updated' => $updatedRestoreRepos], [], []);
+            }
+        } catch (\Throwable $e) {
+            logModuleCall('cloudstorage', 'upgrade_phase1_schema_guardrails_fail', [], $e->getMessage(), [], []);
+        }
+
         // Access Keys v2 (client-facing): store description + non-secret key hint for subuser-backed access keys.
         // Also normalize historical column mismatch: s3_subusers_keys.sub_user_id vs subuser_id.
         try {
@@ -2451,6 +2892,8 @@ function cloudstorage_upgrade($vars) {
             \WHMCS\Database\Capsule::schema()->create('s3_cloudbackup_jobs', function ($table) {
                 $table->increments('id');
                 $table->unsignedInteger('client_id');
+                $table->unsignedInteger('tenant_id')->nullable();
+                $table->string('repository_id', 64)->nullable();
                 $table->unsignedInteger('s3_user_id');
                 $table->string('name', 191);
                 $table->enum('source_type', ['s3_compatible', 'aws', 'sftp', 'google_drive', 'dropbox', 'smb', 'nas', 'local_agent'])->default('s3_compatible');
@@ -2480,6 +2923,8 @@ function cloudstorage_upgrade($vars) {
                 $table->timestamp('updated_at')->useCurrent();
 
                 $table->index('client_id');
+                $table->index('tenant_id');
+                $table->index('repository_id');
                 $table->index('s3_user_id');
                 $table->index('source_connection_id');
                 $table->index('dest_bucket_id');
@@ -2528,6 +2973,8 @@ function cloudstorage_upgrade($vars) {
                 $table->bigIncrements('id');
                 $table->string('run_uuid', 36)->nullable();
                 $table->unsignedInteger('job_id');
+                $table->unsignedInteger('tenant_id')->nullable();
+                $table->string('repository_id', 64)->nullable();
                 $table->enum('trigger_type', ['manual', 'schedule', 'validation'])->default('manual');
                 $table->enum('status', ['queued', 'starting', 'running', 'success', 'warning', 'failed', 'cancelled'])->default('queued');
                 $table->timestamp('created_at')->useCurrent();
@@ -2553,6 +3000,8 @@ function cloudstorage_upgrade($vars) {
                 $table->mediumText('validation_log_excerpt')->nullable();
 
                 $table->index('job_id');
+                $table->index('tenant_id');
+                $table->index('repository_id');
                 $table->index('status');
                 $table->index('started_at');
                 $table->index('run_uuid');
@@ -2803,6 +3252,7 @@ function cloudstorage_upgrade($vars) {
                 $table->bigIncrements('id');
                 $table->unsignedInteger('client_id');
                 $table->unsignedInteger('tenant_id')->nullable();
+                $table->string('repository_id', 64)->nullable();
                 $table->unsignedInteger('tenant_user_id')->nullable();
                 $table->unsignedInteger('agent_id')->nullable();
                 $table->unsignedInteger('job_id')->nullable();
@@ -2835,6 +3285,7 @@ function cloudstorage_upgrade($vars) {
 
                 $table->index('client_id');
                 $table->index('tenant_id');
+                $table->index('repository_id');
                 $table->index('agent_id');
                 $table->index('manifest_id');
                 $table->index('run_id');

@@ -161,6 +161,27 @@ class DBController {
     }
 
     /**
+     * Get an active product row.
+     *
+     * This helper is intended for backup-critical flows that require
+     * a provisioned and active service before continuing.
+     *
+     * @param int $userId
+     * @param int $packageId
+     * @return object|null
+     */
+    public static function getActiveProduct($userId, $packageId)
+    {
+        return Capsule::table('tblhosting')
+            ->select('id', 'username', 'domainstatus', 'packageid', 'userid')
+            ->where('userid', (int) $userId)
+            ->where('packageid', (int) $packageId)
+            ->where('domainstatus', 'Active')
+            ->orderBy('id', 'desc')
+            ->first();
+    }
+
+    /**
      * Get Bucket.
      *
      * @param string $bucketId

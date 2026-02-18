@@ -3,12 +3,16 @@
 require_once __DIR__ . '/../../../../init.php';
 require_once __DIR__ . '/../lib/Client/MspController.php';
 require_once __DIR__ . '/../lib/Client/TenantEmailService.php';
+require_once __DIR__ . '/../lib/Provision/Provisioner.php';
+require_once __DIR__ . '/../lib/Client/CloudBackupBootstrapService.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\ClientArea;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 use WHMCS\Module\Addon\CloudStorage\Client\TenantEmailService;
+use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupBootstrapService;
+use WHMCS\Module\Addon\CloudStorage\Provision\Provisioner;
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -24,6 +28,30 @@ $clientId = $ca->getUserID();
 // Check MSP access
 if (!MspController::isMspClient($clientId)) {
     (new JsonResponse(['status' => 'fail', 'message' => 'MSP access required'], 403))->send();
+    exit;
+}
+
+$ensureProduct = Provisioner::ensureCloudStorageProductActive((int) $clientId, true);
+logModuleCall('cloudstorage', 'e3backup_tenant_create_ensure_active_product', [
+    'client_id' => $clientId,
+], $ensureProduct);
+if (($ensureProduct['status'] ?? 'fail') !== 'success') {
+    (new JsonResponse([
+        'status' => 'fail',
+        'message' => ($ensureProduct['message'] ?? 'Unable to ensure active Cloud Storage service.') . ' Please verify product configuration and try again.'
+    ], 400))->send();
+    exit;
+}
+
+$bootstrapOwner = CloudBackupBootstrapService::ensureBackupOwnerUser((int) $clientId);
+logModuleCall('cloudstorage', 'e3backup_tenant_create_bootstrap_owner', [
+    'client_id' => $clientId,
+], $bootstrapOwner);
+if (($bootstrapOwner['status'] ?? 'fail') !== 'success') {
+    (new JsonResponse([
+        'status' => 'fail',
+        'message' => $bootstrapOwner['message'] ?? 'Failed to bootstrap backup owner.'
+    ], 500))->send();
     exit;
 }
 
@@ -209,7 +237,26 @@ if ($createAdmin && $tenantId) {
     }
 }
 
-// TODO: Create Ceph RGW user via Admin Ops API
+$tenantBucket = CloudBackupBootstrapService::ensureTenantBucket((int) $clientId, (int) $tenantId);
+logModuleCall('cloudstorage', 'e3backup_tenant_create_bootstrap_bucket', [
+    'client_id' => $clientId,
+    'tenant_id' => $tenantId,
+], $tenantBucket);
+if (($tenantBucket['status'] ?? 'fail') !== 'success') {
+    try {
+        Capsule::table('s3_backup_tenants')->where('id', $tenantId)->delete();
+    } catch (\Throwable $e) {
+        logModuleCall('cloudstorage', 'e3backup_tenant_create_bucket_cleanup_fail', [
+            'client_id' => $clientId,
+            'tenant_id' => $tenantId,
+        ], $e->getMessage());
+    }
+    (new JsonResponse([
+        'status' => 'fail',
+        'message' => $tenantBucket['message'] ?? 'Failed to provision tenant bucket.'
+    ], 500))->send();
+    exit;
+}
 
 $response = [
     'status' => 'success', 

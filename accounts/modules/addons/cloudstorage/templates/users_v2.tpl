@@ -98,11 +98,18 @@
                 <td class="px-4 py-3" @click.stop>
                   <input type="checkbox"
                          class="text-sky-600"
-                         :disabled="(u.total_buckets || 0) > 0 || u.is_root"
+                         :disabled="(u.total_buckets || 0) > 0 || u.is_root || u.manage_locked"
                          :checked="selectedUsernames.includes(u.username)"
                          @change="toggleUserSelection(u, $event)">
                 </td>
-                <td class="px-4 py-3 text-slate-200" x-text="u.display_name || u.username"></td>
+                <td class="px-4 py-3 text-slate-200">
+                  <div class="flex items-center gap-2">
+                    <span x-text="u.display_name || u.username"></span>
+                    <span x-show="u.is_system_managed" x-cloak class="inline-flex items-center rounded-full bg-indigo-900/40 text-indigo-300 text-[11px] px-2 py-0.5 border border-indigo-700/40">
+                      System Managed
+                    </span>
+                  </div>
+                </td>
                 <td class="px-4 py-3">
                   <span class="font-mono text-slate-200" x-text="u.tenant_id ? String(u.tenant_id) : '—'"></span>
                 </td>
@@ -110,7 +117,12 @@
                 <td class="px-4 py-3 text-slate-200" x-html="u.total_storage || '0 B'"></td>
                 <td class="px-4 py-3 text-slate-200" x-text="(u.access_keys || []).length"></td>
                 <td class="px-4 py-3 text-right" @click.stop>
-                  <button class="text-sky-400 hover:underline" @click="openUser(u)">Manage</button>
+                  <template x-if="!u.manage_locked">
+                    <button class="text-sky-400 hover:underline" @click="openUser(u)">Manage</button>
+                  </template>
+                  <template x-if="u.manage_locked">
+                    <span class="text-slate-500 text-xs">Locked</span>
+                  </template>
                 </td>
               </tr>
             </template>
@@ -154,6 +166,9 @@
             <span class="text-slate-500">Account ID:</span>
             <span class="font-mono text-slate-200" x-text="panel.user?.tenant_id ? String(panel.user.tenant_id) : '—'"></span>
           </div>
+          <div x-show="panel.user?.is_system_managed" x-cloak class="mt-2">
+            <span class="inline-flex items-center rounded-full bg-indigo-900/40 text-indigo-300 text-[11px] px-2 py-0.5 border border-indigo-700/40">System Managed</span>
+          </div>
         </div>
         <button class="text-slate-300 hover:text-white" @click="closeUser()">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -186,6 +201,8 @@
           <div class="flex items-center justify-between mb-3">
             <h3 class="text-sm font-semibold text-white">Access keys</h3>
             <button class="text-xs bg-sky-600 hover:bg-sky-700 text-white px-3 py-2 rounded-md"
+                    :disabled="panel.user?.manage_locked"
+                    :class="{ 'opacity-50 cursor-not-allowed': panel.user?.manage_locked }"
                     @click="openCreateKey(panel.user)"
                     x-text="panel.user?.is_root ? (panel.user?.has_root_key ? 'Rotate access key' : 'Create access key') : '+ Create access key'">
             </button>
@@ -234,6 +251,8 @@
                       <td class="py-2 pr-4 text-slate-400" x-text="formatDate(k.created_at)"></td>
                       <td class="py-2 text-right">
                         <button class="text-rose-400 hover:text-rose-300 text-sm"
+                                :disabled="panel.user?.manage_locked"
+                                :class="{ 'opacity-50 cursor-not-allowed hover:text-rose-400': panel.user?.manage_locked }"
                                 @click="confirmDeleteKey(panel.user, k)">
                           Delete
                         </button>
@@ -518,6 +537,8 @@ function usersV2Manager() {
         u.access_keys = u.access_keys || [];
         u.display_name = u.display_name || u.username;
         u.is_root = !!u.is_root;
+        u.is_system_managed = !!u.is_system_managed;
+        u.manage_locked = !!u.manage_locked;
         u.has_root_key = !!u.has_root_key;
         u.root_access_key_hint = u.root_access_key_hint || '';
         u.root_access_key_created_at = u.root_access_key_created_at || null;
@@ -541,7 +562,7 @@ function usersV2Manager() {
 
     get allSelectableChecked() {
       const selectable = this.filteredUsers
-        .filter(u => (u.total_buckets || 0) === 0 && !u.is_root)
+        .filter(u => (u.total_buckets || 0) === 0 && !u.is_root && !u.manage_locked)
         .map(u => u.username);
       if (selectable.length === 0) return false;
       return selectable.every(u => this.selectedUsernames.includes(u));
@@ -550,7 +571,7 @@ function usersV2Manager() {
     toggleSelectAll(evt) {
       const checked = !!evt.target.checked;
       const selectable = this.filteredUsers
-        .filter(u => (u.total_buckets || 0) === 0 && !u.is_root)
+        .filter(u => (u.total_buckets || 0) === 0 && !u.is_root && !u.manage_locked)
         .map(u => u.username);
       if (checked) {
         const set = new Set(this.selectedUsernames);
@@ -563,7 +584,7 @@ function usersV2Manager() {
 
     toggleUserSelection(user, evt) {
       const checked = !!evt.target.checked;
-      if (user.is_root) return;
+      if (user.is_root || user.manage_locked) return;
       const uname = user.username;
       if (!uname) return;
       if (checked) {
@@ -576,7 +597,7 @@ function usersV2Manager() {
     get canDeleteSelectedUsers() {
       if (this.selectedUsernames.length === 0) return false;
       const selected = this.selectedUsernames.map(u => this.users.find(x => x.username === u)).filter(Boolean);
-      return selected.length > 0 && selected.every(u => (u.total_buckets || 0) === 0 && !u.is_root);
+      return selected.length > 0 && selected.every(u => (u.total_buckets || 0) === 0 && !u.is_root && !u.manage_locked);
     },
 
     openUser(u) {
@@ -682,6 +703,10 @@ function usersV2Manager() {
 
     openCreateKey(user) {
       if (!user) return;
+      if (user.manage_locked) {
+        this.toastError('This user is system managed and cannot be modified.');
+        return;
+      }
       if (user.is_root) {
         this.requestRollRootKey(user);
         return;
@@ -770,6 +795,10 @@ function usersV2Manager() {
     },
 
     confirmDeleteKey(user, key) {
+      if (user?.manage_locked) {
+        this.toastError('This user is system managed and cannot be modified.');
+        return;
+      }
       this.deleteTarget = { user, key };
       this.modals.confirmDelete = true;
     },

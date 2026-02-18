@@ -1927,6 +1927,12 @@ function doCreateJobSubmit(formEl) {
     formData.set('source_display_name', sourceDisplayName || 'Unnamed Source');
     formData.set('source_path', sourcePath);
     formData.set('engine', sourceType === 'local_agent' ? 'kopia' : 'sync');
+    if (sourceType === 'local_agent') {
+        // Local-agent destinations are policy-derived server-side.
+        formData.delete('dest_bucket_id');
+        formData.delete('dest_prefix');
+        formData.delete('bucket_auto_create');
+    }
     
     const msgEl = document.getElementById('jobCreationMessage');
     
@@ -2263,8 +2269,10 @@ function resetLocalWizardFields() {
             data.selectedAgent = null;
         }
     }
-    const bucketBtn = document.getElementById('localWizardBucketId')?.parentElement?.querySelector('button .block');
-    if (bucketBtn) bucketBtn.textContent = 'Choose where to store your backups';
+    const bucketLabel = document.getElementById('localWizardBucketLabel');
+    if (bucketLabel) bucketLabel.textContent = 'Auto-assigned from selected agent';
+    const prefixLabel = document.getElementById('localWizardPrefixLabel');
+    if (prefixLabel) prefixLabel.textContent = 'Device-scoped immutable prefix';
     localWizardSet('engine', 'kopia');
 }
 
@@ -2371,14 +2379,14 @@ function localWizardFillFromJob(j, s) {
     const bucketHidden = document.getElementById('localWizardBucketId');
     if (bucketHidden) {
         bucketHidden.value = job.dest_bucket_id || '';
-        const bucketBtnLabel = bucketHidden.parentElement?.querySelector('button .block');
-        if (bucketBtnLabel) {
-    const name = job.dest_bucket_name || (job.dest_bucket_id ? `Bucket #${job.dest_bucket_id}` : 'Choose where to store your backups');
-            bucketBtnLabel.textContent = name;
-        }
+    const name = job.dest_bucket_name || (job.dest_bucket_id ? `Bucket #${job.dest_bucket_id}` : 'Auto-assigned from selected agent');
+        const bucketLabel = document.getElementById('localWizardBucketLabel');
+        if (bucketLabel) bucketLabel.textContent = name;
     }
     const prefixEl = document.getElementById('localWizardPrefix');
     if (prefixEl) prefixEl.value = job.dest_prefix || '';
+    const prefixLabel = document.getElementById('localWizardPrefixLabel');
+    if (prefixLabel) prefixLabel.textContent = job.dest_prefix || 'Device-scoped immutable prefix';
     const localPathEl = document.getElementById('localWizardLocalPath');
     if (localPathEl) localPathEl.value = job.dest_local_path || '';
     const srcEl = document.getElementById('localWizardSource');
@@ -3351,8 +3359,7 @@ function localWizardIsStep1Valid() {
     const name = document.getElementById('localWizardName')?.value?.trim() || '';
     const agentId = document.getElementById('localWizardAgentId')?.value || '';
     const engine = window.localWizardState?.data?.engine || '';
-    const bucketId = document.getElementById('localWizardBucketId')?.value || '';
-    return name !== '' && agentId !== '' && engine !== '' && bucketId !== '';
+    return name !== '' && agentId !== '' && engine !== '';
 }
 
 function localWizardGoToStep(stepNum) {
@@ -3555,11 +3562,6 @@ function localWizardSubmit() {
         e3backupNotify('error', msg);
         return;
     }
-    if (!s.dest_bucket_id) {
-        const msg = 'Bucket ID is required';
-        e3backupNotify('error', msg);
-        return;
-    }
     if ((s.engine || '') === 'disk_image' && !s.disk_source_volume) {
         const msg = 'Disk selection is required for disk image backups';
         e3backupNotify('error', msg);
@@ -3592,8 +3594,6 @@ function localWizardSubmit() {
         source_display_name: sourceDisplayName,
         source_path: sourcePath,
         source_paths: JSON.stringify(sourcePathsArray),
-        dest_bucket_id: s.dest_bucket_id,
-        dest_prefix: s.dest_prefix || '',
         backup_mode: s.engine === 'sync' ? 'sync' : 'archive',
         engine: s.engine || 'kopia',
         agent_id: s.agent_id,

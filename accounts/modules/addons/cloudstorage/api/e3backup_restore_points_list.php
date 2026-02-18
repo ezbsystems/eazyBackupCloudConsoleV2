@@ -99,6 +99,7 @@ try {
         'id',
         'client_id',
         'tenant_id',
+        'repository_id',
         'tenant_user_id',
         'agent_id',
         'job_id',
