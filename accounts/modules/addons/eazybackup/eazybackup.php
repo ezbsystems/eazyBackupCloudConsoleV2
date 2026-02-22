@@ -1503,6 +1503,48 @@ function eazybackup_migrate_schema(): void {
             $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
         });
     }
+
+    // --- eb_annual_entitlement_ledger (per-service cycle entitlement tracking) ---
+    try {
+        if (!$schema->hasTable('eb_annual_entitlement_ledger')) {
+            $schema->create('eb_annual_entitlement_ledger', function (Blueprint $t) {
+                $t->bigIncrements('id');
+                $t->unsignedInteger('service_id')->index();
+                $t->unsignedInteger('client_id')->index();
+                $t->string('username', 191)->index();
+                $t->unsignedInteger('config_id')->index();
+                $t->date('cycle_start')->index();
+                $t->date('cycle_end')->index();
+                $t->unsignedInteger('current_usage_qty')->default(0);
+                $t->unsignedInteger('current_config_qty')->default(0);
+                $t->unsignedInteger('max_paid_qty')->default(0);
+                $t->string('status', 32)->default('active')->index();
+                $t->integer('recommended_delta')->nullable();
+                $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
+                $t->unique(['service_id', 'config_id', 'cycle_start'], 'uniq_service_config_cycle');
+                $t->index(['client_id', 'cycle_start'], 'idx_client_cycle');
+            });
+        }
+    } catch (\Throwable $e) { /* ignore */ }
+
+    // --- eb_annual_entitlement_events (audit log for entitlement changes) ---
+    try {
+        if (!$schema->hasTable('eb_annual_entitlement_events')) {
+            $schema->create('eb_annual_entitlement_events', function (Blueprint $t) {
+                $t->bigIncrements('id');
+                $t->unsignedInteger('service_id')->index();
+                $t->unsignedInteger('config_id')->index();
+                $t->date('cycle_start')->index();
+                $t->string('event_type', 64)->index();
+                $t->unsignedInteger('old_max_paid_qty')->nullable();
+                $t->unsignedInteger('new_max_paid_qty')->nullable();
+                $t->text('note')->nullable();
+                $t->unsignedInteger('admin_id')->nullable()->index();
+                $t->timestamp('created_at')->nullable()->useCurrent();
+                $t->index(['service_id', 'config_id', 'cycle_start'], 'idx_event_service_config_cycle');
+            });
+        }
+    } catch (\Throwable $e) { /* ignore */ }
 }
 
 // ULID generator for public tenant IDs (Crockford Base32, 26 chars)

@@ -25,13 +25,13 @@ class ComposerStaticInit28e9af97150b469ac7095a6653862879
         '40522f9f0eb7d4f191114e944ee6d064' => __DIR__ . '/..' . '/amphp/http/src/Internal/constants.php',
         '6e3fae29631ef280660b3cdad06f25a8' => __DIR__ . '/..' . '/symfony/deprecation-contracts/function.php',
         '0e6d7bf4a5811bfa5cf40c5ccd6fae6a' => __DIR__ . '/..' . '/symfony/polyfill-mbstring/bootstrap.php',
-        '37a3dc5111fe8f707ab4c132ef1dbc62' => __DIR__ . '/..' . '/guzzlehttp/guzzle/src/functions_include.php',
-        'b067bc7112e384b61c701452d53a14a8' => __DIR__ . '/..' . '/mtdowling/jmespath.php/src/JmesPath.php',
-        '3d05d4f147c95ba663000bd908d45656' => __DIR__ . '/..' . '/amphp/websocket/src/functions.php',
         'db2f6d3e039789c7acd0e5d1d5a42077' => __DIR__ . '/..' . '/amphp/http-client/src/functions.php',
         '77e5a577434e31d19d8dd6aeceac1ff4' => __DIR__ . '/..' . '/amphp/http-client/src/Internal/functions.php',
-        '8a9dc1de0ca7e01f3e08231539562f61' => __DIR__ . '/..' . '/aws/aws-sdk-php/src/functions.php',
+        '3d05d4f147c95ba663000bd908d45656' => __DIR__ . '/..' . '/amphp/websocket/src/functions.php',
+        '37a3dc5111fe8f707ab4c132ef1dbc62' => __DIR__ . '/..' . '/guzzlehttp/guzzle/src/functions_include.php',
+        'b067bc7112e384b61c701452d53a14a8' => __DIR__ . '/..' . '/mtdowling/jmespath.php/src/JmesPath.php',
         '4be4fbd9f5a89207b1fd1c85ae339dd7' => __DIR__ . '/..' . '/amphp/websocket-client/src/functions.php',
+        '8a9dc1de0ca7e01f3e08231539562f61' => __DIR__ . '/..' . '/aws/aws-sdk-php/src/functions.php',
     );
 
     public static $prefixLengthsPsr4 = array (
@@ -71,6 +71,10 @@ class ComposerStaticInit28e9af97150b469ac7095a6653862879
             'GuzzleHttp\\Psr7\\' => 16,
             'GuzzleHttp\\Promise\\' => 19,
             'GuzzleHttp\\' => 11,
+        ),
+        'E' => 
+        array (
+            'EazyBackup\\Billing\\' => 19,
         ),
         'A' => 
         array (
@@ -124,9 +128,9 @@ class ComposerStaticInit28e9af97150b469ac7095a6653862879
         ),
         'League\\Uri\\' => 
         array (
-            0 => __DIR__ . '/..' . '/league/uri-interfaces',
-            1 => __DIR__ . '/..' . '/league/uri',
-            2 => __DIR__ . '/..' . '/league/uri-components',
+            0 => __DIR__ . '/..' . '/league/uri',
+            1 => __DIR__ . '/..' . '/league/uri-components',
+            2 => __DIR__ . '/..' . '/league/uri-interfaces',
         ),
         'Kelunik\\Certificate\\' => 
         array (
@@ -147,6 +151,10 @@ class ComposerStaticInit28e9af97150b469ac7095a6653862879
         'GuzzleHttp\\' => 
         array (
             0 => __DIR__ . '/..' . '/guzzlehttp/guzzle/src',
+        ),
+        'EazyBackup\\Billing\\' => 
+        array (
+            0 => __DIR__ . '/../..' . '/lib/Billing',
         ),
         'Aws\\' => 
         array (
@@ -190,8 +198,8 @@ class ComposerStaticInit28e9af97150b469ac7095a6653862879
         ),
         'Amp\\Http\\' => 
         array (
-            0 => __DIR__ . '/..' . '/amphp/http/src',
-            1 => __DIR__ . '/..' . '/amphp/hpack/src',
+            0 => __DIR__ . '/..' . '/amphp/hpack/src',
+            1 => __DIR__ . '/..' . '/amphp/http/src',
         ),
         'Amp\\Dns\\' => 
         array (
@@ -1670,6 +1678,10 @@ class ComposerStaticInit28e9af97150b469ac7095a6653862879
         'Aws\\signer\\Exception\\signerException' => __DIR__ . '/..' . '/aws/aws-sdk-php/src/signer/Exception/signerException.php',
         'Aws\\signer\\signerClient' => __DIR__ . '/..' . '/aws/aws-sdk-php/src/signer/signerClient.php',
         'Composer\\InstalledVersions' => __DIR__ . '/..' . '/composer/InstalledVersions.php',
+        'EazyBackup\\Billing\\AnnualCycleWindow' => __DIR__ . '/../..' . '/lib/Billing/AnnualCycleWindow.php',
+        'EazyBackup\\Billing\\AnnualEntitlementConfig' => __DIR__ . '/../..' . '/lib/Billing/AnnualEntitlementConfig.php',
+        'EazyBackup\\Billing\\AnnualEntitlementDecision' => __DIR__ . '/../..' . '/lib/Billing/AnnualEntitlementDecision.php',
+        'EazyBackup\\Billing\\AnnualEntitlementSnapshotService' => __DIR__ . '/../..' . '/lib/Billing/AnnualEntitlementSnapshotService.php',
         'GuzzleHttp\\BodySummarizer' => __DIR__ . '/..' . '/guzzlehttp/guzzle/src/BodySummarizer.php',
         'GuzzleHttp\\BodySummarizerInterface' => __DIR__ . '/..' . '/guzzlehttp/guzzle/src/BodySummarizerInterface.php',
         'GuzzleHttp\\Client' => __DIR__ . '/..' . '/guzzlehttp/guzzle/src/Client.php',
