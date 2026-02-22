@@ -20,7 +20,8 @@
   "autoload": {
     "psr-4": {
       "eazyBackup\\CometCompat\\": "lib/CometCompat/",
-      "PartnerHub\\": "lib/PartnerHub/"
+      "PartnerHub\\": "lib/PartnerHub/",
+      "EazyBackup\\Billing\\": "lib/Billing/"
     }
   },
   "minimum-stability": "stable",
