@@ -115,6 +115,40 @@ $allZeroOverride = ['hourly' => 0, 'daily' => 0, 'weekly' => 0, 'monthly' => 0, 
 $effective = KopiaRetentionPolicyService::resolveEffectivePolicy($allZeroOverride, $vaultDefault, 'active');
 assertArraysEqual($vaultDefault, $effective, 'resolveEffectivePolicy: active + all-zero override falls back to vault default', $failures);
 
+// --- nested retention shape tests ---
+
+// validate: nested shape
+$nestedPolicy = [
+    'schema' => 1,
+    'timezone' => 'UTC',
+    'retention' => ['hourly' => 24, 'daily' => 7, 'weekly' => 4, 'monthly' => 12, 'yearly' => 3],
+];
+[$valid, $errors] = KopiaRetentionPolicyService::validate($nestedPolicy);
+assertEqual(true, $valid, 'validate: nested policy returns true', $failures);
+
+// resolveEffectivePolicy: nested vault default
+$nestedVaultDefault = [
+    'schema' => 1,
+    'timezone' => 'UTC',
+    'retention' => ['hourly' => 48, 'daily' => 14, 'weekly' => 8, 'monthly' => 24, 'yearly' => 5],
+];
+$effective = KopiaRetentionPolicyService::resolveEffectivePolicy(null, $nestedVaultDefault, 'active');
+$expectedFromNested = ['hourly' => 48, 'daily' => 14, 'weekly' => 8, 'monthly' => 24, 'yearly' => 5];
+assertArraysEqual($expectedFromNested, $effective, 'resolveEffectivePolicy: nested vault default extracts retention correctly', $failures);
+
+// resolveEffectivePolicy: nested override + flat vault default
+$nestedOverride = [
+    'schema' => 1,
+    'retention' => ['hourly' => 72, 'daily' => 21, 'weekly' => 12, 'monthly' => 36, 'yearly' => 7],
+];
+$effective = KopiaRetentionPolicyService::resolveEffectivePolicy($nestedOverride, $vaultDefault, 'active');
+$expectedFromNestedOverride = ['hourly' => 72, 'daily' => 21, 'weekly' => 12, 'monthly' => 36, 'yearly' => 7];
+assertArraysEqual($expectedFromNestedOverride, $effective, 'resolveEffectivePolicy: nested override extracts retention correctly', $failures);
+
+// resolveEffectivePolicy: nested vault default with all-zero override => fall back
+$effective = KopiaRetentionPolicyService::resolveEffectivePolicy($allZeroOverride, $nestedVaultDefault, 'active');
+assertArraysEqual($expectedFromNested, $effective, 'resolveEffectivePolicy: all-zero override + nested vault falls back to vault', $failures);
+
 echo str_repeat('-', 60) . "\n";
 
 if (!empty($failures)) {
