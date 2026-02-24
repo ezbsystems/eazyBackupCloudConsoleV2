@@ -17,6 +17,7 @@ use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
 use WHMCS\Module\Addon\CloudStorage\Client\AwsS3Validator;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupBootstrapService;
+use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionRoutingService;
 use WHMCS\Module\Addon\CloudStorage\Client\RepositoryService;
 use WHMCS\Database\Capsule;
 
@@ -813,9 +814,23 @@ if (is_array($result) && ($result['status'] ?? 'fail') === 'success') {
     try {
         $lcRes = \WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController::manageLifecycleForJob((int)$jobId);
         if ($newRetentionMode === 'keep_days' && (int)$newRetentionValue > 0) {
-            if (!is_array($lcRes) || ($lcRes['status'] ?? 'fail') !== 'success') {
-                $msg = $lcRes['message'] ?? 'Failed to apply lifecycle policy';
-                $result = ['status' => 'fail', 'message' => 'Unable to enforce Keep N days retention: ' . $msg];
+            $lcStatus = is_array($lcRes) ? ($lcRes['status'] ?? 'fail') : 'fail';
+            if ($lcStatus !== 'success') {
+                $treatSkippedAsSuccess = false;
+                if ($lcStatus === 'skipped') {
+                    $effectiveSourceType = $updateData['source_type'] ?? ($existingJob['source_type'] ?? '');
+                    $effectiveEngine = $updateData['engine'] ?? ($existingJob['engine'] ?? 'kopia');
+                    $effectiveJob = ['source_type' => $effectiveSourceType, 'engine' => $effectiveEngine];
+                    // Repo-native jobs (Local Agent / Kopia-family): lifecycle intentionally skips
+                    // because retention is handled by agent-side Kopia; object-prefix rules do not apply.
+                    if (!KopiaRetentionRoutingService::isCloudObjectRetentionJob($effectiveJob)) {
+                        $treatSkippedAsSuccess = true;
+                    }
+                }
+                if (!$treatSkippedAsSuccess) {
+                    $msg = is_array($lcRes) ? ($lcRes['message'] ?? 'Failed to apply lifecycle policy') : 'Failed to apply lifecycle policy';
+                    $result = ['status' => 'fail', 'message' => 'Unable to enforce Keep N days retention: ' . $msg];
+                }
             }
         }
     } catch (\Throwable $e) {
