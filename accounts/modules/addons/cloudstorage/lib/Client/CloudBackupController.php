@@ -1131,6 +1131,12 @@ class CloudBackupController {
                 return ['status' => 'fail', 'message' => 'Job not found'];
             }
 
+            $jobArray = (array) $job;
+            if (!KopiaRetentionRoutingService::isCloudObjectRetentionJob($jobArray)) {
+                logModuleCall(self::$module, 'manageLifecycleForJob_skip', ['job_id' => $jobId, 'source_type' => $job->source_type ?? null, 'engine' => $job->engine ?? null], 'Skipped: job is local_agent or Kopia-family; use repo-native retention');
+                return ['status' => 'skipped', 'message' => 'Lifecycle is handled by agent-side repo-native path; object-prefix lifecycle not applicable'];
+            }
+
             $retentionMode = $job->retention_mode ?? 'none';
             $retentionValue = (int)($job->retention_value ?? 0);
 
