@@ -12,6 +12,7 @@ $baseDir = dirname(__DIR__, 5);
 $initPath = $baseDir . '/init.php';
 
 if (!is_file($initPath)) {
+    // Fallback: when run from a worktree, init.php lives in the main repo, not the worktree.
     $mainRepoInit = dirname(dirname(dirname($baseDir))) . '/accounts/init.php';
     if (is_file($mainRepoInit)) {
         $initPath = $mainRepoInit;
