@@ -17,6 +17,7 @@ use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
 use WHMCS\Module\Addon\CloudStorage\Client\AwsS3Validator;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupBootstrapService;
+use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionPolicyService;
 use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionRoutingService;
 use WHMCS\Module\Addon\CloudStorage\Client\RepositoryService;
 use WHMCS\Database\Capsule;
@@ -723,6 +724,25 @@ if (in_array($postedSourceType, ['aws', 's3_compatible'], true) && is_array($rec
         $response = new JsonResponse(['status' => 'fail', 'message' => $msg], 200);
         $response->send();
         exit();
+    }
+}
+
+// Validate Kopia retention policy for Local Agent / Kopia-family jobs when retention_json provided
+if (isset($updateData['retention_json']) && $updateData['retention_json'] !== null && $updateData['retention_json'] !== '') {
+    $effectiveSourceType = $updateData['source_type'] ?? $existingJob['source_type'] ?? '';
+    $effectiveEngine = $updateData['engine'] ?? $existingJob['engine'] ?? '';
+    $isKopiaFamily = ($effectiveSourceType === 'local_agent') || in_array($effectiveEngine, ['kopia', 'disk_image', 'hyperv'], true);
+    if ($isKopiaFamily) {
+        $decoded = json_decode($updateData['retention_json'], true);
+        if (is_array($decoded)) {
+            [$valid, $errors] = KopiaRetentionPolicyService::validate($decoded);
+            if (!$valid) {
+                $msg = !empty($errors) ? implode('; ', $errors) : 'Invalid retention policy';
+                $response = new JsonResponse(['status' => 'fail', 'message' => $msg], 200);
+                $response->send();
+                exit();
+            }
+        }
     }
 }
 

@@ -6,6 +6,10 @@ namespace WHMCS\Module\Addon\CloudStorage\Client;
  * Comet-style retention policy validator and resolver for Kopia vaults.
  * Validates hourly/daily/weekly/monthly/yearly keys and resolves effective
  * policy (job override vs vault default) by lifecycle state.
+ *
+ * All-zero override semantics: An override with all retention keys set to 0
+ * is treated as "no override" and falls back to the vault default. This applies
+ * in active lifecycle; retired sources always use the vault default.
  */
 class KopiaRetentionPolicyService
 {
@@ -49,10 +53,11 @@ class KopiaRetentionPolicyService
 
     /**
      * Resolve effective policy from job override and vault default by lifecycle state.
-     * Active source: use job override when present, otherwise vault default.
+     * Active source: use job override when present (with any key > 0), otherwise vault default.
      * Retired source: always fall back to vault default (override ignored).
+     * All-zero override: treated as no override; falls back to vault default.
      *
-     * @param array|null $sourceOverride Job retention override (null or [] treated as none)
+     * @param array|null $sourceOverride Job retention override (null, [], or all zeros treated as none)
      * @param array $vaultDefault Vault default policy (required)
      * @param string $lifecycleState 'active' or 'retired'
      * @return array Effective policy (normalized with all keys)
