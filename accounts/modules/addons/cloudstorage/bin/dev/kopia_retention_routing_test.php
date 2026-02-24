@@ -49,6 +49,21 @@ $job = ['source_type' => 'google_drive', 'engine' => 'sync'];
 $result = KopiaRetentionRoutingService::isCloudObjectRetentionJob($job);
 assertEqual(true, $result, 'google_drive + sync => true', $failures);
 
+// s3_compatible + sync => true (cloud allowlist)
+$job = ['source_type' => 's3_compatible', 'engine' => 'sync'];
+$result = KopiaRetentionRoutingService::isCloudObjectRetentionJob($job);
+assertEqual(true, $result, 's3_compatible + sync => true', $failures);
+
+// aws + kopia => false (kopia-family engine overrides cloud type)
+$job = ['source_type' => 'aws', 'engine' => 'kopia'];
+$result = KopiaRetentionRoutingService::isCloudObjectRetentionJob($job);
+assertEqual(false, $result, 'aws + kopia => false', $failures);
+
+// unknown source_type + sync => false (not in allowlist)
+$job = ['source_type' => 'unknown_source', 'engine' => 'sync'];
+$result = KopiaRetentionRoutingService::isCloudObjectRetentionJob($job);
+assertEqual(false, $result, 'unknown source_type + sync => false', $failures);
+
 echo str_repeat('-', 60) . "\n";
 
 if (!empty($failures)) {
