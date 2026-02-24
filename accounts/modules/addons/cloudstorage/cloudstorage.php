@@ -337,6 +337,12 @@ function cloudstorage_config()
                 'Cols'         => '60',
                 'Description'  => cloudstorage_ClientGroupsCheckboxUI('e3_enabled_client_groups', 'Select client groups that can access the e3 Cloud Backup menu.'),
             ],
+            'kopia_vault_default_retention_policy_json' => [
+                'FriendlyName' => 'Kopia Vault Default Retention Policy JSON',
+                'Type' => 'text',
+                'Size' => '250',
+                'Description' => 'Pinned to repos at creation; Comet-style tiers in JSON.',
+            ],
         ]
     ];
 }
@@ -1947,6 +1953,85 @@ function cloudstorage_activate() {
         }
 
         // -----------------------------
+        // Kopia Retention (Option 2) tables
+        // -----------------------------
+        if (!Capsule::schema()->hasTable('s3_kopia_policy_versions')) {
+            Capsule::schema()->create('s3_kopia_policy_versions', function ($table) {
+                $table->bigIncrements('id');
+                $table->json('policy_json');
+                $table->unsignedInteger('schema_version')->default(1);
+                $table->timestamp('created_at')->useCurrent();
+                $table->index('schema_version');
+            });
+            logModuleCall('cloudstorage', 'activate', [], 'Created s3_kopia_policy_versions table', [], []);
+        }
+        if (!Capsule::schema()->hasTable('s3_kopia_repos')) {
+            Capsule::schema()->create('s3_kopia_repos', function ($table) {
+                $table->bigIncrements('id');
+                $table->string('repository_id', 64)->unique();
+                $table->unsignedBigInteger('vault_policy_version_id');
+                $table->unsignedInteger('client_id');
+                $table->unsignedInteger('tenant_id')->nullable();
+                $table->unsignedInteger('bucket_id');
+                $table->enum('status', ['active', 'archived', 'deleted'])->default('active');
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('updated_at')->useCurrent();
+                $table->index('client_id');
+                $table->index('tenant_id');
+                $table->index('bucket_id');
+                $table->index('vault_policy_version_id');
+            });
+            logModuleCall('cloudstorage', 'activate', [], 'Created s3_kopia_repos table', [], []);
+        }
+        if (!Capsule::schema()->hasTable('s3_kopia_repo_sources')) {
+            Capsule::schema()->create('s3_kopia_repo_sources', function ($table) {
+                $table->bigIncrements('id');
+                $table->unsignedBigInteger('repo_id');
+                $table->string('source_uuid', 64);
+                $table->enum('lifecycle', ['active', 'retired', 'expired'])->default('active');
+                $table->unsignedInteger('job_id')->nullable();
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('updated_at')->useCurrent();
+                $table->unique(['repo_id', 'source_uuid']);
+                $table->index(['repo_id', 'lifecycle']);
+                $table->index('job_id');
+            });
+            logModuleCall('cloudstorage', 'activate', [], 'Created s3_kopia_repo_sources table', [], []);
+        }
+        if (!Capsule::schema()->hasTable('s3_kopia_repo_operations')) {
+            Capsule::schema()->create('s3_kopia_repo_operations', function ($table) {
+                $table->bigIncrements('id');
+                $table->unsignedBigInteger('repo_id');
+                $table->string('op_type', 64);
+                $table->string('status', 32)->default('queued');
+                $table->unsignedInteger('claimed_by_agent_id')->nullable();
+                $table->unsignedInteger('attempt_count')->default(0);
+                $table->string('operation_token', 128)->unique();
+                $table->json('payload_json')->nullable();
+                $table->json('result_json')->nullable();
+                $table->timestamp('next_attempt_at')->nullable();
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('updated_at')->useCurrent();
+                $table->index(['status', 'created_at']);
+                $table->index(['repo_id', 'status']);
+            });
+            logModuleCall('cloudstorage', 'activate', [], 'Created s3_kopia_repo_operations table', [], []);
+        }
+        if (!Capsule::schema()->hasTable('s3_kopia_repo_locks')) {
+            Capsule::schema()->create('s3_kopia_repo_locks', function ($table) {
+                $table->bigIncrements('id');
+                $table->unsignedBigInteger('repo_id')->unique();
+                $table->string('lock_token', 128);
+                $table->unsignedInteger('claimed_by_agent_id')->nullable();
+                $table->timestamp('expires_at')->nullable();
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('updated_at')->useCurrent();
+                $table->index('expires_at');
+            });
+            logModuleCall('cloudstorage', 'activate', [], 'Created s3_kopia_repo_locks table', [], []);
+        }
+
+        // -----------------------------
         // Hyper-V Backup Engine tables
         // -----------------------------
 
@@ -2857,6 +2942,84 @@ function cloudstorage_upgrade($vars) {
                 }
                 logModuleCall('cloudstorage', 'upgrade_trial_selection_add_trial_status', [], 'Added trial_status column', [], []);
             }
+        }
+
+        // Kopia Retention (Option 2) tables
+        $kopiaSchema = \WHMCS\Database\Capsule::schema();
+        if (!$kopiaSchema->hasTable('s3_kopia_policy_versions')) {
+            $kopiaSchema->create('s3_kopia_policy_versions', function ($table) {
+                $table->bigIncrements('id');
+                $table->json('policy_json');
+                $table->unsignedInteger('schema_version')->default(1);
+                $table->timestamp('created_at')->useCurrent();
+                $table->index('schema_version');
+            });
+            logModuleCall('cloudstorage', 'upgrade', [], 'Created s3_kopia_policy_versions table', [], []);
+        }
+        if (!$kopiaSchema->hasTable('s3_kopia_repos')) {
+            $kopiaSchema->create('s3_kopia_repos', function ($table) {
+                $table->bigIncrements('id');
+                $table->string('repository_id', 64)->unique();
+                $table->unsignedBigInteger('vault_policy_version_id');
+                $table->unsignedInteger('client_id');
+                $table->unsignedInteger('tenant_id')->nullable();
+                $table->unsignedInteger('bucket_id');
+                $table->enum('status', ['active', 'archived', 'deleted'])->default('active');
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('updated_at')->useCurrent();
+                $table->index('client_id');
+                $table->index('tenant_id');
+                $table->index('bucket_id');
+                $table->index('vault_policy_version_id');
+            });
+            logModuleCall('cloudstorage', 'upgrade', [], 'Created s3_kopia_repos table', [], []);
+        }
+        if (!$kopiaSchema->hasTable('s3_kopia_repo_sources')) {
+            $kopiaSchema->create('s3_kopia_repo_sources', function ($table) {
+                $table->bigIncrements('id');
+                $table->unsignedBigInteger('repo_id');
+                $table->string('source_uuid', 64);
+                $table->enum('lifecycle', ['active', 'retired', 'expired'])->default('active');
+                $table->unsignedInteger('job_id')->nullable();
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('updated_at')->useCurrent();
+                $table->unique(['repo_id', 'source_uuid']);
+                $table->index(['repo_id', 'lifecycle']);
+                $table->index('job_id');
+            });
+            logModuleCall('cloudstorage', 'upgrade', [], 'Created s3_kopia_repo_sources table', [], []);
+        }
+        if (!$kopiaSchema->hasTable('s3_kopia_repo_operations')) {
+            $kopiaSchema->create('s3_kopia_repo_operations', function ($table) {
+                $table->bigIncrements('id');
+                $table->unsignedBigInteger('repo_id');
+                $table->string('op_type', 64);
+                $table->string('status', 32)->default('queued');
+                $table->unsignedInteger('claimed_by_agent_id')->nullable();
+                $table->unsignedInteger('attempt_count')->default(0);
+                $table->string('operation_token', 128)->unique();
+                $table->json('payload_json')->nullable();
+                $table->json('result_json')->nullable();
+                $table->timestamp('next_attempt_at')->nullable();
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('updated_at')->useCurrent();
+                $table->index(['status', 'created_at']);
+                $table->index(['repo_id', 'status']);
+            });
+            logModuleCall('cloudstorage', 'upgrade', [], 'Created s3_kopia_repo_operations table', [], []);
+        }
+        if (!$kopiaSchema->hasTable('s3_kopia_repo_locks')) {
+            $kopiaSchema->create('s3_kopia_repo_locks', function ($table) {
+                $table->bigIncrements('id');
+                $table->unsignedBigInteger('repo_id')->unique();
+                $table->string('lock_token', 128);
+                $table->unsignedInteger('claimed_by_agent_id')->nullable();
+                $table->timestamp('expires_at')->nullable();
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('updated_at')->useCurrent();
+                $table->index('expires_at');
+            });
+            logModuleCall('cloudstorage', 'upgrade', [], 'Created s3_kopia_repo_locks table', [], []);
         }
 
         // Add notified_at column to s3_cloudbackup_runs if missing
