@@ -144,7 +144,7 @@ class KopiaRetentionRepositoryService
         }
 
         $retention = $decoded['retention'] ?? [];
-        if (!is_array($retention)) {
+        if (!is_array($retention) || empty($retention)) {
             return self::DEFAULT_POLICY;
         }
 
