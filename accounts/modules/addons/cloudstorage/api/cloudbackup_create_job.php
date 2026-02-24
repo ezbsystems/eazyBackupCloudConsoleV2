@@ -18,6 +18,7 @@ use WHMCS\Module\Addon\CloudStorage\Client\HelperController;
 use WHMCS\Module\Addon\CloudStorage\Client\AwsS3Validator;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupBootstrapService;
+use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionPolicyService;
 use WHMCS\Module\Addon\CloudStorage\Client\RepositoryService;
 use WHMCS\Database\Capsule;
 
@@ -460,6 +461,22 @@ if (($jobData['engine'] ?? '') === 'hyperv' || $hypervEnabled) {
     $jobData['hyperv_enabled'] = 1;
     if ($hypervConfigJson !== null) {
         $jobData['hyperv_config'] = $hypervConfigJson;
+    }
+}
+
+// Validate Kopia retention policy for Local Agent / Kopia-family jobs when retention_json provided
+$retentionJson = $jobData['retention_json'] ?? null;
+if ($retentionJson !== null && $retentionJson !== '') {
+    $isKopiaFamily = ($sourceType === 'local_agent') || in_array($jobData['engine'] ?? '', ['kopia', 'disk_image', 'hyperv'], true);
+    if ($isKopiaFamily) {
+        $decoded = json_decode($retentionJson, true);
+        if (is_array($decoded)) {
+            [$valid, $errors] = KopiaRetentionPolicyService::validate($decoded);
+            if (!$valid) {
+                $msg = !empty($errors) ? implode('; ', $errors) : 'Invalid retention policy';
+                respondJson(['status' => 'fail', 'message' => $msg], 200);
+            }
+        }
     }
 }
 

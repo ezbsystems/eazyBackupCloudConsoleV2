@@ -70,6 +70,13 @@ $invalidPolicy2 = [
 [$valid, $errors] = KopiaRetentionPolicyService::validate($invalidPolicy2);
 assertEqual(false, $valid, 'validate: non-integer daily returns false', $failures);
 
+$exceedsMaxPolicy = [
+    'hourly' => 24,
+    'daily' => 1000000,  // > MAX_PER_KEY (999999)
+];
+[$valid, $errors] = KopiaRetentionPolicyService::validate($exceedsMaxPolicy);
+assertEqual(false, $valid, 'validate: value > MAX_PER_KEY returns false', $failures);
+
 // --- resolveEffectivePolicy() tests ---
 
 $vaultDefault = [
@@ -102,6 +109,11 @@ assertArraysEqual($vaultDefault, $effective, 'resolveEffectivePolicy: active + n
 // active + empty override => use vault default
 $effective = KopiaRetentionPolicyService::resolveEffectivePolicy([], $vaultDefault, 'active');
 assertArraysEqual($vaultDefault, $effective, 'resolveEffectivePolicy: active + empty override uses vault default', $failures);
+
+// active + all-zero override => fall back to vault default
+$allZeroOverride = ['hourly' => 0, 'daily' => 0, 'weekly' => 0, 'monthly' => 0, 'yearly' => 0];
+$effective = KopiaRetentionPolicyService::resolveEffectivePolicy($allZeroOverride, $vaultDefault, 'active');
+assertArraysEqual($vaultDefault, $effective, 'resolveEffectivePolicy: active + all-zero override falls back to vault default', $failures);
 
 echo str_repeat('-', 60) . "\n";
 
