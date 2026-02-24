@@ -19,6 +19,7 @@ use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\BucketController;
+use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionRoutingService;
 use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 
 // Get module config
@@ -41,12 +42,18 @@ if (empty($s3Endpoint) || empty($cephAdminUser) || empty($cephAdminAccessKey) ||
     exit("Cloud Storage module not fully configured\n");
 }
 
-// Get all active jobs with retention policies enabled
+// Get only cloud source type jobs (excludes local_agent, Kopia-family engines)
+$cloudSourceTypes = KopiaRetentionRoutingService::getCloudSourceTypes();
+$kopiaFamilyEngines = KopiaRetentionRoutingService::getKopiaFamilyEngines();
 $jobs = Capsule::table('s3_cloudbackup_jobs')
     ->where('status', 'active')
     ->whereIn('retention_mode', ['keep_last_n', 'keep_days'])
     ->whereNotNull('retention_value')
-    ->get();
+    ->whereIn('source_type', $cloudSourceTypes);
+if (Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'engine')) {
+    $jobs = $jobs->whereNotIn('engine', $kopiaFamilyEngines);
+}
+$jobs = $jobs->get();
 
 if ($jobs->isEmpty()) {
     exit("No jobs with retention policies found.\n");

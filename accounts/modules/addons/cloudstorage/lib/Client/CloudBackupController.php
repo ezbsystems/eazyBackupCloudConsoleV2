@@ -6,6 +6,7 @@ use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\HelperController;
 use WHMCS\Module\Addon\CloudStorage\Client\AwsS3Validator;
+use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionRoutingService;
 
 class CloudBackupController {
 
@@ -928,6 +929,12 @@ class CloudBackupController {
 
             if (!$job) {
                 return ['status' => 'fail', 'message' => 'Job not found'];
+            }
+
+            $jobArray = (array) $job;
+            if (!KopiaRetentionRoutingService::isCloudObjectRetentionJob($jobArray)) {
+                logModuleCall(self::$module, 'applyRetentionPolicy_skip', ['job_id' => $jobId, 'source_type' => $job->source_type ?? null, 'engine' => $job->engine ?? null], 'Skipped: job is local_agent or Kopia-family; use repo-native retention');
+                return ['status' => 'skipped', 'message' => 'Retention is handled by agent-side repo-native path; object-prefix retention not applicable'];
             }
 
             if ($job->retention_mode === 'none' || empty($job->retention_value)) {
