@@ -4,6 +4,7 @@ require_once __DIR__ . '/../../../../init.php';
 require_once __DIR__ . '/../lib/Client/MspController.php';
 require_once __DIR__ . '/../lib/Client/CloudBackupBootstrapService.php';
 require_once __DIR__ . '/../lib/Client/RepositoryService.php';
+require_once __DIR__ . '/../lib/Client/KopiaRetentionSourceService.php';
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -19,6 +20,7 @@ use WHMCS\Module\Addon\CloudStorage\Client\AwsS3Validator;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupBootstrapService;
 use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionPolicyService;
+use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionSourceService;
 use WHMCS\Module\Addon\CloudStorage\Client\RepositoryService;
 use WHMCS\Database\Capsule;
 
@@ -540,6 +542,9 @@ if (is_array($result) && ($result['status'] ?? '') === 'success') {
         } catch (\Throwable $e) {
             logModuleCall('cloudstorage', 'create_job_hyperv_vms', ['job_id' => $jobId], $e->getMessage());
         }
+    }
+    if ($jobId > 0 && $sourceType === 'local_agent' && in_array($jobData['engine'] ?? '', ['kopia', 'disk_image', 'hyperv'], true) && !empty($repositoryId)) {
+        KopiaRetentionSourceService::ensureRepoSourceForJob($jobId);
     }
 }
 respondJson($result, 200);
