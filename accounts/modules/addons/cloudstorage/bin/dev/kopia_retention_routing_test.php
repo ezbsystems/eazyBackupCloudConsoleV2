@@ -59,6 +59,16 @@ $job = ['source_type' => 'aws', 'engine' => 'kopia'];
 $result = KopiaRetentionRoutingService::isCloudObjectRetentionJob($job);
 assertEqual(false, $result, 'aws + kopia => false', $failures);
 
+// aws + hyperv => false (hyperv excluded, kopia-family)
+$job = ['source_type' => 'aws', 'engine' => 'hyperv'];
+$result = KopiaRetentionRoutingService::isCloudObjectRetentionJob($job);
+assertEqual(false, $result, 'aws + hyperv => false', $failures);
+
+// local_agent + hyperv => false (both exclude)
+$job = ['source_type' => 'local_agent', 'engine' => 'hyperv'];
+$result = KopiaRetentionRoutingService::isCloudObjectRetentionJob($job);
+assertEqual(false, $result, 'local_agent + hyperv => false', $failures);
+
 // unknown source_type + sync => false (not in allowlist)
 $job = ['source_type' => 'unknown_source', 'engine' => 'sync'];
 $result = KopiaRetentionRoutingService::isCloudObjectRetentionJob($job);
