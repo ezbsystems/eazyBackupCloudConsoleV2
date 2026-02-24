@@ -1,10 +1,12 @@
 <?php
 
 require_once __DIR__ . '/../../../../init.php';
+require_once __DIR__ . '/../lib/Client/KopiaRetentionSourceService.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\Module\Addon\CloudStorage\Client\HelperController;
+use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionSourceService;
 use WHMCS\Module\Addon\CloudStorage\Client\RepositoryService;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupBootstrapService;
 
@@ -486,7 +488,13 @@ try {
         if ($hasDiskTemp) {
             $runData['disk_temp_dir'] = $job->disk_temp_dir ?? '';
         }
-        
+        if ($sourceTypeVal === 'local_agent' && $repositoryId !== '') {
+            $sourceInfo = KopiaRetentionSourceService::ensureRepoSourceForJob((int) $job->id);
+            if ($sourceInfo !== null && !empty($sourceInfo['source_uuid'])) {
+                $runData['source_uuid'] = $sourceInfo['source_uuid'];
+            }
+        }
+
         // Hyper-V specific data
         if ($engineVal === 'hyperv') {
             $hypervConfig = json_decode($job->hyperv_config ?? '{}', true);
