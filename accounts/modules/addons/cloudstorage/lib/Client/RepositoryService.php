@@ -110,6 +110,7 @@ class RepositoryService
             ) {
                 $existing = self::queryByScope($clientId, $tenantId, $tenantUserId, $bucketId, $rootPrefix, $engine)->first();
                 if ($existing) {
+                    self::pinKopiaRetentionRepo($existing, $clientId, $tenantId, $bucketId);
                     return ['status' => 'success', 'repository' => $existing, 'created' => false];
                 }
 
@@ -168,6 +169,8 @@ class RepositoryService
                     'kek_ref' => (string) ($wrap['kek_ref'] ?? ''),
                     'mode' => (string) ($wrap['mode'] ?? 'managed_recovery'),
                 ], ['status' => 'success'], [], []);
+
+                self::pinKopiaRetentionRepo($repository, $clientId, $tenantId, $bucketId);
 
                 return ['status' => 'success', 'repository' => $repository, 'created' => true];
             });
@@ -281,5 +284,34 @@ class RepositoryService
             return 'kopia';
         }
         return $engine;
+    }
+
+    /**
+     * Best-effort pin vault policy to repo (Kopia retention control plane).
+     * Non-fatal; logs on failure.
+     */
+    private static function pinKopiaRetentionRepo(object $repository, int $clientId, ?int $tenantId, int $bucketId): void
+    {
+        try {
+            $repoId = (string) ($repository->repository_id ?? '');
+            if ($repoId === '') {
+                return;
+            }
+            $hints = [
+                'client_id' => $clientId,
+                'tenant_id' => $tenantId,
+                'bucket_id' => $bucketId,
+            ];
+            $pinned = KopiaRetentionRepositoryService::ensureRepoRecordForRepositoryId($repoId, $hints);
+            if ($pinned === null) {
+                logModuleCall(self::$module, 'pinKopiaRetentionRepo', [
+                    'repository_id' => $repoId,
+                ], 'Kopia retention repo record ensure returned null (best-effort, non-fatal)', [], []);
+            }
+        } catch (\Throwable $e) {
+            logModuleCall(self::$module, 'pinKopiaRetentionRepo', [
+                'repository_id' => (string) ($repository->repository_id ?? ''),
+            ], $e->getMessage() . ' (best-effort, non-fatal)', [], []);
+        }
     }
 }
