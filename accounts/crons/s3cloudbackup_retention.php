@@ -18,9 +18,7 @@ if (!defined("WHMCS")) {
 use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
-use WHMCS\Module\Addon\CloudStorage\Client\BucketController;
 use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionRoutingService;
-use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 
 // Get module config
 $module = DBController::getResult('tbladdonmodules', [
@@ -78,12 +76,17 @@ foreach ($jobs as $job) {
             $encryptionKey
         );
         
-        if ($result['status'] === 'success') {
+        $status = $result['status'] ?? 'unknown';
+        $message = $result['message'] ?? '';
+
+        if ($status === 'success') {
             $processedCount++;
-            echo "  ✓ Applied retention policy: {$result['message']}\n";
+            echo "  ✓ Applied retention policy: {$message}\n";
+        } elseif ($status === 'skipped') {
+            echo "  ⊘ Skipped: {$message}\n";
         } else {
             $errorCount++;
-            echo "  ✗ Failed: {$result['message']}\n";
+            echo "  ✗ Failed: {$message}\n";
         }
     } catch (\Exception $e) {
         $errorCount++;
