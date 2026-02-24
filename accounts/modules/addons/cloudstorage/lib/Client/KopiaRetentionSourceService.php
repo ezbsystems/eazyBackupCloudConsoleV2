@@ -45,68 +45,69 @@ class KopiaRetentionSourceService
                 return null;
             }
 
-            $job = Capsule::table('s3_cloudbackup_jobs')->where('id', $jobId)->first();
-            if (!$job) {
-                return null;
-            }
+            return Capsule::connection()->transaction(function () use ($jobId) {
+                $job = Capsule::table('s3_cloudbackup_jobs')->where('id', $jobId)->lockForUpdate()->first();
+                if (!$job) {
+                    return null;
+                }
 
-            $sourceType = strtolower(trim((string) ($job->source_type ?? '')));
-            $engine = strtolower(trim((string) ($job->engine ?? 'kopia')));
-            if ($sourceType !== 'local_agent' || !in_array($engine, self::KOPIA_ENGINES, true)) {
-                return null;
-            }
+                $sourceType = strtolower(trim((string) ($job->source_type ?? '')));
+                $engine = strtolower(trim((string) ($job->engine ?? 'kopia')));
+                if ($sourceType !== 'local_agent' || !in_array($engine, self::KOPIA_ENGINES, true)) {
+                    return null;
+                }
 
-            $repositoryId = trim((string) ($job->repository_id ?? ''));
-            if ($repositoryId === '') {
-                return null;
-            }
+                $repositoryId = trim((string) ($job->repository_id ?? ''));
+                if ($repositoryId === '') {
+                    return null;
+                }
 
-            $repoRow = Capsule::table('s3_kopia_repos')->where('repository_id', $repositoryId)->first();
-            if (!$repoRow) {
-                return null;
-            }
-            $repoId = (int) $repoRow->id;
+                $repoRow = Capsule::table('s3_kopia_repos')->where('repository_id', $repositoryId)->first();
+                if (!$repoRow) {
+                    return null;
+                }
+                $repoId = (int) $repoRow->id;
 
-            $existing = Capsule::table('s3_kopia_repo_sources')
-                ->where('repo_id', $repoId)
-                ->where('job_id', $jobId)
-                ->first();
+                // Re-check existing source inside transaction before insert (prevents duplicate rows on race)
+                $existing = Capsule::table('s3_kopia_repo_sources')
+                    ->where('repo_id', $repoId)
+                    ->where('job_id', $jobId)
+                    ->first();
 
-            if ($existing) {
-                return [
-                    'id' => (int) $existing->id,
-                    'source_uuid' => (string) $existing->source_uuid,
+                if ($existing) {
+                    return [
+                        'id' => (int) $existing->id,
+                        'source_uuid' => (string) $existing->source_uuid,
+                        'repo_id' => $repoId,
+                        'job_id' => $jobId,
+                        'lifecycle' => (string) ($existing->lifecycle ?? 'active'),
+                    ];
+                }
+
+                $sourceUuid = self::generateSourceUuid();
+
+                Capsule::table('s3_kopia_repo_sources')->insert([
+                    'repo_id' => $repoId,
+                    'source_uuid' => $sourceUuid,
+                    'lifecycle' => 'active',
+                    'job_id' => $jobId,
+                    'created_at' => date('Y-m-d H:i:s'),
+                    'updated_at' => date('Y-m-d H:i:s'),
+                ]);
+
+                $row = Capsule::table('s3_kopia_repo_sources')
+                    ->where('repo_id', $repoId)
+                    ->where('source_uuid', $sourceUuid)
+                    ->first();
+
+                return $row ? [
+                    'id' => (int) $row->id,
+                    'source_uuid' => (string) $row->source_uuid,
                     'repo_id' => $repoId,
                     'job_id' => $jobId,
-                    'lifecycle' => (string) ($existing->lifecycle ?? 'active'),
-                ];
-            }
-
-            $agentIdentity = (string) ($job->agent_id ?? '0');
-            $sourceIdentity = self::deriveSourceIdentity($job, $engine);
-            $sourceUuid = self::generateSourceUuid();
-
-            Capsule::table('s3_kopia_repo_sources')->insert([
-                'repo_id' => $repoId,
-                'source_uuid' => $sourceUuid,
-                'lifecycle' => 'active',
-                'job_id' => $jobId,
-                'created_at' => date('Y-m-d H:i:s'),
-                'updated_at' => date('Y-m-d H:i:s'),
-            ]);
-
-            $row = Capsule::table('s3_kopia_repo_sources')
-                ->where('repo_id', $repoId)
-                ->where('source_uuid', $sourceUuid)
-                ->first();
-
-            return $row ? [
-                'id' => (int) $row->id,
-                'source_uuid' => (string) $row->source_uuid,
-                'repo_id' => $repoId,
-                'job_id' => $jobId,
-                'lifecycle' => (string) ($row->lifecycle ?? 'active'),
-            ] : null;
+                    'lifecycle' => (string) ($row->lifecycle ?? 'active'),
+                ] : null;
+            });
         } catch (\Throwable $e) {
             logModuleCall(self::MODULE, 'ensureRepoSourceForJob', ['job_id' => $jobId], $e->getMessage(), [], []);
             return null;
