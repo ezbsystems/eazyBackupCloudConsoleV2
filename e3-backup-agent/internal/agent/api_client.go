@@ -60,7 +60,7 @@ func (c *Client) applyUserAgent(req *http.Request) {
 }
 
 func (c *Client) authHeaders(req *http.Request) {
-	req.Header.Set("X-Agent-ID", c.agentID)
+	req.Header.Set("X-Agent-UUID", c.agentID)
 	req.Header.Set("X-Agent-Token", c.token)
 	req.Header.Set("Content-Type", "application/json")
 	c.applyUserAgent(req)
