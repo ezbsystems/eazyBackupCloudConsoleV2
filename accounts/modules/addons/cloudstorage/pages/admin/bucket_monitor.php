@@ -341,7 +341,7 @@ function generateAdminHTML($vars) {
                         </div>
                         <div class="col-md-3">
                             <div class="border rounded p-2">
-                                <div class="text-muted small">Capacity (used + max_avail)</div>
+                                <div class="text-muted small">Used (%)</div>
                                 <div><strong id="poolCapacityLabel">—</strong></div>
                             </div>
                         </div>
@@ -745,7 +745,10 @@ function updatePoolChart() {
         const latest = data.latest || null;
         if (latest) {
             document.getElementById("poolUsedLabel").textContent = formatBytes(latest.used_bytes || 0);
-            document.getElementById("poolCapacityLabel").textContent = formatBytes(latest.capacity_bytes || 0);
+            const percentUsed = Number(latest.percent_used);
+            document.getElementById("poolCapacityLabel").textContent = Number.isFinite(percentUsed)
+                ? `${percentUsed.toFixed(1)}%`
+                : "—";
         } else {
             document.getElementById("poolUsedLabel").textContent = "—";
             document.getElementById("poolCapacityLabel").textContent = "—";

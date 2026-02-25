@@ -1,7 +1,6 @@
 <?php
 
 use WHMCS\ClientArea;
-use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
@@ -27,11 +26,6 @@ if (!$isMspClient) {
     exit;
 }
 
-// Get tenants for dropdown
-$tenants = MspController::getTenants($loggedInUserId);
-
 return [
     'isMspClient' => $isMspClient,
-    'tenants' => $tenants,
 ];
-

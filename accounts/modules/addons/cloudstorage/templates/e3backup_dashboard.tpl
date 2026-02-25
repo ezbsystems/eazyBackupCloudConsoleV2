@@ -63,11 +63,11 @@
                 <p class="text-xs text-slate-500 mt-2">Manage customer organizations</p>
             </a>
 
-            <!-- Tenant Users Card (MSP Only) -->
-            <a href="index.php?m=cloudstorage&page=e3backup&view=tenant_users" class="group block rounded-xl border border-slate-800/80 bg-slate-900/70 p-5 hover:border-amber-500/50 transition-colors">
+            <!-- Tenant Members Card (MSP Only) -->
+            <a href="index.php?m=cloudstorage&page=e3backup&view=tenant_members" class="group block rounded-xl border border-slate-800/80 bg-slate-900/70 p-5 hover:border-amber-500/50 transition-colors">
                 <div class="flex items-center justify-between">
                     <div>
-                        <p class="text-xs font-medium text-slate-400 uppercase tracking-wide">Tenant Users</p>
+                        <p class="text-xs font-medium text-slate-400 uppercase tracking-wide">Tenant Members</p>
                         <p class="text-3xl font-bold text-white mt-1">{$tenantUserCount|default:0}</p>
                     </div>
                     <div class="flex items-center justify-center w-12 h-12 rounded-lg bg-amber-500/15 group-hover:bg-amber-500/25 transition-colors">
@@ -76,7 +76,7 @@
                         </svg>
                     </div>
                 </div>
-                <p class="text-xs text-slate-500 mt-2">Manage users within tenants</p>
+                <p class="text-xs text-slate-500 mt-2">Manage members within tenants</p>
             </a>
             {/if}
         </div>

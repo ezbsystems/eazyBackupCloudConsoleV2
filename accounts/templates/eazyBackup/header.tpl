@@ -451,14 +451,14 @@
                             <!-- Tenants (MSP Only) -->
                             <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=tenants" 
                                class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
-                                    {if $smarty.get.view == 'tenants'} bg-[#1B2C50] font-semibold {/if}">
+                                    {if $smarty.get.view == 'tenants' || $smarty.get.view == 'tenant_detail'} bg-[#1B2C50] font-semibold {/if}">
                                 Tenants
                             </a>
-                            <!-- Tenant Users (MSP Only) -->
-                            <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=tenant_users" 
+                            <!-- Tenant Members (MSP Only) -->
+                            <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=tenant_members" 
                                class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
-                                    {if $smarty.get.view == 'tenant_users'} bg-[#1B2C50] font-semibold {/if}">
-                                Tenant Users
+                                    {if $smarty.get.view == 'tenant_members' || $smarty.get.view == 'tenant_users'} bg-[#1B2C50] font-semibold {/if}">
+                                Tenant Members
                             </a>
                             {/if}
                         </div>
