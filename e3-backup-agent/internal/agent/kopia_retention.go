@@ -22,9 +22,12 @@ type SourcePolicyEntry struct {
 }
 
 // SourcePolicyInput holds vault default and per-source policy for retention resolution.
+// CometTiers is set when server sends Comet-style map (hourly/daily/weekly/monthly/yearly).
+// When CometTiers is non-nil, retention applies all tiers; otherwise only KeepDaily from vault/sources.
 type SourcePolicyInput struct {
 	VaultDefaultDays int
 	Sources          []SourcePolicyEntry
+	CometTiers       map[string]int // hourly, daily, weekly, monthly, yearly
 }
 
 // buildEffectiveDailyMap returns a map of source path -> keep_daily days.
@@ -41,14 +44,51 @@ func buildEffectiveDailyMap(input SourcePolicyInput) map[string]int {
 	return out
 }
 
+// cometTierKeys are Comet-style retention keys from PHP (hourly, daily, weekly, monthly, yearly).
+var cometTierKeys = []string{"hourly", "daily", "weekly", "monthly", "yearly"}
+
 // parseEffectivePolicyFromMap parses effective_policy from server payload into SourcePolicyInput.
-// Expects: {"vault_default_days": N, "sources": [{"path":"...","retired":bool,"override_days":N}]}
-// Returns nil and error when parsing fails. Uses vaultDefaultFallback when vault_default_days missing.
+// Accepts two formats:
+//   - Source-aware: {"vault_default_days": N, "sources": [{"path":"...","retired":bool,"override_days":N}]}
+//   - Comet-style: {"hourly": N, "daily": N, "weekly": N, "monthly": N, "yearly": N}
+//
+// When Comet-style is present (at least "daily" or other tier keys), CometTiers is populated
+// and VaultDefaultDays is taken from "daily". Source-aware format takes precedence when "sources" exists.
+// Uses vaultDefaultFallback when vault_default_days/daily missing.
 func parseEffectivePolicyFromMap(m map[string]any, vaultDefaultFallback int) (SourcePolicyInput, error) {
 	if m == nil {
 		return SourcePolicyInput{VaultDefaultDays: vaultDefaultFallback, Sources: nil}, nil
 	}
 	out := SourcePolicyInput{VaultDefaultDays: vaultDefaultFallback}
+
+	// Parse Comet-style tiers (hourly, daily, weekly, monthly, yearly)
+	cometTiers := make(map[string]int)
+	hasComet := false
+	for _, key := range cometTierKeys {
+		if v, ok := m[key]; ok {
+			switch n := v.(type) {
+			case float64:
+				cometTiers[key] = int(n)
+				hasComet = true
+			case int:
+				cometTiers[key] = n
+				hasComet = true
+			case json.Number:
+				if i, err := n.Int64(); err == nil {
+					cometTiers[key] = int(i)
+					hasComet = true
+				}
+			}
+		}
+	}
+	if hasComet {
+		out.CometTiers = cometTiers
+		if d, ok := cometTiers["daily"]; ok && d > 0 {
+			out.VaultDefaultDays = d
+		}
+	}
+
+	// Source-aware format
 	if v, ok := m["vault_default_days"]; ok {
 		switch n := v.(type) {
 		case float64:
@@ -147,14 +187,20 @@ func (r *Runner) kopiaRetentionApply(ctx context.Context, run *NextRunResponse, 
 	sort.Slice(sources, func(i, j int) bool { return sources[i].String() < sources[j].String() })
 	var totalDeleted int
 	for _, src := range sources {
-		days := effectiveMap[src.Path]
-		if days <= 0 {
-			days = input.VaultDefaultDays
+		retPol := policy.RetentionPolicy{}
+		if input.CometTiers != nil {
+			retPol = retentionPolicyFromCometTiers(input.CometTiers)
+		} else {
+			days := effectiveMap[src.Path]
+			if days <= 0 {
+				days = input.VaultDefaultDays
+			}
+			if days <= 0 {
+				days = 30
+			}
+			retPol = policy.RetentionPolicy{KeepDaily: intPtr(days)}
 		}
-		if days <= 0 {
-			days = 30
-		}
-		pol := &policy.Policy{RetentionPolicy: policy.RetentionPolicy{KeepDaily: intPtr(days)}}
+		pol := &policy.Policy{RetentionPolicy: retPol}
 		err := repo.DirectWriteSession(ctx, dr, repo.WriteSessionOptions{Purpose: "retention"}, func(wctx context.Context, dw repo.DirectRepositoryWriter) error {
 			if setErr := policy.SetPolicy(wctx, dw, src, pol); setErr != nil {
 				return setErr
@@ -174,3 +220,28 @@ func (r *Runner) kopiaRetentionApply(ctx context.Context, run *NextRunResponse, 
 }
 
 func intPtr(n int) *int { p := &n; return p }
+
+// retentionPolicyFromCometTiers builds Kopia RetentionPolicy from Comet-style map.
+// Keys: hourly, daily, weekly, monthly, yearly. Maps yearly -> KeepAnnual.
+func retentionPolicyFromCometTiers(tiers map[string]int) policy.RetentionPolicy {
+	rp := policy.RetentionPolicy{}
+	if v := tiers["hourly"]; v > 0 {
+		rp.KeepHourly = intPtr(v)
+	}
+	if v := tiers["daily"]; v > 0 {
+		rp.KeepDaily = intPtr(v)
+	}
+	if v := tiers["weekly"]; v > 0 {
+		rp.KeepWeekly = intPtr(v)
+	}
+	if v := tiers["monthly"]; v > 0 {
+		rp.KeepMonthly = intPtr(v)
+	}
+	if v := tiers["yearly"]; v > 0 {
+		rp.KeepAnnual = intPtr(v)
+	}
+	if rp.KeepDaily == nil && rp.KeepHourly == nil && rp.KeepWeekly == nil && rp.KeepMonthly == nil && rp.KeepAnnual == nil {
+		rp.KeepDaily = intPtr(30)
+	}
+	return rp
+}

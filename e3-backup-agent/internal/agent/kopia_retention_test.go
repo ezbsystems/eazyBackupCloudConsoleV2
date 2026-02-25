@@ -72,4 +72,38 @@ func TestParseEffectivePolicyFromMap(t *testing.T) {
 			t.Errorf("/b (active+override): got %d, want 3", em["/b"])
 		}
 	})
+	t.Run("Comet-style map", func(t *testing.T) {
+		m := map[string]any{
+			"hourly":  float64(24),
+			"daily":   float64(30),
+			"weekly":  float64(8),
+			"monthly": float64(12),
+			"yearly":  float64(3),
+		}
+		out, err := parseEffectivePolicyFromMap(m, 14)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if out.VaultDefaultDays != 30 {
+			t.Errorf("VaultDefaultDays from daily: got %d, want 30", out.VaultDefaultDays)
+		}
+		if out.CometTiers == nil {
+			t.Fatal("CometTiers should be set")
+		}
+		for k, want := range map[string]int{"hourly": 24, "daily": 30, "weekly": 8, "monthly": 12, "yearly": 3} {
+			if got := out.CometTiers[k]; got != want {
+				t.Errorf("CometTiers[%s]: got %d, want %d", k, got, want)
+			}
+		}
+		rp := retentionPolicyFromCometTiers(out.CometTiers)
+		if rp.KeepHourly == nil || *rp.KeepHourly != 24 {
+			t.Errorf("KeepHourly: got %v, want 24", rp.KeepHourly)
+		}
+		if rp.KeepDaily == nil || *rp.KeepDaily != 30 {
+			t.Errorf("KeepDaily: got %v, want 30", rp.KeepDaily)
+		}
+		if rp.KeepAnnual == nil || *rp.KeepAnnual != 3 {
+			t.Errorf("KeepAnnual (from yearly): got %v, want 3", rp.KeepAnnual)
+		}
+	})
 }
