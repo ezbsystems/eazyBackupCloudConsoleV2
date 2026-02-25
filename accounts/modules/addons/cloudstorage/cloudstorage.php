@@ -1093,6 +1093,7 @@ function cloudstorage_activate() {
         if (!Capsule::schema()->hasTable('s3_cloudbackup_agents')) {
             Capsule::schema()->create('s3_cloudbackup_agents', function ($table) {
                 $table->bigIncrements('id');
+                $table->string('agent_uuid', 36);
                 $table->unsignedInteger('client_id');
                 $table->unsignedInteger('tenant_id')->nullable();
                 $table->unsignedInteger('tenant_user_id')->nullable();
@@ -1116,11 +1117,12 @@ function cloudstorage_activate() {
                 $table->timestamp('created_at')->useCurrent();
                 $table->timestamp('updated_at')->useCurrent();
 
+                $table->unique('agent_uuid');
                 $table->unique('agent_token');
                 $table->index('client_id');
                 $table->index('tenant_id');
                 $table->index('tenant_user_id');
-                $table->index(['client_id', 'tenant_id', 'device_id'], 'idx_agent_device_identity');
+                $table->unique(['client_id', 'tenant_id', 'device_id'], 'uniq_agent_device_scope');
             });
         }
 
@@ -1253,7 +1255,7 @@ function cloudstorage_activate() {
                 $table->unsignedInteger('tenant_id')->nullable();
                 $table->string('repository_id', 64)->nullable();
                 $table->unsignedInteger('tenant_user_id')->nullable();
-                $table->unsignedInteger('agent_id')->nullable();
+                $table->string('agent_uuid', 36)->nullable();
                 $table->unsignedInteger('job_id')->nullable();
                 $table->string('job_name', 191)->nullable();
                 $table->unsignedBigInteger('run_id')->nullable();
@@ -1285,7 +1287,7 @@ function cloudstorage_activate() {
                 $table->index('client_id');
                 $table->index('tenant_id');
                 $table->index('repository_id');
-                $table->index('agent_id');
+                $table->index('agent_uuid');
                 $table->index('manifest_id');
                 $table->index('run_id');
                 $table->index('hyperv_vm_id');
@@ -1698,13 +1700,13 @@ function cloudstorage_activate() {
                 });
                 logModuleCall('cloudstorage', 'activate', [], 'Added source_paths_json to s3_cloudbackup_jobs', [], []);
             }
-            // Add agent_id for local agent binding (nullable to preserve existing jobs)
-            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'agent_id')) {
+            // Add agent_uuid for local agent binding (nullable to preserve existing jobs)
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'agent_uuid')) {
                 \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_jobs', function ($table) {
-                    $table->unsignedInteger('agent_id')->nullable()->after('client_id');
-                    $table->index('agent_id');
+                    $table->string('agent_uuid', 36)->nullable()->after('client_id');
+                    $table->index('agent_uuid');
                 });
-                logModuleCall('cloudstorage', 'activate', [], 'Added agent_id to s3_cloudbackup_jobs', [], []);
+                logModuleCall('cloudstorage', 'activate', [], 'Added agent_uuid to s3_cloudbackup_jobs', [], []);
             }
             // Kopia/engine fields for local agent jobs
             if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'engine')) {
@@ -1764,12 +1766,12 @@ function cloudstorage_activate() {
                 });
                 logModuleCall('cloudstorage', 'activate', [], 'Added repository_id to s3_cloudbackup_runs', [], []);
             }
-            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'agent_id')) {
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'agent_uuid')) {
                 \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_runs', function ($table) {
-                    $table->unsignedInteger('agent_id')->nullable()->after('job_id');
-                    $table->index('agent_id');
+                    $table->string('agent_uuid', 36)->nullable()->after('job_id');
+                    $table->index('agent_uuid');
                 });
-                logModuleCall('cloudstorage', 'activate', [], 'Added agent_id to s3_cloudbackup_runs', [], []);
+                logModuleCall('cloudstorage', 'activate', [], 'Added agent_uuid to s3_cloudbackup_runs', [], []);
             }
             if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'updated_at')) {
                 \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_runs', function ($table) {
@@ -1797,7 +1799,7 @@ function cloudstorage_activate() {
         if (!Capsule::schema()->hasTable('s3_cloudbackup_agent_destinations')) {
             Capsule::schema()->create('s3_cloudbackup_agent_destinations', function ($table) {
                 $table->bigIncrements('id');
-                $table->unsignedBigInteger('agent_id');
+                $table->string('agent_uuid', 36);
                 $table->unsignedInteger('client_id');
                 $table->unsignedInteger('tenant_id')->nullable();
                 $table->unsignedInteger('s3_user_id');
@@ -1807,13 +1809,13 @@ function cloudstorage_activate() {
                 $table->timestamp('created_at')->useCurrent();
                 $table->timestamp('updated_at')->useCurrent();
 
-                $table->unique('agent_id');
+                $table->unique('agent_uuid');
                 $table->unique(['dest_bucket_id', 'root_prefix'], 'uniq_cloudbackup_dest_bucket_prefix');
                 $table->index('client_id');
                 $table->index('tenant_id');
                 $table->index('s3_user_id');
                 $table->index('dest_bucket_id');
-                $table->foreign('agent_id')->references('id')->on('s3_cloudbackup_agents')->onDelete('cascade');
+                $table->foreign('agent_uuid')->references('agent_uuid')->on('s3_cloudbackup_agents')->onDelete('cascade');
                 $table->foreign('s3_user_id')->references('id')->on('s3_users')->onDelete('cascade');
                 $table->foreign('dest_bucket_id')->references('id')->on('s3_buckets')->onDelete('cascade');
             });
@@ -1897,14 +1899,14 @@ function cloudstorage_activate() {
             logModuleCall('cloudstorage', 'activate', [], 'Created s3_cloudbackup_run_commands table', [], []);
         }
 
-        // Add agent_id to run_commands for browse/discovery commands (not tied to a run)
+        // Add agent_uuid to run_commands for browse/discovery commands (not tied to a run)
         if (Capsule::schema()->hasTable('s3_cloudbackup_run_commands')) {
-            if (!Capsule::schema()->hasColumn('s3_cloudbackup_run_commands', 'agent_id')) {
+            if (!Capsule::schema()->hasColumn('s3_cloudbackup_run_commands', 'agent_uuid')) {
                 Capsule::schema()->table('s3_cloudbackup_run_commands', function ($table) {
-                    $table->unsignedInteger('agent_id')->nullable()->after('run_id');
-                    $table->index('agent_id', 'idx_agent_id');
+                    $table->string('agent_uuid', 36)->nullable()->after('run_id');
+                    $table->index('agent_uuid', 'idx_agent_uuid');
                 });
-                logModuleCall('cloudstorage', 'activate', [], 'Added agent_id to s3_cloudbackup_run_commands', [], []);
+                logModuleCall('cloudstorage', 'activate', [], 'Added agent_uuid to s3_cloudbackup_run_commands', [], []);
             }
             // Make run_id nullable - browse/discovery commands don't have a run_id
             // Note: This requires raw SQL as Laravel doesn't support modifying nullable on existing columns easily
@@ -2543,7 +2545,7 @@ function cloudstorage_upgrade($vars) {
             ) {
                 $schema->create('s3_cloudbackup_agent_destinations', function ($table) {
                     $table->bigIncrements('id');
-                    $table->unsignedBigInteger('agent_id');
+                    $table->string('agent_uuid', 36);
                     $table->unsignedInteger('client_id');
                     $table->unsignedInteger('tenant_id')->nullable();
                     $table->unsignedInteger('s3_user_id');
@@ -2553,13 +2555,13 @@ function cloudstorage_upgrade($vars) {
                     $table->timestamp('created_at')->useCurrent();
                     $table->timestamp('updated_at')->useCurrent();
 
-                    $table->unique('agent_id');
+                    $table->unique('agent_uuid');
                     $table->unique(['dest_bucket_id', 'root_prefix'], 'uniq_cloudbackup_dest_bucket_prefix');
                     $table->index('client_id');
                     $table->index('tenant_id');
                     $table->index('s3_user_id');
                     $table->index('dest_bucket_id');
-                    $table->foreign('agent_id')->references('id')->on('s3_cloudbackup_agents')->onDelete('cascade');
+                    $table->foreign('agent_uuid')->references('agent_uuid')->on('s3_cloudbackup_agents')->onDelete('cascade');
                     $table->foreign('s3_user_id')->references('id')->on('s3_users')->onDelete('cascade');
                     $table->foreign('dest_bucket_id')->references('id')->on('s3_buckets')->onDelete('cascade');
                 });
@@ -3340,14 +3342,14 @@ function cloudstorage_upgrade($vars) {
             logModuleCall('cloudstorage', 'upgrade', [], 'Created s3_cloudbackup_run_commands table', [], []);
         }
 
-        // Add agent_id to run_commands for browse/discovery commands (not tied to a run)
+        // Add agent_uuid to run_commands for browse/discovery commands (not tied to a run)
         if (\WHMCS\Database\Capsule::schema()->hasTable('s3_cloudbackup_run_commands')) {
-            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_run_commands', 'agent_id')) {
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_run_commands', 'agent_uuid')) {
                 \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_run_commands', function ($table) {
-                    $table->unsignedInteger('agent_id')->nullable()->after('run_id');
-                    $table->index('agent_id', 'idx_run_cmd_agent_id');
+                    $table->string('agent_uuid', 36)->nullable()->after('run_id');
+                    $table->index('agent_uuid', 'idx_run_cmd_agent_uuid');
                 });
-                logModuleCall('cloudstorage', 'upgrade', [], 'Added agent_id to s3_cloudbackup_run_commands', [], []);
+                logModuleCall('cloudstorage', 'upgrade', [], 'Added agent_uuid to s3_cloudbackup_run_commands', [], []);
             }
             // Make run_id nullable - browse/discovery commands don't have a run_id
             try {
@@ -3445,7 +3447,7 @@ function cloudstorage_upgrade($vars) {
                 $table->unsignedInteger('tenant_id')->nullable();
                 $table->string('repository_id', 64)->nullable();
                 $table->unsignedInteger('tenant_user_id')->nullable();
-                $table->unsignedInteger('agent_id')->nullable();
+                $table->string('agent_uuid', 36)->nullable();
                 $table->unsignedInteger('job_id')->nullable();
                 $table->string('job_name', 191)->nullable();
                 $table->unsignedBigInteger('run_id')->nullable();
@@ -3477,7 +3479,7 @@ function cloudstorage_upgrade($vars) {
                 $table->index('client_id');
                 $table->index('tenant_id');
                 $table->index('repository_id');
-                $table->index('agent_id');
+                $table->index('agent_uuid');
                 $table->index('manifest_id');
                 $table->index('run_id');
                 $table->index('hyperv_vm_id');
