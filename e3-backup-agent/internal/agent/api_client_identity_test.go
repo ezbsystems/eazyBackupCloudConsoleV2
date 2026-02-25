@@ -2,6 +2,8 @@ package agent
 
 import (
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 )
 
@@ -24,5 +26,22 @@ func TestAuthHeadersUseAgentUUID(t *testing.T) {
 	}
 	if got := req.Header.Get("X-Agent-UUID"); got == cfg.AgentID {
 		t.Fatalf("expected X-Agent-UUID not to use legacy AgentID %q", cfg.AgentID)
+	}
+}
+
+func TestEnrollResponseUsesAgentUUIDJsonTag(t *testing.T) {
+	src, err := os.ReadFile("api_client.go")
+	if err != nil {
+		src, err = os.ReadFile("internal/agent/api_client.go")
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	text := string(src)
+	if !strings.Contains(text, "json:\"agent_uuid\"") {
+		t.Fatalf("expected EnrollResponse to use agent_uuid json tag")
+	}
+	if strings.Contains(text, "json:\"agent_id\"") {
+		t.Fatalf("legacy agent_id json tag must be removed")
 	}
 }

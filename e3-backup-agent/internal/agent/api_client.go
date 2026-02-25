@@ -92,7 +92,7 @@ func (s *jsonString) UnmarshalJSON(b []byte) error {
 // EnrollResponse represents the enrollment payload returned by the server.
 type EnrollResponse struct {
 	Status     string     `json:"status"`
-	AgentID    jsonString `json:"agent_id"`
+	AgentUUID  jsonString `json:"agent_uuid"`
 	ClientID   jsonString `json:"client_id"`
 	AgentToken string     `json:"agent_token"`
 	APIBaseURL string     `json:"api_base_url"`
@@ -156,7 +156,7 @@ func (c *Client) EnrollWithToken(token, hostname string) (*EnrollResponse, error
 		}
 		return nil, fmt.Errorf("enroll failed: status %s", out.Status)
 	}
-	if strings.TrimSpace(string(out.AgentID)) == "" || strings.TrimSpace(out.AgentToken) == "" {
+	if strings.TrimSpace(string(out.AgentUUID)) == "" || strings.TrimSpace(out.AgentToken) == "" {
 		return nil, fmt.Errorf("enroll failed: missing agent credentials")
 	}
 	return &out, nil
@@ -203,7 +203,7 @@ func (c *Client) EnrollWithCredentials(email, password, hostname string) (*Enrol
 		}
 		return nil, fmt.Errorf("login enroll failed: status %s", out.Status)
 	}
-	if strings.TrimSpace(string(out.AgentID)) == "" || strings.TrimSpace(out.AgentToken) == "" {
+	if strings.TrimSpace(string(out.AgentUUID)) == "" || strings.TrimSpace(out.AgentToken) == "" {
 		return nil, fmt.Errorf("login enroll failed: missing agent credentials")
 	}
 	return &out, nil
@@ -952,8 +952,8 @@ func (c *Client) PollRepoOperations() (*RepoOperation, error) {
 	}
 
 	var out struct {
-		Status    string        `json:"status"`
-		Message   string        `json:"message,omitempty"`
+		Status    string         `json:"status"`
+		Message   string         `json:"message,omitempty"`
 		Operation *RepoOperation `json:"operation,omitempty"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
@@ -1133,7 +1133,7 @@ func sha256Bytes(data []byte) []byte {
 
 type MediaBuildManifest struct {
 	Mode                string `json:"mode"`
-	SourceAgentID       int64  `json:"source_agent_id"`
+	SourceAgentUUID     string `json:"source_agent_uuid"`
 	SourceAgentHostname string `json:"source_agent_hostname"`
 	BaseISOURL          string `json:"base_iso_url"`
 	BaseISOSHA256       string `json:"base_iso_sha256"`
@@ -1152,13 +1152,13 @@ type MediaManifestResponse struct {
 	Manifest MediaBuildManifest `json:"manifest"`
 }
 
-func (c *Client) GetMediaManifest(mode string, sourceAgentID int64) (*MediaBuildManifest, error) {
+func (c *Client) GetMediaManifest(mode string, sourceAgentUUID string) (*MediaBuildManifest, error) {
 	endpoint := c.baseURL + "/agent_get_media_manifest.php"
 	body := map[string]any{
 		"mode": mode,
 	}
-	if sourceAgentID > 0 {
-		body["source_agent_id"] = sourceAgentID
+	if strings.TrimSpace(sourceAgentUUID) != "" {
+		body["source_agent_uuid"] = strings.TrimSpace(sourceAgentUUID)
 	}
 	buf, _ := json.Marshal(body)
 	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(buf))

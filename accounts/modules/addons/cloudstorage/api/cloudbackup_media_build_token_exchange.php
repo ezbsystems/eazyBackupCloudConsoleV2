@@ -112,17 +112,21 @@ try {
 }
 
 $clientId = (int) ($claims['client_id'] ?? 0);
-$sourceAgentId = (int) ($claims['source_agent_id'] ?? 0);
+$sourceAgentUuid = trim((string) ($claims['source_agent_uuid'] ?? ''));
 $mode = RecoveryMediaBundleService::normalizeMode((string) ($claims['mode'] ?? 'fast'));
-if ($clientId <= 0 || $sourceAgentId <= 0) {
+if ($clientId <= 0 || $sourceAgentUuid === '') {
     respondError('invalid_token', 'Token payload is incomplete', 403);
 }
 
 $agent = Capsule::table('s3_cloudbackup_agents')
-    ->where('id', $sourceAgentId)
+    ->where('agent_uuid', $sourceAgentUuid)
     ->where('client_id', $clientId)
     ->first();
 if (!$agent) {
+    respondError('not_found', 'Source agent not found', 404);
+}
+$sourceAgentId = (int) ($agent->id ?? 0);
+if ($sourceAgentId <= 0) {
     respondError('not_found', 'Source agent not found', 404);
 }
 
@@ -131,7 +135,7 @@ try {
 } catch (\Throwable $e) {
     logModuleCall('cloudstorage', 'cloudbackup_media_build_token_exchange', [
         'client_id' => $clientId,
-        'source_agent_id' => $sourceAgentId,
+        'source_agent_uuid' => $sourceAgentUuid,
         'mode' => $mode,
     ], $e->getMessage());
     respondError('server_error', 'Failed to resolve media build manifest', 500);
@@ -141,7 +145,7 @@ respond([
     'status' => 'success',
     'manifest' => [
         'mode' => $selection['mode'],
-        'source_agent_id' => $sourceAgentId,
+        'source_agent_uuid' => $sourceAgentUuid,
         'source_agent_hostname' => (string) ($agent->hostname ?? ''),
         'base_iso_url' => $selection['base_iso_url'],
         'base_iso_sha256' => $selection['base_iso_sha256'],

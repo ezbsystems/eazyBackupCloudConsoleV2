@@ -29,15 +29,15 @@ if (!$ca->isLoggedIn()) {
 
 $clientId = $ca->getUserID();
 $restorePointId = isset($_POST['restore_point_id']) ? (int) $_POST['restore_point_id'] : 0;
-$targetAgentId = isset($_POST['target_agent_id']) ? (int) $_POST['target_agent_id'] : 0;
+$targetAgentUuid = trim((string) ($_POST['target_agent_uuid'] ?? ''));
 $targetDisk = isset($_POST['target_disk']) ? trim((string) $_POST['target_disk']) : '';
 $shrinkEnabled = isset($_POST['shrink_enabled']) && $_POST['shrink_enabled'] === 'true';
 
 if ($restorePointId <= 0) {
     respond(['status' => 'fail', 'message' => 'restore_point_id is required']);
 }
-if ($targetAgentId <= 0) {
-    respond(['status' => 'fail', 'message' => 'target_agent_id is required']);
+if ($targetAgentUuid === '') {
+    respond(['status' => 'fail', 'message' => 'target_agent_uuid is required']);
 }
 if ($targetDisk === '') {
     respond(['status' => 'fail', 'message' => 'target_disk is required']);
@@ -93,7 +93,7 @@ if (!$job) {
 
 // Validate target agent
 $targetAgent = Capsule::table('s3_cloudbackup_agents')
-    ->where('id', $targetAgentId)
+    ->where('agent_uuid', $targetAgentUuid)
     ->where('client_id', $clientId)
     ->where('status', 'active')
     ->first();
@@ -108,14 +108,14 @@ if (!Capsule::schema()->hasTable('s3_cloudbackup_run_commands')) {
 try {
     $restoreRunId = null;
     $restoreRunUuid = null;
-    Capsule::connection()->transaction(function () use ($restorePoint, $job, $targetAgentId, $targetDisk, $shrinkEnabled, &$restoreRunId, &$restoreRunUuid) {
+    Capsule::connection()->transaction(function () use ($restorePoint, $job, $targetAgent, $targetDisk, $shrinkEnabled, &$restoreRunId, &$restoreRunUuid) {
         $hasRunUuidColumn = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_uuid');
         $hasRunTypeColumn = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_type');
 
         $runData = [
             'job_id' => $job->id,
             'client_id' => $job->client_id,
-            'agent_id' => $targetAgentId,
+            'agent_uuid' => $targetAgent->agent_uuid ?? null,
             'engine' => 'disk_image',
             'status' => 'queued',
             'progress_pct' => 0,
@@ -147,7 +147,7 @@ try {
 
         Capsule::table('s3_cloudbackup_run_commands')->insert([
             'run_id' => null,
-            'agent_id' => $targetAgentId,
+            'agent_uuid' => $targetAgent->agent_uuid ?? null,
             'type' => 'disk_restore',
             'payload_json' => json_encode($payload, JSON_UNESCAPED_SLASHES),
             'status' => 'pending',
