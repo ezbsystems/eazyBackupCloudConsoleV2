@@ -632,6 +632,129 @@ function cloudstorage_generate_uuid()
 }
 
 /**
+ * Check if a unique index already exists for agents.agent_uuid.
+ */
+function cloudstorage_has_unique_agent_uuid_index(): bool
+{
+    try {
+        $databaseName = Capsule::connection()->getDatabaseName();
+        $count = Capsule::table('information_schema.STATISTICS')
+            ->where('TABLE_SCHEMA', $databaseName)
+            ->where('TABLE_NAME', 's3_cloudbackup_agents')
+            ->where('COLUMN_NAME', 'agent_uuid')
+            ->where('NON_UNIQUE', 0)
+            ->count();
+        return (int) $count > 0;
+    } catch (\Throwable $e) {
+        return false;
+    }
+}
+
+/**
+ * Generate a unique UUID for s3_cloudbackup_agents.agent_uuid.
+ *
+ * @throws RuntimeException
+ */
+function cloudstorage_generate_unique_agent_uuid_value(int $maxAttempts = 10): string
+{
+    for ($i = 0; $i < $maxAttempts; $i++) {
+        $candidate = cloudstorage_generate_uuid();
+        $exists = Capsule::table('s3_cloudbackup_agents')
+            ->where('agent_uuid', $candidate)
+            ->exists();
+        if (!$exists) {
+            return $candidate;
+        }
+    }
+    throw new RuntimeException('failed to generate unique agent_uuid after retries');
+}
+
+/**
+ * Repair agent_uuid schema + backfill for existing installs.
+ *
+ * This is intentionally idempotent and safe to run multiple times.
+ */
+function cloudstorage_repair_agent_uuid_schema(string $context = 'activate'): void
+{
+    $schema = Capsule::schema();
+    if (!$schema->hasTable('s3_cloudbackup_agents')) {
+        return;
+    }
+
+    if (!$schema->hasColumn('s3_cloudbackup_agents', 'agent_uuid')) {
+        $schema->table('s3_cloudbackup_agents', function ($table) {
+            $table->string('agent_uuid', 36)->nullable()->after('id');
+        });
+        logModuleCall('cloudstorage', $context, [], 'Added missing agent_uuid column to s3_cloudbackup_agents', [], []);
+    }
+
+    // Backfill empty agent_uuid values in chunks.
+    $backfilled = 0;
+    $lastId = 0;
+    $chunk = 500;
+    while (true) {
+        $rows = Capsule::table('s3_cloudbackup_agents')
+            ->where('id', '>', $lastId)
+            ->where(function ($q) {
+                $q->whereNull('agent_uuid')->orWhere('agent_uuid', '');
+            })
+            ->orderBy('id', 'asc')
+            ->limit($chunk)
+            ->get(['id']);
+        if (!$rows || count($rows) === 0) {
+            break;
+        }
+        foreach ($rows as $row) {
+            $lastId = (int) $row->id;
+            $uuid = cloudstorage_generate_unique_agent_uuid_value();
+            $backfilled += (int) Capsule::table('s3_cloudbackup_agents')
+                ->where('id', (int) $row->id)
+                ->where(function ($q) {
+                    $q->whereNull('agent_uuid')->orWhere('agent_uuid', '');
+                })
+                ->update(['agent_uuid' => $uuid]);
+        }
+    }
+
+    // Resolve duplicate non-empty UUIDs before applying a unique index.
+    $duplicateValues = Capsule::table('s3_cloudbackup_agents')
+        ->select('agent_uuid', Capsule::raw('COUNT(*) as dup_count'))
+        ->whereNotNull('agent_uuid')
+        ->where('agent_uuid', '!=', '')
+        ->groupBy('agent_uuid')
+        ->havingRaw('COUNT(*) > 1')
+        ->pluck('agent_uuid')
+        ->toArray();
+    $deduped = 0;
+    foreach ($duplicateValues as $dupUuid) {
+        $ids = Capsule::table('s3_cloudbackup_agents')
+            ->where('agent_uuid', (string) $dupUuid)
+            ->orderBy('id', 'asc')
+            ->pluck('id')
+            ->toArray();
+        for ($i = 1; $i < count($ids); $i++) {
+            $newUuid = cloudstorage_generate_unique_agent_uuid_value();
+            $deduped += (int) Capsule::table('s3_cloudbackup_agents')
+                ->where('id', (int) $ids[$i])
+                ->where('agent_uuid', (string) $dupUuid)
+                ->update(['agent_uuid' => $newUuid]);
+        }
+    }
+
+    if (!cloudstorage_has_unique_agent_uuid_index()) {
+        $schema->table('s3_cloudbackup_agents', function ($table) {
+            $table->unique('agent_uuid', 'uniq_cloudbackup_agents_agent_uuid');
+        });
+        logModuleCall('cloudstorage', $context, [], 'Added unique index for s3_cloudbackup_agents.agent_uuid', [], []);
+    }
+
+    logModuleCall('cloudstorage', $context, [], [
+        'agent_uuid_backfilled' => $backfilled,
+        'agent_uuid_deduped' => $deduped,
+    ], [], []);
+}
+
+/**
  * Activate.
  *
  * Called upon activation of the module for the first time.
@@ -1125,6 +1248,7 @@ function cloudstorage_activate() {
                 $table->unique(['client_id', 'tenant_id', 'device_id'], 'uniq_agent_device_scope');
             });
         }
+        cloudstorage_repair_agent_uuid_schema('activate');
 
         if (!Capsule::schema()->hasTable('s3_cloudbackup_jobs')) {
             Capsule::schema()->create('s3_cloudbackup_jobs', function ($table) {
@@ -2418,6 +2542,7 @@ function cloudstorage_upgrade($vars) {
         // Phase 1 guardrails: schema additions for system-managed users, tenant snapshots, and agent destinations.
         try {
             $schema = \WHMCS\Database\Capsule::schema();
+            cloudstorage_repair_agent_uuid_schema('upgrade');
 
             if ($schema->hasTable('s3_users')) {
                 if (!$schema->hasColumn('s3_users', 'is_system_managed')) {
