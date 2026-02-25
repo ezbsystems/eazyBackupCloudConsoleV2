@@ -4,6 +4,7 @@ require_once __DIR__ . '/../../../../init.php';
 require_once __DIR__ . '/../lib/Client/MspController.php';
 require_once __DIR__ . '/../lib/Client/CloudBackupBootstrapService.php';
 require_once __DIR__ . '/../lib/Client/RepositoryService.php';
+require_once __DIR__ . '/../lib/Client/KopiaRetentionSourceService.php';
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -18,6 +19,8 @@ use WHMCS\Module\Addon\CloudStorage\Client\HelperController;
 use WHMCS\Module\Addon\CloudStorage\Client\AwsS3Validator;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupBootstrapService;
+use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionPolicyService;
+use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionSourceService;
 use WHMCS\Module\Addon\CloudStorage\Client\RepositoryService;
 use WHMCS\Database\Capsule;
 
@@ -463,6 +466,22 @@ if (($jobData['engine'] ?? '') === 'hyperv' || $hypervEnabled) {
     }
 }
 
+// Validate Kopia retention policy for Local Agent / Kopia-family jobs when retention_json provided
+$retentionJson = $jobData['retention_json'] ?? null;
+if ($retentionJson !== null && $retentionJson !== '') {
+    $isKopiaFamily = ($sourceType === 'local_agent') || in_array($jobData['engine'] ?? '', ['kopia', 'disk_image', 'hyperv'], true);
+    if ($isKopiaFamily) {
+        $decoded = json_decode($retentionJson, true);
+        if (is_array($decoded)) {
+            [$valid, $errors] = KopiaRetentionPolicyService::validate($decoded);
+            if (!$valid) {
+                $msg = !empty($errors) ? implode('; ', $errors) : 'Invalid retention policy';
+                respondJson(['status' => 'fail', 'message' => $msg], 200);
+            }
+        }
+    }
+}
+
 $result = CloudBackupController::createJob($jobData, $encryptionKey);
 if (is_array($result) && ($result['status'] ?? '') === 'success') {
     $jobId = (int) ($result['job_id'] ?? 0);
@@ -523,6 +542,9 @@ if (is_array($result) && ($result['status'] ?? '') === 'success') {
         } catch (\Throwable $e) {
             logModuleCall('cloudstorage', 'create_job_hyperv_vms', ['job_id' => $jobId], $e->getMessage());
         }
+    }
+    if ($jobId > 0 && $sourceType === 'local_agent' && in_array($jobData['engine'] ?? '', ['kopia', 'disk_image', 'hyperv'], true) && !empty($repositoryId)) {
+        KopiaRetentionSourceService::ensureRepoSourceForJob($jobId);
     }
 }
 respondJson($result, 200);

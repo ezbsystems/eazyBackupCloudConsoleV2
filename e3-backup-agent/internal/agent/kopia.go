@@ -2270,11 +2270,36 @@ func (b *bufferedWriter) Flush() error {
 	return err
 }
 
+// kopiaRepoConfigPath returns the kopia config file path for the run.
+// Uses RepoConfigKey when set (repo-scoped ops); otherwise job_<JobID>.config.
+func kopiaRepoConfigPath(cfg *AgentConfig, run *NextRunResponse) string {
+	if run != nil && run.RepoConfigKey != "" {
+		return filepath.Join(cfg.RunDir, "kopia", run.RepoConfigKey+".config")
+	}
+	jobID := int64(0)
+	if run != nil {
+		jobID = run.JobID
+	}
+	return filepath.Join(cfg.RunDir, "kopia", fmt.Sprintf("job_%d.config", jobID))
+}
+
 // kopiaMaintenance runs maintenance in the requested mode (quick/full).
 func (r *Runner) kopiaMaintenance(ctx context.Context, run *NextRunResponse, mode string) error {
 	opts := kopiaOptionsFromRun(r.cfg, run)
-	repoPath := filepath.Join(r.cfg.RunDir, "kopia", fmt.Sprintf("job_%d.config", run.JobID))
+	repoPath := kopiaRepoConfigPath(r.cfg, run)
 	password := opts.password()
+	if _, statErr := os.Stat(repoPath); os.IsNotExist(statErr) && run != nil && run.RepoConfigKey != "" {
+		st, stErr := opts.storage(ctx)
+		if stErr != nil {
+			return fmt.Errorf("kopia: storage init for maintenance: %w", stErr)
+		}
+		if err := os.MkdirAll(filepath.Dir(repoPath), 0o755); err != nil {
+			return fmt.Errorf("kopia: mkdir repo dir: %w", err)
+		}
+		if connErr := repo.Connect(ctx, repoPath, st, password, nil); connErr != nil {
+			return fmt.Errorf("kopia: connect for maintenance: %w", connErr)
+		}
+	}
 	rep, err := repo.Open(ctx, repoPath, password, nil)
 	if err != nil {
 		return fmt.Errorf("kopia: open for maintenance: %w", err)

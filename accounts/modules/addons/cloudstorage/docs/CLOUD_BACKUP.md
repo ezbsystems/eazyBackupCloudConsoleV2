@@ -161,8 +161,10 @@ accounts/modules/addons/cloudstorage/
 accounts/crons/
 ├── s3cloudbackup_notify.php          # Email notification cron
 ├── s3cloudbackup_events_prune.php    # Prune s3_cloudbackup_run_events by retention
-└── s3cloudbackup_retention.php       # Retention policy cleanup cron
+└── s3cloudbackup_retention.php       # Retention policy cleanup cron (Cloud Backup only)
 ```
+
+**Cloud-only retention path**: The `s3cloudbackup_retention.php` cron and its object-delete/prefix-delete flow (`CloudBackupController::applyRetentionPolicy()`) are **Cloud Backup only**. They do not process Local Agent jobs. Local Agent Kopia retention uses a separate repo-native queue and agent execution path; see `LOCAL_AGENT_OVERVIEW.md` and `KOPIA_RETENTION_ARCHITECTURE.md`.
 
 ## Module Configuration
 
@@ -590,12 +592,14 @@ When `encryption_enabled` is set to `1` for a job, the worker VM wraps the desti
 - Send notifications based on settings
 - Mark runs as notified
 
-#### Retention Policy Cleanup Cron
+#### Retention Policy Cleanup Cron (Cloud Backup only)
 `accounts/crons/s3cloudbackup_retention.php` runs daily or every few hours to:
-- Find all active jobs with retention policies enabled (`keep_last_n` or `keep_days`)
+- Find all active **Cloud Backup** jobs with retention policies enabled (`keep_last_n` or `keep_days`)
 - Apply retention policies using `CloudBackupController::applyRetentionPolicy()`
-- Delete old backup data from destination buckets
+- Delete old backup data from destination buckets via object/prefix deletion
 - Update run records
+
+This cron and its object-delete path are **cloud-only**. Local Agent jobs (`source_type=local_agent`) and Kopia-family engines are excluded; they use the repo-native retention path instead (see `LOCAL_AGENT_OVERVIEW.md`).
 
 ## Worker VM Integration
 
@@ -630,9 +634,9 @@ Optional fields from the job (when provided) are also included:
 4. **No Client Exposure**: Clients never see rclone configs or decrypted credentials
 5. **Encryption Keys**: Separate encryption key option for backup configs
 
-## Retention Policies
+## Retention Policies (Cloud Backup only)
 
-Retention policies automatically clean up old backup data based on job configuration.
+Retention policies automatically clean up old backup data based on job configuration. **This section applies only to Cloud Backup jobs.** Local Agent Kopia retention uses a separate architecture; see `LOCAL_AGENT_OVERVIEW.md` and `KOPIA_RETENTION_ARCHITECTURE.md`.
 
 ### Retention Modes
 
@@ -642,12 +646,13 @@ Keeps only the N most recent successful backup runs. Older runs are automaticall
 #### `keep_days`
 Keeps backup data for N days. Data older than the specified number of days is automatically deleted.
 
-### Implementation
+### Implementation (cloud cron and object-delete path)
 - Retention cleanup is performed by the `s3cloudbackup_retention.php` cron job
 - Uses `CloudBackupController::applyRetentionPolicy()` method
-- Deletes objects from destination bucket using S3 API
+- Deletes objects from destination bucket using S3 API (object/prefix deletion)
 - Supports batch deletion (up to 1000 objects per request)
 - Handles both run-based prefixes (`run_<id>/`) and date-based prefixes (`YYYY-MM-DD/`)
+- **Scope**: Cloud Backup source types only (e.g. `s3_compatible`, `aws`, `sftp`, `google_drive`). Local Agent and Kopia-family jobs are excluded.
 
 ## Validation
 

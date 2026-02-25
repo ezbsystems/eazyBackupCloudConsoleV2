@@ -6,6 +6,10 @@ use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\HelperController;
 use WHMCS\Module\Addon\CloudStorage\Client\AwsS3Validator;
+use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionHookService;
+use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionOperationService;
+use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionRoutingService;
+use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionSourceService;
 
 class CloudBackupController {
 
@@ -456,6 +460,25 @@ class CloudBackupController {
             $job = self::getJob($jobId, $clientId);
             if (!$job) {
                 return ['status' => 'fail', 'message' => 'Job not found or access denied'];
+            }
+
+            $sourceType = (string) ($job['source_type'] ?? '');
+            $engine = (string) ($job['engine'] ?? '');
+            if (KopiaRetentionHookService::shouldRetireOnJobDelete($sourceType, $engine)) {
+                try {
+                    KopiaRetentionSourceService::ensureRepoSourceForJob((int) $jobId);
+                } catch (\Throwable $e) {
+                    logModuleCall(self::$module, 'deleteJob_ensure_source', ['job_id' => $jobId], $e->getMessage());
+                }
+                try {
+                    $repoIds = KopiaRetentionSourceService::retireByJobId((int) $jobId);
+                    foreach ($repoIds as $repoId) {
+                        KopiaRetentionOperationService::enqueue($repoId, 'retention_apply', ['repo_id' => $repoId], 'job-delete-' . $jobId . '-' . $repoId);
+                        KopiaRetentionOperationService::enqueue($repoId, 'maintenance_quick', ['repo_id' => $repoId], 'job-delete-' . $jobId . '-' . $repoId . '-maintenance');
+                    }
+                } catch (\Throwable $e) {
+                    logModuleCall(self::$module, 'deleteJob_retention_retire_error', ['job_id' => $jobId], $e->getMessage());
+                }
             }
 
             Capsule::table('s3_cloudbackup_jobs')
@@ -930,6 +953,12 @@ class CloudBackupController {
                 return ['status' => 'fail', 'message' => 'Job not found'];
             }
 
+            $jobArray = (array) $job;
+            if (!KopiaRetentionRoutingService::isCloudObjectRetentionJob($jobArray)) {
+                logModuleCall(self::$module, 'applyRetentionPolicy_skip', ['job_id' => $jobId, 'source_type' => $job->source_type ?? null, 'engine' => $job->engine ?? null], 'Skipped: job is local_agent or Kopia-family; use repo-native retention');
+                return ['status' => 'skipped', 'message' => 'Retention is handled by agent-side repo-native path; object-prefix retention not applicable'];
+            }
+
             if ($job->retention_mode === 'none' || empty($job->retention_value)) {
                 return ['status' => 'skipped', 'message' => 'No retention policy configured'];
             }
@@ -1122,6 +1151,12 @@ class CloudBackupController {
             $job = Capsule::table('s3_cloudbackup_jobs')->where('id', $jobId)->first();
             if (!$job) {
                 return ['status' => 'fail', 'message' => 'Job not found'];
+            }
+
+            $jobArray = (array) $job;
+            if (!KopiaRetentionRoutingService::isCloudObjectRetentionJob($jobArray)) {
+                logModuleCall(self::$module, 'manageLifecycleForJob_skip', ['job_id' => $jobId, 'source_type' => $job->source_type ?? null, 'engine' => $job->engine ?? null], 'Skipped: job is local_agent or Kopia-family; use repo-native retention');
+                return ['status' => 'skipped', 'message' => 'Lifecycle is handled by agent-side repo-native path; object-prefix lifecycle not applicable'];
             }
 
             $retentionMode = $job->retention_mode ?? 'none';

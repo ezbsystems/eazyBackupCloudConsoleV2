@@ -1,0 +1,162 @@
+<?php
+declare(strict_types=1);
+
+/**
+ * Unit test for KopiaRetentionPolicyService.
+ * TDD: validates policy structure (Comet-tier keys) and effective policy resolution
+ * (active => override, retired => vault default).
+ *
+ * Run: php accounts/modules/addons/cloudstorage/bin/dev/kopia_retention_policy_service_test.php
+ * (from repo root or worktree root)
+ */
+
+require_once __DIR__ . '/bootstrap.php';
+require_once dirname(__DIR__, 2) . '/lib/Client/KopiaRetentionPolicyService.php';
+
+use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionPolicyService;
+
+$failures = [];
+
+function assertEqual($expected, $actual, string $label, array &$failures): void
+{
+    if ($expected === $actual) {
+        echo "  OK: {$label}\n";
+        return;
+    }
+    $failures[] = "{$label}: expected " . var_export($expected, true) . ", got " . var_export($actual, true);
+}
+
+function assertArraysEqual(array $expected, array $actual, string $label, array &$failures): void
+{
+    if ($expected === $actual) {
+        echo "  OK: {$label}\n";
+        return;
+    }
+    $failures[] = "{$label}: expected " . json_encode($expected) . ", got " . json_encode($actual);
+}
+
+echo "KopiaRetentionPolicyService tests\n";
+echo str_repeat('-', 60) . "\n";
+
+// --- validate() tests ---
+
+$validPolicy = [
+    'hourly' => 24,
+    'daily' => 7,
+    'weekly' => 4,
+    'monthly' => 12,
+    'yearly' => 3,
+];
+[$valid, $errors] = KopiaRetentionPolicyService::validate($validPolicy);
+assertEqual(true, $valid, 'validate: valid policy returns true', $failures);
+assertEqual([], $errors, 'validate: valid policy has no errors', $failures);
+
+$invalidPolicy = [
+    'hourly' => -1,
+    'daily' => 7,
+];
+[$valid, $errors] = KopiaRetentionPolicyService::validate($invalidPolicy);
+assertEqual(false, $valid, 'validate: negative hourly returns false', $failures);
+if (count($errors) > 0) {
+    echo "  OK: validate: negative hourly produces errors\n";
+} else {
+    $failures[] = "validate: negative hourly should produce errors";
+}
+
+$invalidPolicy2 = [
+    'hourly' => 24,
+    'daily' => 'seven',  // non-integer
+];
+[$valid, $errors] = KopiaRetentionPolicyService::validate($invalidPolicy2);
+assertEqual(false, $valid, 'validate: non-integer daily returns false', $failures);
+
+$exceedsMaxPolicy = [
+    'hourly' => 24,
+    'daily' => 1000000,  // > MAX_PER_KEY (999999)
+];
+[$valid, $errors] = KopiaRetentionPolicyService::validate($exceedsMaxPolicy);
+assertEqual(false, $valid, 'validate: value > MAX_PER_KEY returns false', $failures);
+
+// --- resolveEffectivePolicy() tests ---
+
+$vaultDefault = [
+    'hourly' => 24,
+    'daily' => 7,
+    'weekly' => 4,
+    'monthly' => 12,
+    'yearly' => 3,
+];
+$jobOverride = [
+    'hourly' => 48,
+    'daily' => 14,
+    'weekly' => 8,
+    'monthly' => 24,
+    'yearly' => 5,
+];
+
+// active + override => use override
+$effective = KopiaRetentionPolicyService::resolveEffectivePolicy($jobOverride, $vaultDefault, 'active');
+assertArraysEqual($jobOverride, $effective, 'resolveEffectivePolicy: active + override uses override', $failures);
+
+// retired + override => fall back to vault default (override ignored)
+$effective = KopiaRetentionPolicyService::resolveEffectivePolicy($jobOverride, $vaultDefault, 'retired');
+assertArraysEqual($vaultDefault, $effective, 'resolveEffectivePolicy: retired + override falls back to vault default', $failures);
+
+// active + null override => use vault default
+$effective = KopiaRetentionPolicyService::resolveEffectivePolicy(null, $vaultDefault, 'active');
+assertArraysEqual($vaultDefault, $effective, 'resolveEffectivePolicy: active + null override uses vault default', $failures);
+
+// active + empty override => use vault default
+$effective = KopiaRetentionPolicyService::resolveEffectivePolicy([], $vaultDefault, 'active');
+assertArraysEqual($vaultDefault, $effective, 'resolveEffectivePolicy: active + empty override uses vault default', $failures);
+
+// active + all-zero override => fall back to vault default
+$allZeroOverride = ['hourly' => 0, 'daily' => 0, 'weekly' => 0, 'monthly' => 0, 'yearly' => 0];
+$effective = KopiaRetentionPolicyService::resolveEffectivePolicy($allZeroOverride, $vaultDefault, 'active');
+assertArraysEqual($vaultDefault, $effective, 'resolveEffectivePolicy: active + all-zero override falls back to vault default', $failures);
+
+// --- nested retention shape tests ---
+
+// validate: nested shape
+$nestedPolicy = [
+    'schema' => 1,
+    'timezone' => 'UTC',
+    'retention' => ['hourly' => 24, 'daily' => 7, 'weekly' => 4, 'monthly' => 12, 'yearly' => 3],
+];
+[$valid, $errors] = KopiaRetentionPolicyService::validate($nestedPolicy);
+assertEqual(true, $valid, 'validate: nested policy returns true', $failures);
+
+// resolveEffectivePolicy: nested vault default
+$nestedVaultDefault = [
+    'schema' => 1,
+    'timezone' => 'UTC',
+    'retention' => ['hourly' => 48, 'daily' => 14, 'weekly' => 8, 'monthly' => 24, 'yearly' => 5],
+];
+$effective = KopiaRetentionPolicyService::resolveEffectivePolicy(null, $nestedVaultDefault, 'active');
+$expectedFromNested = ['hourly' => 48, 'daily' => 14, 'weekly' => 8, 'monthly' => 24, 'yearly' => 5];
+assertArraysEqual($expectedFromNested, $effective, 'resolveEffectivePolicy: nested vault default extracts retention correctly', $failures);
+
+// resolveEffectivePolicy: nested override + flat vault default
+$nestedOverride = [
+    'schema' => 1,
+    'retention' => ['hourly' => 72, 'daily' => 21, 'weekly' => 12, 'monthly' => 36, 'yearly' => 7],
+];
+$effective = KopiaRetentionPolicyService::resolveEffectivePolicy($nestedOverride, $vaultDefault, 'active');
+$expectedFromNestedOverride = ['hourly' => 72, 'daily' => 21, 'weekly' => 12, 'monthly' => 36, 'yearly' => 7];
+assertArraysEqual($expectedFromNestedOverride, $effective, 'resolveEffectivePolicy: nested override extracts retention correctly', $failures);
+
+// resolveEffectivePolicy: nested vault default with all-zero override => fall back
+$effective = KopiaRetentionPolicyService::resolveEffectivePolicy($allZeroOverride, $nestedVaultDefault, 'active');
+assertArraysEqual($expectedFromNested, $effective, 'resolveEffectivePolicy: all-zero override + nested vault falls back to vault', $failures);
+
+echo str_repeat('-', 60) . "\n";
+
+if (!empty($failures)) {
+    foreach ($failures as $f) {
+        echo "FAIL: {$f}\n";
+    }
+    exit(1);
+}
+
+echo "PASS\n";
+exit(0);

@@ -6,6 +6,8 @@ require_once __DIR__ . '/../lib/Client/MspController.php';
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\ClientArea;
+use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionOperationService;
+use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionSourceService;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 
 if (!defined("WHMCS")) {
@@ -57,6 +59,40 @@ if ((int)$agent->client_id === (int)$clientId) {
 
 if (!$authorized) {
     respond(['status' => 'fail', 'message' => 'Unauthorized'], 403);
+}
+
+try {
+    $jobIds = Capsule::table('s3_cloudbackup_jobs')
+        ->where('agent_id', $agentId)
+        ->where('source_type', 'local_agent')
+        ->whereIn('engine', ['kopia', 'disk_image', 'hyperv'])
+        ->pluck('id')
+        ->toArray();
+    foreach ($jobIds as $jid) {
+        try {
+            KopiaRetentionSourceService::ensureRepoSourceForJob((int) $jid);
+        } catch (\Throwable $_) {
+            logModuleCall('cloudstorage', 'agent_delete_ensure_source', ['job_id' => $jid], $_->getMessage());
+        }
+    }
+} catch (\Throwable $e) {
+    logModuleCall('cloudstorage', 'agent_delete_ensure_source', ['agent_id' => $agentId], $e->getMessage());
+}
+
+try {
+    $repoIds = KopiaRetentionSourceService::retireByAgentId((int) $agentId);
+    foreach (array_keys($repoIds) as $repoId) {
+        KopiaRetentionOperationService::enqueue((int) $repoId, 'retention_apply', ['repo_id' => $repoId], 'agent-delete-' . $agentId . '-' . $repoId);
+        KopiaRetentionOperationService::enqueue((int) $repoId, 'maintenance_quick', ['repo_id' => $repoId], 'agent-delete-' . $agentId . '-' . $repoId . '-maintenance');
+    }
+} catch (\Throwable $e) {
+    logModuleCall('cloudstorage', 'agent_delete_retention_retire_error', ['agent_id' => $agentId], $e->getMessage());
+}
+
+// Clear agent references on jobs before deleting agent row
+if (Capsule::schema()->hasTable('s3_cloudbackup_jobs')
+    && Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'agent_id')) {
+    Capsule::table('s3_cloudbackup_jobs')->where('agent_id', $agentId)->update(['agent_id' => null]);
 }
 
 // Delete the agent

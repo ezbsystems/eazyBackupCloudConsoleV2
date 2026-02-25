@@ -4,6 +4,7 @@ require_once __DIR__ . '/../../../../init.php';
 require_once __DIR__ . '/../lib/Client/MspController.php';
 require_once __DIR__ . '/../lib/Client/CloudBackupBootstrapService.php';
 require_once __DIR__ . '/../lib/Client/RepositoryService.php';
+require_once __DIR__ . '/../lib/Client/KopiaRetentionSourceService.php';
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -17,6 +18,9 @@ use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
 use WHMCS\Module\Addon\CloudStorage\Client\AwsS3Validator;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupBootstrapService;
+use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionPolicyService;
+use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionRoutingService;
+use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionSourceService;
 use WHMCS\Module\Addon\CloudStorage\Client\RepositoryService;
 use WHMCS\Database\Capsule;
 
@@ -725,6 +729,25 @@ if (in_array($postedSourceType, ['aws', 's3_compatible'], true) && is_array($rec
     }
 }
 
+// Validate Kopia retention policy for Local Agent / Kopia-family jobs when retention_json provided
+if (isset($updateData['retention_json']) && $updateData['retention_json'] !== null && $updateData['retention_json'] !== '') {
+    $effectiveSourceType = $updateData['source_type'] ?? $existingJob['source_type'] ?? '';
+    $effectiveEngine = $updateData['engine'] ?? $existingJob['engine'] ?? '';
+    $isKopiaFamily = ($effectiveSourceType === 'local_agent') || in_array($effectiveEngine, ['kopia', 'disk_image', 'hyperv'], true);
+    if ($isKopiaFamily) {
+        $decoded = json_decode($updateData['retention_json'], true);
+        if (is_array($decoded)) {
+            [$valid, $errors] = KopiaRetentionPolicyService::validate($decoded);
+            if (!$valid) {
+                $msg = !empty($errors) ? implode('; ', $errors) : 'Invalid retention policy';
+                $response = new JsonResponse(['status' => 'fail', 'message' => $msg], 200);
+                $response->send();
+                exit();
+            }
+        }
+    }
+}
+
 $result = CloudBackupController::updateJob($jobId, $loggedInUserId, $updateData, $encryptionKey);
 if (is_array($result) && ($result['status'] ?? '') === 'success') {
     $jobIdInt = (int) $jobId;
@@ -786,6 +809,12 @@ if (is_array($result) && ($result['status'] ?? '') === 'success') {
             logModuleCall('cloudstorage', 'update_job_hyperv_vms', ['job_id' => $jobIdInt], $e->getMessage());
         }
     }
+    $effSourceType = $updateData['source_type'] ?? ($existingJob['source_type'] ?? '');
+    $effEngine = $updateData['engine'] ?? ($existingJob['engine'] ?? '');
+    $effRepoId = $updateData['repository_id'] ?? ($existingJob['repository_id'] ?? '');
+    if ($effSourceType === 'local_agent' && in_array($effEngine, ['kopia', 'disk_image', 'hyperv'], true) && trim((string) $effRepoId) !== '') {
+        KopiaRetentionSourceService::ensureRepoSourceForJob($jobIdInt);
+    }
 }
 
 // Align bucket lifecycle with retention and enforce versioning when keep_days
@@ -813,9 +842,23 @@ if (is_array($result) && ($result['status'] ?? 'fail') === 'success') {
     try {
         $lcRes = \WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController::manageLifecycleForJob((int)$jobId);
         if ($newRetentionMode === 'keep_days' && (int)$newRetentionValue > 0) {
-            if (!is_array($lcRes) || ($lcRes['status'] ?? 'fail') !== 'success') {
-                $msg = $lcRes['message'] ?? 'Failed to apply lifecycle policy';
-                $result = ['status' => 'fail', 'message' => 'Unable to enforce Keep N days retention: ' . $msg];
+            $lcStatus = is_array($lcRes) ? ($lcRes['status'] ?? 'fail') : 'fail';
+            if ($lcStatus !== 'success') {
+                $treatSkippedAsSuccess = false;
+                if ($lcStatus === 'skipped') {
+                    $effectiveSourceType = $updateData['source_type'] ?? ($existingJob['source_type'] ?? '');
+                    $effectiveEngine = $updateData['engine'] ?? ($existingJob['engine'] ?? 'kopia');
+                    $effectiveJob = ['source_type' => $effectiveSourceType, 'engine' => $effectiveEngine];
+                    // Repo-native jobs (Local Agent / Kopia-family): lifecycle intentionally skips
+                    // because retention is handled by agent-side Kopia; object-prefix rules do not apply.
+                    if (!KopiaRetentionRoutingService::isCloudObjectRetentionJob($effectiveJob)) {
+                        $treatSkippedAsSuccess = true;
+                    }
+                }
+                if (!$treatSkippedAsSuccess) {
+                    $msg = is_array($lcRes) ? ($lcRes['message'] ?? 'Failed to apply lifecycle policy') : 'Failed to apply lifecycle policy';
+                    $result = ['status' => 'fail', 'message' => 'Unable to enforce Keep N days retention: ' . $msg];
+                }
             }
         }
     } catch (\Throwable $e) {

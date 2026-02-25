@@ -44,13 +44,15 @@ For Kopia repositories ("vaults"), retention must follow a strict hierarchy:
 
 1. **Vault default policy** (admin configured)
    - Applied when vault/repo location is created.
-   - Example: 30 days default.
+   - Example: 30 days default (or Comet-style hourly/daily/weekly/monthly/yearly).
 
-2. **Job retention override** (customer configured on active job)
-   - While the job is active, this override governs that job/source snapshots.
+2. **Per-source override** (customer configured on active job)
+   - While the job is active, this job-level override governs that job/source snapshots.
+   - Takes precedence over the vault default when present.
 
-3. **Fallback to vault default** (on job or agent removal)
-   - If job is deleted, paused permanently, or agent is removed, snapshots from that source revert to vault default retention behavior.
+3. **Immediate fallback to vault default** (on job or agent removal)
+   - If job is deleted, paused permanently, or agent is removed, the source is retired.
+   - Retired sources immediately fall back to the vault default retention policy; no job override applies.
 
 This provides predictable lifecycle handling and prevents orphaned data from persisting indefinitely.
 
