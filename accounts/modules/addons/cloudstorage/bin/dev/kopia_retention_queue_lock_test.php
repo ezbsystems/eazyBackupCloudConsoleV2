@@ -11,6 +11,7 @@ require __DIR__ . '/bootstrap.php';
 require_once dirname(__DIR__, 2) . '/lib/Client/KopiaRetentionOperationService.php';
 require_once dirname(__DIR__, 2) . '/lib/Client/KopiaRetentionLockService.php';
 
+use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionOperationService;
 use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionLockService;
 
@@ -28,6 +29,12 @@ if (!$enqueueOk) {
 
 // --- Lock lifecycle ---
 $testRepoId = 999998;
+// Best-effort setup cleanup: remove any stale lock row from prior runs
+try {
+    Capsule::table('s3_kopia_repo_locks')->where('repo_id', $testRepoId)->delete();
+} catch (\Throwable $e) {
+    // Ignore; table may not exist or DB unavailable in dev
+}
 $tokenA = 'lock-token-a-' . uniqid('', true);
 $tokenB = 'lock-token-b-' . uniqid('', true);
 
