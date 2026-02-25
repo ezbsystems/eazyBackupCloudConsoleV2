@@ -114,12 +114,10 @@ class CloudBackupAdminController {
                     ->orWhere('a.device_name', 'LIKE', $like)
                     ->orWhere('a.device_id', 'LIKE', $like)
                     ->orWhere('a.install_id', 'LIKE', $like)
+                    ->orWhere('a.agent_uuid', 'LIKE', $like)
                     ->orWhere('c.firstname', 'LIKE', $like)
                     ->orWhere('c.lastname', 'LIKE', $like)
                     ->orWhere('c.email', 'LIKE', $like);
-                if (ctype_digit($q)) {
-                    $inner->orWhere('a.id', (int) $q);
-                }
             });
         }
 
@@ -140,7 +138,6 @@ class CloudBackupAdminController {
             }
 
             $allowedSorts = [
-                'id' => 'a.id',
                 'agent_uuid' => 'a.agent_uuid',
                 'hostname' => 'a.hostname',
                 'device_id' => 'a.device_id',
@@ -231,12 +228,10 @@ class CloudBackupAdminController {
                         ->orWhere('a.device_name', 'LIKE', $like)
                         ->orWhere('a.device_id', 'LIKE', $like)
                         ->orWhere('a.install_id', 'LIKE', $like)
+                        ->orWhere('a.agent_uuid', 'LIKE', $like)
                         ->orWhere('c.firstname', 'LIKE', $like)
                         ->orWhere('c.lastname', 'LIKE', $like)
                         ->orWhere('c.email', 'LIKE', $like);
-                    if (ctype_digit($q)) {
-                        $inner->orWhere('a.id', (int) $q);
-                    }
                 });
             }
 
