@@ -121,7 +121,7 @@ function cloudbackup_get_tenants_for_filter(): array
 function cloudstorage_admin_cloudbackup($vars)
 {
     ob_start();
-    $allowedTabs = ['dashboard', 'jobs', 'runs', 'agents', 'clients'];
+    $allowedTabs = ['dashboard', 'jobs', 'runs', 'agents', 'clients', 'retention'];
     $activeTab = strtolower(trim((string) ($_REQUEST['tab'] ?? 'dashboard')));
     if (!in_array($activeTab, $allowedTabs, true)) {
         $activeTab = 'dashboard';
@@ -325,7 +325,10 @@ function cloudstorage_admin_cloudbackup($vars)
         $agentsPages = 1;
     }
     $agentTenants = cloudbackup_get_tenants_for_filter();
-    
+
+    $repoOps = CloudBackupAdminController::getRepoRetentionOps();
+    $kopiaRepos = CloudBackupAdminController::getKopiaReposForAdmin();
+
     // Get all clients for filter dropdown
     $clients = Capsule::table('tblclients')
         ->select('id', 'firstname', 'lastname', 'email')
@@ -367,6 +370,8 @@ function cloudstorage_admin_cloudbackup($vars)
         'agents_total' => $agentsTotal,
         'agents_pages' => $agentsPages,
         'agent_tenants' => $agentTenants,
+        'repo_ops' => $repoOps,
+        'kopia_repos' => $kopiaRepos,
         'clients' => $clients,
         'filters' => $filters,
         'worker_host' => $workerHost,
