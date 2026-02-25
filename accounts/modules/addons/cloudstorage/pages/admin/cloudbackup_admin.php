@@ -302,6 +302,10 @@ function cloudstorage_admin_cloudbackup($vars)
         'online_status' => $_GET['agents_online'] ?? null,
     ];
     $agentSortField = (string) ($_GET['agents_sort'] ?? 'created_at');
+    if ($agentSortField === 'id') {
+        // Backward compatibility for old bookmarked admin URLs.
+        $agentSortField = 'agent_uuid';
+    }
     $agentSortDir = strtolower((string) ($_GET['agents_dir'] ?? 'desc'));
     if (!in_array($agentSortDir, ['asc', 'desc'], true)) {
         $agentSortDir = 'desc';
