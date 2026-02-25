@@ -80,7 +80,7 @@ You should see startup logging and periodic job fetches. With a `local_agent` jo
 
 ## Verify connectivity
 - DB: `s3_cloudbackup_agents.last_seen_at` updates on fetch calls.
-- API: `agent_fetch_jobs.php` returns the job list when called with headers `X-Agent-ID` and `X-Agent-Token`.
+- API: `agent_fetch_jobs.php` returns the job list when called with headers `X-Agent-UUID` and `X-Agent-Token`.
 - Once run execution is wired, check `s3_cloudbackup_runs` and `s3_cloudbackup_run_events` for progress.
 
 ## Windows service mode (beta)

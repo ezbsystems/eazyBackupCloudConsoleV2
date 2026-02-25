@@ -384,7 +384,7 @@ run_dir: "C:\\ProgramData\\E3Backup\\runs"
 ```yaml
 api_base_url: "https://accounts.eazybackup.ca/modules/addons/cloudstorage/api"
 client_id: "42"
-agent_id: "123"
+agent_uuid: "6f78c615-3d2f-4b7f-8f5b-56dc0a3da781"
 agent_token: "deadbeef...40-hex..."
 device_id: "9f2c3a6c-7d5d-4c67-9c5a-2c1e9c5d7a11"
 install_id: "f1c2d3e4-1111-2222-3333-444455556666"

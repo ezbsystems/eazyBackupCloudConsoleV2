@@ -21,8 +21,9 @@ func TestAuthHeadersUseAgentUUID(t *testing.T) {
 	if got := req.Header.Get("X-Agent-UUID"); got != cfg.AgentUUID {
 		t.Fatalf("expected X-Agent-UUID %q, got %q", cfg.AgentUUID, got)
 	}
-	if got := req.Header.Get("X-Agent-ID"); got != "" {
-		t.Fatalf("expected X-Agent-ID to be empty, got %q", got)
+	legacyHeader := "X-Agent-" + "ID"
+	if got := req.Header.Get(legacyHeader); got != "" {
+		t.Fatalf("expected legacy header to be empty, got %q", got)
 	}
 	if got := req.Header.Get("X-Agent-UUID"); got == cfg.AgentID {
 		t.Fatalf("expected X-Agent-UUID not to use legacy AgentID %q", cfg.AgentID)

@@ -8,7 +8,7 @@
   - **Backup (Kopia)** – dedup/encrypted snapshots to S3 (embedded Kopia library).
   - **Disk Image** – block-level backup of volumes via VSS snapshots to S3 (uses Kopia for storage, Windows CBT+bitmap read optimization).
   - **Hyper-V** – virtual machine backup with checkpoint-based consistency and RCT incremental support (Windows only).
-- Authentication: per-agent token headers (`X-Agent-ID`, `X-Agent-Token`).
+- Authentication: per-agent token headers (`X-Agent-UUID`, `X-Agent-Token`).
 
 ## Key repos and files
 - Agent: `/var/www/eazybackup.ca/e3-backup-agent/`
@@ -838,7 +838,7 @@ Configurable options:
 
 ### `cloudnas_update_status.php`
 - **Method**: POST
-- **Auth**: Agent headers (`X-Agent-ID`, `X-Agent-Token`)
+- **Auth**: Agent headers (`X-Agent-UUID`, `X-Agent-Token`)
 - **Body**: `{ mount_id, status, error }`
 - **Purpose**: Agent callback to update mount status in DB
 

@@ -1213,7 +1213,7 @@ CREATE TABLE s3_hyperv_instant_restore_sessions (
 ```php
 // agent_hyperv_discover.php - Discovers VMs on the Hyper-V host
 // POST /agent_hyperv_discover.php
-// Headers: X-Agent-ID, X-Agent-Token
+// Headers: X-Agent-UUID, X-Agent-Token
 // Response:
 {
     "success": true,
@@ -1239,7 +1239,7 @@ CREATE TABLE s3_hyperv_instant_restore_sessions (
 
 // agent_hyperv_update_checkpoint.php - Updates checkpoint info after backup
 // POST /agent_hyperv_update_checkpoint.php
-// Headers: X-Agent-ID, X-Agent-Token
+// Headers: X-Agent-UUID, X-Agent-Token
 // Body:
 {
     "vm_id": 123,
@@ -1254,7 +1254,7 @@ CREATE TABLE s3_hyperv_instant_restore_sessions (
 
 // agent_hyperv_get_restore_info.php - Gets info for restore operation
 // GET /agent_hyperv_get_restore_info.php?backup_point_id=789
-// Headers: X-Agent-ID, X-Agent-Token
+// Headers: X-Agent-UUID, X-Agent-Token
 // Response:
 {
     "success": true,
