@@ -63,59 +63,83 @@ $agentTenantId = $hasAgentTenant && isset($agent->tenant_id) && $agent->tenant_i
     : null;
 $agentIdInt = (int) $agent->id;
 
+$selectCols = [
+    'op.id as operation_id',
+    'op.repo_id',
+    'op.op_type',
+    'op.operation_token',
+    'r.vault_policy_version_id',
+    'r.repository_id',
+    'r.bucket_id',
+];
+if (Capsule::schema()->hasColumn('s3_kopia_repos', 'root_prefix')) {
+    $selectCols[] = 'r.root_prefix';
+}
+
 try {
-    $query = Capsule::table('s3_kopia_repo_operations as op')
-        ->join('s3_kopia_repos as r', 'op.repo_id', '=', 'r.id')
-        ->where('op.status', 'queued')
-        ->where('r.client_id', $agentClientId)
-        ->orderBy('op.created_at', 'asc')
-        ->limit(1);
+    $result = Capsule::connection()->transaction(function () use (
+        $agentClientId,
+        $agentTenantId,
+        $agentIdInt,
+        $selectCols
+    ) {
+        $query = Capsule::table('s3_kopia_repo_operations as op')
+            ->join('s3_kopia_repos as r', 'op.repo_id', '=', 'r.id')
+            ->where('op.status', 'queued')
+            ->where('r.client_id', $agentClientId)
+            ->orderBy('op.created_at', 'asc')
+            ->limit(1);
 
-    $hasRepoTenant = Capsule::schema()->hasColumn('s3_kopia_repos', 'tenant_id');
-    if ($hasRepoTenant) {
-        if ($agentTenantId !== null) {
-            $query->where('r.tenant_id', $agentTenantId);
-        } else {
-            $query->whereNull('r.tenant_id');
+        $hasRepoTenant = Capsule::schema()->hasColumn('s3_kopia_repos', 'tenant_id');
+        if ($hasRepoTenant) {
+            if ($agentTenantId !== null) {
+                $query->where('r.tenant_id', $agentTenantId);
+            } else {
+                $query->whereNull('r.tenant_id');
+            }
         }
-    }
 
-    $op = $query->select([
-        'op.id as operation_id',
-        'op.repo_id',
-        'op.op_type',
-        'op.operation_token',
-        'r.vault_policy_version_id',
-        'r.repository_id',
-    ])->lockForUpdate()->first();
+        $op = $query->select($selectCols)->lockForUpdate()->first();
 
-    if (!$op) {
+        if (!$op) {
+            return ['operation' => null];
+        }
+
+        $repoId = (int) $op->repo_id;
+        $operationId = (int) $op->operation_id;
+        $operationToken = (string) $op->operation_token;
+
+        $acquired = KopiaRetentionLockService::acquire($repoId, $operationToken, $agentIdInt, 300);
+        if (!$acquired) {
+            return ['operation' => null];
+        }
+
+        $affected = Capsule::table('s3_kopia_repo_operations')
+            ->where('id', $operationId)
+            ->where('status', 'queued')
+            ->update([
+                'status' => 'running',
+                'claimed_by_agent_id' => $agentIdInt,
+                'attempt_count' => Capsule::raw('attempt_count + 1'),
+                'updated_at' => Capsule::raw('NOW()'),
+            ]);
+
+        if ((int) $affected === 0) {
+            KopiaRetentionLockService::release($repoId, $operationToken);
+            return ['operation' => null];
+        }
+
+        return ['operation' => $op];
+    });
+
+    if ($result['operation'] === null) {
         respond(['status' => 'success', 'operation' => null]);
     }
 
+    $op = $result['operation'];
     $repoId = (int) $op->repo_id;
     $operationId = (int) $op->operation_id;
     $operationToken = (string) $op->operation_token;
-
-    $acquired = KopiaRetentionLockService::acquire($repoId, $operationToken, $agentIdInt, 300);
-    if (!$acquired) {
-        respond(['status' => 'success', 'operation' => null]);
-    }
-
-    $affected = Capsule::table('s3_kopia_repo_operations')
-        ->where('id', $operationId)
-        ->where('status', 'queued')
-        ->update([
-            'status' => 'running',
-            'claimed_by_agent_id' => $agentIdInt,
-            'attempt_count' => Capsule::raw('attempt_count + 1'),
-            'updated_at' => Capsule::raw('NOW()'),
-        ]);
-
-    if ((int) $affected === 0) {
-        KopiaRetentionLockService::release($repoId, $operationToken);
-        respond(['status' => 'success', 'operation' => null]);
-    }
 
     $effectivePolicy = [
         'hourly' => 24,
@@ -136,9 +160,37 @@ try {
         }
     }
 
+    // Destination context (non-secret) for agent
+    $bucketId = (int) ($op->bucket_id ?? 0);
+    $bucketName = '';
+    if ($bucketId > 0 && Capsule::schema()->hasTable('s3_buckets')) {
+        $bucketRow = Capsule::table('s3_buckets')->where('id', $bucketId)->first();
+        $bucketName = (string) ($bucketRow->name ?? '');
+    }
+    $rootPrefix = '';
+    if (Capsule::schema()->hasColumn('s3_kopia_repos', 'root_prefix') && isset($op->root_prefix)) {
+        $rootPrefix = (string) $op->root_prefix;
+    }
+    $settingsMap = [];
+    if (Capsule::schema()->hasTable('tbladdonmodules')) {
+        $settings = Capsule::table('tbladdonmodules')
+            ->where('module', 'cloudstorage')
+            ->pluck('value', 'setting');
+        foreach ($settings as $k => $v) {
+            $settingsMap[$k] = $v;
+        }
+    }
+    $endpoint = $settingsMap['cloudbackup_agent_s3_endpoint'] ?? $settingsMap['s3_endpoint'] ?? '';
+    $region = $settingsMap['cloudbackup_agent_s3_region'] ?? $settingsMap['s3_region'] ?? '';
+
     $payload = KopiaRetentionPayloadBuilder::build($repoId, $operationId, $operationToken, $effectivePolicy);
     $payload['op_type'] = (string) $op->op_type;
     $payload['repository_id'] = (string) ($op->repository_id ?? '');
+    $payload['bucket_id'] = $bucketId;
+    $payload['bucket_name'] = $bucketName;
+    $payload['root_prefix'] = $rootPrefix;
+    $payload['endpoint'] = (string) $endpoint;
+    $payload['region'] = (string) $region;
 
     respond([
         'status' => 'success',

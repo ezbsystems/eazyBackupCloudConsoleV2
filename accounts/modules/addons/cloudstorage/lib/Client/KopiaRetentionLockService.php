@@ -38,6 +38,12 @@ class KopiaRetentionLockService
             $row = Capsule::table('s3_kopia_repo_locks')->where('repo_id', $repoId)->lockForUpdate()->first();
             if ($row) {
                 if ($row->lock_token === $lockToken) {
+                    // Only renew if same agent owns the lock (or both null)
+                    $existingAgentId = isset($row->claimed_by_agent_id) ? (int) $row->claimed_by_agent_id : null;
+                    $proposedAgentId = $agentId !== null ? (int) $agentId : null;
+                    if ($existingAgentId !== $proposedAgentId) {
+                        return false;
+                    }
                     Capsule::table('s3_kopia_repo_locks')->where('repo_id', $repoId)->update([
                         'expires_at' => $expiresAt,
                         'updated_at' => $now,
