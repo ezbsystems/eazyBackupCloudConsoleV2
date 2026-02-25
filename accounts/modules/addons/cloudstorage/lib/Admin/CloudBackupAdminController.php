@@ -37,6 +37,7 @@ class CloudBackupAdminController {
             ->join('tblclients as c', 'a.client_id', '=', 'c.id')
             ->select([
                 'a.id',
+                'a.agent_uuid',
                 'a.client_id',
                 'a.hostname',
                 'a.device_id',
@@ -54,9 +55,9 @@ class CloudBackupAdminController {
                 'c.lastname',
                 'c.email',
                 Capsule::raw('TIMESTAMPDIFF(SECOND, a.last_seen_at, NOW()) as seconds_since_seen'),
-                Capsule::raw("(SELECT r.id FROM s3_cloudbackup_runs r WHERE r.agent_id = a.id ORDER BY r.created_at DESC LIMIT 1) as latest_run_id"),
-                Capsule::raw("(SELECT r.status FROM s3_cloudbackup_runs r WHERE r.agent_id = a.id ORDER BY r.created_at DESC LIMIT 1) as latest_run_status"),
-                Capsule::raw("(SELECT r.id FROM s3_cloudbackup_runs r WHERE r.agent_id = a.id AND r.status IN ('queued','starting','running') ORDER BY r.created_at DESC LIMIT 1) as active_run_id"),
+                Capsule::raw("(SELECT r.id FROM s3_cloudbackup_runs r WHERE r.agent_uuid = a.agent_uuid ORDER BY r.created_at DESC LIMIT 1) as latest_run_id"),
+                Capsule::raw("(SELECT r.status FROM s3_cloudbackup_runs r WHERE r.agent_uuid = a.agent_uuid ORDER BY r.created_at DESC LIMIT 1) as latest_run_status"),
+                Capsule::raw("(SELECT r.id FROM s3_cloudbackup_runs r WHERE r.agent_uuid = a.agent_uuid AND r.status IN ('queued','starting','running') ORDER BY r.created_at DESC LIMIT 1) as active_run_id"),
             ]);
 
         $query->addSelect($hasAgentVersion ? 'a.agent_version' : Capsule::raw('NULL as agent_version'));
@@ -140,6 +141,7 @@ class CloudBackupAdminController {
 
             $allowedSorts = [
                 'id' => 'a.id',
+                'agent_uuid' => 'a.agent_uuid',
                 'hostname' => 'a.hostname',
                 'device_id' => 'a.device_id',
                 'device_name' => 'a.device_name',
