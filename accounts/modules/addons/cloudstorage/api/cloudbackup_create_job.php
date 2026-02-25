@@ -206,16 +206,16 @@ if (empty($sourcePaths) && $primarySourcePath !== '') {
 }
 
 // Validate agent assignment for local_agent jobs when provided/required
-$hasAgentIdJobs = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'agent_id');
-$agentIdForJob = null;
+$hasAgentUuidJobs = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'agent_uuid');
+$agentUuidForJob = null;
 $agentRow = null;
-if (($sourceType === 'local_agent' || isset($_POST['agent_id'])) && $hasAgentIdJobs) {
-    $agentIdForJob = isset($_POST['agent_id']) ? (int)$_POST['agent_id'] : 0;
-    if ($agentIdForJob <= 0) {
+if (($sourceType === 'local_agent' || isset($_POST['agent_uuid'])) && $hasAgentUuidJobs) {
+    $agentUuidForJob = trim((string) ($_POST['agent_uuid'] ?? ''));
+    if ($agentUuidForJob === '') {
         respondJson(['status' => 'fail', 'message' => 'Agent is required for Local Agent jobs.'], 200);
     }
     $agentRow = Capsule::table('s3_cloudbackup_agents')
-        ->where('id', $agentIdForJob)
+        ->where('agent_uuid', $agentUuidForJob)
         ->where('client_id', $loggedInUserId)
         ->where('status', 'active')
         ->first();
@@ -244,10 +244,10 @@ $s3UserId = 0;
 $repositoryId = null;
 $resolvedTenantId = $tenantId > 0 ? $tenantId : null;
 if ($sourceType === 'local_agent') {
-    if (!$agentIdForJob) {
+    if (!$agentUuidForJob) {
         respondJson(['status' => 'fail', 'message' => 'Agent is required for Local Agent jobs.'], 200);
     }
-    $destResult = CloudBackupBootstrapService::ensureAgentDestination((int) $agentIdForJob);
+    $destResult = CloudBackupBootstrapService::ensureAgentDestination((string) $agentUuidForJob);
     if (($destResult['status'] ?? 'fail') !== 'success') {
         respondJson(['status' => 'fail', 'message' => $destResult['message'] ?? 'Failed to resolve policy destination.'], 200);
     }
@@ -262,7 +262,7 @@ if ($sourceType === 'local_agent') {
     }
 
     $repoResult = RepositoryService::createOrAttachForAgent(
-        (int) $agentIdForJob,
+        (int) ($agentRow->id ?? 0),
         (string) ($_POST['engine'] ?? 'kopia'),
         'managed_recovery',
         $loggedInUserId
@@ -283,7 +283,7 @@ if ($sourceType === 'local_agent') {
         // Compatibility mode for partially upgraded environments: keep job creation working.
         logModuleCall('cloudstorage', 'cloudbackup_create_job_repository_fallback', [
             'client_id' => $loggedInUserId,
-            'agent_id' => (int) $agentIdForJob,
+            'agent_uuid' => (string) $agentUuidForJob,
         ], $repoResult);
     } else {
         respondJson(['status' => 'fail', 'message' => $repoResult['message'] ?? 'Failed to initialize repository identity.'], 200);
@@ -442,8 +442,8 @@ $jobData = [
     'status' => $_POST['status'] ?? 'active',
 ];
 
-if ($agentIdForJob) {
-    $jobData['agent_id'] = $agentIdForJob;
+if ($agentUuidForJob) {
+    $jobData['agent_uuid'] = $agentUuidForJob;
 }
 if (Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'tenant_id')) {
     $jobData['tenant_id'] = $resolvedTenantId;

@@ -21,7 +21,7 @@ $clientId = $ca->getUserID();
 
 $isMsp = MspController::isMspClient($clientId);
 $tenantFilter = $_GET['tenant_id'] ?? null;
-$agentFilter = $_GET['agent_id'] ?? null;
+$agentFilter = isset($_GET['agent_uuid']) ? trim((string) $_GET['agent_uuid']) : null;
 
 try {
     $hasJobTenantCol = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'tenant_id');
@@ -29,7 +29,7 @@ try {
     $tenantColumn = $hasJobTenantCol ? 'j.tenant_id' : 'a.tenant_id';
 
     $query = Capsule::table('s3_cloudbackup_jobs as j')
-        ->leftJoin('s3_cloudbackup_agents as a', 'j.agent_id', '=', 'a.id')
+        ->leftJoin('s3_cloudbackup_agents as a', 'j.agent_uuid', '=', 'a.agent_uuid')
         ->where('j.client_id', $clientId)
         ->where('j.status', '!=', 'deleted')
         ->select([
@@ -51,7 +51,7 @@ try {
             'j.dest_prefix',
             'j.encryption_enabled',
             $hasJobRepositoryCol ? 'j.repository_id' : Capsule::raw('NULL as repository_id'),
-            'a.id as agent_id',
+            'a.agent_uuid',
             'a.hostname as agent_hostname',
             Capsule::raw($tenantColumn . ' as tenant_id'),
             'a.tenant_id as agent_tenant_id',
@@ -70,8 +70,8 @@ try {
         }
     }
 
-    if ($agentFilter && (int)$agentFilter > 0) {
-        $query->where('j.agent_id', (int)$agentFilter);
+    if ($agentFilter !== null && $agentFilter !== '') {
+        $query->where('j.agent_uuid', $agentFilter);
     }
 
     $jobs = $query->orderByDesc('j.created_at')->get();

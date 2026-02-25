@@ -20,10 +20,10 @@ if (!isset($_SESSION['adminid']) || !$_SESSION['adminid']) {
     exit;
 }
 
-$agentId = isset($_GET['agent_id']) ? (int) $_GET['agent_id'] : 0;
+$agentUuid = trim((string) ($_GET['agent_uuid'] ?? ''));
 $limit = isset($_GET['limit']) ? (int) $_GET['limit'] : 100;
-if ($agentId <= 0) {
-    (new JsonResponse(['status' => 'fail', 'message' => 'agent_id is required'], 200))->send();
+if ($agentUuid === '') {
+    (new JsonResponse(['status' => 'fail', 'message' => 'agent_uuid is required'], 200))->send();
     exit;
 }
 if ($limit < 1) {
@@ -46,7 +46,7 @@ try {
     $rows = Capsule::table('s3_cloudbackup_run_events as e')
         ->join('s3_cloudbackup_runs as r', 'e.run_id', '=', 'r.id')
         ->leftJoin('s3_cloudbackup_jobs as j', 'r.job_id', '=', 'j.id')
-        ->where('r.agent_id', $agentId)
+        ->where('r.agent_uuid', $agentUuid)
         ->where(function ($q) use ($codes) {
             $q->whereIn('e.code', $codes)
                 ->orWhere('e.code', 'LIKE', 'STORAGE_%')

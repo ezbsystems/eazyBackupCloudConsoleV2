@@ -274,20 +274,20 @@ $hypervVmIds = decodeJsonArray($_POST['hyperv_vm_ids'] ?? null);
 $hypervVms = decodeJsonArray($_POST['hyperv_vms'] ?? null);
 
 // Validate agent assignment for local_agent jobs when provided/required
-$hasAgentIdJobs = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'agent_id');
-$agentIdForJob = null;
+$hasAgentUuidJobs = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'agent_uuid');
+$agentUuidForJob = null;
 $isLocalAgentJob = (($sourceTypeForPath === 'local_agent') || (($existingJob['source_type'] ?? '') === 'local_agent'));
 $policyDestination = null;
 $repositoryRecord = null;
-if (($sourceTypeForPath === 'local_agent' || isset($_POST['agent_id'])) && $hasAgentIdJobs) {
-    $agentIdForJob = isset($_POST['agent_id']) ? (int)$_POST['agent_id'] : ($existingJob['agent_id'] ?? 0);
-    if ($agentIdForJob <= 0) {
+if (($sourceTypeForPath === 'local_agent' || isset($_POST['agent_uuid'])) && $hasAgentUuidJobs) {
+    $agentUuidForJob = isset($_POST['agent_uuid']) ? trim((string) $_POST['agent_uuid']) : (string) ($existingJob['agent_uuid'] ?? '');
+    if ($agentUuidForJob === '') {
         $response = new JsonResponse(['status' => 'fail', 'message' => 'Agent is required for Local Agent jobs.'], 200);
         $response->send();
         exit();
     }
     $agentRow = Capsule::table('s3_cloudbackup_agents')
-        ->where('id', $agentIdForJob)
+        ->where('agent_uuid', $agentUuidForJob)
         ->where('client_id', $loggedInUserId)
         ->where('status', 'active')
         ->first();
@@ -296,18 +296,18 @@ if (($sourceTypeForPath === 'local_agent' || isset($_POST['agent_id'])) && $hasA
         $response->send();
         exit();
     }
-    $updateData['agent_id'] = $agentIdForJob;
+    $updateData['agent_uuid'] = $agentUuidForJob;
 }
 if ($isLocalAgentJob) {
-    if (!$agentIdForJob && !empty($existingJob['agent_id'])) {
-        $agentIdForJob = (int) $existingJob['agent_id'];
+    if (!$agentUuidForJob && !empty($existingJob['agent_uuid'])) {
+        $agentUuidForJob = (string) $existingJob['agent_uuid'];
     }
-    if ($agentIdForJob <= 0) {
+    if ($agentUuidForJob === '') {
         $response = new JsonResponse(['status' => 'fail', 'message' => 'Agent is required for Local Agent jobs.'], 200);
         $response->send();
         exit();
     }
-    $destResult = CloudBackupBootstrapService::ensureAgentDestination((int) $agentIdForJob);
+    $destResult = CloudBackupBootstrapService::ensureAgentDestination((string) $agentUuidForJob);
     if (($destResult['status'] ?? 'fail') !== 'success') {
         $response = new JsonResponse(['status' => 'fail', 'message' => $destResult['message'] ?? 'Failed to resolve policy destination.'], 200);
         $response->send();
@@ -324,7 +324,7 @@ if ($isLocalAgentJob) {
         }
     } else {
         $repoRes = RepositoryService::createOrAttachForAgent(
-            (int) $agentIdForJob,
+            (int) ($agentRow->id ?? 0),
             (string) ($_POST['engine'] ?? ($existingJob['engine'] ?? 'kopia')),
             'managed_recovery',
             $loggedInUserId
@@ -344,7 +344,7 @@ if ($isLocalAgentJob) {
             logModuleCall('cloudstorage', 'cloudbackup_update_job_repository_fallback', [
                 'client_id' => $loggedInUserId,
                 'job_id' => (int) $jobId,
-                'agent_id' => (int) $agentIdForJob,
+                'agent_uuid' => (string) $agentUuidForJob,
             ], $repoRes);
             $repositoryRecord = null;
         } else {
