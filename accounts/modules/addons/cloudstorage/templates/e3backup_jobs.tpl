@@ -208,14 +208,14 @@
                             >
                                 All Agents
                             </button>
-                            <template x-for="agent in filteredAgents" :key="agent.id">
+                            <template x-for="agent in filteredAgents" :key="agent.agent_uuid || agent.id">
                                 <button
                                     type="button"
                                     class="w-full px-4 py-2 text-left text-sm transition"
-                                    :class="String(agentFilter) === String(agent.id) ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
-                                    @click="agentFilter=agent.id; isOpen=false; loadJobs()"
+                                    :class="String(agentFilter) === String(agent.agent_uuid || '') ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
+                                    @click="agentFilter=agent.agent_uuid || ''; isOpen=false; loadJobs()"
                                 >
-                                    <span class="truncate" x-text="agent.hostname || ('Agent #' + agent.id)"></span>
+                                    <span class="truncate" x-text="agent.hostname || agent.device_name || (agent.agent_uuid || 'Unknown agent')"></span>
                                 </button>
                             </template>
                             <template x-if="filteredAgents.length === 0">
@@ -989,8 +989,9 @@ function jobsApp() {
         },
         agentLabel() {
             if (!this.agentFilter) return 'All Agents';
-            const a = (this.agents || []).find(x => String(x.id) === String(this.agentFilter));
-            return (a && a.hostname) ? a.hostname : ('Agent ' + this.agentFilter);
+            const a = (this.agents || []).find(x => String(x.agent_uuid || '') === String(this.agentFilter));
+            if (a && (a.hostname || a.device_name)) return a.hostname || a.device_name;
+            return this.agentFilter;
         },
         sourceLabel() {
             const v = (this.sourceFilter || 'all');
@@ -1057,7 +1058,7 @@ function jobsApp() {
                 let url = 'modules/addons/cloudstorage/api/e3backup_job_list.php';
                 const params = new URLSearchParams();
                 if (this.tenantFilter) params.append('tenant_id', this.tenantFilter);
-                if (this.agentFilter) params.append('agent_id', this.agentFilter);
+                if (this.agentFilter) params.append('agent_uuid', this.agentFilter);
                 if ([...params].length) url += '?' + params.toString();
                 const res = await fetch(url);
                 const data = await res.json();
@@ -1173,7 +1174,7 @@ function jobsApp() {
             if (!job) return;
             const isMsp = {/literal}{if $isMspClient}true{else}false{/if}{literal};
             const params = [];
-            if (job.agent_id) params.push('agent_id=' + encodeURIComponent(job.agent_id));
+            if (job.agent_uuid) params.push('agent_uuid=' + encodeURIComponent(job.agent_uuid));
             if (isMsp) {
                 if (job.tenant_id) {
                     params.push('tenant_id=' + encodeURIComponent(job.tenant_id));
@@ -1437,7 +1438,7 @@ function jobsApp() {
             const type = (job.source_type || '').toLowerCase();
             if (type === 'local_agent') {
                 if (job.agent_hostname) return '(' + job.agent_hostname + ')';
-                if (job.agent_id) return '(Agent #' + job.agent_id + ')';
+                if (job.agent_uuid) return '(' + job.agent_uuid + ')';
                 return '';
             }
             return type ? '(' + type + ')' : '';
@@ -1558,12 +1559,12 @@ document.addEventListener('DOMContentLoaded', function() {
                     openLocalJobWizard();
                 }
 
-                const agentId = params.get('prefill_agent_id') || '';
-                if (agentId && typeof localWizardSetAgentSelection === 'function') {
-                    localWizardSetAgentSelection(agentId, `Agent #${agentId}`);
+                const agentUuid = params.get('prefill_agent_uuid') || '';
+                if (agentUuid && typeof localWizardSetAgentSelection === 'function') {
+                    localWizardSetAgentSelection(agentUuid, agentUuid);
                 }
-                if (agentId && typeof localWizardOnAgentSelected === 'function') {
-                    localWizardOnAgentSelected(agentId);
+                if (agentUuid && typeof localWizardOnAgentSelected === 'function') {
+                    localWizardOnAgentSelected(agentUuid);
                 }
             } else {
                 if (typeof openCreateJobModal === 'function') {
@@ -1585,7 +1586,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const url = new URL(window.location.href);
             url.searchParams.delete('open_create');
             url.searchParams.delete('prefill_source');
-            url.searchParams.delete('prefill_agent_id');
+            url.searchParams.delete('prefill_agent_uuid');
             url.searchParams.delete('tenant_id');
             window.history.replaceState({}, '', url.toString());
         }
@@ -1610,13 +1611,13 @@ function mspTenantFilter() {
             
             // Watch for tenant changes and update agent dropdown
             this.$watch('selectedTenant', () => {
-                const agentSelect = document.getElementById('agent_id');
+                const agentSelect = document.getElementById('agent_uuid');
                 if (agentSelect) {
                     agentSelect.innerHTML = '<option value="">Select an agent</option>';
                     this.filteredAgents.forEach(a => {
                         const opt = document.createElement('option');
-                        opt.value = a.id;
-                        opt.textContent = a.hostname ? (a.hostname + ' (ID ' + a.id + ')') : ('Agent #' + a.id);
+                        opt.value = a.agent_uuid || '';
+                        opt.textContent = a.hostname ? (a.hostname + ' (' + (a.agent_uuid || '') + ')') : (a.agent_uuid || 'Unknown agent');
                         agentSelect.appendChild(opt);
                     });
                 }
@@ -2345,11 +2346,11 @@ function localWizardSetAgentSelection(agentId, agentLabel, agentObj) {
                 // Try to find matching agent from loaded list for full object with online_status
                 let agent = agentObj || null;
                 if (!agent && agentId && data.allAgents) {
-                    agent = data.allAgents.find(a => String(a.id) === String(agentId));
+                    agent = data.allAgents.find(a => String(a.agent_uuid || '') === String(agentId));
                 }
                 // Fallback: create minimal agent object if not found
                 if (!agent && agentId) {
-                    agent = { id: agentId, hostname: agentLabel?.replace(/ \(ID \d+\)$/, '') || '', online_status: 'offline' };
+                    agent = { agent_uuid: agentId, hostname: agentLabel?.replace(/ \(UUID [^)]+\)$/, '') || '', online_status: 'offline' };
                 }
                 data.selectedAgent = agent;
             }
@@ -2372,9 +2373,9 @@ function localWizardFillFromJob(j, s) {
     if (nameEl) nameEl.value = job.name || '';
 
     const agentLabel = job.agent_hostname
-        ? `${job.agent_hostname} (ID ${job.agent_id || ''})`
-        : (job.agent_id ? `Agent #${job.agent_id}` : 'Select agent');
-    localWizardSetAgentSelection(job.agent_id || '', agentLabel);
+        ? `${job.agent_hostname} (${job.agent_uuid || ''})`
+        : (job.agent_uuid || 'Select agent');
+    localWizardSetAgentSelection(job.agent_uuid || '', agentLabel);
 
     const bucketHidden = document.getElementById('localWizardBucketId');
     if (bucketHidden) {
@@ -2516,10 +2517,10 @@ function localWizardFillFromJob(j, s) {
     if (retTxt) {
         retTxt.value = retentionObj ? JSON.stringify(retentionObj) : '';
     }
-    if (job.agent_id) {
+    if (job.agent_uuid) {
         // When loading an existing job for edit, preserve any preloaded selections
         // (otherwise the file browser clears them when the agent-selected event fires).
-        localWizardOnAgentSelected(job.agent_id, { preserveSelection: true });
+        localWizardOnAgentSelected(job.agent_uuid, { preserveSelection: true });
     }
     localWizardBuildReview();
 }
@@ -2848,7 +2849,7 @@ function fileBrowser() {
             this.loading = true;
             this.error = null;
             try {
-                const resp = await fetch(`modules/addons/cloudstorage/api/agent_browse_filesystem.php?agent_id=${this.agentId}&path=${encodeURIComponent(path || '')}`);
+                const resp = await fetch(`modules/addons/cloudstorage/api/agent_browse_filesystem.php?agent_uuid=${this.agentId}&path=${encodeURIComponent(path || '')}`);
                 const text = await resp.text();
                 let data;
                 try {
@@ -2890,7 +2891,7 @@ function fileBrowser() {
             const delay = (ms) => new Promise(r => setTimeout(r, ms));
             for (let attempt = 1; attempt <= maxAttempts; attempt++) {
                 try {
-                    const resp = await fetch(`modules/addons/cloudstorage/api/agent_list_disks.php?agent_id=${this.agentId}`);
+                    const resp = await fetch(`modules/addons/cloudstorage/api/agent_list_disks.php?agent_uuid=${this.agentId}`);
                     const text = await resp.text();
                     let data;
                     try {
@@ -3098,7 +3099,7 @@ function hypervBrowser() {
             this.loading = true;
             this.error = null;
             try {
-                const data = await this.requestJSON(`modules/addons/cloudstorage/api/agent_list_hyperv_vms.php?agent_id=${this.agentId}`);
+                const data = await this.requestJSON(`modules/addons/cloudstorage/api/agent_list_hyperv_vms.php?agent_uuid=${this.agentId}`);
                 if (data.status === 'success') {
                     this.applyVMList(data.vms);
                     return;
@@ -3196,7 +3197,7 @@ function hypervBrowser() {
             this.detailsLoadingIds = [...new Set([...this.detailsLoadingIds, ...pending])];
             try {
                 const data = await this.requestJSON(
-                    `modules/addons/cloudstorage/api/agent_list_hyperv_vm_details.php?agent_id=${this.agentId}`,
+                    `modules/addons/cloudstorage/api/agent_list_hyperv_vm_details.php?agent_uuid=${this.agentId}`,
                     {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -3388,7 +3389,7 @@ function localWizardGoToStep(stepNum) {
 
 function localWizardBuildReview() {
     const s = window.localWizardState.data;
-    s.agent_id = document.getElementById('localWizardAgentId')?.value || '';
+    s.agent_uuid = document.getElementById('localWizardAgentId')?.value || '';
     s.name = document.getElementById('localWizardName')?.value || '';
     s.tenant_id = document.getElementById('localWizardTenantId')?.value || '';
     s.dest_prefix = document.getElementById('localWizardPrefix')?.value || '';
@@ -3557,8 +3558,8 @@ function localWizardSubmit() {
         e3backupNotify('error', msg);
         return;
     }
-    if (!s.agent_id) {
-        const msg = 'Agent ID is required';
+    if (!s.agent_uuid) {
+        const msg = 'Agent UUID is required';
         e3backupNotify('error', msg);
         return;
     }
@@ -3596,7 +3597,7 @@ function localWizardSubmit() {
         source_paths: JSON.stringify(sourcePathsArray),
         backup_mode: s.engine === 'sync' ? 'sync' : 'archive',
         engine: s.engine || 'kopia',
-        agent_id: s.agent_id,
+        agent_uuid: s.agent_uuid,
         dest_type: 's3',
         tenant_id: s.tenant_id || '',
         schedule_json: s.schedule_json && typeof s.schedule_json === 'object' ? JSON.stringify(s.schedule_json) : '',

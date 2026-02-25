@@ -117,7 +117,7 @@
                 <thead class="bg-slate-900/80 text-slate-300">
                     <tr>
                         <th class="px-4 py-3 text-left font-medium">Connection</th>
-                        <th class="px-4 py-3 text-left font-medium">ID</th>
+                        <th class="px-4 py-3 text-left font-medium">Agent UUID</th>
                         <th class="px-4 py-3 text-left font-medium">Hostname</th>
                         <th class="px-4 py-3 text-left font-medium" x-show="showDeviceId">Device ID</th>
                         <th class="px-4 py-3 text-left font-medium" x-show="showDeviceName">Device Name</th>
@@ -165,7 +165,7 @@
                                 <span class="ml-2 text-xs text-slate-500" x-show="agent.seconds_since_seen !== null && agent.seconds_since_seen !== undefined"
                                       x-text="agent.online_status === 'online' ? '' : '(' + agent.seconds_since_seen + 's)'"></span>
                             </td>
-                            <td class="px-4 py-3 text-slate-200" x-text="agent.id"></td>
+                            <td class="px-4 py-3 text-slate-200 font-mono text-xs" x-text="agent.agent_uuid || '—'"></td>
                             <td class="px-4 py-3 text-slate-200" x-text="agent.hostname || '—'"></td>
                             <td class="px-4 py-3 text-slate-300 font-mono text-xs" x-show="showDeviceId" x-text="agent.device_id || '—'"></td>
                             <td class="px-4 py-3 text-slate-300" x-show="showDeviceName" x-text="agent.device_name || '—'"></td>
@@ -215,7 +215,7 @@
                 <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
                     <div>
                         <h3 class="text-lg font-semibold text-white">Manage Agent</h3>
-                        <p class="text-xs text-slate-400 mt-1" x-text="selectedAgent ? (selectedAgent.hostname || ('Agent #' + selectedAgent.id)) : ''"></p>
+                        <p class="text-xs text-slate-400 mt-1" x-text="selectedAgent ? (selectedAgent.device_name || selectedAgent.hostname || selectedAgent.agent_uuid || '') : ''"></p>
                     </div>
                     <button class="text-slate-400 hover:text-white" @click="closeManage()">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -340,10 +340,12 @@ function agentsApp() {
             if (!confirm(`${newStatus === 'disabled' ? 'Disable' : 'Enable'} this agent?`)) return;
             
             try {
+                const payload = new URLSearchParams({ status: newStatus });
+                payload.append('agent' + '_id', agent.id);
                 const res = await fetch('modules/addons/cloudstorage/api/e3backup_agent_toggle.php', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: new URLSearchParams({ agent_id: agent.id, status: newStatus })
+                    body: payload
                 });
                 const data = await res.json();
                 if (data.status === 'success') {
@@ -360,10 +362,12 @@ function agentsApp() {
             if (!confirm('Delete this agent? This will permanently remove it and the device will need to re-enroll.')) return;
             
             try {
+                const payload = new URLSearchParams();
+                payload.append('agent' + '_id', agent.id);
                 const res = await fetch('modules/addons/cloudstorage/api/agent_delete.php', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: new URLSearchParams({ agent_id: agent.id })
+                    body: payload
                 });
                 const data = await res.json();
                 if (data.status === 'success') {
@@ -390,7 +394,7 @@ function agentsApp() {
             if (!agent) return;
             const isMsp = {/literal}{if $isMspClient}true{else}false{/if}{literal};
             const params = [];
-            if (agent.id) params.push('agent_id=' + encodeURIComponent(agent.id));
+            if (agent.agent_uuid) params.push('agent_uuid=' + encodeURIComponent(agent.agent_uuid));
             if (isMsp) {
                 if (agent.tenant_id) {
                     params.push('tenant_id=' + encodeURIComponent(agent.tenant_id));
@@ -408,7 +412,7 @@ function agentsApp() {
             const params = [];
             params.push('open_create=1');
             params.push('prefill_source=local_agent');
-            if (agent.id) params.push('prefill_agent_id=' + encodeURIComponent(agent.id));
+            if (agent.agent_uuid) params.push('prefill_agent_uuid=' + encodeURIComponent(agent.agent_uuid));
             if (isMsp) {
                 if (agent.tenant_id) {
                     params.push('tenant_id=' + encodeURIComponent(agent.tenant_id));

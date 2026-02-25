@@ -157,7 +157,7 @@
                             {if $isMspClient}
                             <td class="px-3 py-2 text-slate-300">{$run.tenant_name|default:'Direct'}</td>
                             {/if}
-                            <td class="px-3 py-2 text-slate-300">{$run.agent_hostname|default:'Agent #'|cat:$run.agent_id}</td>
+                            <td class="px-3 py-2 text-slate-300">{$run.agent_hostname|default:$run.agent_uuid|default:'Agent unavailable'}</td>
                             <td class="px-3 py-2">
                                 {assign var=status value=$run.status|default:'unknown'}
                                 <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold

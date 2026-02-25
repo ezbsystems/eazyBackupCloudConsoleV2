@@ -30,7 +30,7 @@
                     <span class="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-900/60 px-3 py-1 text-xs text-slate-200">
                         <span class="text-slate-400">Agent:</span>
                         <span class="text-slate-100">
-                            {if $agent_name}{$agent_name}{elseif $agent_id}Agent #{$agent_id}{else}Agent unavailable{/if}
+                            {if $agent_name}{$agent_name}{elseif $agent_uuid}{$agent_uuid}{else}Agent unavailable{/if}
                         </span>
                     </span>
                     <span class="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-900/60 px-3 py-1 text-xs text-slate-200">
@@ -270,7 +270,7 @@
                                 <div class="flex items-center justify-between">
                                     <span class="text-slate-500">Agent</span>
                                     <span id="detailsAgent" class="text-slate-100 text-xs">
-                                        {if $agent_name}{$agent_name}{elseif $agent_id}Agent #{$agent_id}{else}Agent unavailable{/if}
+                                        {if $agent_name}{$agent_name}{elseif $agent_uuid}{$agent_uuid}{else}Agent unavailable{/if}
                                     </span>
                                 </div>
                                 <div class="flex items-center justify-between">

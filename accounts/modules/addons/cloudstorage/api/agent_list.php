@@ -42,6 +42,7 @@ $agents = Capsule::table('s3_cloudbackup_agents')
     ->where('client_id', $clientId)
     ->select([
         'id',
+        'agent_uuid',
         'client_id',
         'hostname',
         'status',

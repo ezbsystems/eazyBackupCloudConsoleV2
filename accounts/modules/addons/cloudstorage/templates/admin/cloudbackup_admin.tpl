@@ -452,22 +452,22 @@
                                                         Manage <span class="caret"></span>
                                                     </button>
                                                     <ul class="dropdown-menu dropdown-menu-right">
-                                                        <li><a href="#" onclick="openAgentLogs({$agent.id}); return false;">Agent Logs</a></li>
-                                                        <li><a href="#" onclick="openTrayLogs({$agent.id}); return false;">Tray Logs</a></li>
+                                                        <li><a href="#" onclick="openAgentLogs('{$agent.agent_uuid|escape:'javascript'}'); return false;">Agent Logs</a></li>
+                                                        <li><a href="#" onclick="openTrayLogs('{$agent.agent_uuid|escape:'javascript'}'); return false;">Tray Logs</a></li>
                                                         <li role="separator" class="divider"></li>
-                                                        <li><a href="#" onclick="adminResetAgent({$agent.id}); return false;">Reset Agent (Restart Service)</a></li>
+                                                        <li><a href="#" onclick="adminResetAgent('{$agent.agent_uuid|escape:'javascript'}'); return false;">Reset Agent (Restart Service)</a></li>
                                                         {if $agent.active_run_id|default:0}
-                                                            <li><a href="#" onclick="adminMaintenanceForAgent({$agent.id}, 'maintenance_quick', {$agent.active_run_id|default:0}); return false;">Maintenance Quick</a></li>
-                                                            <li><a href="#" onclick="adminMaintenanceForAgent({$agent.id}, 'maintenance_full', {$agent.active_run_id|default:0}); return false;">Maintenance Full</a></li>
+                                                            <li><a href="#" onclick="adminMaintenanceForAgent('{$agent.agent_uuid|escape:'javascript'}', 'maintenance_quick', {$agent.active_run_id|default:0}); return false;">Maintenance Quick</a></li>
+                                                            <li><a href="#" onclick="adminMaintenanceForAgent('{$agent.agent_uuid|escape:'javascript'}', 'maintenance_full', {$agent.active_run_id|default:0}); return false;">Maintenance Full</a></li>
                                                         {else}
                                                             <li><span class="text-muted" style="display:block; padding:3px 20px;" title="No active run available for this agent">Maintenance Quick</span></li>
                                                             <li><span class="text-muted" style="display:block; padding:3px 20px;" title="No active run available for this agent">Maintenance Full</span></li>
                                                         {/if}
-                                                        <li><a href="#" onclick="adminRefreshInventory({$agent.id}); return false;">Request Inventory Refresh</a></li>
+                                                        <li><a href="#" onclick="adminRefreshInventory('{$agent.agent_uuid|escape:'javascript'}'); return false;">Request Inventory Refresh</a></li>
                                                         <li role="separator" class="divider"></li>
-                                                        <li><a href="addonmodules.php?module=cloudstorage&action=cloudbackup_admin&tab=runs&agent_id={$agent.id}">View This Agent's Runs</a></li>
-                                                        <li><a href="index.php?m=cloudstorage&page=e3backup&view=jobs&open_create=1&prefill_source=local_agent&prefill_agent_id={$agent.id}" target="_blank" rel="noopener">Create Job (Prefilled)</a></li>
-                                                        <li><a href="index.php?m=cloudstorage&page=e3backup&view=restores&agent_id={$agent.id}" target="_blank" rel="noopener">Restore Points For Agent</a></li>
+                                                        <li><a href="addonmodules.php?module=cloudstorage&action=cloudbackup_admin&tab=runs&agent_uuid={$agent.agent_uuid|escape:'url'}">View This Agent's Runs</a></li>
+                                                        <li><a href="index.php?m=cloudstorage&page=e3backup&view=jobs&open_create=1&prefill_source=local_agent&prefill_agent_uuid={$agent.agent_uuid|escape:'url'}" target="_blank" rel="noopener">Create Job (Prefilled)</a></li>
+                                                        <li><a href="index.php?m=cloudstorage&page=e3backup&view=restores&agent_uuid={$agent.agent_uuid|escape:'url'}" target="_blank" rel="noopener">Restore Points For Agent</a></li>
                                                     </ul>
                                                 </div>
                                             </td>
@@ -766,7 +766,7 @@
 </div>
 
 <script>
-let agentManageCurrentAgentId = 0;
+let agentManageCurrentAgentUuid = '';
 let agentManageCurrentLogKind = 'agent';
 let agentManageAutoRefreshTimer = null;
 
@@ -852,14 +852,14 @@ function adminEnqueueAgentCommand(payload) {
     }).then(r => r.json());
 }
 
-function adminResetAgent(agentId) {
+function adminResetAgent(agentUuid) {
     if (!confirm('Reset this agent now? This will restart the Windows agent service.')) {
         return;
     }
-    adminEnqueueAgentCommand({ agent_id: agentId, type: 'reset_agent' })
+    adminEnqueueAgentCommand({ agent_uuid: agentUuid, type: 'reset_agent' })
         .then(data => {
             if (data.status === 'success') {
-                alert('Service restart command queued for agent ' + agentId);
+                alert('Service restart command queued for agent ' + agentUuid);
             } else {
                 alert(data.message || 'Failed to queue reset command');
             }
@@ -867,15 +867,15 @@ function adminResetAgent(agentId) {
         .catch(() => alert('Failed to queue reset command'));
 }
 
-function adminMaintenanceForAgent(agentId, type, activeRunId) {
-    const payload = { type: type, agent_id: agentId };
+function adminMaintenanceForAgent(agentUuid, type, activeRunId) {
+    const payload = { type: type, agent_uuid: agentUuid };
     if (activeRunId && Number(activeRunId) > 0) {
         payload.run_id = activeRunId;
     }
     adminEnqueueAgentCommand(payload)
         .then(data => {
             if (data.status === 'success') {
-                alert('Maintenance command queued for agent ' + agentId);
+                alert('Maintenance command queued for agent ' + agentUuid);
             } else {
                 alert(data.message || 'Failed to queue maintenance command');
             }
@@ -883,11 +883,11 @@ function adminMaintenanceForAgent(agentId, type, activeRunId) {
         .catch(() => alert('Failed to queue maintenance command'));
 }
 
-function adminRefreshInventory(agentId) {
-    adminEnqueueAgentCommand({ agent_id: agentId, type: 'refresh_inventory' })
+function adminRefreshInventory(agentUuid) {
+    adminEnqueueAgentCommand({ agent_uuid: agentUuid, type: 'refresh_inventory' })
         .then(data => {
             if (data.status === 'success') {
-                alert('Inventory refresh queued for agent ' + agentId);
+                alert('Inventory refresh queued for agent ' + agentUuid);
             } else {
                 alert(data.message || 'Failed to queue inventory refresh');
             }
@@ -906,7 +906,7 @@ function formatLogMeta(data) {
     return details.join(' | ');
 }
 
-function fetchAgentLogTail(agentId, logKind, contentEl, metaEl) {
+function fetchAgentLogTail(agentUuid, logKind, contentEl, metaEl) {
     const contentNode = document.getElementById(contentEl);
     const metaNode = document.getElementById(metaEl);
     if (!contentNode || !metaNode) {
@@ -914,7 +914,7 @@ function fetchAgentLogTail(agentId, logKind, contentEl, metaEl) {
     }
     contentNode.textContent = 'Loading...';
     metaNode.textContent = '';
-    fetch('/modules/addons/cloudstorage/api/admin_cloudbackup_fetch_log_tail.php?agent_id=' + encodeURIComponent(agentId) + '&log_kind=' + encodeURIComponent(logKind))
+    fetch('/modules/addons/cloudstorage/api/admin_cloudbackup_fetch_log_tail.php?agent_uuid=' + encodeURIComponent(agentUuid) + '&log_kind=' + encodeURIComponent(logKind))
         .then(r => r.json())
         .then(data => {
             if (data.status !== 'success') {
@@ -929,10 +929,10 @@ function fetchAgentLogTail(agentId, logKind, contentEl, metaEl) {
         });
 }
 
-function loadAgentDiagnostics(agentId) {
+function loadAgentDiagnostics(agentUuid) {
     const diagnostics = document.getElementById('agentDiagnosticsContent');
     diagnostics.textContent = 'Loading diagnostics...';
-    fetch('/modules/addons/cloudstorage/api/admin_cloudbackup_agent_diagnostics.php?agent_id=' + encodeURIComponent(agentId) + '&limit=100')
+    fetch('/modules/addons/cloudstorage/api/admin_cloudbackup_agent_diagnostics.php?agent_uuid=' + encodeURIComponent(agentUuid) + '&limit=100')
         .then(r => r.json())
         .then(data => {
             if (data.status !== 'success') {
@@ -955,17 +955,17 @@ function loadAgentDiagnostics(agentId) {
 }
 
 function refreshAgentLogTab() {
-    if (!agentManageCurrentAgentId) {
+    if (!agentManageCurrentAgentUuid) {
         return;
     }
-    fetchAgentLogTail(agentManageCurrentAgentId, 'agent', 'agentLogContent', 'agentLogMeta');
+    fetchAgentLogTail(agentManageCurrentAgentUuid, 'agent', 'agentLogContent', 'agentLogMeta');
 }
 
 function refreshTrayLogTab() {
-    if (!agentManageCurrentAgentId) {
+    if (!agentManageCurrentAgentUuid) {
         return;
     }
-    fetchAgentLogTail(agentManageCurrentAgentId, 'tray', 'trayLogContent', 'trayLogMeta');
+    fetchAgentLogTail(agentManageCurrentAgentUuid, 'tray', 'trayLogContent', 'trayLogMeta');
 }
 
 function clearAgentLogAutoRefreshTimer() {
@@ -1005,7 +1005,7 @@ function initAgentManageModalHandlers() {
     const modal = $('#agentManageModal');
     modal.on('hidden.bs.modal', function() {
         clearAgentLogAutoRefreshTimer();
-        agentManageCurrentAgentId = 0;
+        agentManageCurrentAgentUuid = '';
     });
     modal.find('a[data-toggle="tab"]').on('shown.bs.tab', function(e) {
         const href = $(e.target).attr('href') || '';
@@ -1021,25 +1021,25 @@ function initAgentManageModalHandlers() {
     });
 }
 
-function openAgentLogs(agentId) {
-    agentManageCurrentAgentId = Number(agentId);
+function openAgentLogs(agentUuid) {
+    agentManageCurrentAgentUuid = String(agentUuid || '');
     agentManageCurrentLogKind = 'agent';
-    document.getElementById('agentManageTitle').textContent = '(Agent #' + agentId + ')';
+    document.getElementById('agentManageTitle').textContent = '(' + agentManageCurrentAgentUuid + ')';
     $('#agentManageModal').modal('show');
     $('#agentManageModal ul.nav-tabs a[href="#agentLogsTab"]').tab('show');
-    fetchAgentLogTail(agentId, 'agent', 'agentLogContent', 'agentLogMeta');
-    loadAgentDiagnostics(agentId);
+    fetchAgentLogTail(agentManageCurrentAgentUuid, 'agent', 'agentLogContent', 'agentLogMeta');
+    loadAgentDiagnostics(agentManageCurrentAgentUuid);
     updateAgentLogAutoRefresh();
 }
 
-function openTrayLogs(agentId) {
-    agentManageCurrentAgentId = Number(agentId);
+function openTrayLogs(agentUuid) {
+    agentManageCurrentAgentUuid = String(agentUuid || '');
     agentManageCurrentLogKind = 'tray';
-    document.getElementById('agentManageTitle').textContent = '(Agent #' + agentId + ')';
+    document.getElementById('agentManageTitle').textContent = '(' + agentManageCurrentAgentUuid + ')';
     $('#agentManageModal').modal('show');
     $('#agentManageModal ul.nav-tabs a[href="#trayLogsTab"]').tab('show');
-    fetchAgentLogTail(agentId, 'tray', 'trayLogContent', 'trayLogMeta');
-    loadAgentDiagnostics(agentId);
+    fetchAgentLogTail(agentManageCurrentAgentUuid, 'tray', 'trayLogContent', 'trayLogMeta');
+    loadAgentDiagnostics(agentManageCurrentAgentUuid);
     updateAgentLogAutoRefresh();
 }
 

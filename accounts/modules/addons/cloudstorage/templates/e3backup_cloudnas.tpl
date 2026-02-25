@@ -217,6 +217,7 @@ function cloudNAS() {
         hasAgent: false,
         agents: [],
         selectedAgentId: null,
+        selectedAgentUuid: '',
         agentOnline: false,
         
         // Mounts data
@@ -258,7 +259,7 @@ function cloudNAS() {
             persistent: true,
             enable_cache: true,
             cache_mode: 'full',
-            agent_id: null
+            agent_uuid: ''
         },
         
         // Available drive letters
@@ -289,7 +290,7 @@ function cloudNAS() {
         
         get canProceed() {
             if (this.wizardStep === 0) {
-                return this.newMount.bucket !== '' && this.newMount.agent_id !== null;
+                return this.newMount.bucket !== '' && this.newMount.agent_uuid !== '';
             }
             if (this.wizardStep === 1) {
                 return this.newMount.drive_letter !== '';
@@ -343,7 +344,8 @@ function cloudNAS() {
                     const activeAgent = this.agents.find(a => a.status === 'active');
                     if (activeAgent) {
                         this.selectedAgentId = activeAgent.id;
-                        this.newMount.agent_id = activeAgent.id;
+                        this.selectedAgentUuid = activeAgent.agent_uuid || '';
+                        this.newMount.agent_uuid = this.selectedAgentUuid;
                         this.agentOnline = true;
                     }
                 }
@@ -487,7 +489,7 @@ function cloudNAS() {
                 persistent: this.settings.auto_mount,
                 enable_cache: true,
                 cache_mode: this.settings.cache_mode,
-                agent_id: this.selectedAgentId
+                agent_uuid: this.selectedAgentUuid || ''
             };
             this.showMountWizard = true;
         },
@@ -495,10 +497,14 @@ function cloudNAS() {
         // Create mount
         async createMount() {
             try {
+                const payload = {
+                    ...this.newMount,
+                    agent_id: this.selectedAgentId,
+                };
                 const res = await fetch('modules/addons/cloudstorage/api/cloudnas_create_mount.php', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(this.newMount)
+                    body: JSON.stringify(payload)
                 });
                 const data = await res.json();
                 if (data.status === 'success') {
@@ -618,7 +624,7 @@ function cloudNAS() {
                 persistent: mount.persistent,
                 enable_cache: mount.cache_mode !== 'off',
                 cache_mode: mount.cache_mode,
-                agent_id: mount.agent_id
+                agent_uuid: mount.agent_uuid || ''
             };
             this.wizardStep = 1; // Skip bucket selection for edits
             this.showMountWizard = true;

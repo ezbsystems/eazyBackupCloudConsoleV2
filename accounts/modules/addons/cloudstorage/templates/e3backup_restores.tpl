@@ -112,12 +112,12 @@
                                         @click="selectAgent(''); isOpen=false;">
                                     All Agents
                                 </button>
-                                <template x-for="agent in filteredAgents" :key="agent.id">
+                                <template x-for="agent in filteredAgents" :key="agent.agent_uuid || agent.id">
                                     <button type="button"
                                             class="w-full px-4 py-2 text-left text-sm transition"
-                                            :class="String(agentFilter) === String(agent.id) ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
-                                            @click="selectAgent(String(agent.id)); isOpen=false;">
-                                        <span class="truncate" x-text="agent.hostname || ('Agent #' + agent.id)"></span>
+                                            :class="String(agentFilter) === String(agent.agent_uuid || '') ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
+                                            @click="selectAgent(String(agent.agent_uuid || '')); isOpen=false;">
+                                        <span class="truncate" x-text="agent.hostname || agent.device_name || (agent.agent_uuid || 'Unknown agent')"></span>
                                     </button>
                                 </template>
                                 <template x-if="filteredAgents.length === 0">
@@ -215,7 +215,7 @@
                             {if $isMspClient}
                             <td class="px-4 py-3 text-slate-300" x-text="point.tenant_name || 'Direct'"></td>
                             {/if}
-                            <td class="px-4 py-3 text-slate-300" x-text="point.agent_hostname || ('Agent #' + (point.agent_id || '—'))"></td>
+                            <td class="px-4 py-3 text-slate-300" x-text="point.agent_hostname || point.agent_uuid || '—'"></td>
                             <td class="px-4 py-3">
                                 <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
                                       :class="{ 'bg-sky-500/15 text-sky-200': point.engine === 'kopia', 'bg-purple-500/15 text-purple-200': point.engine === 'disk_image', 'bg-amber-500/15 text-amber-200': point.engine === 'hyperv', 'bg-slate-700 text-slate-300': !point.engine }"
@@ -477,7 +477,7 @@ function restoresApp() {
             if (!term) return list;
             return list.filter(a => {
                 const name = String(a.hostname || '').toLowerCase();
-                return name.includes(term) || String(a.id || '').includes(term);
+                return name.includes(term) || String(a.agent_uuid || '').includes(term);
             });
         },
 
@@ -485,7 +485,7 @@ function restoresApp() {
             try {
                 const params = new URLSearchParams(window.location.search);
                 const tenant = params.get('tenant_id');
-                const agent = params.get('agent_id');
+                const agent = params.get('agent_uuid');
                 const fromDate = params.get('from_date');
                 const toDate = params.get('to_date');
                 if (tenant !== null) this.tenantFilter = tenant;
@@ -509,16 +509,16 @@ function restoresApp() {
 
         agentLabel() {
             if (!this.agentFilter) return 'All Agents';
-            const match = (this.agents || []).find(a => String(a.id) === String(this.agentFilter));
-            if (match) return match.hostname || `Agent #${match.id}`;
-            return `Agent #${this.agentFilter}`;
+            const match = (this.agents || []).find(a => String(a.agent_uuid || '') === String(this.agentFilter));
+            if (match) return match.hostname || match.device_name || match.agent_uuid;
+            return this.agentFilter;
         },
 
         selectTenant(value) {
             this.tenantFilter = value;
             {/literal}{if $isMspClient}{literal}
             if (this.agentFilter) {
-                const stillVisible = this.filteredAgents.some(a => String(a.id) === String(this.agentFilter));
+                const stillVisible = this.filteredAgents.some(a => String(a.agent_uuid || '') === String(this.agentFilter));
                 if (!stillVisible) this.agentFilter = '';
             }
             {/literal}{/if}{literal}
@@ -573,7 +573,7 @@ function restoresApp() {
             try {
                 const params = new URLSearchParams();
                 if (this.tenantFilter) params.set('tenant_id', this.tenantFilter);
-                if (this.agentFilter) params.set('agent_id', this.agentFilter);
+                if (this.agentFilter) params.set('agent_uuid', this.agentFilter);
                 if (this.searchQuery) params.set('search', this.searchQuery);
                 if (this.dateFrom) params.set('from_date', this.dateFrom);
                 if (this.dateTo) params.set('to_date', this.dateTo);
@@ -621,7 +621,7 @@ window.restorePointState = {
     stepSequence: [1, 2, 4, 5],
     targetPath: '',
     mount: false,
-    targetAgentId: '',
+    targetAgentUuid: '',
     availableAgents: [],
     agentRequired: false,
     allowSnapshotBrowse: false,
@@ -631,7 +631,7 @@ window.restorePointState = {
     snapshotEntries: [],
     snapshotLoading: false,
     snapshotError: '',
-    snapshotAgentId: ''
+    snapshotAgentUuid: ''
 };
 
 function normalizeTenantId(value) {
@@ -657,23 +657,23 @@ function hydrateRestorePointAgents(point) {
     const st = window.restorePointState;
     if (!point) return;
     st.availableAgents = getCompatibleAgents(point);
-    const originalAvailable = st.availableAgents.some((agent) => String(agent.id) === String(point.agent_id));
+    const originalAvailable = st.availableAgents.some((agent) => String(agent.agent_uuid || '') === String(point.agent_uuid || ''));
     st.agentRequired = !originalAvailable;
-    if (!st.targetAgentId) {
-        st.targetAgentId = originalAvailable ? String(point.agent_id) : '';
+    if (!st.targetAgentUuid) {
+        st.targetAgentUuid = originalAvailable ? String(point.agent_uuid || '') : '';
     }
     const select = document.getElementById('restorePointTargetAgent');
     if (select) {
         select.innerHTML = '<option value="">Select an agent</option>';
         st.availableAgents.forEach((agent) => {
             const opt = document.createElement('option');
-            opt.value = String(agent.id);
-            opt.textContent = agent.hostname || `Agent #${agent.id}`;
+            opt.value = String(agent.agent_uuid || '');
+            opt.textContent = agent.hostname || agent.device_name || (agent.agent_uuid || 'Unknown agent');
             select.appendChild(opt);
         });
-        select.value = st.targetAgentId || '';
+        select.value = st.targetAgentUuid || '';
         select.onchange = () => {
-            st.targetAgentId = select.value || '';
+            st.targetAgentUuid = select.value || '';
         };
     }
     const hint = document.getElementById('restorePointAgentHint');
@@ -688,14 +688,14 @@ function hydrateRestorePointAgents(point) {
     }
 }
 
-function getRestorePointAgentLabel(agentId) {
-    if (!agentId) return '';
+function getRestorePointAgentLabel(agentUuid) {
+    if (!agentUuid) return '';
     const agents = Array.isArray(window.restorePointAgents) ? window.restorePointAgents : [];
-    const found = agents.find((agent) => String(agent.id) === String(agentId));
+    const found = agents.find((agent) => String(agent.agent_uuid || '') === String(agentUuid));
     if (found) {
-        return found.hostname || `Agent #${found.id}`;
+        return found.hostname || found.device_name || found.agent_uuid || '';
     }
-    return `Agent #${agentId}`;
+    return agentUuid;
 }
 
 function getRestorePointStepId() {
@@ -714,13 +714,13 @@ function initSnapshotBrowser() {
         renderSnapshotList();
         return;
     }
-    if (!st.targetAgentId) {
+    if (!st.targetAgentUuid) {
         setSnapshotStatus('Select a destination agent to browse the snapshot.', 'info');
         renderSnapshotList();
         return;
     }
-    if (st.snapshotAgentId !== st.targetAgentId) {
-        st.snapshotAgentId = st.targetAgentId;
+    if (st.snapshotAgentUuid !== st.targetAgentUuid) {
+        st.snapshotAgentUuid = st.targetAgentUuid;
         st.snapshotPath = '';
         st.snapshotParent = '';
         st.snapshotEntries = [];
@@ -751,7 +751,7 @@ function setSnapshotStatus(message, kind) {
 
 function loadSnapshotEntries(path) {
     const st = window.restorePointState;
-    if (!st.point || !st.targetAgentId) {
+    if (!st.point || !st.targetAgentUuid) {
         setSnapshotStatus('Select a destination agent to browse the snapshot.', 'info');
         return;
     }
@@ -759,7 +759,7 @@ function loadSnapshotEntries(path) {
     setSnapshotStatus('Loading snapshot entries...', 'info');
     renderSnapshotList();
     const qs = new URLSearchParams();
-    qs.set('agent_id', st.targetAgentId);
+    qs.set('agent_uuid', st.targetAgentUuid);
     qs.set('restore_point_id', String(st.point.id));
     if (path) qs.set('path', path);
     const url = `modules/addons/cloudstorage/api/agent_browse_snapshot.php?${qs.toString()}`;
@@ -812,7 +812,7 @@ function renderSnapshotList() {
         return;
     }
 
-    if (!st.allowSnapshotBrowse || !st.targetAgentId) {
+    if (!st.allowSnapshotBrowse || !st.targetAgentUuid) {
         return;
     }
 
@@ -979,23 +979,23 @@ window.restorePointBrowseState = {
     entries: [],
     loading: false,
     error: '',
-    agentId: ''
+    agentUuid: ''
 };
 
 function openRestorePointBrowseModal() {
     const st = window.restorePointState;
-    if (!st.targetAgentId) {
+    if (!st.targetAgentUuid) {
         if (window.toast) toast.error('Select a destination agent first');
         else alert('Select a destination agent first');
         return;
     }
     const bs = window.restorePointBrowseState;
-    if (bs.agentId !== st.targetAgentId) {
+    if (bs.agentUuid !== st.targetAgentUuid) {
         bs.path = '';
         bs.parent = '';
         bs.entries = [];
     }
-    bs.agentId = st.targetAgentId;
+    bs.agentUuid = st.targetAgentUuid;
     const modal = document.getElementById('restorePointBrowseModal');
     if (modal) modal.classList.remove('hidden');
     loadRestorePointBrowsePath(bs.path || '');
@@ -1024,14 +1024,14 @@ function setRestorePointBrowseStatus(message, kind) {
 
 function loadRestorePointBrowsePath(path) {
     const bs = window.restorePointBrowseState;
-    if (!bs.agentId) {
+    if (!bs.agentUuid) {
         setRestorePointBrowseStatus('Select a destination agent first.', 'error');
         return;
     }
     bs.loading = true;
     setRestorePointBrowseStatus('Loading folders...', 'info');
     renderRestorePointBrowseList();
-    const url = `modules/addons/cloudstorage/api/agent_browse_filesystem.php?agent_id=${encodeURIComponent(bs.agentId)}&path=${encodeURIComponent(path || '')}`;
+    const url = `modules/addons/cloudstorage/api/agent_browse_filesystem.php?agent_uuid=${encodeURIComponent(bs.agentUuid)}&path=${encodeURIComponent(path || '')}`;
     fetch(url)
         .then(res => res.text())
         .then(text => {
@@ -1122,7 +1122,7 @@ function openRestorePointModal(point) {
     window.restorePointState.step = 1;
     window.restorePointState.targetPath = '';
     window.restorePointState.mount = false;
-    window.restorePointState.targetAgentId = '';
+    window.restorePointState.targetAgentUuid = '';
     window.restorePointState.availableAgents = [];
     window.restorePointState.agentRequired = false;
     window.restorePointState.allowSnapshotBrowse = !!point && String(point.engine || '').toLowerCase() === 'kopia';
@@ -1134,7 +1134,7 @@ function openRestorePointModal(point) {
     window.restorePointState.snapshotEntries = [];
     window.restorePointState.snapshotLoading = false;
     window.restorePointState.snapshotError = '';
-    window.restorePointState.snapshotAgentId = '';
+    window.restorePointState.snapshotAgentUuid = '';
     hydrateRestorePointAgents(point);
     const modal = document.getElementById('restorePointModal');
     if (modal) modal.classList.remove('hidden');
@@ -1151,8 +1151,8 @@ function restorePointNext() {
     const stepId = getRestorePointStepId();
     if (stepId === 2) {
         const agentSel = document.getElementById('restorePointTargetAgent');
-        st.targetAgentId = agentSel ? (agentSel.value || '') : '';
-        if (!st.targetAgentId) {
+        st.targetAgentUuid = agentSel ? (agentSel.value || '') : '';
+        if (!st.targetAgentUuid) {
             if (window.toast) toast.error('Select a destination agent');
             else alert('Select a destination agent');
             return;
@@ -1208,13 +1208,13 @@ function updateRestorePointView() {
         const agent = document.getElementById('restorePointAgent');
         if (jobName) jobName.textContent = st.point.job_name || `Job #${st.point.job_id || '—'}`;
         if (manifest) manifest.textContent = `Manifest: ${st.point.manifest_id || '—'}`;
-        if (agent) agent.textContent = `Agent: ${st.point.agent_hostname || ('Agent #' + (st.point.agent_id || '—'))}`;
+        if (agent) agent.textContent = `Agent: ${st.point.agent_hostname || st.point.agent_uuid || '—'}`;
     }
     if (stepId === 2) {
         hydrateRestorePointAgents(st.point);
         const agentSelect = document.getElementById('restorePointTargetAgent');
         if (agentSelect) {
-            agentSelect.value = st.targetAgentId || '';
+            agentSelect.value = st.targetAgentUuid || '';
         }
     }
     if (stepId === 3) {
@@ -1224,12 +1224,12 @@ function updateRestorePointView() {
 
 function buildRestorePointReview() {
     const st = window.restorePointState;
-    const agentLabel = getRestorePointAgentLabel(st.targetAgentId);
+    const agentLabel = getRestorePointAgentLabel(st.targetAgentUuid);
     const review = {
         restore_point_id: st.point?.id,
         job_name: st.point?.job_name,
         manifest_id: st.point?.manifest_id,
-        target_agent_id: st.targetAgentId || '',
+        target_agent_uuid: st.targetAgentUuid || '',
         target_agent: agentLabel || '',
         target_path: st.targetPath,
         mount: st.mount,
@@ -1252,8 +1252,8 @@ function submitRestorePoint() {
     }
     const data = new URLSearchParams();
     data.set('restore_point_id', String(st.point.id));
-    if (st.targetAgentId) {
-        data.set('target_agent_id', String(st.targetAgentId));
+    if (st.targetAgentUuid) {
+        data.set('target_agent_uuid', String(st.targetAgentUuid));
     }
     data.set('target_path', st.targetPath || '');
     data.set('mount', st.mount ? 'true' : 'false');
