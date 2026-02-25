@@ -35,7 +35,7 @@ type agentConfig struct {
 	DeviceName string `yaml:"device_name,omitempty"`
 
 	ClientID   string `yaml:"client_id,omitempty"`
-	AgentID    string `yaml:"agent_id,omitempty"`
+	AgentUUID  string `yaml:"agent_uuid,omitempty"`
 	AgentToken string `yaml:"agent_token,omitempty"`
 
 	EnrollmentToken string `yaml:"enrollment_token,omitempty"`
@@ -196,10 +196,10 @@ func (a *trayApp) onReady() {
 
 	// Check if device needs enrollment (not enrolled and no pending token-based enrollment).
 	// If so, open the local enrollment UI after a short delay.
-	enrolled := strings.TrimSpace(cfg.AgentID) != "" && strings.TrimSpace(cfg.AgentToken) != ""
+	enrolled := strings.TrimSpace(cfg.AgentUUID) != "" && strings.TrimSpace(cfg.AgentToken) != ""
 	pendingTokenEnroll := strings.TrimSpace(cfg.EnrollmentToken) != ""
-	logDebug("onReady: enrolled=%v, pendingTokenEnroll=%v, AgentID=%q, EnrollmentToken=%q",
-		enrolled, pendingTokenEnroll, cfg.AgentID, cfg.EnrollmentToken)
+	logDebug("onReady: enrolled=%v, pendingTokenEnroll=%v, AgentUUID=%q, EnrollmentToken=%q",
+		enrolled, pendingTokenEnroll, cfg.AgentUUID, cfg.EnrollmentToken)
 	if !enrolled && !pendingTokenEnroll {
 		// Not enrolled and no MSP/RMM token - open local enrollment UI after short delay.
 		logDebug("onReady: will open local enrollment UI in 2 seconds")
@@ -278,7 +278,7 @@ func (a *trayApp) onExit() {}
 func (a *trayApp) statusLines() (string, string) {
 	cfg, _ := loadConfig(a.configPath)
 	enrolled := false
-	agentID := ""
+	agentUUID := ""
 	deviceID := ""
 	if cfg != nil {
 		// If identity is missing (older installs), generate+persist it.
@@ -286,13 +286,13 @@ func (a *trayApp) statusLines() (string, string) {
 			ensureIdentity(cfg)
 			_ = saveConfig(a.configPath, cfg)
 		}
-		enrolled = strings.TrimSpace(cfg.AgentID) != "" && strings.TrimSpace(cfg.AgentToken) != ""
-		agentID = cfg.AgentID
+		enrolled = strings.TrimSpace(cfg.AgentUUID) != "" && strings.TrimSpace(cfg.AgentToken) != ""
+		agentUUID = cfg.AgentUUID
 		deviceID = cfg.DeviceID
 	}
 	svc := serviceStatus()
 	if enrolled {
-		return fmt.Sprintf("Status: %s | Enrolled (agent_id=%s)", svc, agentID),
+		return fmt.Sprintf("Status: %s | Enrolled (agent_uuid=%s)", svc, agentUUID),
 			fmt.Sprintf("Device ID: %s", deviceIDOrDash(deviceID))
 	}
 	return fmt.Sprintf("Status: %s | Not enrolled", svc),
@@ -518,7 +518,7 @@ func (a *trayApp) handleEnroll(w http.ResponseWriter, r *http.Request) {
 			cfg.APIBaseURL = strings.TrimSpace(res.APIBaseURL)
 		}
 		cfg.ClientID = string(res.ClientID)
-		cfg.AgentID = string(res.AgentID)
+		cfg.AgentUUID = string(res.AgentID)
 		cfg.AgentToken = res.AgentToken
 		cfg.EnrollEmail = ""
 		cfg.EnrollPassword = ""
@@ -826,7 +826,7 @@ func (a *trayApp) fetchRecoveryBuildManifest(mode string, sourceAgentID int64) (
 	if err != nil || cfg == nil {
 		return nil, fmt.Errorf("unable to load agent config")
 	}
-	if strings.TrimSpace(cfg.APIBaseURL) == "" || strings.TrimSpace(cfg.AgentID) == "" || strings.TrimSpace(cfg.AgentToken) == "" {
+	if strings.TrimSpace(cfg.APIBaseURL) == "" || strings.TrimSpace(cfg.AgentUUID) == "" || strings.TrimSpace(cfg.AgentToken) == "" {
 		return nil, fmt.Errorf("agent is not enrolled; using default media catalog")
 	}
 
@@ -844,7 +844,7 @@ func (a *trayApp) fetchRecoveryBuildManifest(mode string, sourceAgentID int64) (
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Agent-ID", cfg.AgentID)
+	req.Header.Set("X-Agent-UUID", cfg.AgentUUID)
 	req.Header.Set("X-Agent-Token", cfg.AgentToken)
 
 	client := &http.Client{Timeout: 30 * time.Second}
