@@ -46,7 +46,7 @@ function setCloudStorageSetting(string $key, string $value): void
     ]);
 }
 
-function recreateUuidFirstSchema(): void
+function dropCloudBackupTables(): void
 {
     $schema = Capsule::schema();
 
@@ -77,229 +77,176 @@ function recreateUuidFirstSchema(): void
         }
     }
     Capsule::statement('SET FOREIGN_KEY_CHECKS=1');
+}
 
-    $schema->create('s3_cloudbackup_agents', function ($table) {
-        $table->string('agent_uuid', 36)->primary();
-        $table->unsignedInteger('client_id');
-        $table->unsignedInteger('tenant_id')->nullable();
-        $table->unsignedInteger('tenant_user_id')->nullable();
-        $table->string('agent_token', 191)->unique();
-        $table->unsignedInteger('enrollment_token_id')->nullable();
-        $table->string('hostname', 191)->nullable();
-        $table->string('device_id', 64)->nullable();
-        $table->string('install_id', 64)->nullable();
-        $table->string('device_name', 191)->nullable();
-        $table->string('agent_version', 64)->nullable();
-        $table->string('agent_os', 32)->nullable();
-        $table->string('agent_arch', 16)->nullable();
-        $table->string('agent_build', 64)->nullable();
-        $table->dateTime('metadata_updated_at')->nullable();
-        $table->enum('status', ['active', 'disabled'])->default('active');
-        $table->enum('agent_type', ['workstation', 'server', 'hypervisor'])->default('workstation');
-        $table->dateTime('last_seen_at')->nullable();
-        $table->text('volumes_json')->nullable();
-        $table->dateTime('volumes_updated_at')->nullable();
-        $table->timestamp('created_at')->useCurrent();
-        $table->timestamp('updated_at')->useCurrent();
+function recreateSchemaViaModuleActivate(): void
+{
+    require_once __DIR__ . '/../cloudstorage.php';
+    if (!function_exists('cloudstorage_activate')) {
+        throw new RuntimeException('cloudstorage_activate() not available');
+    }
+    $result = cloudstorage_activate();
+    if (!is_array($result) || ($result['status'] ?? 'fail') !== 'success') {
+        throw new RuntimeException('cloudstorage_activate() failed during cutover rebuild');
+    }
+}
 
-        $table->index('client_id');
-        $table->index('tenant_id');
-        $table->index('tenant_user_id');
-        $table->unique(['client_id', 'tenant_id', 'device_id'], 'uniq_agent_device_scope');
-    });
-
-    $schema->create('s3_cloudbackup_jobs', function ($table) {
-        $table->increments('id');
-        $table->unsignedInteger('client_id');
-        $table->unsignedInteger('tenant_id')->nullable();
-        $table->string('repository_id', 64)->nullable();
-        $table->string('agent_uuid', 36)->nullable();
-        $table->unsignedInteger('s3_user_id');
-        $table->unsignedInteger('dest_bucket_id');
-        $table->string('name', 191);
-        $table->string('source_type', 32)->default('s3_compatible');
-        $table->string('source_display_name', 191);
-        $table->mediumText('source_config_enc');
-        $table->string('source_path', 1024)->nullable();
-        $table->json('source_paths_json')->nullable();
-        $table->string('dest_prefix', 1024)->nullable();
-        $table->enum('backup_mode', ['sync', 'archive'])->default('sync');
-        $table->enum('status', ['active', 'paused', 'deleted'])->default('active');
-        $table->timestamp('created_at')->useCurrent();
-        $table->timestamp('updated_at')->useCurrent();
-
-        $table->index('client_id');
-        $table->index('tenant_id');
-        $table->index('repository_id');
-        $table->index('agent_uuid');
-        $table->index('s3_user_id');
-        $table->index('dest_bucket_id');
-    });
-
-    $schema->create('s3_cloudbackup_runs', function ($table) {
-        $table->bigIncrements('id');
-        $table->string('run_uuid', 36)->nullable();
-        $table->unsignedInteger('job_id');
-        $table->string('agent_uuid', 36)->nullable();
-        $table->unsignedInteger('tenant_id')->nullable();
-        $table->string('repository_id', 64)->nullable();
-        $table->string('status', 32)->default('queued');
-        $table->timestamp('created_at')->useCurrent();
-        $table->timestamp('started_at')->nullable();
-        $table->timestamp('finished_at')->nullable();
-        $table->timestamp('updated_at')->nullable();
-
-        $table->index('job_id');
-        $table->index('agent_uuid');
-        $table->index('tenant_id');
-        $table->index('repository_id');
-        $table->index('status');
-        $table->index('run_uuid');
-    });
-
-    $schema->create('s3_cloudbackup_run_events', function ($table) {
-        $table->bigIncrements('id');
-        $table->unsignedBigInteger('run_id');
-        $table->dateTime('ts');
-        $table->string('type', 32);
-        $table->string('level', 16);
-        $table->string('code', 64);
-        $table->string('message_id', 64);
-        $table->mediumText('params_json');
-        $table->index(['run_id', 'ts']);
-        $table->index(['run_id', 'id']);
-    });
-
-    $schema->create('s3_cloudbackup_run_logs', function ($table) {
-        $table->bigIncrements('id');
-        $table->unsignedBigInteger('run_id');
-        $table->timestamp('created_at')->useCurrent();
-        $table->string('level', 16)->default('info');
-        $table->string('code', 64)->nullable();
-        $table->mediumText('message');
-        $table->json('details_json')->nullable();
-        $table->index(['run_id', 'created_at']);
-    });
-
-    $schema->create('s3_cloudbackup_run_commands', function ($table) {
-        $table->bigIncrements('id');
-        $table->unsignedBigInteger('run_id')->nullable();
-        $table->string('agent_uuid', 36)->nullable();
-        $table->string('type', 64);
-        $table->json('payload_json')->nullable();
-        $table->enum('status', ['pending', 'processing', 'completed', 'failed'])->default('pending');
-        $table->mediumText('result_message')->nullable();
-        $table->timestamp('created_at')->useCurrent();
-        $table->timestamp('processed_at')->nullable();
-        $table->index(['run_id', 'status']);
-        $table->index('agent_uuid', 'idx_run_cmd_agent_uuid');
-    });
-
-    $schema->create('s3_cloudbackup_restore_points', function ($table) {
-        $table->bigIncrements('id');
-        $table->unsignedInteger('client_id');
-        $table->unsignedInteger('tenant_id')->nullable();
-        $table->string('repository_id', 64)->nullable();
-        $table->unsignedInteger('tenant_user_id')->nullable();
-        $table->string('agent_uuid', 36)->nullable();
-        $table->unsignedInteger('job_id')->nullable();
-        $table->unsignedBigInteger('run_id')->nullable();
-        $table->string('manifest_id', 191)->nullable();
-        $table->string('source_path', 1024)->nullable();
-        $table->string('dest_prefix', 1024)->nullable();
-        $table->string('status', 32)->nullable();
-        $table->timestamp('created_at')->useCurrent();
-        $table->timestamp('finished_at')->nullable();
-
-        $table->index('client_id');
-        $table->index('tenant_id');
-        $table->index('repository_id');
-        $table->index('agent_uuid');
-        $table->index('manifest_id');
-        $table->index('run_id');
-    });
-
-    $schema->create('s3_cloudbackup_agent_destinations', function ($table) {
-        $table->bigIncrements('id');
-        $table->string('agent_uuid', 36);
-        $table->unsignedInteger('client_id');
-        $table->unsignedInteger('tenant_id')->nullable();
-        $table->unsignedInteger('s3_user_id');
-        $table->unsignedInteger('dest_bucket_id');
-        $table->string('root_prefix', 1024);
-        $table->tinyInteger('is_locked')->default(1);
-        $table->timestamp('created_at')->useCurrent();
-        $table->timestamp('updated_at')->useCurrent();
-
-        $table->unique('agent_uuid');
-        $table->unique(['dest_bucket_id', 'root_prefix'], 'uniq_cloudbackup_dest_bucket_prefix');
-        $table->index('client_id');
-        $table->index('tenant_id');
-        $table->index('s3_user_id');
-        $table->index('dest_bucket_id');
-    });
-
-    $schema->create('s3_cloudbackup_repositories', function ($table) {
-        $table->bigIncrements('id');
-        $table->string('repository_id', 64)->unique();
-        $table->unsignedInteger('client_id');
-        $table->unsignedInteger('tenant_id')->nullable();
-        $table->unsignedInteger('tenant_user_id')->nullable();
-        $table->unsignedInteger('bucket_id');
-        $table->string('root_prefix', 1024);
-        $table->string('engine', 32)->default('kopia');
-        $table->enum('status', ['active', 'archived', 'deleted'])->default('active');
-        $table->timestamp('created_at')->useCurrent();
-        $table->timestamp('updated_at')->useCurrent();
-    });
-
-    $schema->create('s3_cloudbackup_repository_keys', function ($table) {
-        $table->bigIncrements('id');
-        $table->string('repository_ref', 64);
-        $table->unsignedInteger('key_version')->default(1);
-        $table->string('wrap_alg', 64)->default('aes-256-cbc');
-        $table->mediumText('wrapped_repo_secret');
-        $table->string('kek_ref', 191)->nullable();
-        $table->enum('mode', ['managed_recovery', 'strict_customer_managed'])->default('managed_recovery');
-        $table->timestamp('created_at')->useCurrent();
-        $table->unsignedInteger('created_by')->nullable();
-        $table->unique(['repository_ref', 'key_version'], 'uniq_repository_key_version');
-    });
-
-    $schema->create('s3_hyperv_vms', function ($table) {
-        $table->bigIncrements('id');
-        $table->string('agent_uuid', 36);
-        $table->string('vm_name', 191);
-        $table->string('vm_guid', 64)->nullable();
-        $table->string('state', 32)->nullable();
-        $table->timestamp('created_at')->useCurrent();
-        $table->timestamp('updated_at')->useCurrent();
-        $table->index('agent_uuid');
-        $table->index('vm_guid');
-    });
-
-    $schema->create('s3_hyperv_checkpoints', function ($table) {
-        $table->bigIncrements('id');
-        $table->unsignedBigInteger('vm_id');
-        $table->string('checkpoint_id', 191);
-        $table->timestamp('created_at')->useCurrent();
-        $table->index('vm_id');
-        $table->index('checkpoint_id');
-    });
-
-    $schema->create('s3_hyperv_backup_points', function ($table) {
-        $table->bigIncrements('id');
-        $table->unsignedBigInteger('vm_id');
-        $table->unsignedBigInteger('run_id')->nullable();
-        $table->string('manifest_id', 191)->nullable();
-        $table->string('backup_type', 32)->nullable();
-        $table->timestamp('created_at')->useCurrent();
-        $table->index('vm_id');
-        $table->index('run_id');
-        $table->index('manifest_id');
+function addColumnIfMissing(string $table, string $column, callable $adder): void
+{
+    $schema = Capsule::schema();
+    if (!$schema->hasTable($table) || $schema->hasColumn($table, $column)) {
+        return;
+    }
+    $schema->table($table, function ($tableBuilder) use ($adder) {
+        $adder($tableBuilder);
     });
 }
 
+function assertColumnsExist(string $table, array $columns): void
+{
+    $schema = Capsule::schema();
+    if (!$schema->hasTable($table)) {
+        throw new RuntimeException("missing table {$table} after cutover rebuild");
+    }
+    foreach ($columns as $column) {
+        if (!$schema->hasColumn($table, $column)) {
+            throw new RuntimeException("missing required column {$table}.{$column} after cutover rebuild");
+        }
+    }
+}
+
+function ensureCompatibilityColumnsForCurrentApis(): void
+{
+    // Compatibility bridge for pre-Task-7 API writes still using numeric agent_id.
+    addColumnIfMissing('s3_cloudbackup_jobs', 'agent_id', function ($table) {
+        $table->unsignedInteger('agent_id')->nullable()->after('agent_uuid');
+        $table->index('agent_id', 'idx_jobs_agent_id');
+    });
+    addColumnIfMissing('s3_cloudbackup_runs', 'agent_id', function ($table) {
+        $table->unsignedInteger('agent_id')->nullable()->after('agent_uuid');
+        $table->index('agent_id', 'idx_runs_agent_id');
+    });
+    addColumnIfMissing('s3_cloudbackup_run_commands', 'agent_id', function ($table) {
+        $table->unsignedInteger('agent_id')->nullable()->after('agent_uuid');
+        $table->index('agent_id', 'idx_run_cmd_agent_id_legacy');
+    });
+    addColumnIfMissing('s3_cloudbackup_restore_points', 'agent_id', function ($table) {
+        $table->unsignedInteger('agent_id')->nullable()->after('agent_uuid');
+        $table->index('agent_id', 'idx_restore_points_agent_id');
+    });
+    addColumnIfMissing('s3_cloudbackup_agent_destinations', 'agent_id', function ($table) {
+        $table->unsignedBigInteger('agent_id')->nullable()->after('agent_uuid');
+        $table->index('agent_id', 'idx_dest_agent_id');
+    });
+
+    // Ensure critical write-path contracts are present after rebuild.
+    assertColumnsExist('s3_cloudbackup_jobs', [
+        'schedule_type', 'schedule_time', 'schedule_weekday', 'schedule_cron', 'schedule_json',
+        'retention_mode', 'retention_value', 'retention_json', 'policy_json',
+        'encryption_mode', 'compression', 'engine', 'dest_type',
+    ]);
+    assertColumnsExist('s3_cloudbackup_runs', [
+        'status', 'progress_pct', 'bytes_transferred', 'bytes_processed', 'bytes_total',
+        'objects_transferred', 'objects_total', 'speed_bytes_per_sec', 'eta_seconds',
+        'current_item', 'log_excerpt', 'error_summary', 'validation_status',
+        'validation_log_excerpt', 'run_uuid',
+    ]);
+}
+
+function generateUuid(): string
+{
+    $bytes = random_bytes(16);
+    $bytes[6] = chr((ord($bytes[6]) & 0x0f) | 0x40);
+    $bytes[8] = chr((ord($bytes[8]) & 0x3f) | 0x80);
+    $hex = bin2hex($bytes);
+    return sprintf(
+        '%s-%s-%s-%s-%s',
+        substr($hex, 0, 8),
+        substr($hex, 8, 4),
+        substr($hex, 12, 4),
+        substr($hex, 16, 4),
+        substr($hex, 20, 12)
+    );
+}
+
+function runUuidEnrollmentDestinationSmoke(): void
+{
+    require_once __DIR__ . '/../lib/Client/CloudBackupBootstrapService.php';
+
+    $schema = Capsule::schema();
+    if (!$schema->hasColumn('s3_cloudbackup_agents', 'agent_uuid')) {
+        throw new RuntimeException('smoke check failed: agents.agent_uuid missing');
+    }
+    if (!$schema->hasColumn('s3_cloudbackup_agent_destinations', 'agent_uuid')) {
+        throw new RuntimeException('smoke check failed: destinations.agent_uuid missing');
+    }
+
+    $agentUuid = generateUuid();
+    $agentToken = bin2hex(random_bytes(20));
+    $destInserted = false;
+    $agentId = 0;
+
+    try {
+        $agentId = (int) Capsule::table('s3_cloudbackup_agents')->insertGetId([
+            'agent_uuid' => $agentUuid,
+            'client_id' => 1,
+            'tenant_id' => null,
+            'tenant_user_id' => null,
+            'agent_token' => $agentToken,
+            'hostname' => 'cutover-smoke-host',
+            'device_id' => 'cutover-smoke-device',
+            'status' => 'active',
+            'agent_type' => 'workstation',
+            'created_at' => Capsule::raw('NOW()'),
+            'updated_at' => Capsule::raw('NOW()'),
+        ]);
+
+        Capsule::statement('SET FOREIGN_KEY_CHECKS=0');
+        $payload = [
+            'agent_uuid' => $agentUuid,
+            'client_id' => 1,
+            'tenant_id' => null,
+            's3_user_id' => 0,
+            'dest_bucket_id' => 0,
+            'root_prefix' => 'cutover-smoke-prefix',
+            'is_locked' => 1,
+            'created_at' => Capsule::raw('NOW()'),
+            'updated_at' => Capsule::raw('NOW()'),
+        ];
+        if ($schema->hasColumn('s3_cloudbackup_agent_destinations', 'agent_id')) {
+            $payload['agent_id'] = $agentId;
+        }
+        Capsule::table('s3_cloudbackup_agent_destinations')->insert($payload);
+        $destInserted = true;
+        Capsule::statement('SET FOREIGN_KEY_CHECKS=1');
+
+        $res = \WHMCS\Module\Addon\CloudStorage\Client\CloudBackupBootstrapService::ensureAgentDestination($agentUuid);
+        if (($res['status'] ?? 'fail') !== 'success') {
+            throw new RuntimeException('smoke check failed: ensureAgentDestination did not succeed for UUID path');
+        }
+        $dest = $res['destination'] ?? null;
+        if (!$dest || (string) ($dest->agent_uuid ?? '') !== $agentUuid) {
+            throw new RuntimeException('smoke check failed: destination not resolved by agent_uuid');
+        }
+    } finally {
+        try {
+            Capsule::statement('SET FOREIGN_KEY_CHECKS=0');
+            if ($destInserted) {
+                Capsule::table('s3_cloudbackup_agent_destinations')->where('agent_uuid', $agentUuid)->delete();
+            }
+            if ($agentId > 0) {
+                Capsule::table('s3_cloudbackup_agents')->where('id', $agentId)->delete();
+            }
+            Capsule::statement('SET FOREIGN_KEY_CHECKS=1');
+        } catch (\Throwable $cleanupError) {
+            // Ignore cleanup failures; main result already emitted.
+        }
+    }
+}
+
 setCloudStorageSetting('agent_uuid_cutover_maintenance_mode', '1');
-recreateUuidFirstSchema();
+dropCloudBackupTables();
+recreateSchemaViaModuleActivate();
+ensureCompatibilityColumnsForCurrentApis();
+runUuidEnrollmentDestinationSmoke();
 echo "agent-uuid-bigbang-cutover-ok\n";

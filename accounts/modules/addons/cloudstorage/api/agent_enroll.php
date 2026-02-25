@@ -267,7 +267,6 @@ try {
 
         return [
             'agent_uuid' => $agentUuid,
-            'agent_row_id' => (int) $agentId,
             'client_id' => (string) $tok->client_id,
             'tenant_id' => $tok->tenant_id ? (int) $tok->tenant_id : null,
             'agent_token' => $agentToken,
@@ -275,7 +274,7 @@ try {
         ];
     });
 
-    $destResult = CloudBackupBootstrapService::ensureAgentDestination((int) $result['agent_row_id']);
+    $destResult = CloudBackupBootstrapService::ensureAgentDestination((string) $result['agent_uuid']);
     if (($destResult['status'] ?? 'fail') !== 'success') {
         logModuleCall('cloudstorage', 'agent_enroll_ensure_destination_failed', [
             'agent_uuid' => $result['agent_uuid'],

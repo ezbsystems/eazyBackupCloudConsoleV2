@@ -49,14 +49,31 @@ class RepositoryService
             if (!$agent) {
                 return ['status' => 'fail', 'message' => 'Agent not found'];
             }
+            $agentUuid = trim((string) ($agent->agent_uuid ?? ''));
+            if ($agentUuid === '') {
+                return ['status' => 'fail', 'message' => 'Agent UUID is missing'];
+            }
 
-            $destination = Capsule::table('s3_cloudbackup_agent_destinations')->where('agent_id', $agentId)->first();
+            $destQuery = Capsule::table('s3_cloudbackup_agent_destinations');
+            if (Capsule::schema()->hasColumn('s3_cloudbackup_agent_destinations', 'agent_uuid')) {
+                $destQuery->where('agent_uuid', $agentUuid);
+            } else {
+                $destQuery->where('agent_id', $agentId);
+            }
+            $destination = $destQuery->first();
+
             if (!$destination) {
-                $ensure = CloudBackupBootstrapService::ensureAgentDestination($agentId);
+                $ensure = CloudBackupBootstrapService::ensureAgentDestination($agentUuid);
                 if (($ensure['status'] ?? 'fail') !== 'success') {
                     return ['status' => 'fail', 'message' => $ensure['message'] ?? 'Unable to resolve agent destination'];
                 }
-                $destination = Capsule::table('s3_cloudbackup_agent_destinations')->where('agent_id', $agentId)->first();
+                $destQuery = Capsule::table('s3_cloudbackup_agent_destinations');
+                if (Capsule::schema()->hasColumn('s3_cloudbackup_agent_destinations', 'agent_uuid')) {
+                    $destQuery->where('agent_uuid', $agentUuid);
+                } else {
+                    $destQuery->where('agent_id', $agentId);
+                }
+                $destination = $destQuery->first();
             }
             if (!$destination) {
                 return ['status' => 'fail', 'message' => 'Agent destination is not configured'];
