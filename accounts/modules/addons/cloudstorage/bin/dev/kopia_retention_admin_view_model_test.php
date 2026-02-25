@@ -28,7 +28,7 @@ function assertEqual($expected, $actual, string $label, array &$failures): void
 echo "CloudBackupAdminController::getRepoRetentionOps tests\n";
 echo str_repeat('-', 60) . "\n";
 
-$result = CloudBackupAdminController::getRepoRetentionOps();
+$result = CloudBackupAdminController::getRepoRetentionOps(['limit' => 1]);
 
 assertEqual(true, is_array($result), 'getRepoRetentionOps returns array', $failures);
 
