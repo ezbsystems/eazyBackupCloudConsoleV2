@@ -4,6 +4,9 @@ declare(strict_types=1);
 namespace WHMCS\Module\Addon\CloudStorage\Client;
 
 use Illuminate\Database\QueryException;
+
+// Load shared helper (used by this service and KopiaRetentionLockService)
+require_once __DIR__ . '/KopiaRetentionDbHelper.php';
 use WHMCS\Database\Capsule;
 
 /**
@@ -37,7 +40,7 @@ class KopiaRetentionOperationService
             ]);
             return ['status' => 'success', 'operation_id' => (int) $id];
         } catch (QueryException $e) {
-            if (self::isDuplicateKeyException($e)) {
+            if (KopiaRetentionDbHelper::isDuplicateKeyException($e)) {
                 $existing = Capsule::table('s3_kopia_repo_operations')->where('operation_token', $token)->first();
                 if ($existing) {
                     return ['status' => 'duplicate', 'operation_id' => (int) $existing->id];
@@ -45,15 +48,5 @@ class KopiaRetentionOperationService
             }
             throw $e;
         }
-    }
-
-    private static function isDuplicateKeyException(QueryException $e): bool
-    {
-        $code = $e->getCode();
-        if ($code === '23000' || $code === 23000 || $code === 1062) {
-            return true;
-        }
-        $msg = $e->getMessage();
-        return str_contains($msg, 'Duplicate entry') || str_contains($msg, '1062');
     }
 }

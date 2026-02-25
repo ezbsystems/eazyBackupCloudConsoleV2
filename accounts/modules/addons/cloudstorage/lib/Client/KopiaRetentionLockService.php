@@ -4,6 +4,9 @@ declare(strict_types=1);
 namespace WHMCS\Module\Addon\CloudStorage\Client;
 
 use Illuminate\Database\QueryException;
+
+// Load shared helper (used by this service and KopiaRetentionOperationService)
+require_once __DIR__ . '/KopiaRetentionDbHelper.php';
 use WHMCS\Database\Capsule;
 
 /**
@@ -24,6 +27,10 @@ class KopiaRetentionLockService
      */
     public static function acquire(int $repoId, string $lockToken, ?int $agentId, int $ttlSeconds = 300): bool
     {
+        // TTL must be positive; otherwise lock expiry would be invalid (past or zero).
+        if ($ttlSeconds <= 0) {
+            return false;
+        }
         return Capsule::connection()->transaction(function () use ($repoId, $lockToken, $agentId, $ttlSeconds): bool {
             $now = date('Y-m-d H:i:s');
             $expiresAt = date('Y-m-d H:i:s', time() + $ttlSeconds);
@@ -61,23 +68,13 @@ class KopiaRetentionLockService
                 ]);
                 return true;
             } catch (QueryException $e) {
-                if (self::isDuplicateKeyException($e)) {
+                if (KopiaRetentionDbHelper::isDuplicateKeyException($e)) {
                     $recheck = Capsule::table('s3_kopia_repo_locks')->where('repo_id', $repoId)->first();
                     return $recheck && $recheck->lock_token === $lockToken;
                 }
                 throw $e;
             }
         });
-    }
-
-    private static function isDuplicateKeyException(QueryException $e): bool
-    {
-        $code = $e->getCode();
-        if ($code === '23000' || $code === 23000 || $code === 1062) {
-            return true;
-        }
-        $msg = $e->getMessage();
-        return str_contains($msg, 'Duplicate entry') || str_contains($msg, '1062');
     }
 
     /**
@@ -91,6 +88,10 @@ class KopiaRetentionLockService
      */
     public static function renew(int $repoId, string $lockToken, int $ttlSeconds = 300): bool
     {
+        // TTL must be positive; otherwise renewal would set invalid expiry (past or zero).
+        if ($ttlSeconds <= 0) {
+            return false;
+        }
         $affected = Capsule::table('s3_kopia_repo_locks')
             ->where('repo_id', $repoId)
             ->where('lock_token', $lockToken)
