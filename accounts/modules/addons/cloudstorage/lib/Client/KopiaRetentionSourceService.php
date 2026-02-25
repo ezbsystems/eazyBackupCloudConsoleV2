@@ -176,7 +176,7 @@ class KopiaRetentionSourceService
             $jobIds = Capsule::table('s3_cloudbackup_jobs')
                 ->where('agent_id', $agentId)
                 ->where('source_type', 'local_agent')
-                ->whereIn('engine', self::KOPIA_ENGINES)
+                ->whereRaw('LOWER(engine) IN (\'kopia\', \'disk_image\', \'hyperv\')')
                 ->pluck('id')
                 ->toArray();
             if (empty($jobIds)) {

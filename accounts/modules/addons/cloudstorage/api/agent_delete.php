@@ -89,6 +89,12 @@ try {
     logModuleCall('cloudstorage', 'agent_delete_retention_retire_error', ['agent_id' => $agentId], $e->getMessage());
 }
 
+// Clear agent references on jobs before deleting agent row
+if (Capsule::schema()->hasTable('s3_cloudbackup_jobs')
+    && Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'agent_id')) {
+    Capsule::table('s3_cloudbackup_jobs')->where('agent_id', $agentId)->update(['agent_id' => null]);
+}
+
 // Delete the agent
 Capsule::table('s3_cloudbackup_agents')->where('id', $agentId)->delete();
 
