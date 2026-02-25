@@ -90,6 +90,20 @@ crontab -l | grep s3cloudbackup_scheduler.php
 - Exclusivity: in-progress runs stay with their agent; reclaim requires matching `run.agent_id` (or job.agent_id legacy).
 - Env knobs: `AGENT_WATCHDOG_TIMEOUT_SECONDS`, `AGENT_RECLAIM_GRACE_SECONDS` (grace < timeout), `AGENT_DISK_IMAGE_STALL_SECONDS` (default 60).
 
+## Local Agent Kopia Retention (repo-native queue + agent execution)
+
+Local Agent Kopia retention uses a **repo-native** model—not the cloud cron/object-delete path. The cloud retention cron (`s3cloudbackup_retention.php`) and `CloudBackupController::applyRetentionPolicy()` are **Cloud Backup only**; Local Agent jobs are excluded.
+
+For Local Agent Kopia jobs, retention works as follows:
+
+1. **Repo-native queue**: The control plane enqueues repo operations (`kopia_retention_apply`, `kopia_maintenance_quick`, `kopia_maintenance_full`) in `s3_kopia_repo_operations`. No server-side object deletion.
+2. **Agent execution**: Eligible agents poll for repo-scoped commands via `agent_poll_pending_commands.php`, claim operations, and execute snapshot forget + maintenance on the Kopia repository. All Kopia data cleanup is performed by agents only.
+3. **Vault default policy**: Each vault/repo has an admin-configured default retention policy applied at creation.
+4. **Per-source override**: Active jobs may specify a job-level retention override; it takes precedence over the vault default while the job is active.
+5. **Immediate fallback**: When a job is deleted or an agent is removed, the source is retired and immediately falls back to the vault default retention policy. No job override applies for retired sources.
+
+See `KOPIA_RETENTION_ARCHITECTURE.md` for full details.
+
 ---
 
 ## Hyper-V Backup Engine (Dec 2025)
