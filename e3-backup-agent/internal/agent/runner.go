@@ -95,7 +95,7 @@ func (r *Runner) waitForEnrollmentIfNeeded(stop <-chan struct{}) error {
 	if r.cfg == nil {
 		return fmt.Errorf("config is nil")
 	}
-	enrolled := strings.TrimSpace(r.cfg.AgentID) != "" && strings.TrimSpace(r.cfg.AgentToken) != ""
+	enrolled := strings.TrimSpace(r.cfg.AgentUUID) != "" && strings.TrimSpace(r.cfg.AgentToken) != ""
 	hasEnrollCreds := strings.TrimSpace(r.cfg.EnrollmentToken) != "" ||
 		(strings.TrimSpace(r.cfg.EnrollEmail) != "" && strings.TrimSpace(r.cfg.EnrollPassword) != "")
 	if enrolled || hasEnrollCreds {
@@ -123,7 +123,7 @@ func (r *Runner) waitForEnrollmentIfNeeded(stop <-chan struct{}) error {
 			}
 			r.cfg = cfg
 			r.client = NewClient(r.cfg)
-			enrolled := strings.TrimSpace(r.cfg.AgentID) != "" && strings.TrimSpace(r.cfg.AgentToken) != ""
+			enrolled := strings.TrimSpace(r.cfg.AgentUUID) != "" && strings.TrimSpace(r.cfg.AgentToken) != ""
 			hasEnrollCreds := strings.TrimSpace(r.cfg.EnrollmentToken) != "" ||
 				(strings.TrimSpace(r.cfg.EnrollEmail) != "" && strings.TrimSpace(r.cfg.EnrollPassword) != "")
 			if enrolled || hasEnrollCreds {
@@ -134,9 +134,9 @@ func (r *Runner) waitForEnrollmentIfNeeded(stop <-chan struct{}) error {
 }
 
 // enrollIfNeeded performs first-run enrollment using token or email/password
-// then persists the acquired AgentID/AgentToken into the config file.
+// then persists the acquired AgentUUID/AgentToken into the config file.
 func (r *Runner) enrollIfNeeded() error {
-	if r.cfg.AgentID != "" && r.cfg.AgentToken != "" {
+	if r.cfg.AgentUUID != "" && r.cfg.AgentToken != "" {
 		return nil
 	}
 
@@ -159,7 +159,8 @@ func (r *Runner) enrollIfNeeded() error {
 	}
 
 	// Persist credentials and clear enrollment fields
-	r.cfg.AgentID = string(resp.AgentID)
+	r.cfg.AgentUUID = string(resp.AgentID)
+	r.cfg.AgentID = ""
 	r.cfg.ClientID = string(resp.ClientID)
 	r.cfg.AgentToken = resp.AgentToken
 	r.cfg.EnrollmentToken = ""
@@ -174,7 +175,7 @@ func (r *Runner) enrollIfNeeded() error {
 
 	// Rebuild client with new credentials
 	r.client = NewClient(r.cfg)
-	log.Printf("agent: enrollment succeeded (client_id=%s, agent_id=%s)", r.cfg.ClientID, r.cfg.AgentID)
+	log.Printf("agent: enrollment succeeded (client_id=%s, agent_uuid=%s)", r.cfg.ClientID, r.cfg.AgentUUID)
 	return nil
 }
 

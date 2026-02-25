@@ -27,7 +27,8 @@ type AgentConfig struct {
 
 	// Post-enrollment (persistent credentials)
 	ClientID   string `yaml:"client_id,omitempty" json:"client_id,omitempty"`
-	AgentID    string `yaml:"agent_id,omitempty" json:"agent_id,omitempty"`
+	AgentUUID  string `yaml:"agent_uuid,omitempty" json:"agent_uuid,omitempty"`
+	AgentID    string `yaml:"agent_id,omitempty" json:"agent_id,omitempty"` // legacy key; rejected for enrollment
 	AgentToken string `yaml:"agent_token,omitempty" json:"agent_token,omitempty"`
 
 	// Pre-enrollment inputs (used on first run, then cleared)
@@ -72,11 +73,15 @@ func (c *AgentConfig) Validate() error {
 	c.applyDefaults()
 
 	// Enrolled config OR pre-enrollment config must be present.
-	enrolled := c.AgentID != "" && c.AgentToken != ""
+	enrolled := c.AgentUUID != "" && c.AgentToken != ""
+	legacyEnrolled := c.AgentID != "" && c.AgentToken != ""
+	if !enrolled && legacyEnrolled {
+		return fmt.Errorf("%w: legacy agent_id is no longer accepted; set agent_uuid with agent_token", ErrMissingEnrollment)
+	}
 	preEnrollToken := c.EnrollmentToken != ""
 	preEnrollLogin := c.EnrollEmail != "" && c.EnrollPassword != ""
 	if !enrolled && !preEnrollToken && !preEnrollLogin {
-		return fmt.Errorf("%w: agent_id/agent_token are required unless enrollment_token or enroll_email+enroll_password are provided", ErrMissingEnrollment)
+		return fmt.Errorf("%w: agent_uuid/agent_token are required unless enrollment_token or enroll_email+enroll_password are provided", ErrMissingEnrollment)
 	}
 
 	return nil

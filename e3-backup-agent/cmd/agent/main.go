@@ -56,7 +56,7 @@ func main() {
 		log.Printf("config missing enrollment credentials; waiting for enrollment")
 	}
 
-	log.Printf("e3-backup-agent starting (client_id=%s, agent_id=%s, api=%s)", cfg.ClientID, cfg.AgentID, cfg.APIBaseURL)
+	log.Printf("e3-backup-agent starting (client_id=%s, agent_uuid=%s, api=%s)", cfg.ClientID, cfg.AgentUUID, cfg.APIBaseURL)
 
 	r := agent.NewRunner(cfg, *configPath)
 	stop := make(chan struct{})
@@ -91,7 +91,7 @@ func (p *program) run() {
 	if errors.Is(err, agent.ErrMissingEnrollment) {
 		log.Printf("service: config missing enrollment credentials; waiting for enrollment")
 	}
-	log.Printf("service: e3-backup-agent starting (client_id=%s, agent_id=%s, api=%s)", cfg.ClientID, cfg.AgentID, cfg.APIBaseURL)
+	log.Printf("service: e3-backup-agent starting (client_id=%s, agent_uuid=%s, api=%s)", cfg.ClientID, cfg.AgentUUID, cfg.APIBaseURL)
 	r := agent.NewRunner(cfg, p.configPath)
 	r.Start(p.stop)
 }

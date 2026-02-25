@@ -6,7 +6,7 @@
 #  2) End-user email/password enrollment (interactive/tray)
 #
 # After successful enrollment the agent rewrites the config to include:
-#   client_id, agent_id, agent_token
+#   client_id, agent_uuid, agent_token
 # and clears enrollment_token / enroll_email / enroll_password.
 #
 
@@ -35,7 +35,7 @@ device_name: "FILE-SERVER-01"
 
 # --- After enrollment (agent rewrites these) ---
 # client_id: "42"
-# agent_id: "123"
+# agent_uuid: "123e4567-e89b-12d3-a456-426614174000"
 # agent_token: "40-hex-token-here"
 
 
