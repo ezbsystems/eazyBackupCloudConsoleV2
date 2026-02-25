@@ -159,7 +159,7 @@ func (r *Runner) enrollIfNeeded() error {
 	}
 
 	// Persist credentials and clear enrollment fields
-	r.cfg.AgentUUID = string(resp.AgentID)
+	r.cfg.AgentUUID = string(resp.AgentUUID)
 	r.cfg.AgentID = ""
 	r.cfg.ClientID = string(resp.ClientID)
 	r.cfg.AgentToken = resp.AgentToken
@@ -350,15 +350,15 @@ func (r *Runner) repoOperationToRun(op *RepoOperation) *NextRunResponse {
 		return nil
 	}
 	return &NextRunResponse{
-		JobID:            int64(op.RepoID),
-		DestType:         "s3",
-		DestBucketName:   op.BucketName,
-		DestPrefix:       op.RootPrefix,
-		DestEndpoint:    op.Endpoint,
-		DestRegion:      op.Region,
-		DestAccessKey:   op.DestAccessKey,
-		DestSecretKey:   op.DestSecretKey,
-		RepoConfigKey:   fmt.Sprintf("repo_%d", op.RepoID),
+		JobID:          int64(op.RepoID),
+		DestType:       "s3",
+		DestBucketName: op.BucketName,
+		DestPrefix:     op.RootPrefix,
+		DestEndpoint:   op.Endpoint,
+		DestRegion:     op.Region,
+		DestAccessKey:  op.DestAccessKey,
+		DestSecretKey:  op.DestSecretKey,
+		RepoConfigKey:  fmt.Sprintf("repo_%d", op.RepoID),
 	}
 }
 

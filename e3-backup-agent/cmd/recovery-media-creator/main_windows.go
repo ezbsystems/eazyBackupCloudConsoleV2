@@ -22,7 +22,7 @@ import (
 
 type mediaBuildManifest struct {
 	Mode                string `json:"mode"`
-	SourceAgentID       int64  `json:"source_agent_id"`
+	SourceAgentUUID     string `json:"source_agent_uuid"`
 	SourceAgentHostname string `json:"source_agent_hostname"`
 	BaseISOURL          string `json:"base_iso_url"`
 	BaseISOSHA256       string `json:"base_iso_sha256"`
@@ -192,7 +192,7 @@ func (a *app) handleBuildStart(w http.ResponseWriter, r *http.Request) {
 	}
 	manifest := &mediaBuildManifest{
 		Mode:                manifestRaw.Mode,
-		SourceAgentID:       manifestRaw.SourceAgentID,
+		SourceAgentUUID:     manifestRaw.SourceAgentUUID,
 		SourceAgentHostname: manifestRaw.SourceAgentHostname,
 		BaseISOURL:          manifestRaw.BaseISOURL,
 		BaseISOSHA256:       manifestRaw.BaseISOSHA256,

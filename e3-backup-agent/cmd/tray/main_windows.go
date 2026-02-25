@@ -518,7 +518,7 @@ func (a *trayApp) handleEnroll(w http.ResponseWriter, r *http.Request) {
 			cfg.APIBaseURL = strings.TrimSpace(res.APIBaseURL)
 		}
 		cfg.ClientID = string(res.ClientID)
-		cfg.AgentUUID = string(res.AgentID)
+		cfg.AgentUUID = string(res.AgentUUID)
 		cfg.AgentToken = res.AgentToken
 		cfg.EnrollEmail = ""
 		cfg.EnrollPassword = ""
@@ -544,7 +544,7 @@ func (a *trayApp) handleEnroll(w http.ResponseWriter, r *http.Request) {
 type enrollResp struct {
 	Status     string     `json:"status"`
 	Message    string     `json:"message"`
-	AgentID    jsonString `json:"agent_id"`
+	AgentUUID  jsonString `json:"agent_uuid"`
 	ClientID   jsonString `json:"client_id"`
 	AgentToken string     `json:"agent_token"`
 	APIBaseURL string     `json:"api_base_url"`
@@ -586,7 +586,7 @@ func enrollWithCredentials(apiBaseURL, email, password, hostname, deviceID, inst
 		}
 		return nil, fmt.Errorf("enrollment failed")
 	}
-	if strings.TrimSpace(string(out.AgentID)) == "" || strings.TrimSpace(out.AgentToken) == "" {
+	if strings.TrimSpace(string(out.AgentUUID)) == "" || strings.TrimSpace(out.AgentToken) == "" {
 		return nil, fmt.Errorf("enrollment response missing agent credentials")
 	}
 	return &out, nil
@@ -768,7 +768,7 @@ type recoveryPhaseState struct {
 
 type recoveryBuildManifest struct {
 	Mode                string `json:"mode"`
-	SourceAgentID       int64  `json:"source_agent_id"`
+	SourceAgentUUID     string `json:"source_agent_uuid"`
 	SourceAgentHostname string `json:"source_agent_hostname"`
 	BaseISOURL          string `json:"base_iso_url"`
 	BaseISOSHA256       string `json:"base_iso_sha256"`
@@ -821,7 +821,7 @@ func phaseStates(activePhase, terminalStatus string) []recoveryPhaseState {
 	return out
 }
 
-func (a *trayApp) fetchRecoveryBuildManifest(mode string, sourceAgentID int64) (*recoveryBuildManifest, error) {
+func (a *trayApp) fetchRecoveryBuildManifest(mode string, sourceAgentUUID string) (*recoveryBuildManifest, error) {
 	cfg, err := loadConfig(a.configPath)
 	if err != nil || cfg == nil {
 		return nil, fmt.Errorf("unable to load agent config")
@@ -834,8 +834,8 @@ func (a *trayApp) fetchRecoveryBuildManifest(mode string, sourceAgentID int64) (
 	body := map[string]any{
 		"mode": mode,
 	}
-	if sourceAgentID > 0 {
-		body["source_agent_id"] = sourceAgentID
+	if strings.TrimSpace(sourceAgentUUID) != "" {
+		body["source_agent_uuid"] = strings.TrimSpace(sourceAgentUUID)
 	}
 	buf, _ := json.Marshal(body)
 
@@ -914,11 +914,11 @@ func (a *trayApp) handleRecoveryStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var payload struct {
-		DiskNumber    int64  `json:"disk_number"`
-		Checksum      string `json:"checksum"`
-		MediaType     string `json:"media_type"`      // "winpe" (default) or "linux"
-		BuildMode     string `json:"build_mode"`      // "fast" or "dissimilar"
-		SourceAgentID int64  `json:"source_agent_id"` // optional for tray flow
+		DiskNumber      int64  `json:"disk_number"`
+		Checksum        string `json:"checksum"`
+		MediaType       string `json:"media_type"`        // "winpe" (default) or "linux"
+		BuildMode       string `json:"build_mode"`        // "fast" or "dissimilar"
+		SourceAgentUUID string `json:"source_agent_uuid"` // optional for tray flow
 	}
 	dec := json.NewDecoder(r.Body)
 	if err := dec.Decode(&payload); err != nil {
@@ -965,7 +965,7 @@ func (a *trayApp) handleRecoveryStart(w http.ResponseWriter, r *http.Request) {
 	}
 	a.storeRecoveryJob(job)
 	a.appendRecoveryLog(job.ID, fmt.Sprintf("Queued %s recovery media build for disk %d", strings.ToUpper(payload.MediaType), payload.DiskNumber))
-	go a.runRecoveryJob(job.ID, payload.DiskNumber, imageURL, checksum, payload.MediaType, payload.BuildMode, payload.SourceAgentID)
+	go a.runRecoveryJob(job.ID, payload.DiskNumber, imageURL, checksum, payload.MediaType, payload.BuildMode, payload.SourceAgentUUID)
 
 	writeJSON(w, map[string]any{"status": "success", "job_id": job.ID})
 }
@@ -1152,7 +1152,7 @@ func (a *trayApp) getRecoveryJob(id string) *recoveryJob {
 	return &cp
 }
 
-func (a *trayApp) runRecoveryJob(jobID string, diskNumber int64, imageURL, checksum, mediaType, buildMode string, sourceAgentID int64) {
+func (a *trayApp) runRecoveryJob(jobID string, diskNumber int64, imageURL, checksum, mediaType, buildMode string, sourceAgentUUID string) {
 	a.updateRecoveryJob(jobID, "downloading", "downloading", "Downloading recovery image", 0, 0, 0)
 	buildMode = strings.ToLower(strings.TrimSpace(buildMode))
 	if buildMode == "" {
@@ -1161,7 +1161,7 @@ func (a *trayApp) runRecoveryJob(jobID string, diskNumber int64, imageURL, check
 
 	var manifest *recoveryBuildManifest
 	if mediaType == "winpe" {
-		mf, err := a.fetchRecoveryBuildManifest(buildMode, sourceAgentID)
+		mf, err := a.fetchRecoveryBuildManifest(buildMode, sourceAgentUUID)
 		if err != nil {
 			a.appendRecoveryLog(jobID, "Media manifest lookup unavailable: "+err.Error())
 		} else {

@@ -201,8 +201,8 @@ if (isset($runColumns['job_id'])) {
 if (isset($runColumns['client_id'])) {
     $runData['client_id'] = $restorePoint->client_id;
 }
-if (isset($runColumns['agent_id'])) {
-    $runData['agent_id'] = (int) ($restorePoint->agent_id ?? ($job->agent_id ?? 0)) ?: null;
+if (isset($runColumns['agent_uuid'])) {
+    $runData['agent_uuid'] = trim((string) ($restorePoint->agent_uuid ?? ($job->agent_uuid ?? ''))) ?: null;
 }
 if (isset($runColumns['trigger_type'])) {
     $runData['trigger_type'] = 'manual';

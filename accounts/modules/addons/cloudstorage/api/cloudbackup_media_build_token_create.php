@@ -62,18 +62,18 @@ if (!$ca->isLoggedIn()) {
 }
 $clientId = (int) $ca->getUserID();
 $body = getBodyJson();
-$sourceAgentId = isset($_POST['source_agent_id']) ? (int) $_POST['source_agent_id'] : (int) ($body['source_agent_id'] ?? 0);
+$sourceAgentUuid = trim((string) ($_POST['source_agent_uuid'] ?? ($body['source_agent_uuid'] ?? '')));
 $mode = RecoveryMediaBundleService::normalizeMode((string) ($_POST['mode'] ?? ($body['mode'] ?? 'fast')));
 $ttlMinutes = isset($_POST['ttl_minutes']) ? (int) $_POST['ttl_minutes'] : (int) ($body['ttl_minutes'] ?? 30);
 if ($ttlMinutes <= 0 || $ttlMinutes > 120) {
     $ttlMinutes = 30;
 }
-if ($sourceAgentId <= 0) {
-    respondError('invalid_request', 'source_agent_id is required', 400);
+if ($sourceAgentUuid === '') {
+    respondError('invalid_request', 'source_agent_uuid is required', 400);
 }
 
 $sourceAgent = Capsule::table('s3_cloudbackup_agents')
-    ->where('id', $sourceAgentId)
+    ->where('agent_uuid', $sourceAgentUuid)
     ->where('client_id', $clientId)
     ->first();
 if (!$sourceAgent) {
@@ -94,7 +94,7 @@ $payload = [
     'typ' => 'media_build',
     'iss' => 'cloudstorage',
     'client_id' => $clientId,
-    'source_agent_id' => $sourceAgentId,
+    'source_agent_uuid' => $sourceAgentUuid,
     'mode' => $mode,
     'iat' => $iat,
     'exp' => $exp,
@@ -112,7 +112,7 @@ respond([
     'status' => 'success',
     'token' => $token,
     'expires_at' => gmdate('Y-m-d H:i:s', $exp),
-    'source_agent_id' => $sourceAgentId,
+    'source_agent_uuid' => $sourceAgentUuid,
     'mode' => $mode,
 ]);
 
