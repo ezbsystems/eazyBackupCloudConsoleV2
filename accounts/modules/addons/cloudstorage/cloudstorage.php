@@ -2005,6 +2005,13 @@ function cloudstorage_activate() {
             });
             logModuleCall('cloudstorage', 'activate', [], 'Added retired_at to s3_kopia_repo_sources', [], []);
         }
+        if (Capsule::schema()->hasTable('s3_kopia_repo_sources') && !Capsule::schema()->hasColumn('s3_kopia_repo_sources', 'lifecycle')) {
+            Capsule::schema()->table('s3_kopia_repo_sources', function ($table) {
+                $table->enum('lifecycle', ['active', 'retired', 'expired'])->default('active')->after('source_uuid');
+                $table->index(['repo_id', 'lifecycle']);
+            });
+            logModuleCall('cloudstorage', 'activate', [], 'Added lifecycle to s3_kopia_repo_sources', [], []);
+        }
         if (!Capsule::schema()->hasTable('s3_kopia_repo_operations')) {
             Capsule::schema()->create('s3_kopia_repo_operations', function ($table) {
                 $table->bigIncrements('id');
@@ -3002,6 +3009,13 @@ function cloudstorage_upgrade($vars) {
                 $table->timestamp('retired_at')->nullable()->after('updated_at');
             });
             logModuleCall('cloudstorage', 'upgrade', [], 'Added retired_at to s3_kopia_repo_sources', [], []);
+        }
+        if ($kopiaSchema->hasTable('s3_kopia_repo_sources') && !$kopiaSchema->hasColumn('s3_kopia_repo_sources', 'lifecycle')) {
+            $kopiaSchema->table('s3_kopia_repo_sources', function ($table) {
+                $table->enum('lifecycle', ['active', 'retired', 'expired'])->default('active')->after('source_uuid');
+                $table->index(['repo_id', 'lifecycle']);
+            });
+            logModuleCall('cloudstorage', 'upgrade', [], 'Added lifecycle to s3_kopia_repo_sources', [], []);
         }
         if (!$kopiaSchema->hasTable('s3_kopia_repo_operations')) {
             $kopiaSchema->create('s3_kopia_repo_operations', function ($table) {
