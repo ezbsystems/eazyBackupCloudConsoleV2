@@ -17,11 +17,11 @@ if (!$ca->isLoggedIn()) {
 }
 $clientId = $ca->getUserID();
 
-$agentId = (int)($_POST['agent_id'] ?? 0);
+$agentUuid = trim((string) ($_POST['agent_uuid'] ?? ''));
 $status = $_POST['status'] ?? '';
 
-if ($agentId <= 0) {
-    (new JsonResponse(['status' => 'fail', 'message' => 'Invalid agent ID'], 400))->send();
+if ($agentUuid === '') {
+    (new JsonResponse(['status' => 'fail', 'message' => 'Invalid agent UUID'], 400))->send();
     exit;
 }
 
@@ -32,7 +32,7 @@ if (!in_array($status, ['active', 'disabled'])) {
 
 // Verify ownership
 $agent = Capsule::table('s3_cloudbackup_agents')
-    ->where('id', $agentId)
+    ->where('agent_uuid', $agentUuid)
     ->where('client_id', $clientId)
     ->first();
 
@@ -42,12 +42,16 @@ if (!$agent) {
 }
 
 Capsule::table('s3_cloudbackup_agents')
-    ->where('id', $agentId)
+    ->where('agent_uuid', $agentUuid)
     ->update([
         'status' => $status,
         'updated_at' => Capsule::raw('NOW()'),
     ]);
 
-(new JsonResponse(['status' => 'success', 'message' => 'Agent status updated'], 200))->send();
+(new JsonResponse([
+    'status' => 'success',
+    'message' => 'Agent status updated',
+    'agent_uuid' => $agentUuid,
+], 200))->send();
 exit;
 

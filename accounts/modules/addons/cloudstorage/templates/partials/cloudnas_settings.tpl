@@ -214,8 +214,8 @@
                     @click.away="agentDropdownOpen = false"
                     type="button"
                     class="w-full flex items-center justify-between rounded-lg bg-slate-800 border border-slate-700 px-3 py-2.5 text-sm text-left hover:border-slate-600 transition">
-                <span x-text="selectedAgentId ? agents.find(a => a.id == selectedAgentId)?.hostname || ('Agent ' + selectedAgentId) : 'Select an agent...'" 
-                      :class="selectedAgentId ? 'text-white' : 'text-slate-400'"></span>
+                <span x-text="selectedAgentUuid ? agents.find(a => a.agent_uuid == selectedAgentUuid)?.hostname || selectedAgentUuid : 'Select an agent...'" 
+                      :class="selectedAgentUuid ? 'text-white' : 'text-slate-400'"></span>
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" 
                      class="w-4 h-4 text-slate-400 transition-transform" :class="agentDropdownOpen ? 'rotate-180' : ''">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
@@ -229,18 +229,18 @@
                         No agents available. <a href="index.php?m=cloudstorage&page=e3backup&view=agents" class="text-cyan-400 hover:underline">Set up an agent</a>
                     </div>
                 </template>
-                <template x-for="agent in agents" :key="agent.id">
-                    <button @click="selectedAgentId = agent.id; agentDropdownOpen = false"
+                <template x-for="agent in agents" :key="agent.agent_uuid || agent.hostname">
+                    <button @click="selectedAgentUuid = agent.agent_uuid || ''; newMount.agent_uuid = selectedAgentUuid; agentDropdownOpen = false"
                             type="button"
                             class="w-full px-3 py-2.5 text-sm text-left hover:bg-slate-700 transition flex items-center justify-between"
-                            :class="selectedAgentId == agent.id ? 'bg-cyan-600/20 text-cyan-300' : 'text-slate-200'">
+                            :class="selectedAgentUuid == (agent.agent_uuid || '') ? 'bg-cyan-600/20 text-cyan-300' : 'text-slate-200'">
                         <div class="flex items-center gap-2">
                             <span class="relative flex h-2 w-2">
                                 <span :class="agent.status === 'active' ? 'bg-emerald-500' : 'bg-slate-600'" class="relative inline-flex rounded-full h-2 w-2"></span>
                             </span>
-                            <span x-text="agent.hostname || ('Agent ' + agent.id)" class="truncate"></span>
+                            <span x-text="agent.hostname || agent.agent_uuid || 'Unknown agent'" class="truncate"></span>
                         </div>
-                        <svg x-show="selectedAgentId == agent.id" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4 text-cyan-400">
+                        <svg x-show="selectedAgentUuid == (agent.agent_uuid || '')" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4 text-cyan-400">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                         </svg>
                     </button>

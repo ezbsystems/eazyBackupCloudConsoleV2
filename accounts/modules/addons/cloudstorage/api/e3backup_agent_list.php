@@ -46,7 +46,6 @@ if ($onlineThresholdSeconds <= 0) {
 $query = Capsule::table('s3_cloudbackup_agents as a')
     ->where('a.client_id', $clientId)
     ->select([
-        'a.id',
         'a.agent_uuid',
         'a.client_id',
         'a.hostname',

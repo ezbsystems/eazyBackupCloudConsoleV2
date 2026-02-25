@@ -86,7 +86,7 @@ $liveSelect[] = Capsule::raw('NULL as run_type');
 
 $liveRunsQuery = Capsule::table('s3_cloudbackup_runs as r')
     ->join('s3_cloudbackup_jobs as j', 'r.job_id', '=', 'j.id')
-    ->leftJoin('s3_cloudbackup_agents as a', 'j.agent_id', '=', 'a.id');
+    ->leftJoin('s3_cloudbackup_agents as a', 'j.agent_uuid', '=', 'a.agent_uuid');
 
 if ($hasJobTenant) {
     $liveRunsQuery->leftJoin('s3_backup_tenants as t', 'j.tenant_id', '=', 't.id');

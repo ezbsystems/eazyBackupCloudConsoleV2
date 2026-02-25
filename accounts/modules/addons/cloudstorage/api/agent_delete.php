@@ -26,16 +26,17 @@ if (!$ca->isLoggedIn()) {
 }
 $clientId = $ca->getUserID();
 
-$agentId = $_POST['agent_id'] ?? null;
-if (!$agentId) {
-    respond(['status' => 'fail', 'message' => 'agent_id is required'], 400);
+$agentUuid = trim((string) ($_POST['agent_uuid'] ?? ''));
+if ($agentUuid === '') {
+    respond(['status' => 'fail', 'message' => 'agent_uuid is required'], 400);
 }
 
 // Find the agent
-$agent = Capsule::table('s3_cloudbackup_agents')->where('id', $agentId)->first();
+$agent = Capsule::table('s3_cloudbackup_agents')->where('agent_uuid', $agentUuid)->first();
 if (!$agent) {
     respond(['status' => 'fail', 'message' => 'Agent not found'], 404);
 }
+$agentId = (int) ($agent->id ?? 0);
 
 // Authorization: must be the agent's owner OR an MSP parent
 $authorized = false;
@@ -62,12 +63,15 @@ if (!$authorized) {
 }
 
 try {
-    $jobIds = Capsule::table('s3_cloudbackup_jobs')
-        ->where('agent_id', $agentId)
+    $jobQuery = Capsule::table('s3_cloudbackup_jobs')
         ->where('source_type', 'local_agent')
-        ->whereIn('engine', ['kopia', 'disk_image', 'hyperv'])
-        ->pluck('id')
-        ->toArray();
+        ->whereIn('engine', ['kopia', 'disk_image', 'hyperv']);
+    if (Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'agent_uuid')) {
+        $jobQuery->where('agent_uuid', $agentUuid);
+    } else {
+        $jobQuery->whereRaw('1 = 0');
+    }
+    $jobIds = $jobQuery->pluck('id')->toArray();
     foreach ($jobIds as $jid) {
         try {
             KopiaRetentionSourceService::ensureRepoSourceForJob((int) $jid);
@@ -76,26 +80,27 @@ try {
         }
     }
 } catch (\Throwable $e) {
-    logModuleCall('cloudstorage', 'agent_delete_ensure_source', ['agent_id' => $agentId], $e->getMessage());
+    logModuleCall('cloudstorage', 'agent_delete_ensure_source', ['agent_uuid' => $agentUuid], $e->getMessage());
 }
 
 try {
-    $repoIds = KopiaRetentionSourceService::retireByAgentId((int) $agentId);
+    $repoIds = $agentId > 0 ? KopiaRetentionSourceService::retireByAgentId($agentId) : [];
     foreach (array_keys($repoIds) as $repoId) {
-        KopiaRetentionOperationService::enqueue((int) $repoId, 'retention_apply', ['repo_id' => $repoId], 'agent-delete-' . $agentId . '-' . $repoId);
-        KopiaRetentionOperationService::enqueue((int) $repoId, 'maintenance_quick', ['repo_id' => $repoId], 'agent-delete-' . $agentId . '-' . $repoId . '-maintenance');
+        KopiaRetentionOperationService::enqueue((int) $repoId, 'retention_apply', ['repo_id' => $repoId], 'agent-delete-' . $agentUuid . '-' . $repoId);
+        KopiaRetentionOperationService::enqueue((int) $repoId, 'maintenance_quick', ['repo_id' => $repoId], 'agent-delete-' . $agentUuid . '-' . $repoId . '-maintenance');
     }
 } catch (\Throwable $e) {
-    logModuleCall('cloudstorage', 'agent_delete_retention_retire_error', ['agent_id' => $agentId], $e->getMessage());
+    logModuleCall('cloudstorage', 'agent_delete_retention_retire_error', ['agent_uuid' => $agentUuid], $e->getMessage());
 }
 
 // Clear agent references on jobs before deleting agent row
-if (Capsule::schema()->hasTable('s3_cloudbackup_jobs')
-    && Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'agent_id')) {
-    Capsule::table('s3_cloudbackup_jobs')->where('agent_id', $agentId)->update(['agent_id' => null]);
+if (Capsule::schema()->hasTable('s3_cloudbackup_jobs')) {
+    if (Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'agent_uuid')) {
+        Capsule::table('s3_cloudbackup_jobs')->where('agent_uuid', $agentUuid)->update(['agent_uuid' => null]);
+    }
 }
 
 // Delete the agent
-Capsule::table('s3_cloudbackup_agents')->where('id', $agentId)->delete();
+Capsule::table('s3_cloudbackup_agents')->where('agent_uuid', $agentUuid)->delete();
 
-respond(['status' => 'success', 'message' => 'Agent deleted', 'agent_id' => $agentId]);
+respond(['status' => 'success', 'message' => 'Agent deleted', 'agent_uuid' => $agentUuid]);

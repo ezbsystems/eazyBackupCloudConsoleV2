@@ -80,8 +80,8 @@
                             
                             <div x-show="agentOpen" x-transition
                                  class="absolute z-30 mt-1 w-full rounded-lg bg-slate-800 border border-slate-700 shadow-xl max-h-48 overflow-y-auto">
-                                <template x-for="agent in agents" :key="agent.id">
-                                    <button @click="newMount.agent_uuid = agent.agent_uuid || ''; selectedAgentId = agent.id; selectedAgentUuid = agent.agent_uuid || ''; agentOpen = false"
+                                <template x-for="agent in agents" :key="agent.agent_uuid || agent.hostname">
+                                    <button @click="newMount.agent_uuid = agent.agent_uuid || ''; selectedAgentUuid = agent.agent_uuid || ''; agentOpen = false"
                                             type="button"
                                             class="w-full px-3 py-2.5 text-sm text-left hover:bg-slate-700 transition flex items-center justify-between"
                                             :class="newMount.agent_uuid == (agent.agent_uuid || '') ? 'bg-cyan-600/20 text-cyan-300' : 'text-slate-200'">

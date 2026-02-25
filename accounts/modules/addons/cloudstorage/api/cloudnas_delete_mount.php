@@ -44,9 +44,12 @@ try {
 
     // If mounted, send unmount command first
     if ($mount->status === 'mounted') {
-        Capsule::table('s3_cloudbackup_run_commands')->insert([
+        $agent = Capsule::table('s3_cloudbackup_agents')
+            ->where('id', (int) $mount->agent_id)
+            ->where('client_id', $clientId)
+            ->first(['agent_uuid']);
+        $commandPayload = [
             'run_id' => null,
-            'agent_id' => $mount->agent_id,
             'type' => 'nas_unmount',
             'payload_json' => json_encode([
                 'mount_id' => $mountId,
@@ -54,7 +57,13 @@ try {
             ]),
             'status' => 'pending',
             'created_at' => Capsule::raw('NOW()')
-        ]);
+        ];
+        if ($agent && trim((string) ($agent->agent_uuid ?? '')) !== '' && Capsule::schema()->hasColumn('s3_cloudbackup_run_commands', 'agent_uuid')) {
+            $commandPayload['agent_uuid'] = trim((string) $agent->agent_uuid);
+        } elseif (Capsule::schema()->hasColumn('s3_cloudbackup_run_commands', 'agent_id')) {
+            $commandPayload['agent_id'] = (int) $mount->agent_id;
+        }
+        Capsule::table('s3_cloudbackup_run_commands')->insert($commandPayload);
     }
 
     // Delete the mount configuration
