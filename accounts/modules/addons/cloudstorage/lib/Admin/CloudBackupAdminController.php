@@ -355,6 +355,71 @@ class CloudBackupAdminController {
     }
 
     /**
+     * Get repo retention/maintenance operations for admin view
+     *
+     * @return array
+     */
+    public static function getRepoRetentionOps(): array
+    {
+        try {
+            if (!Capsule::schema()->hasTable('s3_kopia_repo_operations')
+                || !Capsule::schema()->hasTable('s3_kopia_repos')) {
+                return [];
+            }
+            $query = Capsule::table('s3_kopia_repo_operations as op')
+                ->join('s3_kopia_repos as r', 'op.repo_id', '=', 'r.id')
+                ->select(
+                    'op.id',
+                    'op.repo_id',
+                    'op.op_type',
+                    'op.status',
+                    'op.attempt_count',
+                    'op.operation_token',
+                    'op.created_at',
+                    'op.updated_at',
+                    'op.next_attempt_at',
+                    'r.repository_id',
+                    'r.client_id'
+                )
+                ->orderBy('op.created_at', 'desc')
+                ->limit(200);
+            $rows = $query->get();
+            return array_map(function ($item) {
+                return (array) $item;
+            }, $rows->toArray());
+        } catch (\Throwable $e) {
+            logModuleCall('cloudstorage', 'getRepoRetentionOps', [], $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
+     * Get Kopia repos for admin enqueue dropdown
+     *
+     * @return array
+     */
+    public static function getKopiaReposForAdmin(): array
+    {
+        try {
+            if (!Capsule::schema()->hasTable('s3_kopia_repos')) {
+                return [];
+            }
+            $rows = Capsule::table('s3_kopia_repos')
+                ->where('status', 'active')
+                ->select('id', 'repository_id', 'client_id')
+                ->orderBy('id', 'desc')
+                ->limit(100)
+                ->get();
+            return array_map(function ($item) {
+                return (array) $item;
+            }, $rows->toArray());
+        } catch (\Throwable $e) {
+            logModuleCall('cloudstorage', 'getKopiaReposForAdmin', [], $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
      * Force cancel a run
      *
      * @param int $runId

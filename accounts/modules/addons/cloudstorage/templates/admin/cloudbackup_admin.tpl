@@ -8,6 +8,7 @@
                 <li{if $active_tab eq 'runs'} class="active"{/if}><a href="addonmodules.php?module=cloudstorage&action=cloudbackup_admin&tab=runs">Runs</a></li>
                 <li{if $active_tab eq 'agents'} class="active"{/if}><a href="addonmodules.php?module=cloudstorage&action=cloudbackup_admin&tab=agents">Agents</a></li>
                 <li{if $active_tab eq 'clients'} class="active"{/if}><a href="addonmodules.php?module=cloudstorage&action=cloudbackup_admin&tab=clients">Clients</a></li>
+                <li{if $active_tab eq 'retention'} class="active"{/if}><a href="addonmodules.php?module=cloudstorage&action=cloudbackup_admin&tab=retention">Retention</a></li>
             </ul>
             {if $active_tab eq 'dashboard'}
             <div class="panel panel-default" id="cb-dashboard">
@@ -500,6 +501,78 @@
             </div>
             {/if}
 
+            {if $active_tab eq 'retention'}
+            <div class="panel panel-default" id="cb-retention-enqueue">
+                <div class="panel-heading">
+                    <h3 class="panel-title">Manual Enqueue Repo Operation</h3>
+                </div>
+                <div class="panel-body">
+                    <form id="repoOpEnqueueForm" class="form-inline">
+                        <div class="form-group" style="margin-right:10px;">
+                            <label for="enqueue_repo_id">Repo:</label>
+                            <select id="enqueue_repo_id" name="repo_id" class="form-control" required>
+                                <option value="">-- Select repo --</option>
+                                {foreach from=$kopia_repos item=repo}
+                                    <option value="{$repo.id}">#{$repo.id} ({$repo.repository_id|truncate:24})</option>
+                                {/foreach}
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-right:10px;">
+                            <button type="button" class="btn btn-default" onclick="adminEnqueueRepoOp('retention_apply')">Retention Apply</button>
+                            <button type="button" class="btn btn-default" onclick="adminEnqueueRepoOp('maintenance_quick')">Maintenance Quick</button>
+                            <button type="button" class="btn btn-default" onclick="adminEnqueueRepoOp('maintenance_full')">Maintenance Full</button>
+                        </div>
+                    </form>
+                    {if count($kopia_repos) eq 0}
+                        <p class="text-muted" style="margin-top:10px;">No active Kopia repos found.</p>
+                    {/if}
+                </div>
+            </div>
+            <div class="panel panel-default" id="cb-retention-ops">
+                <div class="panel-heading">
+                    <h3 class="panel-title">Repo Operations ({count($repo_ops)})</h3>
+                </div>
+                <div class="panel-body">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Repo</th>
+                                <th>Type</th>
+                                <th>Status</th>
+                                <th>Attempts</th>
+                                <th>Created</th>
+                                <th>Updated</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {if count($repo_ops) > 0}
+                                {foreach from=$repo_ops item=op}
+                                    <tr>
+                                        <td>{$op.id}</td>
+                                        <td>#{$op.repo_id} ({$op.repository_id|default:'-'|truncate:16})</td>
+                                        <td>{$op.op_type|default:'-'}</td>
+                                        <td>
+                                            <span class="label label-{if $op.status eq 'success'}success{elseif $op.status eq 'failed'}danger{elseif $op.status eq 'running'}info{else}default{/if}">
+                                                {$op.status|default:'queued'|ucfirst}
+                                            </span>
+                                        </td>
+                                        <td>{$op.attempt_count|default:0}</td>
+                                        <td>{if $op.created_at}{$op.created_at|date_format:"%d %b %Y %H:%M"}{else}-{/if}</td>
+                                        <td>{if $op.updated_at}{$op.updated_at|date_format:"%d %b %Y %H:%M"}{else}-{/if}</td>
+                                    </tr>
+                                {/foreach}
+                            {else}
+                                <tr>
+                                    <td colspan="7" class="text-center">No repo operations found</td>
+                                </tr>
+                            {/if}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {/if}
+
             {if $active_tab eq 'clients'}
             <div class="panel panel-default" id="cb-clients">
                 <div class="panel-heading">
@@ -726,6 +799,30 @@ function showRunLogs(runId) {
         .catch(error => {
             alert('Error loading logs: ' + error);
         });
+}
+
+function adminEnqueueRepoOp(opType) {
+    const repoId = document.getElementById('enqueue_repo_id');
+    if (!repoId || !repoId.value || parseInt(repoId.value, 10) <= 0) {
+        alert('Please select a repo');
+        return;
+    }
+    const formData = new URLSearchParams({ repo_id: repoId.value, op_type: opType });
+    fetch('/modules/addons/cloudstorage/api/admin_enqueue_repo_operation.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: formData
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === 'success' || data.status === 'duplicate') {
+            alert('Operation (' + opType + ') enqueued');
+            location.reload();
+        } else {
+            alert(data.message || 'Failed to enqueue');
+        }
+    })
+    .catch(() => alert('Error enqueuing operation'));
 }
 
 function enqueueMaintenance(runId, type) {
