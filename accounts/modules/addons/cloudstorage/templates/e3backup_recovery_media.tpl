@@ -31,10 +31,10 @@
                             <div>
                                 <label class="text-xs text-slate-400">Source Agent</label>
                                 <select class="mt-1 w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100"
-                                        x-model="sourceAgentId">
+                                        x-model="sourceAgentUuid">
                                     <option value="">Select a source agent</option>
                                     {foreach $agents as $a}
-                                        <option value="{$a->id}">{$a->hostname|default:"Agent #`$a->id`"}</option>
+                                        <option value="{$a->agent_uuid}">{$a->hostname|default:$a->agent_uuid|default:"Unknown agent"}</option>
                                     {/foreach}
                                 </select>
                             </div>
@@ -52,7 +52,7 @@
                             <button type="button"
                                     class="inline-flex items-center rounded-lg border border-emerald-500/50 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200 hover:border-emerald-400 hover:text-white transition disabled:opacity-50 disabled:cursor-not-allowed"
                                     @click="createToken()"
-                                    :disabled="busy || !sourceAgentId">
+                                    :disabled="busy || !sourceAgentUuid">
                                 <span x-text="busy ? 'Generating...' : 'Generate Media Build Token'"></span>
                             </button>
                         </div>
@@ -91,7 +91,7 @@
 <script>
 function recoveryMediaPage() {
   return {
-    sourceAgentId: '',
+    sourceAgentUuid: '',
     mode: 'fast',
     token: '',
     expiresText: '',
@@ -99,7 +99,7 @@ function recoveryMediaPage() {
     busy: false,
     init() {},
     async createToken() {
-      if (!this.sourceAgentId) return;
+      if (!this.sourceAgentUuid) return;
       this.busy = true;
       this.token = '';
       this.expiresText = '';
@@ -109,7 +109,7 @@ function recoveryMediaPage() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            source_agent_id: Number(this.sourceAgentId),
+            source_agent_uuid: String(this.sourceAgentUuid || '').trim(),
             mode: this.mode,
             ttl_minutes: 30
           })

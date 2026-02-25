@@ -14,6 +14,7 @@ Cloud Storage is a WHMCS addon module that manages S3-compatible storage on a Ce
 - Admin Ops API: used for safe, aggregate, and metadata operations (e.g., per-uid bucket stats) without enumerating objects.
 - S3 API: used where object-level interaction is required (e.g., checking versions, delete markers, multipart uploads).
 - Database: normalized tables record users, buckets, stats, and queued jobs.
+- Local agent identity: API/auth contracts use immutable `agent_uuid` plus token headers (`X-Agent-UUID`, `X-Agent-Token`).
 
 ## Important file paths
 
