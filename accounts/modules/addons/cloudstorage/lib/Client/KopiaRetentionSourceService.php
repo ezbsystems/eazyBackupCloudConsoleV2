@@ -115,6 +115,87 @@ class KopiaRetentionSourceService
     }
 
     /**
+     * Retire sources for a job (lifecycle=retired, optional retired_at).
+     * Returns repo_ids of affected repos for enqueue purposes.
+     *
+     * @return array<int> Affected repo_ids
+     */
+    public static function retireByJobId(int $jobId): array
+    {
+        try {
+            if (!Capsule::schema()->hasTable('s3_kopia_repo_sources')) {
+                return [];
+            }
+            $lifecycleCol = 'lifecycle';
+            if (!Capsule::schema()->hasColumn('s3_kopia_repo_sources', $lifecycleCol)) {
+                logModuleCall(self::MODULE, 'retireByJobId', ['job_id' => $jobId], 's3_kopia_repo_sources.lifecycle column missing', [], []);
+                return [];
+            }
+            $repoIds = Capsule::table('s3_kopia_repo_sources')
+                ->where('job_id', $jobId)
+                ->where($lifecycleCol, 'active')
+                ->pluck('repo_id')
+                ->unique()
+                ->values()
+                ->toArray();
+            if (empty($repoIds)) {
+                return [];
+            }
+            $now = date('Y-m-d H:i:s');
+            $update = ['lifecycle' => 'retired', 'updated_at' => $now];
+            if (Capsule::schema()->hasColumn('s3_kopia_repo_sources', 'retired_at')) {
+                $update['retired_at'] = $now;
+            }
+            Capsule::table('s3_kopia_repo_sources')
+                ->where('job_id', $jobId)
+                ->update($update);
+            return array_map('intval', $repoIds);
+        } catch (\Throwable $e) {
+            logModuleCall(self::MODULE, 'retireByJobId', ['job_id' => $jobId], $e->getMessage(), [], []);
+            return [];
+        }
+    }
+
+    /**
+     * Retire active sources for all kopia-family jobs belonging to an agent.
+     * Returns array of repo_id => 1 for unique repos affected.
+     *
+     * @return array<int, int> [repo_id => 1, ...] for dedupe
+     */
+    public static function retireByAgentId(int $agentId): array
+    {
+        try {
+            if (!Capsule::schema()->hasTable('s3_kopia_repo_sources')
+                || !Capsule::schema()->hasTable('s3_cloudbackup_jobs')) {
+                return [];
+            }
+            $hasAgentIdCol = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'agent_id');
+            if (!$hasAgentIdCol) {
+                return [];
+            }
+            $jobIds = Capsule::table('s3_cloudbackup_jobs')
+                ->where('agent_id', $agentId)
+                ->where('source_type', 'local_agent')
+                ->whereIn('engine', self::KOPIA_ENGINES)
+                ->pluck('id')
+                ->toArray();
+            if (empty($jobIds)) {
+                return [];
+            }
+            $repoIds = [];
+            foreach ($jobIds as $jid) {
+                foreach (self::retireByJobId((int) $jid) as $rid) {
+                    $repoIds[$rid] = 1;
+                }
+            }
+            return $repoIds;
+        } catch (\Throwable $e) {
+            logModuleCall(self::MODULE, 'retireByAgentId', ['agent_id' => $agentId], $e->getMessage(), [], []);
+            return [];
+        }
+    }
+
+    /**
      * Derive source identity string from job for fingerprinting.
      */
     private static function deriveSourceIdentity($job, string $engine): string

@@ -6,6 +6,8 @@ require_once __DIR__ . '/../lib/Client/MspController.php';
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\ClientArea;
+use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionOperationService;
+use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionSourceService;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 
 if (!defined("WHMCS")) {
@@ -57,6 +59,15 @@ if ((int)$agent->client_id === (int)$clientId) {
 
 if (!$authorized) {
     respond(['status' => 'fail', 'message' => 'Unauthorized'], 403);
+}
+
+try {
+    $repoIds = KopiaRetentionSourceService::retireByAgentId((int) $agentId);
+    foreach (array_keys($repoIds) as $repoId) {
+        KopiaRetentionOperationService::enqueue((int) $repoId, 'retention_apply', ['repo_id' => $repoId], 'agent-delete-' . $agentId . '-' . $repoId);
+    }
+} catch (\Throwable $e) {
+    logModuleCall('cloudstorage', 'agent_delete_retention_retire_error', ['agent_id' => $agentId], $e->getMessage());
 }
 
 // Delete the agent
