@@ -82,6 +82,7 @@ class KopiaRetentionLockService
 
     /**
      * Renew lock expiry if token matches and lock exists.
+     * Uses atomic update constrained by repo_id + lock_token; returns true only if affected rows > 0.
      *
      * @param int $repoId
      * @param string $lockToken
@@ -90,21 +91,19 @@ class KopiaRetentionLockService
      */
     public static function renew(int $repoId, string $lockToken, int $ttlSeconds = 300): bool
     {
-        $row = Capsule::table('s3_kopia_repo_locks')->where('repo_id', $repoId)->first();
-        if (!$row || $row->lock_token !== $lockToken) {
-            return false;
-        }
-        $expiresAt = date('Y-m-d H:i:s', time() + $ttlSeconds);
-        $now = date('Y-m-d H:i:s');
-        Capsule::table('s3_kopia_repo_locks')->where('repo_id', $repoId)->update([
-            'expires_at' => $expiresAt,
-            'updated_at' => $now,
-        ]);
-        return true;
+        $affected = Capsule::table('s3_kopia_repo_locks')
+            ->where('repo_id', $repoId)
+            ->where('lock_token', $lockToken)
+            ->update([
+                'expires_at' => Capsule::raw('DATE_ADD(NOW(), INTERVAL ' . (int) $ttlSeconds . ' SECOND)'),
+                'updated_at' => Capsule::raw('NOW()'),
+            ]);
+        return $affected > 0;
     }
 
     /**
      * Release lock if token matches.
+     * Uses atomic delete constrained by repo_id + lock_token; returns true only if deleted rows > 0.
      *
      * @param int $repoId
      * @param string $lockToken
@@ -112,11 +111,10 @@ class KopiaRetentionLockService
      */
     public static function release(int $repoId, string $lockToken): bool
     {
-        $row = Capsule::table('s3_kopia_repo_locks')->where('repo_id', $repoId)->first();
-        if (!$row || $row->lock_token !== $lockToken) {
-            return false;
-        }
-        Capsule::table('s3_kopia_repo_locks')->where('repo_id', $repoId)->delete();
-        return true;
+        $deleted = Capsule::table('s3_kopia_repo_locks')
+            ->where('repo_id', $repoId)
+            ->where('lock_token', $lockToken)
+            ->delete();
+        return $deleted > 0;
     }
 }
