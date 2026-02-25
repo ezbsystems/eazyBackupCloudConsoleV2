@@ -27,7 +27,7 @@ if (!Capsule::schema()->hasTable('s3_cloudbackup_run_commands')) {
     respond(['status' => 'fail', 'message' => 'Command queue not available'], 500);
 }
 
-$agentId = isset($_GET['agent_id']) ? (int) $_GET['agent_id'] : 0;
+$agentUuid = trim((string) ($_GET['agent_uuid'] ?? ''));
 $path = isset($_GET['path']) ? trim((string) $_GET['path']) : '';
 $maxItems = isset($_GET['max_items']) ? (int) $_GET['max_items'] : 500;
 if ($maxItems <= 0) {
@@ -37,15 +37,15 @@ if ($maxItems > 1000) {
     $maxItems = 1000;
 }
 
-if ($agentId <= 0) {
-    respond(['status' => 'fail', 'message' => 'agent_id is required'], 400);
+if ($agentUuid === '') {
+    respond(['status' => 'fail', 'message' => 'agent_uuid is required'], 400);
 }
 
 $agent = Capsule::table('s3_cloudbackup_agents')
-    ->where('id', $agentId)
+    ->where('agent_uuid', $agentUuid)
     ->where('client_id', $clientId)
     ->where('status', 'active')
-    ->first(['id', 'client_id']);
+    ->first(['id', 'agent_uuid', 'client_id']);
 
 if (!$agent) {
     respond(['status' => 'fail', 'message' => 'Agent not found'], 404);
@@ -65,7 +65,7 @@ try {
     $insert = [
         // Browse commands are not tied to a run; prefer NULL to avoid FK errors
         'run_id' => null,
-        'agent_id' => $agent->id,
+        'agent_uuid' => $agent->agent_uuid,
         'type' => 'browse_directory',
         'payload_json' => json_encode($payload, JSON_UNESCAPED_SLASHES),
         'status' => 'pending',

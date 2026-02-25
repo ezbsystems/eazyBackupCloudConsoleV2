@@ -22,7 +22,7 @@ $clientId = $ca->getUserID();
 $isMsp = MspController::isMspClient($clientId);
 
 $tenantFilter = $_GET['tenant_id'] ?? null;
-$agentFilter = $_GET['agent_id'] ?? null;
+$agentFilter = isset($_GET['agent_uuid']) ? trim((string) $_GET['agent_uuid']) : null;
 $engineFilter = $_GET['engine'] ?? null;
 $search = trim((string) ($_GET['search'] ?? ''));
 $fromDateRaw = trim((string) ($_GET['from_date'] ?? ''));
@@ -101,7 +101,7 @@ try {
         'tenant_id',
         'repository_id',
         'tenant_user_id',
-        'agent_id',
+        'agent_uuid',
         'job_id',
         'job_name',
         'run_id',
@@ -155,7 +155,7 @@ try {
 
     $hasAgentsTable = Capsule::schema()->hasTable('s3_cloudbackup_agents');
     if ($hasAgentsTable) {
-        $query->leftJoin('s3_cloudbackup_agents as a', 'rp.agent_id', '=', 'a.id');
+        $query->leftJoin('s3_cloudbackup_agents as a', 'rp.agent_uuid', '=', 'a.agent_uuid');
         $select[] = 'a.hostname as agent_hostname';
         $select[] = 'a.status as agent_status';
         $select[] = 'a.tenant_id as agent_tenant_id';
@@ -192,8 +192,8 @@ try {
 
     $query->select($select);
 
-    if ($agentFilter && (int) $agentFilter > 0) {
-        $query->where('rp.agent_id', (int) $agentFilter);
+    if ($agentFilter !== null && $agentFilter !== '') {
+        $query->where('rp.agent_uuid', $agentFilter);
     }
 
     if ($engineFilter && is_string($engineFilter)) {

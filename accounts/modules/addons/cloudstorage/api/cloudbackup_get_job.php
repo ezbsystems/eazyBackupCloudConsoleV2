@@ -123,7 +123,7 @@ $outJob = [
     'id'                    => (int) $job['id'],
     'client_id'             => (int) $job['client_id'],
     's3_user_id'            => (int) $job['s3_user_id'],
-    'agent_id'              => isset($job['agent_id']) ? (int) $job['agent_id'] : null,
+    'agent_uuid'            => isset($job['agent_uuid']) ? (string) $job['agent_uuid'] : null,
     'name'                  => $job['name'],
     'source_type'           => $job['source_type'],
     'source_display_name'   => $job['source_display_name'],
@@ -178,11 +178,11 @@ $outJob['hyperv_config'] = $job['hyperv_config'] ?? null;
 // Tenant info (for MSP)
 $outJob['tenant_id'] = $job['tenant_id'] ?? null;
 
-// Try to fetch agent hostname if agent_id is set
-if ($outJob['agent_id']) {
+// Try to fetch agent hostname if agent_uuid is set
+if (!empty($outJob['agent_uuid'])) {
     try {
         $agent = Capsule::table('s3_cloudbackup_agents')
-            ->where('id', $outJob['agent_id'])
+            ->where('agent_uuid', $outJob['agent_uuid'])
             ->first(['hostname']);
         if ($agent) {
             $outJob['agent_hostname'] = $agent->hostname;

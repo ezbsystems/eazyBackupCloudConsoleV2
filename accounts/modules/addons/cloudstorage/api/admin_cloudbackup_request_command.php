@@ -16,7 +16,7 @@ if (!isset($_SESSION['adminid']) || !$_SESSION['adminid']) {
 }
 
 $runId = isset($_POST['run_id']) ? (int) $_POST['run_id'] : 0;
-$agentId = isset($_POST['agent_id']) ? (int) $_POST['agent_id'] : 0;
+$agentUuid = trim((string) ($_POST['agent_uuid'] ?? ''));
 $type = isset($_POST['type']) ? strtolower(trim((string) $_POST['type'])) : '';
 $payloadRaw = $_POST['payload_json'] ?? null;
 $payload = null;
@@ -33,26 +33,26 @@ if (!in_array($type, ['maintenance_quick', 'maintenance_full', 'reset_agent', 'r
 }
 
 if ($type === 'reset_agent' || $type === 'refresh_inventory') {
-    if ($agentId <= 0) {
-        (new JsonResponse(['status' => 'fail', 'message' => 'agent_id is required for agent-scoped commands'], 200))->send();
+    if ($agentUuid === '') {
+        (new JsonResponse(['status' => 'fail', 'message' => 'agent_uuid is required for agent-scoped commands'], 200))->send();
         exit;
     }
-    if (!Capsule::schema()->hasColumn('s3_cloudbackup_run_commands', 'agent_id')) {
-        (new JsonResponse(['status' => 'fail', 'message' => 'agent_id column not available on this installation'], 200))->send();
+    if (!Capsule::schema()->hasColumn('s3_cloudbackup_run_commands', 'agent_uuid')) {
+        (new JsonResponse(['status' => 'fail', 'message' => 'agent_uuid column not available on this installation'], 200))->send();
         exit;
     }
 } else {
-    if ($runId <= 0 && $agentId > 0) {
+    if ($runId <= 0 && $agentUuid !== '') {
         $runId = (int) Capsule::table('s3_cloudbackup_runs')
-            ->where('agent_id', $agentId)
+            ->where('agent_uuid', $agentUuid)
             ->whereIn('status', ['queued', 'starting', 'running'])
             ->orderByDesc('created_at')
             ->value('id');
     }
-    if ($runId > 0 && $agentId > 0) {
+    if ($runId > 0 && $agentUuid !== '') {
         $match = Capsule::table('s3_cloudbackup_runs')
             ->where('id', $runId)
-            ->where('agent_id', $agentId)
+            ->where('agent_uuid', $agentUuid)
             ->exists();
         if (!$match) {
             (new JsonResponse(['status' => 'fail', 'message' => 'run_id does not belong to selected agent'], 200))->send();
@@ -79,7 +79,7 @@ try {
         'created_at' => Capsule::raw('NOW()'),
     ];
     if (in_array($type, ['reset_agent', 'refresh_inventory'], true)) {
-        $insert['agent_id'] = $agentId;
+        $insert['agent_uuid'] = $agentUuid;
     }
     $cmdId = Capsule::table('s3_cloudbackup_run_commands')->insertGetId($insert);
     (new JsonResponse(['status' => 'success', 'command_id' => $cmdId], 200))->send();

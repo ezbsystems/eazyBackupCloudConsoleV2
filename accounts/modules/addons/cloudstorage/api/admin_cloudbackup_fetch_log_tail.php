@@ -52,13 +52,13 @@ if (!Capsule::schema()->hasTable('s3_cloudbackup_run_commands')) {
     respond(['status' => 'fail', 'message' => 'Command queue not available'], 500);
 }
 
-$agentId = isset($_GET['agent_id']) ? (int) $_GET['agent_id'] : (int) ($_POST['agent_id'] ?? 0);
+$agentUuid = trim((string) ($_GET['agent_uuid'] ?? ($_POST['agent_uuid'] ?? '')));
 $logKind = strtolower(trim((string) ($_GET['log_kind'] ?? ($_POST['log_kind'] ?? 'agent'))));
 $maxBytes = isset($_GET['max_bytes']) ? (int) $_GET['max_bytes'] : (int) ($_POST['max_bytes'] ?? 131072);
 $timeoutSecs = isset($_GET['timeout_secs']) ? (int) $_GET['timeout_secs'] : (int) ($_POST['timeout_secs'] ?? 15);
 
-if ($agentId <= 0) {
-    respond(['status' => 'fail', 'message' => 'agent_id is required'], 400);
+if ($agentUuid === '') {
+    respond(['status' => 'fail', 'message' => 'agent_uuid is required'], 400);
 }
 if (!in_array($logKind, ['agent', 'tray'], true)) {
     respond(['status' => 'fail', 'message' => 'log_kind must be agent or tray'], 400);
@@ -83,8 +83,8 @@ $allowedPaths = [
 $logPath = $allowedPaths[$logKind];
 
 $agent = Capsule::table('s3_cloudbackup_agents')
-    ->where('id', $agentId)
-    ->first(['id', 'status', 'last_seen_at']);
+    ->where('agent_uuid', $agentUuid)
+    ->first(['id', 'agent_uuid', 'status', 'last_seen_at']);
 if (!$agent) {
     respond(['status' => 'fail', 'message' => 'Agent not found'], 404);
 }
@@ -101,7 +101,7 @@ if (empty($agent->last_seen_at)) {
     respond(['status' => 'fail', 'message' => 'Agent is offline (never seen)'], 409);
 }
 $secs = (int) Capsule::table('s3_cloudbackup_agents')
-    ->where('id', $agentId)
+    ->where('agent_uuid', $agentUuid)
     ->selectRaw('TIMESTAMPDIFF(SECOND, last_seen_at, NOW()) as seconds_since_seen')
     ->value('seconds_since_seen');
 if ($secs > $onlineThreshold) {
@@ -113,7 +113,7 @@ try {
     $hasUpdatedAt = Capsule::schema()->hasColumn('s3_cloudbackup_run_commands', 'updated_at');
     $insert = [
         'run_id' => null,
-        'agent_id' => $agentId,
+        'agent_uuid' => $agentUuid,
         'type' => 'fetch_log_tail',
         'payload_json' => json_encode([
             'log_kind' => $logKind,
