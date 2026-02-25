@@ -1992,11 +1992,18 @@ function cloudstorage_activate() {
                 $table->unsignedInteger('job_id')->nullable();
                 $table->timestamp('created_at')->useCurrent();
                 $table->timestamp('updated_at')->useCurrent();
+                $table->timestamp('retired_at')->nullable();
                 $table->unique(['repo_id', 'source_uuid']);
                 $table->index(['repo_id', 'lifecycle']);
                 $table->index('job_id');
             });
             logModuleCall('cloudstorage', 'activate', [], 'Created s3_kopia_repo_sources table', [], []);
+        }
+        if (Capsule::schema()->hasTable('s3_kopia_repo_sources') && !Capsule::schema()->hasColumn('s3_kopia_repo_sources', 'retired_at')) {
+            Capsule::schema()->table('s3_kopia_repo_sources', function ($table) {
+                $table->timestamp('retired_at')->nullable()->after('updated_at');
+            });
+            logModuleCall('cloudstorage', 'activate', [], 'Added retired_at to s3_kopia_repo_sources', [], []);
         }
         if (!Capsule::schema()->hasTable('s3_kopia_repo_operations')) {
             Capsule::schema()->create('s3_kopia_repo_operations', function ($table) {
@@ -2983,11 +2990,18 @@ function cloudstorage_upgrade($vars) {
                 $table->unsignedInteger('job_id')->nullable();
                 $table->timestamp('created_at')->useCurrent();
                 $table->timestamp('updated_at')->useCurrent();
+                $table->timestamp('retired_at')->nullable();
                 $table->unique(['repo_id', 'source_uuid']);
                 $table->index(['repo_id', 'lifecycle']);
                 $table->index('job_id');
             });
             logModuleCall('cloudstorage', 'upgrade', [], 'Created s3_kopia_repo_sources table', [], []);
+        }
+        if ($kopiaSchema->hasTable('s3_kopia_repo_sources') && !$kopiaSchema->hasColumn('s3_kopia_repo_sources', 'retired_at')) {
+            $kopiaSchema->table('s3_kopia_repo_sources', function ($table) {
+                $table->timestamp('retired_at')->nullable()->after('updated_at');
+            });
+            logModuleCall('cloudstorage', 'upgrade', [], 'Added retired_at to s3_kopia_repo_sources', [], []);
         }
         if (!$kopiaSchema->hasTable('s3_kopia_repo_operations')) {
             $kopiaSchema->create('s3_kopia_repo_operations', function ($table) {
