@@ -1,10 +1,12 @@
 <?php
 
 require_once __DIR__ . '/../../../../init.php';
+require_once __DIR__ . '/../lib/Client/CloudBackupBootstrapService.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
+use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupBootstrapService;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 
 if (!defined("WHMCS")) {
@@ -268,6 +270,18 @@ try {
             'agent_token' => $agentToken,
         ];
     });
+
+    $destResult = CloudBackupBootstrapService::ensureAgentDestination((string) $result['agent_uuid']);
+    if (($destResult['status'] ?? 'fail') !== 'success') {
+        logModuleCall('cloudstorage', 'agent_login_ensure_destination_failed', [
+            'agent_uuid' => $result['agent_uuid'],
+            'client_id' => $clientId,
+        ], $destResult);
+        respond([
+            'status' => 'fail',
+            'message' => $destResult['message'] ?? 'Failed to initialize agent destination',
+        ], 500);
+    }
 
     $systemUrl = rtrim(detectBaseUrl(), '/');
 

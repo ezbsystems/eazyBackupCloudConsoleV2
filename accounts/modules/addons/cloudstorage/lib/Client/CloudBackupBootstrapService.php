@@ -223,16 +223,43 @@ class CloudBackupBootstrapService
         }
     }
 
-    public static function ensureAgentDestination(int $agentId): array
+    public static function ensureAgentDestination($agentIdentity): array
     {
         try {
-            $agent = Capsule::table('s3_cloudbackup_agents')->where('id', $agentId)->first();
+            $agentLookup = trim((string) $agentIdentity);
+            $agentQuery = Capsule::table('s3_cloudbackup_agents');
+            if ($agentLookup !== '' && ctype_digit($agentLookup)) {
+                $agentQuery->where('id', (int) $agentLookup);
+            } else {
+                $agentQuery->where('agent_uuid', $agentLookup);
+            }
+            $agent = $agentQuery->first();
             if (!$agent) {
                 return ['status' => 'fail', 'message' => 'Agent not found.'];
+            }
+            $agentUuid = trim((string) ($agent->agent_uuid ?? ''));
+            if ($agentUuid === '') {
+                return ['status' => 'fail', 'message' => 'Agent UUID is missing.'];
             }
 
             $clientId = (int) $agent->client_id;
             $tenantId = !empty($agent->tenant_id) ? (int) $agent->tenant_id : null;
+            $schema = Capsule::schema();
+            $hasAgentUuidDest = $schema->hasColumn('s3_cloudbackup_agent_destinations', 'agent_uuid');
+            $hasAgentIdDest = $schema->hasColumn('s3_cloudbackup_agent_destinations', 'agent_id');
+
+            $existingQuery = Capsule::table('s3_cloudbackup_agent_destinations');
+            if ($hasAgentUuidDest) {
+                $existingQuery->where('agent_uuid', $agentUuid);
+            } elseif ($hasAgentIdDest) {
+                $existingQuery->where('agent_id', (int) $agent->id);
+            } else {
+                return ['status' => 'fail', 'message' => 'Agent destination schema does not have agent identity columns.'];
+            }
+            $existing = $existingQuery->first();
+            if ($existing && (int) ($existing->is_locked ?? 1) === 1) {
+                return ['status' => 'success', 'destination' => $existing];
+            }
 
             $bucketRes = $tenantId
                 ? self::ensureTenantBucket($clientId, $tenantId)
@@ -242,18 +269,10 @@ class CloudBackupBootstrapService
             }
             $bucket = $bucketRes['bucket'];
 
-            $existing = Capsule::table('s3_cloudbackup_agent_destinations')
-                ->where('agent_id', $agentId)
-                ->first();
-            if ($existing && (int) ($existing->is_locked ?? 1) === 1) {
-                return ['status' => 'success', 'destination' => $existing];
-            }
-
             $prefix = self::buildAgentPrefix($agent);
-            $prefix = self::ensureUniquePrefix((int) $bucket->id, $prefix, $agentId);
+            $prefix = self::ensureUniquePrefix((int) $bucket->id, $prefix, $agentUuid, (int) $agent->id);
 
             $payload = [
-                'agent_id' => $agentId,
                 'client_id' => $clientId,
                 'tenant_id' => $tenantId,
                 's3_user_id' => (int) $bucket->user_id,
@@ -262,6 +281,12 @@ class CloudBackupBootstrapService
                 'is_locked' => 1,
                 'updated_at' => Capsule::raw('NOW()'),
             ];
+            if ($hasAgentUuidDest) {
+                $payload['agent_uuid'] = $agentUuid;
+            }
+            if ($hasAgentIdDest) {
+                $payload['agent_id'] = (int) $agent->id;
+            }
 
             if ($existing) {
                 Capsule::table('s3_cloudbackup_agent_destinations')
@@ -280,7 +305,7 @@ class CloudBackupBootstrapService
 
             return ['status' => 'success', 'destination' => $destination];
         } catch (\Throwable $e) {
-            logModuleCall(self::$module, __FUNCTION__, ['agent_id' => $agentId], $e->getMessage());
+            logModuleCall(self::$module, __FUNCTION__, ['agent_identity' => $agentIdentity], $e->getMessage());
             return ['status' => 'fail', 'message' => 'Failed to ensure agent destination.'];
         }
     }
@@ -449,36 +474,57 @@ class CloudBackupBootstrapService
     {
         $deviceId = trim((string) ($agent->device_id ?? ''));
         if ($deviceId === '') {
+            $agentUuid = trim((string) ($agent->agent_uuid ?? ''));
+            if ($agentUuid !== '') {
+                return 'agent-' . substr(str_replace('-', '', $agentUuid), 0, 12);
+            }
             return 'agent-' . (int) $agent->id;
         }
 
         $sanitized = preg_replace('/[^a-zA-Z0-9._-]+/', '-', $deviceId);
         $sanitized = trim((string) $sanitized, '-');
         if ($sanitized === '') {
-            $sanitized = 'agent-' . (int) $agent->id;
+            $agentUuid = trim((string) ($agent->agent_uuid ?? ''));
+            if ($agentUuid !== '') {
+                $sanitized = 'agent-' . substr(str_replace('-', '', $agentUuid), 0, 12);
+            } else {
+                $sanitized = 'agent-' . (int) $agent->id;
+            }
         }
         return $sanitized;
     }
 
-    private static function ensureUniquePrefix(int $bucketId, string $prefix, int $agentId): string
+    private static function ensureUniquePrefix(int $bucketId, string $prefix, string $agentUuid, ?int $agentId = null): string
     {
         $prefix = trim($prefix);
         if ($prefix === '') {
-            $prefix = 'agent-' . $agentId;
+            if ($agentUuid !== '') {
+                $prefix = 'agent-' . substr(str_replace('-', '', $agentUuid), 0, 12);
+            } else {
+                $prefix = 'agent-' . ((int) $agentId);
+            }
         }
         $base = $prefix;
+        $suffixKey = $agentUuid !== '' ? substr(str_replace('-', '', $agentUuid), 0, 8) : (string) ((int) $agentId);
         $attempt = 0;
+        $schema = Capsule::schema();
+        $hasAgentUuidDest = $schema->hasColumn('s3_cloudbackup_agent_destinations', 'agent_uuid');
+        $hasAgentIdDest = $schema->hasColumn('s3_cloudbackup_agent_destinations', 'agent_id');
         while (true) {
-            $conflict = Capsule::table('s3_cloudbackup_agent_destinations')
+            $query = Capsule::table('s3_cloudbackup_agent_destinations')
                 ->where('dest_bucket_id', $bucketId)
-                ->where('root_prefix', $prefix)
-                ->where('agent_id', '!=', $agentId)
-                ->exists();
+                ->where('root_prefix', $prefix);
+            if ($hasAgentUuidDest) {
+                $query->where('agent_uuid', '!=', $agentUuid);
+            } elseif ($hasAgentIdDest && $agentId !== null) {
+                $query->where('agent_id', '!=', (int) $agentId);
+            }
+            $conflict = $query->exists();
             if (!$conflict) {
                 return $prefix;
             }
             $attempt++;
-            $prefix = $base . '-' . $agentId . '-' . $attempt;
+            $prefix = $base . '-' . $suffixKey . '-' . $attempt;
         }
     }
 
