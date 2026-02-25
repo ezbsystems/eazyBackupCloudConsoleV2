@@ -38,7 +38,7 @@ Short companion checklist for implementing the retention architecture described 
   - [ ] `kopia_maintenance_quick`
   - [ ] `kopia_maintenance_full`
 - [ ] Extend command enqueue APIs for repo-scoped operations
-- [ ] Extend `agent_poll_pending_commands.php` to deliver repo-scoped commands
+- [ ] Add `agent_poll_repo_operations.php` to deliver repo-scoped operations (separate from `agent_poll_pending_commands.php` run commands)
 - [ ] Implement claim rules so **any eligible scoped agent** can claim repo operations
 - [ ] Enforce scope checks (`client_id`, `tenant_id`, capability checks)
 
@@ -96,7 +96,7 @@ Short companion checklist for implementing the retention architecture described 
 
 ## Release Gate Script
 
-Run to verify required retention classes exist before release:
+Run to verify required retention classes exist before release (can be run from any directory; paths resolve from script `__DIR__`):
 
 ```bash
 php accounts/modules/addons/cloudstorage/bin/dev/kopia_retention_release_gate_test.php
