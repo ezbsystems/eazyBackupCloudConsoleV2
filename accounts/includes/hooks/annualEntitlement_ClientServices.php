@@ -293,24 +293,39 @@ function annual_entitlement_compute_usage_qty(int $configId, string $username): 
 function annual_entitlement_render_panel(array $rows, array $labelMap, int $serviceId, string $cycleStart): string
 {
     $ajaxPath = '/includes/hooks/annualEntitlement_ajax.php';
-    // Plain token is used throughout addon admin flows and validated by check_token('WHMCS.admin.default').
+    // Plain token is used for this admin-side AJAX action.
     $csrfToken = function_exists('generate_token') ? (string)generate_token('plain') : '';
-    $note = 'Manual-assist mode: no automatic qty changes, no automatic invoice generation.';
-    $header = '<tr><td colspan="2" class="fieldarea"><div class="panel panel-default"><div class="panel-heading"><strong>Annual Entitlement</strong></div><div class="panel-body"><p class="text-muted" style="margin-bottom:12px;">' . htmlspecialchars($note) . '</p>';
+    $guide = ''
+        . '<div class="alert alert-info" style="margin-bottom:12px;">'
+        . '<strong>How to use this panel (manual-assist mode)</strong><br>'
+        . '<span class="text-muted">'
+        . 'WITHIN_ENTITLEMENT: Usage is within units already paid this cycle. '
+        . 'PRORATION_REQUIRED: Usage is above paid units for this cycle.<br>'
+        . 'Suggested &Delta;: Extra units to bill now (manually) for the current cycle.<br>'
+        . 'Mark paid: After you manually bill/adjust in WHMCS, click this button to set Max paid to the higher of Usage and Config qty for this cycle, then record an audit event.<br>'
+        . 'No automatic qty changes and no automatic invoice generation are performed by this panel.'
+        . '</span>'
+        . '</div>';
+    $header = '<tr><td colspan="2" class="fieldarea"><div class="panel panel-default"><div class="panel-heading"><strong>Annual Entitlement</strong></div><div class="panel-body">' . $guide;
     $table = '<table class="table table-striped table-condensed ae-entitlement-table"><thead><tr><th>Config</th><th>Usage</th><th>Config qty</th><th>Max paid</th><th>Status</th><th>Suggested &Delta;</th><th>Action</th></tr></thead><tbody>';
 
     foreach ($rows as $configId => $r) {
         $name = $labelMap[$configId] ?? 'Config ' . $configId;
         $usageQty = (int)$r['usage_qty'];
+        $configQty = (int)$r['config_qty'];
+        $maxPaidQty = (int)$r['max_paid_qty'];
+        $targetPaidQty = max($usageQty, $configQty);
         $btn = '';
-        if ($usageQty >= 0) {
-            $btn = '<button type="button" class="btn btn-default btn-sm ae-mark-paid" data-service-id="' . (int)$serviceId . '" data-config-id="' . (int)$configId . '" data-cycle-start="' . htmlspecialchars($cycleStart, ENT_QUOTES, 'UTF-8') . '" data-new-max="' . $usageQty . '">Mark paid</button>';
+        if ($targetPaidQty > $maxPaidQty) {
+            $btn = '<button type="button" class="btn btn-default btn-sm ae-mark-paid" data-service-id="' . (int)$serviceId . '" data-config-id="' . (int)$configId . '" data-cycle-start="' . htmlspecialchars($cycleStart, ENT_QUOTES, 'UTF-8') . '" data-new-max="' . $targetPaidQty . '">Mark paid</button>';
+        } else {
+            $btn = '<span class="text-muted">Up to date</span>';
         }
         $table .= '<tr>';
-        $table .= '<td>' . htmlspecialchars((string)$configId) . ' / ' . htmlspecialchars($name) . '</td>';
+        $table .= '<td>' . htmlspecialchars('ID ' . (string)$configId) . ' / ' . htmlspecialchars($name) . '</td>';
         $table .= '<td>' . $usageQty . '</td>';
-        $table .= '<td>' . (int)$r['config_qty'] . '</td>';
-        $table .= '<td>' . (int)$r['max_paid_qty'] . '</td>';
+        $table .= '<td>' . $configQty . '</td>';
+        $table .= '<td>' . $maxPaidQty . '</td>';
         $table .= '<td>' . htmlspecialchars($r['status']) . '</td>';
         $table .= '<td>' . (int)$r['suggested_delta'] . '</td>';
         $table .= '<td>' . $btn . '</td>';

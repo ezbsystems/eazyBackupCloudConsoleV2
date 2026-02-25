@@ -29,12 +29,7 @@ That method performs object/prefix deletion under destination prefixes (for exam
 
 ## Target State
 
-Retention must be split into two explicit paths:
-
-1. **Cloud Backup (legacy object-layout path)**
-   - May continue to use `applyRetentionPolicy()` where object-prefix semantics are valid.
-
-2. **Local Agent Kopia path**
+1. **Local Agent Kopia path**
    - Must use repository-native orchestration:
      - Snapshot forget by policy
      - Quick/full maintenance

@@ -283,116 +283,11 @@
         </div>
     </div>
 
-    <div x-show="showCreateModal"
-         x-cloak
-         class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60"
-         @click.self="closeCreateModal()">
-        <div class="w-full max-w-lg rounded-xl border border-slate-700 bg-slate-900 shadow-2xl">
-            <div class="flex items-center justify-between border-b border-slate-700 px-6 py-4">
-                <h3 class="text-lg font-semibold text-white">Add User</h3>
-                <button type="button" @click="closeCreateModal()" class="text-slate-400 hover:text-white">&times;</button>
-            </div>
-
-            <form @submit.prevent="createUser()" class="p-6 space-y-4">
-                <div x-show="formErrorMessage" class="rounded-md border border-rose-500/40 bg-rose-900/20 px-3 py-2 text-sm text-rose-200" x-text="formErrorMessage"></div>
-
-                <div>
-                    <label class="block text-sm font-medium text-slate-300 mb-1">Username <span class="text-rose-400">*</span></label>
-                    <input type="text" x-model.trim="form.username"
-                           placeholder="username"
-                           class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500">
-                    <p class="text-xs text-rose-300 mt-1" x-show="fieldErrors.username" x-text="fieldErrors.username"></p>
-                </div>
-
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                        <label class="block text-sm font-medium text-slate-300 mb-1">Password <span class="text-rose-400">*</span></label>
-                        <input type="password" x-model="form.password"
-                               placeholder="Minimum 8 characters"
-                               class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500">
-                        <p class="text-xs text-rose-300 mt-1" x-show="fieldErrors.password" x-text="fieldErrors.password"></p>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-slate-300 mb-1">Confirm Password <span class="text-rose-400">*</span></label>
-                        <input type="password" x-model="form.password_confirm"
-                               placeholder="Repeat password"
-                               class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500">
-                        <p class="text-xs text-rose-300 mt-1" x-show="fieldErrors.password_confirm" x-text="fieldErrors.password_confirm"></p>
-                    </div>
-                </div>
-
-                <div>
-                    <label class="block text-sm font-medium text-slate-300 mb-1">Email (for reports) <span class="text-rose-400">*</span></label>
-                    <input type="email" x-model.trim="form.email"
-                           placeholder="alerts@example.com"
-                           class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500">
-                    <p class="text-xs text-rose-300 mt-1" x-show="fieldErrors.email" x-text="fieldErrors.email"></p>
-                </div>
-
-                {if $isMspClient}
-                <div>
-                    <label class="block text-sm font-medium text-slate-300 mb-1">Tenant</label>
-                    <div class="relative" x-data="{ isOpen: false }" @click.away="isOpen = false">
-                        <button type="button"
-                                @click="isOpen = !isOpen"
-                                class="w-full inline-flex items-center justify-between gap-2 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500">
-                            <span class="truncate" x-text="createTenantLabel()"></span>
-                            <svg class="w-4 h-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
-                            </svg>
-                        </button>
-                        <div x-show="isOpen"
-                             x-transition:enter="transition ease-out duration-100"
-                             x-transition:enter-start="opacity-0 scale-95"
-                             x-transition:enter-end="opacity-100 scale-100"
-                             x-transition:leave="transition ease-in duration-75"
-                             x-transition:leave-start="opacity-100 scale-100"
-                             x-transition:leave-end="opacity-0 scale-95"
-                             class="absolute left-0 mt-2 w-full rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden"
-                             style="display: none;">
-                            <div class="px-3 py-2 border-b border-slate-800">
-                                <input type="text" x-model="tenantAssignSearch" placeholder="Search tenants"
-                                       class="w-full rounded-md bg-slate-950 border border-slate-700 px-3 py-2 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-amber-500">
-                            </div>
-                            <div class="py-1 max-h-64 overflow-auto">
-                                <button type="button"
-                                        class="w-full px-4 py-2 text-left text-sm transition"
-                                        :class="form.tenant_id === '' ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
-                                        @click="form.tenant_id=''; isOpen=false;">
-                                    Direct (No Tenant)
-                                </button>
-                                <template x-for="tenant in filteredAssignTenants" :key="'assign-' + tenant.id">
-                                    <button type="button"
-                                            class="w-full px-4 py-2 text-left text-sm transition"
-                                            :class="String(form.tenant_id) === String(tenant.id) ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
-                                            @click="form.tenant_id = String(tenant.id); isOpen=false;">
-                                        <span x-text="tenant.name"></span>
-                                    </button>
-                                </template>
-                            </div>
-                        </div>
-                    </div>
-                    <p class="text-xs text-slate-500 mt-1">Optional. Leave blank for direct scope.</p>
-                    <p class="text-xs text-rose-300 mt-1" x-show="fieldErrors.tenant_id" x-text="fieldErrors.tenant_id"></p>
-                </div>
-                {/if}
-
-                <div class="flex justify-end gap-3 pt-4">
-                    <button type="button"
-                            @click="closeCreateModal()"
-                            class="px-4 py-2 rounded-md bg-slate-700 text-white text-sm font-medium hover:bg-slate-600">
-                        Cancel
-                    </button>
-                    <button type="submit"
-                            :disabled="saving"
-                            class="px-4 py-2 rounded-md bg-amber-600 text-white text-sm font-semibold hover:bg-amber-500 disabled:opacity-60 disabled:cursor-not-allowed">
-                        <span x-show="!saving">Create User</span>
-                        <span x-show="saving">Creating...</span>
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
+    {include file="modules/addons/cloudstorage/templates/partials/e3backup_create_user_modal.tpl"
+        modalTitle="Add User"
+        submitLabel="Create User"
+        submittingLabel="Creating..."
+        showTenantSelector=true}
 </div>
 
 {literal}
@@ -420,7 +315,11 @@ function backupUsersApp() {
             password: '',
             password_confirm: '',
             email: '',
-            tenant_id: ''
+            tenant_id: '',
+            encryption_mode: 'managed',
+            managed_acknowledged: false,
+            strict_acknowledged: false,
+            recovery_key_downloaded: false
         },
         availableColumns: [
             { key: 'tenant', label: 'Tenant' },
@@ -469,6 +368,51 @@ function backupUsersApp() {
             if (!this.form.tenant_id) return 'Direct (No Tenant)';
             const tenant = this.tenants.find((item) => String(item.id) === String(this.form.tenant_id));
             return tenant ? tenant.name : 'Select tenant';
+        },
+
+        generateRecoveryKey() {
+            if (window.crypto && window.crypto.getRandomValues) {
+                const bytes = new Uint8Array(32);
+                window.crypto.getRandomValues(bytes);
+                return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
+            }
+            return Math.random().toString(36).slice(2) + Date.now().toString(36);
+        },
+
+        downloadRecoveryKey() {
+            if (this.form.encryption_mode !== 'strict' || this.form.recovery_key_downloaded) {
+                return;
+            }
+
+            const keyValue = this.generateRecoveryKey();
+            const content = [
+                'eazyBackup Recovery Key',
+                '',
+                'User: ' + (this.form.username || ''),
+                'Email: ' + (this.form.email || ''),
+                'Generated At: ' + new Date().toISOString(),
+                '',
+                'Recovery Key:',
+                keyValue,
+                '',
+                'Important: This key is shown once and not stored by eazyBackup.'
+            ].join('\n');
+
+            const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const anchor = document.createElement('a');
+            const filenameSafeUser = (this.form.username || 'backup-user').replace(/[^a-zA-Z0-9._-]+/g, '-');
+            anchor.href = url;
+            anchor.download = filenameSafeUser + '-recovery-key.txt';
+            document.body.appendChild(anchor);
+            anchor.click();
+            document.body.removeChild(anchor);
+            URL.revokeObjectURL(url);
+
+            this.form.recovery_key_downloaded = true;
+            if (this.fieldErrors.recovery_key_downloaded) {
+                delete this.fieldErrors.recovery_key_downloaded;
+            }
         },
 
         setTenantFilter(value) {
@@ -591,7 +535,11 @@ function backupUsersApp() {
                 password: '',
                 password_confirm: '',
                 email: '',
-                tenant_id: ''
+                tenant_id: '',
+                encryption_mode: 'managed',
+                managed_acknowledged: false,
+                strict_acknowledged: false,
+                recovery_key_downloaded: false
             };
             this.formErrorMessage = '';
             this.fieldErrors = {};
@@ -600,6 +548,12 @@ function backupUsersApp() {
         },
 
         closeCreateModal() {
+            if (this.form.encryption_mode === 'strict' && !this.form.recovery_key_downloaded) {
+                const proceed = window.confirm('You haven\'t downloaded the recovery key. If you continue, you will not be able to recover encrypted data later.');
+                if (!proceed) {
+                    return;
+                }
+            }
             this.showCreateModal = false;
             this.saving = false;
         },
@@ -620,16 +574,31 @@ function backupUsersApp() {
                 this.fieldErrors.email = 'Please enter a valid email address.';
             }
 
-            if (!this.form.password) {
-                this.fieldErrors.password = 'Password is required.';
-            } else if (this.form.password.length < 8) {
-                this.fieldErrors.password = 'Password must be at least 8 characters.';
+            if (this.form.encryption_mode === 'managed') {
+                if (!this.form.password) {
+                    this.fieldErrors.password = 'Password is required.';
+                } else if (this.form.password.length < 8) {
+                    this.fieldErrors.password = 'Password must be at least 8 characters.';
+                }
+
+                if (!this.form.password_confirm) {
+                    this.fieldErrors.password_confirm = 'Please confirm your password.';
+                } else if (this.form.password !== this.form.password_confirm) {
+                    this.fieldErrors.password_confirm = 'Password confirmation does not match.';
+                }
             }
 
-            if (!this.form.password_confirm) {
-                this.fieldErrors.password_confirm = 'Please confirm your password.';
-            } else if (this.form.password !== this.form.password_confirm) {
-                this.fieldErrors.password_confirm = 'Password confirmation does not match.';
+            if (this.form.encryption_mode === 'managed') {
+                if (!this.form.managed_acknowledged) {
+                    this.fieldErrors.managed_acknowledged = 'Please acknowledge managed recovery.';
+                }
+            } else if (this.form.encryption_mode === 'strict') {
+                if (!this.form.recovery_key_downloaded) {
+                    this.fieldErrors.recovery_key_downloaded = 'Download the recovery key before creating this user.';
+                }
+                if (!this.form.strict_acknowledged) {
+                    this.fieldErrors.strict_acknowledged = 'Please acknowledge strict mode requirements.';
+                }
             }
 
             return Object.keys(this.fieldErrors).length === 0;
@@ -672,12 +641,24 @@ function backupUsersApp() {
 
             this.saving = true;
             try {
+                let passwordToSend = this.form.password;
+                let passwordConfirmToSend = this.form.password_confirm;
+                if (this.form.encryption_mode === 'strict') {
+                    const generated = this.generateRecoveryKey().slice(0, 24);
+                    passwordToSend = generated;
+                    passwordConfirmToSend = generated;
+                }
+
                 const body = new URLSearchParams({
                     username: this.form.username,
-                    password: this.form.password,
-                    password_confirm: this.form.password_confirm,
+                    password: passwordToSend,
+                    password_confirm: passwordConfirmToSend,
                     email: this.form.email,
-                    status: 'active'
+                    status: 'active',
+                    encryption_mode: this.form.encryption_mode,
+                    managed_acknowledged: this.form.managed_acknowledged ? '1' : '0',
+                    strict_acknowledged: this.form.strict_acknowledged ? '1' : '0',
+                    recovery_key_downloaded: this.form.recovery_key_downloaded ? '1' : '0'
                 });
 
                 if (this.isMspClient && this.form.tenant_id) {

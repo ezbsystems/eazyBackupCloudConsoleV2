@@ -3940,8 +3940,13 @@ function cloudstorage_clientarea($vars) {
                     break;
                 case 'tenants':
                     $pagetitle = 'e3 Cloud Backup - Tenants';
-                    $templatefile = 'templates/e3backup_tenants';
+                    $templatefile = 'templates/e3backup_tenants_table';
                     $viewVars = require 'pages/e3backup_tenants.php';
+                    break;
+                case 'tenant_detail':
+                    $pagetitle = 'e3 Cloud Backup - Tenant Detail';
+                    $templatefile = 'templates/e3backup_tenant_detail';
+                    $viewVars = require 'pages/e3backup_tenant_detail.php';
                     break;
                 case 'jobs':
                     $pagetitle = 'e3 Cloud Backup - Jobs';
@@ -3958,10 +3963,11 @@ function cloudstorage_clientarea($vars) {
                     $templatefile = 'templates/e3backup_runs';
                     $viewVars = require 'pages/e3backup_runs.php';
                     break;
+                case 'tenant_members':
                 case 'tenant_users':
-                    $pagetitle = 'e3 Cloud Backup - Tenant Users';
-                    $templatefile = 'templates/e3backup_tenant_users';
-                    $viewVars = require 'pages/e3backup_tenant_users.php';
+                    $pagetitle = 'e3 Cloud Backup - Tenant Members';
+                    $templatefile = 'templates/e3backup_tenant_members';
+                    $viewVars = require 'pages/e3backup_tenant_members.php';
                     break;
                 case 'cloudnas':
                     $pagetitle = 'e3 Cloud Backup - Cloud NAS';

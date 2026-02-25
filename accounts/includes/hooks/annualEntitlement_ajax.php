@@ -81,8 +81,8 @@ try {
     }
 
     $currentMaxPaidQty = (int)$ledger->max_paid_qty;
-    if ($newMaxPaidQty < $currentMaxPaidQty) {
-        ae_ajax_json(false, [], 'new_max_paid_qty must be >= current max_paid_qty');
+    if ($newMaxPaidQty <= $currentMaxPaidQty) {
+        ae_ajax_json(false, [], 'new_max_paid_qty must be greater than current max_paid_qty');
     }
 
     $usageQty = (int)$ledger->current_usage_qty;
