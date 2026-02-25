@@ -257,6 +257,7 @@ type NextRunResponse struct {
 	DestAccessKey           string         `json:"dest_access_key"`
 	DestSecretKey           string         `json:"dest_secret_key"`
 	RepositoryID            string         `json:"repository_id,omitempty"`
+	RepoConfigKey           string         `json:"repo_config_key,omitempty"` // e.g. "repo_7" for repo-scoped ops
 	RepositoryPassword      string         `json:"repository_password,omitempty"`
 	RepoPasswordMode        string         `json:"repo_password_mode,omitempty"`
 	PayloadVersion          string         `json:"payload_version,omitempty"`

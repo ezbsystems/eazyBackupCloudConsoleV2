@@ -270,37 +270,58 @@ func (r *Runner) executeRepoOperation(op *RepoOperation) {
 	if strings.Contains(t, "full") || t == "maintenance_full" {
 		mode = "full"
 	}
-	if strings.Contains(t, "retention") || t == "retention_apply" {
-		// Retention apply requires policy and repo connect; credentials not in payload yet.
-		_ = r.client.CompleteRepoOperation(op.OperationID, op.OperationToken, "failed",
-			map[string]any{"error": "retention_apply execution requires server payload extension"})
-		return
-	}
-	// Maintenance quick/full: need run context with repo credentials. Build minimal run from op.
 	run := r.repoOperationToRun(op)
 	if run == nil {
 		_ = r.client.CompleteRepoOperation(op.OperationID, op.OperationToken, "failed",
 			map[string]any{"error": "repo operation requires credential support in server payload"})
 		return
 	}
-	err := r.kopiaMaintenance(ctx, run, mode)
+	var err error
+	var result map[string]any
+	if strings.Contains(t, "retention") || t == "retention_apply" {
+		res, applyErr := r.kopiaRetentionApply(ctx, run, op.EffectivePolicy)
+		result = map[string]any{
+			"deleted_count": res.DeletedCount,
+			"sources_count": res.SourcesCount,
+		}
+		if applyErr != nil {
+			err = applyErr
+			result["error"] = sanitizeErrorMessage(applyErr)
+		}
+	} else {
+		err = r.kopiaMaintenance(ctx, run, mode)
+		result = map[string]any{}
+		if err != nil {
+			result["error"] = sanitizeErrorMessage(err)
+		}
+	}
 	status := "success"
-	result := map[string]any{}
 	if err != nil {
 		status = "failed"
-		result["error"] = sanitizeErrorMessage(err)
-		log.Printf("agent: repo operation %d maintenance %s failed: %v", op.OperationID, mode, err)
+		log.Printf("agent: repo operation %d type=%s failed: %v", op.OperationID, op.OpType, err)
 	} else {
-		log.Printf("agent: repo operation %d maintenance %s completed", op.OperationID, mode)
+		log.Printf("agent: repo operation %d type=%s completed", op.OperationID, op.OpType)
 	}
 	_ = r.client.CompleteRepoOperation(op.OperationID, op.OperationToken, status, result)
 }
 
 // repoOperationToRun builds a minimal NextRunResponse from a RepoOperation for kopia calls.
-// Returns nil when credentials are not available (server must add DestAccessKey, DestSecretKey, RepositoryPassword to the payload).
+// Returns nil when credentials are not available (server must add DestAccessKey, DestSecretKey to the payload).
 func (r *Runner) repoOperationToRun(op *RepoOperation) *NextRunResponse {
-	// Server payload does not yet include credentials; we cannot connect.
-	return nil
+	if op == nil || op.DestAccessKey == "" || op.DestSecretKey == "" {
+		return nil
+	}
+	return &NextRunResponse{
+		JobID:            int64(op.RepoID),
+		DestType:         "s3",
+		DestBucketName:   op.BucketName,
+		DestPrefix:       op.RootPrefix,
+		DestEndpoint:    op.Endpoint,
+		DestRegion:      op.Region,
+		DestAccessKey:   op.DestAccessKey,
+		DestSecretKey:   op.DestSecretKey,
+		RepoConfigKey:   fmt.Sprintf("repo_%d", op.RepoID),
+	}
 }
 
 // pollAndHandlePendingCommands checks for and executes pending commands (restore, maintenance).
