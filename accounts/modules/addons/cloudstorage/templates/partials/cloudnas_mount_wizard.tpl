@@ -70,8 +70,8 @@
                             <button @click="agentOpen = !agentOpen"
                                     type="button"
                                     class="w-full flex items-center justify-between rounded-lg bg-slate-900 border border-slate-700 px-3 py-2.5 text-sm text-left hover:border-slate-600 transition">
-                                <span x-text="newMount.agent_id ? agents.find(a => a.id == newMount.agent_id)?.hostname || 'Agent #' + newMount.agent_id : 'Select an agent...'" 
-                                      :class="newMount.agent_id ? 'text-white' : 'text-slate-400'"></span>
+                                <span x-text="newMount.agent_uuid ? agents.find(a => a.agent_uuid == newMount.agent_uuid)?.hostname || newMount.agent_uuid : 'Select an agent...'" 
+                                      :class="newMount.agent_uuid ? 'text-white' : 'text-slate-400'"></span>
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" 
                                      class="w-4 h-4 text-slate-400 transition-transform" :class="agentOpen ? 'rotate-180' : ''">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
@@ -81,17 +81,17 @@
                             <div x-show="agentOpen" x-transition
                                  class="absolute z-30 mt-1 w-full rounded-lg bg-slate-800 border border-slate-700 shadow-xl max-h-48 overflow-y-auto">
                                 <template x-for="agent in agents" :key="agent.id">
-                                    <button @click="newMount.agent_id = agent.id; agentOpen = false"
+                                    <button @click="newMount.agent_uuid = agent.agent_uuid || ''; selectedAgentId = agent.id; selectedAgentUuid = agent.agent_uuid || ''; agentOpen = false"
                                             type="button"
                                             class="w-full px-3 py-2.5 text-sm text-left hover:bg-slate-700 transition flex items-center justify-between"
-                                            :class="newMount.agent_id == agent.id ? 'bg-cyan-600/20 text-cyan-300' : 'text-slate-200'">
+                                            :class="newMount.agent_uuid == (agent.agent_uuid || '') ? 'bg-cyan-600/20 text-cyan-300' : 'text-slate-200'">
                                         <div class="flex items-center gap-2">
                                             <span class="relative flex h-2 w-2">
                                                 <span :class="agent.status === 'active' ? 'bg-emerald-500' : 'bg-slate-600'" class="relative inline-flex rounded-full h-2 w-2"></span>
                                             </span>
-                                            <span x-text="agent.hostname || 'Agent #' + agent.id"></span>
+                                            <span x-text="agent.hostname || agent.device_name || (agent.agent_uuid || 'Unknown agent')"></span>
                                         </div>
-                                        <svg x-show="newMount.agent_id == agent.id" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4 text-cyan-400">
+                                        <svg x-show="newMount.agent_uuid == (agent.agent_uuid || '')" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4 text-cyan-400">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                                         </svg>
                                     </button>
@@ -258,7 +258,7 @@
                         <div class="p-4 space-y-3">
                             <div class="flex justify-between text-sm">
                                 <span class="text-slate-400">Agent</span>
-                                <span class="text-white" x-text="agents.find(a => a.id == newMount.agent_id)?.hostname || 'Agent #' + newMount.agent_id"></span>
+                                <span class="text-white" x-text="agents.find(a => a.agent_uuid == newMount.agent_uuid)?.hostname || newMount.agent_uuid"></span>
                             </div>
                             <div class="flex justify-between text-sm">
                                 <span class="text-slate-400">Drive Letter</span>

@@ -385,10 +385,10 @@
                         }
                     }" x-init="load()">
                         <label class="block text-sm font-medium text-slate-300 mb-2">Agent</label>
-                        <select name="agent_id" id="agent_id" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600" required>
+                        <select name="agent_uuid" id="agent_uuid" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600" required>
                             <option value="">Select an agent</option>
                             <template x-for="a in options" :key="a.id">
-                                <option :value="a.id" x-text="a.hostname ? (a.hostname + ' (ID ' + a.id + ')') : ('Agent #' + a.id)"></option>
+                                <option :value="a.agent_uuid || ''" x-text="a.hostname ? (a.hostname + ' (' + (a.agent_uuid || '') + ')') : (a.agent_uuid || 'Unknown agent')"></option>
                             </template>
                         </select>
                         <p class="text-xs text-slate-400 mt-1" x-show="!loading && options.length === 0">No active agents found. Create an agent first.</p>
@@ -1282,14 +1282,14 @@
                                     const q = (this.search || '').toLowerCase();
                                     if (!q) return this.options;
                                     return (this.options || []).filter(a => {
-                                        const id = String(a.id || '');
+                                        const id = String(a.agent_uuid || '');
                                         const hostname = String(a.hostname || '');
-                                        const label = hostname ? (hostname + ' (ID ' + id + ')') : ('Agent #' + id);
+                                        const label = hostname ? (hostname + ' (' + id + ')') : id;
                                         return label.toLowerCase().includes(q);
                                     });
                                 },
                                 agentLabel(a) {
-                                    return a.hostname ? (a.hostname + ' (ID ' + a.id + ')') : ('Agent #' + a.id);
+                                    return a.hostname ? (a.hostname + ' (' + (a.agent_uuid || '') + ')') : (a.agent_uuid || 'Unknown agent');
                                 },
                                 statusBadgeClass(status) {
                                     if (status === 'online') return 'bg-emerald-500/15 text-emerald-200';
@@ -1326,31 +1326,31 @@
                                         this.options = this.allAgents.filter(a => String(a.tenant_id) === String(this.tenantFilter));
                                     }
                                     // Reset selection if current agent doesn't match filter
-                                    if (this.selectedId && !this.options.find(a => String(a.id) === String(this.selectedId))) {
+                                    if (this.selectedId && !this.options.find(a => String(a.agent_uuid || '') === String(this.selectedId))) {
                                         this.selectedId = '';
                                         this.selectedAgent = null;
                                         const hid = document.getElementById('localWizardAgentId');
                                         if (hid) hid.value = '';
                                         if (window.localWizardState?.data) {
-                                            window.localWizardState.data.agent_id = '';
+                                            window.localWizardState.data.agent_uuid = '';
                                         }
                                     }
                                     // If a selection exists (e.g. deep-link prefill), refresh selectedAgent from loaded data
                                     // so we display the correct live online_status badge instead of a placeholder.
                                     if (this.selectedId) {
-                                        const match = this.options.find(a => String(a.id) === String(this.selectedId));
+                                        const match = this.options.find(a => String(a.agent_uuid || '') === String(this.selectedId));
                                         if (match) {
                                             this.selectedAgent = match;
                                         }
                                     }
                                 },
                                 choose(opt) {
-                                    this.selectedId = opt.id;
+                                    this.selectedId = opt.agent_uuid || '';
                                     this.selectedAgent = opt;
                                     const hid = document.getElementById('localWizardAgentId');
                                     if (hid) hid.value = this.selectedId;
                                     if (window.localWizardState?.data) {
-                                        window.localWizardState.data.agent_id = this.selectedId;
+                                        window.localWizardState.data.agent_uuid = this.selectedId;
                                     }
                                     localWizardOnAgentSelected(this.selectedId);
                                     this.isOpen = false;
