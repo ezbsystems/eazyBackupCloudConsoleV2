@@ -25,17 +25,17 @@ $clientId = $ca->getUserID();
 $input = json_decode(file_get_contents('php://input'), true);
 
 $manifestId = trim($input['manifest_id'] ?? '');
-$agentId = intval($input['agent_id'] ?? 0);
+$agentUuid = trim((string) ($input['agent_uuid'] ?? ''));
 
-if (empty($manifestId) || $agentId <= 0) {
-    (new JsonResponse(['status' => 'error', 'message' => 'Manifest ID and agent ID are required'], 200))->send();
+if (empty($manifestId) || $agentUuid === '') {
+    (new JsonResponse(['status' => 'error', 'message' => 'Manifest ID and agent UUID are required'], 200))->send();
     exit;
 }
 
 try {
     // Verify agent belongs to client
     $agent = Capsule::table('s3_cloudbackup_agents')
-        ->where('id', $agentId)
+        ->where('agent_uuid', $agentUuid)
         ->where('client_id', $clientId)
         ->first();
 
@@ -45,16 +45,21 @@ try {
     }
 
     // Queue unmount snapshot command
-    $commandId = Capsule::table('s3_cloudbackup_run_commands')->insertGetId([
+    $commandPayload = [
         'run_id' => null,
-        'agent_id' => $agentId,
         'type' => 'nas_unmount_snapshot',
         'payload_json' => json_encode([
             'manifest_id' => $manifestId
         ]),
         'status' => 'pending',
         'created_at' => Capsule::raw('NOW()')
-    ]);
+    ];
+    if (Capsule::schema()->hasColumn('s3_cloudbackup_run_commands', 'agent_uuid')) {
+        $commandPayload['agent_uuid'] = $agentUuid;
+    } elseif (Capsule::schema()->hasColumn('s3_cloudbackup_run_commands', 'agent_id')) {
+        $commandPayload['agent_id'] = (int) $agent->id;
+    }
+    $commandId = Capsule::table('s3_cloudbackup_run_commands')->insertGetId($commandPayload);
 
     (new JsonResponse([
         'status' => 'success',

@@ -149,7 +149,7 @@
                             </td>
                         </tr>
                     </template>
-                    <template x-for="agent in agents" :key="agent.id">
+                    <template x-for="agent in agents" :key="agent.agent_uuid || agent.device_id || agent.hostname">
                         <tr class="hover:bg-slate-800/50">
                             <td class="px-4 py-3">
                                 <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold"
@@ -341,7 +341,7 @@ function agentsApp() {
             
             try {
                 const payload = new URLSearchParams({ status: newStatus });
-                payload.append('agent' + '_id', agent.id);
+                payload.append('agent_uuid', agent.agent_uuid || '');
                 const res = await fetch('modules/addons/cloudstorage/api/e3backup_agent_toggle.php', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -363,7 +363,7 @@ function agentsApp() {
             
             try {
                 const payload = new URLSearchParams();
-                payload.append('agent' + '_id', agent.id);
+                payload.append('agent_uuid', agent.agent_uuid || '');
                 const res = await fetch('modules/addons/cloudstorage/api/agent_delete.php', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },

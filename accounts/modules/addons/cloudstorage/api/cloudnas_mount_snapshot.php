@@ -26,10 +26,10 @@ $input = json_decode(file_get_contents('php://input'), true);
 
 $jobId = intval($input['job_id'] ?? 0);
 $manifestId = trim($input['manifest_id'] ?? '');
-$agentId = intval($input['agent_id'] ?? 0);
+$agentUuid = trim((string) ($input['agent_uuid'] ?? ''));
 
-if ($jobId <= 0 || empty($manifestId) || $agentId <= 0) {
-    (new JsonResponse(['status' => 'error', 'message' => 'Job ID, manifest ID, and agent ID are required'], 200))->send();
+if ($jobId <= 0 || empty($manifestId) || $agentUuid === '') {
+    (new JsonResponse(['status' => 'error', 'message' => 'Job ID, manifest ID, and agent UUID are required'], 200))->send();
     exit;
 }
 
@@ -47,7 +47,7 @@ try {
 
     // Verify agent belongs to client
     $agent = Capsule::table('s3_cloudbackup_agents')
-        ->where('id', $agentId)
+        ->where('agent_uuid', $agentUuid)
         ->where('client_id', $clientId)
         ->first();
 
@@ -71,7 +71,7 @@ try {
     // Find an available drive letter for snapshot mount (use Y, X, W... as temp mounts)
     $usedLetters = Capsule::table('s3_cloudnas_mounts')
         ->where('client_id', $clientId)
-        ->where('agent_id', $agentId)
+        ->where('agent_id', (int) $agent->id)
         ->pluck('drive_letter')
         ->toArray();
 
@@ -116,9 +116,8 @@ try {
         ->value('value') ?: 'https://s3.eazybackup.ca';
 
     // Queue snapshot mount command
-    $commandId = Capsule::table('s3_cloudbackup_run_commands')->insertGetId([
+    $commandPayload = [
         'run_id' => $run->id,
-        'agent_id' => $agentId,
         'type' => 'nas_mount_snapshot',
         'payload_json' => json_encode([
             'job_id' => $jobId,
@@ -133,7 +132,13 @@ try {
         ]),
         'status' => 'pending',
         'created_at' => Capsule::raw('NOW()')
-    ]);
+    ];
+    if (Capsule::schema()->hasColumn('s3_cloudbackup_run_commands', 'agent_uuid')) {
+        $commandPayload['agent_uuid'] = $agentUuid;
+    } elseif (Capsule::schema()->hasColumn('s3_cloudbackup_run_commands', 'agent_id')) {
+        $commandPayload['agent_id'] = (int) $agent->id;
+    }
+    $commandId = Capsule::table('s3_cloudbackup_run_commands')->insertGetId($commandPayload);
 
     (new JsonResponse([
         'status' => 'success',

@@ -34,7 +34,7 @@ if (!$input) {
 // Validate required fields
 $bucket = trim($input['bucket'] ?? '');
 $driveLetter = strtoupper(trim($input['drive_letter'] ?? ''));
-$agentId = intval($input['agent_id'] ?? 0);
+$agentUuid = trim((string) ($input['agent_uuid'] ?? ''));
 
 if (empty($bucket)) {
     (new JsonResponse(['status' => 'error', 'message' => 'Bucket name is required'], 200))->send();
@@ -46,7 +46,7 @@ if (empty($driveLetter) || !preg_match('/^[A-Z]$/', $driveLetter)) {
     exit;
 }
 
-if ($agentId <= 0) {
+if ($agentUuid === '') {
     (new JsonResponse(['status' => 'error', 'message' => 'Agent selection is required'], 200))->send();
     exit;
 }
@@ -54,7 +54,7 @@ if ($agentId <= 0) {
 try {
     // Verify agent belongs to client
     $agent = Capsule::table('s3_cloudbackup_agents')
-        ->where('id', $agentId)
+        ->where('agent_uuid', $agentUuid)
         ->where('client_id', $clientId)
         ->first();
 
@@ -66,7 +66,7 @@ try {
     // Check if drive letter is already in use for this agent
     $existing = Capsule::table('s3_cloudnas_mounts')
         ->where('client_id', $clientId)
-        ->where('agent_id', $agentId)
+        ->where('agent_id', (int) $agent->id)
         ->where('drive_letter', $driveLetter)
         ->first();
 
@@ -117,7 +117,7 @@ try {
     // Insert mount configuration
     $mountId = Capsule::table('s3_cloudnas_mounts')->insertGetId([
         'client_id' => $clientId,
-        'agent_id' => $agentId,
+        'agent_id' => (int) $agent->id,
         'bucket_name' => $bucket,
         'prefix' => $prefix,
         'drive_letter' => $driveLetter,
@@ -132,7 +132,8 @@ try {
     (new JsonResponse([
         'status' => 'success',
         'message' => 'Mount configuration created',
-        'mount_id' => $mountId
+        'mount_id' => $mountId,
+        'agent_uuid' => $agentUuid,
     ], 200))->send();
 
 } catch (Exception $e) {

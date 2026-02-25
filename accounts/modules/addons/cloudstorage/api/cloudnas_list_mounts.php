@@ -23,24 +23,25 @@ $clientId = $ca->getUserID();
 
 try {
     // Get all mount configurations for this client
-    $mounts = Capsule::table('s3_cloudnas_mounts')
-        ->where('client_id', $clientId)
-        ->orderBy('created_at', 'desc')
+    $mounts = Capsule::table('s3_cloudnas_mounts as m')
+        ->leftJoin('s3_cloudbackup_agents as a', 'm.agent_id', '=', 'a.id')
+        ->where('m.client_id', $clientId)
+        ->orderBy('m.created_at', 'desc')
         ->get([
-            'id',
-            'client_id',
-            'agent_id',
-            'bucket_name',
-            'prefix',
-            'drive_letter',
-            'read_only',
-            'persistent',
-            'cache_mode',
-            'status',
-            'error',
-            'last_mounted_at',
-            'created_at',
-            'updated_at'
+            'm.id',
+            'm.client_id',
+            'a.agent_uuid',
+            'm.bucket_name',
+            'm.prefix',
+            'm.drive_letter',
+            'm.read_only',
+            'm.persistent',
+            'm.cache_mode',
+            'm.status',
+            'm.error',
+            'm.last_mounted_at',
+            'm.created_at',
+            'm.updated_at'
         ]);
 
     // Convert boolean fields

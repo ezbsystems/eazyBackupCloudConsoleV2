@@ -91,17 +91,6 @@ function recreateSchemaViaModuleActivate(): void
     }
 }
 
-function addColumnIfMissing(string $table, string $column, callable $adder): void
-{
-    $schema = Capsule::schema();
-    if (!$schema->hasTable($table) || $schema->hasColumn($table, $column)) {
-        return;
-    }
-    $schema->table($table, function ($tableBuilder) use ($adder) {
-        $adder($tableBuilder);
-    });
-}
-
 function assertColumnsExist(string $table, array $columns): void
 {
     $schema = Capsule::schema();
@@ -115,29 +104,13 @@ function assertColumnsExist(string $table, array $columns): void
     }
 }
 
-function ensureCompatibilityColumnsForCurrentApis(): void
+function assertUuidOnlyContractsForCurrentApis(): void
 {
-    // Compatibility bridge for pre-Task-7 API writes still using numeric agent_id.
-    addColumnIfMissing('s3_cloudbackup_jobs', 'agent_id', function ($table) {
-        $table->unsignedInteger('agent_id')->nullable()->after('agent_uuid');
-        $table->index('agent_id', 'idx_jobs_agent_id');
-    });
-    addColumnIfMissing('s3_cloudbackup_runs', 'agent_id', function ($table) {
-        $table->unsignedInteger('agent_id')->nullable()->after('agent_uuid');
-        $table->index('agent_id', 'idx_runs_agent_id');
-    });
-    addColumnIfMissing('s3_cloudbackup_run_commands', 'agent_id', function ($table) {
-        $table->unsignedInteger('agent_id')->nullable()->after('agent_uuid');
-        $table->index('agent_id', 'idx_run_cmd_agent_id_legacy');
-    });
-    addColumnIfMissing('s3_cloudbackup_restore_points', 'agent_id', function ($table) {
-        $table->unsignedInteger('agent_id')->nullable()->after('agent_uuid');
-        $table->index('agent_id', 'idx_restore_points_agent_id');
-    });
-    addColumnIfMissing('s3_cloudbackup_agent_destinations', 'agent_id', function ($table) {
-        $table->unsignedBigInteger('agent_id')->nullable()->after('agent_uuid');
-        $table->index('agent_id', 'idx_dest_agent_id');
-    });
+    assertColumnsExist('s3_cloudbackup_jobs', ['agent_uuid']);
+    assertColumnsExist('s3_cloudbackup_runs', ['agent_uuid']);
+    assertColumnsExist('s3_cloudbackup_run_commands', ['agent_uuid']);
+    assertColumnsExist('s3_cloudbackup_restore_points', ['agent_uuid']);
+    assertColumnsExist('s3_cloudbackup_agent_destinations', ['agent_uuid']);
 
     // Ensure critical write-path contracts are present after rebuild.
     assertColumnsExist('s3_cloudbackup_jobs', [
@@ -213,9 +186,6 @@ function runUuidEnrollmentDestinationSmoke(): void
             'created_at' => Capsule::raw('NOW()'),
             'updated_at' => Capsule::raw('NOW()'),
         ];
-        if ($schema->hasColumn('s3_cloudbackup_agent_destinations', 'agent_id')) {
-            $payload['agent_id'] = $agentId;
-        }
         Capsule::table('s3_cloudbackup_agent_destinations')->insert($payload);
         $destInserted = true;
         Capsule::statement('SET FOREIGN_KEY_CHECKS=1');
@@ -247,6 +217,6 @@ function runUuidEnrollmentDestinationSmoke(): void
 setCloudStorageSetting('agent_uuid_cutover_maintenance_mode', '1');
 dropCloudBackupTables();
 recreateSchemaViaModuleActivate();
-ensureCompatibilityColumnsForCurrentApis();
+assertUuidOnlyContractsForCurrentApis();
 runUuidEnrollmentDestinationSmoke();
 echo "agent-uuid-bigbang-cutover-ok\n";

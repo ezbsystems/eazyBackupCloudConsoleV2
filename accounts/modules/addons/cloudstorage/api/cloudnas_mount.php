@@ -49,6 +49,15 @@ try {
         (new JsonResponse(['status' => 'error', 'message' => 'Drive is already mounted'], 200))->send();
         exit;
     }
+    $agent = Capsule::table('s3_cloudbackup_agents')
+        ->where('id', (int) $mount->agent_id)
+        ->where('client_id', $clientId)
+        ->first(['agent_uuid']);
+    if (!$agent || trim((string) ($agent->agent_uuid ?? '')) === '') {
+        (new JsonResponse(['status' => 'error', 'message' => 'Agent not found for mount'], 200))->send();
+        exit;
+    }
+    $agentUuid = trim((string) $agent->agent_uuid);
 
     // Get user's S3 user account
     $packageId = ProductConfig::$E3_PRODUCT_ID;
@@ -114,9 +123,8 @@ try {
         ->value('value') ?: 'https://s3.eazybackup.ca';
 
     // Queue mount command for agent
-    $commandId = Capsule::table('s3_cloudbackup_run_commands')->insertGetId([
+    $commandPayload = [
         'run_id' => null, // No associated run (NULL to avoid FK constraint)
-        'agent_id' => $mount->agent_id,
         'type' => 'nas_mount',
         'payload_json' => json_encode([
             'mount_id' => $mountId,
@@ -132,7 +140,13 @@ try {
         ]),
         'status' => 'pending',
         'created_at' => Capsule::raw('NOW()')
-    ]);
+    ];
+    if (Capsule::schema()->hasColumn('s3_cloudbackup_run_commands', 'agent_uuid')) {
+        $commandPayload['agent_uuid'] = $agentUuid;
+    } elseif (Capsule::schema()->hasColumn('s3_cloudbackup_run_commands', 'agent_id')) {
+        $commandPayload['agent_id'] = (int) $mount->agent_id;
+    }
+    $commandId = Capsule::table('s3_cloudbackup_run_commands')->insertGetId($commandPayload);
 
     // Update mount status to mounting
     Capsule::table('s3_cloudnas_mounts')

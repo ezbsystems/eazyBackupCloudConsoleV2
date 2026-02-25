@@ -216,7 +216,6 @@ function cloudNAS() {
         // Agent state
         hasAgent: false,
         agents: [],
-        selectedAgentId: null,
         selectedAgentUuid: '',
         agentOnline: false,
         
@@ -343,7 +342,6 @@ function cloudNAS() {
                     // Auto-select first active agent
                     const activeAgent = this.agents.find(a => a.status === 'active');
                     if (activeAgent) {
-                        this.selectedAgentId = activeAgent.id;
                         this.selectedAgentUuid = activeAgent.agent_uuid || '';
                         this.newMount.agent_uuid = this.selectedAgentUuid;
                         this.agentOnline = true;
@@ -499,7 +497,7 @@ function cloudNAS() {
             try {
                 const payload = {
                     ...this.newMount,
-                    agent_id: this.selectedAgentId,
+                    agent_uuid: this.selectedAgentUuid || '',
                 };
                 const res = await fetch('modules/addons/cloudstorage/api/cloudnas_create_mount.php', {
                     method: 'POST',
@@ -641,7 +639,7 @@ function cloudNAS() {
                     body: JSON.stringify({
                         job_id: this.selectedJobId,
                         manifest_id: this.selectedSnapshot.manifest_id,
-                        agent_id: this.selectedAgentId
+                        agent_uuid: this.selectedAgentUuid || ''
                     })
                 });
                 const data = await res.json();
@@ -671,7 +669,7 @@ function cloudNAS() {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         manifest_id: this.mountedSnapshot.manifest_id,
-                        agent_id: this.selectedAgentId
+                        agent_uuid: this.selectedAgentUuid || ''
                     })
                 });
                 const data = await res.json();
