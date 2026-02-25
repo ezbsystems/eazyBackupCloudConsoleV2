@@ -22,7 +22,7 @@ import (
 type Client struct {
 	httpClient           *http.Client
 	baseURL              string
-	agentID              string
+	agentUUID            string
 	token                string
 	deviceID             string
 	installID            string
@@ -35,7 +35,7 @@ func NewClient(cfg *AgentConfig) *Client {
 	return &Client{
 		httpClient: &http.Client{Timeout: 15 * time.Second},
 		baseURL:    strings.TrimRight(cfg.APIBaseURL, "/"),
-		agentID:    cfg.AgentID,
+		agentUUID:  cfg.AgentUUID,
 		token:      cfg.AgentToken,
 		deviceID:   cfg.DeviceID,
 		installID:  cfg.InstallID,
@@ -60,7 +60,7 @@ func (c *Client) applyUserAgent(req *http.Request) {
 }
 
 func (c *Client) authHeaders(req *http.Request) {
-	req.Header.Set("X-Agent-UUID", c.agentID)
+	req.Header.Set("X-Agent-UUID", c.agentUUID)
 	req.Header.Set("X-Agent-Token", c.token)
 	req.Header.Set("Content-Type", "application/json")
 	c.applyUserAgent(req)
@@ -1042,7 +1042,7 @@ func (c *Client) UploadDriverBundle(runID int64, profile, artifactName string, b
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("X-Agent-ID", c.agentID)
+	req.Header.Set("X-Agent-UUID", c.agentUUID)
 	req.Header.Set("X-Agent-Token", c.token)
 	req.Header.Set("Content-Type", mp.FormDataContentType())
 	c.applyUserAgent(req)
