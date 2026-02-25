@@ -541,6 +541,7 @@
                                 <th>Type</th>
                                 <th>Status</th>
                                 <th>Attempts</th>
+                                <th>Next Attempt</th>
                                 <th>Created</th>
                                 <th>Updated</th>
                             </tr>
@@ -558,13 +559,14 @@
                                             </span>
                                         </td>
                                         <td>{$op.attempt_count|default:0}</td>
+                                        <td>{if $op.next_attempt_at}{$op.next_attempt_at|date_format:"%d %b %Y %H:%M"}{else}-{/if}</td>
                                         <td>{if $op.created_at}{$op.created_at|date_format:"%d %b %Y %H:%M"}{else}-{/if}</td>
                                         <td>{if $op.updated_at}{$op.updated_at|date_format:"%d %b %Y %H:%M"}{else}-{/if}</td>
                                     </tr>
                                 {/foreach}
                             {else}
                                 <tr>
-                                    <td colspan="7" class="text-center">No repo operations found</td>
+                                    <td colspan="8" class="text-center">No repo operations found</td>
                                 </tr>
                             {/if}
                         </tbody>

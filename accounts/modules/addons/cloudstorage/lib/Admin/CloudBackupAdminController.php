@@ -359,12 +359,19 @@ class CloudBackupAdminController {
      *
      * @return array
      */
-    public static function getRepoRetentionOps(): array
+    public static function getRepoRetentionOps(array $filters = []): array
     {
         try {
             if (!Capsule::schema()->hasTable('s3_kopia_repo_operations')
                 || !Capsule::schema()->hasTable('s3_kopia_repos')) {
                 return [];
+            }
+            $limit = (int) ($filters['limit'] ?? 200);
+            if ($limit < 1) {
+                $limit = 1;
+            }
+            if ($limit > 500) {
+                $limit = 500;
             }
             $query = Capsule::table('s3_kopia_repo_operations as op')
                 ->join('s3_kopia_repos as r', 'op.repo_id', '=', 'r.id')
@@ -382,7 +389,7 @@ class CloudBackupAdminController {
                     'r.client_id'
                 )
                 ->orderBy('op.created_at', 'desc')
-                ->limit(200);
+                ->limit($limit);
             $rows = $query->get();
             return array_map(function ($item) {
                 return (array) $item;
