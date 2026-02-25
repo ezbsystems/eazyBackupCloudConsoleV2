@@ -86,11 +86,23 @@ Short companion checklist for implementing the retention architecture described 
 
 ## Phase 9 - Documentation and Cleanup
 
-- [ ] Update `CLOUD_BACKUP.md` to explicitly scope `applyRetentionPolicy()` to Cloud Backup only
-- [ ] Update `LOCAL_AGENT_OVERVIEW.md` with repo-native retention flow
-- [ ] Update docs to include vault default + job override + fallback model
-- [ ] Update task docs to remove Local Agent reliance on object-prefix deletion and server-side cleanup
+- [x] Update `CLOUD_BACKUP.md` to explicitly scope `applyRetentionPolicy()` to Cloud Backup only
+- [x] Update `LOCAL_AGENT_OVERVIEW.md` with repo-native retention flow
+- [x] Update docs to include vault default + job override + fallback model
+- [x] Update task docs to remove Local Agent reliance on object-prefix deletion and server-side cleanup
 - [ ] Add runbook for failure recovery (stale lock, failed maintenance, replay)
+
+---
+
+## Release Gate Script
+
+Run to verify required retention classes exist before release:
+
+```bash
+php accounts/modules/addons/cloudstorage/bin/dev/kopia_retention_release_gate_test.php
+```
+
+Checks: `KopiaRetentionRoutingService`, `KopiaRetentionPolicyService`, `KopiaRetentionOperationService` must be loadable.
 
 ---
 
