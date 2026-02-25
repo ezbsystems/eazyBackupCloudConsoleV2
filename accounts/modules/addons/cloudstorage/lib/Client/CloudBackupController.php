@@ -6,7 +6,10 @@ use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\HelperController;
 use WHMCS\Module\Addon\CloudStorage\Client\AwsS3Validator;
+use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionHookService;
+use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionOperationService;
 use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionRoutingService;
+use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionSourceService;
 
 class CloudBackupController {
 
@@ -457,6 +460,19 @@ class CloudBackupController {
             $job = self::getJob($jobId, $clientId);
             if (!$job) {
                 return ['status' => 'fail', 'message' => 'Job not found or access denied'];
+            }
+
+            $sourceType = (string) ($job['source_type'] ?? '');
+            $engine = (string) ($job['engine'] ?? '');
+            if (KopiaRetentionHookService::shouldRetireOnJobDelete($sourceType, $engine)) {
+                try {
+                    $repoIds = KopiaRetentionSourceService::retireByJobId((int) $jobId);
+                    foreach ($repoIds as $repoId) {
+                        KopiaRetentionOperationService::enqueue($repoId, 'retention_apply', ['repo_id' => $repoId], 'job-delete-' . $jobId . '-' . $repoId);
+                    }
+                } catch (\Throwable $e) {
+                    logModuleCall(self::$module, 'deleteJob_retention_retire_error', ['job_id' => $jobId], $e->getMessage());
+                }
             }
 
             Capsule::table('s3_cloudbackup_jobs')
