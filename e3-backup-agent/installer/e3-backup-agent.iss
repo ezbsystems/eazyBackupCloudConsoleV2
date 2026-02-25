@@ -187,7 +187,7 @@ var
   lines: string;
   existing: AnsiString;
   existingText: string;
-  existingAgentId, existingAgentToken: string;
+  existingAgentUuid, existingAgentToken: string;
 begin
   cfgDir := ExpandConstant('{commonappdata}\E3Backup');
   cfgPath := cfgDir + '\agent.conf';
@@ -203,9 +203,9 @@ begin
   existingText := '';
   if FileExists(cfgPath) and LoadStringFromFile(cfgPath, existing) then begin
     existingText := existing;
-    existingAgentId := GetYamlValue(existingText, 'agent_id');
+    existingAgentUuid := GetYamlValue(existingText, 'agent_uuid');
     existingAgentToken := GetYamlValue(existingText, 'agent_token');
-    if (existingAgentId <> '') and (existingAgentToken <> '') then begin
+    if (existingAgentUuid <> '') and (existingAgentToken <> '') then begin
       Result := 'echo preserved existing enrolled agent.conf';
       exit;
     end;
