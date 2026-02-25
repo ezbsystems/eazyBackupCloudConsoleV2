@@ -466,9 +466,15 @@ class CloudBackupController {
             $engine = (string) ($job['engine'] ?? '');
             if (KopiaRetentionHookService::shouldRetireOnJobDelete($sourceType, $engine)) {
                 try {
+                    KopiaRetentionSourceService::ensureRepoSourceForJob((int) $jobId);
+                } catch (\Throwable $e) {
+                    logModuleCall(self::$module, 'deleteJob_ensure_source', ['job_id' => $jobId], $e->getMessage());
+                }
+                try {
                     $repoIds = KopiaRetentionSourceService::retireByJobId((int) $jobId);
                     foreach ($repoIds as $repoId) {
                         KopiaRetentionOperationService::enqueue($repoId, 'retention_apply', ['repo_id' => $repoId], 'job-delete-' . $jobId . '-' . $repoId);
+                        KopiaRetentionOperationService::enqueue($repoId, 'maintenance_quick', ['repo_id' => $repoId], 'job-delete-' . $jobId . '-' . $repoId . '-maintenance');
                     }
                 } catch (\Throwable $e) {
                     logModuleCall(self::$module, 'deleteJob_retention_retire_error', ['job_id' => $jobId], $e->getMessage());

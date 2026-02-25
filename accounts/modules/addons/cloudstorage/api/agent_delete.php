@@ -62,9 +62,28 @@ if (!$authorized) {
 }
 
 try {
+    $jobIds = Capsule::table('s3_cloudbackup_jobs')
+        ->where('agent_id', $agentId)
+        ->where('source_type', 'local_agent')
+        ->whereIn('engine', ['kopia', 'disk_image', 'hyperv'])
+        ->pluck('id')
+        ->toArray();
+    foreach ($jobIds as $jid) {
+        try {
+            KopiaRetentionSourceService::ensureRepoSourceForJob((int) $jid);
+        } catch (\Throwable $_) {
+            logModuleCall('cloudstorage', 'agent_delete_ensure_source', ['job_id' => $jid], $_->getMessage());
+        }
+    }
+} catch (\Throwable $e) {
+    logModuleCall('cloudstorage', 'agent_delete_ensure_source', ['agent_id' => $agentId], $e->getMessage());
+}
+
+try {
     $repoIds = KopiaRetentionSourceService::retireByAgentId((int) $agentId);
     foreach (array_keys($repoIds) as $repoId) {
         KopiaRetentionOperationService::enqueue((int) $repoId, 'retention_apply', ['repo_id' => $repoId], 'agent-delete-' . $agentId . '-' . $repoId);
+        KopiaRetentionOperationService::enqueue((int) $repoId, 'maintenance_quick', ['repo_id' => $repoId], 'agent-delete-' . $agentId . '-' . $repoId . '-maintenance');
     }
 } catch (\Throwable $e) {
     logModuleCall('cloudstorage', 'agent_delete_retention_retire_error', ['agent_id' => $agentId], $e->getMessage());
