@@ -31,4 +31,24 @@ if (strpos($cutoverSrc, 'agent_id') !== false) {
     throw new RuntimeException('agent_uuid_bigbang_cutover.php still contains legacy agent_id compatibility bridge');
 }
 
+$pageChecks = [
+    'e3backup_jobs.php',
+    'e3backup_restores.php',
+    'e3backup_disk_image_restore.php',
+];
+foreach ($pageChecks as $page) {
+    $src = file_get_contents(__DIR__ . '/../pages/' . $page);
+    if (strpos($src, 'agent_uuid') === false) {
+        throw new RuntimeException("$page missing agent_uuid loader contract");
+    }
+    if (strpos($src, "->get(['id'") !== false) {
+        throw new RuntimeException("$page still selects numeric id for agents dropdown/filter");
+    }
+}
+
+$diskTpl = file_get_contents(__DIR__ . '/../templates/e3backup_disk_image_restore.tpl');
+if (strpos($diskTpl, "params.set('agent_id'") !== false || strpos($diskTpl, "\$a->id") !== false) {
+    throw new RuntimeException('disk image restore template still uses numeric agent identity');
+}
+
 echo "route-ok\n";

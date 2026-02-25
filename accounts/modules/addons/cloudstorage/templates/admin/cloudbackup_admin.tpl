@@ -337,7 +337,7 @@
                         <input type="hidden" name="agents_page" value="1">
                         <div class="form-group" style="margin-right:10px;">
                             <label class="sr-only" for="agents_q">Search</label>
-                            <input type="text" class="form-control" id="agents_q" name="agents_q" value="{$agents_filters.q|default:''}" placeholder="Search hostname, device, name, email, ID" style="min-width: 320px;">
+                            <input type="text" class="form-control" id="agents_q" name="agents_q" value="{$agents_filters.q|default:''}" placeholder="Search hostname, device, name, email, UUID" style="min-width: 320px;">
                         </div>
                         <div class="form-group" style="margin-right:10px;">
                             <select name="agents_client_id" class="form-control">
@@ -399,7 +399,7 @@
                             <thead>
                                 <tr>
                                     <th><a href="{$agentBaseUrl}&agents_sort=online_status&agents_dir={if $agents_sort eq 'online_status' && $agents_dir eq 'asc'}desc{else}asc{/if}">Connection</a></th>
-                                    <th><a href="{$agentBaseUrl}&agents_sort=id&agents_dir={if $agents_sort eq 'id' && $agents_dir eq 'asc'}desc{else}asc{/if}">ID</a></th>
+                                    <th><a href="{$agentBaseUrl}&agents_sort=agent_uuid&agents_dir={if $agents_sort eq 'agent_uuid' && $agents_dir eq 'asc'}desc{else}asc{/if}">Agent UUID</a></th>
                                     <th><a href="{$agentBaseUrl}&agents_sort=hostname&agents_dir={if $agents_sort eq 'hostname' && $agents_dir eq 'asc'}desc{else}asc{/if}">Hostname</a></th>
                                     <th><a href="{$agentBaseUrl}&agents_sort=device_id&agents_dir={if $agents_sort eq 'device_id' && $agents_dir eq 'asc'}desc{else}asc{/if}">Device ID</a></th>
                                     <th><a href="{$agentBaseUrl}&agents_sort=device_name&agents_dir={if $agents_sort eq 'device_name' && $agents_dir eq 'asc'}desc{else}asc{/if}">Device Name</a></th>
@@ -427,7 +427,7 @@
                                                     <span class="label label-default">Never</span>
                                                 {/if}
                                             </td>
-                                            <td>{$agent.id}</td>
+                                            <td>{$agent.agent_uuid|default:'-'}</td>
                                             <td>
                                                 {$agent.hostname|default:'-'}
                                                 <div class="text-muted small">{$agent.client_name|default:'Unknown Client'}{if $agent.email} ({$agent.email}){/if}</div>

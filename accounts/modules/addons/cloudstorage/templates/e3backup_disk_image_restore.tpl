@@ -33,7 +33,7 @@
                     <select class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm" x-model="agentFilter" @change="reload()">
                         <option value="">All agents</option>
                         {foreach $agents as $a}
-                            <option value="{$a->id}">{$a->hostname}</option>
+                            <option value="{$a->agent_uuid}">{$a->hostname|default:$a->device_name|default:$a->agent_uuid}</option>
                         {/foreach}
                     </select>
                     <input type="text" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm flex-1" placeholder="Search restore points" x-model="searchQuery" @input.debounce.400ms="reload()" />
@@ -158,7 +158,7 @@ function diskImageRestorePage() {
             const params = new URLSearchParams();
             params.set('engine', 'disk_image');
             if (this.tenantFilter) params.set('tenant_id', this.tenantFilter);
-            if (this.agentFilter) params.set('agent_id', this.agentFilter);
+            if (this.agentFilter) params.set('agent_uuid', this.agentFilter);
             if (this.searchQuery) params.set('search', this.searchQuery);
             const resp = await fetch(`modules/addons/cloudstorage/api/e3backup_restore_points_list.php?${params.toString()}`);
             const data = await resp.json();

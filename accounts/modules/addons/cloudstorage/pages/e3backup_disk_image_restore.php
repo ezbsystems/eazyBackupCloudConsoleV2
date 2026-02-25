@@ -31,7 +31,7 @@ $agents = Capsule::table('s3_cloudbackup_agents')
     ->where('client_id', $loggedInUserId)
     ->where('status', 'active')
     ->orderBy('hostname')
-    ->get(['id', 'hostname', 'tenant_id', 'status', 'last_seen_at']);
+    ->get(['agent_uuid', 'hostname', 'device_name', 'tenant_id', 'status', 'last_seen_at']);
 
 return [
     'isMspClient' => $isMspClient,
