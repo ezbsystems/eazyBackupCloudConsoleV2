@@ -37,14 +37,14 @@ function respond(array $data, int $httpCode = 200): void
 
 function authenticateAgent(): object
 {
-    $agentId = $_SERVER['HTTP_X_AGENT_ID'] ?? ($_POST['agent_id'] ?? null);
+    $agentUuid = $_SERVER['HTTP_X_AGENT_UUID'] ?? ($_POST['agent_uuid'] ?? null);
     $agentToken = $_SERVER['HTTP_X_AGENT_TOKEN'] ?? ($_POST['agent_token'] ?? null);
-    if (!$agentId || !$agentToken) {
+    if (!$agentUuid || !$agentToken) {
         respond(['status' => 'fail', 'message' => 'Missing agent headers'], 401);
     }
 
     $agent = Capsule::table('s3_cloudbackup_agents')
-        ->where('id', $agentId)
+        ->where('agent_uuid', $agentUuid)
         ->first();
 
     if (!$agent || $agent->status !== 'active' || $agent->agent_token !== $agentToken) {
@@ -52,7 +52,7 @@ function authenticateAgent(): object
     }
 
     Capsule::table('s3_cloudbackup_agents')
-        ->where('id', $agentId)
+        ->where('agent_uuid', $agentUuid)
         ->update(['last_seen_at' => Capsule::raw('NOW()')]);
 
     return $agent;
@@ -68,7 +68,7 @@ function getBodyJson(): array
     return is_array($decoded) ? $decoded : [];
 }
 
-function updateAgentMetadata(int $agentId, array $body): void
+function updateAgentMetadata(string $agentUuid, array $body): void
 {
     $version = trim((string) ($_POST['agent_version'] ?? ($body['agent_version'] ?? '')));
     $os = trim((string) ($_POST['agent_os'] ?? ($body['agent_os'] ?? '')));
@@ -103,7 +103,7 @@ function updateAgentMetadata(int $agentId, array $body): void
 
     if ($hasAny) {
         Capsule::table('s3_cloudbackup_agents')
-            ->where('id', $agentId)
+            ->where('agent_uuid', $agentUuid)
             ->update($update);
     }
 }
@@ -152,7 +152,7 @@ if (!$runId) {
 }
 
 $agent = authenticateAgent();
-updateAgentMetadata((int) $agent->id, $body);
+updateAgentMetadata((string) $agent->agent_uuid, $body);
 
 $run = Capsule::table('s3_cloudbackup_runs as r')
     ->join('s3_cloudbackup_jobs as j', 'r.job_id', '=', 'j.id')
@@ -200,7 +200,7 @@ foreach ($fields as $field) {
                 $update[$field] = date('Y-m-d H:i:s', $ts);
             } else {
                 // Record parse failure for diagnostics but continue processing
-                logModuleCall('cloudstorage', 'agent_update_run_invalid_ts', ['run_id' => $runId, 'agent_id' => $agent->id, 'field' => $field, 'value' => $val], 'invalid_timestamp');
+                logModuleCall('cloudstorage', 'agent_update_run_invalid_ts', ['run_id' => $runId, 'agent_uuid' => $agent->agent_uuid, 'field' => $field, 'value' => $val], 'invalid_timestamp');
             }
         }
         continue;
@@ -260,7 +260,7 @@ if (empty($update)) {
         // Treat an empty payload as a heartbeat when updated_at exists
         $update['updated_at'] = Capsule::raw('NOW()');
     } else {
-        logModuleCall('cloudstorage', 'agent_update_run_no_fields', ['run_id' => $runId, 'agent_id' => $agent->id], ['body_keys' => array_keys($body)]);
+        logModuleCall('cloudstorage', 'agent_update_run_no_fields', ['run_id' => $runId, 'agent_uuid' => $agent->agent_uuid], ['body_keys' => array_keys($body)]);
         respond(['status' => 'success', 'message' => 'No fields to update']);
     }
 }
@@ -423,7 +423,7 @@ if (isset($body['hyperv_results']) && is_array($body['hyperv_results'])) {
         // Log but don't fail the update
         logModuleCall('cloudstorage', 'agent_update_run_hyperv_error', [
             'run_id' => $runId,
-            'agent_id' => $agent->id,
+            'agent_uuid' => $agent->agent_uuid,
         ], $e->getMessage());
     }
 }
@@ -433,7 +433,7 @@ try {
         ->where('id', $runId)
         ->update($update);
     if ((int) $affected === 0) {
-        logModuleCall('cloudstorage', 'agent_update_run_noop', ['run_id' => $runId, 'agent_id' => $agent->id], ['update' => $update, 'affected' => $affected]);
+        logModuleCall('cloudstorage', 'agent_update_run_noop', ['run_id' => $runId, 'agent_uuid' => $agent->agent_uuid], ['update' => $update, 'affected' => $affected]);
     }
 
     $finalStatus = isset($update['status']) ? strtolower((string) $update['status']) : null;
@@ -467,7 +467,7 @@ try {
 
     respond(['status' => 'success']);
 } catch (\Throwable $e) {
-    logModuleCall('cloudstorage', 'agent_update_run_error', ['run_id' => $runId, 'agent_id' => $agent->id], $e->getMessage());
+    logModuleCall('cloudstorage', 'agent_update_run_error', ['run_id' => $runId, 'agent_uuid' => $agent->agent_uuid], $e->getMessage());
     respond(['status' => 'fail', 'message' => 'Update failed'], 500);
 }
 

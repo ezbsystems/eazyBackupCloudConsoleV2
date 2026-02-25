@@ -23,14 +23,14 @@ function respond(array $data, int $httpCode = 200): void
 
 function authenticateAgent(): object
 {
-    $agentId = $_SERVER['HTTP_X_AGENT_ID'] ?? ($_POST['agent_id'] ?? null);
+    $agentUuid = $_SERVER['HTTP_X_AGENT_UUID'] ?? ($_POST['agent_uuid'] ?? null);
     $agentToken = $_SERVER['HTTP_X_AGENT_TOKEN'] ?? ($_POST['agent_token'] ?? null);
-    if (!$agentId || !$agentToken) {
+    if (!$agentUuid || !$agentToken) {
         respond(['status' => 'fail', 'message' => 'Missing agent headers'], 401);
     }
 
     $agent = Capsule::table('s3_cloudbackup_agents')
-        ->where('id', $agentId)
+        ->where('agent_uuid', $agentUuid)
         ->first();
 
     if (!$agent || $agent->status !== 'active' || $agent->agent_token !== $agentToken) {
@@ -38,7 +38,7 @@ function authenticateAgent(): object
     }
 
     Capsule::table('s3_cloudbackup_agents')
-        ->where('id', $agentId)
+        ->where('agent_uuid', $agentUuid)
         ->update(['last_seen_at' => Capsule::raw('NOW()')]);
 
     return $agent;
@@ -122,8 +122,8 @@ function getAgentTimingConfig(): array
 
 $agent = authenticateAgent();
 $timing = getAgentTimingConfig();
-$hasAgentIdRuns = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'agent_id');
-$hasAgentIdJobs = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'agent_id');
+$hasAgentUuidRuns = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'agent_uuid');
+$hasAgentUuidJobs = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'agent_uuid');
 $hasUpdatedAtRuns = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'updated_at');
 $hasDiskSource = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'disk_source_volume');
 $hasDiskFormat = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'disk_image_format');
@@ -135,7 +135,7 @@ try {
     $isReclaim = false;
     $lastHeartbeatAt = null;
 
-    Capsule::connection()->transaction(function () use (&$runData, &$debugInfo, &$isReclaim, &$lastHeartbeatAt, $agent, $hasAgentIdRuns, $hasAgentIdJobs, $hasUpdatedAtRuns, $timing) {
+    Capsule::connection()->transaction(function () use (&$runData, &$debugInfo, &$isReclaim, &$lastHeartbeatAt, $agent, $hasAgentUuidRuns, $hasAgentUuidJobs, $hasUpdatedAtRuns, $timing) {
         $heartbeatExpr = $hasUpdatedAtRuns ? "COALESCE(r.updated_at, r.started_at, r.created_at)" : "COALESCE(r.started_at, r.created_at)";
         $debugInfo['timing'] = [
             'watchdog_timeout_seconds' => $timing['watchdog_timeout_seconds'],
@@ -164,10 +164,10 @@ try {
                 });
             }
 
-            if ($hasAgentIdRuns) {
-                $reclaimQuery->where('r.agent_id', $agent->id);
-            } elseif ($hasAgentIdJobs) {
-                $reclaimQuery->where('j.agent_id', $agent->id);
+            if ($hasAgentUuidRuns) {
+                $reclaimQuery->where('r.agent_uuid', $agent->agent_uuid);
+            } elseif ($hasAgentUuidJobs) {
+                $reclaimQuery->where('j.agent_uuid', $agent->agent_uuid);
             }
 
             $reclaimQuery
@@ -206,11 +206,11 @@ try {
             });
         }
 
-        $debugInfo['has_agent_id_runs'] = $hasAgentIdRuns;
-        $debugInfo['has_agent_id_jobs'] = $hasAgentIdJobs;
+        $debugInfo['has_agent_uuid_runs'] = $hasAgentUuidRuns;
+        $debugInfo['has_agent_uuid_jobs'] = $hasAgentUuidJobs;
         $debugInfo['base_count'] = (clone $base)->count();
         $debugInfo['base_sample'] = (clone $base)
-            ->select('r.id as run_id', 'r.agent_id as run_agent_id', 'j.agent_id as job_agent_id', 'r.status as run_status', 'j.status as job_status')
+            ->select('r.id as run_id', 'r.agent_uuid as run_agent_uuid', 'j.agent_uuid as job_agent_uuid', 'r.status as run_status', 'j.status as job_status')
             ->orderBy('r.id', 'asc')
             ->limit(5)
             ->get();
@@ -218,18 +218,18 @@ try {
         if (!$isReclaim) {
             $query = clone $base;
 
-            if ($hasAgentIdRuns) {
-                $query->where(function($q) use ($agent, $hasAgentIdJobs) {
-                    $q->where('r.agent_id', $agent->id);
-                    if ($hasAgentIdJobs) {
+            if ($hasAgentUuidRuns) {
+                $query->where(function($q) use ($agent, $hasAgentUuidJobs) {
+                    $q->where('r.agent_uuid', $agent->agent_uuid);
+                    if ($hasAgentUuidJobs) {
                         $q->orWhere(function($qq) use ($agent) {
-                            $qq->whereNull('r.agent_id')
-                               ->where('j.agent_id', $agent->id);
+                            $qq->whereNull('r.agent_uuid')
+                               ->where('j.agent_uuid', $agent->agent_uuid);
                         });
                     }
                 });
-            } elseif ($hasAgentIdJobs) {
-                $query->where('j.agent_id', $agent->id);
+            } elseif ($hasAgentUuidJobs) {
+                $query->where('j.agent_uuid', $agent->agent_uuid);
             }
 
             $debugInfo['filtered_count'] = (clone $query)->count();
@@ -244,7 +244,7 @@ try {
                 ->first();
 
             if (!$run) {
-                logModuleCall('cloudstorage', 'agent_next_run', ['agent_id' => $agent->id, 'debug' => $debugInfo], 'no_run');
+                logModuleCall('cloudstorage', 'agent_next_run', ['agent_uuid' => $agent->agent_uuid, 'debug' => $debugInfo], 'no_run');
                 return;
             }
 
@@ -253,11 +253,11 @@ try {
             // Claim the run
             $claimData = [
                 'status' => 'starting',
-                'worker_host' => 'agent-' . $agent->id,
+                'worker_host' => 'agent-' . $agent->agent_uuid,
                 'started_at' => Capsule::raw('NOW()'),
             ];
-            if ($hasAgentIdRuns) {
-                $claimData['agent_id'] = $agent->id;
+            if ($hasAgentUuidRuns) {
+                $claimData['agent_uuid'] = $agent->agent_uuid;
             }
 
             $updated = Capsule::table('s3_cloudbackup_runs')
@@ -267,13 +267,13 @@ try {
 
             if (!$updated) {
                 $debugInfo['claim_failed'] = true;
-                logModuleCall('cloudstorage', 'agent_next_run', ['agent_id' => $agent->id, 'debug' => $debugInfo], 'no_run_claim_failed');
+                logModuleCall('cloudstorage', 'agent_next_run', ['agent_uuid' => $agent->agent_uuid, 'debug' => $debugInfo], 'no_run_claim_failed');
                 return;
             }
         }
 
         if (!$run) {
-            logModuleCall('cloudstorage', 'agent_next_run', ['agent_id' => $agent->id, 'debug' => $debugInfo], 'no_run');
+            logModuleCall('cloudstorage', 'agent_next_run', ['agent_uuid' => $agent->agent_uuid, 'debug' => $debugInfo], 'no_run');
             return;
         }
 
@@ -589,14 +589,14 @@ try {
     });
 
     if (!$runData) {
-        logModuleCall('cloudstorage', 'agent_next_run', ['agent_id' => $agent->id, 'debug' => $debugInfo], 'no_run');
+        logModuleCall('cloudstorage', 'agent_next_run', ['agent_uuid' => $agent->agent_uuid, 'debug' => $debugInfo], 'no_run');
         respond(['status' => 'no_run']);
     }
 
     logModuleCall(
         'cloudstorage',
         'agent_next_run',
-        ['agent_id' => $agent->id, 'debug' => $debugInfo],
+        ['agent_uuid' => $agent->agent_uuid, 'debug' => $debugInfo],
         [
             'status' => 'success',
             'run' => $runData['run_id'] ?? null,

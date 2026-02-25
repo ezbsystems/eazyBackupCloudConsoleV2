@@ -39,19 +39,19 @@ function requestParam(array $body, string $key, $default = null)
 
 function authenticateAgent(): object
 {
-    $agentId = $_SERVER['HTTP_X_AGENT_ID'] ?? null;
+    $agentUuid = $_SERVER['HTTP_X_AGENT_UUID'] ?? null;
     $agentToken = $_SERVER['HTTP_X_AGENT_TOKEN'] ?? null;
-    if (!$agentId || !$agentToken) {
+    if (!$agentUuid || !$agentToken) {
         respond(['status' => 'fail', 'message' => 'Missing agent headers'], 401);
     }
     $agent = Capsule::table('s3_cloudbackup_agents')
-        ->where('id', $agentId)
+        ->where('agent_uuid', $agentUuid)
         ->first();
     if (!$agent || (string) $agent->status !== 'active' || (string) $agent->agent_token !== (string) $agentToken) {
         respond(['status' => 'fail', 'message' => 'Unauthorized'], 401);
     }
     Capsule::table('s3_cloudbackup_agents')
-        ->where('id', $agentId)
+        ->where('agent_uuid', $agentUuid)
         ->update(['last_seen_at' => Capsule::raw('NOW()')]);
     return $agent;
 }
@@ -141,7 +141,7 @@ if ($artifactURL === '') {
     }
     if (($store['status'] ?? 'fail') !== 'success') {
         logModuleCall('cloudstorage', 'agent_upload_driver_bundle_store_fail', [
-            'agent_id' => (int) $agent->id,
+            'agent_uuid' => (string) $agent->agent_uuid,
             'run_id' => $runId,
             'profile' => $profile,
         ], (string) ($store['message'] ?? 'store failed'));
@@ -163,7 +163,7 @@ if ($backupFinishedAt === '' && $runId > 0) {
 if ($restorePointId <= 0 && $runId > 0 && Capsule::schema()->hasTable('s3_cloudbackup_restore_points')) {
     $rp = Capsule::table('s3_cloudbackup_restore_points')
         ->where('client_id', (int) $agent->client_id)
-        ->where('agent_id', (int) $agent->id)
+        ->where('agent_uuid', (string) $agent->agent_uuid)
         ->where('run_id', $runId)
         ->orderByDesc('id')
         ->first();
@@ -195,7 +195,7 @@ try {
     ]);
 } catch (\Throwable $e) {
     logModuleCall('cloudstorage', 'agent_upload_driver_bundle', [
-        'agent_id' => (int) $agent->id,
+        'agent_uuid' => (string) $agent->agent_uuid,
         'run_id' => $runId,
         'profile' => $profile,
     ], $e->getMessage());

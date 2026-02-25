@@ -34,14 +34,14 @@ function respond(array $data, int $httpCode = 200): void
 
 function authenticateAgent(): object
 {
-    $agentId = $_SERVER['HTTP_X_AGENT_ID'] ?? ($_POST['agent_id'] ?? null);
+    $agentUuid = $_SERVER['HTTP_X_AGENT_UUID'] ?? ($_POST['agent_uuid'] ?? null);
     $agentToken = $_SERVER['HTTP_X_AGENT_TOKEN'] ?? ($_POST['agent_token'] ?? null);
-    if (!$agentId || !$agentToken) {
+    if (!$agentUuid || !$agentToken) {
         respond(['status' => 'fail', 'message' => 'Missing agent headers'], 401);
     }
 
     $agent = Capsule::table('s3_cloudbackup_agents')
-        ->where('id', $agentId)
+        ->where('agent_uuid', $agentUuid)
         ->first();
 
     if (!$agent || $agent->status !== 'active' || $agent->agent_token !== $agentToken) {
@@ -49,7 +49,7 @@ function authenticateAgent(): object
     }
 
     Capsule::table('s3_cloudbackup_agents')
-        ->where('id', $agentId)
+        ->where('agent_uuid', $agentUuid)
         ->update(['last_seen_at' => Capsule::raw('NOW()')]);
 
     return $agent;
@@ -108,7 +108,7 @@ $agent = authenticateAgent();
 $run = Capsule::table('s3_cloudbackup_runs as r')
     ->join('s3_cloudbackup_jobs as j', 'r.job_id', '=', 'j.id')
     ->where('r.id', $runId)
-    ->select('r.id', 'j.client_id', 'r.agent_id')
+    ->select('r.id', 'j.client_id', 'r.agent_uuid')
     ->first();
 
 if (!$run || (int)$run->client_id !== (int)$agent->client_id) {
@@ -116,7 +116,7 @@ if (!$run || (int)$run->client_id !== (int)$agent->client_id) {
 }
 
 // Extra guard: ensure the run is bound to this agent when applicable
-if (!empty($run->agent_id) && (int)$run->agent_id !== (int)$agent->id) {
+if (!empty($run->agent_uuid) && (string) $run->agent_uuid !== (string) $agent->agent_uuid) {
     respond(['status' => 'fail', 'message' => 'Run not assigned to this agent'], 403);
 }
 

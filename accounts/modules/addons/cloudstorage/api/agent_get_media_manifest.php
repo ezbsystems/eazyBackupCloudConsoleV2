@@ -28,20 +28,20 @@ function getBodyJson(): array
 
 function authenticateAgent(): object
 {
-    $agentId = $_SERVER['HTTP_X_AGENT_ID'] ?? null;
+    $agentUuid = $_SERVER['HTTP_X_AGENT_UUID'] ?? null;
     $agentToken = $_SERVER['HTTP_X_AGENT_TOKEN'] ?? null;
-    if (!$agentId || !$agentToken) {
+    if (!$agentUuid || !$agentToken) {
         respond(['status' => 'fail', 'message' => 'Missing agent headers'], 401);
     }
 
     $agent = Capsule::table('s3_cloudbackup_agents')
-        ->where('id', $agentId)
+        ->where('agent_uuid', $agentUuid)
         ->first();
     if (!$agent || (string) $agent->status !== 'active' || (string) $agent->agent_token !== (string) $agentToken) {
         respond(['status' => 'fail', 'message' => 'Unauthorized'], 401);
     }
     Capsule::table('s3_cloudbackup_agents')
-        ->where('id', $agentId)
+        ->where('agent_uuid', $agentUuid)
         ->update(['last_seen_at' => Capsule::raw('NOW()')]);
     return $agent;
 }
@@ -67,7 +67,7 @@ try {
     $selection = RecoveryMediaBundleService::resolveMediaBuildSelection((int) $agent->client_id, $sourceAgentId, $mode);
 } catch (\Throwable $e) {
     logModuleCall('cloudstorage', 'agent_get_media_manifest', [
-        'agent_id' => (int) $agent->id,
+        'agent_uuid' => (string) $agent->agent_uuid,
         'source_agent_id' => $sourceAgentId,
         'mode' => $mode,
     ], $e->getMessage());

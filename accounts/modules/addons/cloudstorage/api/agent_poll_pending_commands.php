@@ -29,14 +29,14 @@ function respond(array $data, int $httpCode = 200): void
 
 function authenticateAgent(): object
 {
-    $agentId = $_SERVER['HTTP_X_AGENT_ID'] ?? ($_POST['agent_id'] ?? null);
+    $agentUuid = $_SERVER['HTTP_X_AGENT_UUID'] ?? ($_POST['agent_uuid'] ?? null);
     $agentToken = $_SERVER['HTTP_X_AGENT_TOKEN'] ?? ($_POST['agent_token'] ?? null);
-    if (!$agentId || !$agentToken) {
+    if (!$agentUuid || !$agentToken) {
         respond(['status' => 'fail', 'message' => 'Missing agent headers'], 401);
     }
 
     $agent = Capsule::table('s3_cloudbackup_agents')
-        ->where('id', $agentId)
+        ->where('agent_uuid', $agentUuid)
         ->first();
 
     if (!$agent || $agent->status !== 'active' || $agent->agent_token !== $agentToken) {
@@ -44,7 +44,7 @@ function authenticateAgent(): object
     }
 
     Capsule::table('s3_cloudbackup_agents')
-        ->where('id', $agentId)
+        ->where('agent_uuid', $agentUuid)
         ->update(['last_seen_at' => Capsule::raw('NOW()')]);
 
     return $agent;
@@ -95,14 +95,14 @@ if (!Capsule::schema()->hasTable('s3_cloudbackup_run_commands')) {
     respond(['status' => 'success', 'commands' => []]);
 }
 
-$hasAgentIdJobs = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'agent_id');
+$hasAgentUuidJobs = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'agent_uuid');
 
 try {
     $commands = [];
     
-    // First, check for NAS commands (these are tied directly to agent_id, not jobs)
+    // First, check for NAS commands (these are tied directly to agent_uuid, not jobs)
     $nasCommands = Capsule::table('s3_cloudbackup_run_commands')
-        ->where('agent_id', $agent->id)
+        ->where('agent_uuid', $agent->agent_uuid)
         ->where('status', 'pending')
         ->whereIn('type', ['nas_mount', 'nas_unmount', 'nas_mount_snapshot', 'nas_unmount_snapshot'])
         ->orderBy('id', 'asc')
@@ -111,7 +111,7 @@ try {
 
     // Next, check for filesystem browse and discovery commands (agent-scoped, no job context)
     $browseCommands = Capsule::table('s3_cloudbackup_run_commands')
-        ->where('agent_id', $agent->id)
+        ->where('agent_uuid', $agent->agent_uuid)
         ->where('status', 'pending')
         ->whereIn('type', ['browse_directory', 'list_hyperv_vms', 'list_hyperv_vm_details', 'list_disks', 'reset_agent', 'refresh_inventory', 'fetch_log_tail'])
         ->orderBy('id', 'asc')
@@ -168,13 +168,13 @@ try {
 
     // Restore commands that are agent-scoped (restore points flow, no job/run join)
     $restorePointCommands = Capsule::table('s3_cloudbackup_run_commands')
-        ->where('agent_id', $agent->id)
+        ->where('agent_uuid', $agent->agent_uuid)
         ->whereNull('run_id')
         ->where('status', 'pending')
         ->whereIn('type', ['restore', 'hyperv_restore', 'disk_restore', 'browse_snapshot'])
         ->orderBy('id', 'asc')
         ->limit(5)
-        ->get(['id as command_id', 'run_id', 'type', 'payload_json', 'agent_id']);
+        ->get(['id as command_id', 'run_id', 'type', 'payload_json', 'agent_uuid']);
 
     foreach ($restorePointCommands as $cmd) {
         $payload = [];
@@ -344,8 +344,8 @@ try {
         ->where('j.source_type', 'local_agent');
     
     // Filter by agent ownership
-    if ($hasAgentIdJobs) {
-        $cmdQuery->where('j.agent_id', $agent->id);
+    if ($hasAgentUuidJobs) {
+        $cmdQuery->where('j.agent_uuid', $agent->agent_uuid);
     }
     
     // Only get restore and maintenance commands (cancel is handled during active runs)
@@ -503,7 +503,7 @@ try {
     
     respond(['status' => 'success', 'commands' => $commands]);
 } catch (\Throwable $e) {
-    logModuleCall('cloudstorage', 'agent_poll_pending_commands', ['agent_id' => $agent->id], $e->getMessage());
+    logModuleCall('cloudstorage', 'agent_poll_pending_commands', ['agent_uuid' => $agent->agent_uuid], $e->getMessage());
     respond(['status' => 'fail', 'message' => 'Server error'], 500);
 }
 
