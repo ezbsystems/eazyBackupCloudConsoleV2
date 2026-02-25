@@ -48,7 +48,7 @@ function respond(array $data, int $httpCode = 200): void
         'http_code' => $httpCode,
         'status' => $data['status'] ?? null,
         'message' => $data['message'] ?? null,
-        'has_agent_id' => !empty($data['agent_id']),
+        'has_agent_uuid' => !empty($data['agent_uuid']),
         'has_agent_token' => !empty($data['agent_token']),
     ], 'H2');
     // #endregion
@@ -78,6 +78,23 @@ function detectBaseUrl(): string
     }
 
     return $systemUrl;
+}
+
+function generateAgentUuid(): string
+{
+    $bytes = random_bytes(16);
+    $bytes[6] = chr((ord($bytes[6]) & 0x0f) | 0x40);
+    $bytes[8] = chr((ord($bytes[8]) & 0x3f) | 0x80);
+    $hex = bin2hex($bytes);
+
+    return sprintf(
+        '%s-%s-%s-%s-%s',
+        substr($hex, 0, 8),
+        substr($hex, 8, 4),
+        substr($hex, 12, 4),
+        substr($hex, 16, 4),
+        substr($hex, 20, 12)
+    );
 }
 
 $token = trim($_POST['token'] ?? '');
@@ -177,7 +194,12 @@ try {
         }
 
         if ($existing) {
+            $agentUuid = trim((string) ($existing->agent_uuid ?? ''));
+            if ($agentUuid === '') {
+                $agentUuid = generateAgentUuid();
+            }
             $update = [
+                'agent_uuid' => $agentUuid,
                 'agent_token' => $agentToken,
                 'enrollment_token_id' => $tok->id,
                 'hostname' => $hostname,
@@ -205,9 +227,11 @@ try {
             Capsule::table('s3_cloudbackup_agents')
                 ->where('id', $existing->id)
                 ->update($update);
-            $agentId = (int)$existing->id;
+            $agentId = (int) $existing->id;
         } else {
+            $agentUuid = generateAgentUuid();
             $insert = [
+                'agent_uuid' => $agentUuid,
                 'client_id' => $tok->client_id,
                 'tenant_id' => $tok->tenant_id,
                 'enrollment_token_id' => $tok->id,
@@ -242,7 +266,8 @@ try {
         $systemUrl = rtrim(detectBaseUrl(), '/');
 
         return [
-            'agent_id' => (string) $agentId,
+            'agent_uuid' => $agentUuid,
+            'agent_row_id' => (int) $agentId,
             'client_id' => (string) $tok->client_id,
             'tenant_id' => $tok->tenant_id ? (int) $tok->tenant_id : null,
             'agent_token' => $agentToken,
@@ -250,10 +275,10 @@ try {
         ];
     });
 
-    $destResult = CloudBackupBootstrapService::ensureAgentDestination((int) $result['agent_id']);
+    $destResult = CloudBackupBootstrapService::ensureAgentDestination((int) $result['agent_row_id']);
     if (($destResult['status'] ?? 'fail') !== 'success') {
         logModuleCall('cloudstorage', 'agent_enroll_ensure_destination_failed', [
-            'agent_id' => $result['agent_id'],
+            'agent_uuid' => $result['agent_uuid'],
             'client_id' => $result['client_id'],
             'tenant_id' => $result['tenant_id'],
         ], $destResult);
@@ -265,7 +290,7 @@ try {
 
     respond([
         'status' => 'success',
-        'agent_id' => $result['agent_id'],
+        'agent_uuid' => $result['agent_uuid'],
         'client_id' => $result['client_id'],
         'tenant_id' => $result['tenant_id'],
         'agent_token' => $result['agent_token'],

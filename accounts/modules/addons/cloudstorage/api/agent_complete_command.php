@@ -17,14 +17,14 @@ function respond(array $data, int $httpCode = 200): void
 
 function authenticateAgent(): object
 {
-    $agentId = $_SERVER['HTTP_X_AGENT_ID'] ?? ($_POST['agent_id'] ?? null);
+    $agentUuid = $_SERVER['HTTP_X_AGENT_UUID'] ?? ($_POST['agent_uuid'] ?? null);
     $agentToken = $_SERVER['HTTP_X_AGENT_TOKEN'] ?? ($_POST['agent_token'] ?? null);
-    if (!$agentId || !$agentToken) {
+    if (!$agentUuid || !$agentToken) {
         respond(['status' => 'fail', 'message' => 'Missing agent headers'], 401);
     }
 
     $agent = Capsule::table('s3_cloudbackup_agents')
-        ->where('id', $agentId)
+        ->where('agent_uuid', $agentUuid)
         ->first();
 
     if (!$agent || $agent->status !== 'active' || $agent->agent_token !== $agentToken) {
@@ -32,7 +32,7 @@ function authenticateAgent(): object
     }
 
     Capsule::table('s3_cloudbackup_agents')
-        ->where('id', $agentId)
+        ->where('agent_uuid', $agentUuid)
         ->update(['last_seen_at' => Capsule::raw('NOW()')]);
 
     return $agent;
@@ -55,17 +55,17 @@ if (!$cmd) {
     respond(['status' => 'fail', 'message' => 'Command not found'], 404);
 }
 
-// For commands with agent_id set directly (browse, discovery commands), check ownership via agent_id
+// For commands with agent_uuid set directly (browse, discovery commands), check ownership via agent_uuid
 // These commands have run_id = NULL as they're not tied to a specific backup run
 $agentScopedCommands = ['browse_directory', 'list_hyperv_vms', 'nas_mount', 'nas_unmount', 'nas_mount_snapshot', 'nas_unmount_snapshot', 'fetch_log_tail'];
 $isAgentScoped = in_array(strtolower((string) $cmd->type), $agentScopedCommands, true);
-if (!$isAgentScoped && empty($cmd->run_id) && !empty($cmd->agent_id)) {
+if (!$isAgentScoped && empty($cmd->run_id) && !empty($cmd->agent_uuid)) {
     $isAgentScoped = true;
 }
 
 if ($isAgentScoped) {
-    // Ownership check via agent_id column on the command itself
-    if ((int) ($cmd->agent_id ?? 0) !== (int) $agent->id) {
+    // Ownership check via agent_uuid column on the command itself
+    if ((string) ($cmd->agent_uuid ?? '') !== (string) $agent->agent_uuid) {
         respond(['status' => 'fail', 'message' => 'Unauthorized'], 403);
     }
 } else {
@@ -73,10 +73,10 @@ if ($isAgentScoped) {
     $run = Capsule::table('s3_cloudbackup_runs as r')
         ->join('s3_cloudbackup_jobs as j', 'r.job_id', '=', 'j.id')
         ->where('r.id', $cmd->run_id)
-        ->select('j.client_id', 'j.agent_id', 'r.agent_id as run_agent_id')
+        ->select('j.client_id', 'j.agent_uuid', 'r.agent_uuid as run_agent_uuid')
         ->first();
 
-    if (!$run || (int)$run->agent_id !== (int)$agent->id) {
+    if (!$run || (string) $run->agent_uuid !== (string) $agent->agent_uuid) {
         respond(['status' => 'fail', 'message' => 'Unauthorized'], 403);
     }
 }

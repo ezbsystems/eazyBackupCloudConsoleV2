@@ -48,7 +48,7 @@ function respond(array $data, int $httpCode = 200): void
         'http_code' => $httpCode,
         'status' => $data['status'] ?? null,
         'message' => $data['message'] ?? null,
-        'has_agent_id' => !empty($data['agent_id']),
+        'has_agent_uuid' => !empty($data['agent_uuid']),
         'has_agent_token' => !empty($data['agent_token']),
     ], 'H2');
     // #endregion
@@ -78,6 +78,23 @@ function detectBaseUrl(): string
     }
 
     return $systemUrl;
+}
+
+function generateAgentUuid(): string
+{
+    $bytes = random_bytes(16);
+    $bytes[6] = chr((ord($bytes[6]) & 0x0f) | 0x40);
+    $bytes[8] = chr((ord($bytes[8]) & 0x3f) | 0x80);
+    $hex = bin2hex($bytes);
+
+    return sprintf(
+        '%s-%s-%s-%s-%s',
+        substr($hex, 0, 8),
+        substr($hex, 8, 4),
+        substr($hex, 12, 4),
+        substr($hex, 16, 4),
+        substr($hex, 20, 12)
+    );
 }
 
 $email = trim($_POST['email'] ?? '');
@@ -176,7 +193,12 @@ try {
                 ->first();
 
             if ($existing) {
+                $agentUuid = trim((string) ($existing->agent_uuid ?? ''));
+                if ($agentUuid === '') {
+                    $agentUuid = generateAgentUuid();
+                }
                 $update = [
+                    'agent_uuid' => $agentUuid,
                     'agent_token' => $agentToken,
                     'hostname' => $hostname,
                     'device_name' => $deviceName !== '' ? $deviceName : ($existing->device_name ?? null),
@@ -208,7 +230,9 @@ try {
         }
 
         if (!$agentId) {
+            $agentUuid = generateAgentUuid();
             $insert = [
+                'agent_uuid' => $agentUuid,
                 'client_id' => $clientId,
                 'tenant_id' => null,
                 'hostname' => $hostname,
@@ -240,7 +264,7 @@ try {
         }
 
         return [
-            'agent_id' => (string) $agentId,
+            'agent_uuid' => $agentUuid,
             'agent_token' => $agentToken,
         ];
     });
@@ -249,7 +273,7 @@ try {
 
     respond([
         'status' => 'success',
-        'agent_id' => $result['agent_id'],
+        'agent_uuid' => $result['agent_uuid'],
         'client_id' => (string) $clientId,
         'agent_token' => $result['agent_token'],
         'api_base_url' => $systemUrl . '/modules/addons/cloudstorage/api',
