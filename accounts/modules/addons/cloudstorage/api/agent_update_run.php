@@ -5,6 +5,8 @@ require_once __DIR__ . '/../../../../init.php';
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
+use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionHookService;
+use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionOperationService;
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -440,6 +442,26 @@ try {
             CloudBackupController::recordRestorePointsForRun((int) $runId);
         } catch (\Throwable $e) {
             logModuleCall('cloudstorage', 'agent_update_run_restore_points_error', ['run_id' => $runId], $e->getMessage());
+        }
+        $jobRow = Capsule::table('s3_cloudbackup_jobs')->where('id', $run->job_id)->first();
+        if ($jobRow && KopiaRetentionHookService::shouldEnqueueFromRun(
+            $finalStatus,
+            (string) ($jobRow->source_type ?? ''),
+            (string) ($jobRow->engine ?? '')
+        )) {
+            $repositoryId = trim((string) ($jobRow->repository_id ?? ''));
+            if ($repositoryId !== '' && Capsule::schema()->hasTable('s3_kopia_repos')) {
+                $repoRow = Capsule::table('s3_kopia_repos')->where('repository_id', $repositoryId)->first();
+                if ($repoRow) {
+                    $repoId = (int) $repoRow->id;
+                    try {
+                        KopiaRetentionOperationService::enqueue($repoId, 'retention_apply', ['repo_id' => $repoId], 'run-finish-' . $runId . '-retention');
+                        KopiaRetentionOperationService::enqueue($repoId, 'maintenance_quick', ['repo_id' => $repoId], 'run-finish-' . $runId . '-maintenance');
+                    } catch (\Throwable $e) {
+                        logModuleCall('cloudstorage', 'agent_update_run_retention_enqueue_error', ['run_id' => $runId, 'repo_id' => $repoId], $e->getMessage());
+                    }
+                }
+            }
         }
     }
 

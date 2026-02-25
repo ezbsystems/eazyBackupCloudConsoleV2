@@ -222,7 +222,7 @@ func (r *Runner) pollOnce() error {
 	return r.runRun(run)
 }
 
-// commandLoop polls pending commands frequently to reduce UI latency (e.g., browse requests).
+// commandLoop polls pending commands and repo operations frequently to reduce UI latency.
 func (r *Runner) commandLoop(stop <-chan struct{}) {
 	t := time.NewTicker(1 * time.Second)
 	defer t.Stop()
@@ -230,11 +230,134 @@ func (r *Runner) commandLoop(stop <-chan struct{}) {
 		if err := r.pollAndHandlePendingCommands(); err != nil {
 			log.Printf("agent: pending commands error: %v", err)
 		}
+		if err := r.pollAndHandleRepoOperations(); err != nil {
+			log.Printf("agent: repo operations error: %v", err)
+		}
 		select {
 		case <-stop:
 			return
 		case <-t.C:
 		}
+	}
+}
+
+// pollAndHandleRepoOperations polls for queued repo operations (retention, maintenance) and dispatches them.
+func (r *Runner) pollAndHandleRepoOperations() error {
+	op, err := r.client.PollRepoOperations()
+	if err != nil {
+		return err
+	}
+	if op == nil {
+		return nil
+	}
+	log.Printf("agent: executing repo operation id=%d type=%s repo_id=%d", op.OperationID, op.OpType, op.RepoID)
+	r.executeRepoOperation(op)
+	return nil
+}
+
+// isTransientRepoOpError returns true for lock/contention errors that may succeed on retry.
+func isTransientRepoOpError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "lock") ||
+		strings.Contains(s, "contention") ||
+		strings.Contains(s, "conflict") ||
+		strings.Contains(s, "retry") ||
+		strings.Contains(s, "temporarily")
+}
+
+// retryRepoOp runs fn up to maxAttempts times, with backoff on transient errors.
+// Returns the last error if all attempts fail.
+func retryRepoOp(maxAttempts int, fn func() error) error {
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		lastErr = fn()
+		if lastErr == nil {
+			return nil
+		}
+		if !isTransientRepoOpError(lastErr) || attempt == maxAttempts-1 {
+			return lastErr
+		}
+		backoff := time.Duration(attempt+1) * time.Second
+		log.Printf("agent: transient repo op error (attempt %d/%d): %v; retrying in %v", attempt+1, maxAttempts, lastErr, backoff)
+		time.Sleep(backoff)
+	}
+	return lastErr
+}
+
+// executeRepoOperation runs a repo operation (retention apply, maintenance quick/full).
+// Operations require repo credentials; when not present in the payload, completes with a clear failure.
+func (r *Runner) executeRepoOperation(op *RepoOperation) {
+	ctx := context.Background()
+	if !op.isRepoRetentionType() {
+		log.Printf("agent: repo operation %d unsupported type %q", op.OperationID, op.OpType)
+		_ = r.client.CompleteRepoOperation(op.OperationID, op.OperationToken, "failed",
+			map[string]any{"error": "unsupported operation type"})
+		return
+	}
+	t := strings.TrimSpace(strings.ToLower(op.OpType))
+	mode := "quick"
+	if strings.Contains(t, "full") || t == "maintenance_full" {
+		mode = "full"
+	}
+	run := r.repoOperationToRun(op)
+	if run == nil {
+		_ = r.client.CompleteRepoOperation(op.OperationID, op.OperationToken, "failed",
+			map[string]any{"error": "repo operation requires credential support in server payload"})
+		return
+	}
+	var err error
+	var result map[string]any
+	if strings.Contains(t, "retention") || t == "retention_apply" {
+		var res RetentionApplyResult
+		applyErr := retryRepoOp(3, func() error {
+			var innerErr error
+			res, innerErr = r.kopiaRetentionApply(ctx, run, op.EffectivePolicy)
+			return innerErr
+		})
+		result = map[string]any{
+			"deleted_count": res.DeletedCount,
+			"sources_count": res.SourcesCount,
+		}
+		if applyErr != nil {
+			err = applyErr
+			result["error"] = sanitizeErrorMessage(applyErr)
+		}
+	} else {
+		err = retryRepoOp(3, func() error { return r.kopiaMaintenance(ctx, run, mode) })
+		result = map[string]any{}
+		if err != nil {
+			result["error"] = sanitizeErrorMessage(err)
+		}
+	}
+	status := "success"
+	if err != nil {
+		status = "failed"
+		log.Printf("agent: repo operation %d type=%s failed: %v", op.OperationID, op.OpType, err)
+	} else {
+		log.Printf("agent: repo operation %d type=%s completed", op.OperationID, op.OpType)
+	}
+	_ = r.client.CompleteRepoOperation(op.OperationID, op.OperationToken, status, result)
+}
+
+// repoOperationToRun builds a minimal NextRunResponse from a RepoOperation for kopia calls.
+// Returns nil when credentials are not available (server must add DestAccessKey, DestSecretKey to the payload).
+func (r *Runner) repoOperationToRun(op *RepoOperation) *NextRunResponse {
+	if op == nil || op.DestAccessKey == "" || op.DestSecretKey == "" {
+		return nil
+	}
+	return &NextRunResponse{
+		JobID:            int64(op.RepoID),
+		DestType:         "s3",
+		DestBucketName:   op.BucketName,
+		DestPrefix:       op.RootPrefix,
+		DestEndpoint:    op.Endpoint,
+		DestRegion:      op.Region,
+		DestAccessKey:   op.DestAccessKey,
+		DestSecretKey:   op.DestSecretKey,
+		RepoConfigKey:   fmt.Sprintf("repo_%d", op.RepoID),
 	}
 }
 
