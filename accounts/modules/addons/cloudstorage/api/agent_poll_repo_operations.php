@@ -11,6 +11,7 @@ require_once __DIR__ . '/../../../../init.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Symfony\Component\HttpFoundation\JsonResponse;
+use WHMCS\Module\Addon\CloudStorage\Client\HelperController;
 use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionPayloadBuilder;
 use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionLockService;
 use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionPolicyService;
@@ -160,17 +161,6 @@ try {
         }
     }
 
-    // Destination context (non-secret) for agent
-    $bucketId = (int) ($op->bucket_id ?? 0);
-    $bucketName = '';
-    if ($bucketId > 0 && Capsule::schema()->hasTable('s3_buckets')) {
-        $bucketRow = Capsule::table('s3_buckets')->where('id', $bucketId)->first();
-        $bucketName = (string) ($bucketRow->name ?? '');
-    }
-    $rootPrefix = '';
-    if (Capsule::schema()->hasColumn('s3_kopia_repos', 'root_prefix') && isset($op->root_prefix)) {
-        $rootPrefix = (string) $op->root_prefix;
-    }
     $settingsMap = [];
     if (Capsule::schema()->hasTable('tbladdonmodules')) {
         $settings = Capsule::table('tbladdonmodules')
@@ -179,6 +169,56 @@ try {
         foreach ($settings as $k => $v) {
             $settingsMap[$k] = $v;
         }
+    }
+
+    // Destination context and credentials for agent
+    $bucketId = (int) ($op->bucket_id ?? 0);
+    $bucketName = '';
+    $destAccessKey = '';
+    $destSecretKey = '';
+    if ($bucketId > 0 && Capsule::schema()->hasTable('s3_buckets')) {
+        $bucketRow = Capsule::table('s3_buckets')->where('id', $bucketId)->first();
+        $bucketName = (string) ($bucketRow->name ?? '');
+        if ($bucketRow && !empty($bucketRow->user_id) && Capsule::schema()->hasTable('s3_user_access_keys')) {
+            $keys = Capsule::table('s3_user_access_keys')
+                ->where('user_id', (int) $bucketRow->user_id)
+                ->orderByDesc('id')
+                ->first();
+            if ($keys && (!empty($keys->access_key) || !empty($keys->secret_key))) {
+                $encKeyPrimary = $settingsMap['cloudbackup_encryption_key'] ?? '';
+                $encKeySecondary = $settingsMap['encryption_key'] ?? '';
+                $accessKeyRaw = (string) ($keys->access_key ?? '');
+                $secretKeyRaw = (string) ($keys->secret_key ?? '');
+                $decryptWith = function (?string $key) use ($accessKeyRaw, $secretKeyRaw) {
+                    $ak = $accessKeyRaw;
+                    $sk = $secretKeyRaw;
+                    if ($key && $ak) {
+                        $ak = HelperController::decryptKey($ak, $key);
+                    }
+                    if ($key && $sk) {
+                        $sk = HelperController::decryptKey($sk, $key);
+                    }
+                    return [
+                        is_string($ak) ? $ak : '',
+                        is_string($sk) ? $sk : '',
+                    ];
+                };
+                [$decAkPrimary, $decSkPrimary] = $decryptWith($encKeyPrimary);
+                $destAccessKey = is_string($decAkPrimary) ? $decAkPrimary : '';
+                $destSecretKey = is_string($decSkPrimary) ? $decSkPrimary : '';
+                if ($destAccessKey === '' || $destSecretKey === '') {
+                    [$decAkSecondary, $decSkSecondary] = $decryptWith($encKeySecondary);
+                    if ($decAkSecondary !== '' && $decSkSecondary !== '') {
+                        $destAccessKey = $decAkSecondary;
+                        $destSecretKey = $decSkSecondary;
+                    }
+                }
+            }
+        }
+    }
+    $rootPrefix = '';
+    if (Capsule::schema()->hasColumn('s3_kopia_repos', 'root_prefix') && isset($op->root_prefix)) {
+        $rootPrefix = (string) $op->root_prefix;
     }
     $endpoint = $settingsMap['cloudbackup_agent_s3_endpoint'] ?? $settingsMap['s3_endpoint'] ?? '';
     $region = $settingsMap['cloudbackup_agent_s3_region'] ?? $settingsMap['s3_region'] ?? '';
@@ -191,6 +231,8 @@ try {
     $payload['root_prefix'] = $rootPrefix;
     $payload['endpoint'] = (string) $endpoint;
     $payload['region'] = (string) $region;
+    $payload['dest_access_key'] = $destAccessKey;
+    $payload['dest_secret_key'] = $destSecretKey;
 
     respond([
         'status' => 'success',

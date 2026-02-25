@@ -255,6 +255,38 @@ func (r *Runner) pollAndHandleRepoOperations() error {
 	return nil
 }
 
+// isTransientRepoOpError returns true for lock/contention errors that may succeed on retry.
+func isTransientRepoOpError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "lock") ||
+		strings.Contains(s, "contention") ||
+		strings.Contains(s, "conflict") ||
+		strings.Contains(s, "retry") ||
+		strings.Contains(s, "temporarily")
+}
+
+// retryRepoOp runs fn up to maxAttempts times, with backoff on transient errors.
+// Returns the last error if all attempts fail.
+func retryRepoOp(maxAttempts int, fn func() error) error {
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		lastErr = fn()
+		if lastErr == nil {
+			return nil
+		}
+		if !isTransientRepoOpError(lastErr) || attempt == maxAttempts-1 {
+			return lastErr
+		}
+		backoff := time.Duration(attempt+1) * time.Second
+		log.Printf("agent: transient repo op error (attempt %d/%d): %v; retrying in %v", attempt+1, maxAttempts, lastErr, backoff)
+		time.Sleep(backoff)
+	}
+	return lastErr
+}
+
 // executeRepoOperation runs a repo operation (retention apply, maintenance quick/full).
 // Operations require repo credentials; when not present in the payload, completes with a clear failure.
 func (r *Runner) executeRepoOperation(op *RepoOperation) {
@@ -279,7 +311,12 @@ func (r *Runner) executeRepoOperation(op *RepoOperation) {
 	var err error
 	var result map[string]any
 	if strings.Contains(t, "retention") || t == "retention_apply" {
-		res, applyErr := r.kopiaRetentionApply(ctx, run, op.EffectivePolicy)
+		var res RetentionApplyResult
+		applyErr := retryRepoOp(3, func() error {
+			var innerErr error
+			res, innerErr = r.kopiaRetentionApply(ctx, run, op.EffectivePolicy)
+			return innerErr
+		})
 		result = map[string]any{
 			"deleted_count": res.DeletedCount,
 			"sources_count": res.SourcesCount,
@@ -289,7 +326,7 @@ func (r *Runner) executeRepoOperation(op *RepoOperation) {
 			result["error"] = sanitizeErrorMessage(applyErr)
 		}
 	} else {
-		err = r.kopiaMaintenance(ctx, run, mode)
+		err = retryRepoOp(3, func() error { return r.kopiaMaintenance(ctx, run, mode) })
 		result = map[string]any{}
 		if err != nil {
 			result["error"] = sanitizeErrorMessage(err)
