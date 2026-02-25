@@ -222,7 +222,7 @@ func (r *Runner) pollOnce() error {
 	return r.runRun(run)
 }
 
-// commandLoop polls pending commands frequently to reduce UI latency (e.g., browse requests).
+// commandLoop polls pending commands and repo operations frequently to reduce UI latency.
 func (r *Runner) commandLoop(stop <-chan struct{}) {
 	t := time.NewTicker(1 * time.Second)
 	defer t.Stop()
@@ -230,12 +230,77 @@ func (r *Runner) commandLoop(stop <-chan struct{}) {
 		if err := r.pollAndHandlePendingCommands(); err != nil {
 			log.Printf("agent: pending commands error: %v", err)
 		}
+		if err := r.pollAndHandleRepoOperations(); err != nil {
+			log.Printf("agent: repo operations error: %v", err)
+		}
 		select {
 		case <-stop:
 			return
 		case <-t.C:
 		}
 	}
+}
+
+// pollAndHandleRepoOperations polls for queued repo operations (retention, maintenance) and dispatches them.
+func (r *Runner) pollAndHandleRepoOperations() error {
+	op, err := r.client.PollRepoOperations()
+	if err != nil {
+		return err
+	}
+	if op == nil {
+		return nil
+	}
+	log.Printf("agent: executing repo operation id=%d type=%s repo_id=%d", op.OperationID, op.OpType, op.RepoID)
+	r.executeRepoOperation(op)
+	return nil
+}
+
+// executeRepoOperation runs a repo operation (retention apply, maintenance quick/full).
+// Operations require repo credentials; when not present in the payload, completes with a clear failure.
+func (r *Runner) executeRepoOperation(op *RepoOperation) {
+	ctx := context.Background()
+	if !op.isRepoRetentionType() {
+		log.Printf("agent: repo operation %d unsupported type %q", op.OperationID, op.OpType)
+		_ = r.client.CompleteRepoOperation(op.OperationID, op.OperationToken, "failed",
+			map[string]any{"error": "unsupported operation type"})
+		return
+	}
+	t := strings.TrimSpace(strings.ToLower(op.OpType))
+	mode := "quick"
+	if strings.Contains(t, "full") || t == "maintenance_full" {
+		mode = "full"
+	}
+	if strings.Contains(t, "retention") || t == "retention_apply" {
+		// Retention apply requires policy and repo connect; credentials not in payload yet.
+		_ = r.client.CompleteRepoOperation(op.OperationID, op.OperationToken, "failed",
+			map[string]any{"error": "retention_apply execution requires server payload extension"})
+		return
+	}
+	// Maintenance quick/full: need run context with repo credentials. Build minimal run from op.
+	run := r.repoOperationToRun(op)
+	if run == nil {
+		_ = r.client.CompleteRepoOperation(op.OperationID, op.OperationToken, "failed",
+			map[string]any{"error": "repo operation requires credential support in server payload"})
+		return
+	}
+	err := r.kopiaMaintenance(ctx, run, mode)
+	status := "success"
+	result := map[string]any{}
+	if err != nil {
+		status = "failed"
+		result["error"] = sanitizeErrorMessage(err)
+		log.Printf("agent: repo operation %d maintenance %s failed: %v", op.OperationID, mode, err)
+	} else {
+		log.Printf("agent: repo operation %d maintenance %s completed", op.OperationID, mode)
+	}
+	_ = r.client.CompleteRepoOperation(op.OperationID, op.OperationToken, status, result)
+}
+
+// repoOperationToRun builds a minimal NextRunResponse from a RepoOperation for kopia calls.
+// Returns nil when credentials are not available (server must add DestAccessKey, DestSecretKey, RepositoryPassword to the payload).
+func (r *Runner) repoOperationToRun(op *RepoOperation) *NextRunResponse {
+	// Server payload does not yet include credentials; we cannot connect.
+	return nil
 }
 
 // pollAndHandlePendingCommands checks for and executes pending commands (restore, maintenance).

@@ -930,6 +930,73 @@ func (c *Client) PollPendingCommands() ([]PendingCommand, error) {
 	return out.Commands, nil
 }
 
+// PollRepoOperations fetches one eligible queued repo operation (retention, maintenance) for this agent.
+// Returns nil when no operation is available. Uses same auth as other agent endpoints.
+func (c *Client) PollRepoOperations() (*RepoOperation, error) {
+	endpoint := c.baseURL + "/agent_poll_repo_operations.php"
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	c.authHeaders(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("poll repo operations status %d", resp.StatusCode)
+	}
+
+	var out struct {
+		Status    string        `json:"status"`
+		Message   string        `json:"message,omitempty"`
+		Operation *RepoOperation `json:"operation,omitempty"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	if out.Status != "success" {
+		return nil, fmt.Errorf("poll repo operations failed: %s", out.Message)
+	}
+	return out.Operation, nil
+}
+
+// CompleteRepoOperation reports completion of a repo operation.
+// status must be "success" or "failed". resultJSON is optional.
+func (c *Client) CompleteRepoOperation(operationID int64, operationToken, status string, resultJSON map[string]any) error {
+	endpoint := c.baseURL + "/agent_complete_repo_operation.php"
+	form := url.Values{}
+	form.Set("operation_id", fmt.Sprintf("%d", operationID))
+	form.Set("operation_token", operationToken)
+	form.Set("status", status)
+	if resultJSON != nil {
+		buf, _ := json.Marshal(resultJSON)
+		form.Set("result_json", string(buf))
+	}
+
+	req, err := http.NewRequest(http.MethodPost, endpoint, strings.NewReader(form.Encode()))
+	if err != nil {
+		return err
+	}
+	c.authHeaders(req)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("complete repo operation status %d body=%s", resp.StatusCode, strings.TrimSpace(string(bodyBytes)))
+	}
+	return nil
+}
+
 type DriverBundleUploadResponse struct {
 	Status       string `json:"status"`
 	Message      string `json:"message,omitempty"`
