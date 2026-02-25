@@ -45,7 +45,7 @@ class KopiaRetentionLockService
                     return true;
                 }
                 $expiryTs = $row->expires_at ? strtotime((string) $row->expires_at) : 0;
-                if ($expiryTs > 0 && $expiryTs < time()) {
+                if ($expiryTs < time()) { // null/invalid (0) or past expiry: allow takeover
                     Capsule::table('s3_kopia_repo_locks')->where('repo_id', $repoId)->update([
                         'lock_token' => $lockToken,
                         'claimed_by_agent_id' => $agentId,
