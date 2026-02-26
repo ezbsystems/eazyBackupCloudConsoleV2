@@ -401,7 +401,7 @@ The agent reports detailed progress during backup execution, enabling real-time 
 
 ```go
 type RunUpdate struct {
-    RunID              int64   `json:"run_id"`
+    RunID              string  `json:"run_id"` // UUIDv7 string at API boundary
     Status             string  `json:"status,omitempty"`
     ProgressPct        float64 `json:"progress_pct,omitempty"`
     BytesTransferred   *int64  `json:"bytes_transferred,omitempty"` // Actual upload
@@ -2107,7 +2107,7 @@ sequenceDiagram
   "session_expires_at": "2026-01-23 18:00:00",
   "restore_point": {
     "id": 123,
-    "job_id": 45,
+    "job_id": "018f7c8c-5cf0-7ad8-9f2b-8c58a7e7b2d6",
     "engine": "disk_image",
     "manifest_id": "kopia:...",
     "disk_layout_json": "{...}",
@@ -2119,7 +2119,7 @@ sequenceDiagram
   "storage": {
     "dest_type": "s3",
     "bucket": "client-bucket",
-    "prefix": "jobs/45",
+    "prefix": "jobs/018f7c8c-5cf0-7ad8-9f2b-8c58a7e7b2d6",
     "endpoint": "https://s3.ca-central-1.eazybackup.com",
     "region": "ca-central-1",
     "access_key": "AKIA...",
@@ -2142,7 +2142,11 @@ sequenceDiagram
 ```
 - Response:
 ```json
-{ "status": "success", "restore_run_id": 987, "restore_run_uuid": "..." }
+{
+  "status": "success",
+  "restore_run_id": "018f7c8d-3b89-7cc7-a41e-4dbeb8eac7bc",
+  "restore_run_uuid": "018f7c8d-3b89-7cc7-a41e-4dbeb8eac7bc"
+}
 ```
 
 **Recovery update run**
@@ -2152,7 +2156,7 @@ sequenceDiagram
 ```json
 {
   "session_token": "c0ffee1234...",
-  "run_id": 987,
+  "run_id": "018f7c8d-3b89-7cc7-a41e-4dbeb8eac7bc",
   "status": "running",
   "progress_pct": 42.7,
   "bytes_transferred": 123456789,
@@ -2172,7 +2176,7 @@ sequenceDiagram
 ```json
 {
   "session_token": "c0ffee1234...",
-  "run_id": 987,
+  "run_id": "018f7c8d-3b89-7cc7-a41e-4dbeb8eac7bc",
   "events": [
     {
       "type": "info",
@@ -2193,11 +2197,15 @@ sequenceDiagram
 - Auth: session token
 - Request (JSON):
 ```json
-{ "session_token": "c0ffee1234...", "run_id": 987 }
+{ "session_token": "c0ffee1234...", "run_id": "018f7c8d-3b89-7cc7-a41e-4dbeb8eac7bc" }
 ```
 - Response:
 ```json
-{ "status": "success", "message": "Cancellation requested", "run_id": 987 }
+{
+  "status": "success",
+  "message": "Cancellation requested",
+  "run_id": "018f7c8d-3b89-7cc7-a41e-4dbeb8eac7bc"
+}
 ```
 
 **Recovery cancel poll**
@@ -2205,7 +2213,7 @@ sequenceDiagram
 - Auth: session token
 - Request (JSON):
 ```json
-{ "session_token": "c0ffee1234...", "run_id": 987 }
+{ "session_token": "c0ffee1234...", "run_id": "018f7c8d-3b89-7cc7-a41e-4dbeb8eac7bc" }
 ```
 - Response:
 ```json
@@ -2217,14 +2225,14 @@ sequenceDiagram
 - Auth: session token
 - Request (JSON):
 ```json
-{ "session_token": "c0ffee1234...", "run_id": 987 }
+{ "session_token": "c0ffee1234...", "run_id": "018f7c8d-3b89-7cc7-a41e-4dbeb8eac7bc" }
 ```
 - Response:
 ```json
 {
   "status": "success",
   "run": {
-    "id": 987,
+    "run_id": "018f7c8d-3b89-7cc7-a41e-4dbeb8eac7bc",
     "status": "running",
     "progress_pct": 42.7,
     "bytes_transferred": 123456789,
@@ -2244,7 +2252,11 @@ sequenceDiagram
 - Auth: session token
 - Request (JSON):
 ```json
-{ "session_token": "c0ffee1234...", "run_id": 987, "since_id": 100 }
+{
+  "session_token": "c0ffee1234...",
+  "run_id": "018f7c8d-3b89-7cc7-a41e-4dbeb8eac7bc",
+  "since_id": 100
+}
 ```
 - Response:
 ```json
@@ -2266,7 +2278,11 @@ sequenceDiagram
   - `shrink_enabled` ("true"/"false")
 - Response:
 ```json
-{ "status": "success", "restore_run_id": 123, "restore_run_uuid": "..." }
+{
+  "status": "success",
+  "restore_run_id": "018f7c8d-3b89-7cc7-a41e-4dbeb8eac7bc",
+  "restore_run_uuid": "018f7c8d-3b89-7cc7-a41e-4dbeb8eac7bc"
+}
 ```
 
 **Disk layout preview**
@@ -2301,7 +2317,7 @@ sequenceDiagram
 ```json
 {
   "restore_point_id": 123,
-  "restore_run_id": 987,
+  "restore_run_id": "018f7c8d-3b89-7cc7-a41e-4dbeb8eac7bc",
   "manifest_id": "kopia:...",
   "target_disk": "/dev/sda",
   "disk_layout_json": "{...}",

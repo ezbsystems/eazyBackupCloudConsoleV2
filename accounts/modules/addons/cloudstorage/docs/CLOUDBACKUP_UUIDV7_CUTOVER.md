@@ -10,7 +10,7 @@ As of the UUIDv7 cutover, cloud backup job and run identities use **UUIDv7 strin
 
 - Tables `s3_cloudbackup_jobs` and `s3_cloudbackup_runs` were recreated with UUID-native schema.
 - **No migration path** from legacy numeric IDs; this is a clean reset.
-- Run `scripts/cloudbackup_uuidv7_bigbang_cutover.php` before deploying the cutover.
+- Run `php accounts/modules/addons/cloudstorage/scripts/cloudbackup_uuidv7_bigbang_cutover.php` before deploying the cutover.
 
 ### No Backward Compatibility
 

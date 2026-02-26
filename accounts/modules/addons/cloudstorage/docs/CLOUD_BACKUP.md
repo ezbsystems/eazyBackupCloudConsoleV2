@@ -139,17 +139,15 @@ accounts/modules/addons/cloudstorage/
 │       ├── CloudBackupEmailService.php # Email notification service
 │       └── CloudBackupLogFormatter.php # Legacy rclone log formatter (fallback/transition)
 ├── pages/
-│   ├── cloudbackup_jobs.php           # Job list page
-│   ├── cloudbackup_runs.php           # Run history page
-│   ├── cloudbackup_live.php           # Live progress page
-│   ├── cloudbackup_settings.php       # Client settings page
+│   ├── e3backup_jobs.php              # Job list page
+│   ├── e3backup_runs.php              # Run history page
+│   ├── e3backup_live.php              # Live progress page
 │   └── admin/
 │       └── cloudbackup_admin.php      # Admin overview page
 ├── templates/
-│   ├── cloudbackup_jobs.tpl           # Job list template
-│   ├── cloudbackup_runs.tpl           # Run history template
+│   ├── e3backup_jobs.tpl              # Job list template
+│   ├── e3backup_runs.tpl              # Run history template
 │   ├── cloudbackup_live.tpl           # Live progress template
-│   ├── cloudbackup_settings.tpl       # Settings template
 │   └── admin/
 │       └── cloudbackup_admin.tpl      # Admin template
 ├── api/
@@ -197,17 +195,16 @@ Located in `cloudstorage_config()`:
 
 ## Client Area Routes
 
-Access via: `index.php?m=cloudstorage&page=cloudbackup&view=<view>`
+Access via: `index.php?m=cloudstorage&page=e3backup&view=<view>`
 
 **Views**:
-- `cloudbackup_jobs` (default) - Job list and creation wizard
-- `cloudbackup_runs` - Run history for a specific job
-- `cloudbackup_live` - Live progress view for a running job
-- `cloudbackup_settings` - Client notification settings
+- `jobs` - Job list and creation wizard
+- `runs` - Run history for a specific job
+- `live` - Live progress view for a running job
 
 ### Job Cards – Button Actions
 
-The default Jobs view (`cloudbackup_jobs`) shows a row of actions on each job card. These actions operate on the job itself; they do not directly manipulate in‑flight runs unless noted.
+The default Jobs view (`index.php?m=cloudstorage&page=e3backup&view=jobs`) shows a row of actions on each job card. These actions operate on the job itself; they do not directly manipulate in-flight runs unless noted.
 
 - Run now
   - Starts a new run immediately, only if the job is `active`.
@@ -286,7 +283,7 @@ public static function cancelRun($runId, $clientId)
         return ['status' => 'fail', 'message' => 'Run cannot be cancelled in current status'];
     }
     Capsule::table('s3_cloudbackup_runs')
-        ->where('id', $runId)
+        ->whereRaw('run_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($runId)))
         ->update(['cancel_requested' => 1]);
     return ['status' => 'success'];
 }
@@ -489,7 +486,7 @@ Each run directory: `/var/lib/e3-cloudbackup/runs/<RUN_ID>` contains:
 - Show latest run id and inspect configuration:
 
 ```bash
-RID=$(ls -1 /var/lib/e3-cloudbackup/runs | sort -n | tail -1)
+RID=$(ls -1 /var/lib/e3-cloudbackup/runs | sort | tail -1)
 awk '/^\[source\]/{f=1;print;next} /^\[/{if(f){exit}} f{print}' \
   /var/lib/e3-cloudbackup/runs/$RID/eazyBackup.conf
 grep -n '^token' /var/lib/e3-cloudbackup/runs/$RID/eazyBackup.conf
