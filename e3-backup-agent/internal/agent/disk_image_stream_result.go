@@ -3,7 +3,7 @@ package agent
 // CBTState tracks per-volume change-tracking state for disk image backups.
 type CBTState struct {
 	Path           string `json:"-"`
-	JobID          int64  `json:"-"`
+	JobID          string `json:"-"`
 	Volume         string `json:"volume"`
 	VolumeSerial   uint32 `json:"volume_serial"`
 	JournalID      uint64 `json:"journal_id"`

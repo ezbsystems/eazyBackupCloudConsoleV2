@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -76,7 +75,7 @@ func (r *Runner) browseSnapshot(ctx context.Context, job *JobContext, manifestID
 		DestSecretKey:  job.DestSecretKey,
 	}
 
-	repoPath := filepath.Join(r.cfg.RunDir, "kopia", fmt.Sprintf("job_%d.config", run.JobID))
+	repoPath := kopiaRepoConfigPath(r.cfg, run)
 	opts := kopiaOptionsFromRun(r.cfg, run)
 	password := opts.password()
 
@@ -210,4 +209,3 @@ func findSnapshotEntry(ctx context.Context, root kopiafs.Entry, relPath string) 
 	}
 	return curr, nil
 }
-

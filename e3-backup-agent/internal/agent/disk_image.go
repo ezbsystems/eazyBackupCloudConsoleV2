@@ -17,14 +17,14 @@ import (
 )
 
 // #region agent log
-func debugLog(runID int64, message string, data map[string]any, hypothesisId string) {
+func debugLog(runID string, message string, data map[string]any, hypothesisId string) {
 	entry := map[string]any{
 		"id":           fmt.Sprintf("log_%d", time.Now().UnixNano()),
 		"timestamp":    time.Now().UnixMilli(),
 		"location":     "disk_image.go:debug",
 		"message":      message,
 		"data":         data,
-		"runId":        fmt.Sprintf("run_%d", runID),
+		"runId":        "run_" + runID,
 		"hypothesisId": hypothesisId,
 	}
 	b, err := json.Marshal(entry)
@@ -132,7 +132,7 @@ func (r *Runner) runDiskImage(run *NextRunResponse) error {
 						"source_volume": run.DiskSourceVolume,
 					}, "H3")
 					// #endregion
-					log.Printf("agent: disk image cancel requested for run %d", run.RunID)
+					log.Printf("agent: disk image cancel requested for run %s", run.RunID)
 					r.pushEvents(run.RunID, RunEvent{
 						Type:      "cancelled",
 						Level:     "warn",
@@ -218,7 +218,7 @@ func (r *Runner) runDiskImage(run *NextRunResponse) error {
 							if !finalizeLogged {
 								finalizeLogged = true
 								log.Printf(
-									"agent: disk image finalizing (run=%d) remaining=%d total=%d timeout=%ds",
+									"agent: disk image finalizing (run=%s) remaining=%d total=%d timeout=%ds",
 									run.RunID,
 									remaining,
 									total,
@@ -241,7 +241,7 @@ func (r *Runner) runDiskImage(run *NextRunResponse) error {
 							if finalizeTimeout > 0 && finalizeElapsed >= finalizeTimeout && !finalizeStallLogged {
 								finalizeStallLogged = true
 								log.Printf(
-									"agent: disk image finalization slow (run=%d) elapsed=%.0fs remaining=%d total=%d",
+									"agent: disk image finalization slow (run=%s) elapsed=%.0fs remaining=%d total=%d",
 									run.RunID,
 									finalizeElapsed.Seconds(),
 									remaining,
@@ -281,7 +281,7 @@ func (r *Runner) runDiskImage(run *NextRunResponse) error {
 							}(),
 						}, "H1")
 						// #endregion
-						log.Printf("agent: disk image stalled for %ds, cancelling run %d", stallSeconds, run.RunID)
+						log.Printf("agent: disk image stalled for %ds, cancelling run %s", stallSeconds, run.RunID)
 						r.pushEvents(run.RunID, RunEvent{
 							Type:      "error",
 							Level:     "error",
@@ -366,7 +366,7 @@ func (r *Runner) runDiskImage(run *NextRunResponse) error {
 
 	// Check if cancelled
 	if ctx.Err() != nil {
-		log.Printf("agent: disk image backup cancelled for run %d", run.RunID)
+		log.Printf("agent: disk image backup cancelled for run %s", run.RunID)
 		_ = r.client.UpdateRun(RunUpdate{
 			RunID:      run.RunID,
 			Status:     "cancelled",
@@ -570,7 +570,7 @@ func normalizeDiskImageOptions(r *Runner, run *NextRunResponse) diskImageOptions
 	}
 	tempDir := run.DiskTempDir
 	if tempDir == "" {
-		tempDir = filepath.Join(r.cfg.RunDir, "disk_images", fmt.Sprintf("job_%d", run.JobID))
+		tempDir = filepath.Join(r.cfg.RunDir, "disk_images", "job_"+run.JobID)
 	}
 	_ = os.MkdirAll(tempDir, 0o755)
 	blockSize := int64(2 << 20) // 2 MiB default for image chunking

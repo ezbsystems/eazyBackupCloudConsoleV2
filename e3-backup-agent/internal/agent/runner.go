@@ -219,7 +219,7 @@ func (r *Runner) pollOnce() error {
 		log.Printf("agent: no queued runs")
 		return nil
 	}
-	log.Printf("agent: starting run %d for job %d", run.RunID, run.JobID)
+	log.Printf("agent: starting run %s for job %s", run.RunID, run.JobID)
 	return r.runRun(run)
 }
 
@@ -350,7 +350,7 @@ func (r *Runner) repoOperationToRun(op *RepoOperation) *NextRunResponse {
 		return nil
 	}
 	return &NextRunResponse{
-		JobID:          int64(op.RepoID),
+		JobID:          "",
 		DestType:       "s3",
 		DestBucketName: op.BucketName,
 		DestPrefix:     op.RootPrefix,
@@ -373,7 +373,7 @@ func (r *Runner) pollAndHandlePendingCommands() error {
 	}
 
 	for _, cmd := range cmds {
-		log.Printf("agent: executing pending command %d type=%s job=%d run=%d", cmd.CommandID, cmd.Type, cmd.JobID, cmd.RunID)
+		log.Printf("agent: executing pending command %d type=%s job=%s run=%s", cmd.CommandID, cmd.Type, cmd.JobID, cmd.RunID)
 		r.executePendingCommand(cmd)
 	}
 	return nil
@@ -441,7 +441,7 @@ func (r *Runner) executeRestoreCommand(ctx context.Context, cmd PendingCommand) 
 	manifestID := ""
 	targetPath := ""
 	mount := false
-	var restoreRunID int64 = 0
+	var restoreRunID string
 	var selectedPaths []string
 	if cmd.Payload != nil {
 		if v, ok := cmd.Payload["manifest_id"].(string); ok {
@@ -481,9 +481,9 @@ func (r *Runner) executeRestoreCommand(ctx context.Context, cmd PendingCommand) 
 				}
 			}
 		}
-		// Get restore_run_id for progress tracking (if provided by new API)
-		if v, ok := cmd.Payload["restore_run_id"].(float64); ok {
-			restoreRunID = int64(v)
+		// Get restore_run_id for progress tracking (UUID string from new API)
+		if v, ok := cmd.Payload["restore_run_id"].(string); ok && strings.TrimSpace(v) != "" {
+			restoreRunID = strings.TrimSpace(v)
 		}
 	}
 
@@ -500,11 +500,11 @@ func (r *Runner) executeRestoreCommand(ctx context.Context, cmd PendingCommand) 
 
 	// Use restore_run_id for progress tracking if available, otherwise fall back to backup run_id
 	trackingRunID := cmd.RunID
-	if restoreRunID > 0 {
+	if restoreRunID != "" {
 		trackingRunID = restoreRunID
 	}
 
-	log.Printf("agent: starting restore command=%d manifest=%s target=%s mount=%v tracking_run=%d", cmd.CommandID, manifestID, targetPath, mount, trackingRunID)
+	log.Printf("agent: starting restore command=%d manifest=%s target=%s mount=%v tracking_run=%s", cmd.CommandID, manifestID, targetPath, mount, trackingRunID)
 
 	// Mark restore run as running
 	startedAt := time.Now().UTC()
@@ -608,7 +608,7 @@ func (r *Runner) executeMaintenanceCommand(ctx context.Context, cmd PendingComma
 		mode = "full"
 	}
 
-	log.Printf("agent: starting maintenance command=%d mode=%s job=%d", cmd.CommandID, mode, cmd.JobID)
+	log.Printf("agent: starting maintenance command=%d mode=%s job=%s", cmd.CommandID, mode, cmd.JobID)
 
 	// Build NextRunResponse from JobContext
 	run := &NextRunResponse{
@@ -692,7 +692,7 @@ func (r *Runner) executeBrowseCommand(cmd PendingCommand) {
 }
 
 func (r *Runner) runRun(run *NextRunResponse) error {
-	if run.RunID == 0 {
+	if run.RunID == "" {
 		return fmt.Errorf("next run returned no run_id")
 	}
 
@@ -701,7 +701,7 @@ func (r *Runner) runRun(run *NextRunResponse) error {
 		sourcePaths := normalizeSourcePaths(run.SourcePaths, run.SourcePath)
 		for _, path := range uniqueNetworkShareRoots(sourcePaths) {
 			if err := r.authenticateNetworkPath(path, run.NetworkCredentials); err != nil {
-				log.Printf("agent: run %d network auth failed: %v", run.RunID, err)
+				log.Printf("agent: run %s network auth failed: %v", run.RunID, err)
 				return fmt.Errorf("network authentication failed: %w", err)
 			}
 		}
@@ -731,7 +731,7 @@ func (r *Runner) runRun(run *NextRunResponse) error {
 func (r *Runner) runSync(run *NextRunResponse) error {
 	startedAt := time.Now().UTC()
 
-	runDir := filepath.Join(r.cfg.RunDir, fmt.Sprintf("run_%d", run.RunID))
+	runDir := filepath.Join(r.cfg.RunDir, "run_"+run.RunID)
 	if err := os.MkdirAll(runDir, 0o755); err != nil {
 		return fmt.Errorf("create run dir: %w", err)
 	}
@@ -827,16 +827,16 @@ func (r *Runner) runSync(run *NextRunResponse) error {
 			}
 			srcRemote := "source:" + src
 			destRemote := fmt.Sprintf("dest:%s/%s", run.DestBucketName, strings.TrimPrefix(destPrefix, "/"))
-			log.Printf("agent: run %d config source=%s dest=%s bucket=%s prefix=%s endpoint=%s region=%s", run.RunID, src, "dest", run.DestBucketName, destPrefix, destEndpoint, destRegion)
+			log.Printf("agent: run %s config source=%s dest=%s bucket=%s prefix=%s endpoint=%s region=%s", run.RunID, src, "dest", run.DestBucketName, destPrefix, destEndpoint, destRegion)
 			srcFs, err := fs.NewFs(ctx, srcRemote)
 			if err != nil {
-				log.Printf("agent: run %d source fs error: %v", run.RunID, err)
+				log.Printf("agent: run %s source fs error: %v", run.RunID, err)
 				runErr <- fmt.Errorf("source fs: %w", err)
 				return
 			}
 			destFs, err := fs.NewFs(ctx, destRemote)
 			if err != nil {
-				log.Printf("agent: run %d dest fs error: %v", run.RunID, err)
+				log.Printf("agent: run %s dest fs error: %v", run.RunID, err)
 				runErr <- fmt.Errorf("dest fs: %w", err)
 				return
 			}
@@ -893,7 +893,7 @@ func (r *Runner) runSync(run *NextRunResponse) error {
 			}
 			// Handle cancel first
 			if cancelReq {
-				log.Printf("agent: cancel requested for run %d", run.RunID)
+				log.Printf("agent: cancel requested for run %s", run.RunID)
 				r.pushEvents(run.RunID, RunEvent{
 					Type:      "cancelled",
 					Level:     "warn",
@@ -914,9 +914,9 @@ func (r *Runner) runSync(run *NextRunResponse) error {
 			} else if err != nil {
 				status = "failed"
 				errMsg = err.Error()
-				log.Printf("agent: run %d finished with error: %v", run.RunID, err)
+				log.Printf("agent: run %s finished with error: %v", run.RunID, err)
 			} else {
-				log.Printf("agent: run %d completed successfully", run.RunID)
+				log.Printf("agent: run %s completed successfully", run.RunID)
 			}
 			finishedAt := time.Now().UTC().Format(time.RFC3339)
 			done := stats.GetBytes()
@@ -999,7 +999,7 @@ func (r *Runner) runKopia(run *NextRunResponse) error {
 		if err != nil {
 			return err
 		}
-		run.SourcePath = fmt.Sprintf("multi-job-%d", run.JobID)
+		run.SourcePath = "multi-job-" + run.JobID
 		r.pushEvents(run.RunID, RunEvent{
 			Type:      "info",
 			Level:     "info",
@@ -1032,10 +1032,10 @@ loop:
 		case <-commandTicker.C:
 			cancelReq, cmds, errCmd := r.pollCommands(run.RunID)
 			if errCmd != nil {
-				log.Printf("agent: command poll error for kopia run %d: %v", run.RunID, errCmd)
+				log.Printf("agent: command poll error for kopia run %s: %v", run.RunID, errCmd)
 			}
 			if cancelReq {
-				log.Printf("agent: cancel requested for kopia run %d", run.RunID)
+				log.Printf("agent: cancel requested for kopia run %s", run.RunID)
 				r.pushEvents(run.RunID, RunEvent{
 					Type:      "cancelled",
 					Level:     "warn",
@@ -1056,7 +1056,7 @@ loop:
 	} else if runErr != nil {
 		status = "failed"
 		errMsg = sanitizeErrorMessage(runErr)
-		log.Printf("agent: run %d (kopia) error: %v", run.RunID, runErr)
+		log.Printf("agent: run %s (kopia) error: %v", run.RunID, runErr)
 	}
 
 	finishedAt := time.Now().UTC().Format(time.RFC3339)
@@ -1136,10 +1136,10 @@ type RunCommand struct {
 	Payload   map[string]any `json:"payload,omitempty"`
 }
 
-func (r *Runner) pollCommands(runID int64) (bool, []RunCommand, error) {
+func (r *Runner) pollCommands(runID string) (bool, []RunCommand, error) {
 	endpoint := r.client.baseURL + "/agent_poll_commands.php"
 	values := url.Values{}
-	values.Set("run_id", fmt.Sprintf("%d", runID))
+	values.Set("run_id", runID)
 
 	doPoll := func() (*http.Response, error) {
 		req, err := http.NewRequest(http.MethodPost, endpoint, strings.NewReader(values.Encode()))
@@ -1179,14 +1179,14 @@ func (r *Runner) pollCommands(runID int64) (bool, []RunCommand, error) {
 	cmds := []RunCommand{}
 	for _, c := range out.Commands {
 		if strings.EqualFold(c.Type, "cancel") {
-			log.Printf("agent: pollCommands received cancel command for run %d", runID)
+			log.Printf("agent: pollCommands received cancel command for run %s", runID)
 			cancel = true
 			continue
 		}
 		cmds = append(cmds, c)
 	}
 	if len(out.Commands) > 0 {
-		log.Printf("agent: pollCommands run=%d received %d commands, cancel=%v", runID, len(out.Commands), cancel)
+		log.Printf("agent: pollCommands run=%s received %d commands, cancel=%v", runID, len(out.Commands), cancel)
 	}
 	return cancel, cmds, nil
 }
@@ -1299,19 +1299,19 @@ func percent(done, total int64) float64 {
 	return (float64(done) / float64(total)) * 100.0
 }
 
-func (r *Runner) pushEvents(runID int64, events ...RunEvent) {
+func (r *Runner) pushEvents(runID string, events ...RunEvent) {
 	if len(events) == 0 {
 		return
 	}
 	if err := r.client.PushEvents(runID, events); err != nil {
-		log.Printf("agent: push events for run %d failed: %v", runID, err)
+		log.Printf("agent: push events for run %s failed: %v", runID, err)
 		if summary, ok := fallbackSummaryFromEvents(events); ok {
 			if upErr := r.client.UpdateRun(RunUpdate{
 				RunID:        runID,
 				ErrorSummary: summary,
 				CurrentItem:  "Event delivery degraded; fallback summary recorded.",
 			}); upErr != nil {
-				log.Printf("agent: fallback summary update for run %d failed: %v", runID, upErr)
+				log.Printf("agent: fallback summary update for run %s failed: %v", runID, upErr)
 			}
 		}
 	}
@@ -1347,12 +1347,12 @@ func fallbackSummaryFromEvents(events []RunEvent) (string, bool) {
 	return "", false
 }
 
-func (r *Runner) pushRecoveryLogs(runID int64, logs ...RunLogEntry) {
+func (r *Runner) pushRecoveryLogs(runID string, logs ...RunLogEntry) {
 	if len(logs) == 0 {
 		return
 	}
 	if err := r.client.PushRecoveryLogs(runID, logs); err != nil {
-		log.Printf("agent: push recovery logs for run %d failed: %v", runID, err)
+		log.Printf("agent: push recovery logs for run %s failed: %v", runID, err)
 	}
 }
 

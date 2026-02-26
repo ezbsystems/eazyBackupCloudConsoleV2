@@ -31,9 +31,9 @@ func TestAuthHeadersUseAgentUUID(t *testing.T) {
 }
 
 func TestEnrollResponseUsesAgentUUIDJsonTag(t *testing.T) {
-	src, err := os.ReadFile("api_client.go")
+	src, err := os.ReadFile("internal/agent/api_client.go")
 	if err != nil {
-		src, err = os.ReadFile("internal/agent/api_client.go")
+		src, err = os.ReadFile("api_client.go")
 		if err != nil {
 			t.Fatal(err)
 		}

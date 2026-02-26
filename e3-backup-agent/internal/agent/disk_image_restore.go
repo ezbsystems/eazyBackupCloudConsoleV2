@@ -15,7 +15,8 @@ import (
 
 type DiskRestorePayload struct {
 	ManifestID        string `json:"manifest_id"`
-	RestoreRunID      int64  `json:"restore_run_id"`
+	RestoreRunUUID    string `json:"restore_run_uuid"` // UUID for progress tracking
+	RestoreRunID      int64  `json:"restore_run_id"`   // legacy numeric
 	TargetDisk        string `json:"target_disk"`
 	TargetDiskBytes   int64  `json:"target_disk_bytes"`
 	DiskLayoutJSON    any    `json:"disk_layout_json"`
@@ -45,7 +46,10 @@ func (r *Runner) executeDiskRestoreCommand(ctx context.Context, cmd PendingComma
 		if v, ok := cmd.Payload["manifest_id"].(string); ok {
 			payload.ManifestID = v
 		}
-		if v, ok := cmd.Payload["restore_run_id"].(float64); ok {
+		if v, ok := cmd.Payload["restore_run_uuid"].(string); ok && strings.TrimSpace(v) != "" {
+			payload.RestoreRunUUID = strings.TrimSpace(v)
+		}
+		if v, ok := cmd.Payload["restore_run_id"].(float64); ok && payload.RestoreRunUUID == "" {
 			payload.RestoreRunID = int64(v)
 		}
 		if v, ok := cmd.Payload["target_disk"].(string); ok {
@@ -75,11 +79,13 @@ func (r *Runner) executeDiskRestoreCommand(ctx context.Context, cmd PendingComma
 	}
 
 	trackingRunID := cmd.RunID
-	if payload.RestoreRunID > 0 {
-		trackingRunID = payload.RestoreRunID
+	if payload.RestoreRunUUID != "" {
+		trackingRunID = payload.RestoreRunUUID
+	} else if payload.RestoreRunID > 0 {
+		trackingRunID = fmt.Sprintf("%d", payload.RestoreRunID)
 	}
 
-	log.Printf("agent: disk_restore command=%d manifest=%s target=%s tracking_run=%d", cmd.CommandID, payload.ManifestID, payload.TargetDisk, trackingRunID)
+	log.Printf("agent: disk_restore command=%d manifest=%s target=%s tracking_run=%s", cmd.CommandID, payload.ManifestID, payload.TargetDisk, trackingRunID)
 
 	startedAt := time.Now().UTC()
 	_ = r.client.UpdateRun(RunUpdate{
@@ -124,7 +130,7 @@ func (r *Runner) executeDiskRestoreCommand(ctx context.Context, cmd PendingComma
 						continue
 					}
 					if cancelReq {
-						log.Printf("agent: disk restore cancel requested for run %d", trackingRunID)
+						log.Printf("agent: disk restore cancel requested for run %s", trackingRunID)
 						r.pushEvents(trackingRunID, RunEvent{
 							Type:      "cancelled",
 							Level:     "warn",
@@ -274,7 +280,7 @@ func (r *Runner) executeDiskRestoreCommand(ctx context.Context, cmd PendingComma
 	_ = r.client.CompleteCommand(cmd.CommandID, "completed", "disk restore complete")
 }
 
-func (r *Runner) finishDiskRestoreWithError(runID int64, commandID int64, err error) {
+func (r *Runner) finishDiskRestoreWithError(runID string, commandID int64, err error) {
 	if errors.Is(err, context.Canceled) {
 		msg := "Restore cancelled"
 		r.pushEvents(runID, RunEvent{

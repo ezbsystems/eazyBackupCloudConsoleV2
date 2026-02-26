@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	kopiafs "github.com/kopia/kopia/fs"
@@ -35,7 +34,7 @@ func (r *Runner) openPreviousDiskImageSnapshot(ctx context.Context, run *NextRun
 	}
 
 	opts := kopiaOptionsFromRun(r.cfg, run)
-	repoPath := filepath.Join(r.cfg.RunDir, "kopia", fmt.Sprintf("job_%d.config", run.JobID))
+	repoPath := kopiaRepoConfigPath(r.cfg, run)
 	password := opts.password()
 
 	if _, err := os.Stat(repoPath); err != nil {

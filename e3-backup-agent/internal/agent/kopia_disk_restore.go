@@ -7,7 +7,6 @@ import (
 	"log"
 	"math"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -17,17 +16,17 @@ import (
 	"github.com/kopia/kopia/repo"
 	"github.com/kopia/kopia/repo/manifest"
 	"github.com/kopia/kopia/snapshot"
-	"github.com/kopia/kopia/snapshot/snapshotfs"
 	"github.com/kopia/kopia/snapshot/restore"
+	"github.com/kopia/kopia/snapshot/snapshotfs"
 )
 
 // kopiaRestoreDiskImageToDevice restores a disk image snapshot directly to a block device.
-func (r *Runner) kopiaRestoreDiskImageToDevice(ctx context.Context, run *NextRunResponse, manifestID, targetDevice string, extents []DiskExtent, runID int64) error {
+func (r *Runner) kopiaRestoreDiskImageToDevice(ctx context.Context, run *NextRunResponse, manifestID, targetDevice string, extents []DiskExtent, runID string) error {
 	opts := kopiaOptionsFromRun(r.cfg, run)
-	repoPath := filepath.Join(r.cfg.RunDir, "kopia", fmt.Sprintf("job_%d.config", run.JobID))
+	repoPath := kopiaRepoConfigPath(r.cfg, run)
 	password := opts.password()
 
-	log.Printf("agent: disk restore opening repo at %s for job %d, manifest %s", repoPath, run.JobID, manifestID)
+	log.Printf("agent: disk restore opening repo at %s for job %s, manifest %s", repoPath, run.JobID, manifestID)
 
 	if _, statErr := os.Stat(repoPath); os.IsNotExist(statErr) {
 		st, stErr := opts.storage(ctx)
@@ -85,9 +84,9 @@ func (r *Runner) kopiaRestoreDiskImageToDevice(ctx context.Context, run *NextRun
 							Level:     "error",
 							MessageID: "RECOVERY_STORAGE_INIT_FAILED",
 							ParamsJSON: map[string]any{
-								"error":       sanitizeErrorMessage(stErr),
-								"error_type":  fmt.Sprintf("%T", stErr),
-								"after_sync":  true,
+								"error":        sanitizeErrorMessage(stErr),
+								"error_type":   fmt.Sprintf("%T", stErr),
+								"after_sync":   true,
 								"skew_seconds": skew,
 							},
 						})
@@ -174,8 +173,8 @@ func (r *Runner) kopiaRestoreDiskImageToDevice(ctx context.Context, run *NextRun
 	})
 
 	_, err = restore.Entry(ctx, rep, out, rootEntry, restore.Options{
-		ProgressCallback: progressCounter.onProgress,
-		Parallel:         restorePolicy.KopiaParallel,
+		ProgressCallback:       progressCounter.onProgress,
+		Parallel:               restorePolicy.KopiaParallel,
 		RestoreDirEntryAtDepth: math.MaxInt32,
 	})
 	if err != nil {
@@ -199,7 +198,7 @@ func isTimeSkewError(err error) bool {
 	return strings.Contains(lower, "request time") && strings.Contains(lower, "time is too large")
 }
 
-func (r *Runner) logRecoveryTimeDiagnostics(runID int64, run *NextRunResponse, storageErr error) (time.Time, bool) {
+func (r *Runner) logRecoveryTimeDiagnostics(runID string, run *NextRunResponse, storageErr error) (time.Time, bool) {
 	localNow := time.Now()
 	apiBase := strings.TrimSpace(r.cfg.APIBaseURL)
 	apiTime, apiAttempts, apiErr := probeServerDate(apiBase)
@@ -213,20 +212,20 @@ func (r *Runner) logRecoveryTimeDiagnostics(runID int64, run *NextRunResponse, s
 	}
 
 	params := map[string]any{
-		"local_time_utc":        localNow.UTC().Format(time.RFC3339),
-		"local_time_local":      localNow.Format(time.RFC3339),
-		"api_endpoint":          apiBase,
-		"api_time_utc":          "-",
-		"api_skew_seconds":      "-",
-		"api_error":             "",
-		"api_attempts":          apiAttempts,
-		"s3_endpoint":           destEndpoint,
-		"s3_time_utc":           "-",
-		"s3_skew_seconds":       "-",
-		"s3_error":              "",
-		"s3_attempts":           s3Attempts,
-		"api_s3_delta_seconds":  "-",
-		"storage_init_error":    sanitizeErrorMessage(storageErr),
+		"local_time_utc":          localNow.UTC().Format(time.RFC3339),
+		"local_time_local":        localNow.Format(time.RFC3339),
+		"api_endpoint":            apiBase,
+		"api_time_utc":            "-",
+		"api_skew_seconds":        "-",
+		"api_error":               "",
+		"api_attempts":            apiAttempts,
+		"s3_endpoint":             destEndpoint,
+		"s3_time_utc":             "-",
+		"s3_skew_seconds":         "-",
+		"s3_error":                "",
+		"s3_attempts":             s3Attempts,
+		"api_s3_delta_seconds":    "-",
+		"storage_init_error":      sanitizeErrorMessage(storageErr),
 		"storage_init_error_type": fmt.Sprintf("%T", storageErr),
 	}
 
@@ -252,9 +251,9 @@ func (r *Runner) logRecoveryTimeDiagnostics(runID int64, run *NextRunResponse, s
 	}
 
 	r.pushEvents(runID, RunEvent{
-		Type:      "info",
-		Level:     "info",
-		MessageID: "RECOVERY_TIME_DIAGNOSTICS",
+		Type:       "info",
+		Level:      "info",
+		MessageID:  "RECOVERY_TIME_DIAGNOSTICS",
 		ParamsJSON: params,
 	})
 

@@ -30,7 +30,7 @@ type driverBundleUploadMeta struct {
 
 const maxDriverBundleUploadBytes = 100 << 20 // 100 MiB
 
-func (r *Runner) captureAndUploadDriverBundles(ctx context.Context, run *NextRunResponse, runID int64, finishedAt string) map[string]any {
+func (r *Runner) captureAndUploadDriverBundles(ctx context.Context, run *NextRunResponse, runID string, finishedAt string) map[string]any {
 	if r == nil || r.client == nil {
 		return nil
 	}
@@ -106,7 +106,7 @@ func (r *Runner) captureAndUploadDriverBundles(ctx context.Context, run *NextRun
 	return results
 }
 
-func (r *Runner) captureAndUploadDriverBundleProfile(runID int64, profile string, maxBytes int64, finishedAt string) (*driverBundleUploadMeta, error) {
+func (r *Runner) captureAndUploadDriverBundleProfile(runID string, profile string, maxBytes int64, finishedAt string) (*driverBundleUploadMeta, error) {
 	workDir, err := os.MkdirTemp("", "e3-driver-bundle-*")
 	if err != nil {
 		return nil, err

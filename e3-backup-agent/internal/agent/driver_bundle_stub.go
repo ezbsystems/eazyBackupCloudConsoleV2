@@ -4,7 +4,7 @@ package agent
 
 import "context"
 
-func (r *Runner) captureAndUploadDriverBundles(ctx context.Context, run *NextRunResponse, runID int64, finishedAt string) map[string]any {
+func (r *Runner) captureAndUploadDriverBundles(ctx context.Context, run *NextRunResponse, runID string, finishedAt string) map[string]any {
 	return nil
 }
 
