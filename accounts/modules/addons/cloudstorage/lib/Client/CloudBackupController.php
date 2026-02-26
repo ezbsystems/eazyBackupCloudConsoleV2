@@ -10,6 +10,7 @@ use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionHookService;
 use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionOperationService;
 use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionRoutingService;
 use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionSourceService;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 
 class CloudBackupController {
 
@@ -538,12 +539,17 @@ class CloudBackupController {
     public static function getRun($runId, $clientId)
     {
         try {
+            $runIdNormalized = null;
+            if (UuidBinary::isUuid($runId)) {
+                $runIdNormalized = UuidBinary::normalize($runId);
+            }
+
             $query = Capsule::table('s3_cloudbackup_runs')
                 ->join('s3_cloudbackup_jobs', 's3_cloudbackup_runs.job_id', '=', 's3_cloudbackup_jobs.id')
                 ->where('s3_cloudbackup_jobs.client_id', $clientId);
 
-            if (self::isUuid($runId)) {
-                $query->where('s3_cloudbackup_runs.run_uuid', $runId);
+            if ($runIdNormalized !== null) {
+                $query->where('s3_cloudbackup_runs.run_uuid', $runIdNormalized);
             } else {
                 $query->where('s3_cloudbackup_runs.id', $runId);
             }
@@ -1588,17 +1594,6 @@ class CloudBackupController {
             logModuleCall(self::$module, 'ensureVersioningForBucketId', ['bucket_id' => $bucketId], $e->getMessage());
             return ['status' => 'error', 'message' => 'Error enforcing bucket versioning'];
         }
-    }
-
-    /**
-     * Detect UUID format.
-     *
-     * @param mixed $value
-     * @return bool
-     */
-    private static function isUuid($value): bool
-    {
-        return is_string($value) && preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $value);
     }
 
     /**
