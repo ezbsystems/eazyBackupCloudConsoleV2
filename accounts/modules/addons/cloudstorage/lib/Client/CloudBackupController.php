@@ -767,23 +767,49 @@ class CloudBackupController {
     /**
      * Cancel a running job
      *
-     * @param int $runId
+     * @param string|int $runId Run identifier: UUID string (run_id path) or numeric id (legacy path)
      * @param int $clientId
      * @return array
      */
     public static function cancelRun($runId, $clientId, $forceCancel = false)
     {
         try {
-            // Verify run ownership
-            $run = self::getRun($runId, $clientId);
-            
+            $hasRunIdCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
+            $isUuidInput = UuidBinary::isUuid($runId);
+
+            // Schema-aware lookup: UUID path (getRun) or legacy id path
+            $run = null;
+            $runIdForResponse = null;
+            $useUuidWhere = false;
+
+            if ($isUuidInput) {
+                $run = self::getRun($runId, $clientId);
+                $runIdForResponse = $runId;
+                $useUuidWhere = $hasRunIdCol;
+            } elseif (!$hasRunIdCol && is_numeric($runId)) {
+                $hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+                $jobRunJoin = $hasJobIdPk
+                    ? ['s3_cloudbackup_runs.job_id', '=', 's3_cloudbackup_jobs.job_id']
+                    : ['s3_cloudbackup_runs.job_id', '=', 's3_cloudbackup_jobs.id'];
+                $row = Capsule::table('s3_cloudbackup_runs')
+                    ->join('s3_cloudbackup_jobs', $jobRunJoin[0], $jobRunJoin[1], $jobRunJoin[2])
+                    ->where('s3_cloudbackup_jobs.client_id', $clientId)
+                    ->where('s3_cloudbackup_runs.id', (int) $runId)
+                    ->select('s3_cloudbackup_runs.*')
+                    ->first();
+                if ($row) {
+                    $run = (array) $row;
+                    $runIdForResponse = (int) $run['id'];
+                }
+            }
+
             logModuleCall(self::$module, 'cancelRun_lookup', [
                 'run_id_input' => $runId,
                 'client_id' => $clientId,
                 'run_found' => $run ? 'yes' : 'no',
-                'run_data' => $run ? ['id' => $run['id'], 'status' => $run['status'], 'job_id' => $run['job_id']] : null,
+                'run_data' => $run ? ['status' => $run['status'], 'job_id' => $run['job_id'] ?? null] : null,
             ], 'Looking up run for cancellation');
-            
+
             if (!$run) {
                 return ['status' => 'fail', 'message' => 'Run not found or access denied'];
             }
@@ -793,21 +819,21 @@ class CloudBackupController {
             if ($forceCancel) {
                 if (in_array($run['status'], $terminalStatuses, true)) {
                     logModuleCall(self::$module, 'cancelRun_force_already_terminal', [
-                        'run_id' => $run['id'],
+                        'run_id' => $runIdForResponse,
                         'current_status' => $run['status'],
                     ], 'Force cancel not allowed on terminal run');
                     return ['status' => 'fail', 'message' => 'Run already completed'];
                 }
             } elseif (!in_array($run['status'], $cancelableStatuses, true)) {
                 logModuleCall(self::$module, 'cancelRun_status_check', [
-                    'run_id' => $run['id'],
+                    'run_id' => $runIdForResponse,
                     'current_status' => $run['status'],
                 ], 'Run not in cancellable status');
                 return ['status' => 'fail', 'message' => 'Run cannot be cancelled in current status: ' . $run['status']];
             }
 
             $update = ['cancel_requested' => 1];
-            
+
             // For 'queued' runs that haven't been picked up by agent yet, cancel immediately
             // For 'starting' or 'running' runs, agent will poll and see cancel_requested
             if ($run['status'] === 'queued' || $forceCancel) {
@@ -818,17 +844,23 @@ class CloudBackupController {
                 }
             }
 
-            $affected = Capsule::table('s3_cloudbackup_runs')
-                ->where('id', $run['id'])
-                ->update($update);
+            if ($useUuidWhere) {
+                $affected = Capsule::table('s3_cloudbackup_runs')
+                    ->whereRaw('run_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($runId)))
+                    ->update($update);
+            } else {
+                $affected = Capsule::table('s3_cloudbackup_runs')
+                    ->where('id', $run['id'])
+                    ->update($update);
+            }
 
             logModuleCall(self::$module, 'cancelRun_update', [
-                'run_id' => $run['id'],
+                'run_id' => $runIdForResponse,
                 'affected_rows' => $affected,
                 'update_data' => $update,
             ], 'Updated cancel_requested flag');
 
-            return ['status' => 'success', 'message' => 'Cancellation requested', 'run_id' => $run['id']];
+            return ['status' => 'success', 'message' => 'Cancellation requested', 'run_id' => $runIdForResponse];
         } catch (\Exception $e) {
             logModuleCall(self::$module, 'cancelRun', ['run_id' => $runId, 'client_id' => $clientId], $e->getMessage());
             return ['status' => 'fail', 'message' => 'Failed to cancel run. Please try again later.'];
