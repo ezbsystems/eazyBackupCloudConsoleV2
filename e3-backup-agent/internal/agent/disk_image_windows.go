@@ -336,7 +336,7 @@ func (r *Runner) createDiskImage(ctx context.Context, run *NextRunResponse, opts
 		return nil, fmt.Errorf("vss snapshot returned empty device path")
 	}
 
-	imageName := fmt.Sprintf("job_%d_%d.%s", run.JobID, time.Now().Unix(), opts.ImageFormat)
+	imageName := fmt.Sprintf("job_%s_%d.%s", run.JobID, time.Now().Unix(), opts.ImageFormat)
 	imagePath := filepath.Join(opts.TempDir, imageName)
 
 	if err := os.MkdirAll(opts.TempDir, 0o755); err != nil {

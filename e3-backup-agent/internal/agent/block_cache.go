@@ -10,13 +10,17 @@ import (
 // Current implementation just persists a JSON envelope; phase 2 can extend.
 type BlockCache struct {
 	Path        string
-	JobID       int64
+	JobID       string
 	BlockSize   int64
 	BlockHashes map[int64][]byte // offset -> hash
 }
 
-func LoadBlockCache(baseDir string, jobID int64, blockSize int64) *BlockCache {
-	path := filepath.Join(baseDir, "cache", "job_cache", "job_"+intToString(jobID)+".blockcache")
+func LoadBlockCache(baseDir string, jobID string, blockSize int64) *BlockCache {
+	safeID := jobID
+	if safeID == "" {
+		safeID = "unknown"
+	}
+	path := filepath.Join(baseDir, "cache", "job_cache", "job_"+safeID+".blockcache")
 	_ = os.MkdirAll(filepath.Dir(path), 0o755)
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -76,4 +80,3 @@ func fmtInt(v int64) []byte {
 	}
 	return buf[i:]
 }
-

@@ -69,7 +69,7 @@ type UnmountNASPayload struct {
 
 // MountSnapshotPayload contains the payload for nas_mount_snapshot command
 type MountSnapshotPayload struct {
-	JobID       int64  `json:"job_id"`
+	JobID       string `json:"job_id"`
 	ManifestID  string `json:"manifest_id"`
 	DriveLetter string `json:"drive_letter"`
 	Bucket      string `json:"bucket"`
@@ -372,8 +372,8 @@ func (r *Runner) executeNASMountSnapshotCommand(ctx context.Context, cmd Pending
 	// Parse payload
 	payload := MountSnapshotPayload{}
 	if cmd.Payload != nil {
-		if v, ok := cmd.Payload["job_id"].(float64); ok {
-			payload.JobID = int64(v)
+		if v, ok := cmd.Payload["job_id"].(string); ok {
+			payload.JobID = strings.TrimSpace(v)
 		}
 		if v, ok := cmd.Payload["manifest_id"].(string); ok {
 			payload.ManifestID = v

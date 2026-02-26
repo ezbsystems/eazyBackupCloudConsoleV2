@@ -239,8 +239,8 @@ type FetchJobsResponse struct {
 }
 
 type NextRunResponse struct {
-	RunID                   int64          `json:"run_id"`
-	JobID                   int64          `json:"job_id"`
+	RunID                   string         `json:"run_id"`
+	JobID                   string         `json:"job_id"`
 	Engine                  string         `json:"engine"`
 	SourcePath              string         `json:"source_path"`
 	SourcePaths             []string       `json:"source_paths,omitempty"`
@@ -388,7 +388,7 @@ func (c *Client) ReportVolumes(vols []VolumeInfo) error {
 type StartRunResponse struct {
 	Status         string `json:"status"`
 	Message        string `json:"message,omitempty"`
-	RunID          int64  `json:"run_id,omitempty"`
+	RunID          string `json:"run_id,omitempty"`
 	SourcePath     string `json:"source_path,omitempty"`
 	DestBucketName string `json:"dest_bucket_name,omitempty"`
 	DestPrefix     string `json:"dest_prefix,omitempty"`
@@ -398,7 +398,7 @@ type StartRunResponse struct {
 	DestSecretKey  string `json:"dest_secret_key,omitempty"`
 }
 
-func (c *Client) StartRun(jobID int64) (*StartRunResponse, error) {
+func (c *Client) StartRun(jobID string) (*StartRunResponse, error) {
 	endpoint := c.baseURL + "/agent_start_run.php"
 	body := map[string]any{"job_id": jobID}
 	buf, _ := json.Marshal(body)
@@ -429,7 +429,7 @@ func (c *Client) StartRun(jobID int64) (*StartRunResponse, error) {
 func Int64Ptr(v int64) *int64 { return &v }
 
 type RunUpdate struct {
-	RunID                int64   `json:"run_id"`
+	RunID                string  `json:"run_id"`
 	Status               string  `json:"status,omitempty"`
 	StartedAt            string  `json:"started_at,omitempty"`
 	FinishedAt           string  `json:"finished_at,omitempty"`
@@ -546,7 +546,7 @@ type RunLogEntry struct {
 	DetailsJSON map[string]any `json:"details_json,omitempty"`
 }
 
-func (c *Client) PushEvents(runID int64, events []RunEvent) error {
+func (c *Client) PushEvents(runID string, events []RunEvent) error {
 	if len(events) == 0 {
 		return nil
 	}
@@ -644,7 +644,7 @@ func (c *Client) PushEvents(runID int64, events []RunEvent) error {
 	return lastErr
 }
 
-func buildPushEventsPayload(runID int64, events []RunEvent, compactEvents []RunEvent, forceCompact bool) (map[string]any, bool, error) {
+func buildPushEventsPayload(runID string, events []RunEvent, compactEvents []RunEvent, forceCompact bool) (map[string]any, bool, error) {
 	body := map[string]any{"run_id": runID, "events": events}
 	buf, _ := json.Marshal(body)
 	if !forceCompact && len(buf) < 48*1024 {
@@ -668,7 +668,7 @@ func buildPushEventsPayload(runID int64, events []RunEvent, compactEvents []RunE
 	return compactBody, true, nil
 }
 
-func (c *Client) PushRecoveryLogs(runID int64, logs []RunLogEntry) error {
+func (c *Client) PushRecoveryLogs(runID string, logs []RunLogEntry) error {
 	if c.recoverySessionToken == "" || len(logs) == 0 {
 		return nil
 	}
@@ -694,7 +694,7 @@ func (c *Client) PushRecoveryLogs(runID int64, logs []RunLogEntry) error {
 	return nil
 }
 
-func (c *Client) PushRecoveryDebugLog(runID int64, level, code, message string, details map[string]any) error {
+func (c *Client) PushRecoveryDebugLog(runID string, level, code, message string, details map[string]any) error {
 	if c.recoverySessionToken == "" {
 		return nil
 	}
@@ -728,7 +728,7 @@ func (c *Client) PushRecoveryDebugLog(runID int64, level, code, message string, 
 }
 
 // PollRecoveryCancel checks whether a recovery restore should be cancelled.
-func (c *Client) PollRecoveryCancel(runID int64) (bool, error) {
+func (c *Client) PollRecoveryCancel(runID string) (bool, error) {
 	if c.recoverySessionToken == "" {
 		return false, nil
 	}
@@ -865,16 +865,16 @@ func (c *Client) UpdateNASMountStatus(mountID int64, status, errorMsg string) er
 type PendingCommand struct {
 	CommandID  int64          `json:"command_id"`
 	Type       string         `json:"type"`
-	RunID      int64          `json:"run_id"`
-	JobID      int64          `json:"job_id"`
+	RunID      string         `json:"run_id"`
+	JobID      string         `json:"job_id"`
 	Payload    map[string]any `json:"payload"`
 	JobContext *JobContext    `json:"job_context"`
 }
 
 // JobContext provides the job configuration needed to execute commands like restore.
 type JobContext struct {
-	JobID                   int64          `json:"job_id"`
-	RunID                   int64          `json:"run_id"`
+	JobID                   string         `json:"job_id"`
+	RunID                   string         `json:"run_id"`
 	Engine                  string         `json:"engine"`
 	SourcePath              string         `json:"source_path"`
 	DestType                string         `json:"dest_type"`
@@ -1012,14 +1012,14 @@ type DriverBundleUploadResponse struct {
 	SizeBytes    int64  `json:"size_bytes,omitempty"`
 }
 
-func (c *Client) UploadDriverBundle(runID int64, profile, artifactName string, bundle []byte, backupFinishedAt string) (*DriverBundleUploadResponse, error) {
+func (c *Client) UploadDriverBundle(runID string, profile, artifactName string, bundle []byte, backupFinishedAt string) (*DriverBundleUploadResponse, error) {
 	if len(bundle) == 0 {
 		return nil, fmt.Errorf("bundle payload is empty")
 	}
 	endpoint := c.baseURL + "/agent_upload_driver_bundle.php"
 	var payload bytes.Buffer
 	mp := multipart.NewWriter(&payload)
-	_ = mp.WriteField("run_id", fmt.Sprintf("%d", runID))
+	_ = mp.WriteField("run_id", runID)
 	_ = mp.WriteField("profile", profile)
 	_ = mp.WriteField("artifact_name", artifactName)
 	_ = mp.WriteField("sha256", fmt.Sprintf("%x", sha256Bytes(bundle)))
@@ -1080,13 +1080,13 @@ func (c *Client) UploadDriverBundle(runID int64, profile, artifactName string, b
 type DriverBundleExistsResponse struct {
 	Status    string `json:"status"`
 	Message   string `json:"message,omitempty"`
-	RunID     int64  `json:"run_id,omitempty"`
+	RunID     string `json:"run_id,omitempty"`
 	Profile   string `json:"profile,omitempty"`
 	Exists    bool   `json:"exists"`
 	ObjectKey string `json:"object_key,omitempty"`
 }
 
-func (c *Client) DriverBundleExists(runID int64, profile string) (*DriverBundleExistsResponse, error) {
+func (c *Client) DriverBundleExists(runID string, profile string) (*DriverBundleExistsResponse, error) {
 	endpoint := c.baseURL + "/agent_driver_bundle_exists.php"
 	body := map[string]any{
 		"run_id":  runID,

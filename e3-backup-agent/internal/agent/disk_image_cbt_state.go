@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func loadCBTState(baseDir string, jobID int64, volumeKey string) *CBTState {
+func loadCBTState(baseDir string, jobID string, volumeKey string) *CBTState {
 	path := cbtStatePath(baseDir, jobID, volumeKey)
 	_ = os.MkdirAll(filepath.Dir(path), 0o755)
 	data, err := os.ReadFile(path)
@@ -49,12 +49,16 @@ func (s *CBTState) Save() error {
 	return os.WriteFile(s.Path, payload, 0o600)
 }
 
-func cbtStatePath(baseDir string, jobID int64, volumeKey string) string {
+func cbtStatePath(baseDir string, jobID string, volumeKey string) string {
 	key := normalizeCBTVolumeKey(volumeKey)
+	safeID := jobID
+	if safeID == "" {
+		safeID = "unknown"
+	}
 	if baseDir == "" {
 		return filepath.Join(os.TempDir(), "e3backup_cbt_"+key+".json")
 	}
-	return filepath.Join(baseDir, "cache", "job_cache", "job_"+intToString(jobID)+"_cbt_"+key+".json")
+	return filepath.Join(baseDir, "cache", "job_cache", "job_"+safeID+"_cbt_"+key+".json")
 }
 
 func normalizeCBTVolumeKey(raw string) string {

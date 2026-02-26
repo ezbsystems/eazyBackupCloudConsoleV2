@@ -55,7 +55,7 @@ func getVMByNameOrGUID(ctx context.Context, mgr *hyperv.Manager, vmName, vmGUID 
 // hypervProgressTracker tracks cumulative progress across multiple VMs.
 type hypervProgressTracker struct {
 	runner                 *Runner
-	runID                  int64
+	runID                  string
 	totalBytes             int64
 	completedBytes         int64 // Bytes from fully completed VMs/disks
 	currentBytes           int64 // Bytes processed in current disk (atomic)
@@ -188,7 +188,7 @@ func (r *Runner) runHyperV(run *NextRunResponse) error {
 					continue
 				}
 				if cancelReq {
-					log.Printf("agent: hyperv cancel requested for run %d", run.RunID)
+					log.Printf("agent: hyperv cancel requested for run %s", run.RunID)
 					r.pushEvents(run.RunID, RunEvent{
 						Type:      "cancelled",
 						Level:     "warn",

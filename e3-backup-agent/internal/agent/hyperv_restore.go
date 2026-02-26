@@ -15,15 +15,15 @@ import (
 
 // HyperVRestorePayload represents the payload for a hyperv_restore command.
 type HyperVRestorePayload struct {
-	BackupPointID  int64             `json:"backup_point_id"`
-	VMName         string            `json:"vm_name"`
-	VMGUID         string            `json:"vm_guid"`
-	TargetPath     string            `json:"target_path"`
-	DiskManifests  map[string]string `json:"disk_manifests"`  // disk_path -> manifest_id
+	BackupPointID  int64               `json:"backup_point_id"`
+	VMName         string              `json:"vm_name"`
+	VMGUID         string              `json:"vm_guid"`
+	TargetPath     string              `json:"target_path"`
+	DiskManifests  map[string]string   `json:"disk_manifests"` // disk_path -> manifest_id
 	RestoreChain   []RestoreChainEntry `json:"restore_chain"`
-	BackupType     string            `json:"backup_type"`     // "Full" or "Incremental"
-	RestoreRunID   int64             `json:"restore_run_id"`
-	RestoreRunUUID string            `json:"restore_run_uuid"`
+	BackupType     string              `json:"backup_type"`      // "Full" or "Incremental"
+	RestoreRunID   int64               `json:"restore_run_id"`   // legacy numeric; prefer RestoreRunUUID
+	RestoreRunUUID string              `json:"restore_run_uuid"` // UUID for progress tracking
 }
 
 // RestoreChainEntry represents a single entry in the restore chain.
@@ -37,7 +37,7 @@ type RestoreChainEntry struct {
 // hypervRestoreProgress tracks restore progress across multiple disks.
 type hypervRestoreProgress struct {
 	runner         *Runner
-	runID          int64
+	runID          string
 	totalBytes     int64
 	completedBytes int64
 	currentBytes   int64 // atomic
@@ -128,10 +128,13 @@ func (r *Runner) executeHyperVRestoreCommand(ctx context.Context, cmd PendingCom
 		return
 	}
 
-	// Use restore_run_id for progress tracking
-	runID := payload.RestoreRunID
-	if runID == 0 {
+	// Use restore_run_uuid for progress tracking (UUID); fall back to RunID or legacy RestoreRunID
+	runID := payload.RestoreRunUUID
+	if runID == "" {
 		runID = cmd.RunID
+	}
+	if runID == "" && payload.RestoreRunID != 0 {
+		runID = fmt.Sprintf("%d", payload.RestoreRunID)
 	}
 
 	log.Printf("agent: starting hyperv_restore for VM %s (%d disks) to %s",
@@ -174,7 +177,7 @@ func (r *Runner) executeHyperVRestoreCommand(ctx context.Context, cmd PendingCom
 		}
 	}()
 	defer func() {
-		cancelRestore() // Ensure context is cancelled to stop polling goroutine
+		cancelRestore()  // Ensure context is cancelled to stop polling goroutine
 		<-cancelPollDone // Wait for polling goroutine to finish
 	}()
 
@@ -191,8 +194,8 @@ func (r *Runner) executeHyperVRestoreCommand(ctx context.Context, cmd PendingCom
 		Level:     "info",
 		MessageID: "HYPERV_RESTORE_STARTING",
 		ParamsJSON: map[string]any{
-			"vm_name":    payload.VMName,
-			"disk_count": len(payload.DiskManifests),
+			"vm_name":     payload.VMName,
+			"disk_count":  len(payload.DiskManifests),
 			"target_path": payload.TargetPath,
 			"backup_type": payload.BackupType,
 		},
@@ -291,7 +294,7 @@ func (r *Runner) executeHyperVRestoreCommand(ctx context.Context, cmd PendingCom
 		err := r.kopiaRestoreVHDX(restoreCtx, run, manifestID, targetFilePath, diskName, runID)
 		if err != nil {
 			log.Printf("agent: hyperv_restore disk %s failed: %v", diskName, err)
-			
+
 			// Check if it's a cancellation
 			if isCancellationError(err) {
 				r.pushEvents(runID, RunEvent{
@@ -464,15 +467,14 @@ func buildNextRunResponseFromJobContext(jc *JobContext) *NextRunResponse {
 		return nil
 	}
 	return &NextRunResponse{
-		RunID:         jc.RunID,
-		JobID:         jc.JobID,
-		Engine:        jc.Engine,
+		RunID:          jc.RunID,
+		JobID:          jc.JobID,
+		Engine:         jc.Engine,
 		DestBucketName: jc.DestBucketName,
-		DestPrefix:    jc.DestPrefix,
-		DestAccessKey: jc.DestAccessKey,
-		DestSecretKey: jc.DestSecretKey,
-		DestEndpoint:  jc.DestEndpoint,
-		DestRegion:    jc.DestRegion,
+		DestPrefix:     jc.DestPrefix,
+		DestAccessKey:  jc.DestAccessKey,
+		DestSecretKey:  jc.DestSecretKey,
+		DestEndpoint:   jc.DestEndpoint,
+		DestRegion:     jc.DestRegion,
 	}
 }
-

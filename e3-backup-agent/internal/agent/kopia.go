@@ -170,7 +170,7 @@ func buildMultiSourceEntry(paths []string) (kopiafs.Entry, error) {
 
 // kopiaSnapshot runs a Kopia snapshot for the given run.
 func (r *Runner) kopiaSnapshot(ctx context.Context, run *NextRunResponse) error {
-	repoPath := filepath.Join(r.cfg.RunDir, "kopia", fmt.Sprintf("job_%d.config", run.JobID))
+	repoPath := kopiaRepoConfigPath(r.cfg, run)
 	if err := os.MkdirAll(filepath.Dir(repoPath), 0o755); err != nil {
 		return fmt.Errorf("kopia: mkdir repo dir: %w", err)
 	}
@@ -182,7 +182,7 @@ func (r *Runner) kopiaSnapshot(ctx context.Context, run *NextRunResponse) error 
 // When entryOverride is nil, it falls back to localfs.NewEntry(run.SourcePath).
 func (r *Runner) kopiaSnapshotWithEntry(ctx context.Context, run *NextRunResponse, entryOverride kopiafs.Entry, declaredSize int64) error {
 	opts := kopiaOptionsFromRun(r.cfg, run)
-	repoPath := filepath.Join(r.cfg.RunDir, "kopia", fmt.Sprintf("job_%d.config", run.JobID))
+	repoPath := kopiaRepoConfigPath(r.cfg, run)
 	if err := os.MkdirAll(filepath.Dir(repoPath), 0o755); err != nil {
 		return fmt.Errorf("kopia: mkdir repo dir: %w", err)
 	}
@@ -211,7 +211,7 @@ func (r *Runner) kopiaSnapshotWithEntry(ctx context.Context, run *NextRunRespons
 	}
 
 	log.Printf(
-		"agent: run %d (kopia) storage init dest_type=%s bucket=%s prefix=%q endpoint=%q endpoint_len=%d region=%q source=%s",
+		"agent: run %s (kopia) storage init dest_type=%s bucket=%s prefix=%q endpoint=%q endpoint_len=%d region=%q source=%s",
 		run.RunID, opts.destType, opts.bucket, opts.prefix, opts.endpoint, len(opts.endpoint), opts.region, sourceLabel,
 	)
 	r.pushEvents(run.RunID, RunEvent{
@@ -260,7 +260,7 @@ func (r *Runner) kopiaSnapshotWithEntry(ctx context.Context, run *NextRunRespons
 	password := opts.password()
 
 	initAndConnect := func() error {
-		log.Printf("agent: kopia repo initialize+connect for run %d", run.RunID)
+		log.Printf("agent: kopia repo initialize+connect for run %s", run.RunID)
 		r.pushEvents(run.RunID, RunEvent{
 			Type:      "info",
 			Level:     "info",
@@ -299,7 +299,7 @@ func (r *Runner) kopiaSnapshotWithEntry(ctx context.Context, run *NextRunRespons
 	rep, err := repo.Open(ctx, repoPath, password, nil)
 	if err != nil {
 		if errors.Is(err, repo.ErrRepositoryNotInitialized) || strings.Contains(strings.ToLower(err.Error()), "repository not initialized") {
-			log.Printf("agent: kopia repo not initialized, attempting initialize+connect for run %d", run.RunID)
+			log.Printf("agent: kopia repo not initialized, attempting initialize+connect for run %s", run.RunID)
 			if err := initAndConnect(); err != nil {
 				return err
 			}
@@ -383,7 +383,7 @@ func (r *Runner) kopiaSnapshotWithEntry(ctx context.Context, run *NextRunRespons
 
 	// Best-effort pre-scan to estimate total size for progress calculation.
 	if totalBytes > 0 {
-		log.Printf("agent: kopia source estimate run %d files=%d bytes=%d", run.RunID, totalFiles, totalBytes)
+		log.Printf("agent: kopia source estimate run %s files=%d bytes=%d", run.RunID, totalFiles, totalBytes)
 		_ = r.client.UpdateRun(RunUpdate{
 			RunID:        run.RunID,
 			BytesTotal:   Int64Ptr(totalBytes),
@@ -425,7 +425,7 @@ func (r *Runner) kopiaSnapshotWithEntry(ctx context.Context, run *NextRunRespons
 	allSnapCount := 0
 	var allSnapSample []string
 
-	log.Printf("agent: kopia policy overrides run=%d compressor=%q parallel_uploads=%d bandwidth_kbps=%d",
+	log.Printf("agent: kopia policy overrides run=%s compressor=%q parallel_uploads=%d bandwidth_kbps=%d",
 		run.RunID, ep.CompressionPolicy.CompressorName, parallelUploads, run.LocalBandwidthLimitKbps)
 	r.pushEvents(run.RunID, RunEvent{
 		Type:      "info",
@@ -494,7 +494,7 @@ func (r *Runner) kopiaSnapshotWithEntry(ctx context.Context, run *NextRunRespons
 		if err != nil {
 			// Check if this is a cancellation error - don't report as failure
 			if isCancellationError(err) {
-				log.Printf("agent: upload cancelled for run %d", run.RunID)
+				log.Printf("agent: upload cancelled for run %s", run.RunID)
 				r.pushEvents(run.RunID, RunEvent{
 					Type:      "cancelled",
 					Level:     "info",
@@ -517,7 +517,7 @@ func (r *Runner) kopiaSnapshotWithEntry(ctx context.Context, run *NextRunRespons
 		}
 
 		if man == nil {
-			log.Printf("agent: kopia upload returned nil manifest for run %d", run.RunID)
+			log.Printf("agent: kopia upload returned nil manifest for run %s", run.RunID)
 			r.pushEvents(run.RunID, RunEvent{
 				Type:      "error",
 				Level:     "error",
@@ -531,10 +531,10 @@ func (r *Runner) kopiaSnapshotWithEntry(ctx context.Context, run *NextRunRespons
 
 		// Upload returns the manifest structure but does NOT persist it.
 		// We must call SaveSnapshot to write the manifest to the repository and get an ID.
-		log.Printf("agent: kopia saving snapshot manifest for run %d (rootEntry=%v)", run.RunID, man.RootEntry != nil)
+		log.Printf("agent: kopia saving snapshot manifest for run %s (rootEntry=%v)", run.RunID, man.RootEntry != nil)
 		savedID, saveErr := snapshot.SaveSnapshot(wctx, w, man)
 		if saveErr != nil {
-			log.Printf("agent: kopia SaveSnapshot failed for run %d: %v", run.RunID, saveErr)
+			log.Printf("agent: kopia SaveSnapshot failed for run %s: %v", run.RunID, saveErr)
 			r.pushEvents(run.RunID, RunEvent{
 				Type:      "error",
 				Level:     "error",
@@ -546,7 +546,7 @@ func (r *Runner) kopiaSnapshotWithEntry(ctx context.Context, run *NextRunRespons
 			return fmt.Errorf("kopia: save snapshot: %w", saveErr)
 		}
 		manifestID = string(savedID)
-		log.Printf("agent: kopia snapshot saved for run %d: manifestID=%s", run.RunID, manifestID)
+		log.Printf("agent: kopia snapshot saved for run %s: manifestID=%s", run.RunID, manifestID)
 
 		// Always list snapshots after upload for diagnostics; if manifest is empty but snapshots exist, pick the newest.
 		if snaps, serr := snapshot.ListSnapshots(wctx, rep, srcInfo); serr == nil {
@@ -557,14 +557,14 @@ func (r *Runner) kopiaSnapshotWithEntry(ctx context.Context, run *NextRunRespons
 				}
 				snapSample = append(snapSample, fmt.Sprintf("%s (%s)", s.ID, s.Source.Path))
 			}
-			log.Printf("agent: snapshot listing after upload run %d (source-filtered): count=%d sample=%v", run.RunID, snapCount, snapSample)
+			log.Printf("agent: snapshot listing after upload run %s (source-filtered): count=%d sample=%v", run.RunID, snapCount, snapSample)
 			if manifestID == "" && len(snaps) > 0 {
 				manifestID = string(snaps[len(snaps)-1].ID)
 				manifestMissing = false
-				log.Printf("agent: recovered manifest from filtered listing for run %d: %s", run.RunID, manifestID)
+				log.Printf("agent: recovered manifest from filtered listing for run %s: %s", run.RunID, manifestID)
 			}
 		} else {
-			log.Printf("agent: snapshot listing failed after upload run %d: %v", run.RunID, serr)
+			log.Printf("agent: snapshot listing failed after upload run %s: %v", run.RunID, serr)
 		}
 
 		// Also list all snapshots (no filter) to detect path mismatches.
@@ -576,20 +576,20 @@ func (r *Runner) kopiaSnapshotWithEntry(ctx context.Context, run *NextRunRespons
 				}
 				allSnapSample = append(allSnapSample, fmt.Sprintf("%s (%s)", s.ID, s.Source.Path))
 			}
-			log.Printf("agent: snapshot listing after upload run %d (all sources): count=%d sample=%v", run.RunID, allSnapCount, allSnapSample)
+			log.Printf("agent: snapshot listing after upload run %s (all sources): count=%d sample=%v", run.RunID, allSnapCount, allSnapSample)
 			if manifestID == "" && len(allSnaps) > 0 {
 				manifestID = string(allSnaps[len(allSnaps)-1].ID)
 				manifestMissing = false
-				log.Printf("agent: recovered manifest from all-sources listing for run %d: %s", run.RunID, manifestID)
+				log.Printf("agent: recovered manifest from all-sources listing for run %s: %s", run.RunID, manifestID)
 			}
 		} else {
-			log.Printf("agent: snapshot listing (all sources) failed after upload run %d: %v", run.RunID, serr2)
+			log.Printf("agent: snapshot listing (all sources) failed after upload run %s: %v", run.RunID, serr2)
 		}
 
 		if manifestID == "" {
 			// Mark missing and let outer logic attempt fallback before failing
 			manifestMissing = true
-			log.Printf("agent: kopia upload returned empty manifest for run %d", run.RunID)
+			log.Printf("agent: kopia upload returned empty manifest for run %s", run.RunID)
 			r.pushEvents(run.RunID, RunEvent{
 				Type:      "error",
 				Level:     "error",
@@ -610,7 +610,7 @@ func (r *Runner) kopiaSnapshotWithEntry(ctx context.Context, run *NextRunRespons
 			return nil
 		}
 
-		log.Printf("agent: kopia manifest id for run %d: %s", run.RunID, manifestID)
+		log.Printf("agent: kopia manifest id for run %s: %s", run.RunID, manifestID)
 		filesDone, filesTotal, foldersDone := progressCounter.GetCounts()
 		if err := r.client.UpdateRun(RunUpdate{
 			RunID:      run.RunID,
@@ -622,7 +622,7 @@ func (r *Runner) kopiaSnapshotWithEntry(ctx context.Context, run *NextRunRespons
 				"folders_done": foldersDone,
 			},
 		}); err != nil {
-			log.Printf("agent: UpdateRun manifest failed run %d: %v", run.RunID, err)
+			log.Printf("agent: UpdateRun manifest failed run %s: %v", run.RunID, err)
 			r.pushEvents(run.RunID, RunEvent{
 				Type:      "error",
 				Level:     "error",
@@ -659,7 +659,7 @@ func (r *Runner) kopiaSnapshotWithEntry(ctx context.Context, run *NextRunRespons
 
 	// Send final stats after upload completes (includes any bytes written during flush)
 	finalBytesProcessed, finalBytesUploaded := progressCounter.GetFinalStats()
-	log.Printf("agent: kopia upload complete run %d: bytes_processed=%d bytes_uploaded=%d", run.RunID, finalBytesProcessed, finalBytesUploaded)
+	log.Printf("agent: kopia upload complete run %s: bytes_processed=%d bytes_uploaded=%d", run.RunID, finalBytesProcessed, finalBytesUploaded)
 	_ = r.client.UpdateRun(RunUpdate{
 		RunID:            run.RunID,
 		BytesTransferred: Int64Ptr(finalBytesUploaded),
@@ -695,7 +695,7 @@ func (r *Runner) kopiaSnapshotWithEntry(ctx context.Context, run *NextRunRespons
 			return fmt.Errorf("kopia: upload completed but manifest missing; no snapshots found for source (possible empty/filtered source)")
 		}
 		manifestID = fallbackID
-		log.Printf("agent: kopia manifest recovered from latest snapshot for run %d: %s", run.RunID, manifestID)
+		log.Printf("agent: kopia manifest recovered from latest snapshot for run %s: %s", run.RunID, manifestID)
 		filesDone, filesTotal, foldersDone := progressCounter.GetCounts()
 		if err := r.client.UpdateRun(RunUpdate{
 			RunID:      run.RunID,
@@ -707,7 +707,7 @@ func (r *Runner) kopiaSnapshotWithEntry(ctx context.Context, run *NextRunRespons
 				"folders_done": foldersDone,
 			},
 		}); err != nil {
-			log.Printf("agent: UpdateRun fallback manifest failed run %d: %v", run.RunID, err)
+			log.Printf("agent: UpdateRun fallback manifest failed run %s: %v", run.RunID, err)
 			return fmt.Errorf("kopia: fallback manifest update failed: %w", err)
 		}
 		r.pushEvents(run.RunID, RunEvent{
@@ -749,13 +749,13 @@ func (r *Runner) kopiaSnapshotDiskImage(ctx context.Context, run *NextRunRespons
 // Returns the manifest ID of the saved snapshot.
 func (r *Runner) kopiaSnapshotDiskImageWithProgress(ctx context.Context, run *NextRunResponse, entryOverride kopiafs.Entry, declaredSize int64, stableSourcePath string, progressCb func(bytesProcessed int64, bytesUploaded int64), skipRunUpdate bool) (string, error) {
 	opts := kopiaOptionsFromRun(r.cfg, run)
-	repoPath := filepath.Join(r.cfg.RunDir, "kopia", fmt.Sprintf("job_%d.config", run.JobID))
+	repoPath := kopiaRepoConfigPath(r.cfg, run)
 	if err := os.MkdirAll(filepath.Dir(repoPath), 0o755); err != nil {
 		return "", fmt.Errorf("kopia: mkdir repo dir: %w", err)
 	}
 
 	log.Printf(
-		"agent: run %d (kopia disk image) storage init dest_type=%s bucket=%s prefix=%q source=%s (stable=%s)",
+		"agent: run %s (kopia disk image) storage init dest_type=%s bucket=%s prefix=%q source=%s (stable=%s)",
 		run.RunID, opts.destType, opts.bucket, opts.prefix, entryOverride.Name(), stableSourcePath,
 	)
 	r.pushEvents(run.RunID, RunEvent{
@@ -802,7 +802,7 @@ func (r *Runner) kopiaSnapshotDiskImageWithProgress(ctx context.Context, run *Ne
 	password := opts.password()
 
 	initAndConnect := func() error {
-		log.Printf("agent: kopia repo initialize+connect for run %d", run.RunID)
+		log.Printf("agent: kopia repo initialize+connect for run %s", run.RunID)
 		initOpts := &repo.NewRepositoryOptions{
 			BlockFormat: content.FormattingOptions{
 				MutableParameters: content.MutableParameters{
@@ -869,7 +869,7 @@ func (r *Runner) kopiaSnapshotDiskImageWithProgress(ctx context.Context, run *Ne
 	}
 
 	if declaredSize > 0 {
-		log.Printf("agent: kopia disk image size estimate run %d bytes=%d", run.RunID, declaredSize)
+		log.Printf("agent: kopia disk image size estimate run %s bytes=%d", run.RunID, declaredSize)
 		_ = r.client.UpdateRun(RunUpdate{
 			RunID:        run.RunID,
 			BytesTotal:   Int64Ptr(declaredSize),
@@ -888,7 +888,7 @@ func (r *Runner) kopiaSnapshotDiskImageWithProgress(ctx context.Context, run *Ne
 		ep.CompressionPolicy.CompressorName = compression.Name(compressor)
 	}
 
-	log.Printf("agent: kopia disk image policy overrides run=%d compressor=%q parallel_uploads=%d",
+	log.Printf("agent: kopia disk image policy overrides run=%s compressor=%q parallel_uploads=%d",
 		run.RunID, ep.CompressionPolicy.CompressorName, parallelUploads)
 
 	progressCounter := newKopiaProgressCounterWithCallback(r, run.RunID, progressCb, skipRunUpdate)
@@ -915,7 +915,7 @@ func (r *Runner) kopiaSnapshotDiskImageWithProgress(ctx context.Context, run *Ne
 				}
 				debugLog(run.RunID, "kopia_upload_heartbeat", snapshot, "H1")
 				log.Printf(
-					"agent: kopia heartbeat run=%d stage=%s bytes_hashed=%d bytes_uploaded=%d bytes_total=%d since_hash=%ds since_upload=%ds",
+					"agent: kopia heartbeat run=%s stage=%s bytes_hashed=%d bytes_uploaded=%d bytes_total=%d since_hash=%ds since_upload=%ds",
 					run.RunID,
 					snapshot["stage"],
 					snapshot["bytes_hashed"],
@@ -931,9 +931,9 @@ func (r *Runner) kopiaSnapshotDiskImageWithProgress(ctx context.Context, run *Ne
 					if atomic.CompareAndSwapInt32(&stallDumped, 0, 1) {
 						buf := make([]byte, 1<<20)
 						n := runtime.Stack(buf, true)
-						runDir := filepath.Join(r.cfg.RunDir, fmt.Sprintf("run_%d", run.RunID))
+						runDir := filepath.Join(r.cfg.RunDir, "run_"+run.RunID)
 						if err := os.MkdirAll(runDir, 0o755); err != nil {
-							log.Printf("agent: kopia stall dump mkdir failed run=%d err=%v", run.RunID, err)
+							log.Printf("agent: kopia stall dump mkdir failed run=%s err=%v", run.RunID, err)
 						}
 						dumpPath := filepath.Join(runDir, fmt.Sprintf("kopia_stall_dump_%s.txt", time.Now().UTC().Format("20060102_150405")))
 						snapshotJSON, snapErr := json.MarshalIndent(snapshot, "", "  ")
@@ -946,9 +946,9 @@ func (r *Runner) kopiaSnapshotDiskImageWithProgress(ctx context.Context, run *Ne
 						dumpBody.WriteString("\n\nstack dump:\n")
 						dumpBody.WriteString(string(buf[:n]))
 						if writeErr := os.WriteFile(dumpPath, []byte(dumpBody.String()), 0o600); writeErr != nil {
-							log.Printf("agent: kopia stall dump write failed run=%d err=%v", run.RunID, writeErr)
+							log.Printf("agent: kopia stall dump write failed run=%s err=%v", run.RunID, writeErr)
 						} else {
-							log.Printf("agent: kopia stall dump written run=%d path=%s", run.RunID, dumpPath)
+							log.Printf("agent: kopia stall dump written run=%s path=%s", run.RunID, dumpPath)
 						}
 						debugLog(run.RunID, "kopia_upload_stall_dump", map[string]any{
 							"snapshot": snapshot,
@@ -956,7 +956,7 @@ func (r *Runner) kopiaSnapshotDiskImageWithProgress(ctx context.Context, run *Ne
 							"path":     dumpPath,
 						}, "H1")
 						log.Printf(
-							"agent: kopia upload stalled run=%d stage=%s since_hash=%ds since_upload=%ds (stack dump written)",
+							"agent: kopia upload stalled run=%s stage=%s since_hash=%ds since_upload=%ds (stack dump written)",
 							run.RunID,
 							stage,
 							secondsSinceHash,
@@ -1029,7 +1029,7 @@ func (r *Runner) kopiaSnapshotDiskImageWithProgress(ctx context.Context, run *Ne
 		if err != nil {
 			// Check if this is a cancellation error - don't report as failure
 			if isCancellationError(err) {
-				log.Printf("agent: upload cancelled for run %d", run.RunID)
+				log.Printf("agent: upload cancelled for run %s", run.RunID)
 				r.pushEvents(run.RunID, RunEvent{
 					Type:      "cancelled",
 					Level:     "info",
@@ -1077,7 +1077,7 @@ func (r *Runner) kopiaSnapshotDiskImageWithProgress(ctx context.Context, run *Ne
 			return fmt.Errorf("kopia: save snapshot: %w", saveErr)
 		}
 		manifestID = string(savedID)
-		log.Printf("agent: kopia disk image snapshot saved for run %d: manifestID=%s", run.RunID, manifestID)
+		log.Printf("agent: kopia disk image snapshot saved for run %s: manifestID=%s", run.RunID, manifestID)
 
 		if err := r.client.UpdateRun(RunUpdate{
 			RunID:      run.RunID,
@@ -1087,7 +1087,7 @@ func (r *Runner) kopiaSnapshotDiskImageWithProgress(ctx context.Context, run *Ne
 				"stable_source": stableSourcePath,
 			},
 		}); err != nil {
-			log.Printf("agent: UpdateRun manifest failed run %d: %v", run.RunID, err)
+			log.Printf("agent: UpdateRun manifest failed run %s: %v", run.RunID, err)
 		}
 
 		r.pushEvents(run.RunID, RunEvent{
@@ -1136,7 +1136,7 @@ func (r *Runner) kopiaSnapshotDiskImageWithProgress(ctx context.Context, run *Ne
 
 	// Send final stats after upload completes (includes any bytes written during flush)
 	finalBytesProcessed, finalBytesUploaded := progressCounter.GetFinalStats()
-	log.Printf("agent: kopia disk image upload complete run %d: bytes_processed=%d bytes_uploaded=%d", run.RunID, finalBytesProcessed, finalBytesUploaded)
+	log.Printf("agent: kopia disk image upload complete run %s: bytes_processed=%d bytes_uploaded=%d", run.RunID, finalBytesProcessed, finalBytesUploaded)
 	_ = r.client.UpdateRun(RunUpdate{
 		RunID:            run.RunID,
 		BytesTransferred: Int64Ptr(finalBytesUploaded),
@@ -1153,7 +1153,7 @@ func (r *Runner) kopiaSnapshotDiskImageWithProgress(ctx context.Context, run *Ne
 // kopiaProgressCounter implements snapshotfs.UploadProgress and reports upload metrics to the server.
 type kopiaProgressCounter struct {
 	runner *Runner
-	runID  int64
+	runID  string
 
 	startTime       time.Time
 	lastReportAt    time.Time
@@ -1176,11 +1176,11 @@ type kopiaProgressCounter struct {
 	skipRunUpdate      bool
 }
 
-func newKopiaProgressCounter(r *Runner, runID int64) *kopiaProgressCounter {
+func newKopiaProgressCounter(r *Runner, runID string) *kopiaProgressCounter {
 	return newKopiaProgressCounterWithCallback(r, runID, nil, false)
 }
 
-func newKopiaProgressCounterWithCallback(r *Runner, runID int64, progressCb func(bytesProcessed int64, bytesUploaded int64), skipRunUpdate bool) *kopiaProgressCounter {
+func newKopiaProgressCounterWithCallback(r *Runner, runID string, progressCb func(bytesProcessed int64, bytesUploaded int64), skipRunUpdate bool) *kopiaProgressCounter {
 	now := time.Now()
 	return &kopiaProgressCounter{
 		runner:             r,
@@ -1458,7 +1458,7 @@ func (p *kopiaProgressCounter) reportProgressLocked(force bool) {
 // This restores the specified manifest to targetPath.
 func (r *Runner) kopiaRestore(ctx context.Context, run *NextRunResponse, manifestID, targetPath string) error {
 	opts := kopiaOptionsFromRun(r.cfg, run)
-	repoPath := filepath.Join(r.cfg.RunDir, "kopia", fmt.Sprintf("job_%d.config", run.JobID))
+	repoPath := kopiaRepoConfigPath(r.cfg, run)
 	password := opts.password()
 
 	rep, err := repo.Open(ctx, repoPath, password, nil)
@@ -1490,12 +1490,12 @@ func (r *Runner) kopiaRestore(ctx context.Context, run *NextRunResponse, manifes
 }
 
 // kopiaRestoreWithProgress provides a restore with progress tracking.
-func (r *Runner) kopiaRestoreWithProgress(ctx context.Context, run *NextRunResponse, manifestID, targetPath string, runID int64) error {
+func (r *Runner) kopiaRestoreWithProgress(ctx context.Context, run *NextRunResponse, manifestID, targetPath string, runID string) error {
 	opts := kopiaOptionsFromRun(r.cfg, run)
-	repoPath := filepath.Join(r.cfg.RunDir, "kopia", fmt.Sprintf("job_%d.config", run.JobID))
+	repoPath := kopiaRepoConfigPath(r.cfg, run)
 	password := opts.password()
 
-	log.Printf("agent: kopia restore opening repo at %s for job %d", repoPath, run.JobID)
+	log.Printf("agent: kopia restore opening repo at %s for job %s", repoPath, run.JobID)
 
 	// Check if repo config exists
 	if _, statErr := os.Stat(repoPath); os.IsNotExist(statErr) {
@@ -1661,9 +1661,9 @@ func (r *Runner) kopiaRestoreWithProgress(ctx context.Context, run *NextRunRespo
 }
 
 // kopiaRestoreSelectedPaths restores a subset of snapshot paths to the target path.
-func (r *Runner) kopiaRestoreSelectedPaths(ctx context.Context, run *NextRunResponse, manifestID, targetPath string, selectedPaths []string, runID int64) error {
+func (r *Runner) kopiaRestoreSelectedPaths(ctx context.Context, run *NextRunResponse, manifestID, targetPath string, selectedPaths []string, runID string) error {
 	opts := kopiaOptionsFromRun(r.cfg, run)
-	repoPath := filepath.Join(r.cfg.RunDir, "kopia", fmt.Sprintf("job_%d.config", run.JobID))
+	repoPath := kopiaRepoConfigPath(r.cfg, run)
 	password := opts.password()
 
 	if _, statErr := os.Stat(repoPath); os.IsNotExist(statErr) {
@@ -1763,7 +1763,7 @@ func (r *Runner) kopiaRestoreSelectedPaths(ctx context.Context, run *NextRunResp
 // restoreProgressCounter tracks restore progress and reports to server.
 type restoreProgressCounter struct {
 	runner       *Runner
-	runID        int64
+	runID        string
 	lastReportAt int64
 }
 
@@ -2276,11 +2276,14 @@ func kopiaRepoConfigPath(cfg *AgentConfig, run *NextRunResponse) string {
 	if run != nil && run.RepoConfigKey != "" {
 		return filepath.Join(cfg.RunDir, "kopia", run.RepoConfigKey+".config")
 	}
-	jobID := int64(0)
+	jobID := ""
 	if run != nil {
 		jobID = run.JobID
 	}
-	return filepath.Join(cfg.RunDir, "kopia", fmt.Sprintf("job_%d.config", jobID))
+	if jobID == "" {
+		jobID = "unknown"
+	}
+	return filepath.Join(cfg.RunDir, "kopia", "job_"+jobID+".config")
 }
 
 // kopiaMaintenance runs maintenance in the requested mode (quick/full).
@@ -2326,12 +2329,12 @@ func (r *Runner) kopiaMaintenance(ctx context.Context, run *NextRunResponse, mod
 // kopiaRestoreVHDX restores a single VHDX disk from its manifest to a local file.
 // Unlike kopiaRestoreWithProgress which restores directory trees, this handles
 // single-file stream entries (VHDXs) that were backed up during Hyper-V backup.
-func (r *Runner) kopiaRestoreVHDX(ctx context.Context, run *NextRunResponse, manifestID string, targetFilePath string, diskName string, runID int64) error {
+func (r *Runner) kopiaRestoreVHDX(ctx context.Context, run *NextRunResponse, manifestID string, targetFilePath string, diskName string, runID string) error {
 	opts := kopiaOptionsFromRun(r.cfg, run)
-	repoPath := filepath.Join(r.cfg.RunDir, "kopia", fmt.Sprintf("job_%d.config", run.JobID))
+	repoPath := kopiaRepoConfigPath(r.cfg, run)
 	password := opts.password()
 
-	log.Printf("agent: kopia VHDX restore opening repo at %s for job %d, manifest %s", repoPath, run.JobID, manifestID)
+	log.Printf("agent: kopia VHDX restore opening repo at %s for job %s, manifest %s", repoPath, run.JobID, manifestID)
 
 	// Check if repo config exists
 	if _, statErr := os.Stat(repoPath); os.IsNotExist(statErr) {

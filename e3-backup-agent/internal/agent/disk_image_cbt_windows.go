@@ -261,7 +261,7 @@ func normalizeVolumeLetter(raw string) string {
 	return ""
 }
 
-func buildCBTBaseline(volumeLetter, runDir string, jobID int64) *CBTState {
+func buildCBTBaseline(volumeLetter, runDir string, jobID string) *CBTState {
 	volHandle, err := openVolumeHandle(volumeLetter)
 	if err != nil {
 		return nil

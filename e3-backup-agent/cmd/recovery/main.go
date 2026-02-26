@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -26,21 +27,21 @@ type recoveryState struct {
 	jobStatus    string
 	jobMessage   string
 	jobProgress  int
-	restoreRunID int64
+	restoreRunID string
 	debugEnabled bool
 	buildInfo    string
 }
 
 type exchangeRestorePoint struct {
-	ID                 int64  `json:"id"`
-	JobID              int64  `json:"job_id"`
-	Engine             string `json:"engine"`
-	ManifestID         string `json:"manifest_id"`
-	DiskLayoutJSON     string `json:"disk_layout_json"`
-	DiskTotalBytes     int64  `json:"disk_total_bytes"`
-	DiskUsedBytes      int64  `json:"disk_used_bytes"`
-	DiskBootMode       string `json:"disk_boot_mode"`
-	DiskPartitionStyle string `json:"disk_partition_style"`
+	ID                 int64          `json:"id"`
+	JobID              string         `json:"job_id"`
+	Engine             string         `json:"engine"`
+	ManifestID         string         `json:"manifest_id"`
+	DiskLayoutJSON     string         `json:"disk_layout_json"`
+	DiskTotalBytes     int64          `json:"disk_total_bytes"`
+	DiskUsedBytes      int64          `json:"disk_used_bytes"`
+	DiskBootMode       string         `json:"disk_boot_mode"`
+	DiskPartitionStyle string         `json:"disk_partition_style"`
 	PolicyJSON         map[string]any `json:"policy_json"`
 }
 
@@ -215,11 +216,15 @@ func (s *recoveryState) handleStartRestore(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	runID := startResp.RestoreRunUUID
+	if runID == "" && startResp.RestoreRunID != 0 {
+		runID = fmt.Sprintf("%d", startResp.RestoreRunID)
+	}
 	s.mu.Lock()
-	s.restoreRunID = startResp.RestoreRunID
+	s.restoreRunID = runID
 	s.mu.Unlock()
 
-	go s.runRestore(sessionToken, startResp.RestoreRunID, payload.TargetDisk, targetDiskBytes, restorePoint, storage, payload.ShrinkEnabled)
+	go s.runRestore(sessionToken, runID, payload.TargetDisk, targetDiskBytes, restorePoint, storage, payload.ShrinkEnabled)
 	writeJSON(w, map[string]any{"status": "success"})
 }
 
@@ -230,7 +235,7 @@ func (s *recoveryState) handleRunStatus(w http.ResponseWriter, r *http.Request) 
 	apiBase := s.apiBaseURL
 	s.mu.Unlock()
 
-	if sessionToken == "" || runID == 0 {
+	if sessionToken == "" || runID == "" {
 		writeJSON(w, map[string]any{"status": "fail", "message": "restore not started"})
 		return
 	}
@@ -263,7 +268,7 @@ func (s *recoveryState) handleRunEvents(w http.ResponseWriter, r *http.Request) 
 	apiBase := s.apiBaseURL
 	s.mu.Unlock()
 
-	if sessionToken == "" || runID == 0 {
+	if sessionToken == "" || runID == "" {
 		writeJSON(w, map[string]any{"status": "fail", "message": "restore not started"})
 		return
 	}
@@ -304,7 +309,7 @@ func (s *recoveryState) handleCancel(w http.ResponseWriter, r *http.Request) {
 	apiBase := s.apiBaseURL
 	s.mu.Unlock()
 
-	if sessionToken == "" || runID == 0 {
+	if sessionToken == "" || runID == "" {
 		writeJSON(w, map[string]any{"status": "fail", "message": "restore not started"})
 		return
 	}
@@ -350,7 +355,7 @@ func (s *recoveryState) handleRefreshSession(w http.ResponseWriter, r *http.Requ
 	apiBase := s.apiBaseURL
 	s.mu.Unlock()
 
-	if sessionToken == "" || runID == 0 {
+	if sessionToken == "" || runID == "" {
 		writeJSON(w, map[string]any{"status": "fail", "message": "restore not started"})
 		return
 	}
@@ -427,7 +432,7 @@ func (s *recoveryState) handleDebugLogs(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if sessionToken == "" || runID == 0 {
+	if sessionToken == "" || runID == "" {
 		writeJSON(w, map[string]any{"status": "fail", "message": "restore not started"})
 		return
 	}
@@ -459,7 +464,7 @@ func (s *recoveryState) handleDebugLogs(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, out)
 }
 
-func (s *recoveryState) runRestore(sessionToken string, runID int64, targetDisk string, targetDiskBytes int64, rp exchangeRestorePoint, storage exchangeStorage, shrink bool) {
+func (s *recoveryState) runRestore(sessionToken string, runID string, targetDisk string, targetDiskBytes int64, rp exchangeRestorePoint, storage exchangeStorage, shrink bool) {
 	s.setJobStatus("running", "Restore in progress", 0)
 
 	cfg := &agent.AgentConfig{
@@ -489,7 +494,7 @@ func (s *recoveryState) runRestore(sessionToken string, runID int64, targetDisk 
 
 	payload := map[string]any{
 		"manifest_id":          rp.ManifestID,
-		"restore_run_id":       runID,
+		"restore_run_uuid":     runID,
 		"target_disk":          targetDisk,
 		"target_disk_bytes":    targetDiskBytes,
 		"disk_layout_json":     rp.DiskLayoutJSON,

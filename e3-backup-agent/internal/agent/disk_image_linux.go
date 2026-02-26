@@ -142,7 +142,7 @@ func (r *Runner) createDiskImage(ctx context.Context, run *NextRunResponse, opts
 	if err := os.MkdirAll(opts.TempDir, 0o755); err != nil {
 		return nil, fmt.Errorf("disk image: mkdir temp dir: %w", err)
 	}
-	imageName := fmt.Sprintf("job_%d_%d.%s", run.JobID, time.Now().Unix(), opts.ImageFormat)
+	imageName := fmt.Sprintf("job_%s_%d.%s", run.JobID, time.Now().Unix(), opts.ImageFormat)
 	imagePath := filepath.Join(opts.TempDir, imageName)
 
 	bytesWritten, bytesSkipped, err := writeSparseImageLinux(src, imagePath, opts.BlockSize, opts.ImageFormat)
