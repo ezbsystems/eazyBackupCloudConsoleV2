@@ -59,9 +59,21 @@ $schema = Capsule::schema();
 $hasProgressPct = $schema->hasColumn('s3_cloudbackup_runs', 'progress_pct');
 $hasRunType = $schema->hasColumn('s3_cloudbackup_runs', 'run_type');
 $hasJobTenant = $schema->hasColumn('s3_cloudbackup_jobs', 'tenant_id');
+$hasRunIdCol = $schema->hasColumn('s3_cloudbackup_runs', 'run_id');
+$hasJobIdPk = $schema->hasColumn('s3_cloudbackup_jobs', 'job_id');
 
-$liveSelect = [
-    'r.id',
+$liveSelect = $hasRunIdCol && $hasJobIdPk ? [
+    Capsule::raw('BIN_TO_UUID(r.run_id) as run_id'),
+    'r.status',
+    'r.started_at',
+    'r.bytes_processed',
+    'r.bytes_transferred',
+    Capsule::raw('BIN_TO_UUID(j.job_id) as job_id'),
+    'j.name as job_name',
+    'j.engine',
+    'a.hostname as agent_hostname',
+] : [
+    'r.id as run_id',
     'r.run_uuid',
     'r.status',
     'r.started_at',
@@ -84,19 +96,21 @@ $liveSelect[] = $hasProgressPct ? 'r.progress_pct' : Capsule::raw('NULL as progr
 // For dashboard we don't need run_type; always use NULL to avoid missing-column issues
 $liveSelect[] = Capsule::raw('NULL as run_type');
 
+$jobRunJoin = $hasJobIdPk ? ['r.job_id', '=', 'j.job_id'] : ['r.job_id', '=', 'j.id'];
 $liveRunsQuery = Capsule::table('s3_cloudbackup_runs as r')
-    ->join('s3_cloudbackup_jobs as j', 'r.job_id', '=', 'j.id')
+    ->join('s3_cloudbackup_jobs as j', $jobRunJoin[0], $jobRunJoin[1], $jobRunJoin[2])
     ->leftJoin('s3_cloudbackup_agents as a', 'j.agent_uuid', '=', 'a.agent_uuid');
 
 if ($hasJobTenant) {
     $liveRunsQuery->leftJoin('s3_backup_tenants as t', 'j.tenant_id', '=', 't.id');
 }
 
+$orderCol = $hasRunIdCol ? 'r.started_at' : 'r.id';
 $liveRuns = $liveRunsQuery
     ->where('j.client_id', $loggedInUserId)
     ->whereIn('r.status', ['running', 'starting', 'queued'])
     ->whereNull('r.finished_at')
-    ->orderByDesc('r.started_at')
+    ->orderByDesc($orderCol)
     ->limit(8)
     ->get($liveSelect);
 
