@@ -9,6 +9,7 @@ use WHMCS\ClientArea;
 use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 use Illuminate\Database\Capsule\Manager as Capsule;
 
 $packageId = ProductConfig::$E3_PRODUCT_ID;
@@ -56,23 +57,31 @@ $backupPointCount = 0;
 $fullBackupCount = 0;
 $latestBackup = null;
 
+$hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+$hasRunIdCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
+$vmJobJoin = $hasJobIdPk ? ['v.job_id', '=', 'j.job_id'] : ['v.job_id', '=', 'j.id'];
+
+$vmSelect = [
+    'v.id',
+    'v.vm_name',
+    'v.vm_guid',
+    'v.generation',
+    'v.is_linux',
+    'v.rct_enabled',
+    'v.backup_enabled',
+    'j.name as job_name',
+    'j.agent_id',
+];
+$vmSelect[] = $hasJobIdPk
+    ? Capsule::raw('BIN_TO_UUID(v.job_id) as job_id')
+    : 'v.job_id';
+
 try {
     $vm = Capsule::table('s3_hyperv_vms as v')
-        ->join('s3_cloudbackup_jobs as j', 'v.job_id', '=', 'j.id')
+        ->join('s3_cloudbackup_jobs as j', $vmJobJoin[0], $vmJobJoin[1], $vmJobJoin[2])
         ->where('v.id', $vmId)
         ->where('j.client_id', $loggedInUserId)
-        ->select(
-            'v.id',
-            'v.vm_name',
-            'v.vm_guid',
-            'v.generation',
-            'v.is_linux',
-            'v.rct_enabled',
-            'v.backup_enabled',
-            'v.job_id',
-            'j.name as job_name',
-            'j.agent_id'
-        )
+        ->select($vmSelect)
         ->first();
 
     if (!$vm) {
@@ -87,18 +96,21 @@ try {
         ];
     }
 
-    // MSP authorization check
-    $accessCheck = MspController::validateJobAccess((int)$vm->job_id, $loggedInUserId);
-    if (!$accessCheck['valid']) {
-        return [
-            'error' => $accessCheck['message'],
-            'vm' => null,
-            'disks' => [],
-            'backupPointCount' => 0,
-            'fullBackupCount' => 0,
-            'latestBackup' => null,
-            'vmId' => $vmId,
-        ];
+    // MSP authorization check (job_id is UUID string when hasJobIdPk)
+    $jobIdForAccess = (string) ($vm->job_id ?? '');
+    if ($hasJobIdPk && UuidBinary::isUuid($jobIdForAccess)) {
+        $accessCheck = MspController::validateJobAccess($jobIdForAccess, $loggedInUserId);
+        if (!$accessCheck['valid']) {
+            return [
+                'error' => $accessCheck['message'],
+                'vm' => null,
+                'disks' => [],
+                'backupPointCount' => 0,
+                'fullBackupCount' => 0,
+                'latestBackup' => null,
+                'vmId' => $vmId,
+            ];
+        }
     }
 
     // Get disk info
@@ -155,15 +167,18 @@ try {
         }
     }
 
+    $bpRunJoin = $hasRunIdCol ? ['bp.run_id', '=', 'r.run_id'] : ['bp.run_id', '=', 'r.id'];
+    $bpRunJoinArr = [$bpRunJoin[0], $bpRunJoin[1], $bpRunJoin[2]];
+
     // Get backup point count for summary
     $backupPointCount = Capsule::table('s3_hyperv_backup_points as bp')
-        ->join('s3_cloudbackup_runs as r', 'bp.run_id', '=', 'r.id')
+        ->join('s3_cloudbackup_runs as r', $bpRunJoinArr[0], $bpRunJoinArr[1], $bpRunJoinArr[2])
         ->where('bp.vm_id', $vmId)
         ->whereIn('r.status', ['success', 'warning'])
         ->count();
 
     $fullBackupCount = Capsule::table('s3_hyperv_backup_points as bp')
-        ->join('s3_cloudbackup_runs as r', 'bp.run_id', '=', 'r.id')
+        ->join('s3_cloudbackup_runs as r', $bpRunJoinArr[0], $bpRunJoinArr[1], $bpRunJoinArr[2])
         ->where('bp.vm_id', $vmId)
         ->where('bp.backup_type', 'Full')
         ->whereIn('r.status', ['success', 'warning'])
@@ -197,7 +212,7 @@ try {
     ];
 }
 
-// Return template variables
+// Return template variables (job_id as UUID string when UUID schema)
 return [
     'vm' => [
         'id' => (int) $vm->id,
@@ -207,7 +222,7 @@ return [
         'is_linux' => (bool) $vm->is_linux,
         'rct_enabled' => (bool) $vm->rct_enabled,
         'backup_enabled' => (bool) $vm->backup_enabled,
-        'job_id' => (int) $vm->job_id,
+        'job_id' => $hasJobIdPk ? (string) ($vm->job_id ?? '') : (int) $vm->job_id,
         'job_name' => $vm->job_name,
     ],
     'disks' => $disks,

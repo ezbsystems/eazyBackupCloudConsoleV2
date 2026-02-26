@@ -37,6 +37,9 @@ $forbiddenPatterns = [
     'intval($_GET[\'job_id\'])',
     'intval($_POST[\'job_id\'])',
     'intval($_REQUEST[\'job_id\'])',
+    'intval($_GET[\'job_id\'] ?? 0)',
+    'intval($_POST[\'job_id\'] ?? 0)',
+    'intval($_REQUEST[\'job_id\'] ?? 0)',
     '(int)$_GET[\'run_id\']',
     '(int)$_POST[\'run_id\']',
     '(int)$_REQUEST[\'run_id\']',
@@ -46,6 +49,9 @@ $forbiddenPatterns = [
     'intval($_GET[\'run_id\'])',
     'intval($_POST[\'run_id\'])',
     'intval($_REQUEST[\'run_id\'])',
+    'intval($_GET[\'run_id\'] ?? 0)',
+    'intval($_POST[\'run_id\'] ?? 0)',
+    'intval($_REQUEST[\'run_id\'] ?? 0)',
     'validateJobAccess((int)',
     'validateJobAccess((int)$',
 ];
@@ -183,6 +189,24 @@ foreach ($needsBackupRunUuidValidation as $file) {
     }
     if (strpos($src, 'UuidBinary::isUuid') === false) {
         throw new RuntimeException("$file missing UuidBinary validation for backup_run_id");
+    }
+}
+
+$needsJobIdUuidValidation = ['cloudbackup_list_snapshots.php'];
+foreach ($needsJobIdUuidValidation as $file) {
+    $path = $apiDir . '/' . $file;
+    if (!is_file($path)) {
+        continue;
+    }
+    $src = file_get_contents($path);
+    if ($src === false) {
+        throw new RuntimeException("failed to read $path");
+    }
+    if (strpos($src, 'invalid_identifier_format') === false) {
+        throw new RuntimeException("$file missing invalid_identifier_format for job_id UUID validation");
+    }
+    if (strpos($src, 'UuidBinary::isUuid') === false) {
+        throw new RuntimeException("$file missing UuidBinary validation for job_id");
     }
 }
 

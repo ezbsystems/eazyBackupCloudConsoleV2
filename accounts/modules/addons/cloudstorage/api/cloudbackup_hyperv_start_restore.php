@@ -17,6 +17,7 @@ ob_start();
 
 require_once __DIR__ . '/../../../../init.php';
 require_once __DIR__ . '/../lib/Client/MspController.php';
+require_once __DIR__ . '/../lib/Client/UuidBinary.php';
 
 if (!defined("WHMCS")) {
     ob_end_clean();
@@ -30,6 +31,7 @@ use WHMCS\ClientArea;
 use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 
 function respond(array $data, int $httpCode = 200): void
 {
@@ -73,23 +75,31 @@ if (!Capsule::schema()->hasTable('s3_hyperv_backup_points')) {
     respond(['status' => 'fail', 'message' => 'Hyper-V backup tables not initialized']);
 }
 
+$hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+$hasRunIdCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
+$vmJobJoin = $hasJobIdPk ? ['v.job_id', '=', 'j.job_id'] : ['v.job_id', '=', 'j.id'];
+$bpRunJoin = $hasRunIdCol ? ['bp.run_id', '=', 'r.run_id'] : ['bp.run_id', '=', 'r.id'];
+
+$bpSelect = [
+    'bp.*',
+    'v.vm_name',
+    'v.vm_guid',
+    'j.name as job_name',
+    'j.agent_id',
+    'j.engine',
+    'r.status as run_status',
+];
+$bpSelect[] = $hasJobIdPk ? Capsule::raw('BIN_TO_UUID(j.job_id) as job_id') : 'j.id as job_id';
+$bpSelect[] = $hasRunIdCol ? Capsule::raw('BIN_TO_UUID(bp.run_id) as run_id_uuid') : Capsule::raw('bp.run_id as run_id_uuid');
+
 // Get backup point and verify ownership through VM -> Job chain
 $backupPoint = Capsule::table('s3_hyperv_backup_points as bp')
     ->join('s3_hyperv_vms as v', 'bp.vm_id', '=', 'v.id')
-    ->join('s3_cloudbackup_jobs as j', 'v.job_id', '=', 'j.id')
-    ->join('s3_cloudbackup_runs as r', 'bp.run_id', '=', 'r.id')
+    ->join('s3_cloudbackup_jobs as j', $vmJobJoin[0], $vmJobJoin[1], $vmJobJoin[2])
+    ->join('s3_cloudbackup_runs as r', $bpRunJoin[0], $bpRunJoin[1], $bpRunJoin[2])
     ->where('bp.id', $backupPointId)
     ->where('j.client_id', $clientId)
-    ->select(
-        'bp.*',
-        'v.vm_name',
-        'v.vm_guid',
-        'j.id as job_id',
-        'j.name as job_name',
-        'j.agent_id',
-        'j.engine',
-        'r.status as run_status'
-    )
+    ->select($bpSelect)
     ->first();
 
 if (!$backupPoint) {
@@ -101,10 +111,13 @@ if (!in_array($backupPoint->run_status, ['success', 'warning'], true)) {
     respond(['status' => 'fail', 'message' => 'Cannot restore from this backup point (run status: ' . $backupPoint->run_status . ')']);
 }
 
-// MSP tenant authorization check
-$accessCheck = MspController::validateJobAccess((int)$backupPoint->job_id, $clientId);
-if (!$accessCheck['valid']) {
-    respond(['status' => 'fail', 'message' => $accessCheck['message']]);
+// MSP tenant authorization check (job_id is UUID string when hasJobIdPk)
+$jobIdForAccess = (string) ($backupPoint->job_id ?? '');
+if ($hasJobIdPk && UuidBinary::isUuid($jobIdForAccess)) {
+    $accessCheck = MspController::validateJobAccess($jobIdForAccess, $clientId);
+    if (!$accessCheck['valid']) {
+        respond(['status' => 'fail', 'message' => $accessCheck['message']]);
+    }
 }
 
 // Parse disk manifests
@@ -160,8 +173,14 @@ try {
     $restoreRunUuid = null;
     $commandId = null;
 
+    $hasCommandRunIdBinary = Capsule::schema()->hasTable('s3_cloudbackup_run_commands')
+        && stripos((string) (Capsule::selectOne("SHOW COLUMNS FROM s3_cloudbackup_run_commands WHERE Field = 'run_id'")->Type ?? ''), 'binary') !== false;
+    $hasEventsRunIdBinary = Capsule::schema()->hasTable('s3_cloudbackup_run_events')
+        && stripos((string) (Capsule::selectOne("SHOW COLUMNS FROM s3_cloudbackup_run_events WHERE Field = 'run_id'")->Type ?? ''), 'binary') !== false;
+
     Capsule::connection()->transaction(function () use (
         $backupPoint, $backupPointId, $targetPath, $disksToRestore, $restoreChain, $estimatedSize,
+        $hasJobIdPk, $hasRunIdCol, $hasCommandRunIdBinary, $hasEventsRunIdBinary,
         &$restoreRunId, &$restoreRunUuid, &$commandId
     ) {
         // Determine which columns exist for the runs table
@@ -169,16 +188,24 @@ try {
         $hasEngineColumn = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'engine');
         $hasRunTypeColumn = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_type');
         $hasRunUuidColumn = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_uuid');
-        
+
+        $restoreRunUuidGen = ($hasRunIdCol) ? CloudBackupController::generateUuid() : null;
+
         // Create a restore run for tracking progress
+        $jobIdForRun = $hasJobIdPk && UuidBinary::isUuid((string) ($backupPoint->job_id ?? ''))
+            ? Capsule::raw(UuidBinary::toDbExpr(UuidBinary::normalize((string) $backupPoint->job_id)))
+            : $backupPoint->job_id;
+
         $runData = [
-            'job_id' => $backupPoint->job_id,
+            'job_id' => $jobIdForRun,
             'status' => 'queued',
             'created_at' => Capsule::raw('NOW()'),
             'cancel_requested' => 0,
         ];
-        
-        // Add optional columns if they exist
+
+        if ($hasRunIdCol && $restoreRunUuidGen) {
+            $runData['run_id'] = Capsule::raw(UuidBinary::toDbExpr($restoreRunUuidGen));
+        }
         if ($hasAgentIdRuns && $backupPoint->agent_id) {
             $runData['agent_id'] = $backupPoint->agent_id;
         }
@@ -189,10 +216,9 @@ try {
             $runData['run_type'] = 'hyperv_restore';
         }
         if ($hasRunUuidColumn) {
-            $runData['run_uuid'] = CloudBackupController::generateUuid();
+            $runData['run_uuid'] = $restoreRunUuidGen ?? CloudBackupController::generateUuid();
         }
-        
-        // Store restore metadata in stats_json
+
         $restoreMetadata = [
             'type' => 'hyperv_restore',
             'backup_point_id' => $backupPointId,
@@ -204,23 +230,31 @@ try {
             'estimated_size_bytes' => $estimatedSize,
             'restore_chain_length' => count($restoreChain),
         ];
-        
         if (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'stats_json')) {
             $runData['stats_json'] = json_encode($restoreMetadata);
         }
         if (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'log_ref')) {
-            // Use log_ref to reference the main backup manifest being restored
             $runData['log_ref'] = $backupPoint->manifest_id;
         }
-        
-        // Insert the restore run
-        $restoreRunId = Capsule::table('s3_cloudbackup_runs')->insertGetId($runData);
-        $restoreRunUuid = $runData['run_uuid'] ?? null;
-        
-        // Queue the hyperv_restore command
-        // Note: run_id points to the original backup run for job context
+
+        // Insert the restore run (no insertGetId when UUID schema)
+        if ($hasRunIdCol && $restoreRunUuidGen) {
+            Capsule::table('s3_cloudbackup_runs')->insert($runData);
+            $restoreRunId = $restoreRunUuidGen;
+            $restoreRunUuid = $restoreRunUuidGen;
+        } else {
+            $restoreRunId = Capsule::table('s3_cloudbackup_runs')->insertGetId($runData);
+            $restoreRunUuid = $runData['run_uuid'] ?? null;
+        }
+
+        // Command run_id: backup run for job context. UUID schema: use run_id_uuid; legacy: run_id (int)
+        $backupRunIdUuid = (string) ($backupPoint->run_id_uuid ?? '');
+        $cmdRunIdValue = ($hasCommandRunIdBinary && UuidBinary::isUuid($backupRunIdUuid))
+            ? Capsule::raw(UuidBinary::toDbExpr(UuidBinary::normalize($backupRunIdUuid)))
+            : (isset($backupPoint->run_id) ? $backupPoint->run_id : null);
+
         $commandId = Capsule::table('s3_cloudbackup_run_commands')->insertGetId([
-            'run_id' => $backupPoint->run_id, // Points to backup run for job context
+            'run_id' => $cmdRunIdValue,
             'type' => 'hyperv_restore',
             'payload_json' => json_encode([
                 'backup_point_id' => $backupPointId,
@@ -236,11 +270,14 @@ try {
             'status' => 'pending',
             'created_at' => Capsule::raw('NOW()'),
         ]);
-        
-        // Insert a run event for the restore
+
+        $eventRunIdValue = ($hasEventsRunIdBinary && $restoreRunUuid && UuidBinary::isUuid($restoreRunUuid))
+            ? Capsule::raw(UuidBinary::toDbExpr(UuidBinary::normalize($restoreRunUuid)))
+            : $restoreRunId;
+
         if (Capsule::schema()->hasTable('s3_cloudbackup_run_events')) {
             Capsule::table('s3_cloudbackup_run_events')->insert([
-                'run_id' => $restoreRunId,
+                'run_id' => $eventRunIdValue,
                 'ts' => Capsule::raw('NOW()'),
                 'type' => 'info',
                 'level' => 'info',
@@ -262,7 +299,7 @@ try {
         'restore_run_id' => $restoreRunId,
         'restore_run_uuid' => $restoreRunUuid,
         'command_id' => $commandId,
-        'job_id' => (int) $backupPoint->job_id,
+        'job_id' => $hasJobIdPk ? (string) ($backupPoint->job_id ?? '') : (int) $backupPoint->job_id,
         'vm_name' => $backupPoint->vm_name,
         'disks_to_restore' => count($disksToRestore),
         'estimated_size_bytes' => $estimatedSize,
