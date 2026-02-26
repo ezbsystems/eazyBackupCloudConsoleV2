@@ -9,6 +9,7 @@ use WHMCS\Module\Addon\CloudStorage\Client\HelperController;
 use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionSourceService;
 use WHMCS\Module\Addon\CloudStorage\Client\RepositoryService;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupBootstrapService;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -143,12 +144,15 @@ try {
             'reclaim_enabled' => $timing['reclaim_enabled'],
         ];
 
-        // Attempt to reclaim an in-progress run for this agent
+        // Attempt to reclaim an in-progress run for this agent (UUID schema: job_id/run_id are BINARY(16) PKs)
         $run = null;
+        $hasRunIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
+        $hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
         $hasRunTypeColumnReclaim = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_type');
         if (!empty($timing['reclaim_enabled'])) {
+            $reclaimJoin = $hasJobIdPk ? ['j.job_id', '=', 'r.job_id'] : ['j.id', '=', 'r.job_id'];
             $reclaimQuery = Capsule::table('s3_cloudbackup_runs as r')
-                ->join('s3_cloudbackup_jobs as j', 'j.id', '=', 'r.job_id')
+                ->join('s3_cloudbackup_jobs as j', $reclaimJoin[0], $reclaimJoin[1], $reclaimJoin[2])
                 ->where('j.client_id', $agent->client_id)
                 ->where('j.source_type', 'local_agent')
                 ->where('j.status', 'active')
@@ -174,9 +178,15 @@ try {
                 ->whereRaw("TIMESTAMPDIFF(SECOND, $heartbeatExpr, NOW()) >= ?", [$timing['reclaim_grace_seconds']])
                 ->whereRaw("TIMESTAMPDIFF(SECOND, $heartbeatExpr, NOW()) < ?", [$timing['watchdog_timeout_seconds']]);
 
+            $reclaimSelect = ['r.*', Capsule::raw("$heartbeatExpr as last_heartbeat_at")];
+            if ($hasRunIdPk) {
+                $reclaimSelect[] = Capsule::raw('BIN_TO_UUID(r.run_id) as run_id_uuid');
+                $reclaimSelect[] = Capsule::raw('BIN_TO_UUID(r.job_id) as job_id_uuid');
+            }
+            $reclaimOrder = $hasRunIdPk ? 'r.created_at' : 'r.id';
             $reclaimRun = $reclaimQuery
-                ->select('r.*', Capsule::raw("$heartbeatExpr as last_heartbeat_at"))
-                ->orderBy('r.id', 'asc')
+                ->select($reclaimSelect)
+                ->orderBy($reclaimOrder, 'asc')
                 ->lockForUpdate()
                 ->first();
 
@@ -184,13 +194,14 @@ try {
                 $run = $reclaimRun;
                 $isReclaim = true;
                 $lastHeartbeatAt = $reclaimRun->last_heartbeat_at ?? null;
-                $debugInfo['reclaim_run_id'] = $reclaimRun->id ?? null;
+                $debugInfo['reclaim_run_id'] = $hasRunIdPk ? ($reclaimRun->run_id_uuid ?? null) : ($reclaimRun->id ?? null);
                 $debugInfo['reclaim_last_heartbeat_at'] = $lastHeartbeatAt;
             }
         }
 
+        $baseJoin = $hasJobIdPk ? ['j.job_id', '=', 'r.job_id'] : ['j.id', '=', 'r.job_id'];
         $base = Capsule::table('s3_cloudbackup_runs as r')
-            ->join('s3_cloudbackup_jobs as j', 'j.id', '=', 'r.job_id')
+            ->join('s3_cloudbackup_jobs as j', $baseJoin[0], $baseJoin[1], $baseJoin[2])
             ->where('j.client_id', $agent->client_id)
             ->where('j.source_type', 'local_agent')
             ->where('j.status', 'active')
@@ -209,9 +220,12 @@ try {
         $debugInfo['has_agent_uuid_runs'] = $hasAgentUuidRuns;
         $debugInfo['has_agent_uuid_jobs'] = $hasAgentUuidJobs;
         $debugInfo['base_count'] = (clone $base)->count();
+        $baseSampleSelect = $hasRunIdPk
+            ? [Capsule::raw('BIN_TO_UUID(r.run_id) as run_id'), 'r.agent_uuid as run_agent_uuid', 'j.agent_uuid as job_agent_uuid', 'r.status as run_status', 'j.status as job_status']
+            : ['r.id as run_id', 'r.agent_uuid as run_agent_uuid', 'j.agent_uuid as job_agent_uuid', 'r.status as run_status', 'j.status as job_status'];
         $debugInfo['base_sample'] = (clone $base)
-            ->select('r.id as run_id', 'r.agent_uuid as run_agent_uuid', 'j.agent_uuid as job_agent_uuid', 'r.status as run_status', 'j.status as job_status')
-            ->orderBy('r.id', 'asc')
+            ->select($baseSampleSelect)
+            ->orderBy($hasRunIdPk ? 'r.created_at' : 'r.id', 'asc')
             ->limit(5)
             ->get();
 
@@ -237,9 +251,14 @@ try {
             // Capture count for debugging
             $debugInfo['candidate_count'] = $debugInfo['filtered_count'];
 
-            $runQuery = (clone $query)->select('r.*');
+            $runSelect = ['r.*'];
+            if ($hasRunIdPk) {
+                $runSelect[] = Capsule::raw('BIN_TO_UUID(r.run_id) as run_id_uuid');
+                $runSelect[] = Capsule::raw('BIN_TO_UUID(r.job_id) as job_id_uuid');
+            }
+            $runQuery = (clone $query)->select($runSelect);
 
-            $run = $runQuery->orderBy('r.id', 'asc')
+            $run = $runQuery->orderBy($hasRunIdPk ? 'r.created_at' : 'r.id', 'asc')
                 ->lockForUpdate()
                 ->first();
 
@@ -248,7 +267,7 @@ try {
                 return;
             }
 
-            $debugInfo['selected_run_id'] = $run->id ?? null;
+            $debugInfo['selected_run_id'] = $hasRunIdPk ? ($run->run_id_uuid ?? null) : ($run->id ?? null);
 
             // Claim the run
             $claimData = [
@@ -260,8 +279,9 @@ try {
                 $claimData['agent_uuid'] = $agent->agent_uuid;
             }
 
+            $claimWhere = $hasRunIdPk ? [['run_id', $run->run_id]] : [['id', $run->id]];
             $updated = Capsule::table('s3_cloudbackup_runs')
-                ->where('id', $run->id)
+                ->where($claimWhere[0][0], $claimWhere[0][1])
                 ->where('status', 'queued')
                 ->update($claimData);
 
@@ -278,7 +298,9 @@ try {
         }
 
         // Fetch related data
-        $job = Capsule::table('s3_cloudbackup_jobs')->where('id', $run->job_id)->first();
+        $job = $hasJobIdPk
+            ? Capsule::table('s3_cloudbackup_jobs')->where('job_id', $run->job_id)->first()
+            : Capsule::table('s3_cloudbackup_jobs')->where('id', $run->job_id)->first();
         $bucket = $job ? Capsule::table('s3_buckets')->where('id', $job->dest_bucket_id)->first() : null;
         $keyUserId = $job->s3_user_id ?? 0;
         $keys = $job ? Capsule::table('s3_user_access_keys')
@@ -448,8 +470,8 @@ try {
         }
         $sourcePaths = array_values(array_filter(array_map('sanitizePathInput', $sourcePaths), fn($p) => $p !== ''));
         $runData = [
-            'run_id' => $run->id,
-            'job_id' => $run->job_id,
+            'run_id' => $hasRunIdPk ? ($run->run_id_uuid ?? '') : (string) ($run->id ?? ''),
+            'job_id' => $hasRunIdPk ? ($run->job_id_uuid ?? ($job->job_id ?? '')) : (string) ($run->job_id ?? ''),
             'engine' => $engineVal,
             'source_type' => $sourceTypeVal,
             'dest_type' => $job->dest_type ?? 's3',
@@ -489,7 +511,8 @@ try {
             $runData['disk_temp_dir'] = $job->disk_temp_dir ?? '';
         }
         if ($sourceTypeVal === 'local_agent' && $repositoryId !== '') {
-            $sourceInfo = KopiaRetentionSourceService::ensureRepoSourceForJob((int) $job->id);
+            $jobIdForSource = $hasJobIdPk ? ($run->job_id_uuid ?? '') : (int) ($job->id ?? 0);
+            $sourceInfo = KopiaRetentionSourceService::ensureRepoSourceForJob($jobIdForSource);
             if ($sourceInfo !== null && !empty($sourceInfo['source_uuid'])) {
                 $runData['source_uuid'] = $sourceInfo['source_uuid'];
             }
@@ -507,8 +530,9 @@ try {
             // Fetch VMs configured for this job with last checkpoint info
             $hypervVMs = [];
             try {
+                $jobIdForVm = $hasJobIdPk ? $job->job_id : $job->id;
                 $vms = Capsule::table('s3_hyperv_vms')
-                    ->where('job_id', $job->id)
+                    ->where('job_id', $jobIdForVm)
                     ->where('backup_enabled', true)
                     ->get();
                 
@@ -535,7 +559,7 @@ try {
                 }
             } catch (\Throwable $e) {
                 // Tables may not exist yet, log but continue
-                logModuleCall('cloudstorage', 'agent_next_run_hyperv', ['job_id' => $job->id], $e->getMessage());
+                logModuleCall('cloudstorage', 'agent_next_run_hyperv', ['job_id' => $hasJobIdPk ? ($run->job_id_uuid ?? '') : $job->id], $e->getMessage());
             }
             
             // Fallback: if no VMs found in s3_hyperv_vms, try source_paths_json or source_path
@@ -566,7 +590,7 @@ try {
                 }
                 if (!empty($hypervVMs)) {
                     logModuleCall('cloudstorage', 'agent_next_run_hyperv_fallback', [
-                        'job_id' => $job->id,
+                        'job_id' => $hasJobIdPk ? ($run->job_id_uuid ?? '') : $job->id,
                         'vm_count' => count($hypervVMs),
                     ], 'Used source_paths/source_path fallback for VM discovery');
                 }

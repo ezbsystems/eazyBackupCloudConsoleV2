@@ -13,6 +13,7 @@
 require_once __DIR__ . '/../../../../init.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\Module\Addon\CloudStorage\Client\HelperController;
 use WHMCS\Module\Addon\CloudStorage\Client\RepositoryService;
@@ -101,22 +102,32 @@ try {
     $commands = [];
     
     // First, check for NAS commands (these are tied directly to agent_uuid, not jobs)
+    $hasRunIdBinary = Capsule::schema()->hasColumn('s3_cloudbackup_run_commands', 'run_id')
+        && stripos((string) (Capsule::selectOne("SHOW COLUMNS FROM s3_cloudbackup_run_commands WHERE Field = 'run_id'")->Type ?? ''), 'binary') !== false;
+    $nasSelect = ['id as command_id', 'run_id', 'type', 'payload_json'];
+    if ($hasRunIdBinary) {
+        $nasSelect[] = Capsule::raw('BIN_TO_UUID(run_id) as run_id_uuid');
+    }
     $nasCommands = Capsule::table('s3_cloudbackup_run_commands')
         ->where('agent_uuid', $agent->agent_uuid)
         ->where('status', 'pending')
         ->whereIn('type', ['nas_mount', 'nas_unmount', 'nas_mount_snapshot', 'nas_unmount_snapshot'])
         ->orderBy('id', 'asc')
         ->limit(5)
-        ->get(['id as command_id', 'run_id', 'type', 'payload_json']);
+        ->get($nasSelect);
 
     // Next, check for filesystem browse and discovery commands (agent-scoped, no job context)
+    $browseSelect = ['id as command_id', 'run_id', 'type', 'payload_json'];
+    if ($hasRunIdBinary) {
+        $browseSelect[] = Capsule::raw('BIN_TO_UUID(run_id) as run_id_uuid');
+    }
     $browseCommands = Capsule::table('s3_cloudbackup_run_commands')
         ->where('agent_uuid', $agent->agent_uuid)
         ->where('status', 'pending')
         ->whereIn('type', ['browse_directory', 'list_hyperv_vms', 'list_hyperv_vm_details', 'list_disks', 'reset_agent', 'refresh_inventory', 'fetch_log_tail'])
         ->orderBy('id', 'asc')
         ->limit(5)
-        ->get(['id as command_id', 'run_id', 'type', 'payload_json']);
+        ->get($browseSelect);
     
     foreach ($nasCommands as $cmd) {
         $payload = [];
@@ -127,11 +138,12 @@ try {
             }
         }
         
+        $runIdOut = isset($cmd->run_id_uuid) ? ($cmd->run_id_uuid ?? '') : (string) ($cmd->run_id ?? '');
         $commands[] = [
             'command_id' => (int) $cmd->command_id,
             'type' => $cmd->type,
-            'run_id' => (int) ($cmd->run_id ?? 0),
-            'job_id' => 0,
+            'run_id' => $runIdOut,
+            'job_id' => '',
             'payload' => empty($payload) ? new \stdClass() : $payload, // Ensure {} not [] in JSON
             'job_context' => null,
         ];
@@ -152,11 +164,12 @@ try {
             }
         }
 
+        $runIdOut = isset($cmd->run_id_uuid) ? ($cmd->run_id_uuid ?? '') : (string) ($cmd->run_id ?? '');
         $commands[] = [
             'command_id' => (int) $cmd->command_id,
             'type' => $cmd->type,
-            'run_id' => (int) ($cmd->run_id ?? 0),
-            'job_id' => 0,
+            'run_id' => $runIdOut,
+            'job_id' => '',
             'payload' => empty($payload) ? new \stdClass() : $payload, // Ensure {} not [] in JSON
             'job_context' => null,
         ];
@@ -196,9 +209,17 @@ try {
             continue;
         }
 
+        $rpHasJobIdBinary = Capsule::schema()->hasColumn('s3_cloudbackup_restore_points', 'job_id')
+            && stripos((string) (Capsule::selectOne("SHOW COLUMNS FROM s3_cloudbackup_restore_points WHERE Field = 'job_id'")->Type ?? ''), 'binary') !== false;
+        $restorePointSelect = ['*'];
+        if ($rpHasJobIdBinary) {
+            $restorePointSelect[] = Capsule::raw('BIN_TO_UUID(job_id) as job_id_uuid');
+            $restorePointSelect[] = Capsule::raw('BIN_TO_UUID(run_id) as run_id_uuid');
+        }
         $restorePoint = Capsule::table('s3_cloudbackup_restore_points')
             ->where('id', $restorePointId)
             ->where('client_id', $agent->client_id)
+            ->select($restorePointSelect)
             ->first();
         if (!$restorePoint) {
             Capsule::table('s3_cloudbackup_run_commands')
@@ -277,11 +298,13 @@ try {
             }
         }
 
+        $hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
         $policyJSON = null;
-        if (!empty($restorePoint->job_id)) {
-            $policyRaw = Capsule::table('s3_cloudbackup_jobs')
-                ->where('id', $restorePoint->job_id)
-                ->value('policy_json');
+        if (!empty($restorePoint->job_id) || !empty($restorePoint->job_id_uuid ?? null)) {
+            $jobLookup = $hasJobIdPk && !empty($restorePoint->job_id_uuid)
+                ? Capsule::table('s3_cloudbackup_jobs')->whereRaw('job_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($restorePoint->job_id_uuid)))
+                : Capsule::table('s3_cloudbackup_jobs')->where('id', $restorePoint->job_id);
+            $policyRaw = $jobLookup->value('policy_json');
             if ($policyRaw !== null && $policyRaw !== '') {
                 $dec = json_decode($policyRaw, true);
                 if (json_last_error() === JSON_ERROR_NONE && is_array($dec)) {
@@ -291,16 +314,19 @@ try {
         }
 
         $repositoryId = trim((string) ($restorePoint->repository_id ?? ''));
-        if ($repositoryId === '' && !empty($restorePoint->job_id)) {
-            $repositoryId = trim((string) Capsule::table('s3_cloudbackup_jobs')
-                ->where('id', (int) $restorePoint->job_id)
-                ->value('repository_id'));
+        if ($repositoryId === '' && (!empty($restorePoint->job_id) || !empty($restorePoint->job_id_uuid ?? null))) {
+            $repoJobLookup = $hasJobIdPk && !empty($restorePoint->job_id_uuid)
+                ? Capsule::table('s3_cloudbackup_jobs')->whereRaw('job_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($restorePoint->job_id_uuid)))
+                : Capsule::table('s3_cloudbackup_jobs')->where('id', $restorePoint->job_id);
+            $repositoryId = trim((string) $repoJobLookup->value('repository_id'));
         }
         $repoCtx = buildRepositoryContext($repositoryId);
 
+        $restoreJobIdOut = isset($restorePoint->job_id_uuid) ? ($restorePoint->job_id_uuid ?? '') : (string) ($restorePoint->job_id ?? '');
+        $restoreRunIdOut = (string) ($payload['restore_run_id'] ?? '');
         $jobContext = [
-            'job_id' => (int) ($restorePoint->job_id ?? 0),
-            'run_id' => (int) ($payload['restore_run_id'] ?? 0),
+            'job_id' => $restoreJobIdOut,
+            'run_id' => $restoreRunIdOut,
             'engine' => $restorePoint->engine ?? 'kopia',
             'source_path' => $restorePoint->source_path ?? '',
             'dest_type' => $restorePoint->dest_type ?? 's3',
@@ -323,8 +349,8 @@ try {
         $commands[] = [
             'command_id' => (int) $cmd->command_id,
             'type' => $cmd->type,
-            'run_id' => (int) ($payload['restore_run_id'] ?? 0),
-            'job_id' => (int) ($restorePoint->job_id ?? 0),
+            'run_id' => $restoreRunIdOut,
+            'job_id' => $restoreJobIdOut,
             'payload' => empty($payload) ? new \stdClass() : $payload,
             'job_context' => $jobContext,
         ];
@@ -335,10 +361,10 @@ try {
     }
     
     // Then, find pending commands for jobs owned by this agent
-    // We join through: commands -> runs -> jobs to verify ownership
+    // We join through: commands -> runs -> jobs to verify ownership (UUID schema: run_id/job_id are BINARY(16))
     $cmdQuery = Capsule::table('s3_cloudbackup_run_commands as c')
-        ->join('s3_cloudbackup_runs as r', 'c.run_id', '=', 'r.id')
-        ->join('s3_cloudbackup_jobs as j', 'r.job_id', '=', 'j.id')
+        ->join('s3_cloudbackup_runs as r', 'c.run_id', '=', 'r.run_id')
+        ->join('s3_cloudbackup_jobs as j', 'r.job_id', '=', 'j.job_id')
         ->where('c.status', 'pending')
         ->where('j.client_id', $agent->client_id)
         ->where('j.source_type', 'local_agent');
@@ -351,26 +377,29 @@ try {
     // Only get restore and maintenance commands (cancel is handled during active runs)
     $cmdQuery->whereIn('c.type', ['restore', 'hyperv_restore', 'maintenance_quick', 'maintenance_full']);
     
+    $cmdSelect = [
+        'c.id as command_id',
+        'c.run_id',
+        'c.type',
+        'c.payload_json',
+        'r.job_id',
+        'r.log_ref as manifest_id', // The manifest_id from the backup run
+        'r.repository_id as run_repository_id',
+        'j.source_path',
+        'j.engine',
+        'j.dest_bucket_id',
+        'j.dest_prefix',
+        'j.dest_type',
+        'j.dest_local_path',
+        'j.s3_user_id',
+        'j.repository_id as job_repository_id',
+        'j.local_bandwidth_limit_kbps',
+        'j.policy_json',
+    ];
+    $cmdSelect[] = Capsule::raw('BIN_TO_UUID(c.run_id) as run_id_uuid');
+    $cmdSelect[] = Capsule::raw('BIN_TO_UUID(j.job_id) as job_id_uuid');
     $cmdRows = $cmdQuery
-        ->select(
-            'c.id as command_id',
-            'c.run_id',
-            'c.type',
-            'c.payload_json',
-            'r.job_id',
-            'r.log_ref as manifest_id', // The manifest_id from the backup run
-            'r.repository_id as run_repository_id',
-            'j.source_path',
-            'j.engine',
-            'j.dest_bucket_id',
-            'j.dest_prefix',
-            'j.dest_type',
-            'j.dest_local_path',
-            'j.s3_user_id',
-            'j.repository_id as job_repository_id',
-            'j.local_bandwidth_limit_kbps',
-            'j.policy_json'
-        )
+        ->select($cmdSelect)
         ->orderBy('c.id', 'asc')
         ->limit(5)
         ->get();
@@ -464,8 +493,8 @@ try {
             $repoCtx = buildRepositoryContext((string) ($cmd->run_repository_id ?? $cmd->job_repository_id ?? ''));
             
             $jobContext = [
-                'job_id' => (int) $cmd->job_id,
-                'run_id' => (int) $cmd->run_id,
+                'job_id' => (string) ($cmd->job_id_uuid ?? ''),
+                'run_id' => (string) ($cmd->run_id_uuid ?? ''),
                 'engine' => $cmd->engine ?? 'kopia',
                 'source_path' => $cmd->source_path ?? '',
                 'dest_type' => $cmd->dest_type ?? 's3',
@@ -489,8 +518,8 @@ try {
         $commands[] = [
             'command_id' => (int) $cmd->command_id,
             'type' => $cmd->type,
-            'run_id' => (int) $cmd->run_id,
-            'job_id' => (int) $cmd->job_id,
+            'run_id' => (string) ($cmd->run_id_uuid ?? ''),
+            'job_id' => (string) ($cmd->job_id_uuid ?? ''),
             'payload' => empty($payload) ? new \stdClass() : $payload, // Ensure {} not [] in JSON
             'job_context' => $jobContext,
         ];

@@ -3,6 +3,7 @@
 require_once __DIR__ . '/../../../../init.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 use Symfony\Component\HttpFoundation\JsonResponse;
 
 if (!defined("WHMCS")) {
@@ -15,7 +16,7 @@ if (!isset($_SESSION['adminid']) || !$_SESSION['adminid']) {
     exit;
 }
 
-$runId = isset($_POST['run_id']) ? (int) $_POST['run_id'] : 0;
+$runId = trim((string) ($_POST['run_id'] ?? ''));
 $agentUuid = trim((string) ($_POST['agent_uuid'] ?? ''));
 $type = isset($_POST['type']) ? strtolower(trim((string) $_POST['type'])) : '';
 $payloadRaw = $_POST['payload_json'] ?? null;
@@ -42,25 +43,47 @@ if ($type === 'reset_agent' || $type === 'refresh_inventory') {
         exit;
     }
 } else {
-    if ($runId <= 0 && $agentUuid !== '') {
-        $runId = (int) Capsule::table('s3_cloudbackup_runs')
-            ->where('agent_uuid', $agentUuid)
-            ->whereIn('status', ['queued', 'starting', 'running'])
-            ->orderByDesc('created_at')
-            ->value('id');
+    $hasRunIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
+    if ($runId === '' && $agentUuid !== '') {
+        if ($hasRunIdPk) {
+            $runRow = Capsule::table('s3_cloudbackup_runs')
+                ->selectRaw('BIN_TO_UUID(run_id) as run_id_uuid')
+                ->where('agent_uuid', $agentUuid)
+                ->whereIn('status', ['queued', 'starting', 'running'])
+                ->orderByDesc('created_at')
+                ->first();
+            $runId = $runRow->run_id_uuid ?? '';
+        } else {
+            $runId = (string) Capsule::table('s3_cloudbackup_runs')
+                ->where('agent_uuid', $agentUuid)
+                ->whereIn('status', ['queued', 'starting', 'running'])
+                ->orderByDesc('created_at')
+                ->value('id');
+        }
     }
-    if ($runId > 0 && $agentUuid !== '') {
-        $match = Capsule::table('s3_cloudbackup_runs')
-            ->where('id', $runId)
-            ->where('agent_uuid', $agentUuid)
-            ->exists();
+    if ($runId !== '' && $agentUuid !== '') {
+        if ($hasRunIdPk && UuidBinary::isUuid($runId)) {
+            $match = Capsule::table('s3_cloudbackup_runs')
+                ->whereRaw('run_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($runId)))
+                ->where('agent_uuid', $agentUuid)
+                ->exists();
+        } else {
+            $match = Capsule::table('s3_cloudbackup_runs')
+                ->where('id', $runId)
+                ->where('agent_uuid', $agentUuid)
+                ->exists();
+        }
         if (!$match) {
             (new JsonResponse(['status' => 'fail', 'message' => 'run_id does not belong to selected agent'], 200))->send();
             exit;
         }
     }
-    if ($runId <= 0) {
+    if ($runId === '') {
         (new JsonResponse(['status' => 'fail', 'message' => 'No eligible run found for maintenance command'], 200))->send();
+        exit;
+    }
+    if (!UuidBinary::isUuid($runId)) {
+        (new JsonResponse(['status' => 'fail', 'code' => 'invalid_identifier_format', 'message' => 'run_id must be a valid UUID'], 400))->send();
         exit;
     }
 }
@@ -71,8 +94,11 @@ if (!Capsule::schema()->hasTable('s3_cloudbackup_run_commands')) {
 }
 
 try {
+    $runIdForInsert = in_array($type, ['reset_agent', 'refresh_inventory'], true)
+        ? null
+        : (UuidBinary::isUuid($runId) ? Capsule::raw(UuidBinary::toDbExpr(UuidBinary::normalize($runId))) : $runId);
     $insert = [
-        'run_id' => in_array($type, ['reset_agent', 'refresh_inventory'], true) ? null : $runId,
+        'run_id' => $runIdForInsert,
         'type' => $type,
         'payload_json' => $payload ? json_encode($payload) : null,
         'status' => 'pending',

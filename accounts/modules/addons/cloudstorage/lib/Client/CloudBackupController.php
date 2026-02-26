@@ -1308,7 +1308,9 @@ class CloudBackupController {
 
             $manifestId = trim((string) ($data['manifest_id'] ?? ''));
             $hypervBackupPointId = (int) ($data['hyperv_backup_point_id'] ?? 0);
-            $runId = (int) ($data['run_id'] ?? 0);
+            $runIdRaw = $data['run_id'] ?? 0;
+            $runId = is_numeric($runIdRaw) ? (int) $runIdRaw : 0;
+            $runIdUuid = (is_string($runIdRaw) && UuidBinary::isUuid($runIdRaw)) ? $runIdRaw : null;
 
             $query = Capsule::table('s3_cloudbackup_restore_points')
                 ->where('client_id', $clientId);
@@ -1319,6 +1321,8 @@ class CloudBackupController {
                 $query->where('manifest_id', $manifestId);
             } elseif ($runId > 0) {
                 $query->where('run_id', $runId)->whereNull('hyperv_vm_id');
+            } elseif ($runIdUuid !== null) {
+                $query->whereRaw('run_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($runIdUuid)))->whereNull('hyperv_vm_id');
             } else {
                 return ['status' => 'skip', 'message' => 'No dedupe key available'];
             }
@@ -1357,19 +1361,26 @@ class CloudBackupController {
     /**
      * Record restore points for a completed run.
      *
-     * @param int $runId
+     * @param int|string $runId Run ID (int for legacy schema, UUID string for UUID schema)
      * @return array
      */
-    public static function recordRestorePointsForRun(int $runId): array
+    public static function recordRestorePointsForRun($runId): array
     {
         try {
             if (!Capsule::schema()->hasTable('s3_cloudbackup_restore_points')) {
                 return ['status' => 'skip', 'message' => 'Restore points table not available'];
             }
 
-            $run = Capsule::table('s3_cloudbackup_runs')
-                ->where('id', $runId)
-                ->first();
+            $hasRunIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
+            if ($hasRunIdPk && UuidBinary::isUuid((string) $runId)) {
+                $run = Capsule::table('s3_cloudbackup_runs')
+                    ->whereRaw('run_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize((string) $runId)))
+                    ->first();
+            } else {
+                $run = Capsule::table('s3_cloudbackup_runs')
+                    ->where('id', (int) $runId)
+                    ->first();
+            }
             if (!$run) {
                 return ['status' => 'skip', 'message' => 'Run not found'];
             }
@@ -1384,9 +1395,10 @@ class CloudBackupController {
                 return ['status' => 'skip', 'message' => 'Restore run ignored'];
             }
 
-            $job = Capsule::table('s3_cloudbackup_jobs')
-                ->where('id', $run->job_id)
-                ->first();
+            $hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+            $job = $hasJobIdPk
+                ? Capsule::table('s3_cloudbackup_jobs')->selectRaw('*, BIN_TO_UUID(job_id) as job_id_uuid')->where('job_id', $run->job_id)->first()
+                : Capsule::table('s3_cloudbackup_jobs')->where('id', $run->job_id)->first();
             if (!$job) {
                 return ['status' => 'skip', 'message' => 'Job not found'];
             }
@@ -1411,16 +1423,17 @@ class CloudBackupController {
                 $driverBundles = $decodedStats['driver_bundles'];
             }
 
+            $runUuidStr = ($hasRunIdPk && is_string($runId) && UuidBinary::isUuid($runId)) ? $runId : (string) ($run->run_uuid ?? '');
             $base = [
                 'client_id' => (int) $job->client_id,
                 'tenant_id' => $run->tenant_id ?? $job->tenant_id ?? null,
                 'repository_id' => $run->repository_id ?? $job->repository_id ?? null,
                 'tenant_user_id' => $job->tenant_user_id ?? ($agent->tenant_user_id ?? null),
                 'agent_id' => $agentId > 0 ? $agentId : null,
-                'job_id' => (int) $job->id,
+                'job_id' => $hasJobIdPk ? Capsule::raw(UuidBinary::toDbExpr(UuidBinary::normalize($job->job_id_uuid ?? ''))) : (int) ($job->id ?? 0),
                 'job_name' => (string) ($job->name ?? ''),
-                'run_id' => (int) $run->id,
-                'run_uuid' => (string) ($run->run_uuid ?? ''),
+                'run_id' => $hasRunIdPk ? Capsule::raw(UuidBinary::toDbExpr(UuidBinary::normalize((string) $runId))) : (int) ($run->id ?? 0),
+                'run_uuid' => $runUuidStr,
                 'engine' => (string) ($run->engine ?? $job->engine ?? ''),
                 'status' => $runStatus,
                 'source_type' => (string) ($job->source_type ?? ''),
@@ -1466,8 +1479,9 @@ class CloudBackupController {
 
             // Hyper-V: one restore point per VM backup point when available
             if ((string) ($run->engine ?? '') === 'hyperv' && Capsule::schema()->hasTable('s3_hyperv_backup_points')) {
+                $runIdForBp = $hasRunIdPk ? $run->run_id : $run->id;
                 $bps = Capsule::table('s3_hyperv_backup_points as bp')
-                    ->where('bp.run_id', $run->id)
+                    ->where('bp.run_id', $runIdForBp)
                     ->get();
                 if ($bps && count($bps) > 0) {
                     $vmMap = [];
