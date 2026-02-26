@@ -3,7 +3,7 @@
 This document shows how to build the Windows agent on the Linux dev server and exercise it on a Windows VM using the new agent APIs. It also includes SQL snippets to seed a test agent and job.
 
 ## Prerequisites
-- DB schema changes applied from `AGENT_SCHEMA.sql` (agents table, `local_agent` source type, optional `agent_id` on jobs).
+- DB schema changes applied from `AGENT_SCHEMA.sql` (agents table, `local_agent` source type, optional `agent_uuid` binding on jobs).
 - Cloud backup uses **UUIDv7** for `job_id` and `run_id` at all API boundaries; stored as `BINARY(16)` in MySQL.
 - Agent API endpoints deployed:
   - `agent_fetch_jobs.php`
@@ -26,17 +26,16 @@ Adjust IDs/paths as needed.
 ### Insert a test agent
 ```sql
 INSERT INTO s3_cloudbackup_agents
-  (client_id, agent_token, hostname, status)
+  (client_id, agent_uuid, agent_token, hostname, status)
 VALUES
-  (1234, 'RANDOM_LONG_TOKEN', 'test-windows-vm', 'active');
--- Note the generated id (e.g., 1) for agent.conf
+  (1234, '018f7c8e-8b9d-7d1f-8e57-3f2224c3b6d8', 'RANDOM_LONG_TOKEN', 'test-windows-vm', 'active');
 ```
 
 ### Create a `local_agent` job for that client
 Example: sync from local path `C:\Data` to bucket/prefix.
 ```sql
 INSERT INTO s3_cloudbackup_jobs
-  (client_id, s3_user_id, name, source_type, agent_id,
+  (job_id, client_id, s3_user_id, name, source_type, agent_uuid,
    source_display_name, source_config_enc, source_path,
    dest_bucket_id, dest_prefix,
    backup_mode, encryption_enabled, validation_mode,
@@ -45,7 +44,7 @@ INSERT INTO s3_cloudbackup_jobs
    notify_on_success, notify_on_warning, notify_on_failure,
    status)
 VALUES
-  (1234, 1, 'Local Agent Test', 'local_agent', 1,
+  (UUID_TO_BIN('018f7c8c-5cf0-7ad8-9f2b-8c58a7e7b2d6'), 1234, 1, 'Local Agent Test', 'local_agent', '018f7c8e-8b9d-7d1f-8e57-3f2224c3b6d8',
    'Local Path', '', 'C:\\Data',
    10, 'agent-test/',
    'sync', 0, 'none',
@@ -58,14 +57,14 @@ VALUES
 Notes:
 - `source_config_enc` can remain empty for simple local-path jobs; fill as needed for include/exclude rules later.
 - `dest_bucket_id` and `dest_prefix` should match an existing bucket the client can access.
-- Set `agent_id` to the inserted agent’s id if you want to bind the job to that specific agent; otherwise omit it to allow any agent for the client.
+- Set `agent_uuid` to bind the job to a specific enrolled agent.
 
 ## Prepare the Windows VM
 1) Copy `bin/e3-backup-agent.exe` to the VM (e.g., `C:\Program Files\E3Backup\`).
 2) Create `C:\ProgramData\E3Backup\agent.conf` (YAML):
    ```yaml
    client_id: 1234
-   agent_id: 1
+   agent_uuid: "018f7c8e-8b9d-7d1f-8e57-3f2224c3b6d8"
    agent_token: "RANDOM_LONG_TOKEN"
    api_base_url: "https://your-whmcs-host/modules/addons/cloudstorage/api"
    poll_interval_secs: 30
