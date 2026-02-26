@@ -9,6 +9,7 @@ $apiDir = __DIR__ . '/../api';
 
 $cloudbackupApis = [
     'cloudbackup_list_runs.php',
+    'cloudbackup_list_snapshots.php',
     'cloudbackup_start_run.php',
     'cloudbackup_get_run_logs.php',
     'cloudbackup_get_run_events.php',
@@ -32,12 +33,18 @@ $forbiddenPatterns = [
     '(int) $_GET[\'job_id\']',
     '(int) $_POST[\'job_id\']',
     '(int) $_REQUEST[\'job_id\']',
+    'intval($_GET[\'job_id\'])',
+    'intval($_POST[\'job_id\'])',
+    'intval($_REQUEST[\'job_id\'])',
     '(int)$_GET[\'run_id\']',
     '(int)$_POST[\'run_id\']',
     '(int)$_REQUEST[\'run_id\']',
     '(int) $_GET[\'run_id\']',
     '(int) $_POST[\'run_id\']',
     '(int) $_REQUEST[\'run_id\']',
+    'intval($_GET[\'run_id\'])',
+    'intval($_POST[\'run_id\'])',
+    'intval($_REQUEST[\'run_id\'])',
     'validateJobAccess((int)',
     'validateJobAccess((int)$',
 ];
@@ -75,7 +82,7 @@ foreach ($cloudbackupPages as $file => $patterns) {
     }
     $src = file_get_contents($path);
     if ($src === false) {
-        continue;
+        throw new RuntimeException("failed to read $path");
     }
     foreach ($patterns as $pattern) {
         if (strpos($src, $pattern) !== false) {
