@@ -3,6 +3,7 @@
 require_once __DIR__ . '/../../../../init.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 use Symfony\Component\HttpFoundation\JsonResponse;
 
 if (!defined("WHMCS")) {
@@ -69,14 +70,17 @@ if ($isAgentScoped) {
         respond(['status' => 'fail', 'message' => 'Unauthorized'], 403);
     }
 } else {
-    // For run-bound commands (restore, maintenance), check via run -> job -> agent
-    $run = Capsule::table('s3_cloudbackup_runs as r')
-        ->join('s3_cloudbackup_jobs as j', 'r.job_id', '=', 'j.id')
-        ->where('r.id', $cmd->run_id)
-        ->select('j.client_id', 'j.agent_uuid', 'r.agent_uuid as run_agent_uuid')
-        ->first();
+    // For run-bound commands (restore, maintenance), check via run -> job -> agent (UUID schema: run_id/job_id are BINARY(16))
+    $hasRunIdBinary = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
+    $hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+    $runJoinCol = $hasJobIdPk ? ['r.job_id', '=', 'j.job_id'] : ['r.job_id', '=', 'j.id'];
+    $runQuery = Capsule::table('s3_cloudbackup_runs as r')
+        ->join('s3_cloudbackup_jobs as j', $runJoinCol[0], $runJoinCol[1], $runJoinCol[2]);
+    $runIdCol = $hasRunIdBinary ? 'run_id' : 'id';
+    $runQuery->where('r.' . $runIdCol, $cmd->run_id);
+    $run = $runQuery->select('j.client_id', 'j.agent_uuid', 'r.agent_uuid as run_agent_uuid')->first();
 
-    if (!$run || (string) $run->agent_uuid !== (string) $agent->agent_uuid) {
+    if (!$run || (string) ($run->run_agent_uuid ?? $run->agent_uuid ?? '') !== (string) $agent->agent_uuid) {
         respond(['status' => 'fail', 'message' => 'Unauthorized'], 403);
     }
 }

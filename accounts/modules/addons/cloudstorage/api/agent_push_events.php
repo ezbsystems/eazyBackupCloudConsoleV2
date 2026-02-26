@@ -3,6 +3,7 @@
 require_once __DIR__ . '/../../../../init.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 use Symfony\Component\HttpFoundation\JsonResponse;
 
 if (!defined("WHMCS")) {
@@ -66,7 +67,7 @@ function getBodyJson(): array
 }
 
 $body = getBodyJson();
-$runId = $_POST['run_id'] ?? ($body['run_id'] ?? null);
+$runId = trim((string) ($_POST['run_id'] ?? ($body['run_id'] ?? '')));
 $events = $body['events'] ?? [];
 $logEntries = $body['logs'] ?? [];
 // Accept manifest_id as an alias for log_ref for agents that send manifest explicitly
@@ -95,8 +96,11 @@ if ((!is_array($events) || empty($events)) && isset($body['events_b64'])) {
     $events = $decodedEvents;
 }
 
-if (!$runId) {
+if ($runId === '') {
     respond(['status' => 'fail', 'message' => 'run_id is required'], 400);
+}
+if (!UuidBinary::isUuid($runId)) {
+    respond(['status' => 'fail', 'code' => 'invalid_identifier_format', 'message' => 'run_id must be a valid UUID'], 400);
 }
 
 if ((!is_array($events) || empty($events)) && (!is_array($logEntries) || empty($logEntries)) && $logRef === null) {
@@ -106,9 +110,9 @@ if ((!is_array($events) || empty($events)) && (!is_array($logEntries) || empty($
 $agent = authenticateAgent();
 
 $run = Capsule::table('s3_cloudbackup_runs as r')
-    ->join('s3_cloudbackup_jobs as j', 'r.job_id', '=', 'j.id')
-    ->where('r.id', $runId)
-    ->select('r.id', 'j.client_id', 'r.agent_uuid')
+    ->join('s3_cloudbackup_jobs as j', 'r.job_id', '=', 'j.job_id')
+    ->whereRaw('r.run_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($runId)))
+    ->select('r.run_id', 'j.client_id', 'r.agent_uuid')
     ->first();
 
 if (!$run || (int)$run->client_id !== (int)$agent->client_id) {
@@ -159,7 +163,7 @@ foreach ($events as $event) {
     }
 
     $rows[] = [
-        'run_id' => $runId,
+        'run_id' => Capsule::raw(UuidBinary::toDbExpr(UuidBinary::normalize($runId))),
         'ts' => date('Y-m-d H:i:s.u', $nowMicro),
         'type' => $event['type'] ?? 'info',
         'level' => $event['level'] ?? 'info',
@@ -180,7 +184,7 @@ foreach ($events as $event) {
         }
         // #region agent log
         debugLog('agent_event', [
-            'run_id' => (int) $runId,
+            'run_id' => $runId,
             'code' => (string) $code,
             'type' => (string) ($event['type'] ?? ''),
             'level' => (string) ($event['level'] ?? ''),
@@ -205,7 +209,7 @@ if (is_array($logEntries) && !empty($logEntries) && Capsule::schema()->hasTable(
             continue;
         }
         $logRows[] = [
-            'run_id' => $runId,
+            'run_id' => Capsule::raw(UuidBinary::toDbExpr(UuidBinary::normalize($runId))),
             'created_at' => date('Y-m-d H:i:s'),
             'level' => $entry['level'] ?? 'info',
             'code' => $entry['code'] ?? null,
@@ -223,13 +227,13 @@ if (is_array($logEntries) && !empty($logEntries) && Capsule::schema()->hasTable(
 
 if ($logRef !== null && Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'log_ref')) {
     Capsule::table('s3_cloudbackup_runs')
-        ->where('id', $runId)
+        ->whereRaw('run_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($runId)))
         ->update(['log_ref' => $logRef, 'updated_at' => Capsule::raw('NOW()')]);
 }
 
 // #region agent log
 debugLog('agent_events_batch', [
-    'run_id' => (int) $runId,
+    'run_id' => $runId,
     'events_count' => is_array($events) ? count($events) : 0,
     'logs_count' => is_array($logEntries) ? count($logEntries) : 0,
     'log_ref' => $logRef !== null ? (string) $logRef : null,

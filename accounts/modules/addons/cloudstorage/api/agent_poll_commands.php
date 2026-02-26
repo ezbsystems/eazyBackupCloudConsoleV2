@@ -3,6 +3,7 @@
 require_once __DIR__ . '/../../../../init.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 use Symfony\Component\HttpFoundation\JsonResponse;
 
 if (!defined("WHMCS")) {
@@ -17,13 +18,16 @@ function respond($data, $code = 200)
 
 $agentUuid = $_SERVER['HTTP_X_AGENT_UUID'] ?? ($_POST['agent_uuid'] ?? null);
 $agentToken = $_SERVER['HTTP_X_AGENT_TOKEN'] ?? ($_POST['agent_token'] ?? null);
-$runId = $_GET['run_id'] ?? ($_POST['run_id'] ?? null);
+$runId = trim((string) ($_GET['run_id'] ?? ($_POST['run_id'] ?? '')));
 
 if (!$agentUuid || !$agentToken) {
     respond(['status' => 'fail', 'message' => 'Missing agent headers'], 401);
 }
-if (!$runId) {
+if ($runId === '') {
     respond(['status' => 'fail', 'message' => 'run_id is required'], 400);
+}
+if (!UuidBinary::isUuid($runId)) {
+    respond(['status' => 'fail', 'code' => 'invalid_identifier_format', 'message' => 'run_id must be a valid UUID'], 400);
 }
 
 $agent = Capsule::table('s3_cloudbackup_agents')->where('agent_uuid', $agentUuid)->first();
@@ -37,9 +41,9 @@ Capsule::table('s3_cloudbackup_agents')
     ->update(['last_seen_at' => Capsule::raw('NOW()')]);
 
 $run = Capsule::table('s3_cloudbackup_runs as r')
-    ->join('s3_cloudbackup_jobs as j', 'r.job_id', '=', 'j.id')
-    ->where('r.id', $runId)
-    ->select('r.id', 'j.client_id', 'r.cancel_requested')
+    ->join('s3_cloudbackup_jobs as j', 'r.job_id', '=', 'j.job_id')
+    ->whereRaw('r.run_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($runId)))
+    ->select('r.run_id', 'j.client_id', 'r.cancel_requested')
     ->first();
 
 if (!$run || (int)$run->client_id !== (int)$agent->client_id) {
@@ -53,8 +57,9 @@ if (!empty($run->cancel_requested)) {
 
 // Pending run commands (maintenance/restore, etc.)
 if (Capsule::schema()->hasTable('s3_cloudbackup_run_commands')) {
+    $runIdBinExpr = UuidBinary::toDbExpr(UuidBinary::normalize($runId));
     $cmdRows = Capsule::table('s3_cloudbackup_run_commands')
-        ->where('run_id', $runId)
+        ->whereRaw('run_id = ' . $runIdBinExpr)
         ->where('status', 'pending')
         ->orderBy('id', 'asc')
         ->limit(5)

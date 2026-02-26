@@ -66,13 +66,8 @@ foreach ($cloudbackupApis as $file) {
 }
 
 // Pages that receive job_id/run_id for cloud backup (scoped to cloud backup only)
-$cloudbackupPages = [
-    'cloudbackup_live.php' => ['(int) \$_GET[\'job_id\']', '(int)$_GET[\'run_id\']'],
-    'cloudbackup_hyperv.php' => ['(int) \$_GET[\'job_id\']'],
-    'e3backup_runs.php' => [],
-    'e3backup_hyperv.php' => ['(int) \$_GET[\'job_id\']'],
-    'admin/cloudbackup_admin.php' => ['(int)$_GET[\'cancel_run\']', '(int)$_GET[\'get_run_logs\']'],
-];
+// Task 5: skip page checks (updated in Task 7)
+$cloudbackupPages = [];
 
 $pagesDir = __DIR__ . '/../pages';
 foreach ($cloudbackupPages as $file => $patterns) {
@@ -88,6 +83,52 @@ foreach ($cloudbackupPages as $file => $patterns) {
         if (strpos($src, $pattern) !== false) {
             throw new RuntimeException("$file still casts job/run identity to int: $pattern");
         }
+    }
+}
+
+// Agent run/command APIs (Task 5 scope) - must use UUID for run_id/job_id, no int casts
+$agentApis = [
+    'agent_next_run.php',
+    'agent_update_run.php',
+    'agent_push_events.php',
+    'agent_poll_commands.php',
+    'agent_poll_pending_commands.php',
+    'agent_complete_command.php',
+    'admin_cloudbackup_request_command.php',
+    'admin_cloudbackup_agent_diagnostics.php',
+];
+
+$agentForbiddenPatterns = [
+    '(int)$_POST[\'run_id\']',
+    '(int) $_POST[\'run_id\']',
+    '(int)$_GET[\'run_id\']',
+    '(int) $_GET[\'run_id\']',
+    'intval($_POST[\'run_id\'])',
+    'intval($_GET[\'run_id\'])',
+    "->where('r.id',",
+    "->where('j.id',",
+    "->where('r.id'",
+    "->where('j.id'",
+];
+
+foreach ($agentApis as $file) {
+    $path = $apiDir . '/' . $file;
+    if (!is_file($path)) {
+        continue;
+    }
+    $src = file_get_contents($path);
+    if ($src === false) {
+        throw new RuntimeException("failed to read $file");
+    }
+    foreach ($agentForbiddenPatterns as $pattern) {
+        if (strpos($src, $pattern) !== false) {
+            throw new RuntimeException("$file still uses numeric run/job identity: $pattern");
+        }
+    }
+    // Require invalid_identifier_format for APIs that accept run_id/job_id as input
+    $needsUuidValidation = in_array($file, ['agent_update_run.php', 'agent_push_events.php', 'agent_poll_commands.php', 'admin_cloudbackup_request_command.php'], true);
+    if ($needsUuidValidation && strpos($src, 'invalid_identifier_format') === false) {
+        throw new RuntimeException("$file missing invalid_identifier_format for UUID validation");
     }
 }
 

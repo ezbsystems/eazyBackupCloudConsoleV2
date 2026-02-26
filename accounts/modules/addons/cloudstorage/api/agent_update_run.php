@@ -3,6 +3,7 @@
 require_once __DIR__ . '/../../../../init.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
 use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionHookService;
@@ -108,12 +109,12 @@ function updateAgentMetadata(string $agentUuid, array $body): void
     }
 }
 
-function recordForcedRunFailureEvent(int $runId, string $summary): void
+function recordForcedRunFailureEvent(string $runIdUuid, string $summary): void
 {
     try {
         $nowMicro = microtime(true);
         Capsule::table('s3_cloudbackup_run_events')->insert([
-            'run_id' => $runId,
+            'run_id' => Capsule::raw(UuidBinary::toDbExpr(UuidBinary::normalize($runIdUuid))),
             'ts' => date('Y-m-d H:i:s.u', $nowMicro),
             'type' => 'error',
             'level' => 'error',
@@ -122,7 +123,7 @@ function recordForcedRunFailureEvent(int $runId, string $summary): void
             'params_json' => json_encode(['summary' => $summary]),
         ]);
     } catch (\Throwable $e) {
-        logModuleCall('cloudstorage', 'agent_update_run_event_insert_error', ['run_id' => $runId], $e->getMessage());
+        logModuleCall('cloudstorage', 'agent_update_run_event_insert_error', ['run_id' => $runIdUuid], $e->getMessage());
     }
 }
 
@@ -146,18 +147,21 @@ function sanitizeBranding(string $text): string
 }
 
 $body = getBodyJson();
-$runId = $_POST['run_id'] ?? ($body['run_id'] ?? null);
-if (!$runId) {
+$runId = trim((string) ($_POST['run_id'] ?? ($body['run_id'] ?? '')));
+if ($runId === '') {
     respond(['status' => 'fail', 'message' => 'run_id is required'], 400);
+}
+if (!UuidBinary::isUuid($runId)) {
+    respond(['status' => 'fail', 'code' => 'invalid_identifier_format', 'message' => 'run_id must be a valid UUID'], 400);
 }
 
 $agent = authenticateAgent();
 updateAgentMetadata((string) $agent->agent_uuid, $body);
 
 $run = Capsule::table('s3_cloudbackup_runs as r')
-    ->join('s3_cloudbackup_jobs as j', 'r.job_id', '=', 'j.id')
-    ->where('r.id', $runId)
-    ->select('r.id', 'r.status', 'r.job_id', 'r.stats_json', 'j.client_id')
+    ->join('s3_cloudbackup_jobs as j', 'r.job_id', '=', 'j.job_id')
+    ->whereRaw('r.run_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($runId)))
+    ->select('r.run_id', 'r.status', 'r.job_id', 'r.stats_json', 'j.client_id')
     ->first();
 
 if (!$run || (int)$run->client_id !== (int)$agent->client_id) {
@@ -235,8 +239,8 @@ foreach ($fields as $field) {
 
 // #region agent log
 if (!empty($update)) {
-    debugLog('agent_update_run', [
-        'run_id' => (int) $runId,
+        debugLog('agent_update_run', [
+        'run_id' => $runId,
         'status' => $update['status'] ?? null,
         'progress_pct' => $update['progress_pct'] ?? null,
         'bytes_processed' => $update['bytes_processed'] ?? null,
@@ -313,9 +317,9 @@ if (isset($body['hyperv_results']) && is_array($body['hyperv_results'])) {
     try {
         // Get the job for this run to find VM mappings
         $job = Capsule::table('s3_cloudbackup_runs as r')
-            ->join('s3_cloudbackup_jobs as j', 'r.job_id', '=', 'j.id')
-            ->where('r.id', $runId)
-            ->select('j.id as job_id')
+            ->join('s3_cloudbackup_jobs as j', 'r.job_id', '=', 'j.job_id')
+            ->whereRaw('r.run_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($runId)))
+            ->select('j.job_id')
             ->first();
         
         foreach ($body['hyperv_results'] as $vmResult) {
@@ -357,7 +361,7 @@ if (isset($body['hyperv_results']) && is_array($body['hyperv_results'])) {
                 // Create new checkpoint record
                 Capsule::table('s3_hyperv_checkpoints')->insert([
                     'vm_id' => $vmId,
-                    'run_id' => $runId,
+                    'run_id' => Capsule::raw(UuidBinary::toDbExpr(UuidBinary::normalize($runId))),
                     'checkpoint_id' => $checkpointId,
                     'checkpoint_name' => 'EazyBackup_' . date('Ymd_His'),
                     'checkpoint_type' => $consistencyLevel === 'Application' ? 'Production' : 'Standard',
@@ -391,7 +395,7 @@ if (isset($body['hyperv_results']) && is_array($body['hyperv_results'])) {
             // Insert backup point record
             $backupPointData = [
                 'vm_id' => $vmId,
-                'run_id' => $runId,
+                'run_id' => Capsule::raw(UuidBinary::toDbExpr(UuidBinary::normalize($runId))),
                 'backup_type' => $backupType,
                 'manifest_id' => $manifestId,
                 'parent_backup_id' => $parentBackupId,
@@ -430,7 +434,7 @@ if (isset($body['hyperv_results']) && is_array($body['hyperv_results'])) {
 
 try {
     $affected = Capsule::table('s3_cloudbackup_runs')
-        ->where('id', $runId)
+        ->whereRaw('run_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($runId)))
         ->update($update);
     if ((int) $affected === 0) {
         logModuleCall('cloudstorage', 'agent_update_run_noop', ['run_id' => $runId, 'agent_uuid' => $agent->agent_uuid], ['update' => $update, 'affected' => $affected]);
@@ -439,11 +443,11 @@ try {
     $finalStatus = isset($update['status']) ? strtolower((string) $update['status']) : null;
     if ($finalStatus && in_array($finalStatus, ['success', 'warning'], true)) {
         try {
-            CloudBackupController::recordRestorePointsForRun((int) $runId);
+            CloudBackupController::recordRestorePointsForRun($runId);
         } catch (\Throwable $e) {
             logModuleCall('cloudstorage', 'agent_update_run_restore_points_error', ['run_id' => $runId], $e->getMessage());
         }
-        $jobRow = Capsule::table('s3_cloudbackup_jobs')->where('id', $run->job_id)->first();
+        $jobRow = Capsule::table('s3_cloudbackup_jobs')->where('job_id', $run->job_id)->first();
         if ($jobRow && KopiaRetentionHookService::shouldEnqueueFromRun(
             $finalStatus,
             (string) ($jobRow->source_type ?? ''),
