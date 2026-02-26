@@ -216,7 +216,7 @@ function cloudstorage_admin_cloudbackup($vars)
         
         foreach ($runs as $run) {
             // Handle both array and object formats
-            $runId = is_array($run) ? ($run['id'] ?? '') : ($run->id ?? '');
+            $runId = is_array($run) ? ($run['run_id'] ?? $run['id'] ?? '') : ($run->run_id ?? $run->id ?? '');
             $jobName = is_array($run) ? ($run['job_name'] ?? '') : ($run->job_name ?? '');
             $firstName = is_array($run) ? ($run['firstname'] ?? '') : ($run->firstname ?? '');
             $lastName = is_array($run) ? ($run['lastname'] ?? '') : ($run->lastname ?? '');
