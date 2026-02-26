@@ -10,7 +10,7 @@
             <!-- Identity strip -->
             <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div class="flex items-center gap-4">
-                    <a href="index.php?m=cloudstorage&page=e3backup&view=runs&job_id={$job.id}" class="text-sky-400 hover:text-sky-300">
+                    <a href="index.php?m=cloudstorage&page=e3backup&view=runs&job_id={$job.job_id}" class="text-sky-400 hover:text-sky-300">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
                         </svg>
@@ -18,7 +18,7 @@
                     <div>
                         <p class="text-xs uppercase tracking-wide text-slate-500">{if $is_restore}Live Restore{else}Live Backup{/if}</p>
                         <h1 class="text-2xl sm:text-3xl font-semibold text-white">
-                            {if $job.name}{$job.name}{else}Job #{$job.id}{/if}
+                            {if $job.name}{$job.name}{else}Unnamed job{/if}
                         </h1>
                     </div>
                 </div>
@@ -35,11 +35,11 @@
                     </span>
                     <span class="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-900/60 px-3 py-1 text-xs text-slate-200">
                         <span class="text-slate-400">Job:</span>
-                        <span class="text-slate-100">{if $job.name}{$job.name}{else}Job #{$job.id}{/if}</span>
+                        <span class="text-slate-100">{if $job.name}{$job.name}{else}Unnamed job{/if}</span>
                     </span>
                     <button
                         id="cancelButton"
-                        onclick="cancelRun({$run.id})"
+                        onclick="cancelRun('{$run.run_id}')"
                         class="hidden rounded-full border border-rose-500/60 bg-rose-500/10 px-3 py-1 text-xs text-rose-200 hover:border-rose-400 hover:text-white transition-colors"
                         style="display: none;"
                     >
@@ -245,7 +245,7 @@
                                 <button
                                     id="forceCancelButton"
                                     type="button"
-                                    onclick="cancelRun({$run.id}, true)"
+                                    onclick="cancelRun('{$run.run_id}', true)"
                                     class="hidden px-3 py-1 rounded-full border border-rose-500 bg-rose-500/10 text-rose-200 hover:border-rose-400 hover:text-white transition-colors"
                                 >
                                     Force Cancel
@@ -275,15 +275,11 @@
                                 </div>
                                 <div class="flex items-center justify-between">
                                     <span class="text-slate-500">Job</span>
-                                    <span id="detailsJob" class="text-slate-100 text-xs truncate">{if $job.name}{$job.name}{else}Job #{$job.id}{/if}</span>
+                                    <span id="detailsJob" class="text-slate-100 text-xs truncate">{if $job.name}{$job.name}{else}Unnamed job{/if}</span>
                                 </div>
                                 <div class="flex items-center justify-between">
                                     <span class="text-slate-500">Run ID</span>
-                                    <span id="detailsRunId" class="font-mono text-slate-100 text-xs">{$run.id}</span>
-                                </div>
-                                <div class="flex items-center justify-between">
-                                    <span class="text-slate-500">Run UUID</span>
-                                    <span id="detailsRunUuid" class="font-mono text-slate-100 text-xs break-all">{$run.run_uuid|default:$run.id}</span>
+                                    <span id="detailsRunId" class="font-mono text-slate-100 text-xs break-all">{$run.run_id}</span>
                                 </div>
                                 <div class="flex items-center justify-between">
                                     <span class="text-slate-500">Started</span>
@@ -391,7 +387,7 @@ let logsInterval;
 let eventsInterval;
 {assign var="isRunningStatus" value=($run.status eq 'running' || $run.status eq 'starting' || $run.status eq 'queued')}
 let isRunning = {if $isRunningStatus}true{else}false{/if};
-const RUN_UUID = '{$run.run_uuid|default:""}';
+const RUN_UUID = '{$run.run_id}';
 let lastLogsHash = null;
 let lastEventId = 0;
 const errorSummaryContainer = document.getElementById('errorSummaryContainer');
@@ -508,7 +504,7 @@ function parseRunTimestamp(value) {
 function updateProgress() {
     if (isPaused) return;
     const ts = Date.now();
-    fetch('modules/addons/cloudstorage/api/cloudbackup_progress.php?run_uuid={$run.run_uuid|default:$run.id}&ts=' + ts, { cache: 'no-store' })
+    fetch('modules/addons/cloudstorage/api/cloudbackup_progress.php?run_uuid={$run.run_id}&ts=' + ts, { cache: 'no-store' })
         .then(response => response.json())
         .then(data => {
             if (data.status === 'success' && data.run) {
@@ -1159,7 +1155,7 @@ function setStructuredLogs(entries) {
 }
 
 function updateFormattedLogs() {
-    let url = 'modules/addons/cloudstorage/api/cloudbackup_get_live_logs.php?run_uuid={$run.run_uuid|default:$run.id}&ts=' + Date.now();
+    let url = 'modules/addons/cloudstorage/api/cloudbackup_get_live_logs.php?run_uuid={$run.run_id}&ts=' + Date.now();
     if (lastLogsHash) {
         url += '&hash=' + encodeURIComponent(lastLogsHash);
     }
@@ -1183,7 +1179,7 @@ function updateFormattedLogs() {
 let terminalEventSeen = false;
 function updateEventLogs() {
     if (isPaused) return;
-    let url = 'modules/addons/cloudstorage/api/cloudbackup_get_run_events.php?run_uuid={$run.run_uuid|default:$run.id}&limit=500&ts=' + Date.now();
+    let url = 'modules/addons/cloudstorage/api/cloudbackup_get_run_events.php?run_uuid={$run.run_id}&limit=500&ts=' + Date.now();
     if (lastEventId > 0) {
         url += '&since_id=' + encodeURIComponent(String(lastEventId));
     }
@@ -1297,7 +1293,6 @@ function cancelRun(runId, force = false) {
         },
         body: new URLSearchParams([
             ['run_id', runId],
-            ...(RUN_UUID ? [['run_uuid', RUN_UUID]] : []),
             ['force', force ? '1' : '0'],
         ])
     })

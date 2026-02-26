@@ -8,6 +8,7 @@
 use WHMCS\ClientArea;
 use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 use Illuminate\Database\Capsule\Manager as Capsule;
 
 $packageId = ProductConfig::$E3_PRODUCT_ID;
@@ -24,7 +25,8 @@ if (is_null($product) || is_null($product->username)) {
     exit;
 }
 
-$jobId = isset($_GET['job_id']) ? (int) $_GET['job_id'] : 0;
+$jobIdRaw = isset($_GET['job_id']) ? trim((string) $_GET['job_id']) : '';
+$jobId = ($jobIdRaw !== '' && UuidBinary::isUuid($jobIdRaw)) ? $jobIdRaw : '';
 
 // Get Hyper-V jobs for this client
 $hypervJobs = [];
@@ -32,12 +34,12 @@ try {
     $hypervJobs = Capsule::table('s3_cloudbackup_jobs')
         ->where('client_id', $loggedInUserId)
         ->where('engine', 'hyperv')
-        ->select('id', 'name', 'source_display_name', 'status', 'hyperv_config', 'hyperv_enabled')
+        ->select(Capsule::raw('BIN_TO_UUID(job_id) as job_id'), 'name', 'source_display_name', 'status', 'hyperv_config', 'hyperv_enabled')
         ->orderBy('name', 'asc')
         ->get()
         ->map(function ($job) {
             return [
-                'id' => $job->id,
+                'job_id' => $job->job_id,
                 'name' => $job->name,
                 'source_display_name' => $job->source_display_name,
                 'status' => $job->status,
@@ -54,23 +56,24 @@ try {
 // If job_id provided, get VMs for that job
 $vms = [];
 $selectedJob = null;
-if ($jobId > 0) {
+if ($jobId !== '') {
     // Verify job belongs to client
     $job = Capsule::table('s3_cloudbackup_jobs')
-        ->where('id', $jobId)
+        ->select(Capsule::raw('BIN_TO_UUID(job_id) as job_id'), 'name', 'hyperv_config')
+        ->whereRaw('job_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($jobId)))
         ->where('client_id', $loggedInUserId)
         ->first();
     
     if ($job) {
         $selectedJob = [
-            'id' => $job->id,
+            'job_id' => $job->job_id,
             'name' => $job->name,
             'hyperv_config' => json_decode($job->hyperv_config ?? '{}', true),
         ];
         
         try {
             $vms = Capsule::table('s3_hyperv_vms')
-                ->where('job_id', $jobId)
+                ->whereRaw('job_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($job->job_id)))
                 ->orderBy('vm_name', 'asc')
                 ->get()
                 ->map(function ($vm) {

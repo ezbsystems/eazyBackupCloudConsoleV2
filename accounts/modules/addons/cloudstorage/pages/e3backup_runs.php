@@ -24,6 +24,7 @@ $jobId = $_GET['job_id'] ?? null;
 if (!$jobId) {
     // No job selected: show job selector instead of redirecting
     $jobs = Capsule::table('s3_cloudbackup_jobs')
+        ->select(Capsule::raw('BIN_TO_UUID(job_id) as job_id'), 'name', 'source_display_name', 'source_type', 'dest_bucket_id', 'dest_prefix', 'engine', 'status', 'schedule_type', 'created_at')
         ->where('client_id', $loggedInUserId)
         ->where('status', '!=', 'deleted')
         ->orderBy('created_at', 'desc')

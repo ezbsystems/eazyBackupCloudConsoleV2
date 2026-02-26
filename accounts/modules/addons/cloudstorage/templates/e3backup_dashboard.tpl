@@ -153,7 +153,7 @@
                     <tbody class="divide-y divide-slate-800">
                         {foreach from=$liveRuns item=run}
                         <tr class="hover:bg-slate-800/40">
-                            <td class="px-3 py-2 text-slate-200 font-semibold">{$run.job_name|default:'Job #'|cat:$run.job_id}</td>
+                            <td class="px-3 py-2 text-slate-200 font-semibold">{$run.job_name|default:'Unnamed job'}</td>
                             {if $isMspClient}
                             <td class="px-3 py-2 text-slate-300">{$run.tenant_name|default:'Direct'}</td>
                             {/if}
@@ -194,7 +194,7 @@
                                 {/if}
                             </td>
                             <td class="px-3 py-2">
-                                <a href="index.php?m=cloudstorage&page=e3backup&view=live&run_id={$run.run_uuid|default:$run.id}"
+                                <a href="index.php?m=cloudstorage&page=e3backup&view=live&run_id={$run.run_id}"
                                    class="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-sky-600 text-white text-xs font-semibold hover:bg-sky-500">
                                     View Live
                                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

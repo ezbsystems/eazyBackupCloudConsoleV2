@@ -103,7 +103,7 @@
                 <tbody class="bg-slate-800 divide-y divide-slate-700">
                     {if count($runs) > 0}
                         {foreach from=$runs item=run}
-                            <tr class="run-row hover:bg-slate-700/40 cursor-pointer" data-run-id="{$run.run_uuid|default:$run.id}" title="Click to view log">
+                            <tr class="run-row hover:bg-slate-700/40 cursor-pointer" data-run-id="{$run.run_id}" title="Click to view log">
                                 <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-300">
                                     {if $run.started_at}
                                         {$run.started_at|date_format:"%d %b %Y %H:%M:%S"}
@@ -168,11 +168,11 @@
                                 <td class="px-6 py-4 whitespace-nowrap text-sm">
                                     {if $run.status eq 'running'}
                                         <div class="flex items-center gap-3">
-                                            <a href="index.php?m=cloudstorage&page=e3backup&view=live&run_id={$run.run_uuid|default:$run.id}" class="text-sky-400 hover:text-sky-500">View Live</a>
-                                            <button type="button" onclick="showRunDetails('{$run.run_uuid|default:$run.id}')" class="text-sky-400 hover:text-sky-500">View Log</button>
+                                            <a href="index.php?m=cloudstorage&page=e3backup&view=live&run_id={$run.run_id}" class="text-sky-400 hover:text-sky-500">View Live</a>
+                                            <button type="button" onclick="showRunDetails('{$run.run_id}')" class="text-sky-400 hover:text-sky-500">View Log</button>
                                         </div>
                                     {else}
-                                        <button type="button" onclick="showRunDetails('{$run.run_uuid|default:$run.id}')" class="text-sky-400 hover:text-sky-500">View Log</button>
+                                        <button type="button" onclick="showRunDetails('{$run.run_id}')" class="text-sky-400 hover:text-sky-500">View Log</button>
                                     {/if}
                                 </td>
                             </tr>
@@ -276,7 +276,7 @@
             {if isset($jobs) && count($jobs) > 0}
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                     {foreach from=$jobs item=j}
-                        <a href="index.php?m=cloudstorage&page=e3backup&view=runs&job_id={$j->id}" class="block bg-slate-700 hover:bg-slate-600 border border-slate-600 rounded-md p-4">
+                        <a href="index.php?m=cloudstorage&page=e3backup&view=runs&job_id={$j->job_id}" class="block bg-slate-700 hover:bg-slate-600 border border-slate-600 rounded-md p-4">
                             <div class="text-white font-semibold">{$j->name}</div>
                             <div class="text-sm text-slate-300 mt-1">{$j->source_display_name}</div>
                             <div class="text-xs text-slate-400 mt-1 uppercase">Engine: {$j->engine|default:'sync'|upper}</div>

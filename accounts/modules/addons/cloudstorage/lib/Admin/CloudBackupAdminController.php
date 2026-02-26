@@ -3,6 +3,7 @@
 namespace WHMCS\Module\Addon\CloudStorage\Admin;
 
 use WHMCS\Database\Capsule;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 
 class CloudBackupAdminController {
 
@@ -55,9 +56,9 @@ class CloudBackupAdminController {
                 'c.lastname',
                 'c.email',
                 Capsule::raw('TIMESTAMPDIFF(SECOND, a.last_seen_at, NOW()) as seconds_since_seen'),
-                Capsule::raw("(SELECT r.id FROM s3_cloudbackup_runs r WHERE r.agent_uuid = a.agent_uuid ORDER BY r.created_at DESC LIMIT 1) as latest_run_id"),
+                Capsule::raw("(SELECT " . (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id') ? "BIN_TO_UUID(r.run_id)" : "r.id") . " FROM s3_cloudbackup_runs r WHERE r.agent_uuid = a.agent_uuid ORDER BY r.created_at DESC LIMIT 1) as latest_run_id"),
                 Capsule::raw("(SELECT r.status FROM s3_cloudbackup_runs r WHERE r.agent_uuid = a.agent_uuid ORDER BY r.created_at DESC LIMIT 1) as latest_run_status"),
-                Capsule::raw("(SELECT r.id FROM s3_cloudbackup_runs r WHERE r.agent_uuid = a.agent_uuid AND r.status IN ('queued','starting','running') ORDER BY r.created_at DESC LIMIT 1) as active_run_id"),
+                Capsule::raw("(SELECT " . (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id') ? "BIN_TO_UUID(r.run_id)" : "r.id") . " FROM s3_cloudbackup_runs r WHERE r.agent_uuid = a.agent_uuid AND r.status IN ('queued','starting','running') ORDER BY r.created_at DESC LIMIT 1) as active_run_id"),
             ]);
 
         $query->addSelect($hasAgentVersion ? 'a.agent_version' : Capsule::raw('NULL as agent_version'));
@@ -297,7 +298,7 @@ class CloudBackupAdminController {
     {
         try {
             $query = Capsule::table('s3_cloudbackup_runs')
-                ->join('s3_cloudbackup_jobs', 's3_cloudbackup_runs.job_id', '=', 's3_cloudbackup_jobs.id')
+                ->join('s3_cloudbackup_jobs', 's3_cloudbackup_runs.job_id', '=', 's3_cloudbackup_jobs.job_id')
                 ->join('tblclients', 's3_cloudbackup_jobs.client_id', '=', 'tblclients.id')
                 ->select(
                     's3_cloudbackup_runs.*',
@@ -426,14 +427,18 @@ class CloudBackupAdminController {
     /**
      * Force cancel a run
      *
-     * @param int $runId
+     * @param string $runId UUID run_id
      * @return array
      */
     public static function forceCancelRun($runId)
     {
         try {
+            if (!UuidBinary::isUuid($runId)) {
+                return ['status' => 'fail', 'message' => 'Invalid run_id format'];
+            }
+            $norm = UuidBinary::normalize($runId);
             Capsule::table('s3_cloudbackup_runs')
-                ->where('id', $runId)
+                ->whereRaw('run_id = ' . UuidBinary::toDbExpr($norm))
                 ->update([
                     'cancel_requested' => 1,
                 ]);

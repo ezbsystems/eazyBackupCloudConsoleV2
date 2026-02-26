@@ -35,9 +35,9 @@
             <div class="flex items-center justify-between mb-4">
                 <div>
                     <h2 class="text-lg font-semibold text-white">{$selectedJob.name|escape}</h2>
-                    <p class="text-sm text-slate-400">Job ID: {$selectedJob.id}</p>
+                    <p class="text-sm text-slate-400">Job: {$selectedJob.name|escape}</p>
                 </div>
-                <button onclick="refreshVMDiscovery({$selectedJob.id})" class="px-4 py-2 rounded-md bg-sky-600 text-white text-sm font-semibold hover:bg-sky-500 flex items-center gap-2">
+                <button onclick="refreshVMDiscovery('{$selectedJob.job_id|escape:'javascript'}')" class="px-4 py-2 rounded-md bg-sky-600 text-white text-sm font-semibold hover:bg-sky-500 flex items-center gap-2">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
                     </svg>
@@ -192,7 +192,7 @@
         {if $hypervJobs|@count > 0}
         <div class="grid gap-4">
             {foreach $hypervJobs as $job}
-            <a href="index.php?m=cloudstorage&page=e3backup&view=hyperv&job_id={$job.id}" 
+            <a href="index.php?m=cloudstorage&page=e3backup&view=hyperv&job_id={$job.job_id}" 
                class="block rounded-xl border border-slate-800/80 bg-slate-900/70 p-6 hover:border-slate-700 transition group">
                 <div class="flex items-center justify-between">
                     <div class="flex items-center gap-4">
