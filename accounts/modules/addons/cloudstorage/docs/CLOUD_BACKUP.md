@@ -771,6 +771,22 @@ See `CLOUD_BACKUP_TASKS.md` for detailed phase breakdown.
 - Check `HelperController` encryption methods are working
 - Ensure worker has access to encryption key (if decrypting on worker)
 
+## UUIDv7 Big-Bang Reset
+
+Cloud backup jobs and runs use UUIDv7 as the sole identifier for job and run identity. The cutover is a big-bang reset: there is no migration from legacy numeric IDs.
+
+- **`s3_cloudbackup_jobs.job_id`**: `BINARY(16)` primary key (UUIDv7)
+- **`s3_cloudbackup_runs.run_id`**: `BINARY(16)` primary key (UUIDv7)
+- **`s3_cloudbackup_runs.job_id`**: `BINARY(16)` foreign key referencing `jobs.job_id`
+
+To apply the reset (drops and recreates all cloud backup job/run tables):
+
+```bash
+php accounts/modules/addons/cloudstorage/scripts/cloudbackup_uuidv7_bigbang_cutover.php
+```
+
+Script path: `accounts/modules/addons/cloudstorage/scripts/cloudbackup_uuidv7_bigbang_cutover.php`
+
 ## Related Documentation
 
 - [README.md](../README.md) - Main module documentation

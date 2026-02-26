@@ -1252,7 +1252,7 @@ function cloudstorage_activate() {
 
         if (!Capsule::schema()->hasTable('s3_cloudbackup_jobs')) {
             Capsule::schema()->create('s3_cloudbackup_jobs', function ($table) {
-            $table->increments('id');
+            $table->binary('job_id', 16)->primary();  // BINARY(16) UUIDv7 PK per design
             $table->unsignedInteger('client_id');
             $table->unsignedInteger('tenant_id')->nullable();
             $table->string('repository_id', 64)->nullable();
@@ -1297,9 +1297,8 @@ function cloudstorage_activate() {
 
         if (!Capsule::schema()->hasTable('s3_cloudbackup_runs')) {
             Capsule::schema()->create('s3_cloudbackup_runs', function ($table) {
-            $table->bigIncrements('id');
-            $table->string('run_uuid', 36)->nullable();
-            $table->unsignedInteger('job_id');
+            $table->binary('run_id', 16)->primary();  // BINARY(16) UUIDv7 PK
+            $table->binary('job_id', 16);              // BINARY(16) FK -> jobs.job_id
             $table->unsignedInteger('tenant_id')->nullable();
             $table->string('repository_id', 64)->nullable();
             $table->enum('trigger_type', ['manual', 'schedule', 'validation'])->default('manual');
@@ -1331,8 +1330,7 @@ function cloudstorage_activate() {
             $table->index('repository_id');
             $table->index('status');
             $table->index('started_at');
-            $table->index('run_uuid');
-            $table->foreign('job_id')->references('id')->on('s3_cloudbackup_jobs')->onDelete('cascade');
+            $table->foreign('job_id')->references('job_id')->on('s3_cloudbackup_jobs')->onDelete('cascade');
             });
         }
 
@@ -1357,7 +1355,7 @@ function cloudstorage_activate() {
         if (!Capsule::schema()->hasTable('s3_cloudbackup_run_events')) {
             Capsule::schema()->create('s3_cloudbackup_run_events', function ($table) {
                 $table->bigIncrements('id');
-                $table->unsignedBigInteger('run_id');
+                $table->binary('run_id', 16);  // BINARY(16) FK -> runs.run_id
                 $table->dateTime('ts'); // event timestamp (UTC)
                 $table->string('type', 32); // start|progress|warning|error|summary|cancelled|validation_*
                 $table->string('level', 16); // info|warn|error
@@ -1366,7 +1364,7 @@ function cloudstorage_activate() {
                 $table->mediumText('params_json'); // JSON string of params
                 $table->index(['run_id', 'ts']);
                 $table->index(['run_id', 'id']);
-                $table->foreign('run_id')->references('id')->on('s3_cloudbackup_runs')->onDelete('cascade');
+                $table->foreign('run_id')->references('run_id')->on('s3_cloudbackup_runs')->onDelete('cascade');
             });
             logModuleCall('cloudstorage', 'activate', [], 'Created s3_cloudbackup_run_events table', [], []);
         }
@@ -1994,14 +1992,14 @@ function cloudstorage_activate() {
         if (!Capsule::schema()->hasTable('s3_cloudbackup_run_logs')) {
             Capsule::schema()->create('s3_cloudbackup_run_logs', function ($table) {
                 $table->bigIncrements('id');
-                $table->unsignedBigInteger('run_id');
+                $table->binary('run_id', 16);  // BINARY(16) FK -> runs.run_id
                 $table->timestamp('created_at')->useCurrent();
                 $table->string('level', 16)->default('info');
                 $table->string('code', 64)->nullable();
                 $table->mediumText('message');
                 $table->json('details_json')->nullable();
                 $table->index(['run_id', 'created_at']);
-                $table->foreign('run_id')->references('id')->on('s3_cloudbackup_runs')->onDelete('cascade');
+                $table->foreign('run_id')->references('run_id')->on('s3_cloudbackup_runs')->onDelete('cascade');
             });
             logModuleCall('cloudstorage', 'activate', [], 'Created s3_cloudbackup_run_logs table', [], []);
         }
@@ -2010,7 +2008,7 @@ function cloudstorage_activate() {
         if (!Capsule::schema()->hasTable('s3_cloudbackup_run_commands')) {
             Capsule::schema()->create('s3_cloudbackup_run_commands', function ($table) {
                 $table->bigIncrements('id');
-                $table->unsignedBigInteger('run_id');
+                $table->binary('run_id', 16)->nullable();  // BINARY(16) FK -> runs.run_id; nullable for browse commands
                 $table->string('type', 64); // cancel|maintenance_quick|maintenance_full|restore
                 $table->json('payload_json')->nullable(); // target_path, manifest_id, etc.
                 $table->enum('status', ['pending','processing','completed','failed'])->default('pending');
@@ -2018,7 +2016,7 @@ function cloudstorage_activate() {
                 $table->timestamp('created_at')->useCurrent();
                 $table->timestamp('processed_at')->nullable();
                 $table->index(['run_id','status']);
-                $table->foreign('run_id')->references('id')->on('s3_cloudbackup_runs')->onDelete('cascade');
+                $table->foreign('run_id')->references('run_id')->on('s3_cloudbackup_runs')->onDelete('cascade');
             });
             logModuleCall('cloudstorage', 'activate', [], 'Created s3_cloudbackup_run_commands table', [], []);
         }
@@ -2033,12 +2031,14 @@ function cloudstorage_activate() {
                 logModuleCall('cloudstorage', 'activate', [], 'Added agent_uuid to s3_cloudbackup_run_commands', [], []);
             }
             // Make run_id nullable - browse/discovery commands don't have a run_id
-            // Note: This requires raw SQL as Laravel doesn't support modifying nullable on existing columns easily
+            // Skip if run_id is already BINARY(16) (UUID cutover schema)
             try {
-                Capsule::statement('ALTER TABLE s3_cloudbackup_run_commands MODIFY run_id BIGINT UNSIGNED NULL');
-                logModuleCall('cloudstorage', 'activate', [], 'Made run_id nullable in s3_cloudbackup_run_commands', [], []);
+                $col = Capsule::selectOne("SHOW COLUMNS FROM s3_cloudbackup_run_commands WHERE Field = 'run_id'");
+                if ($col && stripos((string) ($col->Type ?? ''), 'binary') === false) {
+                    Capsule::statement('ALTER TABLE s3_cloudbackup_run_commands MODIFY run_id BIGINT UNSIGNED NULL');
+                    logModuleCall('cloudstorage', 'activate', [], 'Made run_id nullable in s3_cloudbackup_run_commands', [], []);
+                }
             } catch (\Throwable $e) {
-                // Ignore if already nullable or if there's a constraint issue
                 logModuleCall('cloudstorage', 'activate', [], 'run_id nullable modification skipped: ' . $e->getMessage(), [], []);
             }
         }
@@ -2200,7 +2200,7 @@ function cloudstorage_activate() {
         if (!Capsule::schema()->hasTable('s3_hyperv_vms')) {
             Capsule::schema()->create('s3_hyperv_vms', function ($table) {
                 $table->increments('id');
-                $table->unsignedInteger('job_id');
+                $table->binary('job_id', 16);  // BINARY(16) FK -> jobs.job_id
                 $table->string('vm_name', 255);
                 $table->string('vm_guid', 64)->nullable();
                 $table->tinyInteger('generation')->default(2);
@@ -2213,7 +2213,7 @@ function cloudstorage_activate() {
 
                 $table->unique(['job_id', 'vm_guid'], 'uk_job_vm');
                 $table->index(['job_id', 'backup_enabled'], 'idx_job_enabled');
-                $table->foreign('job_id')->references('id')->on('s3_cloudbackup_jobs')->onDelete('cascade');
+                $table->foreign('job_id')->references('job_id')->on('s3_cloudbackup_jobs')->onDelete('cascade');
             });
             logModuleCall('cloudstorage', 'activate', [], 'Created s3_hyperv_vms table', [], []);
         }
@@ -2223,7 +2223,7 @@ function cloudstorage_activate() {
             Capsule::schema()->create('s3_hyperv_checkpoints', function ($table) {
                 $table->increments('id');
                 $table->unsignedInteger('vm_id');
-                $table->unsignedBigInteger('run_id')->nullable();
+                $table->binary('run_id', 16)->nullable();  // BINARY(16) FK -> runs.run_id
                 $table->string('checkpoint_id', 64);
                 $table->string('checkpoint_name', 255)->nullable();
                 $table->enum('checkpoint_type', ['Production', 'Standard', 'Reference'])->default('Production');
@@ -2244,7 +2244,7 @@ function cloudstorage_activate() {
             Capsule::schema()->create('s3_hyperv_backup_points', function ($table) {
                 $table->increments('id');
                 $table->unsignedInteger('vm_id');
-                $table->unsignedBigInteger('run_id');
+                $table->binary('run_id', 16);  // BINARY(16) FK -> runs.run_id
                 $table->enum('backup_type', ['Full', 'Incremental']);
                 $table->string('manifest_id', 128);
                 $table->unsignedInteger('parent_backup_id')->nullable();
@@ -2265,7 +2265,7 @@ function cloudstorage_activate() {
                 $table->index('run_id', 'idx_bp_run_id');
                 $table->index('has_warnings', 'idx_has_warnings');
                 $table->foreign('vm_id')->references('id')->on('s3_hyperv_vms')->onDelete('cascade');
-                $table->foreign('run_id')->references('id')->on('s3_cloudbackup_runs')->onDelete('cascade');
+                $table->foreign('run_id')->references('run_id')->on('s3_cloudbackup_runs')->onDelete('cascade');
             });
             logModuleCall('cloudstorage', 'activate', [], 'Created s3_hyperv_backup_points table', [], []);
         }
