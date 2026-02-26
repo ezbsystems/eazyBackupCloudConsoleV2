@@ -4,6 +4,7 @@ This document shows how to build the Windows agent on the Linux dev server and e
 
 ## Prerequisites
 - DB schema changes applied from `AGENT_SCHEMA.sql` (agents table, `local_agent` source type, optional `agent_id` on jobs).
+- Cloud backup uses **UUIDv7** for `job_id` and `run_id` at all API boundaries; stored as `BINARY(16)` in MySQL.
 - Agent API endpoints deployed:
   - `agent_fetch_jobs.php`
   - `agent_start_run.php`
@@ -77,6 +78,14 @@ From an elevated PowerShell or CMD in the directory containing the exe:
 e3-backup-agent.exe -config C:\ProgramData\E3Backup\agent.conf
 ```
 You should see startup logging and periodic job fetches. With a `local_agent` job present, it will enumerate it (current runner prototype fetches and logs jobs; fuller execution wiring follows in later steps).
+
+## UUIDv7 cutover verification
+
+See [CLOUDBACKUP_UUIDV7_CUTOVER.md](CLOUDBACKUP_UUIDV7_CUTOVER.md) for release notes and manual API smoke commands. Checklist:
+
+- [ ] Numeric `job_id` rejected by `cloudbackup_start_run.php`
+- [ ] Numeric `run_id` rejected by `agent_update_run.php`
+- [ ] UUID job/run flow passes create → run → progress → cancel
 
 ## Verify connectivity
 - DB: `s3_cloudbackup_agents.last_seen_at` updates on fetch calls.
