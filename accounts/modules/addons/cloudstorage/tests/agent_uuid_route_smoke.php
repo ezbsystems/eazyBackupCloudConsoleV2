@@ -48,6 +48,10 @@ foreach ($task13AuthChecks as $file => $requiredTokens) {
         }
     }
 }
+$browseSrc = file_get_contents(__DIR__ . '/../api/agent_report_browse.php');
+if (preg_match('/->first\(\[\s*\'id\',\s*\'agent_id\',/', $browseSrc) === 1) {
+    throw new RuntimeException('agent_report_browse.php still hard-requires legacy agent_id command ownership select');
+}
 
 $dashboardSrc = file_get_contents(__DIR__ . '/../pages/e3backup_dashboard.php');
 if (strpos($dashboardSrc, "j.agent_id") !== false || strpos($dashboardSrc, "a.id") !== false) {
