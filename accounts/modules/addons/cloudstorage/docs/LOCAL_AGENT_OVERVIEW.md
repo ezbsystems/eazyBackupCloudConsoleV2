@@ -40,8 +40,10 @@
 
 ## Database tables (new/extended)
 - `s3_cloudbackup_agents`: agent registry (id, client_id, agent_token, hostname, status, last_seen_at).
-- `s3_cloudbackup_jobs`: adds `engine`, `dest_type`, `source_paths_json`, `dest_bucket/prefix`, `dest_local_path`, `bucket_auto_create`, `schedule_json`, `retention_json`, `policy_json`, `bandwidth_limit_kbps`, `parallelism`, `encryption_mode`, `compression`, `local_include_glob`, `local_exclude_glob`, `local_bandwidth_limit_kbps`, `agent_id`, `last_policy_hash`, `hyperv_enabled`, `hyperv_config`.
-- `s3_cloudbackup_runs`: adds `engine`, `dest_type`, `dest_bucket/prefix`, `dest_local_path`, `stats_json`, `progress_json`, `log_ref`, `policy_snapshot`, `worker_host`, `agent_id`, `disk_manifests_json`, `cancel_requested`.
+- `s3_cloudbackup_jobs`: `job_id` (BINARY(16) PK), adds `engine`, `dest_type`, `source_paths_json`, `dest_bucket/prefix`, `dest_local_path`, `bucket_auto_create`, `schedule_json`, `retention_json`, `policy_json`, `bandwidth_limit_kbps`, `parallelism`, `encryption_mode`, `compression`, `local_include_glob`, `local_exclude_glob`, `local_bandwidth_limit_kbps`, `agent_id`, `last_policy_hash`, `hyperv_enabled`, `hyperv_config`.
+- `s3_cloudbackup_runs`: `run_id` (BINARY(16) PK), `job_id` (BINARY(16) FK), adds `engine`, `dest_type`, `dest_bucket/prefix`, `dest_local_path`, `stats_json`, `progress_json`, `log_ref`, `policy_snapshot`, `worker_host`, `agent_id`, `disk_manifests_json`, `cancel_requested`.
+
+**Job/Run identity**: At API boundaries, `job_id` and `run_id` are UUIDv7 strings (e.g. `018f7c8c-5cf0-7ad8-9f2b-8c58a7e7b2d6`). In MySQL they are stored as `BINARY(16)`.
 - `s3_cloudbackup_run_logs`: structured run log stream.
 - `s3_cloudbackup_run_events`: vendor-agnostic event feed.
 - `s3_cloudbackup_run_commands`: queued commands for agents (`cancel`, `maintenance_quick/full`, `restore`, `mount`, `nas_mount`, `nas_unmount`, `list_hyperv_vms`, `reset_agent`).
@@ -60,6 +62,14 @@
 - Commands: server enqueues in `s3_cloudbackup_run_commands`; agent polls `agent_poll_pending_commands.php`; completion via `agent_complete_command.php`. Supported: cancel, maintenance_quick/full, restore, nas_mount, nas_unmount, reset_agent.
 - Start (manual/UI): `cloudbackup_start_run.php` → `CloudBackupController::startRun()` inserts queued run, binds to agent for `local_agent`, optionally stores engine/dest fields; workers should ignore local_agent runs.
 - Reclaim/watchdog: reclaim stale in-progress for same agent within grace; watchdog cron fails truly stale runs.
+
+### UUIDv7 Cutover Verification
+
+See [CLOUDBACKUP_UUIDV7_CUTOVER.md](CLOUDBACKUP_UUIDV7_CUTOVER.md) for release notes and manual API smoke commands. Verification checklist:
+
+- [ ] Numeric `job_id` rejected by `cloudbackup_start_run.php`
+- [ ] Numeric `run_id` rejected by `agent_update_run.php`
+- [ ] UUID job/run flow passes create → run → progress → cancel
 
 ## Scheduling (Local Agent jobs)
 - Scheduled runs are created by the **scheduler cron**, not by the agent.

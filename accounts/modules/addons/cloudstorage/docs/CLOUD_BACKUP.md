@@ -114,6 +114,17 @@ Per-client notification defaults.
 - `default_timezone` - Timezone string
 - `per_client_max_concurrent_jobs` - Integer (nullable) - Per-client concurrency limit override
 
+**API boundary**: At all API boundaries, `job_id` and `run_id` are UUIDv7 strings; in MySQL they are stored as `BINARY(16)`.
+
+## UUIDv7 Cutover
+
+**Release notes**: This release uses a **big-bang reset** for cloud backup job and run identities. There is **no backward compatibility** with numeric IDs. A **strict minimum agent version** is required—old agents are blocked. The API contract is **UUID-only**: all `job_id` and `run_id` parameters must be UUIDv7 strings. See [CLOUDBACKUP_UUIDV7_CUTOVER.md](CLOUDBACKUP_UUIDV7_CUTOVER.md) for full release notes and manual verification.
+
+**Verification checklist**:
+- [ ] Numeric `job_id` rejected by `cloudbackup_start_run.php`
+- [ ] Numeric `run_id` rejected by `agent_update_run.php`
+- [ ] UUID job/run flow passes create → run → progress → cancel
+
 ## File Structure
 
 ### Core Module Files
@@ -307,28 +318,28 @@ All endpoints require WHMCS client authentication and return JSON responses.
 
 ### `api/cloudbackup_update_job.php`
 **Method**: POST  
-**Parameters**: Same as create, plus `job_id`
+**Parameters**: Same as create, plus `job_id` (UUIDv7 string)
 
 ### `api/cloudbackup_delete_job.php`
 **Method**: POST  
-**Parameters**: `job_id`
+**Parameters**: `job_id` (UUIDv7 string)
 
 ### `api/cloudbackup_start_run.php`
 **Method**: POST  
-**Parameters**: `job_id`, `trigger_type` (optional)
+**Parameters**: `job_id` (UUIDv7 string), `trigger_type` (optional)
 
 ### `api/cloudbackup_cancel_run.php`
 **Method**: POST  
-**Parameters**: `run_id`
+**Parameters**: `run_id` (UUIDv7 string)
 
 ### `api/cloudbackup_progress.php`
 **Method**: GET  
-**Parameters**: `run_id`  
+**Parameters**: `run_id` (UUIDv7 string)  
 **Returns**: JSON with current progress data
 
 ### `api/cloudbackup_get_run_events.php`
 **Method**: GET  
-**Parameters**: `run_id` (required), `since_id` (optional), `limit` (optional; default 250, max 1000)  
+**Parameters**: `run_id` (UUIDv7 string, required), `since_id` (optional), `limit` (optional; default 250, max 1000)  
 **Returns**: JSON array of sanitized, user‑facing events for the run. Preferred for all client‑visible logs.
 
 ### `api/cloudbackup_get_run_logs.php`
