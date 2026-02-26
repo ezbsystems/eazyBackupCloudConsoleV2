@@ -16,14 +16,14 @@ function respond(array $data, int $httpCode = 200): void
 }
 
 // Agent authentication
-$agentId = $_SERVER['HTTP_X_AGENT_ID'] ?? ($_POST['agent_id'] ?? null);
+$agentUuid = $_SERVER['HTTP_X_AGENT_UUID'] ?? ($_POST['agent_uuid'] ?? null);
 $agentToken = $_SERVER['HTTP_X_AGENT_TOKEN'] ?? ($_POST['agent_token'] ?? null);
-if (!$agentId || !$agentToken) {
+if (!$agentUuid || !$agentToken) {
     respond(['status' => 'fail', 'message' => 'Missing agent headers'], 401);
 }
 
 $agent = Capsule::table('s3_cloudbackup_agents')
-    ->where('id', $agentId)
+    ->where('agent_uuid', $agentUuid)
     ->first();
 
 if (!$agent || $agent->status !== 'active' || $agent->agent_token !== $agentToken) {
@@ -32,7 +32,7 @@ if (!$agent || $agent->status !== 'active' || $agent->agent_token !== $agentToke
 
 // Touch last_seen_at
 Capsule::table('s3_cloudbackup_agents')
-    ->where('id', $agentId)
+    ->where('agent_uuid', $agentUuid)
     ->update(['last_seen_at' => Capsule::raw('NOW()')]);
 
 $bodyRaw = file_get_contents('php://input');
@@ -73,7 +73,7 @@ $cmd = Capsule::table('s3_cloudbackup_run_commands')
     ->where('id', $commandId)
     ->first(['id', 'agent_id', 'type', 'status']);
 
-if (!$cmd || (int) $cmd->agent_id !== (int) $agentId) {
+if (!$cmd || (int) $cmd->agent_id !== (int) ($agent->id ?? 0)) {
     respond(['status' => 'fail', 'message' => 'Command not found'], 404);
 }
 $validTypes = ['browse_directory', 'list_hyperv_vms', 'list_hyperv_vm_details', 'browse_snapshot', 'list_disks', 'fetch_log_tail'];

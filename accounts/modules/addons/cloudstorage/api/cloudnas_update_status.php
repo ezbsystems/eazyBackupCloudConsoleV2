@@ -19,24 +19,25 @@ function respond(array $data, int $httpCode = 200): void
     exit;
 }
 
-// Authenticate agent
-$agentId = $_SERVER['HTTP_X_AGENT_ID'] ?? ($_POST['agent_id'] ?? null);
-$agentToken = $_SERVER['HTTP_X_AGENT_TOKEN'] ?? ($_POST['agent_token'] ?? null);
+// Read JSON input first so auth can optionally consume body fallback fields.
+$inputRaw = file_get_contents('php://input');
+$input = $inputRaw ? json_decode($inputRaw, true) : [];
 
-if (!$agentId || !$agentToken) {
+// Authenticate agent
+$agentUuid = $_SERVER['HTTP_X_AGENT_UUID'] ?? ($_POST['agent_uuid'] ?? ($input['agent_uuid'] ?? null));
+$agentToken = $_SERVER['HTTP_X_AGENT_TOKEN'] ?? ($_POST['agent_token'] ?? ($input['agent_token'] ?? null));
+
+if (!$agentUuid || !$agentToken) {
     respond(['status' => 'fail', 'message' => 'Missing agent headers'], 401);
 }
 
 $agent = Capsule::table('s3_cloudbackup_agents')
-    ->where('id', $agentId)
+    ->where('agent_uuid', $agentUuid)
     ->first();
 
 if (!$agent || $agent->status !== 'active' || $agent->agent_token !== $agentToken) {
     respond(['status' => 'fail', 'message' => 'Unauthorized'], 401);
 }
-
-// Get JSON input
-$input = json_decode(file_get_contents('php://input'), true);
 
 if (!$input) {
     respond(['status' => 'error', 'message' => 'Invalid request']);
@@ -60,7 +61,7 @@ try {
     // Verify mount belongs to this agent
     $mount = Capsule::table('s3_cloudnas_mounts')
         ->where('id', $mountId)
-        ->where('agent_id', $agentId)
+        ->where('agent_id', (int) ($agent->id ?? 0))
         ->first();
 
     if (!$mount) {

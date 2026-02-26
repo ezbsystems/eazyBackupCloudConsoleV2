@@ -21,6 +21,34 @@ foreach ($apiChecks as $file => $forbiddenTokens) {
     }
 }
 
+$task13AuthChecks = [
+    'agent_fetch_jobs.php' => ['HTTP_X_AGENT_UUID', "where('agent_uuid'"],
+    'agent_poll_commands.php' => ['HTTP_X_AGENT_UUID', "where('agent_uuid'"],
+    'agent_start_run.php' => ['HTTP_X_AGENT_UUID', "where('agent_uuid'"],
+    'agent_report_browse.php' => ['HTTP_X_AGENT_UUID', "where('agent_uuid'"],
+    'agent_poll_repo_operations.php' => ['HTTP_X_AGENT_UUID', "where('agent_uuid'"],
+    'agent_complete_repo_operation.php' => ['HTTP_X_AGENT_UUID', "where('agent_uuid'"],
+    'cloudnas_update_status.php' => ['HTTP_X_AGENT_UUID', "where('agent_uuid'"],
+    'agent_disable.php' => ["\$_POST['agent_uuid']", "where('agent_uuid'"],
+];
+foreach ($task13AuthChecks as $file => $requiredTokens) {
+    $src = file_get_contents(__DIR__ . '/../api/' . $file);
+    if (strpos($src, 'HTTP_X_AGENT_ID') !== false || strpos($src, "\$_SERVER['HTTP_X_AGENT_ID']") !== false) {
+        throw new RuntimeException("$file still accepts legacy HTTP_X_AGENT_ID");
+    }
+    if (strpos($src, "\$_POST['agent_id']") !== false) {
+        throw new RuntimeException("$file still accepts legacy \$_POST['agent_id']");
+    }
+    if (preg_match('/where\(\'id\',\s*\$agentId\)/', $src) === 1) {
+        throw new RuntimeException("$file still performs direct auth lookup by numeric agent id");
+    }
+    foreach ($requiredTokens as $token) {
+        if (strpos($src, $token) === false) {
+            throw new RuntimeException("$file missing UUID auth token: $token");
+        }
+    }
+}
+
 $dashboardSrc = file_get_contents(__DIR__ . '/../pages/e3backup_dashboard.php');
 if (strpos($dashboardSrc, "j.agent_id") !== false || strpos($dashboardSrc, "a.id") !== false) {
     throw new RuntimeException('e3backup_dashboard.php still contains numeric job->agent join');

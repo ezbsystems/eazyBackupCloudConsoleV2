@@ -22,13 +22,13 @@ if (!$ca->isLoggedIn()) {
 }
 $clientId = $ca->getUserID();
 
-$agentId = $_POST['agent_id'] ?? null;
+$agentUuid = $_POST['agent_uuid'] ?? null;
 $revoke = isset($_POST['revoke']) ? (bool)$_POST['revoke'] : false;
-if (!$agentId) {
-    respond(['status' => 'fail', 'message' => 'agent_id is required'], 400);
+if (!$agentUuid) {
+    respond(['status' => 'fail', 'message' => 'agent_uuid is required'], 400);
 }
 
-$agent = Capsule::table('s3_cloudbackup_agents')->where('id', $agentId)->first();
+$agent = Capsule::table('s3_cloudbackup_agents')->where('agent_uuid', $agentUuid)->first();
 if (!$agent || (int)$agent->client_id !== (int)$clientId) {
     respond(['status' => 'fail', 'message' => 'Not found or unauthorized'], 403);
 }
@@ -38,7 +38,7 @@ if ($revoke) {
     $updates['agent_token'] = bin2hex(random_bytes(20));
 }
 
-Capsule::table('s3_cloudbackup_agents')->where('id', $agentId)->update($updates);
+Capsule::table('s3_cloudbackup_agents')->where('agent_uuid', $agentUuid)->update($updates);
 
-respond(['status' => 'success', 'agent_id' => $agentId, 'revoked' => $revoke]);
+respond(['status' => 'success', 'agent_uuid' => $agentUuid, 'revoked' => $revoke]);
 
