@@ -12,6 +12,7 @@ use WHMCS\ClientArea;
 use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 
 $ca = new ClientArea();
 if (!$ca->isLoggedIn()) {
@@ -20,14 +21,18 @@ if (!$ca->isLoggedIn()) {
 }
 
 $clientId = $ca->getUserID();
-$jobId = isset($_GET['job_id']) ? (int) $_GET['job_id'] : 0;
+$jobId = isset($_GET['job_id']) ? trim((string) $_GET['job_id']) : '';
 $limit = isset($_GET['limit']) ? (int) $_GET['limit'] : 50;
 if ($limit <= 0 || $limit > 200) {
     $limit = 50;
 }
 
-if ($jobId <= 0) {
-    (new JsonResponse(['status' => 'fail', 'message' => 'job_id is required'], 200))->send();
+if ($jobId === '' || !UuidBinary::isUuid($jobId)) {
+    (new JsonResponse([
+        'status' => 'fail',
+        'code' => 'invalid_identifier_format',
+        'message' => 'job_id must be a valid UUID.',
+    ], 400))->send();
     exit;
 }
 
@@ -68,22 +73,33 @@ if ($hasRunRepositoryCol && $hasJobRepositoryCol) {
     $repositoryExpr = 'j.repository_id as repository_id';
 }
 
+$hasRunIdCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
+$hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+$jobRunJoin = $hasJobIdPk
+    ? ['r.job_id', '=', 'j.job_id']
+    : ['r.job_id', '=', 'j.id'];
+$jobIdNorm = UuidBinary::normalize($jobId);
+
 $runs = Capsule::table('s3_cloudbackup_runs as r')
-    ->join('s3_cloudbackup_jobs as j', 'r.job_id', '=', 'j.id')
-    ->where('r.job_id', $jobId)
-    ->orderBy('r.id', 'desc')
+    ->join('s3_cloudbackup_jobs as j', $jobRunJoin[0], $jobRunJoin[1], $jobRunJoin[2])
+    ->whereRaw('r.job_id = ' . UuidBinary::toDbExpr($jobIdNorm))
+    ->orderBy($hasRunIdCol ? 'r.started_at' : 'r.id', 'desc')
     ->limit($limit)
-    ->get([
-        'r.id',
-        'r.status',
-        'r.started_at',
-        'r.finished_at',
-        'r.log_ref',
-        'r.engine',
-        'r.stats_json',
-        Capsule::raw($tenantExpr),
-        Capsule::raw($repositoryExpr),
-    ]);
+    ->get(array_merge(
+        $hasRunIdCol
+            ? [Capsule::raw('BIN_TO_UUID(r.run_id) as run_id')]
+            : ['r.id as run_id'],
+        [
+            'r.status',
+            'r.started_at',
+            'r.finished_at',
+            'r.log_ref',
+            'r.engine',
+            'r.stats_json',
+            Capsule::raw($tenantExpr),
+            Capsule::raw($repositoryExpr),
+        ]
+    ));
 
 $out = [];
 foreach ($runs as $r) {
@@ -97,7 +113,7 @@ foreach ($runs as $r) {
     }
 
     $out[] = [
-        'id' => (int) $r->id,
+        'id' => (string) ($r->run_id ?? ''),
         'status' => (string) $r->status,
         'started_at' => (string) ($r->started_at ?? ''),
         'finished_at' => (string) ($r->finished_at ?? ''),

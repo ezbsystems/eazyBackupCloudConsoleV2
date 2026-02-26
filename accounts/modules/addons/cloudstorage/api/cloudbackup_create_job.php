@@ -22,6 +22,7 @@ use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupBootstrapService;
 use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionPolicyService;
 use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionSourceService;
 use WHMCS\Module\Addon\CloudStorage\Client\RepositoryService;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 use WHMCS\Database\Capsule;
 
 function respondJson(array $data, int $status = 200): void
@@ -484,8 +485,8 @@ if ($retentionJson !== null && $retentionJson !== '') {
 
 $result = CloudBackupController::createJob($jobData, $encryptionKey);
 if (is_array($result) && ($result['status'] ?? '') === 'success') {
-    $jobId = (int) ($result['job_id'] ?? 0);
-    if ($jobId > 0 && ($jobData['engine'] ?? '') === 'hyperv') {
+    $jobId = $result['job_id'] ?? null;
+    if ($jobId && ($jobData['engine'] ?? '') === 'hyperv') {
         try {
             if (Capsule::schema()->hasTable('s3_hyperv_vms')) {
                 $vmList = [];
@@ -509,13 +510,14 @@ if (is_array($result) && ($result['status'] ?? '') === 'success') {
                         }
                     }
                 }
-                if (!empty($vmList)) {
+                if (!empty($vmList) && UuidBinary::isUuid($jobId)) {
+                    $jobIdDbExpr = UuidBinary::toDbExpr(UuidBinary::normalize($jobId));
                     Capsule::table('s3_hyperv_vms')
-                        ->where('job_id', $jobId)
+                        ->whereRaw('job_id = ' . $jobIdDbExpr)
                         ->update(['backup_enabled' => 0]);
                     foreach ($vmList as $vm) {
                         $existing = Capsule::table('s3_hyperv_vms')
-                            ->where('job_id', $jobId)
+                            ->whereRaw('job_id = ' . $jobIdDbExpr)
                             ->where('vm_guid', $vm['id'])
                             ->first();
                         if ($existing) {
@@ -528,7 +530,7 @@ if (is_array($result) && ($result['status'] ?? '') === 'success') {
                                 ]);
                         } else {
                             Capsule::table('s3_hyperv_vms')->insert([
-                                'job_id' => $jobId,
+                                'job_id' => Capsule::raw($jobIdDbExpr),
                                 'vm_name' => $vm['name'],
                                 'vm_guid' => $vm['id'],
                                 'backup_enabled' => 1,
@@ -543,7 +545,7 @@ if (is_array($result) && ($result['status'] ?? '') === 'success') {
             logModuleCall('cloudstorage', 'create_job_hyperv_vms', ['job_id' => $jobId], $e->getMessage());
         }
     }
-    if ($jobId > 0 && $sourceType === 'local_agent' && in_array($jobData['engine'] ?? '', ['kopia', 'disk_image', 'hyperv'], true) && !empty($repositoryId)) {
+    if ($jobId && $sourceType === 'local_agent' && in_array($jobData['engine'] ?? '', ['kopia', 'disk_image', 'hyperv'], true) && !empty($repositoryId)) {
         KopiaRetentionSourceService::ensureRepoSourceForJob($jobId);
     }
 }

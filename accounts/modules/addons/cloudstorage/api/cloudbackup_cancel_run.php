@@ -11,6 +11,7 @@ use WHMCS\ClientArea;
 use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 
 $ca = new ClientArea();
 if (!$ca->isLoggedIn()) {
@@ -37,14 +38,14 @@ if (is_null($product) || empty($product->username)) {
     exit();
 }
 
-$runIdentifier = $_POST['run_id'] ?? $_POST['run_uuid'] ?? null;
+$runIdentifier = trim((string) ($_POST['run_id'] ?? $_POST['run_uuid'] ?? ''));
 $forceCancel = isset($_POST['force']) ? filter_var($_POST['force'], FILTER_VALIDATE_BOOLEAN) : false;
-if (!$runIdentifier) {
-    $jsonData = [
+if ($runIdentifier === '' || !UuidBinary::isUuid($runIdentifier)) {
+    $response = new JsonResponse([
         'status' => 'fail',
-        'message' => 'Run ID is required.'
-    ];
-    $response = new JsonResponse($jsonData, 200);
+        'code' => 'invalid_identifier_format',
+        'message' => 'run_id must be a valid UUID.',
+    ], 400);
     $response->send();
     exit();
 }

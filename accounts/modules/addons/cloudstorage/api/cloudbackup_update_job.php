@@ -22,6 +22,7 @@ use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionPolicyService;
 use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionRoutingService;
 use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionSourceService;
 use WHMCS\Module\Addon\CloudStorage\Client\RepositoryService;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 use WHMCS\Database\Capsule;
 
 /**
@@ -141,13 +142,13 @@ if (is_null($product) || empty($product->username)) {
     exit();
 }
 
-$jobId = $_POST['job_id'] ?? null;
-if (!$jobId) {
-    $jsonData = [
+$jobId = isset($_POST['job_id']) ? trim((string) $_POST['job_id']) : '';
+if ($jobId === '' || !UuidBinary::isUuid($jobId)) {
+    $response = new JsonResponse([
         'status' => 'fail',
-        'message' => 'Job ID is required.'
-    ];
-    $response = new JsonResponse($jsonData, 200);
+        'code' => 'invalid_identifier_format',
+        'message' => 'job_id must be a valid UUID.',
+    ], 400);
     $response->send();
     exit();
 }
@@ -183,7 +184,7 @@ if (empty($encryptionKey)) {
 }
 
 // Load existing job for merge/ownership check
-$existingJob = CloudBackupController::getJob((int)$jobId, $loggedInUserId);
+$existingJob = CloudBackupController::getJob($jobId, $loggedInUserId);
 if (!$existingJob) {
     $response = new JsonResponse(['status' => 'fail', 'message' => 'Job not found or access denied'], 200);
     $response->send();
@@ -197,7 +198,7 @@ if ($existingRepositoryId !== '' && isset($_POST['repository_id']) && trim((stri
 }
 
 // MSP tenant authorization check
-$accessCheck = MspController::validateJobAccess((int)$jobId, $loggedInUserId);
+$accessCheck = MspController::validateJobAccess($jobId, $loggedInUserId);
 if (!$accessCheck['valid']) {
     $response = new JsonResponse([
         'status' => 'fail',
@@ -343,7 +344,7 @@ if ($isLocalAgentJob) {
         } elseif ($repoStatus === 'skip' || !RepositoryService::isFeatureReady()) {
             logModuleCall('cloudstorage', 'cloudbackup_update_job_repository_fallback', [
                 'client_id' => $loggedInUserId,
-                'job_id' => (int) $jobId,
+                'job_id' => $jobId,
                 'agent_uuid' => (string) $agentUuidForJob,
             ], $repoRes);
             $repositoryRecord = null;
@@ -750,8 +751,7 @@ if (isset($updateData['retention_json']) && $updateData['retention_json'] !== nu
 
 $result = CloudBackupController::updateJob($jobId, $loggedInUserId, $updateData, $encryptionKey);
 if (is_array($result) && ($result['status'] ?? '') === 'success') {
-    $jobIdInt = (int) $jobId;
-    if ($jobIdInt > 0 && (($updateData['engine'] ?? ($existingJob['engine'] ?? '')) === 'hyperv')) {
+    if ((($updateData['engine'] ?? ($existingJob['engine'] ?? '')) === 'hyperv')) {
         try {
             if (Capsule::schema()->hasTable('s3_hyperv_vms')) {
                 $vmList = [];
@@ -776,12 +776,13 @@ if (is_array($result) && ($result['status'] ?? '') === 'success') {
                     }
                 }
                 if (!empty($vmList)) {
+                    $jobIdDbExpr = UuidBinary::toDbExpr(UuidBinary::normalize($jobId));
                     Capsule::table('s3_hyperv_vms')
-                        ->where('job_id', $jobIdInt)
+                        ->whereRaw('job_id = ' . $jobIdDbExpr)
                         ->update(['backup_enabled' => 0]);
                     foreach ($vmList as $vm) {
                         $existing = Capsule::table('s3_hyperv_vms')
-                            ->where('job_id', $jobIdInt)
+                            ->whereRaw('job_id = ' . $jobIdDbExpr)
                             ->where('vm_guid', $vm['id'])
                             ->first();
                         if ($existing) {
@@ -794,7 +795,7 @@ if (is_array($result) && ($result['status'] ?? '') === 'success') {
                                 ]);
                         } else {
                             Capsule::table('s3_hyperv_vms')->insert([
-                                'job_id' => $jobIdInt,
+                                'job_id' => Capsule::raw($jobIdDbExpr),
                                 'vm_name' => $vm['name'],
                                 'vm_guid' => $vm['id'],
                                 'backup_enabled' => 1,
@@ -806,14 +807,14 @@ if (is_array($result) && ($result['status'] ?? '') === 'success') {
                 }
             }
         } catch (\Throwable $e) {
-            logModuleCall('cloudstorage', 'update_job_hyperv_vms', ['job_id' => $jobIdInt], $e->getMessage());
+            logModuleCall('cloudstorage', 'update_job_hyperv_vms', ['job_id' => $jobId], $e->getMessage());
         }
     }
     $effSourceType = $updateData['source_type'] ?? ($existingJob['source_type'] ?? '');
     $effEngine = $updateData['engine'] ?? ($existingJob['engine'] ?? '');
     $effRepoId = $updateData['repository_id'] ?? ($existingJob['repository_id'] ?? '');
     if ($effSourceType === 'local_agent' && in_array($effEngine, ['kopia', 'disk_image', 'hyperv'], true) && trim((string) $effRepoId) !== '') {
-        KopiaRetentionSourceService::ensureRepoSourceForJob($jobIdInt);
+        KopiaRetentionSourceService::ensureRepoSourceForJob($jobId);
     }
 }
 
@@ -840,7 +841,7 @@ if (is_array($result) && ($result['status'] ?? 'fail') === 'success') {
     // Destination prefix is optional (may be blank).
 
     try {
-        $lcRes = \WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController::manageLifecycleForJob((int)$jobId);
+        $lcRes = \WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController::manageLifecycleForJob($jobId);
         if ($newRetentionMode === 'keep_days' && (int)$newRetentionValue > 0) {
             $lcStatus = is_array($lcRes) ? ($lcRes['status'] ?? 'fail') : 'fail';
             if ($lcStatus !== 'success') {
