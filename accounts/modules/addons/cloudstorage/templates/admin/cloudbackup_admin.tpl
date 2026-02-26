@@ -945,7 +945,7 @@ function loadAgentDiagnostics(agentUuid) {
             }
             const lines = data.events.map(function (e) {
                 return '[' + (e.ts || '-') + '] [' + (e.level || 'info').toUpperCase() + '] '
-                    + (e.code || 'EVENT') + ' (run #' + (e.run_id || '-') + '): ' + (e.message || '');
+                    + (e.code || 'EVENT') + ' (run: ' + (e.run_id || '-') + '): ' + (e.message || '');
             });
             diagnostics.textContent = lines.join('\n');
         })

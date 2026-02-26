@@ -297,10 +297,31 @@ class CloudBackupAdminController {
     public static function getAllRuns($filters = [])
     {
         try {
+            $hasRunIdBinary = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
             $query = Capsule::table('s3_cloudbackup_runs')
                 ->join('s3_cloudbackup_jobs', 's3_cloudbackup_runs.job_id', '=', 's3_cloudbackup_jobs.job_id')
-                ->join('tblclients', 's3_cloudbackup_jobs.client_id', '=', 'tblclients.id')
-                ->select(
+                ->join('tblclients', 's3_cloudbackup_jobs.client_id', '=', 'tblclients.id');
+            if ($hasRunIdBinary) {
+                $query->select(
+                    Capsule::raw('BIN_TO_UUID(s3_cloudbackup_runs.run_id) as run_id'),
+                    's3_cloudbackup_runs.status',
+                    's3_cloudbackup_runs.started_at',
+                    's3_cloudbackup_runs.finished_at',
+                    's3_cloudbackup_runs.bytes_transferred',
+                    's3_cloudbackup_runs.progress_pct',
+                    's3_cloudbackup_runs.trigger_type',
+                    's3_cloudbackup_runs.log_excerpt',
+                    's3_cloudbackup_runs.validation_log_excerpt',
+                    's3_cloudbackup_runs.created_at',
+                    's3_cloudbackup_runs.cancel_requested',
+                    's3_cloudbackup_jobs.name as job_name',
+                    's3_cloudbackup_jobs.client_id',
+                    'tblclients.firstname',
+                    'tblclients.lastname',
+                    'tblclients.email'
+                );
+            } else {
+                $query->select(
                     's3_cloudbackup_runs.*',
                     's3_cloudbackup_jobs.name as job_name',
                     's3_cloudbackup_jobs.client_id',
@@ -308,13 +329,18 @@ class CloudBackupAdminController {
                     'tblclients.lastname',
                     'tblclients.email'
                 );
+            }
 
             if (isset($filters['client_id']) && $filters['client_id']) {
                 $query->where('s3_cloudbackup_jobs.client_id', $filters['client_id']);
             }
 
             if (isset($filters['job_id']) && $filters['job_id']) {
-                $query->where('s3_cloudbackup_runs.job_id', $filters['job_id']);
+                if ($hasRunIdBinary && UuidBinary::isUuid($filters['job_id'])) {
+                    $query->whereRaw('s3_cloudbackup_runs.job_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($filters['job_id'])));
+                } else {
+                    $query->where('s3_cloudbackup_runs.job_id', $filters['job_id']);
+                }
             }
 
             if (isset($filters['agent_id']) && $filters['agent_id']) {
