@@ -252,10 +252,12 @@ class CloudBackupAdminController {
     public static function getAllJobs($filters = [])
     {
         try {
+            $hasJobIdBinary = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
             $query = Capsule::table('s3_cloudbackup_jobs')
                 ->join('tblclients', 's3_cloudbackup_jobs.client_id', '=', 'tblclients.id')
                 ->select(
                     's3_cloudbackup_jobs.*',
+                    Capsule::raw($hasJobIdBinary ? 'BIN_TO_UUID(s3_cloudbackup_jobs.job_id) as job_id_uuid' : 'NULL as job_id_uuid'),
                     'tblclients.firstname',
                     'tblclients.lastname',
                     'tblclients.email'
@@ -280,7 +282,11 @@ class CloudBackupAdminController {
             $results = $query->orderBy('s3_cloudbackup_jobs.created_at', 'desc')->get();
             // Convert stdClass objects to arrays for Smarty compatibility
             return array_map(function($item) {
-                return (array) $item;
+                $row = (array) $item;
+                if (!empty($row['job_id_uuid'])) {
+                    $row['job_id'] = (string) $row['job_id_uuid'];
+                }
+                return $row;
             }, $results->toArray());
         } catch (\Exception $e) {
             logModuleCall('cloudstorage', 'getAllJobs', $filters, $e->getMessage());
