@@ -530,28 +530,35 @@ class CloudBackupController {
     }
 
     /**
-     * Get a single run by ID with ownership verification
+     * Get a single run by UUID with ownership verification.
+     * UUID-only lookup: non-UUID runId returns null (caller handles error response).
      *
-     * @param int $runId
+     * @param string $runId Run identifier (must be valid UUID)
      * @param int $clientId
      * @return array|null
      */
     public static function getRun($runId, $clientId)
     {
         try {
-            $runIdNormalized = null;
-            if (UuidBinary::isUuid($runId)) {
-                $runIdNormalized = UuidBinary::normalize($runId);
+            if (!UuidBinary::isUuid($runId)) {
+                return null;
             }
+            $runIdNormalized = UuidBinary::normalize($runId);
+
+            $hasRunIdCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
+            $hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+            $jobRunJoin = $hasJobIdPk
+                ? ['s3_cloudbackup_runs.job_id', '=', 's3_cloudbackup_jobs.job_id']
+                : ['s3_cloudbackup_runs.job_id', '=', 's3_cloudbackup_jobs.id'];
 
             $query = Capsule::table('s3_cloudbackup_runs')
-                ->join('s3_cloudbackup_jobs', 's3_cloudbackup_runs.job_id', '=', 's3_cloudbackup_jobs.id')
+                ->join('s3_cloudbackup_jobs', $jobRunJoin[0], $jobRunJoin[1], $jobRunJoin[2])
                 ->where('s3_cloudbackup_jobs.client_id', $clientId);
 
-            if ($runIdNormalized !== null) {
-                $query->where('s3_cloudbackup_runs.run_uuid', $runIdNormalized);
+            if ($hasRunIdCol) {
+                $query->whereRaw('s3_cloudbackup_runs.run_id = ' . UuidBinary::toDbExpr($runIdNormalized));
             } else {
-                $query->where('s3_cloudbackup_runs.id', $runId);
+                $query->where('s3_cloudbackup_runs.run_uuid', $runIdNormalized);
             }
 
             $run = $query->select('s3_cloudbackup_runs.*')->first();
@@ -1597,16 +1604,21 @@ class CloudBackupController {
     }
 
     /**
-     * Generate a UUIDv4 (local fallback to avoid reliance on global helpers).
+     * Generate a UUIDv7 string (time-ordered, RFC 9562).
      *
      * @return string
      */
     public static function generateUuid(): string
     {
-        $data = random_bytes(16);
-        $data[6] = chr((ord($data[6]) & 0x0f) | 0x40);
-        $data[8] = chr((ord($data[8]) & 0x3f) | 0x80);
-        return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
+        $tsMs = (int) (microtime(true) * 1000);
+        $ts48 = $tsMs & 0x0000ffffffffffff;
+        $rand = random_bytes(10);
+        $bytes = pack('Nn', ($ts48 >> 16) & 0xffffffff, $ts48 & 0xffff)
+            . chr((ord($rand[0]) & 0x0f) | 0x70)
+            . $rand[1]
+            . chr((ord($rand[2]) & 0x3f) | 0x80)
+            . substr($rand, 3, 7);
+        return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($bytes), 4));
     }
 }
 
