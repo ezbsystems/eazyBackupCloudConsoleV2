@@ -44,6 +44,7 @@ if ($type === 'reset_agent' || $type === 'refresh_inventory') {
     }
 } else {
     $hasRunIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
+    $hasRunUuidCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_uuid');
     if ($runId === '' && $agentUuid !== '') {
         if ($hasRunIdPk) {
             $runRow = Capsule::table('s3_cloudbackup_runs')
@@ -61,23 +62,6 @@ if ($type === 'reset_agent' || $type === 'refresh_inventory') {
                 ->value('id');
         }
     }
-    if ($runId !== '' && $agentUuid !== '') {
-        if ($hasRunIdPk && UuidBinary::isUuid($runId)) {
-            $match = Capsule::table('s3_cloudbackup_runs')
-                ->whereRaw('run_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($runId)))
-                ->where('agent_uuid', $agentUuid)
-                ->exists();
-        } else {
-            $match = Capsule::table('s3_cloudbackup_runs')
-                ->where('id', $runId)
-                ->where('agent_uuid', $agentUuid)
-                ->exists();
-        }
-        if (!$match) {
-            (new JsonResponse(['status' => 'fail', 'message' => 'run_id does not belong to selected agent'], 200))->send();
-            exit;
-        }
-    }
     if ($runId === '') {
         (new JsonResponse(['status' => 'fail', 'message' => 'No eligible run found for maintenance command'], 200))->send();
         exit;
@@ -85,6 +69,29 @@ if ($type === 'reset_agent' || $type === 'refresh_inventory') {
     if (!UuidBinary::isUuid($runId)) {
         (new JsonResponse(['status' => 'fail', 'code' => 'invalid_identifier_format', 'message' => 'run_id must be a valid UUID'], 400))->send();
         exit;
+    }
+    $runIdNorm = UuidBinary::normalize($runId);
+    if ($runId !== '' && $agentUuid !== '') {
+        if ($hasRunIdPk) {
+            $match = Capsule::table('s3_cloudbackup_runs')
+                ->whereRaw('run_id = ' . UuidBinary::toDbExpr($runIdNorm))
+                ->where('agent_uuid', $agentUuid)
+                ->exists();
+        } elseif ($hasRunUuidCol) {
+            $match = Capsule::table('s3_cloudbackup_runs')
+                ->where('run_uuid', $runIdNorm)
+                ->where('agent_uuid', $agentUuid)
+                ->exists();
+        } else {
+            $match = Capsule::table('s3_cloudbackup_runs')
+                ->where('id', $runIdNorm)
+                ->where('agent_uuid', $agentUuid)
+                ->exists();
+        }
+        if (!$match) {
+            (new JsonResponse(['status' => 'fail', 'message' => 'run_id does not belong to selected agent'], 200))->send();
+            exit;
+        }
     }
 }
 
@@ -96,7 +103,7 @@ if (!Capsule::schema()->hasTable('s3_cloudbackup_run_commands')) {
 try {
     $runIdForInsert = in_array($type, ['reset_agent', 'refresh_inventory'], true)
         ? null
-        : (UuidBinary::isUuid($runId) ? Capsule::raw(UuidBinary::toDbExpr(UuidBinary::normalize($runId))) : $runId);
+        : ($hasRunIdPk ? Capsule::raw(UuidBinary::toDbExpr(UuidBinary::normalize($runId))) : $runId);
     $insert = [
         'run_id' => $runIdForInsert,
         'type' => $type,

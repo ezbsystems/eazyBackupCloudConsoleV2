@@ -66,8 +66,13 @@ foreach ($cloudbackupApis as $file) {
 }
 
 // Pages that receive job_id/run_id for cloud backup (scoped to cloud backup only)
-// Task 5: skip page checks (updated in Task 7)
-$cloudbackupPages = [];
+$cloudbackupPages = [
+    'cloudbackup_live.php' => ['(int) $_GET[\'job_id\']', '(int)$_GET[\'run_id\']'],
+    'cloudbackup_hyperv.php' => ['(int) $_GET[\'job_id\']'],
+    'e3backup_runs.php' => [],
+    'e3backup_hyperv.php' => ['(int) $_GET[\'job_id\']'],
+    'admin/cloudbackup_admin.php' => ['(int)$_GET[\'cancel_run\']', '(int)$_GET[\'get_run_logs\']'],
+];
 
 $pagesDir = __DIR__ . '/../pages';
 foreach ($cloudbackupPages as $file => $patterns) {
