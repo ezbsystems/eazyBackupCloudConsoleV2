@@ -46,6 +46,9 @@ if ($schema->hasTable('s3_cloudbackup_run_logs')) {
 if ($schema->hasTable('s3_cloudbackup_run_commands')) {
     $schema->drop('s3_cloudbackup_run_commands');
 }
+if ($schema->hasTable('s3_cloudbackup_recovery_tokens')) {
+    $schema->drop('s3_cloudbackup_recovery_tokens');
+}
 if ($schema->hasTable('s3_cloudbackup_restore_points')) {
     $schema->drop('s3_cloudbackup_restore_points');
 }

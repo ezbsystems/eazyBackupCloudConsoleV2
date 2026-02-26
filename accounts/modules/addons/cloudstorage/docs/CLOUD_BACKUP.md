@@ -32,7 +32,7 @@ The Cloud-to-Cloud Backup feature extends the existing Cloud Storage WHMCS addon
 Stores backup job definitions.
 
 **Key Fields**:
-- `id` - Primary key
+- `job_id` - Primary key (BINARY(16), UUIDv7)
 - `client_id` - WHMCS client ID (FK to `tblclients.id`)
 - `s3_user_id` - S3 user ID (FK to `s3_users.id`)
 - `name` - Job display name
@@ -61,8 +61,8 @@ Stores backup job definitions.
 Tracks individual execution records.
 
 **Key Fields**:
-- `id` - Primary key (BIGINT)
-- `job_id` - FK to `s3_cloudbackup_jobs.id`
+- `run_id` - Primary key (BINARY(16), UUIDv7)
+- `job_id` - FK to `s3_cloudbackup_jobs.job_id` (BINARY(16), UUIDv7)
 - `trigger_type` - Enum: `manual`, `schedule`, `validation`
 - `status` - Enum: `queued`, `starting`, `running`, `success`, `warning`, `failed`, `cancelled`
 - `started_at` - Timestamp
@@ -90,7 +90,7 @@ Stores sanitized, structured, customer‑facing events for each run. This table 
 
 **Key Fields**:
 - `id` - Primary key (BIGINT)
-- `run_id` - FK to `s3_cloudbackup_runs.id`
+- `run_id` - FK to `s3_cloudbackup_runs.run_id` (BINARY(16), UUIDv7)
 - `ts` - Event timestamp (microsecond precision)
 - `type` - High‑level type (`start`, `progress`, `summary`, `error`, `warning`, `cancelled`, etc.)
 - `level` - Severity (`info`, `warn`, `error`)
@@ -778,6 +778,8 @@ Cloud backup jobs and runs use UUIDv7 as the sole identifier for job and run ide
 - **`s3_cloudbackup_jobs.job_id`**: `BINARY(16)` primary key (UUIDv7)
 - **`s3_cloudbackup_runs.run_id`**: `BINARY(16)` primary key (UUIDv7)
 - **`s3_cloudbackup_runs.job_id`**: `BINARY(16)` foreign key referencing `jobs.job_id`
+- **`s3_cloudbackup_restore_points.job_id`**, **`run_id`**: `BINARY(16)` nullable FKs to jobs/runs
+- **`s3_cloudbackup_recovery_tokens.session_run_id`**: `BINARY(16)` nullable FK to runs
 
 To apply the reset (drops and recreates all cloud backup job/run tables):
 

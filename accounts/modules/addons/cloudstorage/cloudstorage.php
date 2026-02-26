@@ -1378,9 +1378,9 @@ function cloudstorage_activate() {
                 $table->string('repository_id', 64)->nullable();
                 $table->unsignedInteger('tenant_user_id')->nullable();
                 $table->string('agent_uuid', 36)->nullable();
-                $table->unsignedInteger('job_id')->nullable();
+                $table->binary('job_id', 16)->nullable();   // BINARY(16) UUIDv7 FK -> jobs.job_id
                 $table->string('job_name', 191)->nullable();
-                $table->unsignedBigInteger('run_id')->nullable();
+                $table->binary('run_id', 16)->nullable();   // BINARY(16) UUIDv7 FK -> runs.run_id
                 $table->string('run_uuid', 36)->nullable();
                 $table->string('engine', 32)->nullable();
                 $table->string('status', 32)->nullable();
@@ -1635,7 +1635,7 @@ function cloudstorage_activate() {
                 $table->dateTime('locked_until')->nullable();
                 $table->string('session_token', 64)->nullable();
                 $table->dateTime('session_expires_at')->nullable();
-                $table->unsignedBigInteger('session_run_id')->nullable();
+                $table->binary('session_run_id', 16)->nullable();  // BINARY(16) UUIDv7 FK -> runs.run_id
                 $table->string('created_ip', 45)->nullable();
                 $table->string('created_user_agent', 255)->nullable();
                 $table->dateTime('exchanged_at')->nullable();
@@ -3573,9 +3573,9 @@ function cloudstorage_upgrade($vars) {
                 $table->string('repository_id', 64)->nullable();
                 $table->unsignedInteger('tenant_user_id')->nullable();
                 $table->string('agent_uuid', 36)->nullable();
-                $table->unsignedInteger('job_id')->nullable();
+                $table->binary('job_id', 16)->nullable();   // BINARY(16) UUIDv7 FK -> jobs.job_id
                 $table->string('job_name', 191)->nullable();
-                $table->unsignedBigInteger('run_id')->nullable();
+                $table->binary('run_id', 16)->nullable();   // BINARY(16) UUIDv7 FK -> runs.run_id
                 $table->string('run_uuid', 36)->nullable();
                 $table->string('engine', 32)->nullable();
                 $table->string('status', 32)->nullable();
@@ -3655,7 +3655,7 @@ function cloudstorage_upgrade($vars) {
                 $table->dateTime('locked_until')->nullable();
                 $table->string('session_token', 64)->nullable();
                 $table->dateTime('session_expires_at')->nullable();
-                $table->unsignedBigInteger('session_run_id')->nullable();
+                $table->binary('session_run_id', 16)->nullable();  // BINARY(16) UUIDv7 FK -> runs.run_id
                 $table->string('created_ip', 45)->nullable();
                 $table->string('created_user_agent', 255)->nullable();
                 $table->dateTime('exchanged_at')->nullable();
