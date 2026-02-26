@@ -5,8 +5,10 @@
 
 require_once __DIR__ . '/../../../../init.php';
 require_once __DIR__ . '/../lib/Client/CloudBackupController.php';
+require_once __DIR__ . '/../lib/Client/UuidBinary.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
 
@@ -183,15 +185,23 @@ if ($restoreEngine === 'disk_image' && $restoreLayout === '') {
     respondError('invalid_restore_point', 'Restore point is missing disk layout metadata. Create a new disk image backup and retry.', 400);
 }
 
-$jobId = (int) ($restorePoint->job_id ?? 0);
-if ($jobId <= 0) {
+$hasJobIdCol = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+$hasRunIdCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
+$hasTokenSessionRunIdBinary = Capsule::schema()->hasColumn('s3_cloudbackup_recovery_tokens', 'session_run_id')
+    && stripos((string) (Capsule::selectOne("SHOW COLUMNS FROM s3_cloudbackup_recovery_tokens WHERE Field = 'session_run_id'")->Type ?? ''), 'binary') !== false;
+
+$jobIdRaw = $restorePoint->job_id ?? null;
+if (empty($jobIdRaw)) {
     respondError('invalid_state', 'Restore point missing job reference', 400);
 }
 
-$job = Capsule::table('s3_cloudbackup_jobs')
-    ->where('id', $jobId)
-    ->where('client_id', $restorePoint->client_id)
-    ->first();
+$jobQuery = Capsule::table('s3_cloudbackup_jobs')->where('client_id', $restorePoint->client_id);
+if ($hasJobIdCol) {
+    $jobQuery->whereRaw('job_id = ?', [$jobIdRaw]);
+} else {
+    $jobQuery->where('id', $jobIdRaw);
+}
+$job = $jobQuery->first();
 if (!$job) {
     respondError('not_found', 'Backup job not found', 404);
 }
@@ -201,7 +211,7 @@ $tokenColumns = getTableColumns('s3_cloudbackup_recovery_tokens');
 
 $runData = [];
 if (isset($runColumns['job_id'])) {
-    $runData['job_id'] = $jobId;
+    $runData['job_id'] = $jobIdRaw;
 }
 if (isset($runColumns['client_id'])) {
     $runData['client_id'] = $restorePoint->client_id;
@@ -262,14 +272,18 @@ $runTypeValue = chooseRunTypeForRun($runColumns);
 if ($runTypeValue !== null) {
     $runData['run_type'] = $runTypeValue;
 }
+$restoreRunUuidGen = $hasRunIdCol ? CloudBackupController::generateUuid() : null;
 $hasRunUuidColumn = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_uuid');
 if ($hasRunUuidColumn) {
-    $runData['run_uuid'] = CloudBackupController::generateUuid();
+    $runData['run_uuid'] = $restoreRunUuidGen ?? CloudBackupController::generateUuid();
+}
+if ($hasRunIdCol && $restoreRunUuidGen) {
+    $runData['run_id'] = Capsule::raw(UuidBinary::toDbExpr($restoreRunUuidGen));
 }
 
 try {
-    $restoreRunId = 0;
-    Capsule::connection()->transaction(function () use (&$restoreRunId, $runData, $tokenRow, $tokenColumns) {
+    $restoreRunId = null;
+    Capsule::connection()->transaction(function () use (&$restoreRunId, $runData, $tokenRow, $tokenColumns, $hasRunIdCol, $hasTokenSessionRunIdBinary, $restoreRunUuidGen) {
         $lockedToken = Capsule::table('s3_cloudbackup_recovery_tokens')
             ->where('id', (int) $tokenRow->id)
             ->lockForUpdate()
@@ -281,7 +295,12 @@ try {
             throw new \RuntimeException('session_already_bound');
         }
 
-        $restoreRunId = Capsule::table('s3_cloudbackup_runs')->insertGetId($runData);
+        if ($hasRunIdCol && $restoreRunUuidGen) {
+            Capsule::table('s3_cloudbackup_runs')->insert($runData);
+            $restoreRunId = $restoreRunUuidGen;
+        } else {
+            $restoreRunId = Capsule::table('s3_cloudbackup_runs')->insertGetId($runData);
+        }
         $startedIp = $_SERVER['REMOTE_ADDR'] ?? null;
         $startedUA = $_SERVER['HTTP_USER_AGENT'] ?? null;
         $tokenUpdate = [];
@@ -289,7 +308,9 @@ try {
             $tokenUpdate['used_at'] = date('Y-m-d H:i:s');
         }
         if (isset($tokenColumns['session_run_id'])) {
-            $tokenUpdate['session_run_id'] = $restoreRunId;
+            $tokenUpdate['session_run_id'] = ($hasTokenSessionRunIdBinary && $restoreRunId && UuidBinary::isUuid($restoreRunId))
+                ? Capsule::raw(UuidBinary::toDbExpr(UuidBinary::normalize($restoreRunId)))
+                : $restoreRunId;
         }
         if (isset($tokenColumns['started_at'])) {
             $tokenUpdate['started_at'] = date('Y-m-d H:i:s');
@@ -311,14 +332,17 @@ try {
         }
     });
 
-    if ($restoreRunId <= 0) {
+    $runIdInvalid = $hasRunIdCol
+        ? (empty($restoreRunId) || !is_string($restoreRunId))
+        : ($restoreRunId <= 0);
+    if ($runIdInvalid) {
         respondError('server_error', 'Failed to create restore run', 500);
     }
 
     respond([
         'status' => 'success',
         'restore_run_id' => $restoreRunId,
-        'restore_run_uuid' => $runData['run_uuid'] ?? null,
+        'restore_run_uuid' => $runData['run_uuid'] ?? ($hasRunIdCol ? $restoreRunId : null),
     ]);
 } catch (\Throwable $e) {
     if ($e instanceof \RuntimeException && $e->getMessage() === 'session_already_bound') {
@@ -327,7 +351,7 @@ try {
     $logPayload = [
         'token_id' => (int) ($tokenRow->id ?? 0),
         'restore_point_id' => (int) ($restorePoint->id ?? 0),
-        'job_id' => $jobId,
+        'job_id' => $jobIdRaw,
         'run_engine' => $runData['engine'] ?? null,
         'run_columns_count' => count($runColumns),
         'token_columns_count' => count($tokenColumns),

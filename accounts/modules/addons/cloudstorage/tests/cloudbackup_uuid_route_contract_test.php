@@ -11,6 +11,7 @@ $cloudbackupApis = [
     'cloudbackup_list_runs.php',
     'cloudbackup_list_snapshots.php',
     'cloudbackup_start_run.php',
+    'cloudbackup_start_restore.php',
     'cloudbackup_get_run_logs.php',
     'cloudbackup_get_run_events.php',
     'cloudbackup_cancel_run.php',
@@ -134,6 +135,54 @@ foreach ($agentApis as $file) {
     $needsUuidValidation = in_array($file, ['agent_update_run.php', 'agent_push_events.php', 'agent_poll_commands.php', 'admin_cloudbackup_request_command.php'], true);
     if ($needsUuidValidation && strpos($src, 'invalid_identifier_format') === false) {
         throw new RuntimeException("$file missing invalid_identifier_format for UUID validation");
+    }
+}
+
+// Start restore APIs (Task 6 scope) - cloudbackup_start_restore has backup_run_id UUID validation
+$startRestoreApis = [
+    'cloudbackup_start_restore.php',
+    'cloudbackup_recovery_start_restore.php',
+];
+
+$startRestoreForbiddenPatterns = [
+    '(int) ($restorePoint->job_id',
+    '(int)$restorePoint->job_id',
+    '(int) ($backupRun[\'id\']',
+    '(int)$backupRun[\'id\']',
+    "->where('j.id', (int)",
+    "->where('id', (int)",
+];
+
+foreach ($startRestoreApis as $file) {
+    $path = $apiDir . '/' . $file;
+    if (!is_file($path)) {
+        continue;
+    }
+    $src = file_get_contents($path);
+    if ($src === false) {
+        throw new RuntimeException("failed to read $file");
+    }
+    foreach ($startRestoreForbiddenPatterns as $pattern) {
+        if (strpos($src, $pattern) !== false) {
+            throw new RuntimeException("$file still uses numeric job/run flow or insertGetId for runs: $pattern");
+        }
+    }
+}
+$needsBackupRunUuidValidation = ['cloudbackup_start_restore.php'];
+foreach ($needsBackupRunUuidValidation as $file) {
+    $path = $apiDir . '/' . $file;
+    if (!is_file($path)) {
+        continue;
+    }
+    $src = file_get_contents($path);
+    if ($src === false) {
+        throw new RuntimeException("failed to read $file");
+    }
+    if (strpos($src, 'invalid_identifier_format') === false) {
+        throw new RuntimeException("$file missing invalid_identifier_format for backup_run_id UUID validation");
+    }
+    if (strpos($src, 'UuidBinary::isUuid') === false) {
+        throw new RuntimeException("$file missing UuidBinary validation for backup_run_id");
     }
 }
 
