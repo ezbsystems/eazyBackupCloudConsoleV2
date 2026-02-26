@@ -208,7 +208,7 @@
                     <template x-for="point in restorePoints" :key="point.id">
                         <tr class="hover:bg-slate-800/50">
                             <td class="px-4 py-3">
-                                <div class="text-slate-100 font-medium" x-text="point.job_name || ('Job #' + (point.job_id || '—'))"></div>
+                                <div class="text-slate-100 font-medium" x-text="point.job_name || 'Unnamed job'"></div>
                                 <div class="text-xs text-slate-500" x-text="point.manifest_id || 'No manifest'"></div>
                                 <div class="text-xs text-slate-400" x-show="point.hyperv_vm_name">VM: <span x-text="point.hyperv_vm_name"></span></div>
                             </td>
@@ -1206,7 +1206,7 @@ function updateRestorePointView() {
         const jobName = document.getElementById('restorePointJobName');
         const manifest = document.getElementById('restorePointManifest');
         const agent = document.getElementById('restorePointAgent');
-        if (jobName) jobName.textContent = st.point.job_name || `Job #${st.point.job_id || '—'}`;
+        if (jobName) jobName.textContent = st.point.job_name || 'Unnamed job';
         if (manifest) manifest.textContent = `Manifest: ${st.point.manifest_id || '—'}`;
         if (agent) agent.textContent = `Agent: ${st.point.agent_hostname || st.point.agent_uuid || '—'}`;
     }
@@ -1277,7 +1277,7 @@ function submitRestorePoint() {
     .then(resp => {
         if (resp.status === 'success') {
             closeRestorePointModal();
-            const restoreRunParam = resp.restore_run_uuid || resp.restore_run_id;
+            const restoreRunParam = resp.restore_run_id;
             if (restoreRunParam) {
                 setTimeout(() => {
                     window.location.href = 'index.php?m=cloudstorage&page=e3backup&view=live&job_id=' +

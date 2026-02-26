@@ -129,7 +129,7 @@ function cloudstorage_admin_cloudbackup($vars)
     
     // Handle force cancel run
     if (isset($_GET['cancel_run'])) {
-        $result = CloudBackupAdminController::forceCancelRun((int)$_GET['cancel_run']);
+        $result = CloudBackupAdminController::forceCancelRun(trim((string) $_GET['cancel_run']));
         header('Content-Type: application/json');
         echo json_encode($result);
         exit;
@@ -137,17 +137,26 @@ function cloudstorage_admin_cloudbackup($vars)
     
     // Handle get run logs
     if (isset($_GET['get_run_logs'])) {
-        $runId = (int)$_GET['get_run_logs'];
-        $run = Capsule::table('s3_cloudbackup_runs')
-            ->where('id', $runId)
-            ->first();
+        $runId = trim((string) $_GET['get_run_logs']);
+        if ($runId === '') {
+            header('Content-Type: application/json');
+            echo json_encode(['status' => 'fail', 'message' => 'run_id required']);
+            exit;
+        }
+        require_once __DIR__ . '/../../lib/Client/UuidBinary.php';
+        $run = \WHMCS\Module\Addon\CloudStorage\Client\UuidBinary::isUuid($runId)
+            ? Capsule::table('s3_cloudbackup_runs')
+                ->whereRaw('run_id = ' . \WHMCS\Module\Addon\CloudStorage\Client\UuidBinary::toDbExpr(\WHMCS\Module\Addon\CloudStorage\Client\UuidBinary::normalize($runId)))
+                ->first()
+            : null;
         
         if ($run) {
             $structured = [];
             try {
                 if (Capsule::schema()->hasTable('s3_cloudbackup_run_logs')) {
+                    $runIdBinExpr = \WHMCS\Module\Addon\CloudStorage\Client\UuidBinary::toDbExpr(\WHMCS\Module\Addon\CloudStorage\Client\UuidBinary::normalize($runId));
                     $logRows = Capsule::table('s3_cloudbackup_run_logs')
-                        ->where('run_id', $runId)
+                        ->whereRaw('run_id = ' . $runIdBinExpr)
                         ->orderBy('created_at', 'asc')
                         ->limit(500)
                         ->get();

@@ -230,7 +230,7 @@
                             {if count($jobs) > 0}
                                 {foreach from=$jobs item=job}
                                     <tr>
-                                        <td>{$job.id}</td>
+                                        <td class="font-mono" style="font-size:0.75rem">{$job.job_id|truncate:12:'...'}</td>
                                         <td>{$job.firstname} {$job.lastname}</td>
                                         <td>{$job.name}</td>
                                         <td>{$job.source_display_name} ({$job.source_type})</td>
@@ -282,7 +282,7 @@
                             {if count($runs) > 0}
                                 {foreach from=$runs item=run}
                                     <tr>
-                                        <td>{$run.id}</td>
+                                        <td class="font-mono" style="font-size:0.75rem">{$run.run_id|truncate:12:'...'}</td>
                                         <td>{$run.firstname} {$run.lastname}</td>
                                         <td>{$run.job_name}</td>
                                         <td>{$run.engine|default:'sync'|upper}</td>
@@ -297,16 +297,16 @@
                                         <td>{if $run.log_ref}{$run.log_ref}{else}-{/if}</td>
                                         <td>
                                             {if $run.status eq 'running' || $run.status eq 'starting'}
-                                                <button onclick="forceCancelRun({$run.id})" class="btn btn-danger btn-xs">Force Stop</button>
+                                                <button onclick="forceCancelRun('{$run.run_id}')" class="btn btn-danger btn-xs">Force Stop</button>
                                             {/if}
                                             {if $run.log_excerpt || $run.validation_log_excerpt}
-                                                <button onclick="showRunLogs({$run.id})" class="btn btn-info btn-xs">View Logs</button>
+                                                <button onclick="showRunLogs('{$run.run_id}')" class="btn btn-info btn-xs">View Logs</button>
                                             {/if}
                                         </td>
                                         <td>
                                             <div class="btn-group">
-                                                <button class="btn btn-default btn-xs" onclick="enqueueMaintenance({$run.id}, 'maintenance_quick')">Quick</button>
-                                                <button class="btn btn-default btn-xs" onclick="enqueueMaintenance({$run.id}, 'maintenance_full')">Full</button>
+                                                <button class="btn btn-default btn-xs" onclick="enqueueMaintenance('{$run.run_id}', 'maintenance_quick')">Quick</button>
+                                                <button class="btn btn-default btn-xs" onclick="enqueueMaintenance('{$run.run_id}', 'maintenance_full')">Full</button>
                                             </div>
                                         </td>
                                     </tr>
@@ -456,9 +456,9 @@
                                                         <li><a href="#" onclick="openTrayLogs('{$agent.agent_uuid|escape:'javascript'}'); return false;">Tray Logs</a></li>
                                                         <li role="separator" class="divider"></li>
                                                         <li><a href="#" onclick="adminResetAgent('{$agent.agent_uuid|escape:'javascript'}'); return false;">Reset Agent (Restart Service)</a></li>
-                                                        {if $agent.active_run_id|default:0}
-                                                            <li><a href="#" onclick="adminMaintenanceForAgent('{$agent.agent_uuid|escape:'javascript'}', 'maintenance_quick', {$agent.active_run_id|default:0}); return false;">Maintenance Quick</a></li>
-                                                            <li><a href="#" onclick="adminMaintenanceForAgent('{$agent.agent_uuid|escape:'javascript'}', 'maintenance_full', {$agent.active_run_id|default:0}); return false;">Maintenance Full</a></li>
+                                                        {if $agent.active_run_id}
+                                                            <li><a href="#" onclick="adminMaintenanceForAgent('{$agent.agent_uuid|escape:'javascript'}', 'maintenance_quick', '{$agent.active_run_id|escape:'javascript'}'); return false;">Maintenance Quick</a></li>
+                                                            <li><a href="#" onclick="adminMaintenanceForAgent('{$agent.agent_uuid|escape:'javascript'}', 'maintenance_full', '{$agent.active_run_id|escape:'javascript'}'); return false;">Maintenance Full</a></li>
                                                         {else}
                                                             <li><span class="text-muted" style="display:block; padding:3px 20px;" title="No active run available for this agent">Maintenance Quick</span></li>
                                                             <li><span class="text-muted" style="display:block; padding:3px 20px;" title="No active run available for this agent">Maintenance Full</span></li>
@@ -775,7 +775,7 @@ function forceCancelRun(runId) {
         return;
     }
     
-    fetch('addonmodules.php?module=cloudstorage&action=cloudbackup_admin&cancel_run=' + runId)
+    fetch('addonmodules.php?module=cloudstorage&action=cloudbackup_admin&cancel_run=' + encodeURIComponent(runId))
         .then(response => response.json())
         .then(data => {
             if (data.status === 'success') {
@@ -787,7 +787,7 @@ function forceCancelRun(runId) {
 }
 
 function showRunLogs(runId) {
-    fetch('addonmodules.php?module=cloudstorage&action=cloudbackup_admin&get_run_logs=' + runId)
+    fetch('addonmodules.php?module=cloudstorage&action=cloudbackup_admin&get_run_logs=' + encodeURIComponent(runId))
         .then(response => response.json())
         .then(data => {
             if (data.status === 'success') {

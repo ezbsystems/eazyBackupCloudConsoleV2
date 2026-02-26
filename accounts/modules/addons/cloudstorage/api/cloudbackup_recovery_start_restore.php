@@ -285,7 +285,7 @@ try {
     $restoreRunId = null;
     Capsule::connection()->transaction(function () use (&$restoreRunId, $runData, $tokenRow, $tokenColumns, $hasRunIdCol, $hasTokenSessionRunIdBinary, $restoreRunUuidGen) {
         $lockedToken = Capsule::table('s3_cloudbackup_recovery_tokens')
-            ->where('id', (int) $tokenRow->id)
+            ->where('id', $tokenRow->id)
             ->lockForUpdate()
             ->first();
         if (!$lockedToken) {
@@ -327,7 +327,7 @@ try {
 
         if (!empty($tokenUpdate)) {
             Capsule::table('s3_cloudbackup_recovery_tokens')
-                ->where('id', (int) $lockedToken->id)
+                ->where('id', $lockedToken->id)
                 ->update($tokenUpdate);
         }
     });
