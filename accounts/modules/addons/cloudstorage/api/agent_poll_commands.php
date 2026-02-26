@@ -15,25 +15,25 @@ function respond($data, $code = 200)
     exit;
 }
 
-$agentId = $_SERVER['HTTP_X_AGENT_ID'] ?? ($_POST['agent_id'] ?? null);
+$agentUuid = $_SERVER['HTTP_X_AGENT_UUID'] ?? ($_POST['agent_uuid'] ?? null);
 $agentToken = $_SERVER['HTTP_X_AGENT_TOKEN'] ?? ($_POST['agent_token'] ?? null);
 $runId = $_GET['run_id'] ?? ($_POST['run_id'] ?? null);
 
-if (!$agentId || !$agentToken) {
+if (!$agentUuid || !$agentToken) {
     respond(['status' => 'fail', 'message' => 'Missing agent headers'], 401);
 }
 if (!$runId) {
     respond(['status' => 'fail', 'message' => 'run_id is required'], 400);
 }
 
-$agent = Capsule::table('s3_cloudbackup_agents')->where('id', $agentId)->first();
+$agent = Capsule::table('s3_cloudbackup_agents')->where('agent_uuid', $agentUuid)->first();
 if (!$agent || $agent->status !== 'active' || $agent->agent_token !== $agentToken) {
     respond(['status' => 'fail', 'message' => 'Unauthorized'], 401);
 }
 
 // touch last_seen_at
 Capsule::table('s3_cloudbackup_agents')
-    ->where('id', $agentId)
+    ->where('agent_uuid', $agentUuid)
     ->update(['last_seen_at' => Capsule::raw('NOW()')]);
 
 $run = Capsule::table('s3_cloudbackup_runs as r')
