@@ -70,10 +70,35 @@ if ($commandId <= 0) {
 }
 
 $cmd = Capsule::table('s3_cloudbackup_run_commands')
-    ->where('id', $commandId)
-    ->first(['id', 'agent_id', 'type', 'status']);
+    ->where('id', $commandId);
+$hasCommandAgentUuid = Capsule::schema()->hasColumn('s3_cloudbackup_run_commands', 'agent_uuid');
+$hasCommandAgentId = Capsule::schema()->hasColumn('s3_cloudbackup_run_commands', 'agent_id');
+$commandSelect = ['id', 'type', 'status'];
+if ($hasCommandAgentUuid) {
+    $commandSelect[] = 'agent_uuid';
+}
+if ($hasCommandAgentId) {
+    $commandSelect[] = 'agent_id';
+}
+$cmd = $cmd->first($commandSelect);
 
-if (!$cmd || (int) $cmd->agent_id !== (int) ($agent->id ?? 0)) {
+if (!$cmd) {
+    respond(['status' => 'fail', 'message' => 'Command not found'], 404);
+}
+
+$commandAgentUuid = $hasCommandAgentUuid ? trim((string) ($cmd->agent_uuid ?? '')) : '';
+$authenticatedAgentUuid = trim((string) ($agent->agent_uuid ?? ''));
+$hasLegacyAgentBinding = $hasCommandAgentId && isset($cmd->agent_id) && $cmd->agent_id !== '' && $cmd->agent_id !== null;
+
+if ($commandAgentUuid !== '') {
+    if ($commandAgentUuid !== $authenticatedAgentUuid) {
+        respond(['status' => 'fail', 'message' => 'Command not found'], 404);
+    }
+} elseif ($hasLegacyAgentBinding) {
+    if ((int) $cmd->agent_id !== (int) ($agent->id ?? 0)) {
+        respond(['status' => 'fail', 'message' => 'Command not found'], 404);
+    }
+} else {
     respond(['status' => 'fail', 'message' => 'Command not found'], 404);
 }
 $validTypes = ['browse_directory', 'list_hyperv_vms', 'list_hyperv_vm_details', 'browse_snapshot', 'list_disks', 'fetch_log_tail'];
