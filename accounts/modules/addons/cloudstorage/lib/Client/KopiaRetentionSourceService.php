@@ -35,9 +35,10 @@ class KopiaRetentionSourceService
      * Ensure a source row exists in s3_kopia_repo_sources for the given job.
      * Creates row if missing. Returns source data or null when not applicable.
      *
+     * @param string|int $jobId Job ID as UUID string (when UUID schema) or numeric id (legacy)
      * @return array|null ['source_uuid' => string, 'id' => int, ...] or null
      */
-    public static function ensureRepoSourceForJob(int $jobId): ?array
+    public static function ensureRepoSourceForJob($jobId): ?array
     {
         try {
             if (!Capsule::schema()->hasTable('s3_kopia_repo_sources')
@@ -45,8 +46,28 @@ class KopiaRetentionSourceService
                 return null;
             }
 
-            return Capsule::connection()->transaction(function () use ($jobId) {
-                $job = Capsule::table('s3_cloudbackup_jobs')->where('id', $jobId)->lockForUpdate()->first();
+            $hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+            $hasKopiaJobIdBinary = self::hasBinaryJobIdColumn('s3_kopia_repo_sources');
+            $useUuidPath = $hasJobIdPk && $hasKopiaJobIdBinary && is_string($jobId) && UuidBinary::isUuid($jobId);
+
+            return Capsule::connection()->transaction(function () use ($jobId, $hasJobIdPk, $hasKopiaJobIdBinary, $useUuidPath) {
+                if ($useUuidPath) {
+                    $jobIdNorm = UuidBinary::normalize($jobId);
+                    $job = Capsule::table('s3_cloudbackup_jobs')
+                        ->whereRaw('job_id = ' . UuidBinary::toDbExpr($jobIdNorm))
+                        ->lockForUpdate()
+                        ->first();
+                } else {
+                    $jobIdInt = is_int($jobId) ? $jobId : (int) $jobId;
+                    if ($jobIdInt <= 0) {
+                        return null;
+                    }
+                    $job = Capsule::table('s3_cloudbackup_jobs')
+                        ->where('id', $jobIdInt)
+                        ->lockForUpdate()
+                        ->first();
+                }
+
                 if (!$job) {
                     return null;
                 }
@@ -68,29 +89,37 @@ class KopiaRetentionSourceService
                 }
                 $repoId = (int) $repoRow->id;
 
-                // Re-check existing source inside transaction before insert (prevents duplicate rows on race)
                 $existing = Capsule::table('s3_kopia_repo_sources')
                     ->where('repo_id', $repoId)
-                    ->where('job_id', $jobId)
+                    ->when(
+                        $useUuidPath && $hasKopiaJobIdBinary,
+                        fn ($q) => $q->whereRaw('job_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($jobId))),
+                        fn ($q) => $q->where('job_id', $useUuidPath ? $jobId : (int) $jobId)
+                    )
                     ->first();
 
                 if ($existing) {
+                    $outJobId = $useUuidPath ? $jobId : (int) ($existing->job_id ?? $jobId);
                     return [
                         'id' => (int) $existing->id,
                         'source_uuid' => (string) $existing->source_uuid,
                         'repo_id' => $repoId,
-                        'job_id' => $jobId,
+                        'job_id' => $outJobId,
                         'lifecycle' => (string) ($existing->lifecycle ?? 'active'),
                     ];
                 }
 
                 $sourceUuid = self::generateSourceUuid();
 
+                $insertJobId = $useUuidPath && $hasKopiaJobIdBinary
+                    ? Capsule::raw(UuidBinary::toDbExpr(UuidBinary::normalize($jobId)))
+                    : ($useUuidPath ? $jobId : (int) ($job->id ?? $jobId));
+
                 Capsule::table('s3_kopia_repo_sources')->insert([
                     'repo_id' => $repoId,
                     'source_uuid' => $sourceUuid,
                     'lifecycle' => 'active',
-                    'job_id' => $jobId,
+                    'job_id' => $insertJobId,
                     'created_at' => date('Y-m-d H:i:s'),
                     'updated_at' => date('Y-m-d H:i:s'),
                 ]);
@@ -100,11 +129,12 @@ class KopiaRetentionSourceService
                     ->where('source_uuid', $sourceUuid)
                     ->first();
 
+                $outJobId = $row ? ($useUuidPath ? $jobId : (int) ($row->job_id ?? $jobId)) : $jobId;
                 return $row ? [
                     'id' => (int) $row->id,
                     'source_uuid' => (string) $row->source_uuid,
                     'repo_id' => $repoId,
-                    'job_id' => $jobId,
+                    'job_id' => $outJobId,
                     'lifecycle' => (string) ($row->lifecycle ?? 'active'),
                 ] : null;
             });
@@ -118,9 +148,10 @@ class KopiaRetentionSourceService
      * Retire sources for a job (lifecycle=retired, optional retired_at).
      * Returns repo_ids of affected repos for enqueue purposes.
      *
+     * @param string|int $jobId Job ID as UUID string or numeric id
      * @return array<int> Affected repo_ids
      */
-    public static function retireByJobId(int $jobId): array
+    public static function retireByJobId($jobId): array
     {
         try {
             if (!Capsule::schema()->hasTable('s3_kopia_repo_sources')) {
@@ -131,10 +162,20 @@ class KopiaRetentionSourceService
                 logModuleCall(self::MODULE, 'retireByJobId', ['job_id' => $jobId], 's3_kopia_repo_sources.lifecycle column missing', [], []);
                 return [];
             }
-            $repoIds = Capsule::table('s3_kopia_repo_sources')
-                ->where('job_id', $jobId)
-                ->where($lifecycleCol, 'active')
-                ->pluck('repo_id')
+
+            $hasKopiaJobIdBinary = self::hasBinaryJobIdColumn('s3_kopia_repo_sources');
+            $useUuidPath = $hasKopiaJobIdBinary && is_string($jobId) && UuidBinary::isUuid($jobId);
+
+            $query = Capsule::table('s3_kopia_repo_sources')
+                ->where($lifecycleCol, 'active');
+
+            if ($useUuidPath) {
+                $query->whereRaw('job_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($jobId)));
+            } else {
+                $query->where('job_id', is_int($jobId) ? $jobId : (int) $jobId);
+            }
+
+            $repoIds = $query->pluck('repo_id')
                 ->unique()
                 ->values()
                 ->toArray();
@@ -146,9 +187,13 @@ class KopiaRetentionSourceService
             if (Capsule::schema()->hasColumn('s3_kopia_repo_sources', 'retired_at')) {
                 $update['retired_at'] = $now;
             }
-            Capsule::table('s3_kopia_repo_sources')
-                ->where('job_id', $jobId)
-                ->update($update);
+            $updateQuery = Capsule::table('s3_kopia_repo_sources');
+            if ($useUuidPath) {
+                $updateQuery->whereRaw('job_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($jobId)));
+            } else {
+                $updateQuery->where('job_id', is_int($jobId) ? $jobId : (int) $jobId);
+            }
+            $updateQuery->update($update);
             return array_map('intval', $repoIds);
         } catch (\Throwable $e) {
             logModuleCall(self::MODULE, 'retireByJobId', ['job_id' => $jobId], $e->getMessage(), [], []);
@@ -173,18 +218,34 @@ class KopiaRetentionSourceService
             if (!$hasAgentIdCol) {
                 return [];
             }
-            $jobIds = Capsule::table('s3_cloudbackup_jobs')
-                ->where('agent_id', $agentId)
-                ->where('source_type', 'local_agent')
-                ->whereRaw('LOWER(engine) IN (\'kopia\', \'disk_image\', \'hyperv\')')
-                ->pluck('id')
-                ->toArray();
+
+            $hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+
+            if ($hasJobIdPk) {
+                $jobIds = Capsule::table('s3_cloudbackup_jobs')
+                    ->where('agent_id', $agentId)
+                    ->where('source_type', 'local_agent')
+                    ->whereRaw('LOWER(engine) IN (\'kopia\', \'disk_image\', \'hyperv\')')
+                    ->selectRaw('BIN_TO_UUID(job_id) as job_id_uuid')
+                    ->pluck('job_id_uuid')
+                    ->filter()
+                    ->values()
+                    ->toArray();
+            } else {
+                $jobIds = Capsule::table('s3_cloudbackup_jobs')
+                    ->where('agent_id', $agentId)
+                    ->where('source_type', 'local_agent')
+                    ->whereRaw('LOWER(engine) IN (\'kopia\', \'disk_image\', \'hyperv\')')
+                    ->pluck('id')
+                    ->toArray();
+            }
+
             if (empty($jobIds)) {
                 return [];
             }
             $repoIds = [];
             foreach ($jobIds as $jid) {
-                foreach (self::retireByJobId((int) $jid) as $rid) {
+                foreach (self::retireByJobId($jid) as $rid) {
                     $repoIds[$rid] = 1;
                 }
             }
@@ -200,9 +261,20 @@ class KopiaRetentionSourceService
      */
     private static function deriveSourceIdentity($job, string $engine): string
     {
+        $hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+        $hasHypervJobIdBinary = Capsule::schema()->hasTable('s3_hyperv_vms')
+            && Capsule::schema()->hasColumn('s3_hyperv_vms', 'job_id')
+            && self::hasBinaryJobIdColumn('s3_hyperv_vms');
+
         if ($engine === 'hyperv') {
+            $jobIdentifier = ($hasJobIdPk && $hasHypervJobIdBinary && isset($job->job_id))
+                ? $job->job_id
+                : ($job->id ?? null);
+            if ($jobIdentifier === null) {
+                return 'default';
+            }
             $vms = Capsule::table('s3_hyperv_vms')
-                ->where('job_id', $job->id)
+                ->where('job_id', $jobIdentifier)
                 ->where('backup_enabled', true)
                 ->orderBy('vm_guid')
                 ->pluck('vm_guid')
@@ -226,5 +298,21 @@ class KopiaRetentionSourceService
         }
         sort($paths);
         return implode('|', $paths) ?: 'default';
+    }
+
+    /**
+     * Check if given table's job_id column is BINARY(16) (UUID schema).
+     */
+    private static function hasBinaryJobIdColumn(string $table): bool
+    {
+        try {
+            if (!Capsule::schema()->hasColumn($table, 'job_id')) {
+                return false;
+            }
+            $type = Capsule::schema()->getColumnType($table, 'job_id');
+            return $type !== null && stripos((string) $type, 'binary') !== false;
+        } catch (\Throwable $e) {
+            return false;
+        }
     }
 }

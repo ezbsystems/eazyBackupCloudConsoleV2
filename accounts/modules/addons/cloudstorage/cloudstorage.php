@@ -2115,7 +2115,7 @@ function cloudstorage_activate() {
                 $table->unsignedBigInteger('repo_id');
                 $table->string('source_uuid', 64);
                 $table->enum('lifecycle', ['active', 'retired', 'expired'])->default('active');
-                $table->unsignedInteger('job_id')->nullable();
+                $table->binary('job_id', 16)->nullable();
                 $table->timestamp('created_at')->useCurrent();
                 $table->timestamp('updated_at')->useCurrent();
                 $table->timestamp('retired_at')->nullable();
@@ -3121,7 +3121,7 @@ function cloudstorage_upgrade($vars) {
                 $table->unsignedBigInteger('repo_id');
                 $table->string('source_uuid', 64);
                 $table->enum('lifecycle', ['active', 'retired', 'expired'])->default('active');
-                $table->unsignedInteger('job_id')->nullable();
+                $table->binary('job_id', 16)->nullable();
                 $table->timestamp('created_at')->useCurrent();
                 $table->timestamp('updated_at')->useCurrent();
                 $table->timestamp('retired_at')->nullable();
