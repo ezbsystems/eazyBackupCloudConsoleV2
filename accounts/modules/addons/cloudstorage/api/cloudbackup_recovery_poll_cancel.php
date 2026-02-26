@@ -7,6 +7,7 @@ require_once __DIR__ . '/../../../../init.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Symfony\Component\HttpFoundation\JsonResponse;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -28,7 +29,7 @@ function getBodyJson(): array
     return is_array($decoded) ? $decoded : [];
 }
 
-function refreshSessionExpiry(object $tokenRow, int $runId, int $hours = 6, int $minRemainingMinutes = 30): void
+function refreshSessionExpiry(object $tokenRow, string $runId, int $hours = 6, int $minRemainingMinutes = 30): void
 {
     if (!isset($tokenRow->id)) {
         return;
@@ -57,33 +58,47 @@ function refreshSessionExpiry(object $tokenRow, int $runId, int $hours = 6, int 
 
 $body = getBodyJson();
 $sessionToken = trim((string) ($_POST['session_token'] ?? ($body['session_token'] ?? '')));
-$runId = $_POST['run_id'] ?? ($body['run_id'] ?? null);
+$runId = trim((string) ($_POST['run_id'] ?? ($body['run_id'] ?? '')));
 
 if ($sessionToken === '') {
     respond(['status' => 'fail', 'message' => 'session_token is required'], 400);
 }
-if (!$runId) {
-    respond(['status' => 'fail', 'message' => 'run_id is required'], 400);
+if ($runId === '') {
+    respond(['status' => 'fail', 'code' => 'invalid_identifier_format', 'message' => 'run_id must be UUID'], 400);
 }
+if (!UuidBinary::isUuid($runId)) {
+    respond(['status' => 'fail', 'code' => 'invalid_identifier_format', 'message' => 'run_id must be UUID'], 400);
+}
+$runIdNorm = UuidBinary::normalize($runId);
 
-$tokenRow = Capsule::table('s3_cloudbackup_recovery_tokens')
-    ->where('session_token', $sessionToken)
-    ->first();
+$hasRunIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
+$tokenQuery = Capsule::table('s3_cloudbackup_recovery_tokens')->where('session_token', $sessionToken);
+if ($hasRunIdPk && Capsule::schema()->hasColumn('s3_cloudbackup_recovery_tokens', 'session_run_id')) {
+    $tokenQuery->selectRaw('*, BIN_TO_UUID(session_run_id) as session_run_id_uuid');
+}
+$tokenRow = $tokenQuery->first();
 if (!$tokenRow) {
     respond(['status' => 'fail', 'message' => 'Invalid session token'], 403);
 }
 if (!empty($tokenRow->session_expires_at) && strtotime((string) $tokenRow->session_expires_at) < time()) {
     respond(['status' => 'fail', 'message' => 'Session token expired'], 403);
 }
-if (!empty($tokenRow->session_run_id) && (int) $tokenRow->session_run_id !== (int) $runId) {
-    respond(['status' => 'fail', 'message' => 'Session token does not match run_id'], 403);
+if ($hasRunIdPk && !empty($tokenRow->session_run_id_uuid ?? '')) {
+    if (UuidBinary::normalize(trim((string) $tokenRow->session_run_id_uuid)) !== $runIdNorm) {
+        respond(['status' => 'fail', 'message' => 'Session token does not match run_id'], 403);
+    }
+} elseif (!$hasRunIdPk && !empty($tokenRow->session_run_id)) {
+    $runCheck = Capsule::table('s3_cloudbackup_runs')->where('run_uuid', $runIdNorm)->first();
+    if (!$runCheck || $tokenRow->session_run_id != $runCheck->id) {
+        respond(['status' => 'fail', 'message' => 'Session token does not match run_id'], 403);
+    }
 }
 
-refreshSessionExpiry($tokenRow, (int) $runId);
+refreshSessionExpiry($tokenRow, $runIdNorm);
 
-$run = Capsule::table('s3_cloudbackup_runs')
-    ->where('id', (int) $runId)
-    ->first(['id', 'cancel_requested']);
+$run = $hasRunIdPk
+    ? Capsule::table('s3_cloudbackup_runs')->whereRaw('run_id = ' . UuidBinary::toDbExpr($runIdNorm))->first(['cancel_requested'])
+    : Capsule::table('s3_cloudbackup_runs')->where('run_uuid', $runIdNorm)->first(['cancel_requested']);
 if (!$run) {
     respond(['status' => 'fail', 'message' => 'Run not found'], 404);
 }

@@ -152,8 +152,13 @@ if (!empty($tokenRow->session_expires_at) && strtotime((string) $tokenRow->sessi
     respondError('session_expired', 'Session token expired', 403);
 }
 if (!empty($tokenRow->session_run_id)) {
+    $restoreRunIdOut = $tokenRow->session_run_id;
+    if (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id') && Capsule::schema()->hasColumn('s3_cloudbackup_recovery_tokens', 'session_run_id')) {
+        $decoded = Capsule::selectOne('SELECT BIN_TO_UUID(session_run_id) as u FROM s3_cloudbackup_recovery_tokens WHERE id = ?', [(int) $tokenRow->id]);
+        $restoreRunIdOut = $decoded->u ?? (string) $tokenRow->session_run_id;
+    }
     respondError('session_already_bound', 'Session token is already bound to a restore run', 403, [
-        'restore_run_id' => (int) $tokenRow->session_run_id,
+        'restore_run_id' => $restoreRunIdOut,
     ]);
 }
 

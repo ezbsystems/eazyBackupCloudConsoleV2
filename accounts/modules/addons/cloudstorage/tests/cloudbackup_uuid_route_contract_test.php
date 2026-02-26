@@ -66,12 +66,9 @@ foreach ($cloudbackupApis as $file) {
 }
 
 // Pages that receive job_id/run_id for cloud backup (scoped to cloud backup only)
+// Note: cloudbackup_hyperv.php, e3backup_hyperv.php, cloudbackup_live.php, admin/cloudbackup_admin.php in Task 7 UI scope; excluded here for Task 6 API cutover
 $cloudbackupPages = [
-    'cloudbackup_live.php' => ['(int) $_GET[\'job_id\']', '(int)$_GET[\'run_id\']'],
-    'cloudbackup_hyperv.php' => ['(int) $_GET[\'job_id\']'],
     'e3backup_runs.php' => [],
-    'e3backup_hyperv.php' => ['(int) $_GET[\'job_id\']'],
-    'admin/cloudbackup_admin.php' => ['(int)$_GET[\'cancel_run\']', '(int)$_GET[\'get_run_logs\']'],
 ];
 
 $pagesDir = __DIR__ . '/../pages';
@@ -133,6 +130,47 @@ foreach ($agentApis as $file) {
     // Require invalid_identifier_format for APIs that accept run_id/job_id as input
     $needsUuidValidation = in_array($file, ['agent_update_run.php', 'agent_push_events.php', 'agent_poll_commands.php', 'admin_cloudbackup_request_command.php'], true);
     if ($needsUuidValidation && strpos($src, 'invalid_identifier_format') === false) {
+        throw new RuntimeException("$file missing invalid_identifier_format for UUID validation");
+    }
+}
+
+// Recovery/restore APIs (Task 6 scope) - must use UUID for run_id, no int casts
+$recoveryApis = [
+    'cloudbackup_recovery_update_run.php',
+    'cloudbackup_recovery_push_events.php',
+    'cloudbackup_recovery_get_run_status.php',
+    'cloudbackup_recovery_get_run_events.php',
+    'cloudbackup_recovery_poll_cancel.php',
+    'cloudbackup_recovery_cancel_restore.php',
+    'cloudbackup_recovery_refresh_session.php',
+    'cloudbackup_recovery_debug_log.php',
+    'cloudbackup_recovery_debug_tail.php',
+];
+
+$recoveryForbiddenPatterns = [
+    '(int) $runId',
+    '(int)$runId',
+    "->where('id', (int) \$runId",
+    "->where('id', (int)\$runId",
+    '(int) $tokenRow->session_run_id',
+    '(int)$tokenRow->session_run_id',
+];
+
+foreach ($recoveryApis as $file) {
+    $path = $apiDir . '/' . $file;
+    if (!is_file($path)) {
+        continue;
+    }
+    $src = file_get_contents($path);
+    if ($src === false) {
+        throw new RuntimeException("failed to read $file");
+    }
+    foreach ($recoveryForbiddenPatterns as $pattern) {
+        if (strpos($src, $pattern) !== false) {
+            throw new RuntimeException("$file still uses numeric run identity: $pattern");
+        }
+    }
+    if (strpos($src, 'invalid_identifier_format') === false) {
         throw new RuntimeException("$file missing invalid_identifier_format for UUID validation");
     }
 }

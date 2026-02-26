@@ -22,6 +22,7 @@ use WHMCS\ClientArea;
 use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 
 function respond(array $data, int $httpCode = 200): void
 {
@@ -57,6 +58,9 @@ if (empty($backupRunIdentifier) && $restorePointId <= 0) {
 }
 if (empty($targetPath)) {
     respond(['status' => 'fail', 'message' => 'target_path is required']);
+}
+if (!empty($backupRunIdentifier) && !UuidBinary::isUuid(trim((string) $backupRunIdentifier))) {
+    respond(['status' => 'fail', 'code' => 'invalid_identifier_format', 'message' => 'backup_run_id must be UUID'], 400);
 }
 
 $backupRun = null;
@@ -188,7 +192,7 @@ if ($restorePointId > 0) {
     }
 
     // MSP tenant authorization check
-    $accessCheck = MspController::validateJobAccess((int)$job->job_id, $clientId);
+    $accessCheck = MspController::validateJobAccess((string) ($job->job_id ?? ''), $clientId);
     if (!$accessCheck['valid']) {
         respond(['status' => 'fail', 'message' => $accessCheck['message']]);
     }
