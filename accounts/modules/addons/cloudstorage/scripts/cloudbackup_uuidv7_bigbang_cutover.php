@@ -64,6 +64,9 @@ $schema->dropIfExists('s3_cloudbackup_runs');
 if ($schema->hasTable('s3_hyperv_vms')) {
     $schema->drop('s3_hyperv_vms');
 }
+if ($schema->hasTable('s3_kopia_repo_sources')) {
+    $schema->drop('s3_kopia_repo_sources');
+}
 
 $schema->dropIfExists('s3_cloudbackup_jobs');
 
