@@ -869,7 +869,7 @@ function adminResetAgent(agentUuid) {
 
 function adminMaintenanceForAgent(agentUuid, type, activeRunId) {
     const payload = { type: type, agent_uuid: agentUuid };
-    if (activeRunId && Number(activeRunId) > 0) {
+    if (typeof activeRunId === 'string' && activeRunId.trim() !== '') {
         payload.run_id = activeRunId;
     }
     adminEnqueueAgentCommand(payload)
