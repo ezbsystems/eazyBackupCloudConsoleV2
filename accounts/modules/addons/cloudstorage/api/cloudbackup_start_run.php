@@ -13,6 +13,7 @@ use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 
 $ca = new ClientArea();
 if (!$ca->isLoggedIn()) {
@@ -39,19 +40,19 @@ if (is_null($product) || empty($product->username)) {
     exit();
 }
 
-$jobId = $_POST['job_id'] ?? null;
-if (!$jobId) {
-    $jsonData = [
+$jobId = isset($_POST['job_id']) ? trim((string) $_POST['job_id']) : '';
+if ($jobId === '' || !UuidBinary::isUuid($jobId)) {
+    $response = new JsonResponse([
         'status' => 'fail',
-        'message' => 'Job ID is required.'
-    ];
-    $response = new JsonResponse($jsonData, 200);
+        'code' => 'invalid_identifier_format',
+        'message' => 'job_id must be a valid UUID.',
+    ], 400);
     $response->send();
     exit();
 }
 
 // MSP tenant authorization check
-$accessCheck = MspController::validateJobAccess((int)$jobId, $loggedInUserId);
+$accessCheck = MspController::validateJobAccess($jobId, $loggedInUserId);
 if (!$accessCheck['valid']) {
     $response = new JsonResponse([
         'status' => 'fail',

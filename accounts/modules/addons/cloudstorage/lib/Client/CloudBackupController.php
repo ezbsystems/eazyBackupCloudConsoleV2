@@ -25,10 +25,16 @@ class CloudBackupController {
     public static function getJobsForClient($clientId)
     {
         try {
+            $hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+            $allCols = Capsule::schema()->getColumnListing('s3_cloudbackup_jobs');
+            $otherCols = array_values(array_diff($allCols, ['job_id']));
+            $selectCols = $hasJobIdPk
+                ? array_merge([Capsule::raw('BIN_TO_UUID(job_id) as job_id')], $otherCols)
+                : $allCols;
             $jobs = Capsule::table('s3_cloudbackup_jobs')
                 ->where('client_id', $clientId)
                 ->where('status', '!=', 'deleted')
-                ->select('*')
+                ->select($selectCols)
                 ->orderBy('created_at', 'desc')
                 ->get();
 
@@ -69,11 +75,20 @@ class CloudBackupController {
                     $jobArray['agent_hostname'] = $agentNames[(int) $job->agent_id] ?? null;
                 }
 
-                // Get last run summary
-                $lastRun = Capsule::table('s3_cloudbackup_runs')
-                    ->where('job_id', $job->id)
-                    ->orderBy('started_at', 'desc')
-                    ->first();
+                // Get last run summary (schema-aware: use binary or numeric job id for join)
+                $hasRunJobIdCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'job_id');
+                $lastRun = null;
+                if ($hasJobIdPk && $hasRunJobIdCol && UuidBinary::isUuid($job->job_id ?? '')) {
+                    $lastRun = Capsule::table('s3_cloudbackup_runs')
+                        ->whereRaw('job_id = ' . UuidBinary::toDbExpr($job->job_id))
+                        ->orderBy('started_at', 'desc')
+                        ->first();
+                } elseif (!$hasJobIdPk && isset($job->id)) {
+                    $lastRun = Capsule::table('s3_cloudbackup_runs')
+                        ->where('job_id', $job->id)
+                        ->orderBy('started_at', 'desc')
+                        ->first();
+                }
                 
                 $jobArray['last_run'] = $lastRun ? [
                     'status' => $lastRun->status,
@@ -93,18 +108,26 @@ class CloudBackupController {
     }
 
     /**
-     * Get a single job by ID with ownership verification
+     * Get a single job by UUID with ownership verification.
+     * UUID-only: invalid UUID returns null (caller handles error response).
      *
-     * @param int $jobId
+     * @param string $jobId Job identifier (must be valid UUID)
      * @param int $clientId
      * @return array|null
      */
     public static function getJob($jobId, $clientId)
     {
         try {
+            $hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+            if (!$hasJobIdPk || !UuidBinary::isUuid($jobId)) {
+                return null;
+            }
+            $jobIdNorm = UuidBinary::normalize($jobId);
+            $otherCols = array_values(array_diff(Capsule::schema()->getColumnListing('s3_cloudbackup_jobs'), ['job_id']));
             $job = Capsule::table('s3_cloudbackup_jobs')
-                ->where('id', $jobId)
+                ->whereRaw('job_id = ' . UuidBinary::toDbExpr($jobIdNorm))
                 ->where('client_id', $clientId)
+                ->select(array_merge([Capsule::raw('BIN_TO_UUID(job_id) as job_id')], $otherCols))
                 ->first();
 
             if (!$job) {
@@ -226,8 +249,15 @@ class CloudBackupController {
                 }
             }
 
-            $jobId = Capsule::table('s3_cloudbackup_jobs')->insertGetId($jobData);
+            $hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+            if ($hasJobIdPk) {
+                $jobUuid = self::generateUuid();
+                $jobData['job_id'] = Capsule::raw(UuidBinary::toDbExpr($jobUuid));
+                Capsule::table('s3_cloudbackup_jobs')->insert($jobData);
+                return ['status' => 'success', 'job_id' => $jobUuid];
+            }
 
+            $jobId = Capsule::table('s3_cloudbackup_jobs')->insertGetId($jobData);
             return ['status' => 'success', 'job_id' => $jobId];
         } catch (\Exception $e) {
             $ctx = $data;
@@ -431,8 +461,9 @@ class CloudBackupController {
                 // If schema introspection fails, proceed with original updateData.
             }
 
+            $jobIdNorm = UuidBinary::normalize($jobId);
             Capsule::table('s3_cloudbackup_jobs')
-                ->where('id', $jobId)
+                ->whereRaw('job_id = ' . UuidBinary::toDbExpr($jobIdNorm))
                 ->where('client_id', $clientId)
                 ->update($updateData);
 
@@ -467,12 +498,12 @@ class CloudBackupController {
             $engine = (string) ($job['engine'] ?? '');
             if (KopiaRetentionHookService::shouldRetireOnJobDelete($sourceType, $engine)) {
                 try {
-                    KopiaRetentionSourceService::ensureRepoSourceForJob((int) $jobId);
+                    KopiaRetentionSourceService::ensureRepoSourceForJob($jobId);
                 } catch (\Throwable $e) {
                     logModuleCall(self::$module, 'deleteJob_ensure_source', ['job_id' => $jobId], $e->getMessage());
                 }
                 try {
-                    $repoIds = KopiaRetentionSourceService::retireByJobId((int) $jobId);
+                    $repoIds = KopiaRetentionSourceService::retireByJobId($jobId);
                     foreach ($repoIds as $repoId) {
                         KopiaRetentionOperationService::enqueue($repoId, 'retention_apply', ['repo_id' => $repoId], 'job-delete-' . $jobId . '-' . $repoId);
                         KopiaRetentionOperationService::enqueue($repoId, 'maintenance_quick', ['repo_id' => $repoId], 'job-delete-' . $jobId . '-' . $repoId . '-maintenance');
@@ -482,8 +513,9 @@ class CloudBackupController {
                 }
             }
 
+            $jobIdNorm = UuidBinary::normalize($jobId);
             Capsule::table('s3_cloudbackup_jobs')
-                ->where('id', $jobId)
+                ->whereRaw('job_id = ' . UuidBinary::toDbExpr($jobIdNorm))
                 ->where('client_id', $clientId)
                 ->update([
                     'status' => 'deleted',
@@ -513,11 +545,18 @@ class CloudBackupController {
                 return [];
             }
 
-            $runs = Capsule::table('s3_cloudbackup_runs')
-                ->where('job_id', $jobId)
-                ->select('*')
-                ->orderBy('started_at', 'desc')
-                ->get();
+            $hasRunIdCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
+            $jobIdNorm = UuidBinary::normalize($jobId);
+            $query = Capsule::table('s3_cloudbackup_runs')
+                ->whereRaw('job_id = ' . UuidBinary::toDbExpr($jobIdNorm))
+                ->orderBy('started_at', 'desc');
+            if ($hasRunIdCol) {
+                $runCols = array_diff(Capsule::schema()->getColumnListing('s3_cloudbackup_runs'), ['run_id']);
+                $query->select(array_merge([Capsule::raw('BIN_TO_UUID(run_id) as run_id')], $runCols));
+            } else {
+                $query->select('*');
+            }
+            $runs = $query->get();
 
             // Convert stdClass objects to arrays for Smarty compatibility
             return array_map(function($item) {
@@ -625,7 +664,9 @@ class CloudBackupController {
                 if ($hasSourceTypeCol) {
                     // Best-effort backfill to mark it local_agent so workers ignore
                     try {
-                        Capsule::table('s3_cloudbackup_jobs')->where('id', $jobId)->update(['source_type' => 'local_agent']);
+                        Capsule::table('s3_cloudbackup_jobs')
+                            ->whereRaw('job_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($jobId)))
+                            ->update(['source_type' => 'local_agent']);
                         $job['source_type'] = 'local_agent';
                         $jobIsLocalAgent = true;
                     } catch (\Throwable $e) {
@@ -647,7 +688,9 @@ class CloudBackupController {
                 if (!$jobIsLocalAgent && $hasSourceTypeCol) {
                     // Attempt a best-effort fix
                     try {
-                        Capsule::table('s3_cloudbackup_jobs')->where('id', $jobId)->update(['source_type' => 'local_agent']);
+                        Capsule::table('s3_cloudbackup_jobs')
+                            ->whereRaw('job_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($jobId)))
+                            ->update(['source_type' => 'local_agent']);
                         $job['source_type'] = 'local_agent';
                         $jobIsLocalAgent = true;
                     } catch (\Throwable $e) {
@@ -700,6 +743,7 @@ class CloudBackupController {
             }
 
             // Run insert payload (gate optional columns by schema)
+            $hasRunIdCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
             $hasDestTypeCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'dest_type');
             $hasDestBucketCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'dest_bucket');
             $hasDestPrefixCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'dest_prefix');
@@ -710,13 +754,18 @@ class CloudBackupController {
             $hasRunTenantCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'tenant_id');
             $hasRunRepositoryCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'repository_id');
 
+            $runUuid = $hasRunIdCol ? self::generateUuid() : null;
+            $jobIdNorm = UuidBinary::normalize($jobId);
             $runInsert = [
-                'job_id' => $jobId,
+                'job_id' => $hasRunIdCol ? Capsule::raw(UuidBinary::toDbExpr($jobIdNorm)) : $jobId,
                 'trigger_type' => $triggerType,
                 'status' => 'queued',
                 'created_at' => date('Y-m-d H:i:s'),
             ];
-            if ($hasRunUuidCol) {
+            if ($hasRunIdCol && $runUuid) {
+                $runInsert['run_id'] = Capsule::raw(UuidBinary::toDbExpr($runUuid));
+            }
+            if ($hasRunUuidCol && !$hasRunIdCol) {
                 $runInsert['run_uuid'] = self::generateUuid();
             }
             if ($hasRunTenantCol) {
@@ -749,11 +798,15 @@ class CloudBackupController {
                     $runInsert['worker_host'] = 'agent-' . (int)$job['agent_id'];
                 }
             }
-            $runId = Capsule::table('s3_cloudbackup_runs')->insertGetId($runInsert);
-
-            $response = ['status' => 'success', 'run_id' => $runId];
-            if ($hasRunUuidCol) {
-                $response['run_uuid'] = $runInsert['run_uuid'];
+            if ($hasRunIdCol && $runUuid) {
+                Capsule::table('s3_cloudbackup_runs')->insert($runInsert);
+                $response = ['status' => 'success', 'run_id' => $runUuid];
+            } else {
+                $runId = Capsule::table('s3_cloudbackup_runs')->insertGetId($runInsert);
+                $response = ['status' => 'success', 'run_id' => $runId];
+                if ($hasRunUuidCol) {
+                    $response['run_uuid'] = $runInsert['run_uuid'] ?? null;
+                }
             }
 
             logModuleCall(self::$module, 'startRun', ['job_id' => $jobId, 'client_id' => $clientId], $response);
@@ -765,43 +818,20 @@ class CloudBackupController {
     }
 
     /**
-     * Cancel a running job
+     * Cancel a running job. UUID-only: invalid UUID returns fail envelope.
      *
-     * @param string|int $runId Run identifier: UUID string (run_id path) or numeric id (legacy path)
+     * @param string $runId Run identifier (must be valid UUID)
      * @param int $clientId
      * @return array
      */
     public static function cancelRun($runId, $clientId, $forceCancel = false)
     {
         try {
-            $hasRunIdCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
-            $isUuidInput = UuidBinary::isUuid($runId);
-
-            // Schema-aware lookup: UUID path (getRun) or legacy id path
-            $run = null;
-            $runIdForResponse = null;
-            $useUuidWhere = false;
-
-            if ($isUuidInput) {
-                $run = self::getRun($runId, $clientId);
-                $runIdForResponse = $runId;
-                $useUuidWhere = $hasRunIdCol;
-            } elseif (!$hasRunIdCol && is_numeric($runId)) {
-                $hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
-                $jobRunJoin = $hasJobIdPk
-                    ? ['s3_cloudbackup_runs.job_id', '=', 's3_cloudbackup_jobs.job_id']
-                    : ['s3_cloudbackup_runs.job_id', '=', 's3_cloudbackup_jobs.id'];
-                $row = Capsule::table('s3_cloudbackup_runs')
-                    ->join('s3_cloudbackup_jobs', $jobRunJoin[0], $jobRunJoin[1], $jobRunJoin[2])
-                    ->where('s3_cloudbackup_jobs.client_id', $clientId)
-                    ->where('s3_cloudbackup_runs.id', (int) $runId)
-                    ->select('s3_cloudbackup_runs.*')
-                    ->first();
-                if ($row) {
-                    $run = (array) $row;
-                    $runIdForResponse = (int) $run['id'];
-                }
+            if (!UuidBinary::isUuid($runId)) {
+                return ['status' => 'fail', 'code' => 'invalid_identifier_format', 'message' => 'run_id must be UUID'];
             }
+            $run = self::getRun($runId, $clientId);
+            $runIdForResponse = $runId;
 
             logModuleCall(self::$module, 'cancelRun_lookup', [
                 'run_id_input' => $runId,
@@ -844,15 +874,9 @@ class CloudBackupController {
                 }
             }
 
-            if ($useUuidWhere) {
-                $affected = Capsule::table('s3_cloudbackup_runs')
-                    ->whereRaw('run_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($runId)))
-                    ->update($update);
-            } else {
-                $affected = Capsule::table('s3_cloudbackup_runs')
-                    ->where('id', $run['id'])
-                    ->update($update);
-            }
+            $affected = Capsule::table('s3_cloudbackup_runs')
+                ->whereRaw('run_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($runId)))
+                ->update($update);
 
             logModuleCall(self::$module, 'cancelRun_update', [
                 'run_id' => $runIdForResponse,
@@ -1192,8 +1216,13 @@ class CloudBackupController {
                 return ['status' => 'fail', 'message' => 'Storage connection not configured'];
             }
 
-            // Load job
-            $job = Capsule::table('s3_cloudbackup_jobs')->where('id', $jobId)->first();
+            // Load job (UUID schema: job_id is BINARY(16) PK)
+            if (!UuidBinary::isUuid($jobId)) {
+                return ['status' => 'fail', 'message' => 'Job not found'];
+            }
+            $job = Capsule::table('s3_cloudbackup_jobs')
+                ->whereRaw('job_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($jobId)))
+                ->first();
             if (!$job) {
                 return ['status' => 'fail', 'message' => 'Job not found'];
             }

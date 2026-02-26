@@ -11,6 +11,7 @@ use WHMCS\ClientArea;
 use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 use WHMCS\Database\Capsule;
 
 $ca = new ClientArea();
@@ -30,9 +31,13 @@ if (is_null($product) || empty($product->username)) {
     exit();
 }
 
-$jobId = isset($_GET['job_id']) ? (int) $_GET['job_id'] : 0;
-if ($jobId <= 0) {
-    $resp = new JsonResponse(['status' => 'fail', 'message' => 'Invalid job id.'], 200);
+$jobId = isset($_GET['job_id']) ? trim((string) $_GET['job_id']) : '';
+if ($jobId === '' || !UuidBinary::isUuid($jobId)) {
+    $resp = new JsonResponse([
+        'status' => 'fail',
+        'code' => 'invalid_identifier_format',
+        'message' => 'job_id must be a valid UUID.',
+    ], 400);
     $resp->send();
     exit();
 }
@@ -118,9 +123,9 @@ try {
     $safeSource = ['type' => $job['source_type']];
 }
 
-// Whitelist job fields returned to client
+// Whitelist job fields returned to client (job_id is UUID string)
 $outJob = [
-    'id'                    => (int) $job['id'],
+    'id'                    => $job['job_id'],
     'client_id'             => (int) $job['client_id'],
     's3_user_id'            => (int) $job['s3_user_id'],
     'agent_uuid'            => isset($job['agent_uuid']) ? (string) $job['agent_uuid'] : null,

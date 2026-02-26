@@ -3,6 +3,7 @@
 namespace WHMCS\Module\Addon\CloudStorage\Client;
 
 use WHMCS\Database\Capsule;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 
 class MspController
 {
@@ -69,17 +70,27 @@ class MspController
      * For non-MSP clients, checks basic ownership via client_id.
      * For MSP clients, additionally validates the agent/tenant chain.
      *
-     * @param int $jobId The job ID to validate access for
+     * @param string $jobId The job ID (UUID) to validate access for
      * @param int $clientId The client ID requesting access
      * @return array ['valid' => bool, 'message' => string, 'job' => array|null]
      */
-    public static function validateJobAccess(int $jobId, int $clientId): array
+    public static function validateJobAccess(string $jobId, int $clientId): array
     {
-        // First check basic ownership - job must belong to this client
-        $job = Capsule::table('s3_cloudbackup_jobs')
-            ->where('id', $jobId)
-            ->where('client_id', $clientId)
-            ->first();
+        $hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+
+        if ($hasJobIdPk && UuidBinary::isUuid($jobId)) {
+            $jobIdNorm = UuidBinary::normalize($jobId);
+            $job = Capsule::table('s3_cloudbackup_jobs')
+                ->whereRaw('job_id = ' . UuidBinary::toDbExpr($jobIdNorm))
+                ->where('client_id', $clientId)
+                ->first();
+        } else {
+            return [
+                'valid' => false,
+                'message' => 'Job not found or access denied.',
+                'job' => null,
+            ];
+        }
 
         if (!$job) {
             return [
