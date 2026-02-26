@@ -66,9 +66,12 @@ foreach ($cloudbackupApis as $file) {
 }
 
 // Pages that receive job_id/run_id for cloud backup (scoped to cloud backup only)
-// Note: cloudbackup_hyperv.php, e3backup_hyperv.php, cloudbackup_live.php, admin/cloudbackup_admin.php in Task 7 UI scope; excluded here for Task 6 API cutover
 $cloudbackupPages = [
+    'cloudbackup_live.php' => ['(int) $_GET[\'job_id\']', '(int)$_GET[\'run_id\']'],
+    'cloudbackup_hyperv.php' => ['(int) $_GET[\'job_id\']'],
     'e3backup_runs.php' => [],
+    'e3backup_hyperv.php' => ['(int) $_GET[\'job_id\']'],
+    'admin/cloudbackup_admin.php' => ['(int)$_GET[\'cancel_run\']', '(int)$_GET[\'get_run_logs\']'],
 ];
 
 $pagesDir = __DIR__ . '/../pages';
