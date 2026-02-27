@@ -551,10 +551,13 @@ Scoping: All queries must be constrained to the current WHMCS client context usi
 **Cron examples (as www-data or root):**
 - Devices daily (02:05)
 5 2 * * * php /var/www/eazybackup.ca/accounts/modules/addons/eazybackup/bin/rollup_devices_daily.php
+- Devices client daily (02:07)
+7 2 * * * php /var/www/eazybackup.ca/accounts/modules/addons/eazybackup/bin/rollup_devices_client_daily.php
 - Items daily (02:10)
 10 2 * * * php /var/www/eazybackup.ca/accounts/modules/addons/eazybackup/bin/rollup_items_daily.php
 
 - rollup_devices_daily.php → writes eb_devices_daily using eb_devices_registry
+- rollup_devices_client_daily.php → writes eb_devices_client_daily using client-scoped active services and comet_devices
 - rollup_items_daily.php → writes eb_items_daily using comet_items.content (exact JSON paths you provided)
 
 
