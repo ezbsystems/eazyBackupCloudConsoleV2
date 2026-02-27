@@ -426,6 +426,8 @@
     const pagerEl = opts.pagerEl;
     const searchInput = opts.searchInput;
     const usernameDropdown = opts.usernameDropdown;
+    const usernameMenuLabel = opts.usernameMenuLabel;
+    const usernameMenuList = opts.usernameMenuList;
     const chipButtons = Array.isArray(opts.chipButtons) ? opts.chipButtons : Array.from(document.querySelectorAll('[data-jobs-status-chip]'));
     const clearBtn = opts.clearBtn || document.getElementById('jobs-clear-filters');
     const summaryEl = opts.summaryEl || document.getElementById('jobs-active-filters');
@@ -499,6 +501,32 @@
         usernameDropdown.appendChild(opt);
       }
       usernameDropdown.value = state.username || '';
+
+      if (usernameMenuLabel) {
+        usernameMenuLabel.textContent = state.username || 'All users';
+      }
+      if (!usernameMenuList) return;
+
+      usernameMenuList.innerHTML = '';
+      const addMenuItem = (value, label) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        const active = (state.username || '') === value;
+        btn.className = 'block w-full rounded-md px-3 py-2 text-left text-sm transition-colors ' +
+          (active ? 'bg-slate-700 text-white' : 'text-slate-300 hover:bg-slate-700/70 hover:text-white');
+        btn.textContent = label;
+        btn.addEventListener('click', () => {
+          usernameDropdown.value = value;
+          usernameDropdown.dispatchEvent(new Event('change', { bubbles: true }));
+          window.dispatchEvent(new CustomEvent('jobs:username-selected'));
+        });
+        usernameMenuList.appendChild(btn);
+      };
+
+      addMenuItem('', 'All users');
+      for (const u of options) {
+        addMenuItem(u, `${u} (${counts[u] || 0})`);
+      }
     }
 
     function renderEmptyRow(filtered){
@@ -526,6 +554,7 @@
       });
       usernameDropdown && usernameDropdown.addEventListener('change', () => {
         state.username = (usernameDropdown.value || '').trim();
+        if (usernameMenuLabel) usernameMenuLabel.textContent = state.username || 'All users';
         state.page = 1;
         load();
       });
@@ -536,6 +565,7 @@
         state.page = 1;
         if (searchInput) searchInput.value = '';
         if (usernameDropdown) usernameDropdown.value = '';
+        if (usernameMenuLabel) usernameMenuLabel.textContent = 'All users';
         renderStatusChips();
         load();
       });

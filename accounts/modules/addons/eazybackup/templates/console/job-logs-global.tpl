@@ -49,7 +49,7 @@
               <div class="border-b border-slate-800/80 px-4 pt-4 pb-3">
       <div class="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
         <div class="flex items-center gap-2">
-          <div class="text-xs font-medium text-slate-300">Summary <span class="text-slate-500">(Global Job Logs)</span></div>
+          {* <div class="text-xs font-medium text-slate-300">Summary <span class="text-slate-500">(Global Job Logs)</span></div>
           <button type="button"
                   class="inline-flex h-6 w-6 items-center justify-center rounded-full border border-slate-700/70 bg-slate-900/40 text-slate-400 transition hover:border-slate-600 hover:text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
                   title="Filter Job Logs by one or more status pills. Search and username filter combine with selected statuses."
@@ -57,7 +57,7 @@
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4">
               <path stroke-linecap="round" stroke-linejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
             </svg>
-          </button>
+          </button> *}
         </div>
 
         <div class="flex flex-wrap gap-2">
@@ -88,9 +88,22 @@
         </div>
 
         <div class="flex w-full flex-wrap gap-2 xl:w-auto xl:flex-nowrap xl:max-w-none">
-          <select id="global-jobs-username" class="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-200 focus:outline-none focus:ring-0 focus:border-sky-600 min-w-[8rem]">
-            <option value="">All users</option>
-          </select>
+          <div x-data="{ userOpen:false }" class="relative shrink-0" @click.away="userOpen=false" @jobs:username-selected.window="userOpen=false">
+            <button @click="userOpen = !userOpen" type="button"
+                    class="inline-flex items-center gap-2 rounded-lg border border-slate-700/80 bg-slate-900/50 px-3 py-2 text-sm text-white transition-all duration-200 hover:border-slate-600 hover:bg-slate-900/80">
+              <span class="text-slate-400">User:</span>
+              <span id="global-jobs-username-label" class="font-medium">All users</span>
+              <svg class="h-4 w-4 opacity-70" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.24 4.5a.75.75 0 01-1.08 0l-4.24-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/>
+              </svg>
+            </button>
+            <div x-show="userOpen" x-cloak x-transition class="absolute left-0 mt-2 w-72 overflow-hidden rounded-lg border border-slate-700 bg-slate-800 shadow-xl z-10">
+              <div id="global-jobs-username-menu" class="max-h-72 overflow-y-auto p-1"></div>
+            </div>
+            <select id="global-jobs-username" class="hidden" aria-hidden="true" tabindex="-1">
+              <option value="">All users</option>
+            </select>
+          </div>
           <input id="global-jobs-search" type="text" placeholder="Search jobs..." class="flex-1 min-w-[12rem] rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-0 focus:border-sky-600">
           <button id="global-jobs-clear-filters" type="button" class="hidden inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-700/80 bg-slate-900/50 px-3 py-2 text-xs font-medium text-slate-300 transition hover:border-slate-600 hover:bg-slate-900/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950">
             Clear
@@ -100,7 +113,7 @@
       <div id="global-jobs-active-filters" class="mt-2 hidden text-xs text-slate-400"></div>
     </div>
 
-              <div class="flex flex-col gap-3 border-b border-slate-800/80 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div class="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
       <div class="flex items-center gap-3 flex-wrap">
         <div class="relative shrink-0" @click.away="open=false">
           <button type="button" class="inline-flex items-center gap-2 rounded-lg border border-slate-700/80 bg-slate-900/50 px-3 py-2 text-sm text-white transition-all duration-200 hover:border-slate-600 hover:bg-slate-900/80" @click="open=!open">
@@ -214,6 +227,8 @@ try {
         pagerEl: document.getElementById('global-jobs-pager'),
         searchInput: document.getElementById('global-jobs-search'),
         usernameDropdown: document.getElementById('global-jobs-username'),
+        usernameMenuLabel: document.getElementById('global-jobs-username-label'),
+        usernameMenuList: document.getElementById('global-jobs-username-menu'),
         chipButtons: Array.from(document.querySelectorAll('#global-jobs-page [data-jobs-status-chip]')),
         clearBtn: document.getElementById('global-jobs-clear-filters'),
         summaryEl: document.getElementById('global-jobs-active-filters')
