@@ -3090,6 +3090,7 @@ function eazybackup_clientarea(array $vars)
         $totalDevices = Capsule::table('comet_devices')
             ->where('client_id', $clientId)
             ->whereIn('username', $activeUsernames)
+            ->whereNull('revoked_at')
             ->count();
 
         // Count protected items for the client, but only from active WHMCS services
@@ -3103,6 +3104,42 @@ function eazybackup_clientarea(array $vars)
             ->where('client_id', $clientId)
             ->whereIn('username', $activeUsernames)
             ->sum('total_bytes');
+
+        $onlineDevices = Capsule::table('comet_devices')
+            ->where('client_id', $clientId)
+            ->whereIn('username', $activeUsernames)
+            ->whereNull('revoked_at')
+            ->where('is_active', 1)
+            ->count();
+
+        $offlineDevices = Capsule::table('comet_devices')
+            ->where('client_id', $clientId)
+            ->whereIn('username', $activeUsernames)
+            ->whereNull('revoked_at')
+            ->where('is_active', 0)
+            ->count();
+
+        $engineCountsRow = Capsule::table('comet_items')
+            ->selectRaw("SUM(CASE WHEN type = 'engine1/file' THEN 1 ELSE 0 END) AS files_folders")
+            ->selectRaw("SUM(CASE WHEN type = 'engine1/windisk' THEN 1 ELSE 0 END) AS disk_image")
+            ->selectRaw("SUM(CASE WHEN type = 'engine1/hyperv' THEN 1 ELSE 0 END) AS hyper_v")
+            ->selectRaw("SUM(CASE WHEN type = 'engine1/mssql' THEN 1 ELSE 0 END) AS sql_server")
+            ->selectRaw("SUM(CASE WHEN type = 'engine1/winmsofficemail' THEN 1 ELSE 0 END) AS office_365")
+            ->selectRaw("SUM(CASE WHEN type = 'engine1/systemstate' THEN 1 ELSE 0 END) AS system_state")
+            ->selectRaw("SUM(CASE WHEN type = 'engine1/proxmox' THEN 1 ELSE 0 END) AS proxmox")
+            ->where('client_id', $clientId)
+            ->whereIn('username', $activeUsernames)
+            ->first();
+
+        $protectedItemEngineCounts = [
+            'files_folders' => (int)($engineCountsRow->files_folders ?? 0),
+            'disk_image' => (int)($engineCountsRow->disk_image ?? 0),
+            'hyper_v' => (int)($engineCountsRow->hyper_v ?? 0),
+            'sql_server' => (int)($engineCountsRow->sql_server ?? 0),
+            'office_365' => (int)($engineCountsRow->office_365 ?? 0),
+            'system_state' => (int)($engineCountsRow->system_state ?? 0),
+            'proxmox' => (int)($engineCountsRow->proxmox ?? 0),
+        ];
 
         // Get all devices for the client, but only from active WHMCS services
         // Include raw DeviceID in 'hash' so we can derive a stable join key for jobs
@@ -3406,6 +3443,9 @@ function eazybackup_clientarea(array $vars)
                 'totalDevices' => $totalDevices,
                 'totalProtectedItems' => $totalProtectedItems,
                 'totalStorageUsed' => Helper::humanFileSize($totalStorageUsed),
+                'onlineDevices' => $onlineDevices,
+                'offlineDevices' => $offlineDevices,
+                'protectedItemEngineCounts' => $protectedItemEngineCounts,
                 'devices' => $devices,
                 'accounts' => $accounts,
                 'upcomingCharges' => $upcomingCharges,
