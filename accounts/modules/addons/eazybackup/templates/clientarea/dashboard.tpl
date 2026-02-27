@@ -96,8 +96,7 @@
                                 </svg>
                                 <h3 class="text-base font-semibold">Last 24 Hours (Status)</h3>
                             </div>
-                            <div style="min-height:3.5rem;"></div>
-                            <div id="eb-status24h-donut" class="mt-3 h-32 w-full border border-slate-800 rounded overflow-hidden">
+                            <div id="eb-status24h-donut" class="mt-3 w-full border border-slate-800 rounded overflow-hidden" style="height:180px;">
                                 <div class="h-full w-full flex items-center justify-center text-xs text-slate-500">Loading chart...</div>
                             </div>
                             <div id="eb-status24h-legend" class="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-slate-300">
@@ -295,7 +294,7 @@
                                             <div class="text-xs font-medium text-slate-300">Summary <span class="text-slate-500">(Last 24 hours)</span></div>
                                             <button type="button"
                                                     class="inline-flex items-center justify-center w-6 h-6 rounded-full border border-slate-700/70 bg-slate-900/40 text-slate-400 hover:text-slate-200 hover:border-slate-600 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                                                    title="Counts and filters are based on each device’s most recent job in the last 24 hours. Running jobs are included live."
+                                                    title="Counts and filters are based on all jobs in the last 24 hours for visible devices. Running jobs are included live."
                                                     aria-label="About this summary">
                                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
                                                     <path stroke-linecap="round" stroke-linejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
@@ -311,7 +310,7 @@
                                                         class="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition select-none active:scale-[0.99] cursor-pointer disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
                                                         :class="chipBtnClass(label)"
                                                         :disabled="(countsCache[label]||0)===0"
-                                                        :title="(countsCache[label]||0)===0 ? 'No devices currently in this state' : ('Filter devices by ' + label)"
+                                                        :title="(countsCache[label]||0)===0 ? 'No jobs currently in this status' : ('Filter devices that have at least one ' + label + ' job in the last 24 hours')"
                                                         @click="toggleStatus(label)">
                                                     <span class="w-2.5 h-2.5 rounded-full inline-block"
                                                           :class="dotClass(label)"></span>
@@ -1255,6 +1254,20 @@
                 return (window.EB && EB.humanStatus) ? EB.humanStatus(best.status) : String(best.status || '');
             },
 
+            statusLabelForJob(raw) {
+                const j = (window.EB && EB.normalizeJob) ? EB.normalizeJob(raw) : (raw || {});
+                return (window.EB && EB.humanStatus) ? EB.humanStatus(j.status) : String(j.status || '');
+            },
+
+            deviceHasStatus24h(device, label) {
+                if (!label) return false;
+                const jobs = this.jobsInLast24h(device);
+                for (const raw of jobs) {
+                    if (this.statusLabelForJob(raw) === label) return true;
+                }
+                return false;
+            },
+
             statusPriority(label) {
                 const p = { 'Error': 1, 'Timeout': 2, 'Missed': 3, 'Warning': 4, 'Cancelled': 5, 'Running': 6, 'Skipped': 7, 'Success': 8, 'Unknown': 9 };
                 return p[label] || 9;
@@ -1323,8 +1336,11 @@
                 for (const device of list) {
                     if (!this.isVisibleDevice(device)) continue;
                     if (!this.searchMatchDevice(device)) continue;
-                    const st = this.latestStatus24h(device);
-                    if (st && out[st] !== undefined) out[st] += 1;
+                    const jobs = this.jobsInLast24h(device);
+                    for (const raw of jobs) {
+                        const st = this.statusLabelForJob(raw);
+                        if (st && out[st] !== undefined) out[st] += 1;
+                    }
                 }
                 return out;
             },
@@ -1547,7 +1563,7 @@
                 // Base: visibility + search
                 let out = list.filter(device => this.isVisibleDevice(device) && this.searchMatchDevice(device));
 
-                // Status filters (latest job in last 24h)
+                // Status filters (at least one matching job in last 24h)
                 let activeSet = [];
                 if (this.issuesOnly) {
                     activeSet = this.issueSet();
@@ -1557,8 +1573,10 @@
 
                 if (activeSet.length) {
                     out = out.filter(device => {
-                        const st = this.latestStatus24h(device);
-                        return !!st && activeSet.includes(st);
+                        for (const label of activeSet) {
+                            if (this.deviceHasStatus24h(device, label)) return true;
+                        }
+                        return false;
                     });
                 }
 

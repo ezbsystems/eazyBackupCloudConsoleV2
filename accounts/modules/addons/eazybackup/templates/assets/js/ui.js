@@ -405,6 +405,12 @@ document.addEventListener('DOMContentLoaded', function(){
       } catch (e) { return { status:'error', message: e.message || 'Request failed' }; }
     }
 
+    function emitVaultToast(type, message){
+      try {
+        window.dispatchEvent(new CustomEvent('vault:toast', { detail: { type: String(type || 'info'), message: String(message || '') } }));
+      } catch(_) {}
+    }
+
     saveAllBtn && saveAllBtn.addEventListener('click', async ()=>{
       const id = (idEl && idEl.value) ? idEl.value : '';
       const newName = (nameEl && nameEl.value ? nameEl.value : '').trim();
@@ -423,10 +429,10 @@ document.addEventListener('DOMContentLoaded', function(){
           }
         }
       } catch(_){}
-      if (!id) { try{ if(window.showToast) window.showToast('Missing vault id.','error'); }catch(_){} return; }
-      if (!newName) { try{ if(window.showToast) window.showToast('Enter a vault name.','warning'); }catch(_){} return; }
+      if (!id) { emitVaultToast('error', 'Missing vault id.'); return; }
+      if (!newName) { emitVaultToast('warning', 'Enter a vault name.'); return; }
       const r = await callVault('updateVault', { vaultId:id, vaultName:newName, vaultQuota:quota });
-      try{ if(window.showToast) window.showToast(r.message || (r.status==='success'?'Changes saved.':'Save failed'), r.status==='success'?'success':'error'); }catch(_){ }
+      emitVaultToast((r && r.status==='success') ? 'success' : 'error', (r && r.message) ? r.message : ((r && r.status==='success') ? 'Changes saved.' : 'Save failed.'));
       if (r.status==='success') {
         titleName.textContent = newName;
         // Calculate new quota bytes
@@ -778,6 +784,44 @@ document.addEventListener('DOMContentLoaded', function(){
       return res.json();
     }
 
+    function emitRetentionToast(type, message){
+      try {
+        window.dispatchEvent(new CustomEvent('retention:toast', { detail: { type: String(type || 'info'), message: String(message || '') } }));
+      } catch(_) {}
+    }
+
+    async function saveRetentionPolicy(){
+      if (!currentVaultId) return false;
+      const payloadRanges = (mode===MODES.DELETE_EXCEPT ? (ranges||[]).map(r=>clampRange(Object.assign({},r))) : []);
+      const r = await api('setVaultRetention', {
+        vaultId: currentVaultId,
+        override: !!override,
+        mode: mode,
+        ranges: payloadRanges,
+        hash: currentHash
+      });
+      if (r && r.status === 'success') {
+        currentHash = r.hash || currentHash;
+        try {
+          const v = (currentProfile && currentProfile.Destinations && currentProfile.Destinations[currentVaultId]) ? currentProfile.Destinations[currentVaultId] : null;
+          if (v) {
+            if (!override) { if ('RetentionPolicy' in v) delete v.RetentionPolicy; }
+            else { v.RetentionPolicy = { Mode: mode, Ranges: payloadRanges }; }
+          }
+        } catch(_) {}
+        emitRetentionToast('success', 'Retention saved.');
+        return true;
+      }
+      if (r && r.code === 'hash_mismatch') {
+        emitRetentionToast('warning', 'Profile changed on server; reloaded.');
+        const rr = await api('getUserProfile', {});
+        if (rr && rr.status === 'success') { currentProfile = rr.profile; currentHash = rr.hash; }
+        return false;
+      }
+      emitRetentionToast('error', (r && r.message) ? r.message : 'Failed to save retention.');
+      return false;
+    }
+
     function fmtPolicy(policy){
       if (!policy || !policy.Mode) return ['No retention policy'];
       if (policy.Mode === MODES.KEEP_EVERYTHING) return ['Keep everything'];
@@ -1020,43 +1064,11 @@ document.addEventListener('DOMContentLoaded', function(){
     }
 
     // Save retention
-    var saveAllBtn2 = document.getElementById('vault-save-all');
-    if (saveAllBtn2) saveAllBtn2.addEventListener('click', async function(){
-      if (!currentProfile || !currentVaultId) return; // handled by general save already
-      // patch a clone
-      try {
-        const prof = JSON.parse(JSON.stringify(currentProfile));
-        const v = (prof.Destinations && prof.Destinations[currentVaultId]) ? prof.Destinations[currentVaultId] : null;
-        if (!v) return;
-        if (!override) {
-          if ('RetentionPolicy' in v) delete v.RetentionPolicy;
-        } else {
-          const payload = { Mode: mode, Ranges: (mode===MODES.DELETE_EXCEPT? (ranges||[]).map(r=>clampRange(Object.assign({},r))) : []) };
-          v.RetentionPolicy = payload;
-        }
-        const r = await api('setUserProfile', { profile: prof, hash: currentHash });
-        if (r && r.status==='success') {
-          currentProfile = prof; currentHash = r.hash || currentHash;
-        } else if (r && r.code === 'hash_mismatch') {
-          try { if (window.showToast) window.showToast('Profile changed on server; reloaded','warning'); } catch(_){ }
-          const rr = await api('getUserProfile', {});
-          if (rr && rr.status==='success') { currentProfile = rr.profile; currentHash = rr.hash; }
-        }
-      } catch(_) {}
-    });
     var saveRetentionBtn = document.getElementById('vault-retention-save');
     if (saveRetentionBtn) saveRetentionBtn.addEventListener('click', async function(){
-      if (saveAllBtn2) { saveAllBtn2.click(); return; }
-      // fallback same as above if general save button not present
       try {
-        const prof = JSON.parse(JSON.stringify(currentProfile));
-        const v = (prof.Destinations && prof.Destinations[currentVaultId]) ? prof.Destinations[currentVaultId] : null;
-        if (!v) return;
-        if (!override) { if ('RetentionPolicy' in v) delete v.RetentionPolicy; }
-        else { const payload = { Mode: mode, Ranges: (mode===MODES.DELETE_EXCEPT? (ranges||[]).map(r=>clampRange(Object.assign({},r))) : []) }; v.RetentionPolicy = payload; }
-        const r = await api('setUserProfile', { profile: prof, hash: currentHash });
-        if (r && r.status==='success') { currentProfile = prof; currentHash = r.hash || currentHash; try{ if(window.showToast) window.showToast('Retention saved.','success'); }catch(_){ } }
-      } catch(_){}
+        await saveRetentionPolicy();
+      } catch(_){ emitRetentionToast('error', 'Failed to save retention.'); }
     });
   }
   // initialize retention builder wiring

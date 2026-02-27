@@ -158,12 +158,39 @@
     ];
 
     var chart = new ApexCharts(el, {
-      chart: { type: 'donut', height: 128, toolbar: { show: false } },
+      chart: { type: 'donut', height: 180, parentHeightOffset: 0, toolbar: { show: false } },
       series: values,
       labels: ['Success', 'Error', 'Warning', 'Missed', 'Running'],
       colors: ['#22c55e', '#ef4444', '#f59e0b', '#cbd5e1', '#0ea5e9'],
       legend: { show: false },
-      dataLabels: { enabled: false },
+      dataLabels: {
+        enabled: true,
+        style: {
+          fontSize: '14px',
+          fontWeight: '600',
+          colors: ['#e2e8f0']
+        },
+        formatter: function (percent, opts) {
+          try {
+            var idx = opts && typeof opts.seriesIndex === 'number' ? opts.seriesIndex : -1;
+            var count = (opts && opts.w && opts.w.globals && Array.isArray(opts.w.globals.series) && idx >= 0)
+              ? Number(opts.w.globals.series[idx] || 0)
+              : 0;
+            // Hide labels for tiny slices so text never spills/overlaps.
+            if (count <= 0 || Number(percent || 0) < 5) return '';
+            return String(count);
+          } catch (_) {
+            return '';
+          }
+        },
+        dropShadow: { enabled: false }
+      },
+      plotOptions: {
+        pie: {
+          donut: { size: '60%' },
+          dataLabels: { minAngleToShowLabel: 10 }
+        }
+      },
       stroke: { width: 1, colors: ['#0f172a'] },
       tooltip: { theme: 'dark' },
       noData: { text: 'No status data' }
