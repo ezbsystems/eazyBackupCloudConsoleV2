@@ -36,10 +36,11 @@ try {
     $params['username'] = $username;
     $server = comet_Server($params);
 
-    // Local mapping for status codes → friendly labels
+    // Local mapping for status codes → Comet status labels
     $mapStatus = function(int $code): string {
         switch ($code) {
             case 5000: return 'SUCCESS';
+            case 6000: return 'ACTIVE';
             case 6001: return 'ACTIVE';
             case 6002: return 'REVIVED';
             case 7000: return 'TIMEOUT';
@@ -53,6 +54,23 @@ try {
             default:   return 'UNKNOWN';
         }
     };
+    $statusLabels = ['Success', 'Running', 'Error', 'Warning', 'Missed', 'Timeout', 'Cancelled', 'Skipped'];
+    $emptyStatusCounts = array_fill_keys($statusLabels, 0);
+    $normalizeStatus = function($codeOrLabel) use ($mapStatus): string {
+        if (is_numeric($codeOrLabel)) {
+            $codeOrLabel = $mapStatus((int)$codeOrLabel);
+        }
+        $u = strtoupper(trim((string)$codeOrLabel));
+        if ($u === 'SUCCESS') return 'Success';
+        if ($u === 'RUNNING' || $u === 'ACTIVE' || $u === 'REVIVED' || $u === 'ALREADY_RUNNING') return 'Running';
+        if ($u === 'TIMEOUT') return 'Timeout';
+        if ($u === 'WARNING') return 'Warning';
+        if ($u === 'ERROR' || $u === 'QUOTA_EXCEEDED' || $u === 'ABANDONED') return 'Error';
+        if ($u === 'MISSED') return 'Missed';
+        if ($u === 'SKIPPED') return 'Skipped';
+        if ($u === 'CANCELLED' || $u === 'CANCELED') return 'Cancelled';
+        return 'Unknown';
+    };
 
     switch ($action) {
         case 'listJobs': {
@@ -62,10 +80,23 @@ try {
             $sortBy = (string)($post['sortBy'] ?? 'StartTime');
             $sortDir = strtolower((string)($post['sortDir'] ?? 'desc')) === 'asc' ? 'asc' : 'desc';
             $q = trim((string)($post['q'] ?? ''));
+            $statusFilters = [];
+            if (!empty($post['statuses']) && is_array($post['statuses'])) {
+                foreach ($post['statuses'] as $candidate) {
+                    $label = $normalizeStatus($candidate);
+                    if (in_array($label, $statusLabels, true)) {
+                        $statusFilters[$label] = true;
+                    }
+                }
+                $statusFilters = array_keys($statusFilters);
+            }
 
             $jobs = $server->AdminGetJobsForUser($username);
 
-            if (!is_array($jobs)) { echo json_encode(['status' => 'success', 'total' => 0, 'rows' => []]); break; }
+            if (!is_array($jobs)) {
+                echo json_encode(['status' => 'success', 'total' => 0, 'rows' => [], 'facets' => ['statusCounts' => $emptyStatusCounts]]);
+                break;
+            }
 
             // Build description map for sources
             $sourceGUIDs = array_values(array_unique(array_map(function($j){ return $j->SourceGUID ?? ''; }, $jobs)));
@@ -90,12 +121,12 @@ try {
             }
 
             // Enrich + normalize rows
-            $rows = array_map(function($j) use ($descriptions, $destMap, $deviceMap, $mapStatus) {
+            $rows = array_map(function($j) use ($descriptions, $destMap, $deviceMap, $mapStatus, $normalizeStatus) {
                 $start = (int)($j->StartTime ?? 0);
                 $end   = (int)($j->EndTime ?? 0);
                 $dur   = $end > 0 && $start > 0 ? max(0, $end - $start) : 0;
                 $friendlyType = \Comet\JobType::toString($j->Classification ?? 0);
-                $friendlyStatus = $mapStatus((int)($j->Status ?? 0));
+                $friendlyStatus = $normalizeStatus($mapStatus((int)($j->Status ?? 0)));
                 $itemDesc = $descriptions[$j->SourceGUID ?? ''] ?? 'Unknown Item';
                 $devId = (string)($j->DeviceID ?? $j->Device ?? '');
                 $deviceFriendly = $deviceMap[$devId] ?? (string)($j->Device ?? $devId);
@@ -134,6 +165,20 @@ try {
                     return strpos($blob, $qLower) !== false;
                 }));
             }
+            $statusCounts = $emptyStatusCounts;
+            foreach ($rows as $row) {
+                $label = (string)($row['Status'] ?? '');
+                if (isset($statusCounts[$label])) {
+                    $statusCounts[$label]++;
+                }
+            }
+            if (!empty($statusFilters)) {
+                $activeSet = array_flip($statusFilters);
+                $rows = array_values(array_filter($rows, function($row) use ($activeSet) {
+                    $label = (string)($row['Status'] ?? '');
+                    return isset($activeSet[$label]);
+                }));
+            }
 
             // Sorting
             usort($rows, function($a, $b) use ($sortBy, $sortDir) {
@@ -163,7 +208,12 @@ try {
                 } catch (\Throwable $e) {}
             }
 
-            echo json_encode(['status' => 'success', 'total' => $total, 'rows' => $paged]);
+            echo json_encode([
+                'status' => 'success',
+                'total' => $total,
+                'rows' => $paged,
+                'facets' => ['statusCounts' => $statusCounts],
+            ]);
             break;
         }
         case 'jobDetail': {
@@ -173,7 +223,7 @@ try {
             if (!$job) { echo json_encode(['status'=>'error','message'=>'Job not found']); break; }
             // Add protected item description
             $descMap = \Comet\CometItem::getProtectedItemDescriptions($server, $username, [ $job->SourceGUID ?? '' ]);
-            $friendlyStatus = $mapStatus((int)($job->Status ?? 0));
+            $friendlyStatus = $normalizeStatus($mapStatus((int)($job->Status ?? 0)));
             $friendlyType = \Comet\JobType::toString($job->Classification ?? 0);
             // Build response array explicitly so our extra fields are included
             $out = $job->toArray(true);
