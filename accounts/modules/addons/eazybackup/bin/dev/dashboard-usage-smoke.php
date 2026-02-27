@@ -11,6 +11,7 @@ array_shift($args);
 
 $runSchema = false;
 $runEndpoint = false;
+$runRollupToday = false;
 $base = '';
 
 foreach ($args as $arg) {
@@ -22,18 +23,25 @@ foreach ($args as $arg) {
         $runEndpoint = true;
         continue;
     }
+    if ($arg === '--rollup-today') {
+        $runRollupToday = true;
+        continue;
+    }
     if ($arg !== '' && $arg[0] !== '-') {
         $base = $arg;
     }
 }
 
-if (!$runSchema && !$runEndpoint) {
+if (!$runSchema && !$runEndpoint && !$runRollupToday) {
     $runEndpoint = true; // Backward compatible default behavior
 }
 
-if ($runSchema) {
+if ($runSchema || $runRollupToday) {
     require_once __DIR__ . '/../bootstrap.php';
     $pdo = db();
+}
+
+if ($runSchema) {
     $required = ['d', 'client_id', 'registered', 'online', 'updated_at'];
 
     try {
@@ -56,6 +64,15 @@ if ($runSchema) {
     }
 
     fwrite(STDOUT, "Schema PASS\n");
+}
+
+if ($runRollupToday) {
+    $count = (int)$pdo->query("SELECT COUNT(*) FROM eb_devices_client_daily WHERE d = CURRENT_DATE()")->fetchColumn();
+    if ($count < 1) {
+        fwrite(STDERR, "Rollup check failed: no rows found for CURRENT_DATE()\n");
+        exit(1);
+    }
+    fwrite(STDOUT, "Rollup today PASS ({$count} row(s))\n");
 }
 
 if ($runEndpoint) {
