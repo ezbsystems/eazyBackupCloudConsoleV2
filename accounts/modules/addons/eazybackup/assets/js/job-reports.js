@@ -416,13 +416,14 @@
       q: '',
       statuses: [],
       username: '',
-      rangeHours: opts.rangeHours != null ? opts.rangeHours : 72,
+      rangeHours: [24, 48, 60, 72].includes(Number(opts.rangeHours)) ? Number(opts.rangeHours) : 24,
       facets: { statusCounts: {}, usernameCounts: {} }
     };
     const thead = el.querySelector('thead');
     const tbody = el.querySelector('tbody');
     const colKeys = ['user','id','device','item','vault','ver','type','status','dirs','files','size','vsize','up','down','started','ended','dur'];
     const totalEl = opts.totalEl;
+    const loadingEl = opts.loadingEl;
     const pagerEl = opts.pagerEl;
     const searchInput = opts.searchInput;
     const usernameDropdown = opts.usernameDropdown;
@@ -432,6 +433,12 @@
     const clearBtn = opts.clearBtn || document.getElementById('jobs-clear-filters');
     const summaryEl = opts.summaryEl || document.getElementById('jobs-active-filters');
     let searchDebounce = null;
+
+    function setLoading(isLoading){
+      if (!loadingEl) return;
+      loadingEl.classList.toggle('hidden', !isLoading);
+      loadingEl.classList.toggle('inline-flex', isLoading);
+    }
 
     function normalizeStatus(label){
       if (window.EB && EB.humanStatus) return EB.humanStatus(label);
@@ -572,80 +579,85 @@
     }
 
     async function load(){
-      const payload = {
-        action: 'listJobsGlobal',
-        username: state.username || undefined,
-        statuses: state.statuses.slice(0),
-        q: state.q,
-        rangeHours: state.rangeHours,
-        page: state.page,
-        pageSize: state.pageSize,
-        sortBy: state.sortBy,
-        sortDir: state.sortDir
-      };
-      const res = await apiGlobal('listJobsGlobal', payload);
-      if (!(res && res.status === 'success')) {
-        try { window.showToast?.('Could not refresh jobs. Please try again.', 'error'); } catch(_) {}
-        return;
-      }
-      state.facets = res.facets || { statusCounts: {}, usernameCounts: {} };
-      totalEl && (totalEl.textContent = String(res.total || 0));
-      tbody.innerHTML = '';
-      const rows = Array.isArray(res.rows) ? res.rows : [];
-      if (!rows.length) {
-        renderEmptyRow(hasActiveFilters());
-      }
-      for (const r of rows) {
-        const tr = document.createElement('tr');
-        tr.className = 'hover:bg-gray-800/60 cursor-pointer';
-        tr.setAttribute('data-job-id', r.JobID);
-        tr.setAttribute('data-service-id', String(r.ServiceId != null ? r.ServiceId : (opts.serviceId || document.body.getAttribute('data-eb-serviceid') || '')));
-        tr.setAttribute('data-username', String(r.Username || ''));
-        const cells = [
-          r.Username,
-          r.JobID,
-          r.Device,
-          r.ProtectedItem,
-          r.StorageVault,
-          r.Version,
-          r.Type,
-          (window.EB && EB.humanStatus ? EB.humanStatus(r.Status || r.StatusCode) : (r.Status || '')),
-          r.Directories,
-          r.Files,
-          (window.EB && EB.fmtBytes ? EB.fmtBytes(r.Size) : String(r.Size || 0)),
-          (window.EB && EB.fmtBytes ? EB.fmtBytes(r.VaultSize) : String(r.VaultSize || 0)),
-          (window.EB && EB.fmtBytes ? EB.fmtBytes(r.Uploaded) : String(r.Uploaded || 0)),
-          (window.EB && EB.fmtBytes ? EB.fmtBytes(r.Downloaded) : String(r.Downloaded || 0)),
-          (window.EB && EB.fmtTs ? EB.fmtTs(r.Started) : ''),
-          (window.EB && EB.fmtTs ? EB.fmtTs(r.Ended) : ''),
-          (window.EB && EB.fmtDur ? EB.fmtDur(r.Duration) : '')
-        ];
-        for (let i = 0; i < cells.length; i++) {
-          const td = document.createElement('td');
-          td.className = 'px-4 py-3 whitespace-nowrap text-sm';
-          td.setAttribute('data-col', colKeys[i]);
-          if (i === 7) {
-            const label = cells[i];
-            td.textContent = label;
-            const dot = (window.EB && EB.statusDot ? EB.statusDot(label) : '');
-            if (dot.indexOf('green') >= 0) td.classList.add('text-emerald-400');
-            else if (dot.indexOf('sky') >= 0) td.classList.add('text-sky-400');
-            else if (dot.indexOf('amber') >= 0) td.classList.add('text-amber-400');
-            else if (dot.indexOf('red') >= 0) td.classList.add('text-rose-400');
-            else if (label === 'Missed') td.classList.add('text-slate-300');
-            else td.classList.add('text-gray-300');
-          } else {
-            td.classList.add('text-gray-300');
-            td.textContent = cells[i] !== undefined ? String(cells[i]) : '';
-          }
-          tr.appendChild(td);
+      setLoading(true);
+      try {
+        const payload = {
+          action: 'listJobsGlobal',
+          username: state.username || undefined,
+          statuses: state.statuses.slice(0),
+          q: state.q,
+          rangeHours: state.rangeHours,
+          page: state.page,
+          pageSize: state.pageSize,
+          sortBy: state.sortBy,
+          sortDir: state.sortDir
+        };
+        const res = await apiGlobal('listJobsGlobal', payload);
+        if (!(res && res.status === 'success')) {
+          try { window.showToast?.('Could not refresh jobs. Please try again.', 'error'); } catch(_) {}
+          return;
         }
-        tbody.appendChild(tr);
+        state.facets = res.facets || { statusCounts: {}, usernameCounts: {} };
+        totalEl && (totalEl.textContent = String(res.total || 0));
+        tbody.innerHTML = '';
+        const rows = Array.isArray(res.rows) ? res.rows : [];
+        if (!rows.length) {
+          renderEmptyRow(hasActiveFilters());
+        }
+        for (const r of rows) {
+          const tr = document.createElement('tr');
+          tr.className = 'hover:bg-gray-800/60 cursor-pointer';
+          tr.setAttribute('data-job-id', r.JobID);
+          tr.setAttribute('data-service-id', String(r.ServiceId != null ? r.ServiceId : (opts.serviceId || document.body.getAttribute('data-eb-serviceid') || '')));
+          tr.setAttribute('data-username', String(r.Username || ''));
+          const cells = [
+            r.Username,
+            r.JobID,
+            r.Device,
+            r.ProtectedItem,
+            r.StorageVault,
+            r.Version,
+            r.Type,
+            (window.EB && EB.humanStatus ? EB.humanStatus(r.Status || r.StatusCode) : (r.Status || '')),
+            r.Directories,
+            r.Files,
+            (window.EB && EB.fmtBytes ? EB.fmtBytes(r.Size) : String(r.Size || 0)),
+            (window.EB && EB.fmtBytes ? EB.fmtBytes(r.VaultSize) : String(r.VaultSize || 0)),
+            (window.EB && EB.fmtBytes ? EB.fmtBytes(r.Uploaded) : String(r.Uploaded || 0)),
+            (window.EB && EB.fmtBytes ? EB.fmtBytes(r.Downloaded) : String(r.Downloaded || 0)),
+            (window.EB && EB.fmtTs ? EB.fmtTs(r.Started) : ''),
+            (window.EB && EB.fmtTs ? EB.fmtTs(r.Ended) : ''),
+            (window.EB && EB.fmtDur ? EB.fmtDur(r.Duration) : '')
+          ];
+          for (let i = 0; i < cells.length; i++) {
+            const td = document.createElement('td');
+            td.className = 'px-4 py-3 whitespace-nowrap text-sm';
+            td.setAttribute('data-col', colKeys[i]);
+            if (i === 7) {
+              const label = cells[i];
+              td.textContent = label;
+              const dot = (window.EB && EB.statusDot ? EB.statusDot(label) : '');
+              if (dot.indexOf('green') >= 0) td.classList.add('text-emerald-400');
+              else if (dot.indexOf('sky') >= 0) td.classList.add('text-sky-400');
+              else if (dot.indexOf('amber') >= 0) td.classList.add('text-amber-400');
+              else if (dot.indexOf('red') >= 0) td.classList.add('text-rose-400');
+              else if (label === 'Missed') td.classList.add('text-slate-300');
+              else td.classList.add('text-gray-300');
+            } else {
+              td.classList.add('text-gray-300');
+              td.textContent = cells[i] !== undefined ? String(cells[i]) : '';
+            }
+            tr.appendChild(td);
+          }
+          tbody.appendChild(tr);
+        }
+        renderPager(res.total || 0);
+        renderStatusChips();
+        renderUsernameDropdown();
+        syncColumnVisibility();
+      } finally {
+        setLoading(false);
       }
-      renderPager(res.total || 0);
-      renderStatusChips();
-      renderUsernameDropdown();
-      syncColumnVisibility();
     }
 
     function renderPager(total){
@@ -686,6 +698,15 @@
       const size = parseInt(e.detail, 10);
       if (size && [10, 25, 50, 100].includes(size)) {
         state.pageSize = size;
+        state.page = 1;
+        load();
+      }
+    });
+
+    window.addEventListener('jobs:rangehours', (e) => {
+      const hours = parseInt(e.detail, 10);
+      if (hours && [24, 48, 60, 72].includes(hours)) {
+        state.rangeHours = hours;
         state.page = 1;
         load();
       }
