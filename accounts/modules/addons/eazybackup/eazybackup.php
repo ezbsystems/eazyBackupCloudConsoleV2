@@ -2580,6 +2580,13 @@ function eazybackup_clientarea(array $vars)
         // Isolated Job Reports AJAX endpoint (shared between profile and dashboard)
         require_once __DIR__ . "/pages/console/job-reports.php";
         exit; // script handles output
+    } else if ($_REQUEST["a"] == "job-reports-global") {
+        // Global job reports endpoint (across all client services)
+        require_once __DIR__ . "/pages/console/job-reports-global.php";
+        exit; // script handles output
+    } else if ($_REQUEST["a"] == "job-logs") {
+        require_once __DIR__ . "/pages/console/job-logs-global.php";
+        return eazybackup_job_logs_global($vars);
     } else if ($_REQUEST["a"] == "notifications") {
         // Simple client list of recent notifications (scoped)
         require_once __DIR__ . "/pages/notifications.php";
