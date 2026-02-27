@@ -87,33 +87,88 @@
                     <!-- Tabs Content -->
                     <div class="p-6">
                 <div x-show="activeTab === 'dashboard'" x-transition x-cloak>
-                    <h2 class="text-md font-medium eb-text-white mb-4 px-2">Account summary</h2>
+                    <h2 class="text-md font-medium eb-text-white mb-4 px-2">Usage overview</h2>
                     <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                        <div class="bg-slate-900 p-4 rounded-lg shadow eb-text-white">
-                            <h5 class="text-2xl font-bold">
-                                <span class="text-2xl font-bold">{$totalAccounts}</span>
-                                <span class="text-lg font-semibold eb-text-muted">Users</span>
-                            </h5>
+                        <div class="bg-slate-900 p-4 rounded-lg shadow eb-text-white h-full flex flex-col">
+                            <div class="flex items-center justify-between mb-3">
+                                <div class="flex items-center gap-2">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 text-slate-300">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 0 0-1.883 2.542l.857 6a2.25 2.25 0 0 0 2.227 1.932H19.05a2.25 2.25 0 0 0 2.227-1.932l.857-6a2.25 2.25 0 0 0-1.883-2.542m-16.5 0V6A2.25 2.25 0 0 1 6 3.75h3.879a1.5 1.5 0 0 1 1.06.44l2.122 2.12a1.5 1.5 0 0 0 1.06.44H18A2.25 2.25 0 0 1 20.25 9v.776" />
+                                    </svg>
+                                    <h3 class="text-base font-semibold">Protected Items</h3>
+                                </div>
+                                <span class="text-sm text-slate-400">{$totalProtectedItems}</span>
+                            </div>
+                            <div class="space-y-1 text-sm text-slate-300">
+                                <div class="flex items-center justify-between"><span>Files and Folders</span><span>{$protectedItemEngineCounts.files_folders|default:0}</span></div>
+                                <div class="flex items-center justify-between"><span>Disk Image</span><span>{$protectedItemEngineCounts.disk_image|default:0}</span></div>
+                                <div class="flex items-center justify-between"><span>Microsoft Hyper-V</span><span>{$protectedItemEngineCounts.hyper_v|default:0}</span></div>
+                                <div class="flex items-center justify-between"><span>Microsoft SQL Server</span><span>{$protectedItemEngineCounts.sql_server|default:0}</span></div>
+                                <div class="flex items-center justify-between"><span>Microsoft Office 365</span><span>{$protectedItemEngineCounts.office_365|default:0}</span></div>
+                                <div class="flex items-center justify-between"><span>Windows Server System State</span><span>{$protectedItemEngineCounts.system_state|default:0}</span></div>
+                                <div class="flex items-center justify-between"><span>Proxmox</span><span>{$protectedItemEngineCounts.proxmox|default:0}</span></div>
+                            </div>
                         </div>
-                        <div class="bg-slate-900 p-4 rounded-lg shadow eb-text-white">
-                            <h5 class="text-2xl font-bold">
-                                <span class="text-2xl font-bold">{$totalDevices}</span>
-                                <span class="text-lg font-semibold eb-text-muted">Devices</span>
-                            </h5>
+
+                        <div class="bg-slate-900 p-4 rounded-lg shadow eb-text-white h-full flex flex-col">
+                            <div class="flex items-center justify-between mb-3">
+                                <div class="flex items-center gap-2">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 text-slate-300">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 12V5.25" />
+                                    </svg>
+                                    <h3 class="text-base font-semibold">Devices</h3>
+                                </div>
+                            </div>
+                            <div class="flex items-end gap-3">
+                                <div class="text-3xl font-bold">{$totalDevices|default:0}</div>
+                                <div class="text-sm text-slate-400 pb-1">Total</div>
+                            </div>
+                            <div class="flex items-center gap-4 text-sm mt-1">
+                                <span class="text-emerald-400">Online {$onlineDevices|default:0}</span>
+                                <span class="text-slate-400">Offline {$offlineDevices|default:0}</span>
+                            </div>
+                            <div id="eb-devices-chart" class="mt-3 h-32 w-full text-xs text-slate-500 flex items-center justify-center border border-slate-800 rounded">
+                                Loading trend...
+                            </div>
                         </div>
-                        <div class="bg-slate-900 p-4 rounded-lg shadow eb-text-white">
-                            <h5 class="text-2xl font-bold">
-                                <span class="text-2xl font-bold">{$totalProtectedItems}</span>
-                                <span class="text-lg font-semibold eb-text-muted">Protected Items</span>
-                            </h5>
+
+                        <div class="bg-slate-900 p-4 rounded-lg shadow eb-text-white h-full flex flex-col">
+                            <div class="flex items-center justify-between mb-3">
+                                <div class="flex items-center gap-2">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 text-slate-300">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
+                                    </svg>
+                                    <h3 class="text-base font-semibold">Storage</h3>
+                                </div>
+                            </div>
+                            <div class="flex items-end gap-3">
+                                <div class="text-2xl font-bold">{$totalStorageUsed|default:'0 B'}</div>
+                                <div class="text-sm text-slate-400 pb-1">Used</div>
+                            </div>
+                            <div id="eb-storage-chart-dashboard" class="mt-3 h-32 w-full text-xs text-slate-500 flex items-center justify-center border border-slate-800 rounded">
+                                Loading trend...
+                            </div>
                         </div>
-                        <div class="bg-slate-900 p-4 rounded-lg shadow eb-text-white">
-                            <h5 class="text-2xl font-bold">
-                                <span class="text-2xl font-bold">{$totalStorageUsed}</span>
-                                <span class="text-lg font-semibold eb-text-muted">Storage</span>
-                            </h5>
+
+                        <div class="bg-slate-900 p-4 rounded-lg shadow eb-text-white h-full flex flex-col">
+                            <div class="flex items-center gap-2 mb-3">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 text-slate-300">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0 3 3m-3-3-3 3M6.75 19.5a4.5 4.5 0 0 1-1.41-8.775 5.25 5.25 0 0 1 10.233-2.33 3 3 0 0 1 3.758 3.848A3.752 3.752 0 0 1 18 19.5H6.75Z" />
+                                </svg>
+                                <h3 class="text-base font-semibold">Last 24 Hours (Status)</h3>
+                            </div>
+                            <div id="eb-status24h-donut" class="h-32 w-full text-xs text-slate-500 flex items-center justify-center border border-slate-800 rounded">
+                                Loading chart...
+                            </div>
+                            <div id="eb-status24h-legend" class="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-slate-300">
+                                <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-green-500"></span><span>Success <span data-status-count="success">0</span></span></div>
+                                <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-red-500"></span><span>Error <span data-status-count="error">0</span></span></div>
+                                <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span><span>Warning <span data-status-count="warning">0</span></span></div>
+                                <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full border border-slate-300"></span><span>Missed <span data-status-count="missed">0</span></span></div>
+                                <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-sky-500"></span><span>Running <span data-status-count="running">0</span></span></div>
+                            </div>
                         </div>
-                    </div>                   
+                    </div>
 
                     <div class="mt-8">
                         {if !isset($notifyPrefs) || $notifyPrefs.show_upcoming_charges}
@@ -1583,7 +1638,9 @@
 
     <script src="https://unpkg.com/@popperjs/core@2"></script>
     <script src="https://unpkg.com/tippy.js@6"></script>
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
     <script>
+      window.EB_MODULE_LINK = '{$modulelink}';
       window.EB_JOBREPORTS_ENDPOINT = '{$modulelink}&a=job-reports';
       // Pulse endpoints for live updates
       window.EB_PULSE_ENDPOINT = '{$modulelink}&a=pulse-events';
@@ -1617,6 +1674,7 @@
 
     <!-- Shared UI helpers (loader + toasts) -->
     <script src="modules/addons/eazybackup/templates/assets/js/ui.js" defer></script>
+    <script src="modules/addons/eazybackup/templates/assets/js/dashboard-usage-cards.js" defer></script>
 
     <!-- Device grouping (Phase 1) -->
     <script>
