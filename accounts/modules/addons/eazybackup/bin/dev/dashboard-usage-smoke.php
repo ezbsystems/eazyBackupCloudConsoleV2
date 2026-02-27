@@ -113,6 +113,39 @@ if ($runEndpoint) {
         }
     }
 
+    if (!is_array($data['devices30d'])) {
+        fwrite(STDERR, "devices30d is not an array\n");
+        exit(1);
+    }
+    foreach ($data['devices30d'] as $i => $row) {
+        if (!is_array($row) || !array_key_exists('d', $row) || !array_key_exists('registered', $row) || !array_key_exists('online', $row)) {
+            fwrite(STDERR, "devices30d row shape invalid at index {$i}\n");
+            exit(1);
+        }
+    }
+
+    if (!is_array($data['storage30d'])) {
+        fwrite(STDERR, "storage30d is not an array\n");
+        exit(1);
+    }
+    foreach ($data['storage30d'] as $i => $row) {
+        if (!is_array($row) || !array_key_exists('d', $row) || !array_key_exists('bytes_total', $row)) {
+            fwrite(STDERR, "storage30d row shape invalid at index {$i}\n");
+            exit(1);
+        }
+    }
+
+    if (!is_array($data['status24h'])) {
+        fwrite(STDERR, "status24h is not an object/array\n");
+        exit(1);
+    }
+    foreach (['success', 'error', 'warning', 'missed', 'running'] as $k) {
+        if (!array_key_exists($k, $data['status24h'])) {
+            fwrite(STDERR, "status24h missing key: {$k}\n");
+            exit(1);
+        }
+    }
+
     fwrite(STDOUT, "Endpoint PASS\n");
 }
 
