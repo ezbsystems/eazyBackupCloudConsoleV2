@@ -68,6 +68,10 @@ try {
       state: { override:false, mode:802, ranges:[], defaultMode:801, defaultRanges:[] },
       showAccountPolicy: false,
       newRange: { Type:900, Jobs:1, Days:0, Weeks:0, Months:0, Years:0, Timestamp:0, WeekOffset:0, MonthOffset:1, YearOffset:1 },
+      init: function(){
+        // Keep a direct pointer to the active retention component for save-time fallback.
+        try { window.__ebRetentionComponent = this; window.__ebRetentionState = this.state; } catch(_) {}
+      },
       labelFor: function(t){ var m={900:'Most recent X jobs',901:'Newer than date',902:'Jobs since (relative)',903:'First job for last X days',905:'First job for last X months',906:'First job for last X weeks',907:'At most one per day (last X jobs)',908:'At most one per week (last X jobs)',909:'At most one per month (last X jobs)',910:'At most one per year (last X jobs)',911:'First job for last X years'}; return m[t]||('Type '+t); },
       summaryFor: function(r){
         if(!r||!r.Type) return '';
@@ -790,9 +794,51 @@ document.addEventListener('DOMContentLoaded', function(){
       } catch(_) {}
     }
 
+    function syncRetentionStateFromAlpine(){
+      try {
+        var elRT = document.getElementById('vault-retention-tab');
+        var st = null;
+        // Alpine v2 internal shape
+        try { st = (elRT && elRT.__x && elRT.__x.$data && elRT.__x.$data.state) ? elRT.__x.$data.state : null; } catch(_) {}
+        // Alpine v3 public helper (if available)
+        if (!st) {
+          try {
+            if (elRT && window.Alpine && typeof window.Alpine.$data === 'function') {
+              var d = window.Alpine.$data(elRT);
+              if (d && d.state) st = d.state;
+            }
+          } catch(_) {}
+        }
+        // Alpine v3 internal stack shape
+        if (!st) {
+          try {
+            if (elRT && Array.isArray(elRT._x_dataStack)) {
+              for (var i = 0; i < elRT._x_dataStack.length; i++) {
+                var ds = elRT._x_dataStack[i];
+                if (ds && ds.state) { st = ds.state; break; }
+              }
+            }
+          } catch(_) {}
+        }
+        // Last-resort pointer captured in component init()
+        if (!st) {
+          try {
+            if (window.__ebRetentionComponent && window.__ebRetentionComponent.state) st = window.__ebRetentionComponent.state;
+            else if (window.__ebRetentionState) st = window.__ebRetentionState;
+          } catch(_) {}
+        }
+        if (!st) return;
+        override = !!st.override;
+        mode = (Number(st.mode) === MODES.DELETE_EXCEPT) ? MODES.DELETE_EXCEPT : MODES.KEEP_EVERYTHING;
+        ranges = Array.isArray(st.ranges) ? JSON.parse(JSON.stringify(st.ranges)) : [];
+      } catch(_) {}
+    }
+
     async function saveRetentionPolicy(){
       if (!currentVaultId) return false;
-      const payloadRanges = (mode===MODES.DELETE_EXCEPT ? (ranges||[]).map(r=>clampRange(Object.assign({},r))) : []);
+      // The retention editor is Alpine-driven; sync live UI state before building payload.
+      syncRetentionStateFromAlpine();
+      const payloadRanges = (override && mode===MODES.DELETE_EXCEPT ? (ranges||[]).map(r=>clampRange(Object.assign({},r))) : []);
       const r = await api('setVaultRetention', {
         vaultId: currentVaultId,
         override: !!override,

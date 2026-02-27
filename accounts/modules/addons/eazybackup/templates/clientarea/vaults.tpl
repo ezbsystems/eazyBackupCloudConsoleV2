@@ -440,7 +440,7 @@
 
       <div
         class="pointer-events-none"
-        style="position: fixed; right: 16px; bottom: 16px; z-index: 12010;"
+        style="position: absolute; left: 16px; bottom: 16px; z-index: 12010; max-width: calc(100% - 32px);"
         x-data="{
           open:false,
           type:'success',
@@ -712,6 +712,7 @@
         </div>
       </div>
       </div>
+      <div id="toast-container" class="pointer-events-none absolute left-4 bottom-4 z-[12020] space-y-2 max-w-[calc(100%-2rem)]"></div>
     </div>
   </div>
 </div>
@@ -759,5 +760,4 @@ document.addEventListener('click', function(e){
   } catch(_){}
 });
 </script>
-<div id="toast-container" class="fixed bottom-4 right-4 z-50 space-y-2"></div>
 <script src="modules/addons/eazybackup/templates/assets/js/ui.js"></script>

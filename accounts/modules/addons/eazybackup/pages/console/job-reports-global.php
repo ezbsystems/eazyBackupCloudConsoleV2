@@ -6,7 +6,7 @@ use WHMCS\Session;
 require_once __DIR__ . '/../../../../../modules/servers/comet/functions.php';
 
 /** Max usernames processed in fan-out; excess is truncated with meta.partial + warning */
-const GLOBAL_JOB_REPORTS_MAX_USERNAMES = 50;
+const GLOBAL_JOB_REPORTS_MAX_USERNAMES = 100;
 
 if (!defined('WHMCS')) {
     die('This file cannot be accessed directly');
@@ -57,20 +57,49 @@ try {
         'sortDir'    => $sortDir,
     ];
 
-    // Resolve active services/usernames from tblhosting scoped to client and Active domainstatus
-    $services = Capsule::table('tblhosting')
-        ->select('username', 'id')
-        ->where('domainstatus', 'Active')
-        ->where('userid', $clientId)
+    $metaWarnings = [];
+    $metaPartial = false;
+
+    // Resolve client services/usernames from Comet products only.
+    $activeCometServices = Capsule::table('tblhosting as h')
+        ->join('tblproducts as p', 'p.id', '=', 'h.packageid')
+        ->select('h.username', 'h.id')
+        ->where('h.userid', $clientId)
+        ->where('h.domainstatus', 'Active')
+        ->where('p.servertype', 'comet')
+        ->whereNotNull('h.username')
+        ->where('h.username', '!=', '')
+        ->orderBy('h.id', 'desc')
         ->get();
+
+    // Some production datasets may have non-standard statuses; fall back to all Comet services.
+    $services = $activeCometServices;
+    if (count($services) === 0) {
+        $services = Capsule::table('tblhosting as h')
+            ->join('tblproducts as p', 'p.id', '=', 'h.packageid')
+            ->select('h.username', 'h.id')
+            ->where('h.userid', $clientId)
+            ->where('p.servertype', 'comet')
+            ->whereNotNull('h.username')
+            ->where('h.username', '!=', '')
+            ->orderBy('h.id', 'desc')
+            ->get();
+
+        if (count($services) > 0) {
+            $metaWarnings[] = 'No Active Comet services found; using all Comet services for this client.';
+            $metaPartial = true;
+        }
+    }
 
     $usernameToServiceId = [];
     $usernames = [];
     foreach ($services as $svc) {
         $un = (string)$svc->username;
         if ($un !== '') {
-            $usernameToServiceId[$un] = (int)$svc->id;
-            $usernames[] = $un;
+            if (!isset($usernameToServiceId[$un])) {
+                $usernameToServiceId[$un] = (int)$svc->id;
+                $usernames[] = $un;
+            }
         }
     }
 
@@ -87,9 +116,6 @@ try {
 
     // Task 3: Comet fan-out scope — all usernames or single filtered username
     $targetUsernames = ($username !== '') ? [$username] : $usernames;
-    $metaWarnings = [];
-    $metaPartial = false;
-
     if (count($targetUsernames) > GLOBAL_JOB_REPORTS_MAX_USERNAMES) {
         $targetUsernames = array_slice($targetUsernames, 0, GLOBAL_JOB_REPORTS_MAX_USERNAMES);
         $metaPartial = true;
