@@ -1,12 +1,31 @@
 (() => {
   // Use global EB helpers for formatting and status mapping
-  const STATUS_ORDER = ['Error', 'Missed', 'Warning', 'Timeout', 'Cancelled', 'Running', 'Skipped', 'Success'];
 
   const endpoint = (window.EB_JOBREPORTS_ENDPOINT || (typeof EB_MODULE_LINK!=='undefined' ? `${EB_MODULE_LINK}&a=job-reports` : 'index.php?m=eazybackup&a=job-reports'));
+  const globalEndpoint = (window.EB_JOBREPORTS_GLOBAL_ENDPOINT || '');
 
   async function api(action, payload){
     const res = await fetch(endpoint, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload||{ action }) });
     return await res.json();
+  }
+
+  async function apiGlobal(action, payload){
+    if (!globalEndpoint) throw new Error('Global endpoint is not configured');
+    const res = await fetch(globalEndpoint, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload||{ action }) });
+    return await res.json();
+  }
+
+  async function apiModal(action, payload){
+    const primary = await api(action, payload);
+    if (primary && primary.status === 'success') return primary;
+    if (globalEndpoint && globalEndpoint !== endpoint) {
+      try {
+        const secondary = await apiGlobal(action, payload);
+        if (secondary && secondary.status === 'success') return secondary;
+        return secondary || primary;
+      } catch (_) {}
+    }
+    return primary;
   }
 
   async function openJobModal(serviceId, username, jobId){
@@ -21,7 +40,7 @@
 
     // Load summary
     try {
-      const det = await api('jobDetail', { action:'jobDetail', serviceId, username, jobId });
+      const det = await apiModal('jobDetail', { action:'jobDetail', serviceId, username, jobId });
       if(det && det.status==='success' && det.job){
         const j = det.job;
         const statusEl = modal.querySelector('#jrm-status');
@@ -52,7 +71,7 @@
 
     // Load logs
     try {
-      const logs = await api('jobLogEntries', { action:'jobLogEntries', serviceId, username, jobId });
+      const logs = await apiModal('jobLogEntries', { action:'jobLogEntries', serviceId, username, jobId });
       const box = modal.querySelector('#jrm-logs');
       box.innerHTML = '';
       if(logs && logs.status==='success' && Array.isArray(logs.rows)){
@@ -116,11 +135,10 @@
     const serviceId = opts.serviceId; const username = opts.username;
     const thead = el.querySelector('thead'); const tbody = el.querySelector('tbody');
     const colKeys = ['user','id','device','item','vault','ver','type','status','dirs','files','size','vsize','up','down','started','ended','dur'];
-    const totalEl = opts.totalEl; const pagerEl = opts.pagerEl; const searchInput = opts.searchInput; const cols = opts.cols || [];
-    const pageSizeEl = opts.pageSizeEl;
-    const chipButtons = Array.from(document.querySelectorAll('[data-jobs-status-chip]'));
-    const clearBtn = document.getElementById('jobs-clear-filters');
-    const summaryEl = document.getElementById('jobs-active-filters');
+    const totalEl = opts.totalEl; const pagerEl = opts.pagerEl; const searchInput = opts.searchInput;
+    const chipButtons = Array.isArray(opts.chipButtons) ? opts.chipButtons : Array.from(document.querySelectorAll('[data-jobs-status-chip]'));
+    const clearBtn = opts.clearBtn || document.getElementById('jobs-clear-filters');
+    const summaryEl = opts.summaryEl || document.getElementById('jobs-active-filters');
     let searchDebounce = null;
 
     function normalizeStatus(label){
@@ -389,11 +407,325 @@
     return { reload: load };
   }
 
+  function makeGlobalJobsTable(el, opts){
+    const state = {
+      page: 1,
+      pageSize: 10,
+      sortBy: 'Started',
+      sortDir: 'desc',
+      q: '',
+      statuses: [],
+      username: '',
+      rangeHours: opts.rangeHours != null ? opts.rangeHours : 72,
+      facets: { statusCounts: {}, usernameCounts: {} }
+    };
+    const thead = el.querySelector('thead');
+    const tbody = el.querySelector('tbody');
+    const colKeys = ['user','id','device','item','vault','ver','type','status','dirs','files','size','vsize','up','down','started','ended','dur'];
+    const totalEl = opts.totalEl;
+    const pagerEl = opts.pagerEl;
+    const searchInput = opts.searchInput;
+    const usernameDropdown = opts.usernameDropdown;
+    const chipButtons = Array.isArray(opts.chipButtons) ? opts.chipButtons : Array.from(document.querySelectorAll('[data-jobs-status-chip]'));
+    const clearBtn = opts.clearBtn || document.getElementById('jobs-clear-filters');
+    const summaryEl = opts.summaryEl || document.getElementById('jobs-active-filters');
+    let searchDebounce = null;
+
+    function normalizeStatus(label){
+      if (window.EB && EB.humanStatus) return EB.humanStatus(label);
+      return String(label || '');
+    }
+
+    function statusCount(label){
+      const key = normalizeStatus(label);
+      const n = Number((state.facets && state.facets.statusCounts && state.facets.statusCounts[key]) || 0);
+      return Number.isFinite(n) ? n : 0;
+    }
+
+    function hasActiveFilters(){
+      return !!((state.username || '').trim() || (state.q || '').trim() || (state.statuses && state.statuses.length));
+    }
+
+    function renderFilterSummary(){
+      if (!summaryEl) return;
+      if (!hasActiveFilters()) {
+        summaryEl.textContent = '';
+        summaryEl.classList.add('hidden');
+        return;
+      }
+      const parts = [];
+      if ((state.username || '').trim()) parts.push(`User: ${state.username.trim()}`);
+      if (state.statuses.length) parts.push(`Status: ${state.statuses.join(', ')}`);
+      if ((state.q || '').trim()) parts.push(`Search: "${state.q.trim()}"`);
+      summaryEl.textContent = `Filtering by ${parts.join(' + ')}`;
+      summaryEl.classList.remove('hidden');
+    }
+
+    function renderStatusChips(){
+      chipButtons.forEach((btn) => {
+        const label = normalizeStatus(btn.getAttribute('data-status') || '');
+        const active = state.statuses.includes(label);
+        const count = statusCount(label);
+        const disabled = count === 0;
+        btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+        btn.disabled = disabled;
+        btn.classList.remove('border-sky-500/60','bg-sky-500/10','text-sky-200','opacity-50','cursor-not-allowed');
+        btn.classList.remove('border-slate-700/80','bg-slate-900/40','text-slate-300','hover:border-slate-600','hover:bg-slate-900/60');
+        if (active) btn.classList.add('border-sky-500/60','bg-sky-500/10','text-sky-200');
+        else btn.classList.add('border-slate-700/80','bg-slate-900/40','text-slate-300','hover:border-slate-600','hover:bg-slate-900/60');
+        if (disabled) btn.classList.add('opacity-50','cursor-not-allowed');
+        const countEl = btn.querySelector('[data-jobs-status-count]');
+        if (countEl) countEl.textContent = String(count);
+      });
+      if (clearBtn) {
+        clearBtn.classList.toggle('hidden', !hasActiveFilters());
+      }
+      renderFilterSummary();
+    }
+
+    function renderUsernameDropdown(){
+      if (!usernameDropdown) return;
+      const counts = state.facets.usernameCounts || {};
+      const options = Object.keys(counts).sort();
+      usernameDropdown.innerHTML = '';
+      const empty = document.createElement('option');
+      empty.value = '';
+      empty.textContent = 'All users';
+      usernameDropdown.appendChild(empty);
+      for (const u of options) {
+        const opt = document.createElement('option');
+        opt.value = u;
+        opt.textContent = `${u} (${counts[u] || 0})`;
+        usernameDropdown.appendChild(opt);
+      }
+      usernameDropdown.value = state.username || '';
+    }
+
+    function renderEmptyRow(filtered){
+      const tr = document.createElement('tr');
+      const td = document.createElement('td');
+      td.colSpan = colKeys.length;
+      td.className = 'px-4 py-10 text-center text-sm text-slate-400';
+      td.textContent = filtered ? 'No jobs match current filters.' : 'No jobs found.';
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+    }
+
+    function bindFilterControls(){
+      chipButtons.forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const label = normalizeStatus(btn.getAttribute('data-status') || '');
+          if (!label || btn.disabled) return;
+          const idx = state.statuses.indexOf(label);
+          if (idx >= 0) state.statuses.splice(idx, 1);
+          else state.statuses.push(label);
+          state.page = 1;
+          renderStatusChips();
+          load();
+        });
+      });
+      usernameDropdown && usernameDropdown.addEventListener('change', () => {
+        state.username = (usernameDropdown.value || '').trim();
+        state.page = 1;
+        load();
+      });
+      clearBtn && clearBtn.addEventListener('click', () => {
+        state.statuses = [];
+        state.q = '';
+        state.username = '';
+        state.page = 1;
+        if (searchInput) searchInput.value = '';
+        if (usernameDropdown) usernameDropdown.value = '';
+        renderStatusChips();
+        load();
+      });
+    }
+
+    async function load(){
+      const payload = {
+        action: 'listJobsGlobal',
+        username: state.username || undefined,
+        statuses: state.statuses.slice(0),
+        q: state.q,
+        rangeHours: state.rangeHours,
+        page: state.page,
+        pageSize: state.pageSize,
+        sortBy: state.sortBy,
+        sortDir: state.sortDir
+      };
+      const res = await apiGlobal('listJobsGlobal', payload);
+      if (!(res && res.status === 'success')) {
+        try { window.showToast?.('Could not refresh jobs. Please try again.', 'error'); } catch(_) {}
+        return;
+      }
+      state.facets = res.facets || { statusCounts: {}, usernameCounts: {} };
+      totalEl && (totalEl.textContent = String(res.total || 0));
+      tbody.innerHTML = '';
+      const rows = Array.isArray(res.rows) ? res.rows : [];
+      if (!rows.length) {
+        renderEmptyRow(hasActiveFilters());
+      }
+      for (const r of rows) {
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-gray-800/60 cursor-pointer';
+        tr.setAttribute('data-job-id', r.JobID);
+        tr.setAttribute('data-service-id', String(r.ServiceId != null ? r.ServiceId : (opts.serviceId || document.body.getAttribute('data-eb-serviceid') || '')));
+        tr.setAttribute('data-username', String(r.Username || ''));
+        const cells = [
+          r.Username,
+          r.JobID,
+          r.Device,
+          r.ProtectedItem,
+          r.StorageVault,
+          r.Version,
+          r.Type,
+          (window.EB && EB.humanStatus ? EB.humanStatus(r.Status || r.StatusCode) : (r.Status || '')),
+          r.Directories,
+          r.Files,
+          (window.EB && EB.fmtBytes ? EB.fmtBytes(r.Size) : String(r.Size || 0)),
+          (window.EB && EB.fmtBytes ? EB.fmtBytes(r.VaultSize) : String(r.VaultSize || 0)),
+          (window.EB && EB.fmtBytes ? EB.fmtBytes(r.Uploaded) : String(r.Uploaded || 0)),
+          (window.EB && EB.fmtBytes ? EB.fmtBytes(r.Downloaded) : String(r.Downloaded || 0)),
+          (window.EB && EB.fmtTs ? EB.fmtTs(r.Started) : ''),
+          (window.EB && EB.fmtTs ? EB.fmtTs(r.Ended) : ''),
+          (window.EB && EB.fmtDur ? EB.fmtDur(r.Duration) : '')
+        ];
+        for (let i = 0; i < cells.length; i++) {
+          const td = document.createElement('td');
+          td.className = 'px-4 py-3 whitespace-nowrap text-sm';
+          td.setAttribute('data-col', colKeys[i]);
+          if (i === 7) {
+            const label = cells[i];
+            td.textContent = label;
+            const dot = (window.EB && EB.statusDot ? EB.statusDot(label) : '');
+            if (dot.indexOf('green') >= 0) td.classList.add('text-emerald-400');
+            else if (dot.indexOf('sky') >= 0) td.classList.add('text-sky-400');
+            else if (dot.indexOf('amber') >= 0) td.classList.add('text-amber-400');
+            else if (dot.indexOf('red') >= 0) td.classList.add('text-rose-400');
+            else if (label === 'Missed') td.classList.add('text-slate-300');
+            else td.classList.add('text-gray-300');
+          } else {
+            td.classList.add('text-gray-300');
+            td.textContent = cells[i] !== undefined ? String(cells[i]) : '';
+          }
+          tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+      }
+      renderPager(res.total || 0);
+      renderStatusChips();
+      renderUsernameDropdown();
+      syncColumnVisibility();
+    }
+
+    function renderPager(total){
+      if (!pagerEl) return;
+      const pages = Math.max(1, Math.ceil(total / state.pageSize));
+      pagerEl.innerHTML = '';
+      const mk = (label, page, disabled = false, current = false) => {
+        const b = document.createElement('button');
+        b.className = 'px-2 py-1 text-xs rounded ' + (current ? 'bg-sky-700 text-white' : 'bg-slate-700 text-slate-200') + (disabled ? ' opacity-50 cursor-not-allowed' : '');
+        b.textContent = label;
+        if (!disabled) b.addEventListener('click', () => { state.page = page; load(); });
+        return b;
+      };
+      pagerEl.appendChild(mk('Prev', Math.max(1, state.page - 1), state.page <= 1));
+      pagerEl.appendChild(document.createTextNode(` Page ${state.page} / ${pages} `));
+      pagerEl.appendChild(mk('Next', Math.min(pages, state.page + 1), state.page >= pages));
+    }
+
+    thead && thead.querySelectorAll('th[data-sort]').forEach((th) => {
+      th.addEventListener('click', () => {
+        const key = th.getAttribute('data-sort');
+        if (state.sortBy === key) { state.sortDir = (state.sortDir === 'asc' ? 'desc' : 'asc'); } else { state.sortBy = key; state.sortDir = 'asc'; }
+        load();
+      });
+    });
+
+    searchInput && searchInput.addEventListener('input', () => {
+      if (searchDebounce) clearTimeout(searchDebounce);
+      searchDebounce = setTimeout(() => {
+        state.q = searchInput.value || '';
+        state.page = 1;
+        renderStatusChips();
+        load();
+      }, 200);
+    });
+
+    window.addEventListener('jobs:pagesize', (e) => {
+      const size = parseInt(e.detail, 10);
+      if (size && [10, 25, 50, 100].includes(size)) {
+        state.pageSize = size;
+        state.page = 1;
+        load();
+      }
+    });
+
+    function isVisible(node){
+      if (!node) return false;
+      if (node.offsetParent !== null) return true;
+      const cs = window.getComputedStyle(node);
+      return cs && cs.display !== 'none' && cs.visibility !== 'hidden' && cs.opacity !== '0';
+    }
+
+    function syncColumnVisibility(){
+      if (!isVisible(el) || !thead || !isVisible(thead)) return;
+      const ths = Array.from(thead.querySelectorAll('tr th'));
+      const mapSortToKey = {
+        Username: 'user', JobID: 'id', Device: 'device', ProtectedItem: 'item', StorageVault: 'vault', Version: 'ver',
+        Type: 'type', Status: 'status', Directories: 'dirs', Files: 'files', Size: 'size', VaultSize: 'vsize',
+        Uploaded: 'up', Downloaded: 'down', Started: 'started', Ended: 'ended', Duration: 'dur'
+      };
+      const vis = {};
+      ths.forEach(th => {
+        const sort = th.getAttribute('data-sort');
+        const key = mapSortToKey[sort];
+        if (!key) return;
+        vis[key] = (th.offsetParent !== null);
+      });
+      const visKeys = Object.keys(vis);
+      const allHidden = visKeys.length > 0 && visKeys.every(k => vis[k] === false);
+      el.querySelectorAll('tbody tr').forEach(tr => {
+        tr.querySelectorAll('td[data-col]').forEach(td => {
+          const key = td.getAttribute('data-col');
+          td.style.display = (allHidden || vis[key] !== false) ? '' : 'none';
+        });
+      });
+    }
+
+    (function observeHeaderToggles(){
+      try {
+        if (!thead) return;
+        const obs = new MutationObserver(() => { syncColumnVisibility(); });
+        obs.observe(thead, { attributes: true, subtree: true, attributeFilter: ['style', 'class'] });
+      } catch(_) {}
+    })();
+
+    setTimeout(syncColumnVisibility, 50);
+    setTimeout(syncColumnVisibility, 150);
+
+    (function observeVisibility(){
+      try {
+        const io = new IntersectionObserver((entries) => {
+          for (const entry of entries) {
+            if (entry.isIntersecting) syncColumnVisibility();
+          }
+        }, { root: null, threshold: 0.01 });
+        io.observe(el);
+      } catch(_) {}
+    })();
+
+    bindFilterControls();
+    renderStatusChips();
+    renderUsernameDropdown();
+    return { reload: load };
+  }
+
   // Expose factory
   window.jobReportsFactory = function(opts){
     attachModalControls();
     attachRowOpeners();
-    return { makeJobsTable, openJobModal };
+    return { makeJobsTable, makeGlobalJobsTable, openJobModal };
   };
 
   document.dispatchEvent(new Event('jobReports:ready'));
