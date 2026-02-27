@@ -70,7 +70,7 @@
 
 <div class="min-h-screen bg-slate-950 text-gray-300">
   <!-- Global nebula background -->
-  <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
+  {* <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div> *}
 
   <div class="container mx-auto px-4 py-8">
     <!-- App Shell with Sidebar -->
@@ -107,7 +107,7 @@
             
             <!-- Actions dropdown -->
             <div class="relative" x-data="{ open:false }" @keydown.escape.window="open=false" @click.away="open=false">
-              <button type="button" class="inline-flex items-center px-3 py-2 text-sm bg-slate-800/60 hover:bg-slate-700 border border-slate-700/50 rounded-lg text-slate-300 hover:text-white transition-all duration-200" @click="open = !open">
+              <button type="button" class="inline-flex items-center px-3 py-2 text-sm bg-slate-800/60 hover:bg-slate-700 border border-slate-700/50 rounded-lg text-slate-100 hover:text-white transition-all duration-200" @click="open = !open">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 mr-1.5">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" />
                   <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
@@ -139,12 +139,12 @@
             <h3 class="text-lg font-semibold text-white mb-4">User Details</h3>
             <div class="space-y-3 text-sm">
               <div class="flex justify-between">
-                  <span class="text-gray-400">Username:</span>
+                  <span class="text-slate-200">Username:</span>
                   <span class="text-white font-mono">{$username}</span>
               </div>
               <!-- Account Name editable row -->
               <div x-data="accNameCtrl()" x-init="await init()" class="flex items-center justify-between gap-3">
-                <label for="eb-account-name" class="text-gray-400 shrink-0">Account Name:</label>
+                <label for="eb-account-name" class="text-slate-200 shrink-0">Account Name:</label>
                 <div class="flex grow items-center gap-2">
                   <input
                     id="eb-account-name"
@@ -157,16 +157,16 @@
                 </div>
               </div>
               <div class="flex justify-between">
-                  <span class="text-gray-400">Password:</span>
+                  <span class="text-slate-200">Password:</span>
                   <span class="text-white">Hashed with 448-bit bcrypt</span>
               </div>
               <div class="flex justify-between">
-                  <span class="text-gray-400">Created:</span>
+                  <span class="text-slate-200">Created:</span>
                   <span class="text-white font-mono">{$createdDate}</span>
               </div>
               <div class="flex justify-between items-center">
                 <div>
-                  <span class="text-gray-400 mr-2">TOTP:</span>
+                  <span class="text-slate-200 mr-2">TOTP:</span>
                   {if $totpStatus == 'Active'}
                       <span class="text-green-400">{$totpStatus}</span>
                   {else}
@@ -181,19 +181,19 @@
                 </div>
               </div>
               <div class="flex justify-between">
-                <span class="text-gray-400">Number of devices:</span>
+                <span class="text-slate-200">Number of devices:</span>
                 <span class="text-white">{if $devices}{$devices|count}{else}0{/if}</span>
               </div>
               <div class="flex justify-between">
-                  <span class="text-gray-400">Office 365 protected accounts:</span>
+                  <span class="text-slate-200">Office 365 protected accounts:</span>
                   <span class="text-white">{$msAccountCount}</span>
               </div>
               <div class="flex justify-between">
-                <span class="text-gray-400">Number of Hyper-V VMs:</span>
+                <span class="text-slate-200">Number of Hyper-V VMs:</span>
                 <span class="text-white">{$hvGuestCount|default:0}</span>
               </div>
               <div class="flex justify-between">
-                <span class="text-gray-400">Number of VMware VMs:</span>
+                <span class="text-slate-200">Number of VMware VMs:</span>
                 <span class="text-white">{$vmwGuestCount|default:0}</span>
               </div>
               <!-- BEGIN: Quota Controls -->
@@ -259,7 +259,7 @@
                             <!-- + button -->
                             <button
                               type="button"
-                              class="flex h-1/2 items-center justify-center text-slate-300 hover:text-white hover:bg-slate-700/60"
+                              class="flex h-1/2 items-center justify-center text-slate-100 hover:text-white hover:bg-slate-700/60"
                               @click="dev.count = Math.max(1, parseInt((dev.count ?? 1), 10) + 1)"
                               :disabled="!dev.enabled"
                               aria-label="Increase"
@@ -272,7 +272,7 @@
                             <!-- − button -->
                             <button
                               type="button"
-                              class="flex h-1/2 items-center justify-center text-slate-300 hover:text-white hover:bg-slate-700/60"
+                              class="flex h-1/2 items-center justify-center text-slate-100 hover:text-white hover:bg-slate-700/60"
                               @click="dev.count = Math.max(1, parseInt((dev.count ?? 1), 10) - 1)"
                               :disabled="!dev.enabled"
                               aria-label="Decrease"
@@ -339,7 +339,7 @@
                             <!-- + button -->
                             <button
                               type="button"
-                              class="flex h-1/2 items-center justify-center text-slate-300 hover:text-white hover:bg-slate-700/60"
+                              class="flex h-1/2 items-center justify-center text-slate-100 hover:text-white hover:bg-slate-700/60"
                               @click="m365.count = Math.max(1, parseInt((m365.count ?? 1), 10) + 1)"
                               :disabled="!m365.enabled"
                               aria-label="Increase"
@@ -352,7 +352,7 @@
                             <!-- − button -->
                             <button
                               type="button"
-                              class="flex h-1/2 items-center justify-center text-slate-300 hover:text-white hover:bg-slate-700/60"
+                              class="flex h-1/2 items-center justify-center text-slate-100 hover:text-white hover:bg-slate-700/60"
                               @click="m365.count = Math.max(1, parseInt((m365.count ?? 1), 10) - 1)"
                               :disabled="!m365.enabled"
                               aria-label="Decrease"
@@ -419,7 +419,7 @@
                             <!-- + button -->
                             <button
                               type="button"
-                              class="flex h-1/2 items-center justify-center text-slate-300 hover:text-white hover:bg-slate-700/60"
+                              class="flex h-1/2 items-center justify-center text-slate-100 hover:text-white hover:bg-slate-700/60"
                               @click="hv.count = Math.max(1, parseInt((hv.count ?? 1), 10) + 1)"
                               :disabled="!hv.enabled"
                               aria-label="Increase"
@@ -432,7 +432,7 @@
                             <!-- − button -->
                             <button
                               type="button"
-                              class="flex h-1/2 items-center justify-center text-slate-300 hover:text-white hover:bg-slate-700/60"
+                              class="flex h-1/2 items-center justify-center text-slate-100 hover:text-white hover:bg-slate-700/60"
                               @click="hv.count = Math.max(1, parseInt((hv.count ?? 1), 10) - 1)"
                               :disabled="!hv.enabled"
                               aria-label="Decrease"
@@ -499,7 +499,7 @@
                             <!-- + button -->
                             <button
                               type="button"
-                              class="flex h-1/2 items-center justify-center text-slate-300 hover:text-white hover:bg-slate-700/60"
+                              class="flex h-1/2 items-center justify-center text-slate-100 hover:text-white hover:bg-slate-700/60"
                               @click="vmw.count = Math.max(1, parseInt((vmw.count ?? 1), 10) + 1)"
                               :disabled="!vmw.enabled"
                               aria-label="Increase"
@@ -512,7 +512,7 @@
                             <!-- − button -->
                             <button
                               type="button"
-                              class="flex h-1/2 items-center justify-center text-slate-300 hover:text-white hover:bg-slate-700/60"
+                              class="flex h-1/2 items-center justify-center text-slate-100 hover:text-white hover:bg-slate-700/60"
                               @click="vmw.count = Math.max(1, parseInt((vmw.count ?? 1), 10) - 1)"
                               :disabled="!vmw.enabled"
                               aria-label="Decrease"
@@ -555,9 +555,9 @@
               </div>
               <div class="px-4 py-3">
                 <div class="flex items-center gap-3 mb-2 text-xs">
-                  <span class="inline-flex items-center gap-1 text-slate-300"><span class="inline-block w-3 h-1.5 bg-blue-500"></span>Total</span>
-                  <span class="inline-flex items-center gap-1 text-slate-300"><span class="inline-block w-3 h-1.5 bg-emerald-500"></span>S3-compatible</span>
-                  <span class="inline-flex items-center gap-1 text-slate-300"><span class="inline-block w-3 h-1.5 bg-sky-500"></span>eazyBackup</span>
+                  <span class="inline-flex items-center gap-1 text-slate-100"><span class="inline-block w-3 h-1.5 bg-blue-500"></span>Total</span>
+                  <span class="inline-flex items-center gap-1 text-slate-100"><span class="inline-block w-3 h-1.5 bg-emerald-500"></span>S3-compatible</span>
+                  <span class="inline-flex items-center gap-1 text-slate-100"><span class="inline-block w-3 h-1.5 bg-sky-500"></span>eazyBackup</span>
                 </div>
                 <div id="eb-storage-chart" style="width: 100%; height: 160px;"></div>
               </div>
@@ -693,7 +693,7 @@
                           </div>
                       {/foreach}
                   {else}
-                      <p class="text-gray-400">No storage vaults found.</p>
+                      <p class="text-slate-200">No storage vaults found.</p>
                   {/if}
               </div>
             </div>
@@ -706,9 +706,9 @@
             <table class="min-w-full divide-y divide-slate-700">
               <thead class="bg-slate-800/50">
                 <tr>
-                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Name</th>
-                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Type</th>
-                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Size</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Name</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Type</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Size</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-700">
@@ -720,7 +720,7 @@
                   </tr>
                 {foreachelse}
                   <tr>
-                      <td colspan="3" class="text-center py-6 text-sm text-gray-400">No protected items found for this user.</td>
+                      <td colspan="3" class="text-center py-6 text-sm text-slate-200">No protected items found for this user.</td>
                   </tr>
                 {/foreach}
               </tbody>
@@ -798,14 +798,14 @@
               </div>
               {if $totalQuotaBytes > 0}
               <div class="mt-3 pt-3 border-t border-slate-700/50">
-                  <p class="text-[11px] text-slate-400 leading-relaxed">
+                  {* <p class="text-[11px] text-slate-400 leading-relaxed">
                       <svg class="inline h-3.5 w-3.5 mr-1 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
                       </svg>
-                      Your total quota across all vaults is <strong class="text-slate-300">{\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($totalQuotaBytes, 2)}</strong>. 
+                      Your total quota across all vaults is <strong class="text-slate-100">{\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($totalQuotaBytes, 2)}</strong>. 
                       Billing is calculated by summing all vault quotas, then rounding up to the nearest 1TB tier 
                       (<strong class="text-emerald-400">{$billableTB} TB</strong>).
-                  </p>
+                  </p> *}
               </div>
               {/if}
           </div>
@@ -847,23 +847,23 @@
               <table class="w-full min-w-max divide-y divide-slate-700">
                   <thead class="bg-slate-800/50">
                       <tr>
-                          <th x-show="cols.name" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Storage Vault</th>
-                          <th x-show="cols.id" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Storage Vault ID</th>
-                          <th x-show="cols.type" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Type</th>
-                          <th x-show="cols.init" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Initialized</th>
-                          <th x-show="cols.stored" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Stored</th>
-                          <th x-show="cols.quota" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                          <th x-show="cols.name" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Storage Vault</th>
+                          <th x-show="cols.id" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Storage Vault ID</th>
+                          <th x-show="cols.type" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Type</th>
+                          <th x-show="cols.init" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Initialized</th>
+                          <th x-show="cols.stored" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Stored</th>
+                          <th x-show="cols.quota" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">
                               <span class="inline-flex items-center gap-1">
                                   Quota
-                                  <span class="cursor-help text-slate-500 hover:text-slate-300" title="Per-vault quota. Billing is based on the sum of all vault quotas, rounded up to the nearest 1TB tier.">
+                                  <span class="cursor-help text-slate-500 hover:text-slate-100" title="Per-vault quota. Billing is based on the sum of all vault quotas, rounded up to the nearest 1TB tier.">
                                       <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
                                       </svg>
                                   </span>
                               </span>
                           </th>
-                          <th x-show="cols.usage" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Usage</th>
-                          <th x-show="cols.actions" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Actions</th>
+                          <th x-show="cols.usage" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Usage</th>
+                          <th x-show="cols.actions" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
                   <tbody class="divide-y divide-slate-700">
@@ -898,7 +898,7 @@
                               data-used-bytes="{$usedBytes}"
                               data-quota-bytes="{$quotaBytes}">
                               <td x-show="cols.name" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$vault.Description|default:'-'}</td>
-                              <td x-show="cols.id" class="px-4 py-4 whitespace-nowrap text-xs font-mono text-gray-400">{$vaultId}</td>
+                              <td x-show="cols.id" class="px-4 py-4 whitespace-nowrap text-xs font-mono text-slate-200">{$vaultId}</td>
                               <td x-show="cols.type" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
                                   {assign var=destType value=$vault.DestinationType|default:''}
                                   {if $destType ne ''}
@@ -951,7 +951,7 @@
                               </td>
                               <td x-show="cols.quota" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
                                   {if not $hasQuota}
-                                      <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-slate-300">Unlimited</span>
+                                      <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-slate-100">Unlimited</span>
                                   {else}
                                       <div class="flex flex-col gap-1">
                                           <span class="inline-flex items-center gap-2">
@@ -959,9 +959,9 @@
                                               {if $quotaEnabled}
                                                   <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-900/40 text-emerald-300">On</span>
                                               {else}
-                                                  <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-700 text-slate-300">Off</span>
+                                                  <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-700 text-slate-100">Off</span>
                                               {/if}
-                                              <button type="button" class="configure-vault-button ml-1 p-1.5 rounded hover:bg-slate-700 text-slate-300"
+                                              <button type="button" class="configure-vault-button ml-1 p-1.5 rounded hover:bg-slate-700 text-slate-100"
                                                   title="Edit quota"
                                                   data-vault-id="{$vaultId}"
                                                   data-vault-name="{$vault.Description}"
@@ -1007,7 +1007,7 @@
                           </tr>
                       {foreachelse}
                           <tr>
-                              <td colspan="8" class="text-center py-6 text-sm text-gray-400">No storage vaults found for this user.</td>
+                              <td colspan="8" class="text-center py-6 text-sm text-slate-200">No storage vaults found for this user.</td>
                 </tr>
               {/foreach}
             </tbody>
@@ -1053,14 +1053,14 @@
             <table class="w-full min-w-max divide-y divide-slate-700">
                 <thead class="bg-slate-800/50">
                     <tr>
-                        <th x-show="cols.status" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Status</th>
-                        <th x-show="cols.name" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Device Name</th>
-                        <th x-show="cols.id" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Device ID</th>
-                        <th x-show="cols.reg" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Registered</th>
-                        <th x-show="cols.ver" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Version</th>
-                        <th x-show="cols.plat" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Platform</th>
-                        <th x-show="cols.items" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Protected Items</th>
-                        <th x-show="cols.actions" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Actions</th>
+                        <th x-show="cols.status" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Status</th>
+                        <th x-show="cols.name" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Device Name</th>
+                        <th x-show="cols.id" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Device ID</th>
+                        <th x-show="cols.reg" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Registered</th>
+                        <th x-show="cols.ver" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Version</th>
+                        <th x-show="cols.plat" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Platform</th>
+                        <th x-show="cols.items" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Protected Items</th>
+                        <th x-show="cols.actions" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
                 <tbody class="divide-y divide-slate-700">
@@ -1074,7 +1074,7 @@
                                 {/if}
                             </td>
                             <td x-show="cols.name" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$device.device_name}</td>
-                            <td x-show="cols.id" class="px-4 py-4 whitespace-nowrap text-xs font-mono text-gray-400">{$device.device_id}</td>
+                            <td x-show="cols.id" class="px-4 py-4 whitespace-nowrap text-xs font-mono text-slate-200">{$device.device_id}</td>
                             <td x-show="cols.reg" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$device.registered}</td>
                             <td x-show="cols.ver" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$device.version}</td>
                             <td x-show="cols.plat" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$device.platform}</td>
@@ -1085,7 +1085,7 @@
                         </tr>
                     {foreachelse}
                         <tr>
-                            <td colspan="8" class="text-center py-6 text-sm text-gray-400">No devices found for this user.</td>
+                            <td colspan="8" class="text-center py-6 text-sm text-slate-200">No devices found for this user.</td>
                 </tr>
               {/foreach}          
             </tbody>
@@ -1099,7 +1099,7 @@
             <div class="border-b border-slate-800/80 px-4 pt-4 pb-3">
                 <div class="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
                     <div class="flex items-center gap-2">
-                        <div class="text-xs font-medium text-slate-300">Summary <span class="text-slate-500">(Job Logs)</span></div>
+                        {* <div class="text-xs font-medium text-slate-100">Summary <span class="text-slate-500">(Job Logs)</span></div>
                         <button type="button"
                                 class="inline-flex h-6 w-6 items-center justify-center rounded-full border border-slate-700/70 bg-slate-900/40 text-slate-400 transition hover:border-slate-600 hover:text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
                                 title="Filter Job Logs by one or more status pills. Search combines with selected statuses."
@@ -1107,7 +1107,7 @@
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
                             </svg>
-                        </button>
+                        </button> *}
                     </div>
 
                     <div class="flex flex-wrap gap-2">
@@ -1139,7 +1139,7 @@
 
                     <div class="flex w-full gap-2 xl:w-[24rem] xl:max-w-[24rem]">
                         <input id="jobs-search" type="text" placeholder="Search jobs..." class="w-full rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-0 focus:border-sky-600">
-                        <button id="jobs-clear-filters" type="button" class="hidden inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-700/80 bg-slate-900/50 px-3 py-2 text-xs font-medium text-slate-300 transition hover:border-slate-600 hover:bg-slate-900/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950">
+                        <button id="jobs-clear-filters" type="button" class="hidden inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-700/80 bg-slate-900/50 px-3 py-2 text-xs font-medium text-slate-100 transition hover:border-slate-600 hover:bg-slate-900/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950">
                             Clear
                         </button>
                     </div>
@@ -1147,7 +1147,7 @@
                 <div id="jobs-active-filters" class="mt-2 hidden text-xs text-slate-400"></div>
             </div>
 
-            <div class="flex flex-col gap-3 border-b border-slate-800/80 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div class="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                 <div class="flex items-center gap-3">
                     <!-- View columns dropdown -->
                     <div class="relative shrink-0" @click.away="open=false">
@@ -1204,7 +1204,7 @@
                              class="absolute left-0 mt-2 w-24 overflow-hidden rounded-lg border border-slate-700 bg-slate-800 shadow-xl z-10">
                             <template x-for="size in sizes" :key="size">
                                 <button @click="setSize(size)" type="button"
-                                        :class="pageSize === size ? 'bg-slate-700 text-white' : 'text-slate-300 hover:bg-slate-700/70 hover:text-white'"
+                                        :class="pageSize === size ? 'bg-slate-700 text-white' : 'text-slate-100 hover:bg-slate-700/70 hover:text-white'"
                                         class="block w-full px-3 py-2 text-left text-sm transition-colors">
                                     <span x-text="size"></span>
                                 </button>
@@ -1221,23 +1221,23 @@
                 <table id="jobs-table" class="min-w-full divide-y divide-slate-700" data-job-table>
                     <thead class="bg-slate-800/50">
                         <tr>
-                            <th x-show="cols.user"   data-sort="Username"    class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Username</th>
-                            <th x-show="cols.id" x-cloak    data-sort="JobID"       class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Job ID</th>
-                            <th x-show="cols.device" data-sort="Device"      class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Device</th>
-                            <th x-show="cols.item"   data-sort="ProtectedItem" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Protected Item</th>
-                            <th x-show="cols.vault"  data-sort="StorageVault" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Storage Vault</th>
-                            <th x-show="cols.ver"    data-sort="Version"     class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Version</th>
-                            <th x-show="cols.type"   data-sort="Type"        class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Type</th>
-                            <th x-show="cols.status" data-sort="Status"      class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Status</th>
-                            <th x-show="cols.dirs"   data-sort="Directories" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Directories</th>
-                            <th x-show="cols.files"  data-sort="Files"       class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Files</th>
-                            <th x-show="cols.size"   data-sort="Size"        class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Size</th>
-                            <th x-show="cols.vsize"  data-sort="VaultSize"   class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Storage Vault Size</th>
-                            <th x-show="cols.up"     data-sort="Uploaded"    class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Uploaded</th>
-                            <th x-show="cols.down"   data-sort="Downloaded"  class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Downloaded</th>
-                            <th x-show="cols.started" data-sort="Started"    class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Started</th>
-                            <th x-show="cols.ended"   data-sort="Ended"      class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Ended</th>
-                            <th x-show="cols.dur"     data-sort="Duration"   class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Duration</th>
+                            <th x-show="cols.user"   data-sort="Username"    class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider cursor-pointer">Username</th>
+                            <th x-show="cols.id" x-cloak    data-sort="JobID"       class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider cursor-pointer">Job ID</th>
+                            <th x-show="cols.device" data-sort="Device"      class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider cursor-pointer">Device</th>
+                            <th x-show="cols.item"   data-sort="ProtectedItem" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider cursor-pointer">Protected Item</th>
+                            <th x-show="cols.vault"  data-sort="StorageVault" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider cursor-pointer">Storage Vault</th>
+                            <th x-show="cols.ver"    data-sort="Version"     class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider cursor-pointer">Version</th>
+                            <th x-show="cols.type"   data-sort="Type"        class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider cursor-pointer">Type</th>
+                            <th x-show="cols.status" data-sort="Status"      class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider cursor-pointer">Status</th>
+                            <th x-show="cols.dirs"   data-sort="Directories" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider cursor-pointer">Directories</th>
+                            <th x-show="cols.files"  data-sort="Files"       class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider cursor-pointer">Files</th>
+                            <th x-show="cols.size"   data-sort="Size"        class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider cursor-pointer">Size</th>
+                            <th x-show="cols.vsize"  data-sort="VaultSize"   class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider cursor-pointer">Storage Vault Size</th>
+                            <th x-show="cols.up"     data-sort="Uploaded"    class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider cursor-pointer">Uploaded</th>
+                            <th x-show="cols.down"   data-sort="Downloaded"  class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider cursor-pointer">Downloaded</th>
+                            <th x-show="cols.started" data-sort="Started"    class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider cursor-pointer">Started</th>
+                            <th x-show="cols.ended"   data-sort="Ended"      class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider cursor-pointer">Ended</th>
+                            <th x-show="cols.dur"     data-sort="Duration"   class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider cursor-pointer">Duration</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-700"></tbody>
@@ -1300,7 +1300,7 @@
       </div>
       <button id="vault-panel-close" 
               @click="open = false; window.dispatchEvent(new CustomEvent('vault-panel:closed'))"
-              class="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-slate-800 bg-slate-900/40 text-slate-300 hover:bg-slate-900/70 hover:text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50"
+              class="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-slate-800 bg-slate-900/40 text-slate-100 hover:bg-slate-900/70 hover:text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50"
               aria-label="Close">
         <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/>
@@ -1320,9 +1320,9 @@
            x-transition:leave-start="opacity-100"
            x-transition:leave-end="opacity-0">
         <nav class="flex space-x-4" aria-label="Tabs">
-          <a href="#" @click.prevent="tab='general'" :class="tab==='general' ? 'text-sky-400 border-sky-500' : 'text-slate-300 border-transparent hover:text-slate-100'" class="px-1 pb-2 border-b-2 text-sm font-medium transition">General</a>
-          <a href="#" @click.prevent="tab='retention'" :class="tab==='retention' ? 'text-sky-400 border-sky-500' : 'text-slate-300 border-transparent hover:text-slate-100'" class="px-1 pb-2 border-b-2 text-sm font-medium transition">Retention</a>
-          <a href="#" @click.prevent="tab='danger'" :class="tab==='danger' ? 'text-rose-400 border-rose-500' : 'text-slate-300 border-transparent hover:text-slate-100'" class="px-1 pb-2 border-b-2 text-sm font-medium transition">Danger zone</a>
+          <a href="#" @click.prevent="tab='general'" :class="tab==='general' ? 'text-sky-400 border-sky-500' : 'text-slate-100 border-transparent hover:text-slate-100'" class="px-1 pb-2 border-b-2 text-sm font-medium transition">General</a>
+          <a href="#" @click.prevent="tab='retention'" :class="tab==='retention' ? 'text-sky-400 border-sky-500' : 'text-slate-100 border-transparent hover:text-slate-100'" class="px-1 pb-2 border-b-2 text-sm font-medium transition">Retention</a>
+          <a href="#" @click.prevent="tab='danger'" :class="tab==='danger' ? 'text-rose-400 border-rose-500' : 'text-slate-100 border-transparent hover:text-slate-100'" class="px-1 pb-2 border-b-2 text-sm font-medium transition">Danger zone</a>
         </nav>
       </div>
 
@@ -1330,15 +1330,15 @@
       <div x-show="tab==='general'" x-transition class="px-5 py-5 space-y-6">
         <!-- Name -->
         <div>
-          <label class="block text-sm text-slate-300 mb-1">Vault name</label>
+          <label class="block text-sm text-slate-100 mb-1">Vault name</label>
           <input id="vault-mgr-name" type="text" class="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-900/60 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/40 focus:border-sky-600 placeholder:text-slate-500 transition" placeholder="Vault name" />
         </div>
         <!-- Quota -->
         <div class="space-y-3">
-          <label class="block text-sm text-slate-300">Quota</label>
+          <label class="block text-sm text-slate-100">Quota</label>
           <div class="flex items-center gap-2">
             <input id="vault-quota-unlimited2" type="checkbox" class="h-4 w-4 rounded border-slate-600 bg-slate-800 text-sky-600 focus:ring-sky-500/40 focus:ring-offset-0">
-            <span class="text-slate-300 text-sm">Unlimited</span>
+            <span class="text-slate-100 text-sm">Unlimited</span>
           </div>
           <div class="flex items-center gap-2">
             <input id="vault-quota-size2" type="number" class="w-40 px-3 py-2 rounded-lg border border-slate-700 bg-slate-900/60 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/40 focus:border-sky-600 placeholder:text-slate-500 transition" placeholder="0" />
@@ -1380,7 +1380,7 @@
             <div x-show="showAccountPolicy" class="rounded-xl border border-slate-700 bg-slate-800/70 p-3 mb-3">
               <div class="flex items-center justify-between mb-2">
                 <div class="text-slate-200 font-medium">Account-level policy</div>
-                <button class="text-slate-300 hover:text-white text-sm" @click="showAccountPolicy=false">Close</button>
+                <button class="text-slate-100 hover:text-white text-sm" @click="showAccountPolicy=false">Close</button>
               </div>
               <ul class="list-disc pl-5 text-slate-200 text-sm space-y-1" x-html="formattedDefaultPolicyLines().join('')"></ul>
             </div>
@@ -1403,7 +1403,7 @@
             
             <!-- Mode select with helper text -->
             <div class="mb-2">
-              <label class="block text-sm text-slate-300 mb-1">Mode</label>
+              <label class="block text-sm text-slate-100 mb-1">Mode</label>
               <select x-model.number="state.mode" class="w-96 px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm">
                 <option value="801">Keep everything</option>
                 <option value="802">Keep only backups that match these rules</option>
@@ -1489,7 +1489,7 @@
 
               <!-- New rule composer -->
               <div x-show="editing===null" class="rounded-xl border border-dashed border-slate-700 p-3">
-                <p class="text-slate-300 mb-2 font-medium">Add a rule</p>
+                <p class="text-slate-100 mb-2 font-medium">Add a rule</p>
                 <div class="grid grid-cols-2 gap-3">
                   <div>
                     <label class="block text-xs text-slate-400 mb-1">Type</label>
@@ -1533,7 +1533,7 @@
 
           <!-- Sticky summary -->
           <div class="sticky bottom-0 mt-4 rounded-xl border border-slate-700 bg-slate-800/80 backdrop-blur p-3">
-            <p class="text-slate-300 font-medium mb-1">Effective policy:</p>
+            <p class="text-slate-100 font-medium mb-1">Effective policy:</p>
             <ul class="list-disc pl-5 text-slate-200 text-sm space-y-1" x-html="formattedEffectivePolicyLines().join('')"></ul>
           </div>
           <!-- Save button for retention -->
@@ -1552,7 +1552,7 @@
               </svg>
               <div>
                 <div class="font-medium text-rose-300">Delete this vault</div>
-                <p class="mt-1 text-sm text-slate-300">Deleting a vault cannot be undone. All data will be permanently lost.</p>
+                <p class="mt-1 text-sm text-slate-100">Deleting a vault cannot be undone. All data will be permanently lost.</p>
               </div>
             </div>
           </div>
@@ -1614,7 +1614,7 @@
             <div class="text-xs text-slate-400 mt-0.5">Set a new password for <span class="text-sky-400 font-mono" x-text="username"></span></div>
           </div>
           <button type="button"
-                  class="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-slate-800 bg-slate-900/40 text-slate-300 hover:bg-slate-900/70 hover:text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50"
+                  class="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-slate-800 bg-slate-900/40 text-slate-100 hover:bg-slate-900/70 hover:text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50"
                   @click="closeDrawer()"
                   aria-label="Close">
             <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -1636,7 +1636,7 @@
              x-transition:leave-end="opacity-0">
           
           {* Info text *}
-          <div class="text-sm text-slate-300">
+          <div class="text-sm text-slate-100">
             Enter a new password below, or generate a secure password automatically.
           </div>
           
@@ -1721,7 +1721,7 @@
                x-transition:enter="transition ease-out duration-300 delay-300"
                x-transition:enter-start="opacity-0 translate-y-2"
                x-transition:enter-end="opacity-100 translate-y-0">
-            <div class="text-xs font-medium text-slate-300 mb-2">Password requirements</div>
+            <div class="text-xs font-medium text-slate-100 mb-2">Password requirements</div>
             <ul class="space-y-1 text-xs text-slate-400">
               <li class="flex items-center gap-2">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" :class="password.length >= 8 ? 'text-emerald-400' : 'text-slate-500'" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -1878,7 +1878,7 @@ function resetPasswordDrawer() {
               <div class="text-xs uppercase tracking-wide text-emerald-400 mb-2">New Password</div>
               <div class="flex items-center gap-3">
                 <div id="success-password-text" class="select-all font-mono text-lg text-slate-100 flex-1">${escapeHtml(newPassword)}</div>
-                <button id="success-copy-btn" type="button" class="inline-flex items-center p-2 rounded-lg border border-slate-600 hover:bg-slate-700 text-slate-300 hover:text-white transition" title="Copy">
+                <button id="success-copy-btn" type="button" class="inline-flex items-center p-2 rounded-lg border border-slate-600 hover:bg-slate-700 text-slate-100 hover:text-white transition" title="Copy">
                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-5 w-5">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 0 0-3.375-3.375h-1.5a1.125 1.125 0 0 1-1.125-1.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H9.75" />
                   </svg>
@@ -1892,7 +1892,7 @@ function resetPasswordDrawer() {
                 </svg>
                 <div>
                   <div class="font-medium text-amber-300">Action needed</div>
-                  <p class="mt-1 text-sm text-slate-300">On each computer, <strong>close and reopen the eazyBackup client</strong>, then sign in with your <strong>new backup account password</strong> so future backups do not fail.</p>
+                  <p class="mt-1 text-sm text-slate-100">On each computer, <strong>close and reopen the eazyBackup client</strong>, then sign in with your <strong>new backup account password</strong> so future backups do not fail.</p>
                 </div>
               </div>
             </div>
@@ -1938,12 +1938,12 @@ function resetPasswordDrawer() {
     <div class="p-6">
       <div class="flex justify-between items-center pb-4">
         <h2 class="text-lg font-semibold text-slate-200">Two-Factor Authentication (TOTP)</h2>
-        <button id="totp-modal-close" type="button" class="text-slate-500 hover:text-slate-300">
+        <button id="totp-modal-close" type="button" class="text-slate-500 hover:text-slate-100">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
         </button>
       </div>
       <div class="space-y-4">
-        <p id="totp-status" class="text-slate-300 text-sm"></p>
+        <p id="totp-status" class="text-slate-100 text-sm"></p>
         <div class="flex justify-center">
           <img id="totp-qr-img" src="" alt="TOTP QR" class="rounded border border-slate-700 max-h-56" />
         </div>
@@ -1951,7 +1951,7 @@ function resetPasswordDrawer() {
           <a id="totp-otp-url" href="#" target="_blank" class="text-sky-400 hover:text-sky-300"></a>
         </div>
         <div>
-          <label class="block text-sm font-medium text-slate-300 mb-1">Enter 6-digit code</label>
+          <label class="block text-sm font-medium text-slate-100 mb-1">Enter 6-digit code</label>
           <input id="totp-code" type="text" inputmode="numeric" autocomplete="one-time-code" class="block w-full px-3 py-2 border border-slate-600 bg-slate-700 text-slate-200 rounded focus:outline-none focus:ring-2 focus:ring-sky-500" placeholder="123456" />
         </div>
         <div id="totp-error" class="hidden text-red-500 text-sm"></div>
@@ -1978,9 +1978,9 @@ window.EB_TOTP_ENDPOINT = '{$modulelink}&a=totp';
       </button>
     </div>
     <div class="px-5 py-4 space-y-3">
-      <div id="vsm-summary" class="text-sm text-slate-300"></div>
+      <div id="vsm-summary" class="text-sm text-slate-100"></div>
       <div class="border border-slate-700 rounded overflow-hidden">
-        <div class="grid grid-cols-12 gap-0 bg-slate-800/60 px-3 py-2 text-xs text-slate-300">
+        <div class="grid grid-cols-12 gap-0 bg-slate-800/60 px-3 py-2 text-xs text-slate-100">
           <div class="col-span-4">Size</div>
           <div class="col-span-8">Used by</div>
         </div>
@@ -2054,7 +2054,7 @@ window.EB_USER_ENDPOINT = '{$modulelink}&a=user-actions';
         </div>
         <button id="device-panel-close"
                 @click="open = false; window.dispatchEvent(new CustomEvent('device-panel:closed'))"
-                class="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-slate-800 bg-slate-900/40 text-slate-300 hover:bg-slate-900/70 hover:text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50"
+                class="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-slate-800 bg-slate-900/40 text-slate-100 hover:bg-slate-900/70 hover:text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50"
                 aria-label="Close">
           <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/>
@@ -2073,8 +2073,8 @@ window.EB_USER_ENDPOINT = '{$modulelink}&a=user-actions';
              x-transition:leave-start="opacity-100"
              x-transition:leave-end="opacity-0">
           <nav class="flex space-x-4" aria-label="Tabs">
-            <a href="#" @click.prevent="tab='device'" :class="tab==='device' ? 'text-sky-400 border-sky-500' : 'text-slate-300 border-transparent hover:text-slate-100'" class="px-1 pb-2 border-b-2 text-sm font-medium transition">Device</a>
-            <a href="#" @click.prevent="tab='vault'"  :class="tab==='vault'  ? 'text-sky-400 border-sky-500' : 'text-slate-300 border-transparent hover:text-slate-100'" class="px-1 pb-2 border-b-2 text-sm font-medium transition">Storage Vault</a>
+            <a href="#" @click.prevent="tab='device'" :class="tab==='device' ? 'text-sky-400 border-sky-500' : 'text-slate-100 border-transparent hover:text-slate-100'" class="px-1 pb-2 border-b-2 text-sm font-medium transition">Device</a>
+            <a href="#" @click.prevent="tab='vault'"  :class="tab==='vault'  ? 'text-sky-400 border-sky-500' : 'text-slate-100 border-transparent hover:text-slate-100'" class="px-1 pb-2 border-b-2 text-sm font-medium transition">Storage Vault</a>
           </nav>
         </div>
         <div x-show="tab==='device'" x-transition class="px-5 py-5 space-y-4">
@@ -2095,7 +2095,7 @@ window.EB_USER_ENDPOINT = '{$modulelink}&a=user-actions';
             <h4 class="text-slate-100 font-semibold mb-3">Run Backup</h4>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div class="relative">
-                <label class="block text-sm text-slate-300 mb-1">Protected Item</label>
+                <label class="block text-sm text-slate-100 mb-1">Protected Item</label>
                 <button type="button" id="pi-menu-button" @click="piOpen=!piOpen" class="w-full text-left px-3 py-2.5 bg-slate-900/60 border border-slate-700 rounded-lg text-slate-200 hover:bg-slate-900/80 transition">
                   <span id="pi-selected" x-text="piLabel"></span>
                 </button>
@@ -2106,7 +2106,7 @@ window.EB_USER_ENDPOINT = '{$modulelink}&a=user-actions';
                 </div>
               </div>
               <div class="relative">
-                <label class="block text-sm text-slate-300 mb-1">Storage Vault</label>
+                <label class="block text-sm text-slate-100 mb-1">Storage Vault</label>
                 <button id="vault-menu-button-2" type="button" @click="vOpen=!vOpen" class="w-full text-left px-3 py-2.5 bg-slate-900/60 border border-slate-700 rounded-lg text-slate-200 hover:bg-slate-900/80 transition">
                   <span id="vault-selected-2">Choose a vault…</span>
                 </button>
@@ -2126,7 +2126,7 @@ window.EB_USER_ENDPOINT = '{$modulelink}&a=user-actions';
         </div>
         <div x-show="tab==='vault'" x-transition class="px-5 py-5 space-y-4">
           <div class="relative">
-            <label class="block text-sm text-slate-300 mb-1">Select Storage Vault</label>
+            <label class="block text-sm text-slate-100 mb-1">Select Storage Vault</label>
             <button id="vault-menu-button" type="button" class="w-full text-left px-3 py-2.5 bg-slate-900/60 border border-slate-700 rounded-lg text-slate-200 hover:bg-slate-900/80 transition">
               <span id="vault-selected">Choose a vault…</span>
             </button>
@@ -2147,7 +2147,7 @@ window.EB_USER_ENDPOINT = '{$modulelink}&a=user-actions';
               <svg class="h-5 w-5 shrink-0 text-amber-400 mt-0.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
               </svg>
-              <p class="text-sm text-slate-300">Reindex may take many hours and locks the vault during the operation.</p>
+              <p class="text-sm text-slate-100">Reindex may take many hours and locks the vault during the operation.</p>
             </div>
           </div>
         </div>
@@ -2303,11 +2303,11 @@ try {
       <div id="restore-step1">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <div class="text-sm text-slate-300 mb-1">Select an online device to control</div>
+            <div class="text-sm text-slate-100 mb-1">Select an online device to control</div>
             <div class="text-xs text-slate-400">Using the device selected in the Devices panel.</div>
           </div>
           <div x-data="{ open:false }" class="relative">
-            <label class="block text-sm text-slate-300 mb-1">Select a Storage Vault to restore from</label>
+            <label class="block text-sm text-slate-100 mb-1">Select a Storage Vault to restore from</label>
             <button id="rs-vault-menu-btn" type="button" @click="open=!open" class="w-full text-left px-3 py-2 bg-slate-800 border border-slate-600 rounded text-slate-200">
               <span id="rs-vault-selected-label">Choose a vault…</span>
             </button>
@@ -2325,9 +2325,9 @@ try {
       </div>
       <div id="restore-step2" class="hidden">
         <div class="space-y-3">
-          <div class="text-sm text-slate-300">Select a Protected Item to restore:</div>
+          <div class="text-sm text-slate-100">Select a Protected Item to restore:</div>
           <div class="relative" x-data="{ open:false }">
-            <label class="block text-sm text-slate-300 mb-1">Protected Item</label>
+            <label class="block text-sm text-slate-100 mb-1">Protected Item</label>
             <button id="rs-item-menu-btn" type="button" @click="open=!open" class="w-full text-left px-3 py-2 bg-slate-800 border border-slate-600 rounded text-slate-200">
               <span id="rs-item-selected-label">Choose a protected item…</span>
             </button>
@@ -2336,7 +2336,7 @@ try {
             </div>
           </div>
           <div>
-            <div class="text-sm text-slate-300 mb-1">Snapshots</div>
+            <div class="text-sm text-slate-100 mb-1">Snapshots</div>
             <div id="rs-engine-friendly" class="text-xs text-slate-400 mb-1"></div>
             <div id="rs-snapshots" class="border border-slate-700 rounded bg-slate-900/40 max-h-60 overflow-y-auto text-sm text-slate-200"></div>
           </div>
@@ -2346,23 +2346,23 @@ try {
 
       <div id="restore-step3" class="hidden">
         <div id="rs-methods" class="mt-1">
-          <div id="rs-method-title" class="text-sm text-slate-300 mb-2"></div>
+          <div id="rs-method-title" class="text-sm text-slate-100 mb-2"></div>
           <div id="rs-method-options" class="space-y-2 text-sm text-slate-200"></div>
           <div class="mt-3 space-y-3">
             <div>
-              <label class="block text-sm text-slate-300 mb-1">Destination path</label>
+              <label class="block text-sm text-slate-100 mb-1">Destination path</label>
               <div class="flex gap-2">
                 <input id="rs-dest" type="text" class="flex-1 px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 focus:outline-none focus:ring-0 focus:border-sky-600" placeholder="e.g. C:\\Restore">
                 <button id="rs-browse" type="button" class="px-3 py-2 rounded bg-slate-700 hover:bg-slate-600 text-white">Browse…</button>
               </div>
             </div>
             <div id="rs-archive-name-wrap" class="hidden">
-              <label class="block text-sm text-slate-300 mb-1">Archive file name</label>
+              <label class="block text-sm text-slate-100 mb-1">Archive file name</label>
               <input id="rs-archive-name" type="text" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 focus:outline-none focus:ring-0 focus:border-sky-600" placeholder="backup.zip">
               <div class="text-xs text-slate-400 mt-1">Enter the output archive filename (e.g., backup.zip).</div>
             </div>
             <div>
-              <label class="block text-sm text-slate-300 mb-1">Overwrite</label>
+              <label class="block text-sm text-slate-100 mb-1">Overwrite</label>
               <select id="rs-overwrite" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200">
                 <option value="none">Do not overwrite</option>
                 <option value="ifNewer">If the restored file is newer</option>
@@ -2376,13 +2376,13 @@ try {
 
       <div id="restore-step4" class="hidden">
         <div class="space-y-3">
-          <div class="text-sm text-slate-300">Restore scope</div>
+          <div class="text-sm text-slate-100">Restore scope</div>
           <div class="text-xs text-slate-400">Choose whether to restore everything from the snapshot, or pick specific files/folders.</div>
           <div id="rs-scope-options" class="space-y-2 text-sm text-slate-200"></div>
 
           <div id="rs-scope-select-wrap" class="hidden mt-3">
             <div class="flex items-center justify-between gap-3">
-              <div class="text-sm text-slate-300">Select items from snapshot</div>
+              <div class="text-sm text-slate-100">Select items from snapshot</div>
               <button id="rs-snap-browse" type="button" class="px-3 py-2 rounded bg-slate-700 hover:bg-slate-600 text-white text-sm">Browse snapshot…</button>
             </div>
             <div class="mt-2 border border-slate-700 rounded bg-slate-900/40">
@@ -2397,7 +2397,7 @@ try {
         </div>
       </div>
       <div class="flex justify-between items-center mt-4 border-t border-slate-800 pt-3">
-        <button id="restore-back" class="px-4 py-2 text-slate-300">Back</button>
+        <button id="restore-back" class="px-4 py-2 text-slate-100">Back</button>
         <div class="ml-auto space-x-2">
           <button id="restore-next" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded">Next</button>
           <button id="restore-start" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded hidden">Start Restore</button>
@@ -2430,11 +2430,11 @@ try {
     <div class="px-5 py-4">
       <div class="flex items-center gap-2 mb-3">
         <button id="fsb-up" class="px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-white rounded">Up</button>
-        <div id="fsb-path" class="flex-1 text-xs px-2 py-1 rounded bg-slate-800 border border-slate-700 text-slate-300 overflow-x-auto"></div>
+        <div id="fsb-path" class="flex-1 text-xs px-2 py-1 rounded bg-slate-800 border border-slate-700 text-slate-100 overflow-x-auto"></div>
         <button id="fsb-refresh" class="px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-white rounded">Refresh</button>
       </div>
       <div class="border border-slate-700 rounded overflow-hidden">
-        <div class="grid grid-cols-12 gap-0 bg-slate-800/60 px-3 py-2 text-xs text-slate-300">
+        <div class="grid grid-cols-12 gap-0 bg-slate-800/60 px-3 py-2 text-xs text-slate-100">
           <div class="col-span-7">Name</div>
           <div class="col-span-2">Type</div>
           <div class="col-span-3 text-right">Modified</div>
@@ -2468,11 +2468,11 @@ try {
           </svg>
           Up
         </button>
-        <div id="ssb-path" class="flex-1 text-xs px-2 py-1 rounded bg-slate-800 border border-slate-700 text-slate-300 overflow-x-auto"></div>
+        <div id="ssb-path" class="flex-1 text-xs px-2 py-1 rounded bg-slate-800 border border-slate-700 text-slate-100 overflow-x-auto"></div>
         <button id="ssb-refresh" class="px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-white rounded">Refresh</button>
       </div>
       <div class="border border-slate-700 rounded overflow-hidden">
-        <div class="grid grid-cols-12 gap-0 bg-slate-800/60 px-3 py-2 text-xs text-slate-300">
+        <div class="grid grid-cols-12 gap-0 bg-slate-800/60 px-3 py-2 text-xs text-slate-100">
           <div class="col-span-1"></div>
           <div class="col-span-7">Name</div>
           <div class="col-span-1">Type</div>
