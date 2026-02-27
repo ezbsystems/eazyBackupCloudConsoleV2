@@ -88,7 +88,27 @@
                     <div class="p-6">
                 <div x-show="activeTab === 'dashboard'" x-transition x-cloak>
                     <h2 class="text-md font-medium eb-text-white mb-4 px-2">Usage overview</h2>
-                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="bg-slate-900 p-4 rounded-lg shadow eb-text-white h-full flex flex-col">
+                            <div class="flex items-center gap-2 mb-3">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 text-slate-300">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0 3 3m-3-3-3 3M6.75 19.5a4.5 4.5 0 0 1-1.41-8.775 5.25 5.25 0 0 1 10.233-2.33 3 3 0 0 1 3.758 3.848A3.752 3.752 0 0 1 18 19.5H6.75Z" />
+                                </svg>
+                                <h3 class="text-base font-semibold">Last 24 Hours (Status)</h3>
+                            </div>
+                            <div style="min-height:3.5rem;"></div>
+                            <div id="eb-status24h-donut" class="mt-3 h-32 w-full border border-slate-800 rounded overflow-hidden">
+                                <div class="h-full w-full flex items-center justify-center text-xs text-slate-500">Loading chart...</div>
+                            </div>
+                            <div id="eb-status24h-legend" class="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-slate-300">
+                                <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-green-500"></span><span>Success <span data-status-count="success">0</span></span></div>
+                                <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-red-500"></span><span>Error <span data-status-count="error">0</span></span></div>
+                                <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span><span>Warning <span data-status-count="warning">0</span></span></div>
+                                <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full border border-slate-300"></span><span>Missed <span data-status-count="missed">0</span></span></div>
+                                <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-sky-500"></span><span>Running <span data-status-count="running">0</span></span></div>
+                            </div>
+                        </div>
+
                         <div class="bg-slate-900 p-4 rounded-lg shadow eb-text-white h-full flex flex-col">
                             <div class="flex items-center justify-between mb-3">
                                 <div class="flex items-center gap-2">
@@ -103,10 +123,9 @@
                                 <div class="flex items-center justify-between"><span>Files and Folders</span><span>{$protectedItemEngineCounts.files_folders|default:0}</span></div>
                                 <div class="flex items-center justify-between"><span>Disk Image</span><span>{$protectedItemEngineCounts.disk_image|default:0}</span></div>
                                 <div class="flex items-center justify-between"><span>Microsoft Hyper-V</span><span>{$protectedItemEngineCounts.hyper_v|default:0}</span></div>
-                                <div class="flex items-center justify-between"><span>Microsoft SQL Server</span><span>{$protectedItemEngineCounts.sql_server|default:0}</span></div>
-                                <div class="flex items-center justify-between"><span>Microsoft Office 365</span><span>{$protectedItemEngineCounts.office_365|default:0}</span></div>
-                                <div class="flex items-center justify-between"><span>Windows Server System State</span><span>{$protectedItemEngineCounts.system_state|default:0}</span></div>
                                 <div class="flex items-center justify-between"><span>Proxmox</span><span>{$protectedItemEngineCounts.proxmox|default:0}</span></div>
+                                <div class="flex items-center justify-between"><span>Microsoft Office 365</span><span>{$protectedItemEngineCounts.office_365|default:0}</span></div>
+                                <div class="flex items-center justify-between"><span>Microsoft SQL Server</span><span>{$protectedItemEngineCounts.sql_server|default:0}</span></div>
                             </div>
                         </div>
 
@@ -119,12 +138,12 @@
                                     <h3 class="text-base font-semibold">Devices</h3>
                                 </div>
                             </div>
-                            <div class="min-h-[3.5rem]">
+                            <div style="min-height:3.5rem;" class="flex items-end justify-between gap-3">
                                 <div class="flex items-end gap-3">
                                     <div class="text-3xl font-bold">{$totalDevices|default:0}</div>
                                     <div class="text-sm text-slate-400 pb-1">Total</div>
                                 </div>
-                                <div class="flex items-center gap-4 text-sm mt-1">
+                                <div class="text-sm whitespace-nowrap flex items-center gap-4">
                                     <span class="text-emerald-400">Online {$onlineDevices|default:0}</span>
                                     <span class="text-slate-400">Offline {$offlineDevices|default:0}</span>
                                 </div>
@@ -143,32 +162,12 @@
                                     <h3 class="text-base font-semibold">Storage</h3>
                                 </div>
                             </div>
-                            <div class="min-h-[3.5rem] flex items-end gap-3">
-                                <div class="text-2xl font-bold">{$totalStorageUsed|default:'0 B'}</div>
+                            <div style="min-height:3.5rem;" class="flex items-end gap-3">
+                                <div class="text-2xl font-bold">{$totalStorageUsed|default:'0.00 B'}</div>
                                 <div class="text-sm text-slate-400 pb-1">Used</div>
                             </div>
                             <div id="eb-storage-chart-dashboard" class="mt-3 h-32 w-full border border-slate-800 rounded overflow-hidden">
                                 <div class="h-full w-full flex items-center justify-center text-xs text-slate-500">Loading trend...</div>
-                            </div>
-                        </div>
-
-                        <div class="bg-slate-900 p-4 rounded-lg shadow eb-text-white h-full flex flex-col">
-                            <div class="flex items-center gap-2 mb-3">
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 text-slate-300">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0 3 3m-3-3-3 3M6.75 19.5a4.5 4.5 0 0 1-1.41-8.775 5.25 5.25 0 0 1 10.233-2.33 3 3 0 0 1 3.758 3.848A3.752 3.752 0 0 1 18 19.5H6.75Z" />
-                                </svg>
-                                <h3 class="text-base font-semibold">Last 24 Hours (Status)</h3>
-                            </div>
-                            <div class="min-h-[3.5rem]"></div>
-                            <div id="eb-status24h-donut" class="mt-3 h-32 w-full border border-slate-800 rounded overflow-hidden">
-                                <div class="h-full w-full flex items-center justify-center text-xs text-slate-500">Loading chart...</div>
-                            </div>
-                            <div id="eb-status24h-legend" class="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-slate-300">
-                                <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-green-500"></span><span>Success <span data-status-count="success">0</span></span></div>
-                                <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-red-500"></span><span>Error <span data-status-count="error">0</span></span></div>
-                                <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span><span>Warning <span data-status-count="warning">0</span></span></div>
-                                <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full border border-slate-300"></span><span>Missed <span data-status-count="missed">0</span></span></div>
-                                <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-sky-500"></span><span>Running <span data-status-count="running">0</span></span></div>
                             </div>
                         </div>
                     </div>

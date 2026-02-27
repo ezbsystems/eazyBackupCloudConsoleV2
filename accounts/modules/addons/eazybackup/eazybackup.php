@@ -3442,7 +3442,7 @@ function eazybackup_clientarea(array $vars)
                 'totalAccounts' => $totalAccounts,
                 'totalDevices' => $totalDevices,
                 'totalProtectedItems' => $totalProtectedItems,
-                'totalStorageUsed' => Helper::humanFileSize($totalStorageUsed),
+                'totalStorageUsed' => Helper::humanFileSize($totalStorageUsed, 2),
                 'onlineDevices' => $onlineDevices,
                 'offlineDevices' => $offlineDevices,
                 'protectedItemEngineCounts' => $protectedItemEngineCounts,
