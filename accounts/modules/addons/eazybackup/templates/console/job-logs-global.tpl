@@ -12,9 +12,41 @@
 </style>
 {/literal}
 
-<div id="global-jobs-page" class="min-h-screen bg-slate-950 text-gray-300 p-4">
-  <div class="overflow-hidden rounded-2xl border border-slate-800/90 bg-gradient-to-b from-slate-900/95 to-slate-950/95 shadow-[0_18px_40px_rgba(0,0,0,0.35)]" x-data="{ open:false, cols:{ user:true, id:false, device:true, item:true, vault:false, ver:false, type:true, status:true, dirs:false, files:false, size:true, vsize:true, up:false, down:false, started:true, ended:true, dur:true } }">
-    <div class="border-b border-slate-800/80 px-4 pt-4 pb-3">
+<div id="global-jobs-page" class="min-h-screen bg-slate-950 text-gray-300">
+  <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
+
+  <div class="container mx-auto px-4 py-8">
+    <div x-data="{ 
+      sidebarOpen: true,
+      sidebarCollapsed: localStorage.getItem('eb_sidebar_collapsed') === 'true' || window.innerWidth < 1360,
+      toggleCollapse() {
+        this.sidebarCollapsed = !this.sidebarCollapsed;
+        localStorage.setItem('eb_sidebar_collapsed', this.sidebarCollapsed);
+      },
+      handleResize() {
+        if (window.innerWidth < 1360 && !this.sidebarCollapsed) {
+          this.sidebarCollapsed = true;
+        }
+      }
+    }"
+    x-init="window.addEventListener('resize', () => handleResize())"
+    class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)]">
+      <div class="flex">
+        {include file="modules/addons/eazybackup/templates/clientarea/partials/sidebar.tpl" ebSidebarPage='job-logs'}
+
+        <main class="flex-1 min-w-0 overflow-x-auto">
+          <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800/60">
+            <div class="flex items-center gap-3">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-slate-400">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+              </svg>
+              <h1 class="text-xl font-semibold text-white">Job Logs</h1>
+            </div>
+          </div>
+
+          <div class="p-6">
+            <div class="overflow-hidden rounded-2xl border border-slate-800/90 bg-gradient-to-b from-slate-900/95 to-slate-950/95 shadow-[0_18px_40px_rgba(0,0,0,0.35)]" x-data="{ open:false, cols:{ user:true, id:false, device:true, item:true, vault:false, ver:false, type:true, status:true, dirs:false, files:false, size:true, vsize:true, up:false, down:false, started:true, ended:true, dur:true } }">
+              <div class="border-b border-slate-800/80 px-4 pt-4 pb-3">
       <div class="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
         <div class="flex items-center gap-2">
           <div class="text-xs font-medium text-slate-300">Summary <span class="text-slate-500">(Global Job Logs)</span></div>
@@ -68,7 +100,7 @@
       <div id="global-jobs-active-filters" class="mt-2 hidden text-xs text-slate-400"></div>
     </div>
 
-    <div class="flex flex-col gap-3 border-b border-slate-800/80 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div class="flex flex-col gap-3 border-b border-slate-800/80 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
       <div class="flex items-center gap-3 flex-wrap">
         <div class="relative shrink-0" @click.away="open=false">
           <button type="button" class="inline-flex items-center gap-2 rounded-lg border border-slate-700/80 bg-slate-900/50 px-3 py-2 text-sm text-white transition-all duration-200 hover:border-slate-600 hover:bg-slate-900/80" @click="open=!open">
@@ -124,11 +156,11 @@
       <div class="text-xs text-slate-400">Total: <span id="global-jobs-total">0</span></div>
     </div>
 
-    <div class="px-4 pb-2">
-      <div class="table-scroll overflow-x-auto rounded-md border border-slate-800">
-        <table id="global-jobs-table" class="min-w-full divide-y divide-slate-700" data-job-table>
-          <thead class="bg-slate-800/50">
-            <tr>
+              <div class="px-4 pb-2">
+                <div class="table-scroll overflow-x-auto rounded-md border border-slate-800">
+                  <table id="global-jobs-table" class="min-w-full divide-y divide-slate-700" data-job-table>
+                    <thead class="bg-slate-800/50">
+                      <tr>
               <th x-show="cols.user" data-sort="Username" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Username</th>
               <th x-show="cols.id" x-cloak data-sort="JobID" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Job ID</th>
               <th x-show="cols.device" data-sort="Device" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Device</th>
@@ -146,14 +178,19 @@
               <th x-show="cols.started" data-sort="Started" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Started</th>
               <th x-show="cols.ended" data-sort="Ended" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Ended</th>
               <th x-show="cols.dur" data-sort="Duration" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer">Duration</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-700"></tbody>
-        </table>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-700"></tbody>
+                  </table>
+                </div>
       </div>
-    </div>
-    <div class="px-4 py-2">
-      <div id="global-jobs-pager" class="space-x-2 text-small font-medium text-slate-400"></div>
+              <div class="px-4 py-2">
+                <div id="global-jobs-pager" class="space-x-2 text-small font-medium text-slate-400"></div>
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
     </div>
   </div>
 </div>
@@ -164,8 +201,8 @@
 
 <script>
 try {
-  window.EB_JOBREPORTS_GLOBAL_ENDPOINT = '{/literal}{$modulelink}{literal}&a=job-reports-global';
-  window.EB_JOBREPORTS_ENDPOINT = '{/literal}{$modulelink}{literal}&a=job-reports';
+  window.EB_JOBREPORTS_GLOBAL_ENDPOINT = '{$modulelink}&a=job-reports-global';
+  window.EB_JOBREPORTS_ENDPOINT = '{$modulelink}&a=job-reports';
   const initGlobalJobs = function() {
     try {
       const f = window.jobReportsFactory && window.jobReportsFactory();
