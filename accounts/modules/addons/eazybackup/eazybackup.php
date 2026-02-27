@@ -195,6 +195,9 @@ function eazybackup_activate()
     // Billing rollups: devices registered vs active-24h
     Capsule::statement("CREATE TABLE IF NOT EXISTS eb_devices_daily (\n  d           DATE PRIMARY KEY,\n  registered  INT NOT NULL,\n  active_24h  INT NOT NULL,\n  created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
 
+    // Dashboard rollups: per-client devices trend (registered + online)
+    Capsule::statement("CREATE TABLE IF NOT EXISTS eb_devices_client_daily (\n  d           DATE NOT NULL,\n  client_id   INT NOT NULL,\n  registered  INT NOT NULL DEFAULT 0,\n  online      INT NOT NULL DEFAULT 0,\n  updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,\n  PRIMARY KEY (d, client_id),\n  KEY idx_client (client_id),\n  KEY idx_d (d)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+
     // Billing rollups: protected item mix snapshot
     Capsule::statement("CREATE TABLE IF NOT EXISTS eb_items_daily (\n  d           DATE PRIMARY KEY,\n  di_devices  INT NOT NULL,\n  hv_vms      INT NOT NULL,\n  vw_vms      INT NOT NULL,\n  m365_users  INT NOT NULL,\n  ff_items    INT NOT NULL,\n  created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
 
@@ -616,6 +619,20 @@ function eazybackup_migrate_schema(): void {
         });
     }
     // Used by rollup_items_daily.php as per README. :contentReference[oaicite:8]{index=8}
+
+    // ---------- eb_devices_client_daily (per-client devices trend rollup) ----------
+    if (!$schema->hasTable('eb_devices_client_daily')) {
+        $schema->create('eb_devices_client_daily', function (Blueprint $t) {
+            $t->date('d');
+            $t->integer('client_id');
+            $t->unsignedInteger('registered')->default(0);
+            $t->unsignedInteger('online')->default(0);
+            $t->timestamp('updated_at')->useCurrent()->useCurrentOnUpdate();
+            $t->primary(['d', 'client_id']);
+            $t->index('client_id', 'idx_client');
+            $t->index('d', 'idx_d');
+        });
+    }
 
     // ---------- eb_storage_daily (hourly rollup of per-user vault usage) ----------
     if (!$schema->hasTable('eb_storage_daily')) {
