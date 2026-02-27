@@ -1,5 +1,6 @@
 (() => {
   // Use global EB helpers for formatting and status mapping
+  const STATUS_ORDER = ['Error', 'Missed', 'Warning', 'Timeout', 'Cancelled', 'Running', 'Skipped', 'Success'];
 
   const endpoint = (window.EB_JOBREPORTS_ENDPOINT || (typeof EB_MODULE_LINK!=='undefined' ? `${EB_MODULE_LINK}&a=job-reports` : 'index.php?m=eazybackup&a=job-reports'));
 
@@ -111,19 +112,126 @@
   }
 
   function makeJobsTable(el, opts){
-    const state = { page:1, pageSize:10, sortBy:'Started', sortDir:'desc', q:'' };
+    const state = { page:1, pageSize:10, sortBy:'Started', sortDir:'desc', q:'', statuses: [], facets: { statusCounts: {} } };
     const serviceId = opts.serviceId; const username = opts.username;
     const thead = el.querySelector('thead'); const tbody = el.querySelector('tbody');
     const colKeys = ['user','id','device','item','vault','ver','type','status','dirs','files','size','vsize','up','down','started','ended','dur'];
     const totalEl = opts.totalEl; const pagerEl = opts.pagerEl; const searchInput = opts.searchInput; const cols = opts.cols || [];
     const pageSizeEl = opts.pageSizeEl;
+    const chipButtons = Array.from(document.querySelectorAll('[data-jobs-status-chip]'));
+    const clearBtn = document.getElementById('jobs-clear-filters');
+    const summaryEl = document.getElementById('jobs-active-filters');
+    let searchDebounce = null;
+
+    function normalizeStatus(label){
+      if (window.EB && EB.humanStatus) return EB.humanStatus(label);
+      return String(label || '');
+    }
+
+    function statusCount(label){
+      const key = normalizeStatus(label);
+      const n = Number((state.facets && state.facets.statusCounts && state.facets.statusCounts[key]) || 0);
+      return Number.isFinite(n) ? n : 0;
+    }
+
+    function hasActiveFilters(){
+      return !!((state.q || '').trim() || (state.statuses && state.statuses.length));
+    }
+
+    function renderFilterSummary(){
+      if (!summaryEl) return;
+      if (!hasActiveFilters()) {
+        summaryEl.textContent = '';
+        summaryEl.classList.add('hidden');
+        return;
+      }
+      const parts = [];
+      if (state.statuses.length) parts.push(`Status: ${state.statuses.join(', ')}`);
+      if ((state.q || '').trim()) parts.push(`Search: "${state.q.trim()}"`);
+      summaryEl.textContent = `Filtering by ${parts.join(' + ')}`;
+      summaryEl.classList.remove('hidden');
+    }
+
+    function renderStatusChips(){
+      chipButtons.forEach((btn) => {
+        const label = normalizeStatus(btn.getAttribute('data-status') || '');
+        const active = state.statuses.includes(label);
+        const count = statusCount(label);
+        const disabled = count === 0;
+        btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+        btn.disabled = disabled;
+        btn.classList.remove('border-sky-500/60','bg-sky-500/10','text-sky-200','opacity-50','cursor-not-allowed');
+        btn.classList.remove('border-slate-700/80','bg-slate-900/40','text-slate-300','hover:border-slate-600','hover:bg-slate-900/60');
+        if (active) btn.classList.add('border-sky-500/60','bg-sky-500/10','text-sky-200');
+        else btn.classList.add('border-slate-700/80','bg-slate-900/40','text-slate-300','hover:border-slate-600','hover:bg-slate-900/60');
+        if (disabled) btn.classList.add('opacity-50','cursor-not-allowed');
+        const countEl = btn.querySelector('[data-jobs-status-count]');
+        if (countEl) countEl.textContent = String(count);
+      });
+      if (clearBtn) {
+        clearBtn.classList.toggle('hidden', !hasActiveFilters());
+      }
+      renderFilterSummary();
+    }
+
+    function renderEmptyRow(filtered){
+      const tr = document.createElement('tr');
+      const td = document.createElement('td');
+      td.colSpan = colKeys.length;
+      td.className = 'px-4 py-10 text-center text-sm text-slate-400';
+      td.textContent = filtered ? 'No jobs match current filters.' : 'No jobs found for this user.';
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+    }
+
+    function bindFilterControls(){
+      chipButtons.forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const label = normalizeStatus(btn.getAttribute('data-status') || '');
+          if (!label || btn.disabled) return;
+          const idx = state.statuses.indexOf(label);
+          if (idx >= 0) state.statuses.splice(idx, 1);
+          else state.statuses.push(label);
+          state.page = 1;
+          renderStatusChips();
+          load();
+        });
+      });
+      clearBtn && clearBtn.addEventListener('click', () => {
+        state.statuses = [];
+        state.q = '';
+        state.page = 1;
+        if (searchInput) searchInput.value = '';
+        renderStatusChips();
+        load();
+      });
+    }
 
     async function load(){
-      const res = await api('listJobs', { action:'listJobs', serviceId, username, page: state.page, pageSize: state.pageSize, sortBy: state.sortBy, sortDir: state.sortDir, q: state.q });
-      if(!(res && res.status==='success')) return;
+      const payload = {
+        action: 'listJobs',
+        serviceId,
+        username,
+        page: state.page,
+        pageSize: state.pageSize,
+        sortBy: state.sortBy,
+        sortDir: state.sortDir,
+        q: state.q,
+        statuses: state.statuses.slice(0),
+      };
+      const res = await api('listJobs', payload);
+      if(!(res && res.status==='success')) {
+        try { window.showToast?.('Could not refresh jobs. Please try again.', 'error'); } catch(_) {}
+        return;
+      }
+      state.facets = res.facets || { statusCounts: {} };
       totalEl && (totalEl.textContent = String(res.total||0));
       tbody.innerHTML = '';
-      for(const r of (res.rows||[])){
+      const rows = Array.isArray(res.rows) ? res.rows : [];
+      if (!rows.length) {
+        renderEmptyRow(hasActiveFilters());
+      }
+      for(const r of rows){
         const tr = document.createElement('tr');
         tr.className = 'hover:bg-gray-800/60 cursor-pointer';
         tr.setAttribute('data-job-id', r.JobID);
@@ -170,6 +278,7 @@
         tbody.appendChild(tr);
       }
       renderPager(res.total||0);
+      renderStatusChips();
       // Apply current column visibility to body cells
       syncColumnVisibility();
     }
@@ -194,7 +303,15 @@
     });
 
     // Search
-    searchInput && searchInput.addEventListener('input', () => { state.q = searchInput.value||''; state.page = 1; load(); });
+    searchInput && searchInput.addEventListener('input', () => {
+      if (searchDebounce) clearTimeout(searchDebounce);
+      searchDebounce = setTimeout(() => {
+        state.q = searchInput.value||'';
+        state.page = 1;
+        renderStatusChips();
+        load();
+      }, 200);
+    });
 
     // Page size changes (dispatched from Alpine dropdown)
     window.addEventListener('jobs:pagesize', (e) => {
@@ -267,6 +384,8 @@
     })();
 
     // Public API
+    bindFilterControls();
+    renderStatusChips();
     return { reload: load };
   }
 

@@ -1188,20 +1188,71 @@
       </div>
       
       <div x-show="activeSubTab === 'jobLogs'" x-cloak x-transition>
-        <div class="bg-slate-900 rounded-lg overflow-hidden" x-data="{ open:false, search:'', cols:{ user:true, id:false, device:true, item:true, vault:false, ver:false, type:true, status:true, dirs:false, files:false, size:true, vsize:true, up:false, down:false, started:true, ended:true, dur:true } }">
-            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 pt-4 pb-2">
+        <div class="overflow-hidden rounded-2xl border border-slate-800/90 bg-gradient-to-b from-slate-900/95 to-slate-950/95 shadow-[0_18px_40px_rgba(0,0,0,0.35)]" x-data="{ open:false, search:'', cols:{ user:true, id:false, device:true, item:true, vault:false, ver:false, type:true, status:true, dirs:false, files:false, size:true, vsize:true, up:false, down:false, started:true, ended:true, dur:true } }">
+            <div class="border-b border-slate-800/80 px-4 pt-4 pb-3">
+                <div class="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                    <div class="flex items-center gap-2">
+                        <div class="text-xs font-medium text-slate-300">Summary <span class="text-slate-500">(Job Logs)</span></div>
+                        <button type="button"
+                                class="inline-flex h-6 w-6 items-center justify-center rounded-full border border-slate-700/70 bg-slate-900/40 text-slate-400 transition hover:border-slate-600 hover:text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                                title="Filter Job Logs by one or more status pills. Search combines with selected statuses."
+                                aria-label="About job log filters">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
+                            </svg>
+                        </button>
+                    </div>
+
+                    <div class="flex flex-wrap gap-2">
+                        <button type="button" data-jobs-status-chip data-status="Error" class="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition select-none active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950">
+                            <span class="h-2.5 w-2.5 rounded-full bg-red-500"></span><span>Error</span><span data-jobs-status-count class="font-semibold tabular-nums">0</span>
+                        </button>
+                        <button type="button" data-jobs-status-chip data-status="Missed" class="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition select-none active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950">
+                            <span class="h-2.5 w-2.5 rounded-full border-2 border-slate-300"></span><span>Missed</span><span data-jobs-status-count class="font-semibold tabular-nums">0</span>
+                        </button>
+                        <button type="button" data-jobs-status-chip data-status="Warning" class="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition select-none active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950">
+                            <span class="h-2.5 w-2.5 rounded-full bg-amber-500"></span><span>Warning</span><span data-jobs-status-count class="font-semibold tabular-nums">0</span>
+                        </button>
+                        <button type="button" data-jobs-status-chip data-status="Timeout" class="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition select-none active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950">
+                            <span class="h-2.5 w-2.5 rounded-full bg-amber-500"></span><span>Timeout</span><span data-jobs-status-count class="font-semibold tabular-nums">0</span>
+                        </button>
+                        <button type="button" data-jobs-status-chip data-status="Cancelled" class="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition select-none active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950">
+                            <span class="h-2.5 w-2.5 rounded-full bg-rose-500"></span><span>Cancelled</span><span data-jobs-status-count class="font-semibold tabular-nums">0</span>
+                        </button>
+                        <button type="button" data-jobs-status-chip data-status="Running" class="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition select-none active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950">
+                            <span class="h-2.5 w-2.5 rounded-full bg-sky-500"></span><span>Running</span><span data-jobs-status-count class="font-semibold tabular-nums">0</span>
+                        </button>
+                        <button type="button" data-jobs-status-chip data-status="Skipped" class="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition select-none active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950">
+                            <span class="h-2.5 w-2.5 rounded-full bg-violet-500"></span><span>Skipped</span><span data-jobs-status-count class="font-semibold tabular-nums">0</span>
+                        </button>
+                        <button type="button" data-jobs-status-chip data-status="Success" class="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition select-none active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950">
+                            <span class="h-2.5 w-2.5 rounded-full bg-green-500"></span><span>Success</span><span data-jobs-status-count class="font-semibold tabular-nums">0</span>
+                        </button>
+                    </div>
+
+                    <div class="flex w-full gap-2 xl:w-[24rem] xl:max-w-[24rem]">
+                        <input id="jobs-search" type="text" placeholder="Search jobs..." class="w-full rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-0 focus:border-sky-600">
+                        <button id="jobs-clear-filters" type="button" class="hidden inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-700/80 bg-slate-900/50 px-3 py-2 text-xs font-medium text-slate-300 transition hover:border-slate-600 hover:bg-slate-900/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950">
+                            Clear
+                        </button>
+                    </div>
+                </div>
+                <div id="jobs-active-filters" class="mt-2 hidden text-xs text-slate-400"></div>
+            </div>
+
+            <div class="flex flex-col gap-3 border-b border-slate-800/80 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                 <div class="flex items-center gap-3">
                     <!-- View columns dropdown -->
                     <div class="relative shrink-0" @click.away="open=false">
-                        <button type="button" class="inline-flex items-center gap-2 px-3 py-2 text-sm bg-slate-700 hover:bg-slate-600 rounded text-white transition-all duration-200" @click="open=!open">
+                        <button type="button" class="inline-flex items-center gap-2 rounded-lg border border-slate-700/80 bg-slate-900/50 px-3 py-2 text-sm text-white transition-all duration-200 hover:border-slate-600 hover:bg-slate-900/80" @click="open=!open">
                             <span class="text-slate-400">View:</span>
                             <span class="font-medium">Columns</span>
-                            <svg class="w-4 h-4 opacity-70" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                            <svg class="h-4 w-4 opacity-70" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                                 <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.24 4.5a.75.75 0 01-1.08 0l-4.24-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/>
                             </svg>
                         </button>
-                        <div x-show="open" x-transition class="absolute mt-2 w-72 bg-slate-800 border border-slate-700 rounded shadow-lg z-10">
-                            <div class="p-3 grid grid-cols-2 gap-2 text-slate-200 text-sm">
+                        <div x-show="open" x-transition class="absolute mt-2 w-72 rounded-lg border border-slate-700 bg-slate-800 shadow-lg z-10">
+                            <div class="grid grid-cols-2 gap-2 p-3 text-sm text-slate-200">
                                 <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.user"> Username</label>
                                 <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.id"> Job ID</label>
                                 <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.device"> Device</label>
@@ -1222,7 +1273,7 @@
                             </div>
                         </div>
                     </div>
-                    
+
                     <!-- Page size dropdown -->
                     <div x-data="{ 
                         sizeOpen: false, 
@@ -1235,30 +1286,27 @@
                         }
                     }" class="relative">
                         <button @click="sizeOpen = !sizeOpen" @click.away="sizeOpen = false" type="button" 
-                                class="inline-flex items-center gap-2 px-3 py-2 text-sm bg-slate-700 hover:bg-slate-600 rounded text-white transition-all duration-200">
+                                class="inline-flex items-center gap-2 rounded-lg border border-slate-700/80 bg-slate-900/50 px-3 py-2 text-sm text-white transition-all duration-200 hover:border-slate-600 hover:bg-slate-900/80">
                             <span class="text-slate-400">Show:</span>
                             <span x-text="pageSize" class="font-medium"></span>
-                            <svg class="w-4 h-4 opacity-70" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                            <svg class="h-4 w-4 opacity-70" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                                 <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.24 4.5a.75.75 0 01-1.08 0l-4.24-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/>
                             </svg>
                         </button>
                         <div x-show="sizeOpen" x-cloak x-transition 
-                             class="absolute left-0 mt-2 w-24 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-10 overflow-hidden">
+                             class="absolute left-0 mt-2 w-24 overflow-hidden rounded-lg border border-slate-700 bg-slate-800 shadow-xl z-10">
                             <template x-for="size in sizes" :key="size">
                                 <button @click="setSize(size)" type="button"
                                         :class="pageSize === size ? 'bg-slate-700 text-white' : 'text-slate-300 hover:bg-slate-700/70 hover:text-white'"
-                                        class="block w-full text-left px-3 py-2 text-sm transition-colors">
+                                        class="block w-full px-3 py-2 text-left text-sm transition-colors">
                                     <span x-text="size"></span>
                                 </button>
                             </template>
                         </div>
                     </div>
                 </div>
-                <div class="w-full sm:w-72 sm:max-w-xs">
-                    <input id="jobs-search" type="text" placeholder="Search jobs..." class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-700 text-slate-200 focus:outline-none focus:ring-0 focus:border-sky-600">
-                </div>
+                <div class="text-xs text-slate-400">Total: <span id="jobs-total">0</span></div>
             </div>
-            <div class="px-4 text-xs text-slate-400 mb-1">Total: <span id="jobs-total">0</span></div>
 
             <!-- scroll wrapper: horizontal scroll for column overflow -->
             <div class="px-4 pb-2">
