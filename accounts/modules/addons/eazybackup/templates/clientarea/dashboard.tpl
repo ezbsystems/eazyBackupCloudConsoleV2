@@ -119,16 +119,18 @@
                                     <h3 class="text-base font-semibold">Devices</h3>
                                 </div>
                             </div>
-                            <div class="flex items-end gap-3">
-                                <div class="text-3xl font-bold">{$totalDevices|default:0}</div>
-                                <div class="text-sm text-slate-400 pb-1">Total</div>
+                            <div class="min-h-[3.5rem]">
+                                <div class="flex items-end gap-3">
+                                    <div class="text-3xl font-bold">{$totalDevices|default:0}</div>
+                                    <div class="text-sm text-slate-400 pb-1">Total</div>
+                                </div>
+                                <div class="flex items-center gap-4 text-sm mt-1">
+                                    <span class="text-emerald-400">Online {$onlineDevices|default:0}</span>
+                                    <span class="text-slate-400">Offline {$offlineDevices|default:0}</span>
+                                </div>
                             </div>
-                            <div class="flex items-center gap-4 text-sm mt-1">
-                                <span class="text-emerald-400">Online {$onlineDevices|default:0}</span>
-                                <span class="text-slate-400">Offline {$offlineDevices|default:0}</span>
-                            </div>
-                            <div id="eb-devices-chart" class="mt-3 h-32 w-full text-xs text-slate-500 flex items-center justify-center border border-slate-800 rounded">
-                                Loading trend...
+                            <div id="eb-devices-chart" class="mt-3 h-32 w-full border border-slate-800 rounded overflow-hidden">
+                                <div class="h-full w-full flex items-center justify-center text-xs text-slate-500">Loading trend...</div>
                             </div>
                         </div>
 
@@ -141,12 +143,12 @@
                                     <h3 class="text-base font-semibold">Storage</h3>
                                 </div>
                             </div>
-                            <div class="flex items-end gap-3">
+                            <div class="min-h-[3.5rem] flex items-end gap-3">
                                 <div class="text-2xl font-bold">{$totalStorageUsed|default:'0 B'}</div>
                                 <div class="text-sm text-slate-400 pb-1">Used</div>
                             </div>
-                            <div id="eb-storage-chart-dashboard" class="mt-3 h-32 w-full text-xs text-slate-500 flex items-center justify-center border border-slate-800 rounded">
-                                Loading trend...
+                            <div id="eb-storage-chart-dashboard" class="mt-3 h-32 w-full border border-slate-800 rounded overflow-hidden">
+                                <div class="h-full w-full flex items-center justify-center text-xs text-slate-500">Loading trend...</div>
                             </div>
                         </div>
 
@@ -157,8 +159,9 @@
                                 </svg>
                                 <h3 class="text-base font-semibold">Last 24 Hours (Status)</h3>
                             </div>
-                            <div id="eb-status24h-donut" class="h-32 w-full text-xs text-slate-500 flex items-center justify-center border border-slate-800 rounded">
-                                Loading chart...
+                            <div class="min-h-[3.5rem]"></div>
+                            <div id="eb-status24h-donut" class="mt-3 h-32 w-full border border-slate-800 rounded overflow-hidden">
+                                <div class="h-full w-full flex items-center justify-center text-xs text-slate-500">Loading chart...</div>
                             </div>
                             <div id="eb-status24h-legend" class="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-slate-300">
                                 <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-green-500"></span><span>Success <span data-status-count="success">0</span></span></div>

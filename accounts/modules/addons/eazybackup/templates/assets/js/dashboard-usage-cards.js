@@ -14,6 +14,11 @@
     el.appendChild(m);
   }
 
+  function prepareMount(el) {
+    if (!el) return;
+    el.innerHTML = '';
+  }
+
   function fmtBytes(n) {
     var num = Number(n || 0);
     if (!isFinite(num) || num <= 0) return '0 B';
@@ -55,6 +60,7 @@
     }
 
     destroyIfNeeded('devices');
+    prepareMount(el);
     var categories = points.map(function (p) { return p.d; });
     var registered = points.map(function (p) { return Number(p.registered || 0); });
     var online = points.map(function (p) { return Number(p.online || 0); });
@@ -98,6 +104,7 @@
     }
 
     destroyIfNeeded('storage');
+    prepareMount(el);
     var categories = points.map(function (p) { return p.d; });
     var bytes = points.map(function (p) { return Number(p.bytes_total || 0); });
 
@@ -140,6 +147,7 @@
       return;
     }
     destroyIfNeeded('status24h');
+    prepareMount(el);
 
     var values = [
       Number((status24h && status24h.success) || 0),
