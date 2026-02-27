@@ -1326,6 +1326,38 @@
         </nav>
       </div>
 
+      <div
+        class="pointer-events-none"
+        style="position: fixed; right: 16px; bottom: 16px; z-index: 12010;"
+        x-data="{
+          open:false,
+          type:'success',
+          message:'',
+          timer:null,
+          show(detail){
+            if (this.timer) { clearTimeout(this.timer); this.timer = null; }
+            this.type = (detail && detail.type) ? String(detail.type) : 'success';
+            this.message = (detail && detail.message) ? String(detail.message) : 'Saved.';
+            this.open = true;
+            this.timer = setTimeout(() => { this.open = false; this.timer = null; }, 2600);
+          }
+        }"
+        @retention:toast.window="show($event.detail)"
+        @vault:toast.window="show($event.detail)"
+      >
+        <div
+          x-show="open"
+          x-transition.opacity.duration.200ms
+          class="pointer-events-auto rounded-lg border px-4 py-2 text-sm shadow-lg backdrop-blur"
+          :class="type === 'success'
+            ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-100'
+            : (type === 'warning'
+              ? 'border-amber-500/40 bg-amber-500/15 text-amber-100'
+              : 'border-rose-500/40 bg-rose-500/15 text-rose-100')"
+          x-text="message"
+        ></div>
+      </div>
+
       <!-- General Tab -->
       <div x-show="tab==='general'" x-transition class="px-5 py-5 space-y-6">
         <!-- Name -->
@@ -1400,7 +1432,7 @@
 
           <!-- Builder when override ON -->
           <template x-if="state.override">
-            
+            <div class="space-y-3">
             <!-- Mode select with helper text -->
             <div class="mb-2">
               <label class="block text-sm text-slate-100 mb-1">Mode</label>
@@ -1424,14 +1456,57 @@
 
             <!-- Rules card editor -->
             <div class="space-y-3" x-data="{ editing:null }">
+              <!-- New rule composer -->
+              <div x-show="editing===null" class="rounded-xl border border-dashed border-slate-700 p-3">
+                <p class="text-slate-100 mb-2 font-medium">Add a rule</p>
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <label class="block text-xs text-slate-400 mb-1">Type</label>
+                    <select class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm" x-model.number="newRange.Type">
+                      <option value="900">Most recent X jobs</option>
+                      <option value="901">Newer than date</option>
+                      <option value="902">Jobs since (relative)</option>
+                      <option value="903">First job for last X days</option>
+                      <option value="905">First job for last X months</option>
+                      <option value="906">First job for last X weeks</option>
+                      <option value="907">At most one per day (last X jobs)</option>
+                      <option value="908">At most one per week (last X jobs)</option>
+                      <option value="909">At most one per month (last X jobs)</option>
+                      <option value="910">At most one per year (last X jobs)</option>
+                      <option value="911">First job for last X years</option>
+                    </select>
+                  </div>
+                  <div x-show="[900,907,908,909,910].includes(newRange.Type)"><label class="block text-xs text-slate-400 mb-1">Jobs</label><input type="number" x-model.number="newRange.Jobs" class="w-full px-3 py-2 rounded border border-slate-700 bg-slate-800 text-slate-200 text-sm focus:outline-none focus:ring-1 focus:ring-sky-500" placeholder="e.g., 7"></div>
+                  <div x-show="newRange.Type===901"><label class="block text-xs text-slate-400 mb-1">Date</label><input type="datetime-local" @change="newRange.Timestamp=(Date.parse($event.target.value)/1000)|0" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"></div>
+                  <template x-if="newRange.Type===902">
+                    <div class="grid grid-cols-2 gap-3 col-span-2">
+                      <div><label class="block text-xs text-slate-400 mb-1">Days</label><input type="number" x-model.number="newRange.Days" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"></div>
+                      <div><label class="block text-xs text-slate-400 mb-1">Weeks</label><input type="number" x-model.number="newRange.Weeks" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"></div>
+                      <div><label class="block text-xs text-slate-400 mb-1">Months</label><input type="number" x-model.number="newRange.Months" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"></div>
+                      <div><label class="block text-xs text-slate-400 mb-1">Years</label><input type="number" x-model.number="newRange.Years" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"></div>
+                    </div>
+                  </template>
+                </div>
+                <div class="mt-3 flex justify-end">
+                  <button class="rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 text-sm font-medium" @click="addRangeFromNew()">Add rule</button>
+                </div>
+              </div>
+
+              <template x-if="(state.ranges || []).length===0">
+                <div class="rounded-xl border border-slate-700/70 bg-slate-900/30 p-3 text-sm text-slate-400">
+                  No rules yet. Add a rule above to define this vault's custom retention behavior.
+                </div>
+              </template>
+
               <template x-for="(r,i) in state.ranges" :key="i">
                 <div :class="['rounded-xl border bg-slate-800/60 p-3 shadow-sm', editing===i ? 'border-sky-500 ring-1 ring-sky-500/30' : 'border-slate-700']">
-                  <div class="flex items-start justify-between gap-2">
-                    <div class="flex items-center gap-2">
-                      <span class="inline-flex items-center rounded-md bg-slate-700 px-2 py-0.5 text-xs font-medium" x-text="labelFor(r.Type)"></span>
-                      <span class="text-slate-200" x-text="summaryFor(r)"></span>
+                  <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0">
+                      <div class="mb-1 text-[11px] uppercase tracking-wide text-slate-400">Retention type</div>
+                      <span class="inline-flex items-center rounded-md bg-slate-700 px-2 py-0.5 text-xs font-medium text-slate-100" x-text="labelFor(r.Type)"></span>
+                      <p class="mt-2 text-sm leading-5 text-slate-200" x-text="summaryFor(r).replace('[' + labelFor(r.Type) + '] ', '')"></p>
                     </div>
-                    <div class="flex gap-2">
+                    <div class="flex shrink-0 gap-2">
                       <button class="text-sky-300 hover:text-sky-200 text-sm" @click="editing = (editing===i?null:i)"><span x-text="editing===i ? 'Close' : 'Edit'"></span></button>
                       <button class="text-rose-300 hover:text-rose-200 text-sm" @click="removeRange(i)">Remove</button>
                     </div>
@@ -1458,7 +1533,7 @@
                       <!-- Jobs -->
                       <div x-show="[900,907,908,909,910].includes(r.Type)">
                         <label class="block text-xs text-slate-400 mb-1">Jobs</label>
-                        <input type="number" x-model.number="r.Jobs" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm" placeholder="e.g., 7">
+                        <input type="number" x-model.number="r.Jobs" class="w-full px-3 py-2 rounded border border-slate-700 bg-slate-800 text-slate-200 text-sm focus:outline-none focus:ring-1 focus:ring-sky-500" placeholder="e.g., 7">
                       </div>
                       <!-- Timestamp -->
                       <div x-show="r.Type===901">
@@ -1486,43 +1561,7 @@
                   </div>
                 </div>
               </template>
-
-              <!-- New rule composer -->
-              <div x-show="editing===null" class="rounded-xl border border-dashed border-slate-700 p-3">
-                <p class="text-slate-100 mb-2 font-medium">Add a rule</p>
-                <div class="grid grid-cols-2 gap-3">
-                  <div>
-                    <label class="block text-xs text-slate-400 mb-1">Type</label>
-                    <select class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm" x-model.number="newRange.Type">
-                      <option value="900">Most recent X jobs</option>
-                      <option value="901">Newer than date</option>
-                      <option value="902">Jobs since (relative)</option>
-                      <option value="903">First job for last X days</option>
-                      <option value="905">First job for last X months</option>
-                      <option value="906">First job for last X weeks</option>
-                      <option value="907">At most one per day (last X jobs)</option>
-                      <option value="908">At most one per week (last X jobs)</option>
-                      <option value="909">At most one per month (last X jobs)</option>
-                      <option value="910">At most one per year (last X jobs)</option>
-                      <option value="911">First job for last X years</option>
-                    </select>
-                  </div>
-                  <div x-show="[900,907,908,909,910].includes(newRange.Type)"><label class="block text-xs text-slate-400 mb-1">Jobs</label><input type="number" x-model.number="newRange.Jobs" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm" placeholder="e.g., 7"></div>
-                    <div x-show="newRange.Type===901"><label class="block text-xs text-slate-400 mb-1">Date</label><input type="datetime-local" @change="newRange.Timestamp=(Date.parse($event.target.value)/1000)|0" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"></div>
-                      <template x-if="newRange.Type===902">
-                        <div class="grid grid-cols-2 gap-3 col-span-2">
-                          <div><label class="block text-xs text-slate-400 mb-1">Days</label><input type="number" x-model.number="newRange.Days" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"></div>
-                          <div><label class="block text-xs text-slate-400 mb-1">Weeks</label><input type="number" x-model.number="newRange.Weeks" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"></div>
-                          <div><label class="block text-xs text-slate-400 mb-1">Months</label><input type="number" x-model.number="newRange.Months" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"></div>
-                          <div><label class="block text-xs text-slate-400 mb-1">Years</label><input type="number" x-model.number="newRange.Years" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"></div>
-                        </div>
-                      </template>
-                    </div>
-                    <div class="mt-3">
-                    <button class="rounded-lg bg-sky-600 hover:bg-sky-500 px-3 py-1.5 text-sm font-medium" @click="addRangeFromNew()">Add rule</button>
-                  </div>
-                </div>
-              </div>
+            </div>
             </div>
           </template>
 
@@ -1534,12 +1573,31 @@
           <!-- Sticky summary -->
           <div class="sticky bottom-0 mt-4 rounded-xl border border-slate-700 bg-slate-800/80 backdrop-blur p-3">
             <p class="text-slate-100 font-medium mb-1">Effective policy:</p>
-            <ul class="list-disc pl-5 text-slate-200 text-sm space-y-1" x-html="formattedEffectivePolicyLines().join('')"></ul>
+            <div class="mt-2 space-y-2">
+              <template x-if="(state.override ? state.mode : state.defaultMode) === 801">
+                <div class="space-y-1">
+                  <span class="inline-flex items-center rounded-md bg-slate-700 px-2 py-0.5 text-xs font-medium text-slate-100">Mode</span>
+                  <p class="text-sm leading-5 text-slate-200">Keep everything (no deletions)</p>
+                </div>
+              </template>
+              <template x-if="(state.override ? state.mode : state.defaultMode) !== 801">
+                <template x-for="(r,i) in ((state.override ? state.ranges : state.defaultRanges) || [])" :key="'effective-rule-'+i">
+                  <div class="space-y-1">
+                    <span class="inline-flex items-center rounded-md bg-slate-700 px-2 py-0.5 text-xs font-medium text-slate-100" x-text="labelFor(r.Type)"></span>
+                    <p class="text-sm leading-5 text-slate-200" x-text="summaryFor(r).replace('[' + labelFor(r.Type) + '] ', '')"></p>
+                  </div>
+                </template>
+              </template>
+              <template x-if="(state.override ? state.mode : state.defaultMode) !== 801 && (((state.override ? state.ranges : state.defaultRanges) || []).length === 0)">
+                <p class="text-sm text-slate-400">No retention rules configured.</p>
+              </template>
+            </div>
           </div>
           <!-- Save button for retention -->
           <div class="mt-4 flex justify-end">
             <button id="vault-retention-save" class="inline-flex items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold shadow-sm ring-1 ring-emerald-500/40 bg-gradient-to-r from-emerald-600 to-emerald-500 text-white transition hover:from-emerald-700 hover:to-emerald-600">Save</button>
           </div>
+
         </div>
 
         <!-- Danger Tab -->

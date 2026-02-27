@@ -130,17 +130,114 @@ try {
             echo json_encode(['status'=>'success','profile'=>$ph->Profile->toArray(true), 'hash'=>$ph->ProfileHash]);
             break;
         }
+        case 'setVaultRetention': {
+            $vaultId = isset($post['vaultId']) ? (string)$post['vaultId'] : '';
+            $overrideRaw = $post['override'] ?? false;
+            $mode = (int)($post['mode'] ?? 801);
+            $rangesRaw = $post['ranges'] ?? [];
+            $hash = (string)($post['hash'] ?? '');
+            if ($vaultId === '') { echo json_encode(['status'=>'error','message'=>'vaultId required']); break; }
+
+            $ph = $server->AdminGetUserProfileAndHash($username);
+            if (!$ph || !$ph->Profile) { echo json_encode(['status'=>'error','message'=>'Profile not found']); break; }
+            if ($hash !== '' && $hash !== (string)$ph->ProfileHash) {
+                echo json_encode(['status'=>'error','code'=>'hash_mismatch','message'=>'Profile changed']);
+                break;
+            }
+
+            $profile = $ph->Profile;
+            if (!isset($profile->Destinations[$vaultId])) {
+                echo json_encode(['status'=>'error','message'=>'Vault not found']); break;
+            }
+
+            $override = ($overrideRaw === true || $overrideRaw === 1 || $overrideRaw === '1' || $overrideRaw === 'true');
+            if (!$override) {
+                try { unset($profile->Destinations[$vaultId]->RetentionPolicy); } catch (\Throwable $_) {}
+            } else {
+                $rp = new \stdClass();
+                $rp->Mode = $mode;
+                $rp->Ranges = [];
+                $ranges = is_array($rangesRaw) ? $rangesRaw : [];
+                foreach ($ranges as $r) {
+                    $ra = is_array($r) ? $r : (is_object($r) ? (array)$r : null);
+                    if (!is_array($ra)) { continue; }
+                    $type = (int)($ra['Type'] ?? 0);
+                    if ($type <= 0) { continue; }
+                    $o = new \stdClass();
+                    $o->Type = $type;
+                    $o->Timestamp = (int)($ra['Timestamp'] ?? 0);
+                    $o->Jobs = (int)($ra['Jobs'] ?? 0);
+                    $o->Days = (int)($ra['Days'] ?? 0);
+                    $o->Weeks = (int)($ra['Weeks'] ?? 0);
+                    $o->Months = (int)($ra['Months'] ?? 0);
+                    $o->Years = (int)($ra['Years'] ?? 0);
+                    $o->WeekOffset = (int)($ra['WeekOffset'] ?? 0);
+                    $o->MonthOffset = (int)($ra['MonthOffset'] ?? 1);
+                    $o->YearOffset = (int)($ra['YearOffset'] ?? 1);
+                    $rp->Ranges[] = $o;
+                }
+                $profile->Destinations[$vaultId]->RetentionPolicy = $rp;
+            }
+
+            $resp = $server->AdminSetUserProfileHash($username, $profile, (string)$ph->ProfileHash);
+            if ($resp && $resp->Status < 400) {
+                $ph2 = $server->AdminGetUserProfileAndHash($username);
+                echo json_encode(['status'=>'success','hash'=>($ph2 ? $ph2->ProfileHash : '')]);
+            } else if ($resp && $resp->Status === 409) {
+                echo json_encode(['status'=>'error','code'=>'hash_mismatch','message'=>'Profile changed']);
+            } else {
+                echo json_encode(['status'=>'error','message'=>($resp ? $resp->Message : 'Failed to update retention')]);
+            }
+            break;
+        }
         case 'setUserProfile': {
             $profileArr = isset($post['profile']) ? $post['profile'] : null;
             $hash = (string)($post['hash'] ?? '');
             if (!$profileArr || !$hash) { echo json_encode(['status'=>'error','message'=>'Missing profile or hash']); break; }
+            $profile = null;
             try {
                 // Re-hydrate into SDK model
-                $profile = new \Comet\UserProfileConfig();
-                $profile->fromArray($profileArr);
+                $tmp = new \Comet\UserProfileConfig();
+                $tmp->fromArray($profileArr);
+                $profile = $tmp;
             } catch (\Throwable $e) {
-                echo json_encode(['status'=>'error','message'=>'Invalid profile payload']); break;
+                // Fallback for UI retention saves: patch retention onto live profile when full hydration is too strict.
+                try {
+                    $phLive = $server->AdminGetUserProfileAndHash($username);
+                    if (!$phLive || !$phLive->Profile) {
+                        echo json_encode(['status'=>'error','message'=>'Invalid profile payload']); break;
+                    }
+                    $live = $phLive->Profile;
+                    $patched = false;
+                    $destinations = $profileArr['Destinations'] ?? null;
+                    if (is_array($destinations)) {
+                        foreach ($destinations as $destId => $destCfg) {
+                            if (!is_string($destId) || !is_array($destCfg) || !isset($live->Destinations[$destId])) { continue; }
+                            if (!array_key_exists('RetentionPolicy', $destCfg)) { continue; }
+                            $rpRaw = $destCfg['RetentionPolicy'];
+                            if ($rpRaw === null || $rpRaw === false) {
+                                // Explicitly clearing override falls back to destination default policy.
+                                try { unset($live->Destinations[$destId]->RetentionPolicy); } catch (\Throwable $_) {}
+                                $patched = true;
+                                continue;
+                            }
+                            $rpArr = is_array($rpRaw) ? $rpRaw : (is_object($rpRaw) ? (array)$rpRaw : null);
+                            if (!is_array($rpArr)) { continue; }
+                            $rp = new \Comet\RetentionPolicy();
+                            $rp->fromArray($rpArr);
+                            $live->Destinations[$destId]->RetentionPolicy = $rp;
+                            $patched = true;
+                        }
+                    }
+                    if (!$patched) {
+                        echo json_encode(['status'=>'error','message'=>'Invalid profile payload']); break;
+                    }
+                    $profile = $live;
+                } catch (\Throwable $_) {
+                    echo json_encode(['status'=>'error','message'=>'Invalid profile payload']); break;
+                }
             }
+            if (!$profile) { echo json_encode(['status'=>'error','message'=>'Invalid profile payload']); break; }
             $resp = $server->AdminSetUserProfileHash($username, $profile, $hash);
             if ($resp && $resp->Status < 400) {
                 // Return new hash by re-reading profile

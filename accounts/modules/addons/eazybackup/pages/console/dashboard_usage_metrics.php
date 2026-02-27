@@ -98,11 +98,23 @@ function eb_dashboard_usage_metrics() {
             'running' => 0,
         ];
 
-        $completedRows = Capsule::table('eb_jobs_recent_24h')
-            ->select('status', Capsule::raw('COUNT(*) AS c'))
-            ->where('ended_at', '>=', $sinceTs)
-            ->whereIn('username', $activeUsernames)
-            ->groupBy('status')
+        $completedRows = Capsule::table('eb_jobs_recent_24h as j')
+            ->select('j.status', Capsule::raw('COUNT(*) AS c'))
+            ->where('j.ended_at', '>=', $sinceTs)
+            ->whereExists(function ($q) use ($clientId, $activeUsernames) {
+                $q->select(Capsule::raw('1'))
+                    ->from('comet_devices as d')
+                    ->where('d.client_id', $clientId)
+                    ->whereNull('d.revoked_at')
+                    ->whereIn('d.username', $activeUsernames)
+                    ->whereRaw('BINARY d.username = BINARY j.username')
+                    ->where(function ($match) {
+                        $match->whereRaw('BINARY d.id = BINARY j.device')
+                            ->orWhereRaw('BINARY d.hash = BINARY j.device')
+                            ->orWhereRaw('BINARY d.name = BINARY j.device');
+                    });
+            })
+            ->groupBy('j.status')
             ->get();
 
         foreach ($completedRows as $row) {
@@ -112,8 +124,21 @@ function eb_dashboard_usage_metrics() {
             }
         }
 
-        $status24h['running'] = (int) Capsule::table('eb_jobs_live')
-            ->whereIn('username', $activeUsernames)
+        $status24h['running'] = (int) Capsule::table('eb_jobs_live as j')
+            ->where('j.started_at', '>=', $sinceTs)
+            ->whereExists(function ($q) use ($clientId, $activeUsernames) {
+                $q->select(Capsule::raw('1'))
+                    ->from('comet_devices as d')
+                    ->where('d.client_id', $clientId)
+                    ->whereNull('d.revoked_at')
+                    ->whereIn('d.username', $activeUsernames)
+                    ->whereRaw('BINARY d.username = BINARY j.username')
+                    ->where(function ($match) {
+                        $match->whereRaw('BINARY d.id = BINARY j.device')
+                            ->orWhereRaw('BINARY d.hash = BINARY j.device')
+                            ->orWhereRaw('BINARY d.name = BINARY j.device');
+                    });
+            })
             ->count();
 
         echo json_encode([
