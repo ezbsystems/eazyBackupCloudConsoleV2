@@ -1169,6 +1169,54 @@ Implementation notes
   - derived: per-device `latestStatus24h(device)` (includes `__EB_TIMELINE` running jobs)
   - reactivity: listens to `eb:timeline-changed` to update when live running jobs start/end
 
+## Developer Notes – Dashboard Usage Overview Cards (Dashboard → Top Cards)
+
+Overview
+- The legacy top summary cards were replaced with chart-enabled usage cards:
+  - Protected Items
+  - Devices
+  - Storage
+  - Last 24 Hours (Status)
+- Scope is aggregated across all active services/usernames for the logged-in WHMCS client.
+
+Backend route + endpoint
+- New JSON endpoint: `?m=eazybackup&a=dashboard-usage-metrics`
+- Router wiring: `eazybackup.php`
+- Controller: `pages/console/dashboard_usage_metrics.php`
+- Endpoint payload:
+  - `devices30d`: daily points with `d`, `registered`, `online`
+  - `storage30d`: daily points with `d`, `bytes_total`
+  - `status24h`: strict 5 buckets (`success`, `error`, `warning`, `missed`, `running`)
+
+Frontend files
+- Template: `templates/clientarea/dashboard.tpl`
+  - New card markup and chart mount points:
+    - `#eb-devices-chart`
+    - `#eb-storage-chart-dashboard`
+    - `#eb-status24h-donut`
+  - Legend container: `#eb-status24h-legend`
+- Script: `templates/assets/js/dashboard-usage-cards.js`
+  - Fetches endpoint and hydrates charts/legend
+  - Handles loading, empty, and error states
+- Library: ApexCharts loaded from CDN in the dashboard template.
+
+Server-rendered headline metrics
+- Dashboard action (`a=dashboard`) now also passes:
+  - `onlineDevices`, `offlineDevices`
+  - `protectedItemEngineCounts` for required engines:
+    - Files and Folders
+    - Disk Image
+    - Microsoft Hyper-V
+    - Microsoft SQL Server
+    - Microsoft Office 365
+    - Windows Server System State
+    - Proxmox
+
+Devices trend data source
+- New table: `eb_devices_client_daily` (per-client daily trend snapshots).
+- New rollup job: `bin/rollup_devices_client_daily.php`
+- Purpose: accurate client-scoped device growth history for the Devices card line chart.
+
 ## Developer Notes – Device Grouping (Phase 1) (Dashboard → Backup Status)
 
 ### Overview
