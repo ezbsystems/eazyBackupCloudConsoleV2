@@ -152,9 +152,10 @@ try {
 
             $override = ($overrideRaw === true || $overrideRaw === 1 || $overrideRaw === '1' || $overrideRaw === 'true');
             if (!$override) {
-                try { unset($profile->Destinations[$vaultId]->RetentionPolicy); } catch (\Throwable $_) {}
+                // Destination retention is stored in DefaultRetention (not RetentionPolicy).
+                try { unset($profile->Destinations[$vaultId]->DefaultRetention); } catch (\Throwable $_) {}
             } else {
-                $rp = new \stdClass();
+                $rp = new \Comet\RetentionPolicy();
                 $rp->Mode = $mode;
                 $rp->Ranges = [];
                 $ranges = is_array($rangesRaw) ? $rangesRaw : [];
@@ -163,7 +164,7 @@ try {
                     if (!is_array($ra)) { continue; }
                     $type = (int)($ra['Type'] ?? 0);
                     if ($type <= 0) { continue; }
-                    $o = new \stdClass();
+                    $o = new \Comet\RetentionRange();
                     $o->Type = $type;
                     $o->Timestamp = (int)($ra['Timestamp'] ?? 0);
                     $o->Jobs = (int)($ra['Jobs'] ?? 0);
@@ -176,7 +177,7 @@ try {
                     $o->YearOffset = (int)($ra['YearOffset'] ?? 1);
                     $rp->Ranges[] = $o;
                 }
-                $profile->Destinations[$vaultId]->RetentionPolicy = $rp;
+                $profile->Destinations[$vaultId]->DefaultRetention = $rp;
             }
 
             $resp = $server->AdminSetUserProfileHash($username, $profile, (string)$ph->ProfileHash);
@@ -213,11 +214,13 @@ try {
                     if (is_array($destinations)) {
                         foreach ($destinations as $destId => $destCfg) {
                             if (!is_string($destId) || !is_array($destCfg) || !isset($live->Destinations[$destId])) { continue; }
-                            if (!array_key_exists('RetentionPolicy', $destCfg)) { continue; }
-                            $rpRaw = $destCfg['RetentionPolicy'];
+                            $hasDefaultRetention = array_key_exists('DefaultRetention', $destCfg);
+                            $hasLegacyRetention = array_key_exists('RetentionPolicy', $destCfg);
+                            if (!$hasDefaultRetention && !$hasLegacyRetention) { continue; }
+                            $rpRaw = $hasDefaultRetention ? $destCfg['DefaultRetention'] : $destCfg['RetentionPolicy'];
                             if ($rpRaw === null || $rpRaw === false) {
                                 // Explicitly clearing override falls back to destination default policy.
-                                try { unset($live->Destinations[$destId]->RetentionPolicy); } catch (\Throwable $_) {}
+                                try { unset($live->Destinations[$destId]->DefaultRetention); } catch (\Throwable $_) {}
                                 $patched = true;
                                 continue;
                             }
@@ -225,7 +228,7 @@ try {
                             if (!is_array($rpArr)) { continue; }
                             $rp = new \Comet\RetentionPolicy();
                             $rp->fromArray($rpArr);
-                            $live->Destinations[$destId]->RetentionPolicy = $rp;
+                            $live->Destinations[$destId]->DefaultRetention = $rp;
                             $patched = true;
                         }
                     }
