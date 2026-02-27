@@ -3047,6 +3047,11 @@ function eazybackup_clientarea(array $vars)
         require_once __DIR__ . "/pages/console/storage_history.php";
         eb_storage_history();
         exit;
+    } else if ($_REQUEST["a"] == "dashboard-usage-metrics") {
+        // JSON: dashboard cards metrics and trend series
+        require_once __DIR__ . "/pages/console/dashboard_usage_metrics.php";
+        eb_dashboard_usage_metrics();
+        exit;
     } else if ($_REQUEST["a"] == "device-groups") {
         // JSON: client-scoped device grouping (Phase 1)
         require_once __DIR__ . "/pages/console/device_groups.php";
