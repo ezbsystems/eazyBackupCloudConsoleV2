@@ -581,6 +581,13 @@ document.addEventListener('DOMContentLoaded', function(){
       });
       const tbBytes = 1024 * 1024 * 1024 * 1024;
       const billableTB = totalQuotaBytes > 0 ? Math.ceil(totalQuotaBytes / tbBytes) : 0;
+      const billableText = billableTB > 0 ? `${billableTB} TB` : '—';
+
+      // Flat table view: keep every vault row's Billing cell in sync for this account.
+      rows.forEach(r => {
+        const billingCell = r.querySelector('td[x-show="cols.billing"]');
+        if (billingCell) billingCell.textContent = billableText;
+      });
 
       const header = document.querySelector(`tr[data-account-header="${acct}"]`);
       if (header) {
@@ -589,7 +596,7 @@ document.addEventListener('DOMContentLoaded', function(){
         const quotaSpan = header.querySelector('.acct-total-quota');
         if (quotaSpan) quotaSpan.textContent = `Total Quota: ${formatBytes(totalQuotaBytes, 2)}`;
         const billableSpan = header.querySelector('.acct-billable');
-        if (billableSpan) billableSpan.textContent = `Billable: ${billableTB > 0 ? billableTB + ' TB' : '—'}`;
+        if (billableSpan) billableSpan.textContent = `Billable: ${billableText}`;
         const badge = header.querySelector('.acct-count-badge');
         if (badge) badge.textContent = `${count} vault${count !== 1 ? 's' : ''}`;
       }
@@ -601,7 +608,7 @@ document.addEventListener('DOMContentLoaded', function(){
         const quotaEl = summary.querySelector('.acct-summary-quota');
         if (quotaEl) quotaEl.textContent = `Total Quota: ${formatBytes(totalQuotaBytes, 2)}`;
         const billableEl = summary.querySelector('.acct-summary-billable');
-        if (billableEl) billableEl.textContent = `Billable: ${billableTB > 0 ? billableTB + ' TB' : '—'}`;
+        if (billableEl) billableEl.textContent = `Billable: ${billableText}`;
       }
     }
     
@@ -628,6 +635,16 @@ document.addEventListener('DOMContentLoaded', function(){
       // Calculate billable TB tier (round up to nearest 1TB)
       const tbBytes = 1024 * 1024 * 1024 * 1024; // 1TB in bytes
       const billableTB = totalQuotaBytes > 0 ? Math.ceil(totalQuotaBytes / tbBytes) : 0;
+      const billableText = billableTB > 0 ? `${billableTB} TB` : '—';
+
+      // Single-user storage table: repeat account-level billable on each vault row.
+      // Skip this in multi-account views, where Billing is updated per account group.
+      const hasAccountScopedRows = !!document.querySelector('tr[data-account]');
+      if (!hasAccountScopedRows) {
+        document.querySelectorAll('tr[data-used-bytes][data-quota-bytes] td[x-show="cols.billing"]').forEach(cell => {
+          cell.textContent = billableText;
+        });
+      }
       
       // Update summary card elements
       const summaryCard = document.querySelector('.bg-gradient-to-r.from-slate-800\\/80');
@@ -712,7 +729,7 @@ document.addEventListener('DOMContentLoaded', function(){
         if (key === 'type') return (tr.getAttribute('data-type')||'').toString();
         if (key === 'id') return (tr.getAttribute('data-id')||'').toString();
         if (key === 'name') return (tr.getAttribute('data-name')||'').toString().toLowerCase();
-        if (key === 'acct') return (tr.getAttribute('data-acct')||'').toString().toLowerCase();
+        if (key === 'acct') return (tr.getAttribute('data-acct')||tr.getAttribute('data-account')||'').toString().toLowerCase();
         return v;
       }
       function applySort(key){
@@ -1182,7 +1199,9 @@ document.addEventListener('DOMContentLoaded', function(){
               quotaCell.innerHTML = '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-slate-300">Unlimited</span>';
             } else {
               var size = (function(n){ var x=Number(n)||0, u=['B','KB','MB','GB','TB','PB'], i=0; while(x>=1024&&i<u.length-1){x/=1024;i++;} return x.toFixed(i?2:0)+' '+u[i]; })(qBytes);
-              quotaCell.innerHTML = '<span class="inline-flex items-center gap-2"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-slate-200">'+size+'</span><span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-900/40 text-emerald-300">On</span></span>';
+              var vaultName = (btn && btn.getAttribute('data-vault-name')) ? btn.getAttribute('data-vault-name') : vid;
+              var safeName = String(vaultName || '').replace(/"/g, '&quot;');
+              quotaCell.innerHTML = '<span class="inline-flex items-center gap-2"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-slate-200">'+size+'</span><span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-900/40 text-emerald-300">On</span><button type="button" class="configure-vault-button ml-1 p-1.5 rounded hover:bg-slate-700 text-slate-300" title="Edit quota" data-vault-id="'+vid+'" data-vault-name="'+safeName+'" data-vault-quota-enabled="true" data-vault-quota-bytes="'+qBytes+'" data-service-id="'+g.sid+'" data-username="'+g.un+'"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232a2.5 2.5 0 113.536 3.536L7.5 20.036 3 21l.964-4.5L15.232 5.232z"/></svg></button></span>';
             }
           }
           // usage

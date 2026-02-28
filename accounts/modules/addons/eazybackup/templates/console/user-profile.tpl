@@ -813,9 +813,9 @@
           <div class="bg-slate-900 rounded-lg" x-data="{
               open:false,
               search:'',
-              cols:{ name:true, id:false, type:true, init:true, stored:true, quota:true, usage:true, actions:true },
+              cols:{ name:true, stored:true, quota:true, usage:true, billing:true, actions:true },
               matchesSearch(el){ const q=this.search.trim().toLowerCase(); if(!q) return true; return (el.textContent||'').toLowerCase().includes(q); },
-              pctColor(p){ if(p===null) return 'bg-slate-700'; if(p<70) return 'bg-emerald-500'; if(p<90) return 'bg-amber-500'; return 'bg-rose-500'; }
+              pctColor(p){ if(p===null||p==='') return 'bg-slate-700'; if(p<70) return 'bg-emerald-500'; if(p<90) return 'bg-amber-500'; return 'bg-rose-500'; }
           }">
               <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 pt-4 pb-2">
                   <div class="relative shrink-0" @click.away="open=false">
@@ -829,12 +829,10 @@
                       <div x-show="open" x-transition class="absolute mt-2 w-56 bg-slate-800 border border-slate-700 rounded shadow-lg z-20">
                           <div class="p-3 space-y-2 text-slate-200 text-sm">
                               <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.name"> Storage Vault</label>
-                              <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.id"> Storage Vault ID</label>
-                              <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.type"> Type</label>
-                              <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.init"> Initialized</label>
                               <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.stored"> Stored</label>
                               <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.quota"> Quota</label>
                               <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.usage"> Usage</label>
+                              <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.billing"> Billing</label>
                               <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.actions"> Actions</label>
                           </div>
                       </div>
@@ -848,9 +846,6 @@
                   <thead class="bg-slate-800/50">
                       <tr>
                           <th x-show="cols.name" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Storage Vault</th>
-                          <th x-show="cols.id" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Storage Vault ID</th>
-                          <th x-show="cols.type" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Type</th>
-                          <th x-show="cols.init" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Initialized</th>
                           <th x-show="cols.stored" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Stored</th>
                           <th x-show="cols.quota" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">
                               <span class="inline-flex items-center gap-1">
@@ -863,6 +858,7 @@
                               </span>
                           </th>
                           <th x-show="cols.usage" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Usage</th>
+                          <th x-show="cols.billing" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Billing</th>
                           <th x-show="cols.actions" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
@@ -898,23 +894,6 @@
                               data-used-bytes="{$usedBytes}"
                               data-quota-bytes="{$quotaBytes}">
                               <td x-show="cols.name" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$vault.Description|default:'-'}</td>
-                              <td x-show="cols.id" class="px-4 py-4 whitespace-nowrap text-xs font-mono text-slate-200">{$vaultId}</td>
-                              <td x-show="cols.type" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
-                                  {assign var=destType value=$vault.DestinationType|default:''}
-                                  {if $destType ne ''}
-                                      <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-700 text-slate-200 text-xs">{\WHMCS\Module\Addon\Eazybackup\Helper::vaultTypeLabel($destType)}</span>
-                                  {else}
-                                      <span class="text-slate-400">-</span>
-                                  {/if}
-                              </td>
-                              <td x-show="cols.init" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
-                                  {assign var=ri value=$vault.RepoInitTimestamp|default:0}
-                                  {if $ri>0}
-                                      <span class="font-mono text-xs">{\WHMCS\Module\Addon\Eazybackup\Helper::formatDateTime($ri)}</span>
-                                  {else}
-                                      <span class="text-slate-400">-</span>
-                                  {/if}
-                              </td>
                               <td x-show="cols.stored" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
                                   {assign var=cpSize value=0}
                                   {if isset($vault.Statistics.ClientProvidedSize.Size)}
@@ -997,6 +976,9 @@
                                       </div>
                                   {/if}
                               </td>
+                              <td x-show="cols.billing" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
+                                  {if $billableTB > 0}{$billableTB} TB{else}—{/if}
+                              </td>
                               <td x-show="cols.actions" class="px-4 py-4 whitespace-nowrap text-sm">
                                   <button class="open-vault-panel px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 rounded text-white"
                                           data-vault-id="{$vaultId}"
@@ -1007,7 +989,7 @@
                           </tr>
                       {foreachelse}
                           <tr>
-                              <td colspan="8" class="text-center py-6 text-sm text-slate-200">No storage vaults found for this user.</td>
+                              <td colspan="6" class="text-center py-6 text-sm text-slate-200">No storage vaults found for this user.</td>
                 </tr>
               {/foreach}
             </tbody>

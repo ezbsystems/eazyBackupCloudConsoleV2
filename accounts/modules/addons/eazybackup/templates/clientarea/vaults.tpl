@@ -122,6 +122,12 @@
                                     {else}
                                         {assign var=pct value=''}
                                     {/if}
+                                    {assign var=componentsJson value='[]'}
+                                    {if isset($vault->ClientProvidedContent->Components)}
+                                        {assign var=componentsJson value=$vault->ClientProvidedContent->Components|@json_encode}
+                                    {elseif isset($vault->Statistics->ClientProvidedContent->Components)}
+                                        {assign var=componentsJson value=$vault->Statistics->ClientProvidedContent->Components|@json_encode}
+                                    {/if}
                                     {assign var=destType value=$vault->DestinationType|default:$vault->Destination->Type|default:$vault->Type|default:''}
                                     {assign var=repoInit value=$vault->RepoInitTimestamp|default:0}
                         {assign var=vaultRow value=array(
@@ -136,6 +142,7 @@
                             'pct'=>$pct,
                             'destType'=>$destType,
                             'repoInit'=>$repoInit,
+                            'componentsJson'=>$componentsJson,
                             'serviceId'=>$vault->serviceid|default:$vault->service_id|default:'',
                             'username'=>$vault->username|default:''
                         )}
@@ -158,10 +165,7 @@
                          x-data="{
                             open:false,
                             search:'',
-                            cols:{ acct:true, name:true, id:false, type:false, init:false, stored:true, quota:true, usage:true, actions:true },
-                            expandedAccounts:{},
-                            toggleAccount(acct){ this.expandedAccounts[acct] = this.expandedAccounts[acct] === false; },
-                            isExpanded(acct){ return this.expandedAccounts[acct] !== false; },
+                            cols:{ acct:true, name:true, stored:true, quota:true, usage:true, billing:true, actions:true },
                             matchesSearch(el){ const q=this.search.trim().toLowerCase(); if(!q) return true; return (el.textContent||'').toLowerCase().includes(q); },
                             pctColor(p){ if(p===null||p==='') return 'bg-slate-700'; if(p<70) return 'bg-emerald-500'; if(p<90) return 'bg-amber-500'; return 'bg-rose-500'; }
                          }">
@@ -175,12 +179,10 @@
                                     <div class="p-3 space-y-2 text-slate-200 text-sm">
                                         <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.acct"> Account Name</label>
                                         <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.name"> Storage Vault</label>
-                                        <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.id"> Storage Vault ID</label>
-                                        <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.type"> Type</label>
-                                        <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.init"> Initialized</label>
                                         <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.stored"> Stored</label>
                                         <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.quota"> Quota</label>
                                         <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.usage"> Usage</label>
+                                        <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.billing"> Billing</label>
                                         <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.actions"> Actions</label>
                                     </div>
                                 </div>
@@ -199,12 +201,10 @@
                                 <tr>
                                     <th x-show="cols.acct" data-sort="acct" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer select-none">Account Name</th>
                                     <th x-show="cols.name" data-sort="name" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer select-none">Storage Vault</th>
-                                    <th x-show="cols.id" data-sort="id" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer select-none">Storage Vault ID</th>
-                                    <th x-show="cols.type" data-sort="type" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer select-none">Type</th>
-                                    <th x-show="cols.init" data-sort="init" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer select-none">Initialized</th>
                                     <th x-show="cols.stored" data-sort="stored" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer select-none">Stored</th>
                                     <th x-show="cols.quota" data-sort="quota" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer select-none">Quota</th>
                                     <th x-show="cols.usage" data-sort="usage" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer select-none">Usage</th>
+                                    <th x-show="cols.billing" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Billing</th>
                                     <th x-show="cols.actions" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Actions</th>
                                 </tr>
                             </thead>
@@ -213,29 +213,9 @@
                                     {foreach from=$accountGroups key=acctName item=group}
                                         {assign var=acctTotals value=$group.totals}
                                         {assign var=billableTB value=($acctTotals.quota>0)?ceil($acctTotals.quota/$tbBytes):0}
-                                        <tr class="account-header bg-slate-800/40 cursor-pointer"
-                                            data-account-header="{$acctName}"
-                                            data-total-quota-bytes="{$acctTotals.quota}"
-                                            data-total-used-bytes="{$acctTotals.used}"
-                                            @click="toggleAccount('{$acctName|escape:'javascript'}')">
-                                            <td colspan="9" class="px-4 py-3">
-                                                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                                                    <div class="flex items-center gap-3">
-                                                        <svg class="h-4 w-4 text-slate-300 transition-transform duration-150"
-                                                             :class="isExpanded('{$acctName|escape:'javascript'}') ? 'rotate-90' : ''"
-                                                             xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-                                                        </svg>
-                                                        <span class="text-white font-semibold">{$acctName}</span>
-                                                        <span class="acct-count-badge inline-flex items-center px-2 py-0.5 rounded-full bg-slate-700 text-slate-200 text-xs">{$acctTotals.count|default:0} vault{if $acctTotals.count|default:0 != 1}s{/if}</span>
-                                                    </div>
-                                                </div>
-                                            </td>
-                                        </tr>
-
                                         {foreach from=$group.vaults item=row}
                                             <tr class="hover:bg-gray-800/60 vault-row"
-                                                x-show="matchesSearch($el) && isExpanded('{$row.acct|escape:'javascript'}')"
+                                                x-show="matchesSearch($el)"
                                                 x-cloak
                                                 data-account="{$row.acct}"
                                                 data-name="{$row.vaultName}"
@@ -252,21 +232,6 @@
                                                 data-vault-name="{$row.vaultName}">
                                                 <td x-show="cols.acct" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$row.acct}</td>
                                                 <td x-show="cols.name" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$row.vaultName}</td>
-                                                <td x-show="cols.id" class="px-4 py-4 whitespace-nowrap text-xs font-mono text-gray-400">{if $row.vaultId}{$row.vaultId}{else}-{/if}</td>
-                                        <td x-show="cols.type" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
-                                                    {if $row.destType ne ''}
-                                                        <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-700 text-slate-200 text-xs">{\WHMCS\Module\Addon\Eazybackup\Helper::vaultTypeLabel($row.destType)}</span>
-                                            {else}
-                                                <span class="text-slate-400">-</span>
-                                            {/if}
-                                        </td>
-                                        <td x-show="cols.init" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
-                                                    {if $row.repoInit>0}
-                                                        <span class="font-mono text-xs">{\WHMCS\Module\Addon\Eazybackup\Helper::formatDateTime($row.repoInit)}</span>
-                                            {else}
-                                                <span class="text-slate-400">-</span>
-                                            {/if}
-                                        </td>
                                         <td x-show="cols.stored" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
                                                     {assign var=cpSize value=$row.usedBytes}
                                             {assign var=cpStart value=0}
@@ -274,7 +239,7 @@
                                                     <button type="button" class="eb-stats-btn inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-700 hover:bg-slate-600 text-slate-200" title="View vault usage breakdown" data-vault-id="{if $row.vaultId}{$row.vaultId}{else}{$row.vaultName}{/if}" data-vault-name="{$row.vaultName|escape}" data-size-bytes="{$cpSize}" data-measure-start="{$cpStart}" data-measure-end="{$cpEnd}" data-service-id="{$row.serviceId}" data-username="{$row.username}">
                                                 {\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($cpSize, 2)}
                                             </button>
-                                            <script type="application/json" class="eb-components">{if isset($vault->ClientProvidedContent->Components)}{$vault->ClientProvidedContent->Components|@json_encode}{elseif isset($vault->Statistics->ClientProvidedContent->Components)}{$vault->Statistics->ClientProvidedContent->Components|@json_encode}{else}[]{/if}</script>
+                                            <script type="application/json" class="eb-components">{$row.componentsJson}</script>
                                         </td>
                                         <td x-show="cols.quota" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300" data-cell="quota">
                                                     {if not $row.hasQuota}
@@ -323,6 +288,9 @@
                                                 </div>
                                             {/if}
                                         </td>
+                                        <td x-show="cols.billing" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
+                                            {if $billableTB>0}{$billableTB} TB{else}—{/if}
+                                        </td>
                                         <td x-show="cols.actions" class="px-4 py-4 whitespace-nowrap text-sm">
                                                     <button class="open-vault-panel px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 rounded text-white"
                                                             data-vault-id="{if $row.vaultId}{$row.vaultId}{else}{$row.vaultName}{/if}"
@@ -334,26 +302,10 @@
                                                 </td>
                                             </tr>
                                         {/foreach}
-
-                                        <tr class="bg-slate-900/50 account-summary" data-account-summary="{$acctName}">
-                                            <td colspan="9" class="px-4 py-3 text-sm text-slate-300">
-                                                <div class="flex flex-wrap items-center gap-4 justify-between">
-                                                    <div class="flex items-center gap-3">
-                                                        <span class="text-slate-200 font-semibold">{$acctName} summary</span>
-                                                        <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 text-xs">{$acctTotals.count|default:0} vault{if $acctTotals.count|default:0 != 1}s{/if}</span>
-                                                    </div>
-                                                    <div class="flex flex-wrap items-center gap-4 text-sm">
-                                                        <span class="acct-summary-used">Total Used: {\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($acctTotals.used, 2)}</span>
-                                                        <span class="acct-summary-quota">Total Quota: {\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($acctTotals.quota, 2)}</span>
-                                                        <span class="acct-summary-billable text-emerald-400 font-semibold">Billable: {if $billableTB>0}{$billableTB} TB{else}—{/if}</span>
-                                                    </div>
-                                                </div>
-                                        </td>
-                                    </tr>
                                     {/foreach}
                                 {else}
                                     <tr>
-                                        <td colspan="9" class="text-center py-6 text-sm text-gray-400">No storage vaults found.</td>
+                                        <td colspan="7" class="text-center py-6 text-sm text-gray-400">No storage vaults found.</td>
                                     </tr>
                                 {/if}
                             </tbody>
