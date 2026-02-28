@@ -392,6 +392,7 @@ document.addEventListener('DOMContentLoaded', function(){
     document.addEventListener('click', (e) => {
       const configBtn = e.target.closest('.configure-vault-button');
       if (configBtn) {
+        if (configBtn.disabled || configBtn.getAttribute('aria-disabled') === 'true') return;
         e.preventDefault();
         openVaultPanel(configBtn);
       }
@@ -485,6 +486,7 @@ document.addEventListener('DOMContentLoaded', function(){
       const acct = targetRow.getAttribute('data-account') || targetRow.getAttribute('data-acct') || '';
       const serviceId = targetRow.getAttribute('data-service-id') || '';
       const username = targetRow.getAttribute('data-username') || '';
+      const isVaultLocked = targetRow.getAttribute('data-vault-locked') === '1';
 
       // Update data attributes
       targetRow.setAttribute('data-quota-bytes', String(quotaBytes));
@@ -498,24 +500,27 @@ document.addEventListener('DOMContentLoaded', function(){
       const quotaCell = targetRow.querySelector('[data-cell="quota"]') || targetRow.querySelector('td[x-show="cols.quota"]');
       if (quotaCell) {
         if (!quotaEnabled || quotaBytes === 0) {
-          quotaCell.innerHTML = '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-slate-300">Unlimited</span>';
+          quotaCell.innerHTML = '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium bg-slate-700 text-slate-300">Unlimited</span>';
         } else {
           const quotaFormatted = formatBytes(quotaBytes, 2);
+          const editQuotaButtonHtml = isVaultLocked
+            ? `<button type="button" class="configure-vault-button ml-1 p-1.5 rounded text-slate-500 opacity-50 cursor-not-allowed" title="Locked for Microsoft 365 services" disabled="disabled" aria-disabled="true"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232a2.5 2.5 0 113.536 3.536L7.5 20.036 3 21l.964-4.5L15.232 5.232z"/></svg></button>`
+            : `<button type="button" class="configure-vault-button ml-1 p-1.5 rounded hover:bg-slate-700 text-slate-300 cursor-pointer"
+                title="Edit quota"
+                data-vault-id="${vaultId}"
+                data-vault-name="${newName}"
+                data-vault-quota-enabled="true"
+                data-vault-quota-bytes="${quotaBytes}"
+                data-service-id="${serviceId}"
+                data-username="${username}">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232a2.5 2.5 0 113.536 3.536L7.5 20.036 3 21l.964-4.5L15.232 5.232z"/></svg>
+              </button>`;
           quotaCell.innerHTML = `
             <div class="flex flex-col gap-1">
               <span class="inline-flex items-center gap-2">
-                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-slate-200" title="Exact quota: ${quotaFormatted}">${quotaFormatted}</span>
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium bg-slate-700 text-slate-200" title="Exact quota: ${quotaFormatted}">${quotaFormatted}</span>
                 <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-900/40 text-emerald-300">On</span>
-                <button type="button" class="configure-vault-button ml-1 p-1.5 rounded hover:bg-slate-700 text-slate-300"
-                    title="Edit quota"
-                    data-vault-id="${vaultId}"
-                    data-vault-name="${newName}"
-                    data-vault-quota-enabled="true"
-                    data-vault-quota-bytes="${quotaBytes}"
-                    data-service-id="${serviceId}"
-                    data-username="${username}">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232a2.5 2.5 0 113.536 3.536L7.5 20.036 3 21l.964-4.5L15.232 5.232z"/></svg>
-                </button>
+                ${editQuotaButtonHtml}
               </span>
               <span class="text-[10px] text-slate-500">Per-vault limit</span>
             </div>`;
@@ -1196,12 +1201,16 @@ document.addEventListener('DOMContentLoaded', function(){
           var quotaCell = tr.querySelector('[data-cell="quota"]');
           if (quotaCell) {
             if (!qEnabled || !qBytes) {
-              quotaCell.innerHTML = '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-slate-300">Unlimited</span>';
+              quotaCell.innerHTML = '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium bg-slate-700 text-slate-300">Unlimited</span>';
             } else {
               var size = (function(n){ var x=Number(n)||0, u=['B','KB','MB','GB','TB','PB'], i=0; while(x>=1024&&i<u.length-1){x/=1024;i++;} return x.toFixed(i?2:0)+' '+u[i]; })(qBytes);
               var vaultName = (btn && btn.getAttribute('data-vault-name')) ? btn.getAttribute('data-vault-name') : vid;
               var safeName = String(vaultName || '').replace(/"/g, '&quot;');
-              quotaCell.innerHTML = '<span class="inline-flex items-center gap-2"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-slate-200">'+size+'</span><span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-900/40 text-emerald-300">On</span><button type="button" class="configure-vault-button ml-1 p-1.5 rounded hover:bg-slate-700 text-slate-300" title="Edit quota" data-vault-id="'+vid+'" data-vault-name="'+safeName+'" data-vault-quota-enabled="true" data-vault-quota-bytes="'+qBytes+'" data-service-id="'+g.sid+'" data-username="'+g.un+'"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232a2.5 2.5 0 113.536 3.536L7.5 20.036 3 21l.964-4.5L15.232 5.232z"/></svg></button></span>';
+              var rowLocked = tr.getAttribute('data-vault-locked') === '1';
+              var editQuotaBtn = rowLocked
+                ? '<button type="button" class="configure-vault-button ml-1 p-1.5 rounded text-slate-500 opacity-50 cursor-not-allowed" title="Locked for Microsoft 365 services" disabled="disabled" aria-disabled="true"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232a2.5 2.5 0 113.536 3.536L7.5 20.036 3 21l.964-4.5L15.232 5.232z"/></svg></button>'
+                : '<button type="button" class="configure-vault-button ml-1 p-1.5 rounded hover:bg-slate-700 text-slate-300 cursor-pointer" title="Edit quota" data-vault-id="'+vid+'" data-vault-name="'+safeName+'" data-vault-quota-enabled="true" data-vault-quota-bytes="'+qBytes+'" data-service-id="'+g.sid+'" data-username="'+g.un+'"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232a2.5 2.5 0 113.536 3.536L7.5 20.036 3 21l.964-4.5L15.232 5.232z"/></svg></button>';
+              quotaCell.innerHTML = '<span class="inline-flex items-center gap-2"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium bg-slate-700 text-slate-200">'+size+'</span><span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-900/40 text-emerald-300">On</span>'+editQuotaBtn+'</span>';
             }
           }
           // usage
