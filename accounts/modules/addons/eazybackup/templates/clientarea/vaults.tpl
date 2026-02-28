@@ -144,7 +144,8 @@
                             'repoInit'=>$repoInit,
                             'componentsJson'=>$componentsJson,
                             'serviceId'=>$vault->serviceid|default:$vault->service_id|default:'',
-                            'username'=>$vault->username|default:''
+                            'username'=>$vault->username|default:'',
+                            'packageId'=>$vault->packageid|default:0
                         )}
                         {assign var=accountGroups value=$accountGroups|@array_merge:[
                             $acctName => array(
@@ -214,6 +215,7 @@
                                         {assign var=acctTotals value=$group.totals}
                                         {assign var=billableTB value=($acctTotals.quota>0)?ceil($acctTotals.quota/$tbBytes):0}
                                         {foreach from=$group.vaults item=row}
+                                            {assign var=isLocked value=($row.packageId == 52 || $row.packageId == 57)}
                                             <tr class="hover:bg-gray-800/60 vault-row"
                                                 x-show="matchesSearch($el)"
                                                 x-cloak
@@ -229,6 +231,7 @@
                                                 data-service-id="{$row.serviceId}"
                                                 data-username="{$row.username}"
                                                 data-vault-id="{if $row.vaultId}{$row.vaultId}{else}{$row.vaultName}{/if}"
+                                                data-vault-locked="{if $isLocked}1{else}0{/if}"
                                                 data-vault-name="{$row.vaultName}">
                                                 <td x-show="cols.acct" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$row.acct}</td>
                                                 <td x-show="cols.name" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$row.vaultName}</td>
@@ -236,24 +239,25 @@
                                                     {assign var=cpSize value=$row.usedBytes}
                                             {assign var=cpStart value=0}
                                                     {assign var=cpEnd value=$row.usedMeasuredEnd}
-                                                    <button type="button" class="eb-stats-btn inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-700 hover:bg-slate-600 text-slate-200" title="View vault usage breakdown" data-vault-id="{if $row.vaultId}{$row.vaultId}{else}{$row.vaultName}{/if}" data-vault-name="{$row.vaultName|escape}" data-size-bytes="{$cpSize}" data-measure-start="{$cpStart}" data-measure-end="{$cpEnd}" data-service-id="{$row.serviceId}" data-username="{$row.username}">
+                                                    <button type="button" class="eb-stats-btn inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium bg-slate-700 hover:bg-slate-600 text-sky-400 cursor-pointer" title="View vault usage breakdown" data-vault-id="{if $row.vaultId}{$row.vaultId}{else}{$row.vaultName}{/if}" data-vault-name="{$row.vaultName|escape}" data-size-bytes="{$cpSize}" data-measure-start="{$cpStart}" data-measure-end="{$cpEnd}" data-service-id="{$row.serviceId}" data-username="{$row.username}">
                                                 {\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($cpSize, 2)}
                                             </button>
                                             <script type="application/json" class="eb-components">{$row.componentsJson}</script>
                                         </td>
                                         <td x-show="cols.quota" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300" data-cell="quota">
                                                     {if not $row.hasQuota}
-                                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-slate-300">Unlimited</span>
+                                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium bg-slate-700 text-slate-300">Unlimited</span>
                                             {else}
                                                 <span class="inline-flex items-center gap-2">
-                                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-slate-200" title="Storage quota">{\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($row.quotaBytes, 2)}</span>
+                                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium bg-slate-700 text-slate-200" title="Storage quota">{\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($row.quotaBytes, 2)}</span>
                                                             {if $row.quotaEnabled}
                                                         <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-900/40 text-emerald-300">On</span>
                                                     {else}
                                                         <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-700 text-slate-300">Off</span>
                                                     {/if}
-                                                            <button type="button" class="configure-vault-button ml-1 p-1.5 rounded hover:bg-slate-700 text-slate-300"
-                                                                title="Edit quota"
+                                                            <button type="button" class="configure-vault-button ml-1 p-1.5 rounded {if $isLocked}text-slate-500 opacity-50 cursor-not-allowed{else}hover:bg-slate-700 text-slate-300 cursor-pointer{/if}"
+                                                                title="{if $isLocked}Locked for Microsoft 365 services{else}Edit quota{/if}"
+                                                                {if $isLocked}disabled="disabled" aria-disabled="true"{/if}
                                                                 data-vault-id="{if $row.vaultId}{$row.vaultId}{else}{$row.vaultName}{/if}"
                                                                 data-vault-name="{$row.vaultName}"
                                                                 data-vault-quota-enabled="{$row.quotaEnabled}"
@@ -292,7 +296,9 @@
                                             {if $billableTB>0}{$billableTB} TB{else}—{/if}
                                         </td>
                                         <td x-show="cols.actions" class="px-4 py-4 whitespace-nowrap text-sm">
-                                                    <button class="open-vault-panel px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 rounded text-white"
+                                                    <button class="open-vault-panel px-3 py-1.5 text-xs bg-slate-700 rounded text-white {if $isLocked}opacity-50 cursor-not-allowed{else}hover:bg-slate-600 cursor-pointer{/if}"
+                                                            title="{if $isLocked}Locked for Microsoft 365 services{else}Manage{/if}"
+                                                            {if $isLocked}disabled="disabled" aria-disabled="true"{/if}
                                                             data-vault-id="{if $row.vaultId}{$row.vaultId}{else}{$row.vaultName}{/if}"
                                                             data-vault-name="{$row.vaultName}"
                                                             data-vault-quota-enabled="{$row.quotaEnabled}"
@@ -412,12 +418,12 @@
         <div
           x-show="open"
           x-transition.opacity.duration.200ms
-          class="pointer-events-auto rounded-lg border px-4 py-2 text-sm shadow-lg backdrop-blur"
+          class="pointer-events-auto px-4 py-2 rounded shadow text-sm text-white"
           :class="type === 'success'
-            ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-100'
+            ? 'bg-green-600'
             : (type === 'warning'
-              ? 'border-amber-500/40 bg-amber-500/15 text-amber-100'
-              : 'border-rose-500/40 bg-rose-500/15 text-rose-100')"
+              ? 'bg-yellow-600'
+              : 'bg-red-600')"
           x-text="message"
         ></div>
       </div>
@@ -454,7 +460,7 @@
           <div class="text-xs text-slate-500">Changes apply to this vault only.</div>
         </div>
         <div class="pt-4 border-t border-slate-800 flex justify-end">
-          <button id="vault-save-all" class="inline-flex items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold shadow-sm ring-1 ring-emerald-500/40 bg-gradient-to-r from-emerald-600 to-emerald-500 text-white transition hover:from-emerald-700 hover:to-emerald-600">Save</button>
+          <button id="vault-save-all" class="inline-flex items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold shadow-sm ring-1 ring-emerald-500/40 bg-gradient-to-r from-emerald-600 to-emerald-500 text-white transition hover:from-emerald-700 hover:to-emerald-600 cursor-pointer">Save</button>
         </div>
       </div>
 
@@ -480,7 +486,7 @@
           <!-- Mode select with helper text -->
           <div class="mb-2">
             <label class="block text-sm text-slate-100 mb-1">Mode</label>
-            <select x-model.number="state.mode" class="w-96 px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm">
+            <select x-model.number="state.mode" class="w-96 px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm cursor-pointer">
               <option value="801">Keep everything</option>
               <option value="802">Keep only backups that match these rules</option>
             </select>
@@ -506,7 +512,7 @@
               <div class="grid grid-cols-2 gap-3">
                 <div>
                   <label class="block text-xs text-slate-400 mb-1">Type</label>
-                  <select class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm" x-model.number="newRange.Type">
+                  <select class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm cursor-pointer" x-model.number="newRange.Type">
                     <option value="900">Most recent X jobs</option>
                     <option value="901">Newer than date</option>
                     <option value="902">Jobs since (relative)</option>
@@ -532,7 +538,7 @@
                 </template>
               </div>
               <div class="mt-3 flex justify-end">
-                <button class="rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 text-sm font-medium" @click="addRangeFromNew()">Add rule</button>
+                <button class="rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 text-sm font-medium cursor-pointer" @click="addRangeFromNew()">Add rule</button>
               </div>
             </div>
 
@@ -551,8 +557,8 @@
                     <p class="mt-2 text-sm leading-5 text-slate-200" x-text="summaryFor(r).replace('[' + labelFor(r.Type) + '] ', '')"></p>
                   </div>
                   <div class="flex shrink-0 gap-2">
-                    <button class="text-sky-300 hover:text-sky-200 text-sm" @click="editing = (editing===i?null:i)"><span x-text="editing===i ? 'Close' : 'Edit'"></span></button>
-                    <button class="text-rose-300 hover:text-rose-200 text-sm" @click="removeRange(i)">Remove</button>
+                    <button class="text-sky-300 hover:text-sky-200 text-sm cursor-pointer" @click="editing = (editing===i?null:i)"><span x-text="editing===i ? 'Close' : 'Edit'"></span></button>
+                    <button class="text-rose-300 hover:text-rose-200 text-sm cursor-pointer" @click="removeRange(i)">Remove</button>
                   </div>
                 </div>
                 <div x-show="editing===i" x-transition class="mt-3 border-t border-slate-700 pt-3">
@@ -560,7 +566,7 @@
                     <!-- Type select -->
                     <div>
                       <label class="block text-xs text-slate-400 mb-1">Type</label>
-                      <select class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm" x-model.number="r.Type">
+                      <select class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm cursor-pointer" x-model.number="r.Type">
                         <option value="900">Most recent X jobs</option>
                         <option value="901">Newer than date</option>
                         <option value="902">Jobs since (relative)</option>
@@ -634,7 +640,7 @@
           </div>
         </div>
         <div class="mt-4 flex justify-end">
-          <button id="vault-retention-save" class="inline-flex items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold shadow-sm ring-1 ring-emerald-500/40 bg-gradient-to-r from-emerald-600 to-emerald-500 text-white transition hover:from-emerald-700 hover:to-emerald-600">Save</button>
+          <button id="vault-retention-save" class="inline-flex items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold shadow-sm ring-1 ring-emerald-500/40 bg-gradient-to-r from-emerald-600 to-emerald-500 text-white transition hover:from-emerald-700 hover:to-emerald-600 cursor-pointer">Save</button>
         </div>
 
       </div>
@@ -652,14 +658,14 @@
             </div>
           </div>
         </div>
-        <button id="vault-delete" class="inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold shadow-sm ring-1 ring-rose-500/40 bg-gradient-to-r from-rose-600 to-rose-500 text-white transition hover:from-rose-700 hover:to-rose-600">Delete Vault</button>
+        <button id="vault-delete" class="inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold shadow-sm ring-1 ring-rose-500/40 bg-gradient-to-r from-rose-600 to-rose-500 text-white transition hover:from-rose-700 hover:to-rose-600 cursor-pointer">Delete Vault</button>
         <div id="vault-delete-confirm" class="hidden rounded-xl border border-slate-700 p-4 bg-slate-900/60 space-y-3">
           <div class="text-slate-100 text-sm font-semibold">Confirm your account password</div>
           <div class="text-slate-400 text-xs">This is the password you use to sign in to your eazyBackup Client Area.</div>
           <input id="vault-delete-password" type="password" class="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-900/60 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500/40 focus:border-rose-600 placeholder:text-slate-500 transition" placeholder="Account password" />
           <div class="flex justify-end gap-3 pt-2">
-            <button id="vault-delete-cancel" class="px-4 py-2.5 rounded-lg border border-slate-800 bg-transparent hover:bg-slate-900/60 text-slate-200 text-sm transition">Cancel</button>
-            <button id="vault-delete-confirm-btn" class="inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold shadow-sm ring-1 ring-rose-500/40 bg-gradient-to-r from-rose-600 to-rose-500 text-white transition hover:from-rose-700 hover:to-rose-600">Confirm delete</button>
+            <button id="vault-delete-cancel" class="px-4 py-2.5 rounded-lg border border-slate-800 bg-transparent hover:bg-slate-900/60 text-slate-200 text-sm transition cursor-pointer">Cancel</button>
+            <button id="vault-delete-confirm-btn" class="inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold shadow-sm ring-1 ring-rose-500/40 bg-gradient-to-r from-rose-600 to-rose-500 text-white transition hover:from-rose-700 hover:to-rose-600 cursor-pointer">Confirm delete</button>
           </div>
         </div>
       </div>

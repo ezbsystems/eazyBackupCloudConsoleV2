@@ -549,6 +549,8 @@ Scoping: All queries must be constrained to the current WHMCS client context usi
 **Nightly Rollups**
 
 **Cron examples (as www-data or root):**
+- Nightly sync safety net (00:30) **required once nightly**
+30 0 * * * php /var/www/eazybackup.ca/accounts/crons/eazybackupSyncComet.php
 - Devices daily (02:05)
 5 2 * * * php /var/www/eazybackup.ca/accounts/modules/addons/eazybackup/bin/rollup_devices_daily.php
 - Devices client daily (02:07)
@@ -565,7 +567,31 @@ Scoping: All queries must be constrained to the current WHMCS client context usi
 
 **File:** `accounts/crons/eazybackupSyncComet.php`
 
-This cron runs once daily as a safety net to reconcile any events missed by the WebSocket worker.
+This cron runs once nightly as a safety net to reconcile any events missed by the WebSocket worker.
+
+**Required schedule (production):**
+```bash
+30 0 * * * php /var/www/eazybackup.ca/accounts/crons/eazybackupSyncComet.php
+```
+
+**Run frequency requirement:** this script should run **once nightly**. It is not a replacement for the websocket worker; it is a reconciliation pass to keep data correct if any realtime event was missed.
+
+**What this cron does each run (high level):**
+1. Builds the active product/server-group map (excluding configured non-Comet product groups).
+2. Creates reusable Comet Admin API clients per server group.
+3. Pulls active dispatcher connections (`AdminDispatcherListActive`) for online state context.
+4. Bulk-fetches user profiles per group (`AdminListUsersFull`) to avoid N+1 API calls.
+5. Pulls jobs for the recent window (`AdminGetJobsForDateRange`, currently 14 days) and upserts into `comet_jobs`.
+6. Iterates active hostings and upserts:
+   - devices (`comet_devices`)
+   - protected items (`comet_items`)
+   - vault metadata/usage (`comet_vaults`)
+7. Emits structured `logModuleCall` telemetry (start/end, timing, processed/skipped counts, vault summary).
+
+**Operational notes:**
+- Keep this as a nightly job so dashboard and reporting tables are reconciled even if websocket delivery was partial.
+- Run before downstream nightly rollups so rollups consume the latest reconciled source data.
+- The cron is idempotent by design (upsert-heavy), so nightly execution is safe.
 
 ### Optimization: Bulk Profile Fetching (Jan 2026)
 

@@ -3477,43 +3477,67 @@ function eazybackup_clientarea(array $vars)
             ->pluck('id')
             ->toArray();
 
-        $accounts = Capsule::table('tblhosting')
-            ->select('username', 'id')
+        $services = Capsule::table('tblhosting')
+            ->select('username', 'id', 'packageid')
             ->where('domainstatus', 'Active')
             ->where('userid', $clientId)
             ->whereIn('packageid', $productIds)
-            ->pluck('username')
-            ->toArray();
-
-
-        // Build username serviceid map without joins to avoid collation issues
-        $serviceMap = Capsule::table('tblhosting')
-            ->select('username', 'id')
-            ->where('userid', $clientId)
-            ->whereIn('username', $accounts)
-            ->pluck('id', 'username')
-            ->toArray();
-
-        // Fetch vaults then attach serviceid per username in PHP
-        $vaults = Capsule::table('comet_vaults')
-            ->select(
-                'id',
-                'username',
-                'name',
-                'total_bytes',
-                'type as DestinationType',
-                'has_storage_limit as quota_enabled',
-                'storage_limit_bytes as quota_bytes'
-            )
-            ->where('client_id', $clientId)
-            ->whereIn('username', $accounts)
-            ->where('is_active', 1)
-            ->whereNull('removed_at')
             ->get();
-
-        foreach ($vaults as $v) {
-            $uname = $v->username ?? '';
-            $v->serviceid = isset($serviceMap[$uname]) ? $serviceMap[$uname] : null;
+        
+        // Build vault rows from live Comet profile data (same source as user-profile page)
+        // so deleted destinations disappear immediately without waiting for DB sync.
+        $vaults = [];
+        foreach ($services as $service) {
+            try {
+                $params = comet_ProductParams((int) $service->packageid);
+                $params['username'] = $service->username;
+                if (($params['serverhostname'] ?? null) === null || ($params['serverusername'] ?? null) === null) {
+                    continue;
+                }
+                $user = comet_User($params);
+                if (is_string($user) || !isset($user->Destinations) || !is_array($user->Destinations)) {
+                    continue;
+                }
+                foreach ($user->Destinations as $guid => $destination) {
+                    if (!is_object($destination)) {
+                        $destination = json_decode(json_encode($destination));
+                    }
+                    if (!is_object($destination)) {
+                        continue;
+                    }
+                    $destination->vault_id = (string) $guid;
+                    $destination->id = (string) $guid;
+                    $destination->GUID = (string) $guid;
+                    $destination->username = $service->username;
+                    $destination->serviceid = (int) $service->id;
+                    $destination->packageid = (int) $service->packageid;
+                    if (!isset($destination->name) && isset($destination->Description)) {
+                        $destination->name = (string) $destination->Description;
+                    }
+                    if (!isset($destination->DestinationType) && isset($destination->Type)) {
+                        $destination->DestinationType = $destination->Type;
+                    }
+                    if (!isset($destination->quota_enabled) && isset($destination->StorageLimitEnabled)) {
+                        $destination->quota_enabled = $destination->StorageLimitEnabled ? 1 : 0;
+                    }
+                    if (!isset($destination->quota_bytes) && isset($destination->StorageLimitBytes)) {
+                        $destination->quota_bytes = (int) $destination->StorageLimitBytes;
+                    }
+                    if (!isset($destination->total_bytes)) {
+                        $destination->total_bytes = (int) (
+                            $destination->Statistics->ClientProvidedSize->Size
+                            ?? $destination->ClientProvidedSize->Size
+                            ?? $destination->Size->Size
+                            ?? $destination->Size
+                            ?? 0
+                        );
+                    }
+                    $vaults[] = $destination;
+                }
+            } catch (\Throwable $e) {
+                // Skip this service on API failure; render remaining accounts.
+                continue;
+            }
         }
 
         return [
