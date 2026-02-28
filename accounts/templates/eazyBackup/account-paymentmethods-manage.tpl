@@ -300,21 +300,21 @@
             <input type="hidden" name="billing_state" id="inputBillingState" value="">
             <input type="hidden" name="billing_postcode" id="inputBillingPostcode" value="">
             <input type="hidden" name="billing_country" id="inputBillingCountry" value="">
-                </form>
+            </div>
+            </form>
 
-                <!-- Remote Input / Assisted Output Section -->
-                <div class="fieldgroup-remoteinput{if ($editMode && !$remoteUpdate) || !$editMode} hidden{/if}">
-                    {if $remoteUpdate}
-                        <div id="tokenGatewayRemoteUpdateOutput" class="text-center">
-                            {$remoteUpdate}
-                        </div>
-                    {else}
-                        <div id="tokenGatewayRemoteInputOutput" class="text-center"></div>
-                        <div class="text-center">
-                            <iframe name="ccframe" class="auth3d-area" width="90%" height="600" scrolling="auto" src="about:blank"></iframe>
-                        </div>
-                    {/if}
-                </div>
+            <!-- Remote Input / Assisted Output Section -->
+            <div class="fieldgroup-remoteinput{if ($editMode && !$remoteUpdate) || !$editMode} hidden{/if}">
+                {if $remoteUpdate}
+                    <div id="tokenGatewayRemoteUpdateOutput" class="text-center">
+                        {$remoteUpdate}
+                    </div>
+                {else}
+                    <div id="tokenGatewayRemoteInputOutput" class="text-center"></div>
+                    <div class="text-center">
+                        <iframe name="ccframe" class="auth3d-area" width="90%" height="600" scrolling="auto" src="about:blank"></iframe>
+                    </div>
+                {/if}
             </div>
         </div>
 
@@ -515,6 +515,21 @@
             ccExpiryFieldEnabled   = '{$creditCardExpiryFieldEnabled}',
             ccCvcFieldEnabled      = '{$creditCardCvcFieldEnabled}',
             ccForm                 = jQuery('.frm-credit-card-input');
+        var lastProcessedPaymentType = '';
+        var lastPaymentSelectionHandledAt = 0;
+        var showSection = function(selector) {
+            jQuery(selector).removeClass('hidden').show();
+        };
+        var hideSection = function(selector) {
+            jQuery(selector).addClass('hidden').hide();
+        };
+        var hideAllPaymentSections = function() {
+            hideSection('.fieldgroup-creditcard');
+            hideSection('.fieldgroup-bankaccount');
+            hideSection('.fieldgroup-remoteinput');
+            hideSection('.fieldgroup-auxfields');
+            hideSection('.fieldgroup-loading');
+        };
 
         // Format input fields
         ccForm.find('#inputCardNumber').payment('formatCardNumber');
@@ -605,38 +620,45 @@
             );
         });
 
-        jQuery('input[name="type"]').on('ifChecked', function(e) {
+        var handlePaymentTypeSelection = function(e) {
             var element = jQuery(this);
             var module  = element.data('gateway');
+            var selectedPaymentType = element.val() + ':' + (module ? module : '');
+
+            if (e.type === 'change' && !element.is(':checked')) {
+                return;
+            }
+            if (
+                selectedPaymentType === lastProcessedPaymentType
+                && (Date.now() - lastPaymentSelectionHandledAt) < 75
+            ) {
+                return;
+            }
+            lastProcessedPaymentType = selectedPaymentType;
+            lastPaymentSelectionHandledAt = Date.now();
+
             WHMCS.payment.event.gatewayUnselected(whmcsPaymentModuleMetadata);
             WHMCS.payment.display.errorClear();
-
-            // Hide all relevant groups using Tailwind's hidden class
-            jQuery('.fieldgroup-creditcard').addClass('hidden');
-            jQuery('.fieldgroup-bankaccount').addClass('hidden');
-            jQuery('.fieldgroup-remoteinput').addClass('hidden');
-            jQuery('.fieldgroup-auxfields').addClass('hidden');
-
-            // Show the loading indicator
-            jQuery('.fieldgroup-loading').removeClass('hidden');
             jQuery('#tokenGatewayAssistedOutput').html('');
 
             if (element.data('tokenised') === true) {
+                hideAllPaymentSections();
+                showSection('.fieldgroup-loading');
                 jQuery('#inputPaymentMethod').val(module);
                 WHMCS.http.jqClient.jsonPost({
                     url: "{routePath('account-paymentmethods-inittoken')}",
                     data: 'gateway=' + module,
                     success: function(response) {
-                        jQuery('.fieldgroup-loading').addClass('hidden');
+                        hideSection('.fieldgroup-loading');
                         if (response.remoteInputForm) {
                             jQuery('#tokenGatewayRemoteInputOutput').html(response.remoteInputForm);
                             jQuery('#tokenGatewayRemoteInputOutput')
                                 .find('form:first')
                                 .attr('target', 'ccframe');
                             setTimeout("autoSubmitFormByContainer('tokenGatewayRemoteInputOutput')", 1000);
-                            jQuery('.fieldgroup-remoteinput').removeClass('hidden');
+                            showSection('.fieldgroup-remoteinput');
                         } else if (response.assistedOutput) {
-                            jQuery('.fieldgroup-creditcard').removeClass('hidden');
+                            showSection('.fieldgroup-creditcard');
                             jQuery('#tokenGatewayAssistedOutput').html(response.assistedOutput);
                             if (!paymentInitSingleton.has(module)) {
                                 WHMCS.payment.event.gatewayInit(whmcsPaymentModuleMetadata, module, element);
@@ -644,27 +666,48 @@
                                 paymentInitSingleton.set(module, true);
                             }
                             WHMCS.payment.event.gatewaySelected(whmcsPaymentModuleMetadata, module, element);
-                            jQuery('.fieldgroup-auxfields').removeClass('hidden');
+                            showSection('.fieldgroup-auxfields');
                         } else if (response.gatewayType === 'Bank') {
-                            jQuery('.fieldgroup-loading').addClass('hidden');
-                            jQuery('.fieldgroup-bankaccount').removeClass('hidden');
-                            jQuery('.fieldgroup-auxfields').removeClass('hidden');
+                            showSection('.fieldgroup-bankaccount');
+                            showSection('.fieldgroup-auxfields');
                         } else {
-                            jQuery('.fieldgroup-creditcard').removeClass('hidden');
-                            jQuery('.fieldgroup-auxfields').removeClass('hidden');
+                            showSection('.fieldgroup-creditcard');
+                            showSection('.fieldgroup-auxfields');
                         }
                     },
+                    error: function(errorMsg) {
+                        hideSection('.fieldgroup-loading');
+                        showSection('.fieldgroup-creditcard');
+                        showSection('.fieldgroup-auxfields');
+                        if (errorMsg) {
+                            WHMCS.payment.display.errorShow(errorMsg);
+                        }
+                    },
+                    fail: function(errorMsg) {
+                        hideSection('.fieldgroup-loading');
+                        showSection('.fieldgroup-creditcard');
+                        showSection('.fieldgroup-auxfields');
+                        if (errorMsg) {
+                            WHMCS.payment.display.errorShow(errorMsg);
+                        }
+                    }
                 });
             } else if (element.val() === 'bankacct') {
-                jQuery('.fieldgroup-loading').addClass('hidden');
-                jQuery('.fieldgroup-bankaccount').removeClass('hidden');
-                jQuery('.fieldgroup-auxfields').removeClass('hidden');
+                hideSection('.fieldgroup-creditcard');
+                hideSection('.fieldgroup-remoteinput');
+                hideSection('.fieldgroup-loading');
+                showSection('.fieldgroup-bankaccount');
+                showSection('.fieldgroup-auxfields');
             } else {
-                jQuery('.fieldgroup-loading').addClass('hidden');
-                jQuery('.fieldgroup-creditcard').removeClass('hidden');
-                jQuery('.fieldgroup-auxfields').removeClass('hidden');
+                hideSection('.fieldgroup-bankaccount');
+                hideSection('.fieldgroup-remoteinput');
+                hideSection('.fieldgroup-loading');
+                showSection('.fieldgroup-creditcard');
+                showSection('.fieldgroup-auxfields');
             }
-        });
+        };
+
+        jQuery('input[name="type"]').on('ifChecked change', handlePaymentTypeSelection);
 
         jQuery('input[name="billingcontact"]').on('ifChecked', function(e) {
             var value    = jQuery(this).val();
