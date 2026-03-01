@@ -12,49 +12,88 @@
         .removeClass('medium-heading hidden')
         .DataTable({
           bInfo: false,
-          paging: false,
+          paging: true,
+          pageLength: 25,
+          lengthChange: false,
+          searching: true,
           ordering: true,
+          order: [[0, 'asc']],
+          dom: 't',
           columns: [
-            {}, {}, {},               // Username, Plan, Devices
-            { type: 'storage-size' }, // Total Size
-            { type: 'storage-size' }, // Total Storage
-            {},                       // MS 365 Users
-            {},                       // Status
-            {},                       // Amount
-            {}                        // Next Due Date
-          ],
-          initComplete: function () {
-            var api     = this.api();
-            var $wrapper= $(api.table().container());
-            
-            // Detach the built-in search filter & your custom status
-            var $filter = $wrapper.find('.dataTables_filter').detach();
-            var $status = $('#statusFilterContainer').detach();
-    
-            // Extract & style the search input
-            var $input = $filter.find('input')
-              .attr('placeholder', 'Search')
-              .addClass('px-3 py-2 border border-slate-700 text-slate-200 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600')
-              .css('border', '1px solid #4b5563');
-    
-            // Rebuild the controls row
-            var $controls = $('<div class="flex items-center w-full"></div>')
-              .append($('<div class="mr-auto flex items-center"></div>').append($input))
-              .append($status.addClass('ml-auto flex items-center'));
-    
-            $wrapper.prepend($controls);
-          }
+            {}, // Username
+            {}, // Plan
+            {}, // Status
+            {}, // Amount
+            {}  // Next Due Date
+          ]
         });
-    
-      // Default to “Active” on the Status column (index 6)
-      table.column(6).search('active', false, false).draw();
-    
-      // Re-filter on dropdown change
-      $(document).on('change', '#statusFilter', function () {
-        table.column(6).search(this.value, false, false).draw();
 
-        
+      function updateSortIndicators() {
+        var order = table.order();
+        var activeCol = order.length ? order[0][0] : null;
+        var activeDir = order.length ? order[0][1] : 'asc';
+
+        $('#tableServicesList .sort-indicator').text('');
+        if (activeCol !== null) {
+          var arrow = activeDir === 'asc' ? '↑' : '↓';
+          $('#tableServicesList .sort-indicator[data-col="' + activeCol + '"]').text(arrow);
+        }
+      }
+
+      function applyStatusFilter(value) {
+        table.column(2).search(value, false, false).draw();
+      }
+
+      function updatePager() {
+        var info = table.page.info();
+        var start = info.recordsDisplay ? info.start + 1 : 0;
+        var end = info.recordsDisplay ? info.end : 0;
+        var total = info.recordsDisplay;
+        $('#servicesPageSummary').text('Showing ' + start + '-' + end + ' of ' + total + ' services');
+        $('#servicesPageLabel').text('Page ' + (info.page + 1) + ' / ' + (info.pages || 1));
+        $('#servicesPrevPage').prop('disabled', info.page <= 0);
+        $('#servicesNextPage').prop('disabled', info.page >= info.pages - 1 || info.pages === 0);
+      }
+
+      window.setServicesEntries = function (size) {
+        table.page.len(Number(size) || 25).draw();
+      };
+
+      window.setServicesStatus = function (status) {
+        applyStatusFilter(status || '');
+      };
+
+      window.setServicesSearch = function (query) {
+        table.search(query || '').draw();
+      };
+
+      $(document).on('input', '#servicesSearchInput', function () {
+        window.setServicesSearch(this.value);
       });
+
+      $(document).on('click', '#servicesPrevPage', function () {
+        table.page('previous').draw('page');
+      });
+
+      $(document).on('click', '#servicesNextPage', function () {
+        table.page('next').draw('page');
+      });
+
+      $('#tableServicesList thead').on('click', 'button[data-col-index]', function () {
+        var index = Number($(this).data('col-index'));
+        var current = table.order();
+        var nextDir = 'asc';
+        if (current.length && current[0][0] === index && current[0][1] === 'asc') {
+          nextDir = 'desc';
+        }
+        table.order([index, nextDir]).draw();
+      });
+
+      table.on('order.dt', updateSortIndicators);
+      table.on('draw.dt', updatePager);
+      updateSortIndicators();
+      applyStatusFilter('active');
+      updatePager();
     });
 
     
@@ -102,39 +141,53 @@
         </script>
         {/literal}
 
-<div class="min-h-screen bg-slate-950 text-gray-300">
-    <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
-    <div class="container mx-auto px-4 pb-8">
-        <!-- Top bar: title, nav, search -->
-        <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6">
-            <div class="container mx-auto px-4 py-8">
-
-                <nav class="inline-flex rounded-full bg-slate-900/80 p-1 text-xs font-medium text-slate-400" aria-label="Services Navigation">
+<div class="min-h-screen min-w-0 bg-slate-950 text-gray-300 overflow-x-hidden">
+    {* <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div> *}
+    <div class="container mx-auto min-w-0 max-w-full overflow-x-hidden px-4 py-8">
+        <div class="w-full max-w-full min-w-0 overflow-hidden rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
+            <div class="-mx-6 -mt-6 mb-6 rounded-t-3xl border-b border-slate-800/80 bg-slate-900/50 px-6 py-3">
+                <nav class="flex flex-wrap items-center gap-1" aria-label="Services Navigation">
                     <a href="{$WEB_ROOT}/clientarea.php?action=services"
-                    class="px-4 py-1.5 rounded-full transition {if ($smarty.get.action eq 'services' || !$smarty.get.m) && $smarty.get.tab ne 'billing'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-                        Backup Services
+                       class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if ($smarty.get.action eq 'services' || !$smarty.get.m) && $smarty.get.tab ne 'billing'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 14.25v2.25m3-4.5v4.5m3-6.75v6.75m3-9v9M6 20.25h12A2.25 2.25 0 0 0 20.25 18V6A2.25 2.25 0 0 0 18 3.75H6A2.25 2.25 0 0 0 3.75 6v12A2.25 2.25 0 0 0 6 20.25Z" />
+                        </svg>
+                        <span class="text-sm font-medium">Backup Services</span>
                     </a>
                     <a href="{$WEB_ROOT}/clientarea.php?action=services&tab=billing"
-                    class="px-4 py-1.5 rounded-full transition {if $smarty.get.tab eq 'billing'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-                        Billing Report
-                    </a>                
+                       class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $smarty.get.tab eq 'billing'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                        </svg>
+                        <span class="text-sm font-medium">Billing Report</span>
+                    </a>
                     <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=services-e3"
-                    class="px-4 py-1.5 rounded-full transition {if $smarty.get.m eq 'eazybackup' && $smarty.get.a eq 'services-e3'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-                        e3 Object Storage
+                       class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $smarty.get.m eq 'eazybackup' && $smarty.get.a eq 'services-e3'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
+                        </svg>
+                        <span class="text-sm font-medium">e3 Object Storage</span>
                     </a>
                 </nav>
             </div>
-        </div>
-        <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
-            <div class="flex flex-col sm:flex-row h-16 justify-between items-start sm:items-center mb-3">
-                <div class="flex items-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" />
-                    </svg>
-                    <h2 class="text-2xl font-semibold text-white">My Services</h2>
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-3">
+                <div>
+                    <div class="flex items-center gap-2 mb-1">
+                        <a href="{$WEB_ROOT}/clientarea.php?action=services" class="text-slate-400 hover:text-white text-sm">Services</a>
+                        <span class="text-slate-600">/</span>
+                        <span class="text-white text-sm font-medium">{if $smarty.get.tab eq 'billing'}Billing Report{else}Backup Services{/if}</span>
+                    </div>
+                    <h2 class="text-2xl font-semibold text-white">{if $smarty.get.tab eq 'billing'}Billing Report{else}Backup Services{/if}</h2>
+                    <p class="text-xs text-slate-400 mt-1">
+                        {if $smarty.get.tab eq 'billing'}
+                            Review detailed usage and billing metrics.
+                        {else}
+                            Manage your backup services and current plan status.
+                        {/if}
+                    </p>
                 </div>
                 <div class="shrink-0">
-                    <a href="modules/servers/comet/ajax/export_usage.php" class="inline-flex items-center px-3 py-2 text-sm bg-sky-600 hover:bg-sky-700 text-white rounded border border-sky-700">
+                    <a href="modules/servers/comet/ajax/export_usage.php" class="inline-flex items-center px-4 py-2 rounded-md bg-amber-600 text-white text-sm font-semibold hover:bg-amber-500">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
                             <path fill-rule="evenodd" d="M3 3a1 1 0 011-1h8a1 1 0 011 1v3h-2V4H5v12h6v-2h2v3a1 1 0 01-1 1H4a1 1 0 01-1-1V3zm11.293 6.293a1 1 0 011.414 0L19 12.586l-1.414 1.414L16 12.414V17h-2v-4.586l-1.586 1.586L11 12.586l3.293-3.293z" clip-rule="evenodd" />
                         </svg>
@@ -145,7 +198,7 @@
 
 
 
-            <div id="services-wrapper" class="rounded-2xl border border-slate-800/80 bg-slate-900/70 p-5 shadow-lg.">
+            <div id="services-wrapper" class="w-full max-w-full min-w-0 rounded-2xl border border-slate-800/80 bg-slate-900/70 p-5 shadow-lg.">
                 <div class="table-container clearfix">                
                     <div class="header-lined mb-4"></div>
                     <div id="successMessage" 
@@ -160,54 +213,119 @@
                     </div>
                     
                     <div x-show="activeTab === 'tab1'" class="tab-content">
-                        <div class="overflow-visible">                  
-                            <div id="statusFilterContainer" class="flex items-center">
-                                <label for="statusFilter" class="mr-2 text-slate-200">Status:</label>
-                                <select id="statusFilter"
-                                        class="pl-2 pr-8 py-2 bg-slate-800 text-slate-200 border border-slate-700 rounded">
-                                <option value="active">Active</option>
-                                <option value="suspended">Suspended</option>
-                                <option value="cancelled">Cancelled</option>
-                                <option value="">All</option>
-                                </select>
-                            </div>
-                            <table id="tableServicesList" class="min-w-full">
-                            
-                                <thead class="border-b border-slate-800/80">
-                                    <tr>
-                                        <th class="cursor-pointer px-4 py-4 text-left text-sm font-semibold text-slate-200 sorting_asc">Username</th>
-                                        <th class="cursor-pointer px-4 py-4 text-left text-sm font-semibold text-slate-200">Plan</th>
-                                        <th class="cursor-pointer px-4 py-4 text-left text-sm font-semibold text-slate-200">Devices</th>
-                                        <th class="cursor-pointer px-4 py-4 text-left text-sm font-semibold text-slate-200">
-                                            Total Size
-                                            <span class="inline-block ml-1">
-                                                <svg
-                                                data-tippy-content="The total amount of data you selected for backup on your computer, summed across all Protected Items based on your last successful backup jobs."
-                                                xmlns="http://www.w3.org/2000/svg"
-                                                class="w-4 h-4 text-slate-400 hover:text-slate-200 cursor-pointer"
-                                                fill="none"
-                                                viewBox="0 0 24 24"
-                                                stroke="currentColor"
-                                                stroke-width="2"
-                                                >
-                                                <path stroke-linecap="round" stroke-linejoin="round"
-                                                        d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 11-0 20 10 10 0 01-0-20z" />
-                                                </svg>
-                                            </span>
-                                        </th>
-                                        <th class="cursor-pointer px-4 py-4 text-left text-sm font-semibold text-slate-200">
-                                            Total Storage
-                                            <span class="inline-block ml-1">                                         
-                                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-slate-300 hover:text-slate-200 cursor-pointer" data-tippy-content="This shows the combined compressed and deduplicated size of all Storage Vaults for each User.">
-                                                <path stroke-linecap="round" stroke-linejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
-                                                </svg>
+                        <div class="overflow-visible">
+                            <div class="mb-4 flex flex-col xl:flex-row xl:items-center gap-3">
+                                <div class="relative" x-data="{ isOpen: false, selected: 25 }" @click.away="isOpen = false">
+                                    <button type="button"
+                                            @click="isOpen = !isOpen"
+                                            class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
+                                        <span x-text="'Show ' + selected"></span>
+                                        <svg class="w-4 h-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                        </svg>
+                                    </button>
+                                    <div x-show="isOpen"
+                                         x-transition:enter="transition ease-out duration-100"
+                                         x-transition:enter-start="opacity-0 scale-95"
+                                         x-transition:enter-end="opacity-100 scale-100"
+                                         x-transition:leave="transition ease-in duration-75"
+                                         x-transition:leave-start="opacity-100 scale-100"
+                                         x-transition:leave-end="opacity-0 scale-95"
+                                         class="absolute left-0 mt-2 w-40 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden"
+                                         style="display: none;">
+                                        <template x-for="size in [10,25,50,100]" :key="'entries-' + size">
+                                            <button type="button"
+                                                    class="w-full px-4 py-2 text-left text-sm transition"
+                                                    :class="selected === size ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
+                                                    @click="selected = size; isOpen = false; window.setServicesEntries(size)">
+                                                <span x-text="size"></span>
+                                            </button>
+                                        </template>
+                                    </div>
+                                </div>
 
-                                            </span>
-                                            </th>
-                                        <th class="cursor-pointer px-4 py-4 text-left text-sm font-semibold text-slate-200">MS 365 Users</th>
-                                        <th class="cursor-pointer px-4 py-4 text-left text-sm font-semibold text-slate-200">Status</th>
-                                        <th class="cursor-pointer px-4 py-4 text-left text-sm font-semibold text-slate-200">Amount</th>
-                                        <th class="cursor-pointer px-4 py-4 text-left text-sm font-semibold text-slate-200">Next Due Date</th>
+                                <div class="relative"
+                                     x-data="{
+                                        isOpen: false,
+                                        selectedLabel: 'Active',
+                                        options: [
+                                          { value: 'active', label: 'Active' },
+                                          { value: 'inactive', label: 'Inactive' },
+                                          { value: 'suspended', label: 'Suspended' },
+                                          { value: 'cancelled', label: 'Cancelled' },
+                                          { value: '', label: 'All' }
+                                        ]
+                                     }"
+                                     @click.away="isOpen = false">
+                                    <button type="button"
+                                            @click="isOpen = !isOpen"
+                                            class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
+                                        <span x-text="'Status: ' + selectedLabel"></span>
+                                        <svg class="w-4 h-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                        </svg>
+                                    </button>
+                                    <div x-show="isOpen"
+                                         x-transition:enter="transition ease-out duration-100"
+                                         x-transition:enter-start="opacity-0 scale-95"
+                                         x-transition:enter-end="opacity-100 scale-100"
+                                         x-transition:leave="transition ease-in duration-75"
+                                         x-transition:leave-start="opacity-100 scale-100"
+                                         x-transition:leave-end="opacity-0 scale-95"
+                                         class="absolute left-0 mt-2 w-56 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden"
+                                         style="display: none;">
+                                        <template x-for="opt in options" :key="'status-' + (opt.value || 'all')">
+                                            <button type="button"
+                                                    class="w-full px-4 py-2 text-left text-sm transition"
+                                                    :class="selectedLabel === opt.label ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
+                                                    @click="selectedLabel = opt.label; isOpen = false; window.setServicesStatus(opt.value)">
+                                                <span x-text="opt.label"></span>
+                                            </button>
+                                        </template>
+                                    </div>
+                                </div>
+
+                                <div class="flex-1"></div>
+                                <input id="servicesSearchInput"
+                                       type="text"
+                                       placeholder="Search username, plan, or amount"
+                                       class="w-full xl:w-80 rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
+                            </div>
+
+                            <div class="overflow-x-auto rounded-lg border border-slate-800">
+                            <table id="tableServicesList" class="min-w-full divide-y divide-slate-800 text-sm">
+                                <thead class="bg-slate-900/80 text-slate-300">
+                                    <tr>
+                                        <th class="px-4 py-3 text-left font-medium">
+                                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" data-col-index="0">
+                                                Username
+                                                <span class="sort-indicator" data-col="0"></span>
+                                            </button>
+                                        </th>
+                                        <th class="px-4 py-3 text-left font-medium">
+                                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" data-col-index="1">
+                                                Plan
+                                                <span class="sort-indicator" data-col="1"></span>
+                                            </button>
+                                        </th>
+                                        <th class="px-4 py-3 text-left font-medium">
+                                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" data-col-index="2">
+                                                Status
+                                                <span class="sort-indicator" data-col="2"></span>
+                                            </button>
+                                        </th>
+                                        <th class="px-4 py-3 text-left font-medium">
+                                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" data-col-index="3">
+                                                Amount
+                                                <span class="sort-indicator" data-col="3"></span>
+                                            </button>
+                                        </th>
+                                        <th class="px-4 py-3 text-left font-medium">
+                                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" data-col-index="4">
+                                                Next Due Date
+                                                <span class="sort-indicator" data-col="4"></span>
+                                            </button>
+                                        </th>
                                     </tr>
                                 </thead>
                                     {assign var="filteredServices" value=[]}
@@ -217,49 +335,49 @@
                                         {/if}
                                     {/foreach}
 
-                                    <tbody class="">
+                                    <tbody class="divide-y divide-slate-800">
                                         {foreach key=num item=service from=$filteredServices}
                                             <tr 
-                                                class="hover:bg-slate-600/20 cursor-pointer" 
+                                                class="hover:bg-slate-800/50 cursor-default" 
                                                 id="serviceid-{$service.id}" 
-                                                data-serviceid="{$service.id}" 
-                                                data-userservice="{$service.product}-{$service.username}"
                                             >
-                                                <td class="px-4 py-4 text-left text-sm font-medium text-white service_username {if $service.username}service_list{/if} dropdown_icon serviceid-{$service.id}" data-id="{$service.id}">
-                                                    <a href="javascript:void(0)" class="flex items-center">
-                                                        <i class="fa fa-caret-right mr-2"></i>
-                                                        {$service.username}
-                                                    </a>
+                                                <td class="px-4 py-3 text-left service_username serviceid-{$service.id}" data-id="{$service.id}">
+                                                    <span class="font-medium text-slate-100">{$service.username}</span>
                                                 </td>
-                                                <td class="px-4 py-4 text-left text-sm text-slate-400">{$service.product}</td>
-                                                <td class="px-4 py-4 text-left text-sm text-slate-400">
-                                                    {if $service.devicecounting}{$service.devicecounting}{else}No device{/if}
-                                                </td>
-                                                <td class="px-4 py-4 text-left text-sm text-slate-400" data-order="{$service.TotalSizeBytes|default:0}">
-                                                    {$service.TotalSize}
-                                                </td>
-                                                <td class="px-4 py-4 text-left text-sm text-slate-400">{$service.TotalStorage}</td>
-                                                <td class="px-4 py-4 text-left text-sm text-slate-400">{$service.MicrosoftAccountCount}</td>
-                                                <td class="px-4 py-4 text-left text-sm">
-                                                    <span class="flex items-left">
-                                                        <i class="fa fa-circle mr-1 
-                                                            {if strtolower($service.status) == 'active'}text-green-600
-                                                            {elseif strtolower($service.status) == 'inactive'}text-red-600
-                                                            {else}text-yellow-600{/if}">
-                                                        </i>
-                                                        <span class="capitalize text-slate-400">{strtolower($service.status)}</span>
+                                                <td class="px-4 py-3 text-left text-slate-300">{$service.product}</td>
+                                                <td class="px-4 py-3 text-left">
+                                                    <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold {if strtolower($service.status) == 'active'}bg-emerald-500/15 text-emerald-200{else}bg-slate-700 text-slate-300{/if}">
+                                                        <span class="h-1.5 w-1.5 rounded-full {if strtolower($service.status) == 'active'}bg-emerald-400{else}bg-slate-500{/if}"></span>
+                                                        <span class="capitalize">{strtolower($service.status)}</span>
                                                     </span>
                                                 </td>
-                                                <td class="px-4 py-4 text-left text-sm text-slate-400" data-order="{$service.amountnum}">
+                                                <td class="px-4 py-3 text-left text-slate-300" data-order="{$service.amountnum}">
                                                     {$service.amount}<br />{$service.billingcycle}{$hasdevices}
                                                 </td>
-                                                <td class="px-4 py-4 text-left text-sm text-slate-400">
+                                                <td class="px-4 py-3 text-left text-slate-300">
                                                     {$service.nextduedate|date_format:"%Y-%m-%d"}
                                                 </td>
                                             </tr>
                                         {/foreach}
                                     </tbody> 
                             </table>
+                            </div>
+                            <div class="mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-400">
+                                <div id="servicesPageSummary"></div>
+                                <div class="flex items-center gap-2">
+                                    <button type="button"
+                                            id="servicesPrevPage"
+                                            class="px-3 py-1.5 rounded border border-slate-700 bg-slate-900/70 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed">
+                                        Prev
+                                    </button>
+                                    <span class="text-slate-300" id="servicesPageLabel"></span>
+                                    <button type="button"
+                                            id="servicesNextPage"
+                                            class="px-3 py-1.5 rounded border border-slate-700 bg-slate-900/70 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed">
+                                        Next
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                         <div class="text-center mt-4" id="tableLoading"></div>
                         <div class="extra_details mt-4">
@@ -288,48 +406,85 @@
             </div>
 
             {* Billing Report Content *}
-            <div class="min-h-screen text-slate-200 max-w-full">
+            <div class="w-full max-w-full min-w-0 overflow-hidden text-slate-200">
                 
-                <div id="billing-report-wrapper" class="p-4 rounded-lg border border-slate-800/80 bg-slate-900/70 shadow-lg." style="display:none;">
-                    <div class="flex items-center justify-between mb-3">
-                        <h3 class="text-xl text-white">Billing Report</h3>
-                        <div>
-                            <a href="modules/servers/comet/ajax/export_usage.php" class="inline-flex items-center px-3 py-2 text-sm bg-sky-600 hover:bg-sky-700 text-white rounded border border-sky-700">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
-                                    <path fill-rule="evenodd" d="M3 3a1 1 0 011-1h8a1 1 0 011 1v3h-2V4H5v12h6v-2h2v3a1 1 0 01-1 1H4a1 1 0 01-1-1V3zm11.293 6.293a1 1 0 011.414 0L19 12.586l-1.414 1.414L16 12.414V17h-2v-4.586l-1.586 1.586L11 12.586l3.293-3.293z" clip-rule="evenodd" />
-                                </svg>
-                                Export Usage (CSV)
-                            </a>
-                        </div>
-                    </div>
+                <div id="billing-report-wrapper" class="w-full max-w-full min-w-0 overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-900/70 p-5 shadow-lg" style="display:none;">
 
                     
 
                     {literal}
                     <style>
-                    /* Keep DataTables scroll containers inside the viewport */
-                    #billing-report-wrapper,
-                    #billing-report-wrapper .dataTables_wrapper,
-                    #billing-report-wrapper .dataTables_scroll,
-                    #billing-report-wrapper .dataTables_scrollHead,
-                    #billing-report-wrapper .dataTables_scrollBody {
-                        max-width: 100% !important;
+                    #billing-report-wrapper {
+                        width: 100%;
+                        max-width: 100%;
+                        overflow: hidden;
+                        min-width: 0;
                     }
-                    /* Let the scroll head match the wrapper width instead of an inline fixed px width */
-                    #billing-report-wrapper .dataTables_scrollHeadInner,
-                    #billing-report-wrapper .dataTables_scrollHeadInner table {
-                        width: 100% !important;
+                    #billing-report-scroll .dataTables_wrapper {
+                        width: max-content;
+                        min-width: 100%;
                     }
-                    /* Ensure the table itself doesn't force a larger layout than the wrapper;
-                        the scrollBody will provide horizontal scroll for overflow content. */
+                    #billing-report-scroll {
+                        width: 100%;
+                        max-width: 100%;
+                        overflow-x: auto;
+                        overflow-y: hidden;
+                        min-width: 0;
+                        -webkit-overflow-scrolling: touch;
+                    }
                     #billing-report-wrapper #tableBillingReport {
-                        min-width: 100% !important;
-                        width: max-content !important; /* allow horizontal scroll without squeezing columns */
+                        min-width: 120rem;
+                        width: max-content !important;
                     }
-                    /* Keep header and body columns the same width */
+
                     #tableBillingReport { table-layout: fixed; border-collapse: separate; border-spacing: 0; }
-                    #tableBillingReport tbody td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
-                    /* Two-line clamp for header labels; allow wrapping but limit height */
+                    #tableBillingReport thead {
+                        background: rgba(15, 23, 42, 0.8);
+                        color: #cbd5e1;
+                    }
+                    #tableBillingReport thead th,
+                    #tableBillingReport tbody td {
+                        padding: 0.75rem 1rem;
+                        text-align: left;
+                    }
+                    #tableBillingReport thead th {
+                        font-size: 0.875rem;
+                        font-weight: 500;
+                        cursor: pointer;
+                        position: relative;
+                        padding-right: 1.5rem;
+                    }
+                    #tableBillingReport thead th.sorting:before,
+                    #tableBillingReport thead th.sorting:after,
+                    #tableBillingReport thead th.sorting_asc:before,
+                    #tableBillingReport thead th.sorting_asc:after,
+                    #tableBillingReport thead th.sorting_desc:before,
+                    #tableBillingReport thead th.sorting_desc:after {
+                        display: none !important;
+                    }
+                    #tableBillingReport thead th.sorting_asc::after,
+                    #tableBillingReport thead th.sorting_desc::after {
+                        display: block !important;
+                        position: absolute;
+                        right: 0.5rem;
+                        top: 50%;
+                        transform: translateY(-50%);
+                        color: #cbd5e1;
+                        font-size: 0.75rem;
+                    }
+                    #tableBillingReport thead th.sorting_asc::after { content: '↑'; }
+                    #tableBillingReport thead th.sorting_desc::after { content: '↓'; }
+                    #tableBillingReport tbody td {
+                        white-space: nowrap;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        vertical-align: middle;
+                        color: #cbd5e1;
+                        border-bottom: 1px solid rgba(51, 65, 85, 0.9);
+                    }
+                    #tableBillingReport tbody tr:hover {
+                        background: rgba(30, 41, 59, 0.5);
+                    }
                     #tableBillingReport thead th .th-clamp {
                         display: -webkit-box;
                         -webkit-line-clamp: 2;
@@ -344,13 +499,15 @@
                     /* Give all subsequent columns a consistent fixed width for alignment */
                     #tableBillingReport thead th:nth-child(n+2),
                     #tableBillingReport tbody td:nth-child(n+2) { width: 7.5rem; max-width: 7.5rem; }
-                    /* Header pointer and cell padding */
-                    #tableBillingReport thead th { cursor: pointer; }
-                    #tableBillingReport thead th,
-                    #tableBillingReport tbody td { padding: 0.75rem 1rem; }
-                    #tableBillingReport tbody tr { border-bottom: 1px solid rgba(55,65,81,0.6); }
-                    #tableBillingReport tbody td { color: #d1d5db; }
-                    /* Make the header/toolbars wrap cleanly on medium viewports (1024-1279px) */
+
+                    @media (max-width: 1024px) {
+                        #tableBillingReport thead th,
+                        #tableBillingReport tbody td {
+                            padding: 0.625rem 0.75rem;
+                            font-size: 0.75rem;
+                        }
+                    }
+
                     @media (min-width: 1024px) and (max-width: 1279px) {
                         .billing-toolbar {
                         flex-wrap: wrap;
@@ -361,7 +518,6 @@
                         }
                     }
 
-                    /* Responsive condense mode for small screens */
                     #billing-report-scroll.is-mobile { overflow-x: auto; }
                     #billing-report-scroll.is-mobile #tableBillingReport { width: 100% !important; }
                     #billing-report-scroll.is-mobile #tableBillingReport thead th,
@@ -369,10 +525,8 @@
                         width: auto !important;
                     }
                     #billing-report-scroll.is-mobile #tableBillingReport tbody td { white-space: normal; }
-                    /* Hide low-priority columns on small screens, keep only a few key columns visible */
                     #billing-report-scroll.is-mobile #tableBillingReport th,
                     #billing-report-scroll.is-mobile #tableBillingReport td { display: none; }
-                    /* Keep: 1=Username, 5=Storage Total, 34=Recurring Amount, 35=Plan, 36=Next Due Date */
                     #billing-report-scroll.is-mobile #tableBillingReport th:nth-child(1),
                     #billing-report-scroll.is-mobile #tableBillingReport td:nth-child(1),
                     #billing-report-scroll.is-mobile #tableBillingReport th:nth-child(5),
@@ -392,6 +546,7 @@
                     window.billingTable = function() {
                         return {
                         showMenu: false,
+                        entriesPerPage: 25,
                         table: null,
                         columns: [],
                         init() {
@@ -409,35 +564,25 @@
                             } else {
                             this.table = jQuery(tableEl).DataTable({
                                 paging: true,
+                                pageLength: this.entriesPerPage,
+                                lengthChange: false,
                                 searching: true,
                                 info: false,
-                                order: [],
+                                ordering: true,
+                                order: [[0, 'asc']],
                                 autoWidth: false,
-                                language: { lengthMenu: 'Show _MENU_ entries' },
-                                drawCallback: function(){
-                                try {
-                                    var $len = $('.dataTables_length select');
-                                    $len.addClass('px-6 py-1');
-                                    $('.dataTables_length').addClass('pr-4');
-                                } catch(_){ }
-                                }
+                                scrollX: false,
+                                scrollCollapse: false,
+                                dom: 't'
                             });
                             }
-                            // Move and style the search filter into our toolbar
-                            try {
-                            var $wrapper = jQuery(this.table.table().container());
-                            var $filter  = $wrapper.find('.dataTables_filter');
-                            if ($filter.length) {
-                                var $input = $filter.find('input')
-                                .attr('placeholder', 'Search')
-                                .addClass('px-3 py-2 border border-slate-700 text-slate-200 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600')
-                                .css('border', '1px solid #4b5563');
-                                var $controls = jQuery('<div class="flex items-center w-full mb-2"></div>')
-                                .append(jQuery('<div class="mr-auto flex items-center"></div>').append($input.detach()));
-                                jQuery('#billingFilterContainer').empty().append($controls);
-                                $filter.remove();
+                            const searchInput = document.getElementById('billingSearchInput');
+                            if (searchInput && !searchInput.dataset.bound) {
+                                searchInput.dataset.bound = '1';
+                                searchInput.addEventListener('input', (e) => {
+                                    if (this.table) this.table.search(e.target.value || '').draw();
+                                });
                             }
-                            } catch(_) {}
                             // Load data once per render
                             try { window.showGlobalLoader && window.showGlobalLoader(); } catch(_){}
                             fetch('modules/servers/comet/ajax/usage_report.php', { credentials: 'same-origin' })
@@ -459,18 +604,12 @@
                             window.__billingCols[idx] = { idx, label: header, visible };
                             });
                             this.columns = (window.__billingCols || []).filter(c => c !== undefined);
-                            const thead = tableEl.querySelector('thead');
-                            if (thead && !thead.dataset.dtBound) { thead.dataset.dtBound = '1';
-                            thead.addEventListener('click', (e) => {
-                                const th = e.target.closest('th');
-                                if (!th) return;
-                                const idx = Array.from(th.parentElement.children).indexOf(th);
-                                const current = api.order();
-                                let dir = 'asc';
-                                if (current.length && current[0][0] === idx && current[0][1] === 'asc') dir = 'desc';
-                                api.order([idx, dir]).draw();
-                            });
-                            thead.querySelectorAll('th').forEach(th => th.classList.add('cursor-pointer'));
+                            tableEl.querySelectorAll('thead th').forEach(th => th.classList.add('cursor-pointer'));
+                        },
+                        setEntries(size) {
+                            this.entriesPerPage = Number(size) || 25;
+                            if (this.table) {
+                                this.table.page.len(this.entriesPerPage).draw();
                             }
                         },
                         toggle(idx) {
@@ -485,24 +624,54 @@
                     };
                     </script>
                     <!-- Billing Report: Alpine + DataTables with horizontal scroll and column toggles -->
-                    <div x-data="billingTable()" x-init="init()" class="w-full px-2 md:px-0">
-                        <div class="flex items-center justify-between mb-2">
-                            <div id="billingFilterContainer" class="flex items-center"></div>
-                            <!-- Column toggle menu -->
+                    <div x-data="billingTable()" x-init="init()" class="w-full max-w-full min-w-0 overflow-hidden">
+                        <div class="mb-4 flex flex-col xl:flex-row xl:items-center gap-3">
+                            <div class="relative" x-data="{ isOpen: false }" @click.away="isOpen = false">
+                                <button type="button"
+                                        @click="isOpen = !isOpen"
+                                        class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
+                                    <span x-text="'Show ' + entriesPerPage"></span>
+                                    <svg class="w-4 h-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                    </svg>
+                                </button>
+                                <div x-show="isOpen"
+                                     x-transition:enter="transition ease-out duration-100"
+                                     x-transition:enter-start="opacity-0 scale-95"
+                                     x-transition:enter-end="opacity-100 scale-100"
+                                     x-transition:leave="transition ease-in duration-75"
+                                     x-transition:leave-start="opacity-100 scale-100"
+                                     x-transition:leave-end="opacity-0 scale-95"
+                                     class="absolute left-0 mt-2 w-40 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden"
+                                     style="display: none;">
+                                    <template x-for="size in [10,25,50,100]" :key="'billing-entries-' + size">
+                                        <button type="button"
+                                                class="w-full px-4 py-2 text-left text-sm transition"
+                                                :class="entriesPerPage === size ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
+                                                @click="setEntries(size); isOpen=false;">
+                                            <span x-text="size"></span>
+                                        </button>
+                                    </template>
+                                </div>
+                            </div>
+
                             <div class="relative" @keydown.escape="showMenu=false">
                                 <button type="button"
-                                        class="px-3 py-2 text-sm rounded-md bg-slate-800 text-slate-200 hover:bg-slate-700"
+                                        class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80"
                                         @click="showMenu=!showMenu" aria-haspopup="true" :aria-expanded="showMenu">
                                     Columns
+                                    <svg class="w-4 h-4 transition-transform" :class="showMenu ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                    </svg>
                                 </button>
                                 <div x-show="showMenu" x-transition
-                                    class="absolute right-0 mt-2 w-64 max-h-64 overflow-auto rounded-md shadow-lg bg-slate-800 ring-1 ring-slate-700 z-50"
+                                    class="absolute left-0 mt-2 w-64 max-h-64 overflow-auto rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 p-2"
                                     @click.outside="showMenu=false">
-                                    <div class="p-2 text-sm text-slate-200">
+                                    <div class="text-sm text-slate-200">
                                         <template x-for="col in columns" :key="col.idx">
                                             <label class="flex items-center justify-between py-1 px-2 hover:bg-slate-800 rounded cursor-pointer">
                                             <span class="pr-2 truncate" x-text="col.label || ('Column ' + col.idx)"></span>
-                                            <input type="checkbox" class="h-4 w-4"
+                                            <input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500"
                                                     :checked="col.visible"
                                                     @change="toggle(col.idx)">
                                             </label>
@@ -510,13 +679,19 @@
                                     </div>
                                 </div>
                             </div>
+
+                            <div class="flex-1"></div>
+                            <input id="billingSearchInput"
+                                   type="text"
+                                   placeholder="Search"
+                                   class="w-full xl:w-80 rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
                         </div>
 
                         <!-- Horizontal scroll container -->
-                        <div id="billing-report-scroll" class="w-full max-w-full overflow-x-auto">
+                        <div id="billing-report-scroll" class="w-full max-w-full min-w-0 overflow-x-auto overflow-y-hidden rounded-lg border border-slate-800">
                             <!-- Keep table markup as-is; DataTables will enhance and provide sorting -->
-                            <table id="tableBillingReport" class="min-w-full">
-                                <thead class="border-b border-slate-800/80">
+                            <table id="tableBillingReport" class="min-w-full divide-y divide-slate-800 text-sm">
+                                <thead class="bg-slate-900/80 text-slate-300">
                                     <tr>
                                         <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">Username</span></th>
                                         <th class="px-4 py-3 text-left text-sm font-semibold text-slate-200"><span class="th-clamp">Storage Usage</span></th>

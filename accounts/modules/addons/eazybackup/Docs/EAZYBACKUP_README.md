@@ -46,6 +46,7 @@ bin/
   bootstrap.php            # Shared bootstrap (autoload, .env, db(), logger)
   comet_ws_worker.php      # WebSocket worker: Comet → DB (jobs/devices)
   rollup_devices_daily.php # Nightly snapshot of device counts
+  rollup_storage_daily.php # Nightly snapshot of storage totals
   rollup_items_daily.php   # Nightly snapshot of protected-item counts
   monitor_stalled_jobs.php 
 
@@ -283,6 +284,8 @@ bin/comet_ws_worker.php (one process per Comet server profile)
 
 Nightly
   ├─ bin/rollup_devices_daily.php ─► eb_devices_daily   (registered, active_24h)
+  ├─ bin/rollup_devices_client_daily.php ─► eb_devices_client_daily (per-client registered, online)
+  ├─ bin/rollup_storage_daily.php ─► eb_storage_daily   (per-client per-user storage totals)
   └─ bin/rollup_items_daily.php   ─► eb_items_daily     (Disk Image devices, Hyper-V VMs, VMware VMs, Microsoft 365 users, Files/Folders)
 
 
@@ -555,11 +558,14 @@ Scoping: All queries must be constrained to the current WHMCS client context usi
 5 2 * * * php /var/www/eazybackup.ca/accounts/modules/addons/eazybackup/bin/rollup_devices_daily.php
 - Devices client daily (02:07)
 7 2 * * * php /var/www/eazybackup.ca/accounts/modules/addons/eazybackup/bin/rollup_devices_client_daily.php
+- Storage daily (02:08)
+8 2 * * * php /var/www/eazybackup.ca/accounts/modules/addons/eazybackup/bin/rollup_storage_daily.php
 - Items daily (02:10)
 10 2 * * * php /var/www/eazybackup.ca/accounts/modules/addons/eazybackup/bin/rollup_items_daily.php
 
 - rollup_devices_daily.php → writes eb_devices_daily using eb_devices_registry
 - rollup_devices_client_daily.php → writes eb_devices_client_daily using client-scoped active services and comet_devices
+- rollup_storage_daily.php → writes eb_storage_daily by aggregating active vault bytes from comet_vaults
 - rollup_items_daily.php → writes eb_items_daily using comet_items.content (exact JSON paths you provided)
 
 
@@ -1242,6 +1248,11 @@ Devices trend data source
 - New table: `eb_devices_client_daily` (per-client daily trend snapshots).
 - New rollup job: `bin/rollup_devices_client_daily.php`
 - Purpose: accurate client-scoped device growth history for the Devices card line chart.
+
+Storage trend data source
+- Existing table: `eb_storage_daily` (per-client, per-user daily storage snapshots).
+- Rollup job: `bin/rollup_storage_daily.php`
+- Purpose: historical storage totals for the Storage card line chart.
 
 ## Developer Notes – Device Grouping (Phase 1) (Dashboard → Backup Status)
 

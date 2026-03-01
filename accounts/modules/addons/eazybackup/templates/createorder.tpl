@@ -4,7 +4,7 @@
 <script src="{$WEB_ROOT}/modules/addons/eazybackup/templates/assets/js/ui.js"></script>
 
 <div class="min-h-screen bg-slate-950 text-gray-300">
-  <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
+  {* <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div> *}
   <div class="container mx-auto px-4 pb-10 pt-6 relative pointer-events-relative w-full px-3 py-2 text-slate-300 focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500">
 
     {if $showCreateOrderAnnouncement}
@@ -519,7 +519,7 @@
 
                         <!-- Closed button -->
                         <button type="button" @click="open = !open"
-                          class="flex items-center w-full rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2.5 text-sm text-slate-100 placeholder:text-gray-500 text-white outline-1 -outline-offset-1 outline-white/10 placeholder:text-gray-500 focus:outline-2 focus:-outline-offset-2 focus:outline-sky-700 transition hover:bg-slate-700/50 {if !empty($errors['product'])}border-red-500{/if}">
+                          class="cursor-pointer flex items-center w-full rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2.5 text-sm text-slate-100 placeholder:text-gray-500 text-white outline-1 -outline-offset-1 outline-white/10 placeholder:text-gray-500 focus:outline-2 focus:-outline-offset-2 transition hover:bg-slate-800/50 {if !empty($errors['product'])}border-red-500{/if}">
                           <template x-if="selectedIcon">
                             <span class="flex-shrink-0 mr-3" x-html="selectedIcon"></span>
                           </template>
@@ -569,7 +569,7 @@
                                               productType     = 'usage';
                               open            = false
                             " class="relative group flex items-start px-3 py-2 cursor-pointer hover:bg-slate-800/80 transition-colors duration-150">
-                              <span class="absolute left-0 inset-y-0 w-1 bg-sky-500 opacity-0 transition-opacity duration-200 group-hover:opacity-100"></span>
+                              {* <span class="absolute left-0 inset-y-0 w-1 bg-sky-500 opacity-0 transition-opacity duration-200 group-hover:opacity-100"></span> *}
                                 <div class="flex-shrink-0">
                                   {* <svg xmlns="http://www.w3.org/2000/svg" x="0px" y="0px" width="24" height="24" viewBox="0 0 50 50" style="fill:currentColor;" class="mr-3 {if $product.gid == 7}text-sky-500{else}text-orange-600{/if}"><path d="M20.13,32.5c-2.79-1.69-4.53-4.77-4.53-8.04V8.9c0-1.63,0.39-3.19,1.11-4.57L7.54,9.88C4.74,11.57,3,14.65,3,17.92v14.15 c0,1.59,0.42,3.14,1.16,4.5c0.69,1.12,1.67,2.06,2.88,2.74c2.53,1.42,5.51,1.36,7.98-0.15l8.02-4.9L20.13,32.5z M42.84,27.14 l-8.44-5.05v2.29c0,3.25-1.72,6.33-4.49,8.02l-13.84,8.47c1.52,0.93,3.19,1.42-4.87,1.46l8.93,5.41c1.5,0.91,3.19,1.36,4.87,1.36 s3.37-0.45,4.87-1.36l9.08-5.5l3.52-2.13c0.27-0.16,0.53-0.34,0.78-0.54c0.08-0.05,0.16-0.11,0.23-0.16 c0.65-0.53,1.23-1.13,1.71-1.79c0.02-0.03,0.04-0.06,0.06-0.09c0.77-1.19,1.2-2.59,1.19-4.06C46.43,30.85,45.09,28.48,42.84,27.14z M42.46,9.88l-9.57-5.79l-3.02-1.83C29.45,2,29.01,1.79,28.56,1.61c-0.49-0.21-1-0.37-1.51-0.47c-1.84-0.38-3.76-0.08-5.46,0.89 c-2.5,1.43-3.99,3.99-3.99,6.87v9.6l2.8-1.65c2.84-1.67,6.36-1.66,9.19,0.03l14.28,8.54c1.29,0.78,2.35,1.81,3.12,3.02L47,17.92 C47,14.65,45.26,11.57,42.46,9.88z"></path></svg>
                                   *}
@@ -625,8 +625,7 @@
                                             productType     = 'ms365';
                                             open            = false
                                           " class="relative group flex items-start px-3 py-2 cursor-pointer hover:bg-slate-800/80 transition-colors duration-150">
-                            <span
-                              class="absolute left-0 inset-y-0 w-1 bg-sky-500 opacity-0 transition-opacity duration-200 group-hover:opacity-100"></span>
+                            {* <span class="absolute left-0 inset-y-0 w-1 bg-sky-500 opacity-0 transition-opacity duration-200 group-hover:opacity-100"></span> *}
                             <div class="flex-shrink-0">
                               <!-- eazyBackup (gid=6) orange, OBC (gid=7) sky -->
                               <svg xmlns="http://www.w3.org/2000/svg" x="0px" y="0px" width="24" height="24"
@@ -660,7 +659,7 @@
                                             productType     = 'usage';
                                             open            = false
                                           " class="relative group flex items-start px-3 py-2 cursor-pointer hover:bg-slate-800/80 transition-colors duration-150">
-                            <span class="absolute left-0 inset-y-0 w-1 bg-sky-500 opacity-0 transition-opacity duration-200 group-hover:opacity-100"></span>
+                            {* <span class="absolute left-0 inset-y-0 w-1 bg-sky-500 opacity-0 transition-opacity duration-200 group-hover:opacity-100"></span> *}
                             <div class="flex-shrink-0 {if $product.gid == 7}text-sky-500{else}text-orange-600{/if}">
                             {if $product.pid == 53}
                               {* eazyBackup brand icon for Virtual Server product *}
@@ -752,7 +751,7 @@
                             class="absolute z-10 mt-1 bg-[#151f2e] border border-sky-600 rounded shadow-lg max-h-48 overflow-auto w-40">
                             <template x-for="n in 31" :key="n">
                               <div @click="cb.dom=n; domOpen=false"
-                                class="px-3 py-1 cursor-pointer hover:bg-slate-700/50 text-gray-300"
+                                class="px-3 py-1 cursor-pointer hover:bg-slate-800/50 text-gray-300"
                                 x-text="n"></div>
                             </template>
                           </div>
@@ -787,7 +786,7 @@
                       <!-- Input -->
                       <div class="w-3/4">
                         <input type="text" id="username" name="username" placeholder="Username"
-                          class="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2.5 text-sm text-slate-100 placeholder:text-gray-500 text-white outline-1 -outline-offset-1 outline-white/10 placeholder:text-gray-500 focus:outline-2 focus:-outline-offset-2 focus:outline-sky-700 {if !empty($errors.username)}border-red-500{/if} transition hover:bg-slate-700/50"
+                          class="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2.5 text-sm text-slate-100 placeholder:text-gray-500 text-white outline-1 -outline-offset-1 outline-white/10 placeholder:text-gray-500 focus:outline-2 focus:-outline-offset-2 focus:outline-[slate-600] {if !empty($errors.username)}border-red-500{/if} transition hover:bg-slate-800/50"
                           {if !empty($POST.username)}value="{$POST.username|escape:"html"}" {/if}>
                         {if !empty($errors.username)}
                           <p class="text-red-500 text-xs mt-1">{$errors.username}</p>
@@ -816,7 +815,7 @@
                         <div class="flex-1 relative">
                           <input :type="showPassword ? 'text' : 'password'" id="password" name="password"
                             placeholder="Create password"
-                            class="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2.5 text-sm text-slate-100 placeholder:text-gray-500 text-white outline-1 -outline-offset-1 outline-white/10 placeholder:text-gray-500 focus:outline-2 focus:-outline-offset-2 focus:outline-sky-700 transition hover:bg-slate-700/50 {if !empty($errors.password)}border-red-500{/if}">
+                            class="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2.5 text-sm text-slate-100 placeholder:text-gray-500 text-white outline-1 -outline-offset-1 outline-white/10 placeholder:text-gray-500 focus:outline-2 focus:-outline-offset-2 focus:outline-slate-600 transition hover:bg-slate-800/50 {if !empty($errors.password)}border-red-500{/if}">
                           <button type="button" @click="showPassword = !showPassword" tabindex="-1"
                             class="absolute inset-y-0 right-3 flex items-center text-gray-400">
                             <!-- Hidden Icon -->
@@ -855,7 +854,7 @@
                         <div class="flex-1 relative">
                           <input :type="showConfirmPassword ? 'text' : 'password'" id="confirmpassword"
                             name="confirmpassword" placeholder="Confirm password"
-                            class="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2.5 text-sm text-slate-100 placeholder:text-gray-500 text-white outline-1 -outline-offset-1 outline-white/10 placeholder:text-gray-500 focus:outline-2 focus:-outline-offset-2 focus:outline-sky-700 transition hover:bg-slate-700/50 {if !empty($errors.confirmpassword)}border-red-500{/if}">
+                            class="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2.5 text-sm text-slate-100 placeholder:text-gray-500 text-white outline-1 -outline-offset-1 outline-white/10 placeholder:text-gray-500 focus:outline-2 focus:-outline-offset-2 focus:outline-slate-600 transition hover:bg-slate-800/50 {if !empty($errors.confirmpassword)}border-red-500{/if}">
                           <button type="button" @click="showConfirmPassword = !showConfirmPassword" tabindex="-1"
                             class="absolute inset-y-0 right-3 flex items-center text-gray-400">
                             <!-- Hidden Icon -->
@@ -909,7 +908,7 @@
                           </template>
                         </div>
                         <input type="text" id="reportemail_entry" x-model="emailEntry" @keydown="handleEmailKey($event)" @blur="handleEmailBlur()" placeholder="backupreports@example.com"
-                          class="w-full px-3 py-2 border {if !empty($errors.reportemail)}border-red-500{else}border-slate-700{/if} rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2.5 text-sm text-slate-100 placeholder:text-gray-500 text-white outline-1 -outline-offset-1 outline-white/10 placeholder:text-gray-500 focus:outline-2 focus:-outline-offset-2 focus:outline-sky-700 transition hover:bg-slate-700/50">
+                          class="w-full px-3 py-2 border {if !empty($errors.reportemail)}border-red-500{else}border-slate-700{/if} rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2.5 text-sm text-slate-100 placeholder:text-gray-500 text-white outline-1 -outline-offset-1 outline-white/10 placeholder:text-gray-500 focus:outline-2 focus:-outline-offset-2 focus:outline-slate-600 transition hover:bg-slate-800/50">
                         <input type="hidden" id="reportemail" name="reportemail" value="{$POST.reportemail|escape:'html'}">
                         <p class="text-xs text-gray-400 mt-1">Enter one or more emails, press enter or tab after each email.</p>
                       </div>
@@ -941,10 +940,10 @@
 
                         <!-- toggle button -->
                         <button type="button" :disabled="termDisabled" @click="!termDisabled && (termOpen = !termOpen)"
-                          class="flex items-center w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2.5 text-sm text-slate-100 placeholder:text-gray-500 text-white outline-1 -outline-offset-1 outline-white/10 placeholder:text-gray-500 focus:outline-2 focus:-outline-offset-2 focus:outline-sky-700 transition
+                          class="flex items-center w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2.5 text-sm text-slate-100 placeholder:text-gray-500 text-white outline-1 -outline-offset-1 outline-white/10 placeholder:text-gray-500 focus:outline-2 focus:-outline-offset-2 focus:outline-slate-600 transition
                 " :class="termDisabled
                   ? 'opacity-60 cursor-not-allowed bg-slate-700 pointer-events-none'
-                  : 'hover:bg-slate-700/50'">
+                  : 'hover:bg-slate-800/50'">
                           <span class="flex-1 text-left" x-text="billingTerm
             ? termOptions.find(o => o.value === billingTerm).label
             : 'Select billing term'"></span>
@@ -1130,7 +1129,7 @@
                           productType     = 'usage';
                           open            = false
                         " class="relative group flex items-start px-3 py-2 cursor-pointer">
-                          <span class="absolute left-0 inset-y-0 w-1 bg-sky-500 opacity-0 transition-opacity duration-200 group-hover:opacity-100"></span>
+                          {* <span class="absolute left-0 inset-y-0 w-1 bg-sky-500 opacity-0 transition-opacity duration-200 group-hover:opacity-100"></span> *}
                           <div class="flex-shrink-0">
                             {if $product.pid == 58}
                               <!-- eazyBackup brand icon pid=58 -->
@@ -1181,7 +1180,7 @@
                           productType     = 'usage';
                           open            = false
                         " class="relative group flex items-start px-3 py-2 cursor-pointer">
-                          <span class="absolute left-0 inset-y-0 w-1 bg-sky-500 opacity-0 transition-opacity duration-200 group-hover:opacity-100"></span>
+                          {* <span class="absolute left-0 inset-y-0 w-1 bg-sky-500 opacity-0 transition-opacity duration-200 group-hover:opacity-100"></span> *}
                           <div class="flex-shrink-0 {if $product.gid == 7}text-sky-500{else}text-orange-600{/if}">
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" class="mr-3 size-6"><path d="M5.507 4.048A3 3 0 0 1 7.785 3h8.43a3 3 0 0 1 2.278 1.048l1.722 2.008A4.533 4.533 0 0 0 19.5 6h-15c-.243 0-.482.02-.715.056l1.722-2.008Z" /><path fill-rule="evenodd" d="M1.5 10.5a3 3 0 0 1 3-3h15a3 3 0 1 1 0 6h-15a3 3 0 0 1-3-3Zm15 0a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm2.25.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM4.5 15a3 3 0 1 0 0 6h15a3 3 0 1 0 0-6h-15Zm11.25 3.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM19.5 18a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z" clip-rule="evenodd" /></svg>
                           </div>
@@ -1238,7 +1237,7 @@
                       </div>
                       <div x-show="domOpen" @click.away="domOpen=false" x-cloak class="absolute z-10 mt-1 bg-[#151f2e] border border-sky-600 rounded shadow-lg max-h-48 overflow-auto w-40">
                         <template x-for="n in 31" :key="n">
-                          <div @click="cb.dom=n; domOpen=false" class="px-3 py-1 cursor-pointer hover:bg-slate-700/50 text-gray-300" x-text="n"></div>
+                          <div @click="cb.dom=n; domOpen=false" class="px-3 py-1 cursor-pointer hover:bg-slate-800/50 text-gray-300" x-text="n"></div>
                         </template>
                       </div>
                       <template x-if="domError">

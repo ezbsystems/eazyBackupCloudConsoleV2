@@ -1,24 +1,35 @@
-<div class="min-h-screen bg-slate-950 text-gray-300">
+<div class="min-h-screen bg-slate-950 text-gray-300 overflow-x-hidden">
     <!-- Nebula-style background glow -->
-    <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
+    {* <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div> *}
 
-    <div class="relative z-10 container mx-auto px-4 pb-8">
-        <div class="flex flex-col sm:flex-row h-16 justify-between items-start sm:items-center px-2">
-            <!-- Navigation Horizontal -->
-            <div class="flex items-center">        
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z" />
-                </svg>          
-                <h2 class="text-2xl font-semibold text-white">Support</h2>
-            </div>
-        </div>
-    {include file="$template/includes/support-nav.tpl" activeTab=$activeTab}
-
+    <div class="relative z-10 container mx-auto max-w-full px-4 py-8">
     <div class="flex flex-col flex-1 overflow-y-auto bg-transparent">
-
-
         <!-- Main Content Container -->
-        <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] p-6 mb-8">
+        <div class="w-full max-w-full min-w-0 overflow-hidden rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6 mb-8">
+            <div class="-mx-6 -mt-6 mb-6 rounded-t-3xl border-b border-slate-800/80 bg-slate-900/50 px-6 py-3">
+                <nav class="flex flex-wrap items-center gap-1" aria-label="Support Ticket Filters">
+                    <a href="{$WEB_ROOT}/supporttickets.php?tab=open"
+                       class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $closedticket}text-slate-400 hover:text-white hover:bg-white/5{else}bg-white/10 text-white ring-1 ring-white/20{/if}">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 9v.906a2.25 2.25 0 0 1-1.183 1.981l-6.478 3.488M2.25 9v.906a2.25 2.25 0 0 0 1.183 1.981l6.478 3.488m8.839 2.51-4.66-2.51m0 0-1.023-.55a2.25 2.25 0 0 0-2.134 0l-1.022.55m0 0-4.661 2.51m16.5 1.615a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V8.844a2.25 2.25 0 0 1 1.183-1.981l7.5-4.039a2.25 2.25 0 0 1 2.134 0l7.5 4.039a2.25 2.25 0 0 1 1.183 1.98V19.5Z" />
+                        </svg>
+                        <span class="text-sm font-medium">Open Tickets</span>
+                    </a>
+                    <a href="{$WEB_ROOT}/supporttickets.php?tab=closed"
+                       class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $closedticket}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" />
+                        </svg>
+                        <span class="text-sm font-medium">Closed Tickets</span>
+                    </a>
+                </nav>
+            </div>
+            <div class="flex items-center gap-2 mb-1">
+                <a href="{$WEB_ROOT}/supporttickets.php" class="text-slate-400 hover:text-white text-sm">Support</a>
+                <span class="text-slate-600">/</span>
+                <span class="text-white text-sm font-medium">Ticket #{$tid}</span>
+            </div>
+            <h2 class="text-2xl font-semibold text-white mb-6">Support Ticket</h2>
 
             <!-- Conditional Messages -->
             {if $invalidTicketId}
@@ -35,7 +46,7 @@
                 </div>
             {else}
                 {if $closedticket}
-                    <div class="mb-4 rounded-2xl border border-amber-500/60 bg-amber-950/60 px-4 py-3 text-sm text-amber-100 flex items-start gap-3" role="alert">
+                    <div class="mb-4 rounded-2xl border border-amber-500/60 px-4 py-3 text-sm text-amber-100 flex items-start gap-3" role="alert">
                         <div class="mt-0.5">
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" class="w-5 h-5 text-amber-300">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75M12 15.75h.008v.008H12v-.008ZM21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
@@ -83,12 +94,12 @@
 
                         <!-- Buttons -->
                         <div class="flex flex-shrink-0 space-x-2">
-                    <button id="ticketReply" type="button" class="inline-flex items-center whitespace-nowrap px-4 py-2 cursor-pointer border border-sky-500/70 shadow-sm text-sm font-medium rounded-full text-sky-50 bg-sky-600 hover:bg-sky-500 hover:border-sky-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 focus:ring-offset-slate-900" onclick="smoothScroll('#ticketReplyContainer')">
+                    {* <button id="ticketReply" type="button" class="inline-flex items-center whitespace-nowrap px-4 py-2 cursor-pointer border border-sky-500/70 shadow-sm text-sm font-medium rounded-full text-sky-50 bg-sky-600 hover:bg-sky-500 hover:border-sky-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 focus:ring-offset-slate-900" onclick="smoothScroll('#ticketReplyContainer')">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 mr-1.5 flex-shrink-0">
                             <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Zm0 0L19.5 7.125" />
                         </svg>
                     {lang key='supportticketsreply'}
-                    </button>
+                    </button> *}
                     {if $showCloseButton}
                         {if $closedticket}
                             <button class="inline-flex items-center whitespace-nowrap text-sm px-4 py-2 bg-slate-800 text-slate-400 rounded-full cursor-not-allowed border border-slate-700">
@@ -163,7 +174,7 @@
                         <!-- Message Field -->
                         <div>
                             <label for="replymessage" class="block text-sm font-medium text-gray-300">{lang key='contactmessage'}</label>
-                            <textarea name="replymessage" id="replymessage" rows="6" class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600"></textarea>
+                            <textarea name="replymessage" id="replymessage" rows="6" class="block w-full px-3 py-2 border border-slate-700 text-gray-300 bg-[#11182759] rounded focus:outline-none hover:border-slate-600 hover:bg-slate-900/80 focus:ring-1 focus:ring-slate-600"></textarea>
                         </div>
 
                         <!-- Attachments -->
@@ -204,6 +215,7 @@
             </div>
         </div>
     </div>
+</div>
 </div>
 
 <script>

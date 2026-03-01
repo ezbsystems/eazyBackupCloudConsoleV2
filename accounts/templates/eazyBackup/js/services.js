@@ -1,64 +1,6 @@
 jQuery(document).ready(function() {
     // Use global loader helper functions
-    // Use delegated event handling:
-    jQuery('#tableServicesList tbody').on('click', 'tr[data-serviceid]', function(e) {
-        e.preventDefault();
-        // Remove any extra detail rows
-        jQuery(".cometuserDetails").remove();
-
-        // Grab the <i> caret within the row if it exists
-        let $caret = jQuery(this).find("i.fa.fa-caret-right").first();
-
-        // If caret is active, slide up and remove active state
-        if ($caret.hasClass("active")) {
-            jQuery("#service-data").slideUp('slow');
-            jQuery("i.fa.fa-caret-right").removeClass("active");
-            return false;
-        }
-
-        // Show modern global loader
-        window.showGlobalLoader();
-        jQuery(".table-container").addClass("loading");
-
-        // Slide up any opened data
-        jQuery("#service-data").slideUp('slow');
-        jQuery("i.fa.fa-caret-right").removeClass("active");
-        $caret.addClass("active");
-
-        // Get the service ID
-        let id = jQuery(this).data('serviceid');
-
-        // Make the AJAX request
-        jQuery.ajax({
-            method: 'POST',
-            url: 'modules/servers/comet/ajax/ajax.php',
-            data: {
-                'id': id
-            },
-            success: function(data) {
-                // Add new row for the AJAX details
-                let cometuserDetails = `
-                    <tr class="cometuserDetails">
-                      <td colspan="10">
-                        <div id="service-data" style="display:none"></div>
-                      </td>
-                    </tr>`;
-                jQuery(cometuserDetails).insertAfter("#serviceid-" + id);
-
-                // Insert data, hide loader, and slide down
-                jQuery("#service-data").html(data);
-                jQuery(".table-container").removeClass("loading");
-                window.hideGlobalLoader();
-                jQuery("#service-data").slideDown('slow');
-
-                // If you have any toggles or additional init steps:
-                jQuery('.emailbackup-ajax').bootstrapSwitch('state');
-            },
-            error: function(err) {
-                jQuery("#service-data").html("Error: " + err.responseText);
-            }
-        });
-    });
+    // Row expansion for #tableServicesList was intentionally removed.
 
 
     function parseStorageString(str) {

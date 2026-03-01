@@ -151,7 +151,7 @@
                     type="text"
                     x-model="name"
                     placeholder="Optional descriptive name"
-                    class="h-8 w-full rounded-md border border-slate-600/70 bg-slate-900 px-2 text-slate-100 focus:outline-none focus:ring-0 focus:border-sky-600"
+                    class="h-8 w-full rounded-md border border-slate-600/70 bg-slate-900 px-2 text-slate-100 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80"
                   />
                   <button type="button" @click="await save()" :disabled="saving" class="shrink-0 rounded bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-700 disabled:opacity-60">Update</button>
                 </div>
@@ -702,29 +702,224 @@
       </div>
 
       <div x-show="activeSubTab === 'protectedItems'" x-cloak x-transition>
-        <div class="bg-slate-900 rounded-lg overflow-hidden">
-            <table class="min-w-full divide-y divide-slate-700">
-              <thead class="bg-slate-800/50">
+        <div class="bg-slate-950/70 rounded-2xl border border-slate-800/80 p-4"
+             x-data="{
+                columnsOpen: false,
+                entriesOpen: false,
+                search: '',
+                entriesPerPage: 25,
+                currentPage: 1,
+                sortKey: 'name',
+                sortDirection: 'asc',
+                filteredCount: 0,
+                rows: [],
+                cols: { name: true, type: true, size: true },
+                init() {
+                  this.rows = Array.from(this.$refs.tbody.querySelectorAll('tr[data-protected-row]'));
+                  this.$watch('search', () => {
+                    this.currentPage = 1;
+                    this.refreshRows();
+                  });
+                  this.refreshRows();
+                },
+                setEntries(size) {
+                  this.entriesPerPage = Number(size) || 25;
+                  this.currentPage = 1;
+                  this.refreshRows();
+                },
+                setSort(key) {
+                  if (this.sortKey === key) {
+                    this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
+                  } else {
+                    this.sortKey = key;
+                    this.sortDirection = 'asc';
+                  }
+                  this.refreshRows();
+                },
+                sortIndicator(key) {
+                  if (this.sortKey !== key) return '';
+                  return this.sortDirection === 'asc' ? '↑' : '↓';
+                },
+                sortValue(row, key) {
+                  const raw = row.getAttribute('data-sort-' + key) || '';
+                  if (key === 'size') return Number(raw) || 0;
+                  return String(raw).toLowerCase();
+                },
+                compareRows(left, right) {
+                  const a = this.sortValue(left, this.sortKey);
+                  const b = this.sortValue(right, this.sortKey);
+                  if (a < b) return this.sortDirection === 'asc' ? -1 : 1;
+                  if (a > b) return this.sortDirection === 'asc' ? 1 : -1;
+                  return 0;
+                },
+                refreshRows() {
+                  const query = this.search.trim().toLowerCase();
+                  const filtered = this.rows.filter((row) => {
+                    if (!query) return true;
+                    return (row.textContent || '').toLowerCase().includes(query);
+                  });
+                  filtered.sort((a, b) => this.compareRows(a, b));
+                  filtered.forEach((row) => this.$refs.tbody.appendChild(row));
+
+                  this.filteredCount = filtered.length;
+                  const pages = this.totalPages();
+                  if (this.currentPage > pages) this.currentPage = pages;
+                  const start = (this.currentPage - 1) * this.entriesPerPage;
+                  const end = start + this.entriesPerPage;
+                  const visibleRows = new Set(filtered.slice(start, end));
+
+                  this.rows.forEach((row) => {
+                    row.style.display = visibleRows.has(row) ? '' : 'none';
+                  });
+
+                  if (this.$refs.noResults) {
+                    this.$refs.noResults.style.display = filtered.length === 0 ? '' : 'none';
+                  }
+                },
+                totalPages() {
+                  return Math.max(1, Math.ceil(this.filteredCount / this.entriesPerPage));
+                },
+                pageSummary() {
+                  if (this.filteredCount === 0) return 'Showing 0 of 0 protected items';
+                  const start = (this.currentPage - 1) * this.entriesPerPage + 1;
+                  const end = Math.min(start + this.entriesPerPage - 1, this.filteredCount);
+                  return 'Showing ' + start + '-' + end + ' of ' + this.filteredCount + ' protected items';
+                },
+                prevPage() {
+                  if (this.currentPage <= 1) return;
+                  this.currentPage -= 1;
+                  this.refreshRows();
+                },
+                nextPage() {
+                  if (this.currentPage >= this.totalPages()) return;
+                  this.currentPage += 1;
+                  this.refreshRows();
+                }
+             }"
+             x-init="init()">
+          <div class="mb-4 flex flex-col xl:flex-row xl:items-center gap-3">
+            <div class="relative" @click.away="entriesOpen=false">
+              <button type="button"
+                      @click="entriesOpen=!entriesOpen"
+                      class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
+                <span x-text="'Show ' + entriesPerPage"></span>
+                <svg class="w-4 h-4 transition-transform" :class="entriesOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                </svg>
+              </button>
+              <div x-show="entriesOpen"
+                   x-transition:enter="transition ease-out duration-100"
+                   x-transition:enter-start="opacity-0 scale-95"
+                   x-transition:enter-end="opacity-100 scale-100"
+                   x-transition:leave="transition ease-in duration-75"
+                   x-transition:leave-start="opacity-100 scale-100"
+                   x-transition:leave-end="opacity-0 scale-95"
+                   class="absolute left-0 mt-2 w-40 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden"
+                   style="display:none;">
+                <template x-for="size in [10,25,50,100]" :key="'protected-items-entries-' + size">
+                  <button type="button"
+                          class="w-full px-4 py-2 text-left text-sm transition"
+                          :class="entriesPerPage === size ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
+                          @click="setEntries(size); entriesOpen=false;">
+                    <span x-text="size"></span>
+                  </button>
+                </template>
+              </div>
+            </div>
+
+            <div class="relative" @click.away="columnsOpen=false">
+              <button type="button"
+                      @click="columnsOpen=!columnsOpen"
+                      class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
+                Columns
+                <svg class="w-4 h-4 transition-transform" :class="columnsOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                </svg>
+              </button>
+              <div x-show="columnsOpen"
+                   x-transition:enter="transition ease-out duration-100"
+                   x-transition:enter-start="opacity-0 scale-95"
+                   x-transition:enter-end="opacity-100 scale-100"
+                   x-transition:leave="transition ease-in duration-75"
+                   x-transition:leave-start="opacity-100 scale-100"
+                   x-transition:leave-end="opacity-0 scale-95"
+                   class="absolute left-0 mt-2 w-56 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden p-2"
+                   style="display:none;">
+                <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Name</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.name"></label>
+                <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Type</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.type"></label>
+                <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Size</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.size"></label>
+              </div>
+            </div>
+
+            <div class="flex-1"></div>
+            <input type="text"
+                   x-model.debounce.200ms="search"
+                   placeholder="Search protected items..."
+                   class="w-full xl:w-80 rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
+          </div>
+
+          <div class="overflow-x-auto rounded-lg border border-slate-800">
+            <table class="min-w-full divide-y divide-slate-800 text-sm">
+              <thead class="bg-slate-900/80 text-slate-300">
                 <tr>
-                    <th class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Name</th>
-                    <th class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Type</th>
-                    <th class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Size</th>
+                    <th x-show="cols.name" class="px-4 py-3 text-left font-medium">
+                      <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('name')">
+                        Name
+                        <span x-text="sortIndicator('name')"></span>
+                      </button>
+                    </th>
+                    <th x-show="cols.type" class="px-4 py-3 text-left font-medium">
+                      <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('type')">
+                        Type
+                        <span x-text="sortIndicator('type')"></span>
+                      </button>
+                    </th>
+                    <th x-show="cols.size" class="px-4 py-3 text-left font-medium">
+                      <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('size')">
+                        Size
+                        <span x-text="sortIndicator('size')"></span>
+                      </button>
+                    </th>
                 </tr>
               </thead>
-              <tbody class="divide-y divide-slate-700">
-                {foreach from=$protectedItems item=item}
-                  <tr class="hover:bg-slate-800/60">
-                      <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$item.name}</td>
-                      <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$item.type}</td>
-                      <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($item.total_bytes)}</td>
-                  </tr>
-                {foreachelse}
-                  <tr>
-                      <td colspan="3" class="text-center py-6 text-sm text-slate-200">No protected items found for this user.</td>
-                  </tr>
-                {/foreach}
+              <tbody class="divide-y divide-slate-800" x-ref="tbody">
+                {if $protectedItems|@count > 0}
+                  {foreach from=$protectedItems item=item}
+                    <tr class="hover:bg-slate-800/50" data-protected-row="1"
+                        data-sort-name="{$item.name|default:''|escape:'html'}"
+                        data-sort-type="{$item.type|default:''|escape:'html'}"
+                        data-sort-size="{$item.total_bytes|default:0|escape:'html'}">
+                      <td x-show="cols.name" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{$item.name}</td>
+                      <td x-show="cols.type" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{$item.type}</td>
+                      <td x-show="cols.size" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($item.total_bytes)}</td>
+                    </tr>
+                  {/foreach}
+                {/if}
+                <tr x-ref="noResults" {if $protectedItems|@count > 0}style="display:none;"{/if}>
+                  <td colspan="3" class="text-center py-8 text-sm text-slate-400">No protected items found for this user.</td>
+                </tr>
               </tbody>
             </table>
+          </div>
+
+          <div class="mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-400">
+            <div x-text="pageSummary()"></div>
+            <div class="flex items-center gap-2">
+              <button type="button"
+                      @click="prevPage()"
+                      :disabled="currentPage <= 1"
+                      class="px-3 py-1.5 rounded border border-slate-700 bg-slate-900/70 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed">
+                Prev
+              </button>
+              <span class="text-slate-300" x-text="'Page ' + currentPage + ' / ' + totalPages()"></span>
+              <button type="button"
+                      @click="nextPage()"
+                      :disabled="currentPage >= totalPages()"
+                      class="px-3 py-1.5 rounded border border-slate-700 bg-slate-900/70 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed">
+                Next
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -811,271 +1006,607 @@
               {/if}
           </div>
           
-          <div class="bg-slate-900 rounded-lg" x-data="{
-              open:false,
-              search:'',
-              cols:{ name:true, stored:true, quota:true, usage:true, billing:true, actions:true },
-              matchesSearch(el){ const q=this.search.trim().toLowerCase(); if(!q) return true; return (el.textContent||'').toLowerCase().includes(q); },
-              pctColor(p){ if(p===null||p==='') return 'bg-slate-700'; if(p<70) return 'bg-emerald-500'; if(p<90) return 'bg-amber-500'; return 'bg-rose-500'; }
-          }">
-              <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 pt-4 pb-2">
-                  <div class="relative shrink-0" @click.away="open=false">
-                      <button type="button" class="inline-flex items-center gap-2 px-3 py-2 text-sm bg-slate-700 hover:bg-slate-600 rounded text-white transition-all duration-200" @click="open=!open">
-                          <span class="text-slate-400">View:</span>
-                          <span class="font-medium">Columns</span>
-                          <svg class="w-4 h-4 opacity-70" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                              <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.24 4.5a.75.75 0 01-1.08 0l-4.24-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/>
+          <div class="bg-slate-950/70 rounded-2xl border border-slate-800/80 p-4" x-data="{
+              columnsOpen: false,
+              entriesOpen: false,
+              search: '',
+              entriesPerPage: 25,
+              currentPage: 1,
+              sortKey: 'name',
+              sortDirection: 'asc',
+              filteredCount: 0,
+              rows: [],
+              cols: { name:true, stored:true, quota:true, usage:true, billing:true, actions:true },
+              pctColor(p){ if(p===null||p==='') return 'bg-slate-700'; if(p<70) return 'bg-emerald-500'; if(p<90) return 'bg-amber-500'; return 'bg-rose-500'; },
+              init() {
+                this.rows = Array.from(this.$refs.tbody.querySelectorAll('tr[data-vault-row]'));
+                this.$watch('search', () => {
+                  this.currentPage = 1;
+                  this.refreshRows();
+                });
+                this.refreshRows();
+              },
+              setEntries(size) {
+                this.entriesPerPage = Number(size) || 25;
+                this.currentPage = 1;
+                this.refreshRows();
+              },
+              setSort(key) {
+                if (this.sortKey === key) {
+                  this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
+                } else {
+                  this.sortKey = key;
+                  this.sortDirection = 'asc';
+                }
+                this.refreshRows();
+              },
+              sortIndicator(key) {
+                if (this.sortKey !== key) return '';
+                return this.sortDirection === 'asc' ? '↑' : '↓';
+              },
+              sortValue(row, key) {
+                if (key === 'name') return String(row.getAttribute('data-sort-name') || '').toLowerCase();
+                if (key === 'stored') return Number(row.getAttribute('data-used-bytes') || 0);
+                if (key === 'quota') return Number(row.getAttribute('data-quota-bytes') || 0);
+                if (key === 'usage') return Number(row.getAttribute('data-usage-pct') || 0);
+                if (key === 'billing') return Number(row.getAttribute('data-billing-tb') || 0);
+                return String(row.getAttribute('data-sort-' + key) || '').toLowerCase();
+              },
+              compareRows(left, right) {
+                const a = this.sortValue(left, this.sortKey);
+                const b = this.sortValue(right, this.sortKey);
+                if (a < b) return this.sortDirection === 'asc' ? -1 : 1;
+                if (a > b) return this.sortDirection === 'asc' ? 1 : -1;
+                return 0;
+              },
+              refreshRows() {
+                const query = this.search.trim().toLowerCase();
+                const filtered = this.rows.filter((row) => {
+                  if (!query) return true;
+                  return (row.textContent || '').toLowerCase().includes(query);
+                });
+                filtered.sort((a, b) => this.compareRows(a, b));
+                filtered.forEach((row) => this.$refs.tbody.appendChild(row));
+
+                this.filteredCount = filtered.length;
+                const pages = this.totalPages();
+                if (this.currentPage > pages) this.currentPage = pages;
+                const start = (this.currentPage - 1) * this.entriesPerPage;
+                const end = start + this.entriesPerPage;
+                const visibleRows = new Set(filtered.slice(start, end));
+
+                this.rows.forEach((row) => {
+                  row.style.display = visibleRows.has(row) ? '' : 'none';
+                });
+
+                if (this.$refs.noResults) {
+                  this.$refs.noResults.style.display = filtered.length === 0 ? '' : 'none';
+                }
+              },
+              totalPages() {
+                return Math.max(1, Math.ceil(this.filteredCount / this.entriesPerPage));
+              },
+              pageSummary() {
+                if (this.filteredCount === 0) return 'Showing 0 of 0 vaults';
+                const start = (this.currentPage - 1) * this.entriesPerPage + 1;
+                const end = Math.min(start + this.entriesPerPage - 1, this.filteredCount);
+                return 'Showing ' + start + '-' + end + ' of ' + this.filteredCount + ' vaults';
+              },
+              prevPage() {
+                if (this.currentPage <= 1) return;
+                this.currentPage -= 1;
+                this.refreshRows();
+              },
+              nextPage() {
+                if (this.currentPage >= this.totalPages()) return;
+                this.currentPage += 1;
+                this.refreshRows();
+              }
+          }" x-init="init()">
+              <div class="mb-4 flex flex-col xl:flex-row xl:items-center gap-3">
+                  <div class="relative" @click.away="entriesOpen=false">
+                      <button type="button"
+                              @click="entriesOpen=!entriesOpen"
+                              class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
+                          <span x-text="'Show ' + entriesPerPage"></span>
+                          <svg class="w-4 h-4 transition-transform" :class="entriesOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                              <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
                           </svg>
                       </button>
-                      <div x-show="open" x-transition class="absolute mt-2 w-56 bg-slate-800 border border-slate-700 rounded shadow-lg z-20">
-                          <div class="p-3 space-y-2 text-slate-200 text-sm">
-                              <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.name"> Storage Vault</label>
-                              <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.stored"> Stored</label>
-                              <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.quota"> Quota</label>
-                              <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.usage"> Usage</label>
-                              <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.billing"> Billing</label>
-                              <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.actions"> Actions</label>
-                          </div>
+                      <div x-show="entriesOpen"
+                           x-transition:enter="transition ease-out duration-100"
+                           x-transition:enter-start="opacity-0 scale-95"
+                           x-transition:enter-end="opacity-100 scale-100"
+                           x-transition:leave="transition ease-in duration-75"
+                           x-transition:leave-start="opacity-100 scale-100"
+                           x-transition:leave-end="opacity-0 scale-95"
+                           class="absolute left-0 mt-2 w-40 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden"
+                           style="display:none;">
+                          <template x-for="size in [10,25,50,100]" :key="'user-vaults-entries-' + size">
+                              <button type="button"
+                                      class="w-full px-4 py-2 text-left text-sm transition"
+                                      :class="entriesPerPage === size ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
+                                      @click="setEntries(size); entriesOpen=false;">
+                                  <span x-text="size"></span>
+                              </button>
+                          </template>
                       </div>
                   </div>
-                  <div class="w-full sm:w-72 sm:max-w-xs">
-                      <input type="text" x-model.debounce.200ms="search" placeholder="Search vaults..." class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-700 text-slate-200 focus:outline-none focus:ring-0 focus:border-sky-600">
+
+                  <div class="relative" @click.away="columnsOpen=false">
+                      <button type="button"
+                              @click="columnsOpen=!columnsOpen"
+                              class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
+                          Columns
+                          <svg class="w-4 h-4 transition-transform" :class="columnsOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                              <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                          </svg>
+                      </button>
+                      <div x-show="columnsOpen"
+                           x-transition:enter="transition ease-out duration-100"
+                           x-transition:enter-start="opacity-0 scale-95"
+                           x-transition:enter-end="opacity-100 scale-100"
+                           x-transition:leave="transition ease-in duration-75"
+                           x-transition:leave-start="opacity-100 scale-100"
+                           x-transition:leave-end="opacity-0 scale-95"
+                           class="absolute left-0 mt-2 w-56 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden p-2"
+                           style="display:none;">
+                          <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Storage Vault</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.name"></label>
+                          <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Stored</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.stored"></label>
+                          <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Quota</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.quota"></label>
+                          <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Usage</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.usage"></label>
+                          <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Billing</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.billing"></label>
+                          <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Actions</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.actions"></label>
+                      </div>
                   </div>
+
+                  <div class="flex-1"></div>
+                  <input type="text"
+                         x-model.debounce.200ms="search"
+                         placeholder="Search vaults..."
+                         class="w-full xl:w-80 rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
               </div>
-              <div class="table-scroll overflow-x-auto">
-              <table class="w-full min-w-max divide-y divide-slate-700">
-                  <thead class="bg-slate-800/50">
+
+              <div class="table-scroll overflow-x-auto rounded-lg border border-slate-800">
+              <table class="w-full min-w-max divide-y divide-slate-800 text-sm">
+                  <thead class="bg-slate-900/80 text-slate-300">
                       <tr>
-                          <th x-show="cols.name" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Storage Vault</th>
-                          <th x-show="cols.stored" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Stored</th>
-                          <th x-show="cols.quota" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">
-                              <span class="inline-flex items-center gap-1">
-                                  Quota
-                                  {* <span class="cursor-help text-slate-500 hover:text-slate-100" title="Per-vault quota. Billing is based on the sum of all vault quotas, rounded up to the nearest 1TB tier.">
-                                      <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                                      </svg>
-                                  </span> *}
-                              </span>
+                          <th x-show="cols.name" class="px-4 py-3 text-left font-medium">
+                              <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('name')">
+                                  Storage Vault
+                                  <span x-text="sortIndicator('name')"></span>
+                              </button>
                           </th>
-                          <th x-show="cols.usage" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Usage</th>
-                          <th x-show="cols.billing" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Billing</th>
-                          <th x-show="cols.actions" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Actions</th>
+                          <th x-show="cols.stored" class="px-4 py-3 text-left font-medium">
+                              <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('stored')">
+                                  Stored
+                                  <span x-text="sortIndicator('stored')"></span>
+                              </button>
+                          </th>
+                          <th x-show="cols.quota" class="px-4 py-3 text-left font-medium">
+                              <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('quota')">
+                                  Quota
+                                  <span x-text="sortIndicator('quota')"></span>
+                              </button>
+                          </th>
+                          <th x-show="cols.usage" class="px-4 py-3 text-left font-medium">
+                              <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('usage')">
+                                  Usage
+                                  <span x-text="sortIndicator('usage')"></span>
+                              </button>
+                          </th>
+                          <th x-show="cols.billing" class="px-4 py-3 text-left font-medium">
+                              <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('billing')">
+                                  Billing
+                                  <span x-text="sortIndicator('billing')"></span>
+                              </button>
+                          </th>
+                          <th x-show="cols.actions" class="px-4 py-3 text-left font-medium">Actions</th>
               </tr>
             </thead>
-                  <tbody class="divide-y divide-slate-700">
-                      {foreach from=$vaults item=vault key=vaultId}
-                          {assign var=usedBytes value=0}
-                          {if isset($vault.Statistics.ClientProvidedSize.Size)}
-                              {assign var=usedBytes value=$vault.Statistics.ClientProvidedSize.Size}
-                          {elseif isset($vault.ClientProvidedSize.Size)}
-                              {assign var=usedBytes value=$vault.ClientProvidedSize.Size}
-                          {elseif isset($vault.Size.Size)}
-                              {assign var=usedBytes value=$vault.Size.Size}
-                          {elseif isset($vault.Size)}
-                              {assign var=usedBytes value=$vault.Size}
-                          {/if}
-                          {assign var=usedMeasuredEnd value=0}
-                          {if isset($vault.Statistics.ClientProvidedSize.MeasureCompleted)}
-                              {assign var=usedMeasuredEnd value=$vault.Statistics.ClientProvidedSize.MeasureCompleted}
-                          {elseif isset($vault.ClientProvidedSize.MeasureCompleted)}
-                              {assign var=usedMeasuredEnd value=$vault.ClientProvidedSize.MeasureCompleted}
-                          {/if}
-                          {assign var=quotaEnabled value=$vault.StorageLimitEnabled|default:false}
-                          {assign var=quotaBytes value=$vault.StorageLimitBytes|default:0}
-                          {assign var=hasQuota value=($quotaEnabled && $quotaBytes>0)}
-                          {if $hasQuota}
-                              {assign var=pct value=(100*$usedBytes/$quotaBytes)}
-                          {else}
-                              {assign var=pct value=''}
-                          {/if}
-                          {assign var=typeCode value=$vault.Destination.Type|default:$vault.Type|default:''}
-                          {assign var=typeLabel value=$vault.TypeFriendly|default:''}
-                          <tr class="hover:bg-slate-800/60" x-show="matchesSearch($el)" x-cloak
-                              data-used-bytes="{$usedBytes}"
-                              data-quota-bytes="{$quotaBytes}"
-                              data-vault-locked="{if $isMicrosoft365Service}1{else}0{/if}">
-                              <td x-show="cols.name" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$vault.Description|default:'-'}</td>
-                              <td x-show="cols.stored" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
-                                  {assign var=cpSize value=0}
-                                  {if isset($vault.Statistics.ClientProvidedSize.Size)}
-                                      {assign var=cpSize value=$vault.Statistics.ClientProvidedSize.Size}
-                                  {elseif isset($vault.ClientProvidedSize.Size)}
-                                      {assign var=cpSize value=$vault.ClientProvidedSize.Size}
-                                  {elseif isset($vault.Size.Size)}
-                                      {assign var=cpSize value=$vault.Size.Size}
-                                  {elseif isset($vault.Size)}
-                                      {assign var=cpSize value=$vault.Size}
-                                  {/if}
-                                  {assign var=cpStart value=0}
-                                  {assign var=cpEnd value=0}
-                                  {if isset($vault.Statistics.ClientProvidedSize.MeasureStarted)}
-                                      {assign var=cpStart value=$vault.Statistics.ClientProvidedSize.MeasureStarted}
-                                  {elseif isset($vault.ClientProvidedSize.MeasureStarted)}
-                                      {assign var=cpStart value=$vault.ClientProvidedSize.MeasureStarted}
-                                  {/if}
-                                  {if isset($vault.Statistics.ClientProvidedSize.MeasureCompleted)}
-                                      {assign var=cpEnd value=$vault.Statistics.ClientProvidedSize.MeasureCompleted}
-                                  {elseif isset($vault.ClientProvidedSize.MeasureCompleted)}
-                                      {assign var=cpEnd value=$vault.ClientProvidedSize.MeasureCompleted}
-                                  {/if}
-                                  <button type="button" class="eb-stats-btn inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium bg-slate-700 hover:bg-slate-600 text-sky-400 cursor-pointer"
-                                      title="View vault usage breakdown"
-                                      data-vault-id="{$vaultId}"
-                                      data-vault-name="{$vault.Description|escape}"
-                                      data-size-bytes="{$cpSize}"
-                                      data-measure-start="{$cpStart}"
-                                      data-measure-end="{$cpEnd}">
-                                      {\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($cpSize, 2)}
-                                  </button>
-                                  <script type="application/json" class="eb-components">{if isset($vault.ClientProvidedContent.Components)}{$vault.ClientProvidedContent.Components|@json_encode}{elseif isset($vault.Statistics.ClientProvidedContent.Components)}{$vault.Statistics.ClientProvidedContent.Components|@json_encode}{else}[]{/if}</script>
-                              </td>
-                              <td x-show="cols.quota" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
-                                  {if not $hasQuota}
-                                      <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium bg-slate-700 text-slate-100">Unlimited</span>
-                                  {else}
-                                      <div class="flex flex-col gap-1">
-                                          <span class="inline-flex items-center gap-2">
-                                              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium bg-slate-700 text-slate-200" title="Exact quota: {\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($quotaBytes, 2)}">{\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($quotaBytes, 2)}</span>
-                                              {if $quotaEnabled}
-                                                  <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-900/40 text-emerald-300">On</span>
-                                              {else}
-                                                  <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-700 text-slate-100">Off</span>
-                                              {/if}
-                                              <button type="button" class="configure-vault-button ml-1 p-1.5 rounded {if $isMicrosoft365Service}text-slate-500 opacity-50 cursor-not-allowed{else}hover:bg-slate-700 text-slate-100 cursor-pointer{/if}"
-                                                  title="{if $isMicrosoft365Service}Locked for Microsoft 365 services{else}Edit quota{/if}"
-                                                  {if $isMicrosoft365Service}disabled="disabled" aria-disabled="true"{/if}
-                                                  data-vault-id="{$vaultId}"
-                                                  data-vault-name="{$vault.Description}"
-                                                  data-vault-quota-enabled="{$quotaEnabled}"
-                                                  data-vault-quota-bytes="{$quotaBytes}">
-                                                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232a2.5 2.5 0 113.536 3.536L7.5 20.036 3 21l.964-4.5L15.232 5.232z"/></svg>
-                                              </button>
-                                          {* </span>Billing is based on the sum of all vault quotas, rounded up to the nearest 1TB tier.                                           *}
-                                      </div>
-                                  {/if}
-                              </td>
-                              <td x-show="cols.usage" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
-                                  {if $hasQuota}
-                                      {assign var=pctClamped value=$pct}
-                                      {if $pctClamped > 100}
-                                          {assign var=pctClamped value=100}
-                                      {elseif $pctClamped < 0}
-                                          {assign var=pctClamped value=0}
-                                      {/if}
-                                      <div class="w-56">
-                                          <div class="h-2.5 w-full rounded bg-slate-800/70 overflow-hidden" title="{\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($usedBytes, 2)} of {\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($quotaBytes, 2)} ({$pctClamped|string_format:'%.1f'}%) — measured {\WHMCS\Module\Addon\Eazybackup\Helper::formatDateTime($usedMeasuredEnd)}">
-                                              <div class="h-full transition-[width] duration-500" :class="pctColor({$pctClamped})" style="width: {$pctClamped}%;"></div>
-                                          </div>
-                                          <div class="mt-1 text-xs text-slate-400">{\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($usedBytes, 2)} / {\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($quotaBytes, 2)} ({$pctClamped|string_format:'%.1f'}%)</div>
-                                      </div>
-                                  {else}
-                                      <div class="w-56">
-                                          <div class="h-2.5 w-full rounded bg-slate-800/70 overflow-hidden">
-                                              <div class="h-full w-1/3 bg-gradient-to-r from-slate-600/40 via-slate-500/40 to-slate-600/40 animate-pulse"></div>
-                                          </div>
-                                          <div class="mt-1 text-xs text-slate-500">Usage unavailable (no quota)</div>
-                                      </div>
-                                  {/if}
-                              </td>
-                              <td x-show="cols.billing" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
-                                  {if $billableTB > 0}{$billableTB} TB{else}—{/if}
-                              </td>
-                              <td x-show="cols.actions" class="px-4 py-4 whitespace-nowrap text-sm">
-                                  <button class="open-vault-panel px-3 py-1.5 text-xs bg-slate-700 rounded text-white {if $isMicrosoft365Service}opacity-50 cursor-not-allowed{else}hover:bg-slate-600 cursor-pointer{/if}"
-                                          title="{if $isMicrosoft365Service}Locked for Microsoft 365 services{else}Manage{/if}"
-                                          {if $isMicrosoft365Service}disabled="disabled" aria-disabled="true"{/if}
-                                          data-vault-id="{$vaultId}"
-                                          data-vault-name="{$vault.Description}"
-                                          data-vault-quota-enabled="{$quotaEnabled}"
-                                          data-vault-quota-bytes="{$quotaBytes}">Manage</button>
-                              </td>
-                          </tr>
-                      {foreachelse}
-                          <tr>
-                              <td colspan="6" class="text-center py-6 text-sm text-slate-200">No storage vaults found for this user.</td>
-                </tr>
-              {/foreach}
+                  <tbody class="divide-y divide-slate-800" x-ref="tbody">
+                      {if $vaults|@count > 0}
+                        {foreach from=$vaults item=vault key=vaultId}
+                            {assign var=usedBytes value=0}
+                            {if isset($vault.Statistics.ClientProvidedSize.Size)}
+                                {assign var=usedBytes value=$vault.Statistics.ClientProvidedSize.Size}
+                            {elseif isset($vault.ClientProvidedSize.Size)}
+                                {assign var=usedBytes value=$vault.ClientProvidedSize.Size}
+                            {elseif isset($vault.Size.Size)}
+                                {assign var=usedBytes value=$vault.Size.Size}
+                            {elseif isset($vault.Size)}
+                                {assign var=usedBytes value=$vault.Size}
+                            {/if}
+                            {assign var=usedMeasuredEnd value=0}
+                            {if isset($vault.Statistics.ClientProvidedSize.MeasureCompleted)}
+                                {assign var=usedMeasuredEnd value=$vault.Statistics.ClientProvidedSize.MeasureCompleted}
+                            {elseif isset($vault.ClientProvidedSize.MeasureCompleted)}
+                                {assign var=usedMeasuredEnd value=$vault.ClientProvidedSize.MeasureCompleted}
+                            {/if}
+                            {assign var=quotaEnabled value=$vault.StorageLimitEnabled|default:false}
+                            {assign var=quotaBytes value=$vault.StorageLimitBytes|default:0}
+                            {assign var=hasQuota value=($quotaEnabled && $quotaBytes>0)}
+                            {if $hasQuota}
+                                {assign var=pct value=(100*$usedBytes/$quotaBytes)}
+                            {else}
+                                {assign var=pct value=''}
+                            {/if}
+                            {assign var=typeCode value=$vault.Destination.Type|default:$vault.Type|default:''}
+                            {assign var=typeLabel value=$vault.TypeFriendly|default:''}
+                            <tr class="hover:bg-slate-800/50"
+                                data-vault-row="1"
+                                data-sort-name="{$vault.Description|default:'-'|escape:'html'}"
+                                data-used-bytes="{$usedBytes}"
+                                data-quota-bytes="{$quotaBytes}"
+                                data-usage-pct="{if $hasQuota}{$pct}{else}0{/if}"
+                                data-billing-tb="{$billableTB}"
+                                data-vault-locked="{if $isMicrosoft365Service}1{else}0{/if}">
+                                <td x-show="cols.name" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{$vault.Description|default:'-'}</td>
+                                <td x-show="cols.stored" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">
+                                    {assign var=cpSize value=0}
+                                    {if isset($vault.Statistics.ClientProvidedSize.Size)}
+                                        {assign var=cpSize value=$vault.Statistics.ClientProvidedSize.Size}
+                                    {elseif isset($vault.ClientProvidedSize.Size)}
+                                        {assign var=cpSize value=$vault.ClientProvidedSize.Size}
+                                    {elseif isset($vault.Size.Size)}
+                                        {assign var=cpSize value=$vault.Size.Size}
+                                    {elseif isset($vault.Size)}
+                                        {assign var=cpSize value=$vault.Size}
+                                    {/if}
+                                    {assign var=cpStart value=0}
+                                    {assign var=cpEnd value=0}
+                                    {if isset($vault.Statistics.ClientProvidedSize.MeasureStarted)}
+                                        {assign var=cpStart value=$vault.Statistics.ClientProvidedSize.MeasureStarted}
+                                    {elseif isset($vault.ClientProvidedSize.MeasureStarted)}
+                                        {assign var=cpStart value=$vault.ClientProvidedSize.MeasureStarted}
+                                    {/if}
+                                    {if isset($vault.Statistics.ClientProvidedSize.MeasureCompleted)}
+                                        {assign var=cpEnd value=$vault.Statistics.ClientProvidedSize.MeasureCompleted}
+                                    {elseif isset($vault.ClientProvidedSize.MeasureCompleted)}
+                                        {assign var=cpEnd value=$vault.ClientProvidedSize.MeasureCompleted}
+                                    {/if}
+                                    <button type="button" class="eb-stats-btn inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium bg-slate-700 hover:bg-slate-600 text-sky-400 cursor-pointer"
+                                        title="View vault usage breakdown"
+                                        data-vault-id="{$vaultId}"
+                                        data-vault-name="{$vault.Description|escape}"
+                                        data-size-bytes="{$cpSize}"
+                                        data-measure-start="{$cpStart}"
+                                        data-measure-end="{$cpEnd}">
+                                        {\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($cpSize, 2)}
+                                    </button>
+                                    <script type="application/json" class="eb-components">{if isset($vault.ClientProvidedContent.Components)}{$vault.ClientProvidedContent.Components|@json_encode}{elseif isset($vault.Statistics.ClientProvidedContent.Components)}{$vault.Statistics.ClientProvidedContent.Components|@json_encode}{else}[]{/if}</script>
+                                </td>
+                                <td x-show="cols.quota" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">
+                                    {if not $hasQuota}
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium bg-slate-700 text-slate-100">Unlimited</span>
+                                    {else}
+                                        <div class="flex flex-col gap-1">
+                                            <span class="inline-flex items-center gap-2">
+                                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium bg-slate-700 text-slate-200" title="Exact quota: {\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($quotaBytes, 2)}">{\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($quotaBytes, 2)}</span>
+                                                {if $quotaEnabled}
+                                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-900/40 text-emerald-300">On</span>
+                                                {else}
+                                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-700 text-slate-100">Off</span>
+                                                {/if}
+                                                <button type="button" class="configure-vault-button ml-1 p-1.5 rounded {if $isMicrosoft365Service}text-slate-500 opacity-50 cursor-not-allowed{else}hover:bg-slate-700 text-slate-100 cursor-pointer{/if}"
+                                                    title="{if $isMicrosoft365Service}Locked for Microsoft 365 services{else}Edit quota{/if}"
+                                                    {if $isMicrosoft365Service}disabled="disabled" aria-disabled="true"{/if}
+                                                    data-vault-id="{$vaultId}"
+                                                    data-vault-name="{$vault.Description}"
+                                                    data-vault-quota-enabled="{$quotaEnabled}"
+                                                    data-vault-quota-bytes="{$quotaBytes}">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232a2.5 2.5 0 113.536 3.536L7.5 20.036 3 21l.964-4.5L15.232 5.232z"/></svg>
+                                                </button>
+                                            </span>
+                                        </div>
+                                    {/if}
+                                </td>
+                                <td x-show="cols.usage" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">
+                                    {if $hasQuota}
+                                        {assign var=pctClamped value=$pct}
+                                        {if $pctClamped > 100}
+                                            {assign var=pctClamped value=100}
+                                        {elseif $pctClamped < 0}
+                                            {assign var=pctClamped value=0}
+                                        {/if}
+                                        <div class="w-56">
+                                            <div class="h-2.5 w-full rounded bg-slate-800/70 overflow-hidden" title="{\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($usedBytes, 2)} of {\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($quotaBytes, 2)} ({$pctClamped|string_format:'%.1f'}%) — measured {\WHMCS\Module\Addon\Eazybackup\Helper::formatDateTime($usedMeasuredEnd)}">
+                                                <div class="h-full transition-[width] duration-500" :class="pctColor({$pctClamped})" style="width: {$pctClamped}%;"></div>
+                                            </div>
+                                            <div class="mt-1 text-xs text-slate-400">{\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($usedBytes, 2)} / {\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($quotaBytes, 2)} ({$pctClamped|string_format:'%.1f'}%)</div>
+                                        </div>
+                                    {else}
+                                        <div class="w-56">
+                                            <div class="h-2.5 w-full rounded bg-slate-800/70 overflow-hidden">
+                                                <div class="h-full w-1/3 bg-gradient-to-r from-slate-600/40 via-slate-500/40 to-slate-600/40 animate-pulse"></div>
+                                            </div>
+                                            <div class="mt-1 text-xs text-slate-500">Usage unavailable (no quota)</div>
+                                        </div>
+                                    {/if}
+                                </td>
+                                <td x-show="cols.billing" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">
+                                    {if $billableTB > 0}{$billableTB} TB{else}—{/if}
+                                </td>
+                                <td x-show="cols.actions" class="px-4 py-3 whitespace-nowrap text-sm">
+                                    <button class="open-vault-panel px-3 py-1.5 text-xs bg-slate-700 rounded text-white {if $isMicrosoft365Service}opacity-50 cursor-not-allowed{else}hover:bg-slate-600 cursor-pointer{/if}"
+                                            title="{if $isMicrosoft365Service}Locked for Microsoft 365 services{else}Manage{/if}"
+                                            {if $isMicrosoft365Service}disabled="disabled" aria-disabled="true"{/if}
+                                            data-vault-id="{$vaultId}"
+                                            data-vault-name="{$vault.Description}"
+                                            data-vault-quota-enabled="{$quotaEnabled}"
+                                            data-vault-quota-bytes="{$quotaBytes}">Manage</button>
+                                </td>
+                            </tr>
+                        {/foreach}
+                      {/if}
+                      <tr x-ref="noResults" {if $vaults|@count > 0}style="display:none;"{/if}>
+                          <td colspan="6" class="text-center py-8 text-sm text-slate-400">No storage vaults found for this user.</td>
+                      </tr>
             </tbody>
           </table>
+              </div>
+              <div class="mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-400">
+                <div x-text="pageSummary()"></div>
+                <div class="flex items-center gap-2">
+                  <button type="button"
+                          @click="prevPage()"
+                          :disabled="currentPage <= 1"
+                          class="px-3 py-1.5 rounded border border-slate-700 bg-slate-900/70 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed">
+                    Prev
+                  </button>
+                  <span class="text-slate-300" x-text="'Page ' + currentPage + ' / ' + totalPages()"></span>
+                  <button type="button"
+                          @click="nextPage()"
+                          :disabled="currentPage >= totalPages()"
+                          class="px-3 py-1.5 rounded border border-slate-700 bg-slate-900/70 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed">
+                    Next
+                  </button>
+                </div>
               </div>
         </div>
       </div>
 
       <div x-show="activeSubTab === 'devices'" x-cloak x-transition>
-        <div class="bg-slate-900 rounded-lg" x-data="{
-            open:false,
-            search:'',
+        <div class="bg-slate-950/70 rounded-2xl border border-slate-800/80 p-4" x-data="{
+            columnsOpen: false,
+            entriesOpen: false,
+            search: '',
+            entriesPerPage: 25,
+            currentPage: 1,
+            sortKey: 'name',
+            sortDirection: 'asc',
+            filteredCount: 0,
+            rows: [],
             cols:{ status:true, name:true, id:false, reg:true, ver:true, plat:true, items:true, actions:true },
-            matchesSearch(el){ const q=this.search.trim().toLowerCase(); if(!q) return true; return (el.textContent||'').toLowerCase().includes(q); }
-        }">
-            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 pt-4 pb-2">
-                <div class="relative shrink-0" @click.away="open=false">
-                    <button type="button" class="inline-flex items-center gap-2 px-3 py-2 text-sm bg-slate-700 hover:bg-slate-600 rounded text-white transition-all duration-200" @click="open=!open">
-                        <span class="text-slate-400">View:</span>
-                        <span class="font-medium">Columns</span>
-                        <svg class="w-4 h-4 opacity-70" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                            <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.24 4.5a.75.75 0 01-1.08 0l-4.24-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/>
+            init() {
+              this.rows = Array.from(this.$refs.tbody.querySelectorAll('tr[data-device-row]'));
+              this.$watch('search', () => {
+                this.currentPage = 1;
+                this.refreshRows();
+              });
+              this.refreshRows();
+            },
+            setEntries(size) {
+              this.entriesPerPage = Number(size) || 25;
+              this.currentPage = 1;
+              this.refreshRows();
+            },
+            setSort(key) {
+              if (this.sortKey === key) {
+                this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
+              } else {
+                this.sortKey = key;
+                this.sortDirection = 'asc';
+              }
+              this.refreshRows();
+            },
+            sortIndicator(key) {
+              if (this.sortKey !== key) return '';
+              return this.sortDirection === 'asc' ? '↑' : '↓';
+            },
+            sortValue(row, key) {
+              const raw = row.getAttribute('data-sort-' + key) || '';
+              if (key === 'items') return Number(raw) || 0;
+              if (key === 'status') return String(raw).toLowerCase() === 'online' ? 1 : 0;
+              return String(raw).toLowerCase();
+            },
+            compareRows(left, right) {
+              const a = this.sortValue(left, this.sortKey);
+              const b = this.sortValue(right, this.sortKey);
+              if (a < b) return this.sortDirection === 'asc' ? -1 : 1;
+              if (a > b) return this.sortDirection === 'asc' ? 1 : -1;
+              return 0;
+            },
+            refreshRows() {
+              const query = this.search.trim().toLowerCase();
+              const filtered = this.rows.filter((row) => {
+                if (!query) return true;
+                return (row.textContent || '').toLowerCase().includes(query);
+              });
+              filtered.sort((a, b) => this.compareRows(a, b));
+              filtered.forEach((row) => this.$refs.tbody.appendChild(row));
+
+              this.filteredCount = filtered.length;
+              const pages = this.totalPages();
+              if (this.currentPage > pages) this.currentPage = pages;
+              const start = (this.currentPage - 1) * this.entriesPerPage;
+              const end = start + this.entriesPerPage;
+              const visibleRows = new Set(filtered.slice(start, end));
+
+              this.rows.forEach((row) => {
+                row.style.display = visibleRows.has(row) ? '' : 'none';
+              });
+
+              if (this.$refs.noResults) {
+                this.$refs.noResults.style.display = filtered.length === 0 ? '' : 'none';
+              }
+            },
+            totalPages() {
+              return Math.max(1, Math.ceil(this.filteredCount / this.entriesPerPage));
+            },
+            pageSummary() {
+              if (this.filteredCount === 0) return 'Showing 0 of 0 devices';
+              const start = (this.currentPage - 1) * this.entriesPerPage + 1;
+              const end = Math.min(start + this.entriesPerPage - 1, this.filteredCount);
+              return 'Showing ' + start + '-' + end + ' of ' + this.filteredCount + ' devices';
+            },
+            prevPage() {
+              if (this.currentPage <= 1) return;
+              this.currentPage -= 1;
+              this.refreshRows();
+            },
+            nextPage() {
+              if (this.currentPage >= this.totalPages()) return;
+              this.currentPage += 1;
+              this.refreshRows();
+            }
+        }" x-init="init()">
+            <div class="mb-4 flex flex-col xl:flex-row xl:items-center gap-3">
+                <div class="relative" @click.away="entriesOpen=false">
+                    <button type="button"
+                            @click="entriesOpen=!entriesOpen"
+                            class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
+                        <span x-text="'Show ' + entriesPerPage"></span>
+                        <svg class="w-4 h-4 transition-transform" :class="entriesOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
                         </svg>
                     </button>
-                    <div x-show="open" x-transition class="absolute mt-2 w-56 bg-slate-800 border border-slate-700 rounded shadow-lg z-20">
-                        <div class="p-3 space-y-2 text-slate-200 text-sm">
-                            <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.status"> Status</label>
-                            <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.name"> Device Name</label>
-                            <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.id"> Device ID</label>
-                            <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.reg"> Registered</label>
-                            <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.ver"> Version</label>
-                            <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.plat"> Platform</label>
-                            <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.items"> Protected Items</label>
-                            <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.actions"> Actions</label>
-                        </div>
+                    <div x-show="entriesOpen"
+                         x-transition:enter="transition ease-out duration-100"
+                         x-transition:enter-start="opacity-0 scale-95"
+                         x-transition:enter-end="opacity-100 scale-100"
+                         x-transition:leave="transition ease-in duration-75"
+                         x-transition:leave-start="opacity-100 scale-100"
+                         x-transition:leave-end="opacity-0 scale-95"
+                         class="absolute left-0 mt-2 w-40 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden"
+                         style="display:none;">
+                        <template x-for="size in [10,25,50,100]" :key="'user-devices-entries-' + size">
+                            <button type="button"
+                                    class="w-full px-4 py-2 text-left text-sm transition"
+                                    :class="entriesPerPage === size ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
+                                    @click="setEntries(size); entriesOpen=false;">
+                                <span x-text="size"></span>
+                            </button>
+                        </template>
                     </div>
                 </div>
-                <div class="w-full sm:w-72 sm:max-w-xs">
-                    <input type="text" x-model.debounce.200ms="search" placeholder="Search devices..." class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-700 text-slate-200 focus:outline-none focus:ring-0 focus:border-sky-600">
+
+                <div class="relative" @click.away="columnsOpen=false">
+                    <button type="button"
+                            @click="columnsOpen=!columnsOpen"
+                            class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
+                        Columns
+                        <svg class="w-4 h-4 transition-transform" :class="columnsOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                        </svg>
+                    </button>
+                    <div x-show="columnsOpen"
+                         x-transition:enter="transition ease-out duration-100"
+                         x-transition:enter-start="opacity-0 scale-95"
+                         x-transition:enter-end="opacity-100 scale-100"
+                         x-transition:leave="transition ease-in duration-75"
+                         x-transition:leave-start="opacity-100 scale-100"
+                         x-transition:leave-end="opacity-0 scale-95"
+                         class="absolute left-0 mt-2 w-56 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden p-2"
+                         style="display:none;">
+                        <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Status</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.status"></label>
+                        <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Device Name</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.name"></label>
+                        <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Device ID</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.id"></label>
+                        <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Registered</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.reg"></label>
+                        <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Version</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.ver"></label>
+                        <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Platform</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.plat"></label>
+                        <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Protected Items</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.items"></label>
+                        <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Actions</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.actions"></label>
+                    </div>
                 </div>
+
+                <div class="flex-1"></div>
+                <input type="text"
+                       x-model.debounce.200ms="search"
+                       placeholder="Search devices..."
+                       class="w-full xl:w-80 rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
             </div>
-            <div class="table-scroll overflow-x-auto">
-            <table class="w-full min-w-max divide-y divide-slate-700">
-                <thead class="bg-slate-800/50">
+            <div class="table-scroll overflow-x-auto rounded-lg border border-slate-800">
+            <table class="w-full min-w-max divide-y divide-slate-800 text-sm">
+                <thead class="bg-slate-900/80 text-slate-300">
                     <tr>
-                        <th x-show="cols.status" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Status</th>
-                        <th x-show="cols.name" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Device Name</th>
-                        <th x-show="cols.id" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Device ID</th>
-                        <th x-show="cols.reg" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Registered</th>
-                        <th x-show="cols.ver" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Version</th>
-                        <th x-show="cols.plat" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Platform</th>
-                        <th x-show="cols.items" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Protected Items</th>
-                        <th x-show="cols.actions" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider">Actions</th>
+                        <th x-show="cols.status" class="px-4 py-3 text-left font-medium">
+                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('status')">Status<span x-text="sortIndicator('status')"></span></button>
+                        </th>
+                        <th x-show="cols.name" class="px-4 py-3 text-left font-medium">
+                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('name')">Device Name<span x-text="sortIndicator('name')"></span></button>
+                        </th>
+                        <th x-show="cols.id" class="px-4 py-3 text-left font-medium">
+                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('id')">Device ID<span x-text="sortIndicator('id')"></span></button>
+                        </th>
+                        <th x-show="cols.reg" class="px-4 py-3 text-left font-medium">
+                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('reg')">Registered<span x-text="sortIndicator('reg')"></span></button>
+                        </th>
+                        <th x-show="cols.ver" class="px-4 py-3 text-left font-medium">
+                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('ver')">Version<span x-text="sortIndicator('ver')"></span></button>
+                        </th>
+                        <th x-show="cols.plat" class="px-4 py-3 text-left font-medium">
+                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('plat')">Platform<span x-text="sortIndicator('plat')"></span></button>
+                        </th>
+                        <th x-show="cols.items" class="px-4 py-3 text-left font-medium">
+                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('items')">Protected Items<span x-text="sortIndicator('items')"></span></button>
+                        </th>
+                        <th x-show="cols.actions" class="px-4 py-3 text-left font-medium">Actions</th>
               </tr>
             </thead>
-                <tbody class="divide-y divide-slate-700">
-                    {foreach from=$devices item=device}
-                        <tr class="hover:bg-slate-800/60" x-show="matchesSearch($el)" x-cloak>
-                            <td x-show="cols.status" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
+                <tbody class="divide-y divide-slate-800" x-ref="tbody">
+                    {if $devices|@count > 0}
+                      {foreach from=$devices item=device}
+                        <tr class="hover:bg-slate-800/50" data-device-row="1"
+                            data-sort-status="{$device.status|default:''|escape:'html'}"
+                            data-sort-name="{$device.device_name|default:''|escape:'html'}"
+                            data-sort-id="{$device.device_id|default:''|escape:'html'}"
+                            data-sort-reg="{$device.registered|default:''|escape:'html'}"
+                            data-sort-ver="{$device.version|default:''|escape:'html'}"
+                            data-sort-plat="{$device.platform|default:''|escape:'html'}"
+                            data-sort-items="{$device.protected_items|default:0|escape:'html'}">
+                            <td x-show="cols.status" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">
                                 {if $device.status == 'Online'}
                                     <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-900/50 text-green-300">Online</span>
                                 {else}
                                     <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-gray-300">Offline</span>
                                 {/if}
                             </td>
-                            <td x-show="cols.name" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$device.device_name}</td>
-                            <td x-show="cols.id" class="px-4 py-4 whitespace-nowrap text-xs font-mono text-slate-200">{$device.device_id}</td>
-                            <td x-show="cols.reg" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$device.registered}</td>
-                            <td x-show="cols.ver" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$device.version}</td>
-                            <td x-show="cols.plat" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$device.platform}</td>
-                            <td x-show="cols.items" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$device.protected_items}</td>
-                            <td x-show="cols.actions" class="px-4 py-4 whitespace-nowrap text-sm">
+                            <td x-show="cols.name" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{$device.device_name}</td>
+                            <td x-show="cols.id" class="px-4 py-3 whitespace-nowrap text-xs font-mono text-slate-200">{$device.device_id}</td>
+                            <td x-show="cols.reg" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{$device.registered}</td>
+                            <td x-show="cols.ver" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{$device.version}</td>
+                            <td x-show="cols.plat" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{$device.platform}</td>
+                            <td x-show="cols.items" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{$device.protected_items}</td>
+                            <td x-show="cols.actions" class="px-4 py-3 whitespace-nowrap text-sm">
                                 <button type="button" class="px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 rounded text-white" data-action="open-device-panel" data-device-id="{$device.device_id}" data-device-name="{$device.device_name}" data-device-online="{if $device.status == 'Online'}1{else}0{/if}">Manage</button>
                             </td>
                         </tr>
-                    {foreachelse}
-                        <tr>
-                            <td colspan="8" class="text-center py-6 text-sm text-slate-200">No devices found for this user.</td>
-                </tr>
-              {/foreach}          
+                      {/foreach}
+                    {/if}
+                    <tr x-ref="noResults" {if $devices|@count > 0}style="display:none;"{/if}>
+                        <td colspan="8" class="text-center py-8 text-sm text-slate-400">No devices found for this user.</td>
+                    </tr>
             </tbody>
           </table>
+            </div>
+            <div class="mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-400">
+              <div x-text="pageSummary()"></div>
+              <div class="flex items-center gap-2">
+                <button type="button"
+                        @click="prevPage()"
+                        :disabled="currentPage <= 1"
+                        class="px-3 py-1.5 rounded border border-slate-700 bg-slate-900/70 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed">
+                  Prev
+                </button>
+                <span class="text-slate-300" x-text="'Page ' + currentPage + ' / ' + totalPages()"></span>
+                <button type="button"
+                        @click="nextPage()"
+                        :disabled="currentPage >= totalPages()"
+                        class="px-3 py-1.5 rounded border border-slate-700 bg-slate-900/70 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed">
+                  Next
+                </button>
+              </div>
             </div>
         </div>
       </div>
@@ -1083,19 +1614,7 @@
       <div x-show="activeSubTab === 'jobLogs'" x-cloak x-transition>
         <div class="overflow-hidden rounded-2xl border border-slate-800/90 bg-gradient-to-b from-slate-900/95 to-slate-950/95 shadow-[0_18px_40px_rgba(0,0,0,0.35)]" x-data="{ open:false, search:'', cols:{ user:true, id:false, device:true, item:true, vault:false, ver:false, type:true, status:true, dirs:false, files:false, size:true, vsize:true, up:false, down:false, started:true, ended:true, dur:true } }">
             <div class="border-b border-slate-800/80 px-4 pt-4 pb-3">
-                <div class="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-                    <div class="flex items-center gap-2">
-                        {* <div class="text-xs font-medium text-slate-100">Summary <span class="text-slate-500">(Job Logs)</span></div>
-                        <button type="button"
-                                class="inline-flex h-6 w-6 items-center justify-center rounded-full border border-slate-700/70 bg-slate-900/40 text-slate-400 transition hover:border-slate-600 hover:text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                                title="Filter Job Logs by one or more status pills. Search combines with selected statuses."
-                                aria-label="About job log filters">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
-                            </svg>
-                        </button> *}
-                    </div>
-
+                <div class="flex flex-wrap items-center justify-between gap-2">
                     <div class="flex flex-wrap gap-2">
                         <button type="button" data-jobs-status-chip data-status="Error" class="inline-flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition select-none active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed">
                             <span class="h-2.5 w-2.5 rounded-full bg-red-500"></span><span>Error</span><span data-jobs-status-count class="font-semibold tabular-nums">0</span>
@@ -1123,46 +1642,42 @@
                         </button>
                     </div>
 
-                    <div class="flex w-full gap-2 xl:w-[24rem] xl:max-w-[24rem]">
-                        <input id="jobs-search" type="text" placeholder="Search jobs..." class="w-full rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-0 focus:border-sky-600">
-                        <button id="jobs-clear-filters" type="button" class="hidden inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-700/80 bg-slate-900/50 px-3 py-2 text-xs font-medium text-slate-100 transition hover:border-slate-600 hover:bg-slate-900/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950">
-                            Clear
-                        </button>
-                    </div>
+                    <button id="jobs-clear-filters" type="button" class="hidden inline-flex shrink-0 items-center gap-1 rounded-md border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-800">
+                        Clear
+                    </button>
                 </div>
                 <div id="jobs-active-filters" class="mt-2 hidden text-xs text-slate-400"></div>
             </div>
 
-            <div class="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div class="mb-4 flex flex-col lg:flex-row lg:items-center gap-3 px-4 pt-3">
                 <div class="flex items-center gap-3">
                     <!-- View columns dropdown -->
                     <div class="relative shrink-0" @click.away="open=false">
-                        <button type="button" class="inline-flex items-center gap-2 rounded-lg border border-slate-700/80 bg-slate-900/50 px-3 py-2 text-sm text-white transition-all duration-200 hover:border-slate-600 hover:bg-slate-900/80" @click="open=!open">
-                            <span class="text-slate-400">View:</span>
+                        <button type="button" class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80" @click="open=!open">
                             <span class="font-medium">Columns</span>
-                            <svg class="h-4 w-4 opacity-70" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                            <svg class="h-4 w-4 transition-transform" :class="open ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                                 <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.24 4.5a.75.75 0 01-1.08 0l-4.24-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/>
                             </svg>
                         </button>
-                        <div x-show="open" x-transition class="absolute mt-2 w-72 rounded-lg border border-slate-700 bg-slate-800 shadow-lg z-10">
-                            <div class="grid grid-cols-2 gap-2 p-3 text-sm text-slate-200">
-                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.user"> Username</label>
-                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.id"> Job ID</label>
-                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.device"> Device</label>
-                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.item"> Protected Item</label>
-                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.vault"> Storage Vault</label>
-                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.ver"> Version</label>
-                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.type"> Type</label>
-                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.status"> Status</label>
-                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.dirs"> Directories</label>
-                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.files"> Files</label>
-                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.size"> Size</label>
-                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.vsize"> Storage Vault Size</label>
-                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.up"> Uploaded</label>
-                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.down"> Downloaded</label>
-                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.started"> Started</label>
-                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.ended"> Ended</label>
-                                <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.dur"> Duration</label>
+                        <div x-show="open" x-transition class="absolute mt-2 w-72 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-10 p-2">
+                            <div class="grid grid-cols-2 gap-1 text-sm text-slate-200">
+                                <label class="flex items-center justify-between rounded px-2 py-2 hover:bg-slate-800/60 cursor-pointer"><span>Username</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.user"></label>
+                                <label class="flex items-center justify-between rounded px-2 py-2 hover:bg-slate-800/60 cursor-pointer"><span>Job ID</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.id"></label>
+                                <label class="flex items-center justify-between rounded px-2 py-2 hover:bg-slate-800/60 cursor-pointer"><span>Device</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.device"></label>
+                                <label class="flex items-center justify-between rounded px-2 py-2 hover:bg-slate-800/60 cursor-pointer"><span>Protected Item</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.item"></label>
+                                <label class="flex items-center justify-between rounded px-2 py-2 hover:bg-slate-800/60 cursor-pointer"><span>Storage Vault</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.vault"></label>
+                                <label class="flex items-center justify-between rounded px-2 py-2 hover:bg-slate-800/60 cursor-pointer"><span>Version</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.ver"></label>
+                                <label class="flex items-center justify-between rounded px-2 py-2 hover:bg-slate-800/60 cursor-pointer"><span>Type</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.type"></label>
+                                <label class="flex items-center justify-between rounded px-2 py-2 hover:bg-slate-800/60 cursor-pointer"><span>Status</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.status"></label>
+                                <label class="flex items-center justify-between rounded px-2 py-2 hover:bg-slate-800/60 cursor-pointer"><span>Directories</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.dirs"></label>
+                                <label class="flex items-center justify-between rounded px-2 py-2 hover:bg-slate-800/60 cursor-pointer"><span>Files</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.files"></label>
+                                <label class="flex items-center justify-between rounded px-2 py-2 hover:bg-slate-800/60 cursor-pointer"><span>Size</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.size"></label>
+                                <label class="flex items-center justify-between rounded px-2 py-2 hover:bg-slate-800/60 cursor-pointer"><span>Storage Vault Size</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.vsize"></label>
+                                <label class="flex items-center justify-between rounded px-2 py-2 hover:bg-slate-800/60 cursor-pointer"><span>Uploaded</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.up"></label>
+                                <label class="flex items-center justify-between rounded px-2 py-2 hover:bg-slate-800/60 cursor-pointer"><span>Downloaded</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.down"></label>
+                                <label class="flex items-center justify-between rounded px-2 py-2 hover:bg-slate-800/60 cursor-pointer"><span>Started</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.started"></label>
+                                <label class="flex items-center justify-between rounded px-2 py-2 hover:bg-slate-800/60 cursor-pointer"><span>Ended</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.ended"></label>
+                                <label class="flex items-center justify-between rounded px-2 py-2 hover:bg-slate-800/60 cursor-pointer"><span>Duration</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.dur"></label>
                             </div>
                         </div>
                     </div>
@@ -1179,18 +1694,18 @@
                         }
                     }" class="relative">
                         <button @click="sizeOpen = !sizeOpen" @click.away="sizeOpen = false" type="button" 
-                                class="inline-flex items-center gap-2 rounded-lg border border-slate-700/80 bg-slate-900/50 px-3 py-2 text-sm text-white transition-all duration-200 hover:border-slate-600 hover:bg-slate-900/80">
-                            <span class="text-slate-400">Show:</span>
+                                class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
+                            <span class="text-slate-400">Show</span>
                             <span x-text="pageSize" class="font-medium"></span>
-                            <svg class="h-4 w-4 opacity-70" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                            <svg class="h-4 w-4 transition-transform" :class="sizeOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                                 <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.24 4.5a.75.75 0 01-1.08 0l-4.24-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/>
                             </svg>
                         </button>
                         <div x-show="sizeOpen" x-cloak x-transition 
-                             class="absolute left-0 mt-2 w-24 overflow-hidden rounded-lg border border-slate-700 bg-slate-800 shadow-xl z-10">
+                             class="absolute left-0 mt-2 w-24 overflow-hidden rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-10">
                             <template x-for="size in sizes" :key="size">
                                 <button @click="setSize(size)" type="button"
-                                        :class="pageSize === size ? 'bg-slate-700 text-white' : 'text-slate-100 hover:bg-slate-700/70 hover:text-white'"
+                                        :class="pageSize === size ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60 hover:text-white'"
                                         class="block w-full px-3 py-2 text-left text-sm transition-colors">
                                     <span x-text="size"></span>
                                 </button>
@@ -1198,40 +1713,43 @@
                         </div>
                     </div>
                 </div>
-                <div class="text-xs text-slate-400">Total: <span id="jobs-total">0</span></div>
+
+                <div class="w-full lg:w-80 lg:ml-auto">
+                    <input id="jobs-search" type="text" placeholder="Search jobs..." class="w-full xl:w-80 rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
+                </div>
             </div>
 
             <!-- scroll wrapper: horizontal scroll for column overflow -->
             <div class="px-4 pb-2">
-              <div class="table-scroll overflow-x-auto rounded-md border border-slate-800">
-                <table id="jobs-table" class="min-w-full divide-y divide-slate-700" data-job-table>
-                    <thead class="bg-slate-800/50">
+              <div class="table-scroll overflow-x-auto rounded-lg border border-slate-800">
+                <table id="jobs-table" class="min-w-full divide-y divide-slate-800 text-sm" data-job-table>
+                    <thead class="bg-slate-900/80 text-slate-300">
                         <tr>
-                            <th x-show="cols.user"   data-sort="Username"    class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider cursor-pointer">Username</th>
-                            <th x-show="cols.id" x-cloak    data-sort="JobID"       class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider cursor-pointer">Job ID</th>
-                            <th x-show="cols.device" data-sort="Device"      class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider cursor-pointer">Device</th>
-                            <th x-show="cols.item"   data-sort="ProtectedItem" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider cursor-pointer">Protected Item</th>
-                            <th x-show="cols.vault"  data-sort="StorageVault" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider cursor-pointer">Storage Vault</th>
-                            <th x-show="cols.ver"    data-sort="Version"     class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider cursor-pointer">Version</th>
-                            <th x-show="cols.type"   data-sort="Type"        class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider cursor-pointer">Type</th>
-                            <th x-show="cols.status" data-sort="Status"      class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider cursor-pointer">Status</th>
-                            <th x-show="cols.dirs"   data-sort="Directories" class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider cursor-pointer">Directories</th>
-                            <th x-show="cols.files"  data-sort="Files"       class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider cursor-pointer">Files</th>
-                            <th x-show="cols.size"   data-sort="Size"        class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider cursor-pointer">Size</th>
-                            <th x-show="cols.vsize"  data-sort="VaultSize"   class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider cursor-pointer">Storage Vault Size</th>
-                            <th x-show="cols.up"     data-sort="Uploaded"    class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider cursor-pointer">Uploaded</th>
-                            <th x-show="cols.down"   data-sort="Downloaded"  class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider cursor-pointer">Downloaded</th>
-                            <th x-show="cols.started" data-sort="Started"    class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider cursor-pointer">Started</th>
-                            <th x-show="cols.ended"   data-sort="Ended"      class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider cursor-pointer">Ended</th>
-                            <th x-show="cols.dur"     data-sort="Duration"   class="px-4 py-3 text-left text-xs font-medium text-slate-200 uppercase tracking-wider cursor-pointer">Duration</th>
+                            <th x-show="cols.user" data-sort="Username" class="px-4 py-3 text-left font-medium cursor-pointer"><button type="button" class="inline-flex items-center gap-1 hover:text-white">Username<span data-sort-indicator></span></button></th>
+                            <th x-show="cols.id" x-cloak data-sort="JobID" class="px-4 py-3 text-left font-medium cursor-pointer"><button type="button" class="inline-flex items-center gap-1 hover:text-white">Job ID<span data-sort-indicator></span></button></th>
+                            <th x-show="cols.device" data-sort="Device" class="px-4 py-3 text-left font-medium cursor-pointer"><button type="button" class="inline-flex items-center gap-1 hover:text-white">Device<span data-sort-indicator></span></button></th>
+                            <th x-show="cols.item" data-sort="ProtectedItem" class="px-4 py-3 text-left font-medium cursor-pointer"><button type="button" class="inline-flex items-center gap-1 hover:text-white">Protected Item<span data-sort-indicator></span></button></th>
+                            <th x-show="cols.vault" data-sort="StorageVault" class="px-4 py-3 text-left font-medium cursor-pointer"><button type="button" class="inline-flex items-center gap-1 hover:text-white">Storage Vault<span data-sort-indicator></span></button></th>
+                            <th x-show="cols.ver" data-sort="Version" class="px-4 py-3 text-left font-medium cursor-pointer"><button type="button" class="inline-flex items-center gap-1 hover:text-white">Version<span data-sort-indicator></span></button></th>
+                            <th x-show="cols.type" data-sort="Type" class="px-4 py-3 text-left font-medium cursor-pointer"><button type="button" class="inline-flex items-center gap-1 hover:text-white">Type<span data-sort-indicator></span></button></th>
+                            <th x-show="cols.status" data-sort="Status" class="px-4 py-3 text-left font-medium cursor-pointer"><button type="button" class="inline-flex items-center gap-1 hover:text-white">Status<span data-sort-indicator></span></button></th>
+                            <th x-show="cols.dirs" data-sort="Directories" class="px-4 py-3 text-left font-medium cursor-pointer"><button type="button" class="inline-flex items-center gap-1 hover:text-white">Directories<span data-sort-indicator></span></button></th>
+                            <th x-show="cols.files" data-sort="Files" class="px-4 py-3 text-left font-medium cursor-pointer"><button type="button" class="inline-flex items-center gap-1 hover:text-white">Files<span data-sort-indicator></span></button></th>
+                            <th x-show="cols.size" data-sort="Size" class="px-4 py-3 text-left font-medium cursor-pointer"><button type="button" class="inline-flex items-center gap-1 hover:text-white">Size<span data-sort-indicator></span></button></th>
+                            <th x-show="cols.vsize" data-sort="VaultSize" class="px-4 py-3 text-left font-medium cursor-pointer"><button type="button" class="inline-flex items-center gap-1 hover:text-white">Storage Vault Size<span data-sort-indicator></span></button></th>
+                            <th x-show="cols.up" data-sort="Uploaded" class="px-4 py-3 text-left font-medium cursor-pointer"><button type="button" class="inline-flex items-center gap-1 hover:text-white">Uploaded<span data-sort-indicator></span></button></th>
+                            <th x-show="cols.down" data-sort="Downloaded" class="px-4 py-3 text-left font-medium cursor-pointer"><button type="button" class="inline-flex items-center gap-1 hover:text-white">Downloaded<span data-sort-indicator></span></button></th>
+                            <th x-show="cols.started" data-sort="Started" class="px-4 py-3 text-left font-medium cursor-pointer"><button type="button" class="inline-flex items-center gap-1 hover:text-white">Started<span data-sort-indicator></span></button></th>
+                            <th x-show="cols.ended" data-sort="Ended" class="px-4 py-3 text-left font-medium cursor-pointer"><button type="button" class="inline-flex items-center gap-1 hover:text-white">Ended<span data-sort-indicator></span></button></th>
+                            <th x-show="cols.dur" data-sort="Duration" class="px-4 py-3 text-left font-medium cursor-pointer"><button type="button" class="inline-flex items-center gap-1 hover:text-white">Duration<span data-sort-indicator></span></button></th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-slate-700"></tbody>
+                    <tbody class="divide-y divide-slate-800"></tbody>
                 </table>
               </div>
             </div>
             <div class="px-4 py-2">
-                <div id="jobs-pager" class="space-x-2 text-small font-medium text-slate-400"></div>
+                <div id="jobs-pager" class="flex items-center gap-2 text-xs font-medium text-slate-400"></div>
             </div>
         </div>
       </div>

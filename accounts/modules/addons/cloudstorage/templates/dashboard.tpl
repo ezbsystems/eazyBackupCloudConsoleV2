@@ -2,7 +2,7 @@
     [x-cloak] { display: none !important; }
 </style>
 <div class="min-h-screen bg-slate-950 text-gray-300">
-    <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
+    {* <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div> *}
     <div class="container mx-auto px-4 py-8">        
         <!-- Cloud Storage Navigation -->
         <div class="mb-6">

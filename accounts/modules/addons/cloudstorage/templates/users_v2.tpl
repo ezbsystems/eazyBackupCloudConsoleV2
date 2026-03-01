@@ -6,7 +6,7 @@
 <script src="{$WEB_ROOT}/modules/addons/eazybackup/templates/assets/js/ui.js"></script>
 
 <div class="min-h-screen bg-slate-950 text-gray-300" x-data="usersV2Manager()" x-init="init()">
-  <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
+  {* <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div> *}
   <div class="container mx-auto px-4 pb-10 pt-6 relative pointer-events-auto">
 
     <!-- Navigation -->

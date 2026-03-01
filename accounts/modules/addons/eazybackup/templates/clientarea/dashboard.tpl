@@ -1,4 +1,5 @@
 <link rel="stylesheet" href="https://unpkg.com/tippy.js@6/themes/light.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/billboard.js/dist/billboard.min.css" />
 {literal}
 <style>
     [x-cloak] { display: none !important; }
@@ -36,6 +37,88 @@
     * {
         scrollbar-width: thin;
         scrollbar-color: rgba(51, 65, 85, 0.8) rgba(15, 23, 42, 0.6);
+    }
+
+    /* Billboard donut tune-up for Last 24h status card */
+    #eb-status24h-donut .bb-chart-arcs path {
+        stroke: none !important;
+        stroke-width: 0 !important;
+    }
+    #eb-status24h-donut .bb-chart-arcs text {
+        fill: #ffffff !important;
+        font-size: 13px !important;
+        font-weight: 400 !important;
+        dominant-baseline: middle;
+    }
+    #eb-status24h-donut .bb-tooltip-container .bb-tooltip {
+        border-collapse: separate;
+        border-spacing: 0;
+        background: #0f172a !important;
+        color: #f8fafc !important;
+        border: 1px solid #334155 !important;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 10px 30px rgba(2, 6, 23, 0.55);
+    }
+    #eb-status24h-donut .bb-tooltip-container .bb-tooltip th,
+    #eb-status24h-donut .bb-tooltip-container .bb-tooltip td {
+        background: #0f172a !important;
+        color: #f8fafc !important;
+        border-color: #334155 !important;
+    }
+
+    #eb-status24h-legend-wrap {
+        background: rgba(30, 41, 59, 0.45);
+        border-radius: 16px;
+        padding: 12px 14px;
+    }
+    #eb-status24h-legend {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: center;
+        gap: 10px 26px;
+    }
+    #eb-status24h-legend .eb-legend-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        white-space: nowrap;
+        font-size: 0.9rem;
+        line-height: 1.2;
+    }
+    #eb-status24h-legend .eb-legend-dot {
+        width: 16px;
+        height: 16px;
+        border-radius: 9999px;
+        display: inline-block;
+        box-sizing: border-box;
+        flex: 0 0 auto;
+    }
+    #eb-status24h-legend .eb-legend-dot-missed {
+        background: transparent;
+        border: 2px solid rgb(203, 213, 225);
+    }
+
+    /* Usage cards: shared icon badge + left-content alignment */
+    .eb-usage-icon-badge {
+        width: 40px;
+        height: 40px;
+        border-radius: 20px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(30, 41, 59, 0.65);
+        border: 1px solid rgba(71, 85, 105, 0.65);
+        color: #cbd5e1;
+        flex-shrink: 0;
+    }
+    .eb-usage-icon-svg {
+        width: 24px;
+        height: 24px;
+    }
+    .eb-usage-content-inset {
+        padding-left: 0.625rem;
     }
 </style>
 {/literal}
@@ -90,53 +173,124 @@
                     <h2 class="text-md font-medium eb-text-white mb-4 px-2">Usage overview</h2>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div class="bg-slate-900 p-4 rounded-lg shadow eb-text-white h-full flex flex-col">
-                            <div class="flex items-center gap-2 mb-3">
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 text-slate-300">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0 3 3m-3-3-3 3M6.75 19.5a4.5 4.5 0 0 1-1.41-8.775 5.25 5.25 0 0 1 10.233-2.33 3 3 0 0 1 3.758 3.848A3.752 3.752 0 0 1 18 19.5H6.75Z" />
-                                </svg>
+                            <div class="flex items-center gap-3 mb-3">
+                                <span class="eb-usage-icon-badge">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="eb-usage-icon-svg">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0 3 3m-3-3-3 3M6.75 19.5a4.5 4.5 0 0 1-1.41-8.775 5.25 5.25 0 0 1 10.233-2.33 3 3 0 0 1 3.758 3.848A3.752 3.752 0 0 1 18 19.5H6.75Z" />
+                                    </svg>
+                                </span>
                                 <h3 class="text-base font-semibold">Last 24 Hours (Status)</h3>
                             </div>
-                            <div id="eb-status24h-donut" class="mt-3 w-full border border-slate-800 rounded overflow-hidden" style="height:180px;">
-                                <div class="h-full w-full flex items-center justify-center text-xs text-slate-500">Loading chart...</div>
-                            </div>
-                            <div id="eb-status24h-legend" class="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-slate-300">
-                                <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-green-500"></span><span>Success <span data-status-count="success">0</span></span></div>
-                                <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-red-500"></span><span>Error <span data-status-count="error">0</span></span></div>
-                                <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span><span>Warning <span data-status-count="warning">0</span></span></div>
-                                <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full border border-slate-300"></span><span>Missed <span data-status-count="missed">0</span></span></div>
-                                <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-sky-500"></span><span>Running <span data-status-count="running">0</span></span></div>
+                            <div class="eb-usage-content-inset">
+                                <div id="eb-status24h-donut" class="mt-3 w-full rounded overflow-hidden" style="height:180px;">
+                                    <div class="h-full w-full flex items-center justify-center text-xs text-slate-500">Loading chart...</div>
+                                </div>
+                                <div class="mt-3">
+                                    <div id="eb-status24h-legend-wrap" class="mx-auto max-w-[30rem]">
+                                        <div id="eb-status24h-legend" class="text-slate-200">
+                                            <div class="eb-legend-item"><span class="eb-legend-dot" style="background: rgb(0, 201, 80);"></span><span>Success <span data-status-count="success">0</span></span></div>
+                                            <div class="eb-legend-item"><span class="eb-legend-dot" style="background: rgb(251, 44, 54);"></span><span>Error <span data-status-count="error">0</span></span></div>
+                                            <div class="eb-legend-item"><span class="eb-legend-dot" style="background: rgb(254, 154, 0);"></span><span>Warning <span data-status-count="warning">0</span></span></div>
+                                            <div class="eb-legend-item"><span class="eb-legend-dot eb-legend-dot-missed"></span><span>Missed <span data-status-count="missed">0</span></span></div>
+                                            <div class="eb-legend-item"><span class="eb-legend-dot" style="background: rgb(0, 166, 244);"></span><span>Running <span data-status-count="running">0</span></span></div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
                         <div class="bg-slate-900 p-4 rounded-lg shadow eb-text-white h-full flex flex-col">
                             <div class="flex items-center justify-between mb-3">
-                                <div class="flex items-center gap-2">
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 text-slate-300">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 0 0-1.883 2.542l.857 6a2.25 2.25 0 0 0 2.227 1.932H19.05a2.25 2.25 0 0 0 2.227-1.932l.857-6a2.25 2.25 0 0 0-1.883-2.542m-16.5 0V6A2.25 2.25 0 0 1 6 3.75h3.879a1.5 1.5 0 0 1 1.06.44l2.122 2.12a1.5 1.5 0 0 0 1.06.44H18A2.25 2.25 0 0 1 20.25 9v.776" />
-                                    </svg>
+                                <div class="flex items-center gap-3">
+                                    <span class="eb-usage-icon-badge">
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="eb-usage-icon-svg">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 0 0-1.883 2.542l.857 6a2.25 2.25 0 0 0 2.227 1.932H19.05a2.25 2.25 0 0 0 2.227-1.932l.857-6a2.25 2.25 0 0 0-1.883-2.542m-16.5 0V6A2.25 2.25 0 0 1 6 3.75h3.879a1.5 1.5 0 0 1 1.06.44l2.122 2.12a1.5 1.5 0 0 0 1.06.44H18A2.25 2.25 0 0 1 20.25 9v.776" />
+                                        </svg>
+                                    </span>
                                     <h3 class="text-base font-semibold">Protected Items</h3>
                                 </div>
                                 <span class="text-sm text-slate-400">{$totalProtectedItems}</span>
                             </div>
-                            <div class="space-y-1 text-sm text-slate-300">
-                                <div class="flex items-center justify-between"><span>Files and Folders</span><span>{$protectedItemEngineCounts.files_folders|default:0}</span></div>
-                                <div class="flex items-center justify-between"><span>Disk Image</span><span>{$protectedItemEngineCounts.disk_image|default:0}</span></div>
-                                <div class="flex items-center justify-between"><span>Microsoft Hyper-V</span><span>{$protectedItemEngineCounts.hyper_v|default:0}</span></div>
-                                <div class="flex items-center justify-between"><span>Proxmox</span><span>{$protectedItemEngineCounts.proxmox|default:0}</span></div>
-                                <div class="flex items-center justify-between"><span>Microsoft Office 365</span><span>{$protectedItemEngineCounts.office_365|default:0}</span></div>
-                                <div class="flex items-center justify-between"><span>Microsoft SQL Server</span><span>{$protectedItemEngineCounts.sql_server|default:0}</span></div>
+                            <div class="eb-usage-content-inset">
+                            <div style="min-height:1.5rem;"></div>
+                            <div class="space-y-2 text-sm text-slate-300">
+                                <div class="flex items-center justify-between">
+                                    <span class="flex items-center gap-3">
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 text-slate-400 shrink-0">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 0 0-1.883 2.542l.857 6a2.25 2.25 0 0 0 2.227 1.932H19.05a2.25 2.25 0 0 0 2.227-1.932l.857-6a2.25 2.25 0 0 0-1.883-2.542m-16.5 0V6A2.25 2.25 0 0 1 6 3.75h3.879a1.5 1.5 0 0 1 1.06.44l2.122 2.12a1.5 1.5 0 0 0 1.06.44H18A2.25 2.25 0 0 1 20.25 9v.776" />
+                                        </svg>
+                                        <span>Files and Folders</span>
+                                    </span>
+                                    <span class="tabular-nums">{$protectedItemEngineCounts.files_folders|default:0}</span>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <span class="flex items-center gap-3">
+                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5 text-slate-400 shrink-0">
+                                            <path d="M6,2H18A2,2 0 0,1 20,4V20A2,2 0 0,1 18,22H6A2,2 0 0,1 4,20V4A2,2 0 0,1 6,2M12,4A6,6 0 0,0 6,10C6,13.31 8.69,16 12.1,16L11.22,13.77C10.95,13.29 11.11,12.68 11.59,12.4L12.45,11.9C12.93,11.63 13.54,11.79 13.82,12.27L15.74,14.69C17.12,13.59 18,11.9 18,10A6,6 0 0,0 12,4M12,9A1,1 0 0,1 13,10A1,1 0 0,1 12,11A1,1 0 0,1 11,10A1,1 0 0,1 12,9M7,18A1,1 0 0,0 6,19A1,1 0 0,0 7,20A1,1 0 0,0 8,19A1,1 0 0,0 7,18M12.09,13.27L14.58,19.58L17.17,18.08L12.95,12.77L12.09,13.27Z"/>
+                                        </svg>
+                                        <span>Disk Image</span>
+                                    </span>
+                                    <span class="tabular-nums">{$protectedItemEngineCounts.disk_image|default:0}</span>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <span class="flex items-center gap-3">
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 text-slate-400 shrink-0">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 0 1-3-3m3 3a3 3 0 1 0 0 6h13.5a3 3 0 1 0 0-6m-16.5-3a3 3 0 0 1 3-3h13.5a3 3 0 0 1 3 3m-19.5 0a4.5 4.5 0 0 1 .9-2.7L5.737 5.1a3.375 3.375 0 0 1 2.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 0 1 .9 2.7m0 0a3 3 0 0 1-3 3m0 3h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Zm-3 6h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Z" />
+                                        </svg>
+                                        <span>Microsoft Hyper-V</span>
+                                    </span>
+                                    <span class="tabular-nums">{$protectedItemEngineCounts.hyper_v|default:0}</span>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <span class="flex items-center gap-3">
+                                        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="currentColor" class="w-5 h-5 text-slate-400 shrink-0">
+                                            <path d="M6.573 2.432c-1.453 0.74-1.453 0.854-0.094 2.375 7.536 8.391 9.339 10.375 9.474 10.375 0.188 0.021 10.63-11.391 10.745-11.734 0.047-0.094-0.276-0.417-0.693-0.714-0.552-0.417-1.151-0.578-2.281-0.625-2.12-0.135-2.859 0.323-5.49 3.276-1.198 1.333-2.214 2.443-2.214 2.443-0.021 0-1.010-1.083-2.188-2.396s-2.536-2.63-2.995-2.885c-1.063-0.599-3.229-0.646-4.271-0.115zM1.729 5.823c-1.13 0.438-1.729 0.854-1.729 1.172 0 0.161 1.776 2.24 3.922 4.615 2.167 2.375 3.917 4.359 3.917 4.401 0 0.047-1.776 2.031-3.922 4.406-2.167 2.396-3.896 4.495-3.87 4.677 0.115 0.625 2.005 1.411 3.385 1.411 2.24-0.026 2.745-0.417 7.474-5.604 2.375-2.604 4.307-4.818 4.307-4.891 0-0.089-1.911-2.255-4.26-4.839-3.068-3.344-4.568-4.844-5.281-5.167-1.083-0.531-2.833-0.62-3.943-0.182zM26.354 5.984c-0.672 0.344-2.354 2.005-5.26 5.188-2.349 2.583-4.266 4.75-4.266 4.839 0 0.094 1.938 2.286 4.313 4.891 4.724 5.188 5.234 5.578 7.469 5.604 1.385 0 3.276-0.786 3.391-1.411 0.021-0.208-1.708-2.281-3.875-4.656-2.141-2.37-3.917-4.38-3.917-4.427 0-0.042 1.776-2.052 3.917-4.427 2.167-2.37 3.896-4.448 3.875-4.63-0.115-0.599-1.823-1.292-3.297-1.385-1.063-0.047-1.615 0.047-2.349 0.417zM10.604 22.63c-2.859 3.161-5.208 5.833-5.255 5.948-0.047 0.094 0.276 0.417 0.693 0.714 0.552 0.417 1.151 0.578 2.281 0.625 2.099 0.135 2.88-0.349 5.531-3.344 1.156-1.292 2.146-2.375 2.167-2.375 0.026 0 1.016 1.083 2.193 2.396 2.698 3 3.411 3.438 5.51 3.323 1.13-0.047 1.729-0.208 2.281-0.625 0.417-0.297 0.74-0.62 0.693-0.714-0.115-0.344-10.563-11.76-10.745-11.734-0.094 0-2.49 2.604-5.349 5.786z"></path>
+                                        </svg>
+                                        <span>Proxmox</span>
+                                    </span>
+                                    <span class="tabular-nums">{$protectedItemEngineCounts.proxmox|default:0}</span>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <span class="flex items-center gap-3">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 50 50" fill="currentColor" class="w-5 h-5 text-slate-400 shrink-0">
+                                            <path d="M20.13,32.5c-2.79-1.69-4.53-4.77-4.53-8.04V8.9c0-1.63,0.39-3.19,1.11-4.57L7.54,9.88C4.74,11.57,3,14.65,3,17.92v14.15
+                                                        c0,1.59,0.42,3.14,1.16,4.5c0.69,1.12,1.67,2.06,2.88,2.74c2.53,1.42,5.51,1.36,7.98-0.15l8.02-4.9L20.13,32.5z M42.84,27.14
+                                                        l-8.44-5.05v2.29c0,3.25-1.72,6.33-4.49,8.02l-13.84,8.47c-1.52,0.93-3.19,1.42-4.87,1.46l8.93,5.41c1.5,0.91,3.19,1.36,4.87,1.36
+                                                        s3.37-0.45,4.87-1.36l9.08-5.5l3.52-2.13c0.27-0.16,0.53-0.34,0.78-0.54c0.08-0.05,0.16-0.11,0.23-0.16
+                                                        c0.65-0.53,1.23-1.13,1.71-1.79c0.02-0.03,0.04-0.06,0.06-0.09c0.77-1.19,1.2-2.59,1.19-4.06C46.43,30.85,45.09,28.48,42.84,27.14z
+                                                        M42.46,9.88l-9.57-5.79l-3.02-1.83C29.45,2,29.01,1.79,28.56,1.61c-0.49-0.21-1-0.37-1.51-0.47c-1.84-0.38-3.76-0.08-5.46,0.89
+                                                        c-2.5,1.43-3.99,3.99-3.99,6.87v9.6l2.8-1.65c2.84-1.67,6.36-1.66,9.19,0.03l14.28,8.54c1.29,0.78,2.35,1.81,3.12,3.02L47,17.92
+                                                        C47,14.65,45.26,11.57,42.46,9.88z"></path>
+                                        </svg>
+                                        <span>Microsoft Office 365</span>
+                                    </span>
+                                    <span class="tabular-nums">{$protectedItemEngineCounts.office_365|default:0}</span>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <span class="flex items-center gap-3">
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 text-slate-400 shrink-0">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
+                                        </svg>
+                                        <span>Microsoft SQL Server</span>
+                                    </span>
+                                    <span class="tabular-nums">{$protectedItemEngineCounts.sql_server|default:0}</span>
+                                </div>
+                            </div>
                             </div>
                         </div>
 
                         <div class="bg-slate-900 p-4 rounded-lg shadow eb-text-white h-full flex flex-col">
                             <div class="flex items-center justify-between mb-3">
-                                <div class="flex items-center gap-2">
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 text-slate-300">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 12V5.25" />
-                                    </svg>
+                                <div class="flex items-center gap-3">
+                                    <span class="eb-usage-icon-badge">
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="eb-usage-icon-svg">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 12V5.25" />
+                                        </svg>
+                                    </span>
                                     <h3 class="text-base font-semibold">Devices</h3>
                                 </div>
                             </div>
+                            <div class="eb-usage-content-inset">
                             <div style="min-height:3.5rem;" class="flex items-end justify-between gap-3">
                                 <div class="flex items-end gap-3">
                                     <div class="text-3xl font-bold">{$totalDevices|default:0}</div>
@@ -150,23 +304,28 @@
                             <div id="eb-devices-chart" class="mt-3 h-32 w-full border border-slate-800 rounded overflow-hidden">
                                 <div class="h-full w-full flex items-center justify-center text-xs text-slate-500">Loading trend...</div>
                             </div>
+                            </div>
                         </div>
 
                         <div class="bg-slate-900 p-4 rounded-lg shadow eb-text-white h-full flex flex-col">
                             <div class="flex items-center justify-between mb-3">
-                                <div class="flex items-center gap-2">
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 text-slate-300">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
-                                    </svg>
+                                <div class="flex items-center gap-3">
+                                    <span class="eb-usage-icon-badge">
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="eb-usage-icon-svg">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
+                                        </svg>
+                                    </span>
                                     <h3 class="text-base font-semibold">Storage</h3>
                                 </div>
                             </div>
+                            <div class="eb-usage-content-inset">
                             <div style="min-height:3.5rem;" class="flex items-end gap-3">
                                 <div class="text-2xl font-bold">{$totalStorageUsed|default:'0.00 B'}</div>
                                 <div class="text-sm text-slate-400 pb-1">Used</div>
                             </div>
                             <div id="eb-storage-chart-dashboard" class="mt-3 h-32 w-full border border-slate-800 rounded overflow-hidden">
                                 <div class="h-full w-full flex items-center justify-center text-xs text-slate-500">Loading trend...</div>
+                            </div>
                             </div>
                         </div>
                     </div>
@@ -287,7 +446,7 @@
                             <!-- Issues Summary Strip (Last 24 hours) -->
                             <div class="mb-4">
                                 <div class="rounded-2xl border border-slate-800/80 bg-slate-900/40 shadow-[0_10px_30px_rgba(0,0,0,0.35)] px-3 py-2"
-                                     x-effect="countsCache = computeCounts()">
+                                     x-effect="countsCache = computeCounts(); publishSummary24hCounts()">
                                     <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                                         <!-- Left: label + tooltip -->
                                         <div class="flex items-center gap-2">
@@ -312,8 +471,9 @@
                                                         :disabled="(countsCache[label]||0)===0"
                                                         :title="(countsCache[label]||0)===0 ? 'No jobs currently in this status' : ('Filter devices that have at least one ' + label + ' job in the last 24 hours')"
                                                         @click="toggleStatus(label)">
-                                                    <span class="w-2.5 h-2.5 rounded-full inline-block"
-                                                          :class="dotClass(label)"></span>
+                                                    <span class="w-2.5 h-2.5 rounded-full inline-block box-border"
+                                                          :class="dotClass(label)"
+                                                          :style="label === 'Missed' ? 'background-color: transparent; border: 2px solid rgb(203, 213, 225);' : ''"></span>
                                                     <span class="text-slate-200" x-text="label"></span>
                                                     <span class="font-semibold tabular-nums"
                                                           :class="label==='Success' && issuesOnly ? 'text-slate-500' : 'text-slate-100'"
@@ -759,112 +919,340 @@
                 </div>
                 <div x-show="activeTab === 'users'" x-transition x-cloak>
                     <h2 class="text-xl font-semibold text-gray-800 dark:text-gray-300 mb-4">Users</h2>
-                    <div class="bg-gray-900/50 rounded-lg overflow-visible"
-                         x-data="{ 
-                           open:false,
-                           search:'',
-                           cols:{ username:true, name:true, emails:true, reports:true, devices:true, items:true, vaults:true, hv:true, vmw:true, m365:true },
-                           matchesSearch(el){ const q=this.search.trim().toLowerCase(); if(!q) return true; return (el.textContent||'').toLowerCase().includes(q); }
-                         }">
-                        <div class="flex items-center justify-between px-4 pt-4 pb-2">
-                            <div class="relative" @click.away="open=false">
-                                <button type="button" class="inline-flex items-center px-3 py-2 text-sm bg-slate-700 hover:bg-slate-600 rounded text-white" @click="open=!open">
-                                    View
-                                    <svg class="ml-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                    <div class="bg-slate-950/70 rounded-2xl border border-slate-800/80 p-4"
+                         x-data="{
+                            columnsOpen: false,
+                            entriesOpen: false,
+                            search: '',
+                            entriesPerPage: 25,
+                            currentPage: 1,
+                            sortKey: 'username',
+                            sortDirection: 'asc',
+                            filteredCount: 0,
+                            rows: [],
+                            cols: { username: true, name: true, emails: true, reports: true, devices: true, items: true, vaults: true, storage: true, hv: true, vmw: true, m365: true },
+                            init() {
+                                this.rows = Array.from(this.$refs.tbody.querySelectorAll('tr[data-account-row]'));
+                                this.$watch('search', () => {
+                                    this.currentPage = 1;
+                                    this.refreshRows();
+                                });
+                                this.refreshRows();
+                            },
+                            setEntries(size) {
+                                this.entriesPerPage = Number(size) || 25;
+                                this.currentPage = 1;
+                                this.refreshRows();
+                            },
+                            setSort(key) {
+                                if (this.sortKey === key) {
+                                    this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
+                                } else {
+                                    this.sortKey = key;
+                                    this.sortDirection = 'asc';
+                                }
+                                this.refreshRows();
+                            },
+                            sortIndicator(key) {
+                                if (this.sortKey !== key) return '';
+                                return this.sortDirection === 'asc' ? '↑' : '↓';
+                            },
+                            parseStorageToBytes(value) {
+                                const raw = String(value || '').trim();
+                                const match = raw.match(/^([0-9]+(?:\\.[0-9]+)?)\\s*([KMGTP]?B)$/i);
+                                if (!match) return Number.NaN;
+                                const num = Number(match[1]);
+                                const units = { B: 0, KB: 1, MB: 2, GB: 3, TB: 4, PB: 5 };
+                                const unit = (match[2] || 'B').toUpperCase();
+                                const power = Object.prototype.hasOwnProperty.call(units, unit) ? units[unit] : 0;
+                                return num * Math.pow(1024, power);
+                            },
+                            sortValue(row, key) {
+                                const raw = row.getAttribute('data-sort-' + key) || '';
+                                if (['devices', 'items', 'vaults', 'hv', 'vmw', 'm365'].includes(key)) {
+                                    return Number(raw) || 0;
+                                }
+                                if (key === 'storage') {
+                                    const bytes = this.parseStorageToBytes(raw);
+                                    return Number.isNaN(bytes) ? String(raw).toLowerCase() : bytes;
+                                }
+                                if (key === 'reports') {
+                                    if (raw === 'Enabled') return 2;
+                                    if (raw === 'Disabled') return 1;
+                                    return 0;
+                                }
+                                return String(raw).toLowerCase();
+                            },
+                            compareRows(left, right) {
+                                const a = this.sortValue(left, this.sortKey);
+                                const b = this.sortValue(right, this.sortKey);
+                                if (a < b) return this.sortDirection === 'asc' ? -1 : 1;
+                                if (a > b) return this.sortDirection === 'asc' ? 1 : -1;
+                                return 0;
+                            },
+                            refreshRows() {
+                                const query = this.search.trim().toLowerCase();
+                                const filtered = this.rows.filter((row) => {
+                                    if (!query) return true;
+                                    return (row.textContent || '').toLowerCase().includes(query);
+                                });
+                                filtered.sort((a, b) => this.compareRows(a, b));
+                                filtered.forEach((row) => this.$refs.tbody.appendChild(row));
+
+                                this.filteredCount = filtered.length;
+                                const pages = this.totalPages();
+                                if (this.currentPage > pages) this.currentPage = pages;
+                                const start = (this.currentPage - 1) * this.entriesPerPage;
+                                const end = start + this.entriesPerPage;
+                                const visibleRows = new Set(filtered.slice(start, end));
+
+                                this.rows.forEach((row) => {
+                                    row.style.display = visibleRows.has(row) ? '' : 'none';
+                                });
+
+                                if (this.$refs.noResults) {
+                                    this.$refs.noResults.style.display = filtered.length === 0 ? '' : 'none';
+                                }
+                            },
+                            totalPages() {
+                                return Math.max(1, Math.ceil(this.filteredCount / this.entriesPerPage));
+                            },
+                            pageSummary() {
+                                if (this.filteredCount === 0) return 'Showing 0 of 0 users';
+                                const start = (this.currentPage - 1) * this.entriesPerPage + 1;
+                                const end = Math.min(start + this.entriesPerPage - 1, this.filteredCount);
+                                return 'Showing ' + start + '-' + end + ' of ' + this.filteredCount + ' users';
+                            },
+                            prevPage() {
+                                if (this.currentPage <= 1) return;
+                                this.currentPage -= 1;
+                                this.refreshRows();
+                            },
+                            nextPage() {
+                                if (this.currentPage >= this.totalPages()) return;
+                                this.currentPage += 1;
+                                this.refreshRows();
+                            }
+                         }"
+                         x-init="init()">
+                        <div class="mb-4 flex flex-col xl:flex-row xl:items-center gap-3">
+                            <div class="relative" @click.away="entriesOpen=false">
+                                <button type="button"
+                                        @click="entriesOpen=!entriesOpen"
+                                        class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
+                                    <span x-text="'Show ' + entriesPerPage"></span>
+                                    <svg class="w-4 h-4 transition-transform" :class="entriesOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                    </svg>
                                 </button>
-                                <div x-show="open" x-transition class="absolute mt-2 w-72 bg-slate-800 border border-slate-700 rounded shadow-lg z-10">
-                                    <div class="p-3 grid grid-cols-2 gap-2 text-slate-200 text-sm">
-                                        <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.username"> Username</label>
-                                        <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.name"> Account name</label>
-                                        <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.emails"> Email Address</label>
-                                        <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.reports"> Email Reports</label>
-                                        <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.devices"> Devices</label>
-                                        <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.items"> Protected Items</label>
-                                        <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.vaults"> Storage Vaults</label>
-                                        <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.hv"> Hyper-V Count</label>
-                                        <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.vmw"> VMware Count</label>
-                                        <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.m365"> MS365 Protected Accounts</label>
-                                    </div>
+                                <div x-show="entriesOpen"
+                                     x-transition:enter="transition ease-out duration-100"
+                                     x-transition:enter-start="opacity-0 scale-95"
+                                     x-transition:enter-end="opacity-100 scale-100"
+                                     x-transition:leave="transition ease-in duration-75"
+                                     x-transition:leave-start="opacity-100 scale-100"
+                                     x-transition:leave-end="opacity-0 scale-95"
+                                     class="absolute left-0 mt-2 w-40 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden"
+                                     style="display: none;">
+                                    <template x-for="size in [10,25,50,100]" :key="'dashboard-user-entries-' + size">
+                                        <button type="button"
+                                                class="w-full px-4 py-2 text-left text-sm transition"
+                                                :class="entriesPerPage === size ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
+                                                @click="setEntries(size); entriesOpen=false;">
+                                            <span x-text="size"></span>
+                                        </button>
+                                    </template>
                                 </div>
                             </div>
-                            <div class="w-72">
-                                <input type="text" x-model.debounce.200ms="search" placeholder="Search users..." class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-700 text-slate-200 focus:outline-none focus:ring-0 focus:border-sky-600">
+
+                            <div class="relative" @click.away="columnsOpen=false">
+                                <button type="button"
+                                        @click="columnsOpen=!columnsOpen"
+                                        class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
+                                    Columns
+                                    <svg class="w-4 h-4 transition-transform" :class="columnsOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                    </svg>
+                                </button>
+                                <div x-show="columnsOpen"
+                                     x-transition:enter="transition ease-out duration-100"
+                                     x-transition:enter-start="opacity-0 scale-95"
+                                     x-transition:enter-end="opacity-100 scale-100"
+                                     x-transition:leave="transition ease-in duration-75"
+                                     x-transition:leave-start="opacity-100 scale-100"
+                                     x-transition:leave-end="opacity-0 scale-95"
+                                     class="absolute left-0 mt-2 w-72 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden p-2"
+                                     style="display: none;">
+                                    <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Username</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.username"></label>
+                                    <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Account name</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.name"></label>
+                                    <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Email Address</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.emails"></label>
+                                    <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Email Reports</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.reports"></label>
+                                    <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Total Devices</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.devices"></label>
+                                    <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Total Protected Items</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.items"></label>
+                                    <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Storage Vaults</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.vaults"></label>
+                                    <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Storage</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.storage"></label>
+                                    <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Hyper-V Count</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.hv"></label>
+                                    <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>VMware Count</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.vmw"></label>
+                                    <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>MS365 Protected Accounts</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.m365"></label>
+                                </div>
                             </div>
+
+                            <div class="flex-1"></div>
+                            <input type="text"
+                                   x-model.debounce.200ms="search"
+                                   placeholder="Search username, email, or account"
+                                   class="w-full xl:w-80 rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
                         </div>
 
-                        <div class="px-4 pb-2">
-                            <div class="overflow-x-auto rounded-md border border-slate-800">
-                                <table class="min-w-full divide-y divide-gray-700">
-                                    <thead class="bg-gray-800/50">
-                                        <tr>
-                                            <th x-show="cols.username" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Username</th>
-                                            <th x-show="cols.name" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Account name</th>
-                                            <th x-show="cols.emails" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Email Address</th>
-                                            <th x-show="cols.reports" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Email Reports</th>
-                                            <th x-show="cols.devices" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Total Devices</th>
-                                            <th x-show="cols.items" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Total Protected Items</th>
-                                            <th x-show="cols.vaults" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Storage Vaults</th>
-                                            <th x-show="cols.hv" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Hyper-V Count</th>
-                                            <th x-show="cols.vmw" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">VMware Count</th>
-                                            <th x-show="cols.m365" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">MS365 Protected Accounts</th>
+                        <div class="overflow-x-auto rounded-lg border border-slate-800">
+                            <table class="min-w-full divide-y divide-slate-800 text-sm">
+                                <thead class="bg-slate-900/80 text-slate-300">
+                                    <tr>
+                                        <th x-show="cols.username" class="px-4 py-3 text-left font-medium">
+                                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('username')">
+                                                Username
+                                                <span x-text="sortIndicator('username')"></span>
+                                            </button>
+                                        </th>
+                                        <th x-show="cols.name" class="px-4 py-3 text-left font-medium">
+                                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('name')">
+                                                Account name
+                                                <span x-text="sortIndicator('name')"></span>
+                                            </button>
+                                        </th>
+                                        <th x-show="cols.emails" class="px-4 py-3 text-left font-medium">
+                                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('emails')">
+                                                Email Address
+                                                <span x-text="sortIndicator('emails')"></span>
+                                            </button>
+                                        </th>
+                                        <th x-show="cols.reports" class="px-4 py-3 text-left font-medium">
+                                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('reports')">
+                                                Email Reports
+                                                <span x-text="sortIndicator('reports')"></span>
+                                            </button>
+                                        </th>
+                                        <th x-show="cols.devices" class="px-4 py-3 text-left font-medium">
+                                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('devices')">
+                                                Total Devices
+                                                <span x-text="sortIndicator('devices')"></span>
+                                            </button>
+                                        </th>
+                                        <th x-show="cols.items" class="px-4 py-3 text-left font-medium">
+                                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('items')">
+                                                Total Protected Items
+                                                <span x-text="sortIndicator('items')"></span>
+                                            </button>
+                                        </th>
+                                        <th x-show="cols.vaults" class="px-4 py-3 text-left font-medium">
+                                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('vaults')">
+                                                Storage Vaults
+                                                <span x-text="sortIndicator('vaults')"></span>
+                                            </button>
+                                        </th>
+                                        <th x-show="cols.storage" class="px-4 py-3 text-left font-medium">
+                                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('storage')">
+                                                Storage
+                                                <span x-text="sortIndicator('storage')"></span>
+                                            </button>
+                                        </th>
+                                        <th x-show="cols.hv" class="px-4 py-3 text-left font-medium">
+                                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('hv')">
+                                                Hyper-V Count
+                                                <span x-text="sortIndicator('hv')"></span>
+                                            </button>
+                                        </th>
+                                        <th x-show="cols.vmw" class="px-4 py-3 text-left font-medium">
+                                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('vmw')">
+                                                VMware Count
+                                                <span x-text="sortIndicator('vmw')"></span>
+                                            </button>
+                                        </th>
+                                        <th x-show="cols.m365" class="px-4 py-3 text-left font-medium">
+                                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('m365')">
+                                                MS365 Protected Accounts
+                                                <span x-text="sortIndicator('m365')"></span>
+                                            </button>
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-800" x-ref="tbody">
+                                    {foreach from=$accounts item=account}
+                                        <tr class="hover:bg-slate-800/50"
+                                            data-account-row="1"
+                                            data-sort-username="{$account.username|default:''|escape:'html'}"
+                                            data-sort-name="{$account.name|default:$account.account_name|default:$account.AccountName|default:''|escape:'html'}"
+                                            data-sort-emails="{if isset($account.report_emails) && $account.report_emails}{$account.report_emails|escape:'html'}{elseif isset($account.email_reports) && (isset($account.email_reports.recipients) || isset($account.email_reports.Recipients))}{if isset($account.email_reports.recipients)}{$account.email_reports.recipients|escape:'html'}{else}{$account.email_reports.Recipients|escape:'html'}{/if}{elseif isset($account.emailReports) && isset($account.emailReports.Recipients)}{$account.emailReports.Recipients|escape:'html'}{/if}"
+                                            data-sort-reports="{if isset($account.email_reports_enabled) && $account.email_reports_enabled}Enabled{elseif isset($account.email_reports) && isset($account.email_reports.Enabled) && $account.email_reports.Enabled}Enabled{elseif isset($account.emailReports) && isset($account.emailReports.Enabled) && $account.emailReports.Enabled}Enabled{elseif isset($account.email_reports_enabled)}Disabled{else}-{/if}"
+                                            data-sort-devices="{$account.total_devices|default:0|escape:'html'}"
+                                            data-sort-items="{$account.total_protected_items|default:0|escape:'html'}"
+                                            data-sort-vaults="{if $account.vaults}{$account.vaults|@count}{else}0{/if}"
+                                            data-sort-storage="{$account.total_storage_used|default:'0.00 B'|escape:'html'}"
+                                            data-sort-hv="{$account.hv_vm_count|default:0|escape:'html'}"
+                                            data-sort-vmw="{$account.vmw_vm_count|default:0|escape:'html'}"
+                                            data-sort-m365="{$account.m365_accounts|default:0|escape:'html'}">
+                                            <td x-show="cols.username" class="px-4 py-3 whitespace-nowrap text-sm">
+                                                <a href="{$modulelink}&a=user-profile&username={$account.username}&serviceid={$account.id}" class="text-sky-400 hover:underline">{$account.username}</a>
+                                            </td>
+                                            <td x-show="cols.name" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">
+                                                {$account.name|default:$account.account_name|default:$account.AccountName|default:'-'}
+                                            </td>
+                                            <td x-show="cols.emails" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">
+                                                {if isset($account.report_emails) && $account.report_emails}
+                                                    {$account.report_emails}
+                                                {elseif isset($account.email_reports) && (isset($account.email_reports.recipients) || isset($account.email_reports.Recipients))}
+                                                    {if isset($account.email_reports.recipients)}{$account.email_reports.recipients}{else}{$account.email_reports.Recipients}{/if}
+                                                {elseif isset($account.emailReports) && isset($account.emailReports.Recipients)}
+                                                    {$account.emailReports.Recipients}
+                                                {else}
+                                                    <span class="text-slate-400">-</span>
+                                                {/if}
+                                            </td>
+                                            <td x-show="cols.reports" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">
+                                                {if isset($account.email_reports_enabled) && $account.email_reports_enabled}
+                                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-900/50 text-emerald-300">Enabled</span>
+                                                {elseif isset($account.email_reports) && isset($account.email_reports.Enabled) && $account.email_reports.Enabled}
+                                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-900/50 text-emerald-300">Enabled</span>
+                                                {elseif isset($account.emailReports) && isset($account.emailReports.Enabled) && $account.emailReports.Enabled}
+                                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-900/50 text-emerald-300">Enabled</span>
+                                                {elseif isset($account.email_reports_enabled)}
+                                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-slate-300">Disabled</span>
+                                                {else}
+                                                    <span class="text-slate-400">-</span>
+                                                {/if}
+                                            </td>
+                                            <td x-show="cols.devices" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{$account.total_devices}</td>
+                                            <td x-show="cols.items" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{$account.total_protected_items}</td>
+                                            <td x-show="cols.vaults" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{if $account.vaults}{$account.vaults|@count}{else}0{/if}</td>
+                                            <td x-show="cols.storage" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{$account.total_storage_used|default:'0.00 B'}</td>
+                                            <td x-show="cols.hv" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{$account.hv_vm_count|default:0}</td>
+                                            <td x-show="cols.vmw" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{$account.vmw_vm_count|default:0}</td>
+                                            <td x-show="cols.m365" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{$account.m365_accounts|default:0}</td>
                                         </tr>
-                                    </thead>
-                                    <tbody class="divide-y divide-gray-700" x-ref="tbody"
-                                            x-init="
-                                                const rows = [...$refs.tbody.querySelectorAll('tr')];
-                                                rows.sort((r1, r2) => {
-                                                const t1 = r1.querySelector('[data-username]')?.textContent.trim() ?? '';
-                                                const t2 = r2.querySelector('[data-username]')?.textContent.trim() ?? '';
-                                                return t1.localeCompare(t2, undefined, { sensitivity: 'base' });
-                                                });
-                                                rows.forEach(r => $refs.tbody.appendChild(r));
-                                            ">
-                                        {foreach from=$accounts item=account}
-                                            <tr class="hover:bg-gray-800/60" x-show="matchesSearch($el)" x-cloak>
-                                                <td x-show="cols.username" class="px-4 py-4 whitespace-nowrap text-sm">                                                
-                                                    <a href="{$modulelink}&a=user-profile&username={$account.username}&serviceid={$account.id}" class="text-sky-400 hover:underline" data-username="1">{$account.username}</a>
-                                                </td>
-                                                <td x-show="cols.name" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
-                                                    {$account.name|default:$account.account_name|default:$account.AccountName|default:'-'}
-                                                </td>
-                                                <td x-show="cols.emails" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
-                                                    {if isset($account.report_emails) && $account.report_emails}
-                                                        {$account.report_emails}
-                                                    {elseif isset($account.email_reports) && (isset($account.email_reports.recipients) || isset($account.email_reports.Recipients))}
-                                                        {if isset($account.email_reports.recipients)}{$account.email_reports.recipients}{else}{$account.email_reports.Recipients}{/if}
-                                                    {elseif isset($account.emailReports) && isset($account.emailReports.Recipients)}
-                                                        {$account.emailReports.Recipients}
-                                                    {else}
-                                                        <span class="text-slate-400">-</span>
-                                                    {/if}
-                                                </td>
-                                                <td x-show="cols.reports" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
-                                                    {if isset($account.email_reports_enabled) && $account.email_reports_enabled}
-                                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-900/50 text-emerald-300">Enabled</span>
-                                                    {elseif isset($account.email_reports) && isset($account.email_reports.Enabled) && $account.email_reports.Enabled}
-                                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-900/50 text-emerald-300">Enabled</span>
-                                                    {elseif isset($account.emailReports) && isset($account.emailReports.Enabled) && $account.emailReports.Enabled}
-                                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-900/50 text-emerald-300">Enabled</span>
-                                                    {elseif isset($account.email_reports_enabled)}
-                                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-slate-300">Disabled</span>
-                                                    {else}
-                                                        <span class="text-slate-400">-</span>
-                                                    {/if}
-                                                </td>
-                                                <td x-show="cols.devices" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$account.total_devices}</td>
-                                                <td x-show="cols.items" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$account.total_protected_items}</td>
-                                                <td x-show="cols.vaults" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{if $account.vaults}{$account.vaults|@count}{else}0{/if}</td>
-                                                <td x-show="cols.hv" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$account.hv_vm_count|default:0}</td>
-                                                <td x-show="cols.vmw" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$account.vmw_vm_count|default:0}</td>
-                                                <td x-show="cols.m365" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$account.m365_accounts|default:0}</td>
-                                            </tr>
-                                        {foreachelse}
-                                            <tr>
-                                                <td colspan="7" class="text-center py-6 text-sm text-gray-400">No users found.</td>
-                                            </tr>
-                                        {/foreach}
-                                    </tbody>
-                                </table>
+                                    {/foreach}
+                                    <tr x-ref="noResults" style="display:none;">
+                                        <td colspan="11" class="text-center py-8 text-slate-400">No users found.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-400">
+                            <div x-text="pageSummary()"></div>
+                            <div class="flex items-center gap-2">
+                                <button type="button"
+                                        @click="prevPage()"
+                                        :disabled="currentPage <= 1"
+                                        class="px-3 py-1.5 rounded border border-slate-700 bg-slate-900/70 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed">
+                                    Prev
+                                </button>
+                                <span class="text-slate-300" x-text="'Page ' + currentPage + ' / ' + totalPages()"></span>
+                                <button type="button"
+                                        @click="nextPage()"
+                                        :disabled="currentPage >= totalPages()"
+                                        class="px-3 py-1.5 rounded border border-slate-700 bg-slate-900/70 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed">
+                                    Next
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -1345,6 +1733,14 @@
                 return out;
             },
 
+            publishSummary24hCounts() {
+                try {
+                    const payload = Object.assign({}, this.countsCache || {});
+                    window.__EB_SUMMARY_COUNTS_24H = payload;
+                    window.dispatchEvent(new CustomEvent('eb:summary-counts-24h', { detail: payload }));
+                } catch(_) {}
+            },
+
             get hasActiveFilters() {
                 return !!(this.issuesOnly || (this.selectedStatuses && this.selectedStatuses.length));
             },
@@ -1659,6 +2055,8 @@
     <script src="https://unpkg.com/@popperjs/core@2"></script>
     <script src="https://unpkg.com/tippy.js@6"></script>
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3@6/dist/d3.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/billboard.js/dist/billboard.min.js"></script>
     <script>
       window.EB_MODULE_LINK = '{$modulelink}';
       window.EB_JOBREPORTS_ENDPOINT = '{$modulelink}&a=job-reports';
