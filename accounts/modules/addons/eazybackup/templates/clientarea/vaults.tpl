@@ -161,161 +161,327 @@
 
                     {assign var=tbBytes value=1099511627776}
 
-                    <div class="bg-gray-900/50 rounded-lg overflow-x-auto"
+                    <div class="bg-slate-950/70 rounded-2xl border border-slate-800/80 p-4"
                          data-vaults-loader-host
                          x-data="{
-                            open:false,
-                            search:'',
-                            cols:{ acct:true, name:true, stored:true, quota:true, usage:true, billing:true, actions:true },
-                            matchesSearch(el){ const q=this.search.trim().toLowerCase(); if(!q) return true; return (el.textContent||'').toLowerCase().includes(q); },
-                            pctColor(p){ if(p===null||p==='') return 'bg-slate-700'; if(p<70) return 'bg-emerald-500'; if(p<90) return 'bg-amber-500'; return 'bg-rose-500'; }
-                         }">
-                        <div class="flex items-center justify-between px-4 pt-4 pb-2">
-                            <div class="relative" @click.away="open=false">
-                                <button type="button" class="inline-flex items-center px-3 py-2 text-sm bg-slate-700 hover:bg-slate-600 rounded text-white" @click="open=!open">
-                                    View
-                                    <svg class="ml-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                            columnsOpen: false,
+                            entriesOpen: false,
+                            search: '',
+                            entriesPerPage: 25,
+                            currentPage: 1,
+                            sortKey: 'acct',
+                            sortDirection: 'asc',
+                            filteredCount: 0,
+                            rows: [],
+                            cols: { acct: true, name: true, stored: true, quota: true, usage: true, billing: true, actions: true },
+                            pctColor(p){ if(p===null||p==='') return 'bg-slate-700'; if(p<70) return 'bg-emerald-500'; if(p<90) return 'bg-amber-500'; return 'bg-rose-500'; },
+                            init() {
+                                this.rows = Array.from(this.$refs.tbody.querySelectorAll('tr[data-vault-row]'));
+                                this.$watch('search', () => {
+                                    this.currentPage = 1;
+                                    this.refreshRows();
+                                });
+                                this.refreshRows();
+                            },
+                            setEntries(size) {
+                                this.entriesPerPage = Number(size) || 25;
+                                this.currentPage = 1;
+                                this.refreshRows();
+                            },
+                            setSort(key) {
+                                if (this.sortKey === key) {
+                                    this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
+                                } else {
+                                    this.sortKey = key;
+                                    this.sortDirection = 'asc';
+                                }
+                                this.refreshRows();
+                            },
+                            sortIndicator(key) {
+                                if (this.sortKey !== key) return '';
+                                return this.sortDirection === 'asc' ? '↑' : '↓';
+                            },
+                            sortValue(row, key) {
+                                if (key === 'acct') return String(row.getAttribute('data-account') || '').toLowerCase();
+                                if (key === 'name') return String(row.getAttribute('data-name') || '').toLowerCase();
+                                if (key === 'stored') return Number(row.getAttribute('data-stored-bytes') || 0);
+                                if (key === 'quota') return Number(row.getAttribute('data-quota-bytes') || 0);
+                                if (key === 'usage') return Number(row.getAttribute('data-usage-pct') || 0);
+                                if (key === 'billing') return Number(row.getAttribute('data-billing-tb') || 0);
+                                return String(row.getAttribute('data-' + key) || '').toLowerCase();
+                            },
+                            compareRows(left, right) {
+                                const a = this.sortValue(left, this.sortKey);
+                                const b = this.sortValue(right, this.sortKey);
+                                if (a < b) return this.sortDirection === 'asc' ? -1 : 1;
+                                if (a > b) return this.sortDirection === 'asc' ? 1 : -1;
+                                return 0;
+                            },
+                            refreshRows() {
+                                const query = this.search.trim().toLowerCase();
+                                const filtered = this.rows.filter((row) => {
+                                    if (!query) return true;
+                                    return (row.textContent || '').toLowerCase().includes(query);
+                                });
+                                filtered.sort((a, b) => this.compareRows(a, b));
+                                filtered.forEach((row) => this.$refs.tbody.appendChild(row));
+
+                                this.filteredCount = filtered.length;
+                                const pages = this.totalPages();
+                                if (this.currentPage > pages) this.currentPage = pages;
+                                const start = (this.currentPage - 1) * this.entriesPerPage;
+                                const end = start + this.entriesPerPage;
+                                const visibleRows = new Set(filtered.slice(start, end));
+
+                                this.rows.forEach((row) => {
+                                    row.style.display = visibleRows.has(row) ? '' : 'none';
+                                });
+
+                                if (this.$refs.noResults) {
+                                    this.$refs.noResults.style.display = filtered.length === 0 ? '' : 'none';
+                                }
+                            },
+                            totalPages() {
+                                return Math.max(1, Math.ceil(this.filteredCount / this.entriesPerPage));
+                            },
+                            pageSummary() {
+                                if (this.filteredCount === 0) return 'Showing 0 of 0 vaults';
+                                const start = (this.currentPage - 1) * this.entriesPerPage + 1;
+                                const end = Math.min(start + this.entriesPerPage - 1, this.filteredCount);
+                                return 'Showing ' + start + '-' + end + ' of ' + this.filteredCount + ' vaults';
+                            },
+                            prevPage() {
+                                if (this.currentPage <= 1) return;
+                                this.currentPage -= 1;
+                                this.refreshRows();
+                            },
+                            nextPage() {
+                                if (this.currentPage >= this.totalPages()) return;
+                                this.currentPage += 1;
+                                this.refreshRows();
+                            }
+                         }"
+                         x-init="init()">
+                        <div class="mb-4 flex flex-col xl:flex-row xl:items-center gap-3">
+                            <div class="relative" @click.away="entriesOpen=false">
+                                <button type="button"
+                                        @click="entriesOpen=!entriesOpen"
+                                        class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
+                                    <span x-text="'Show ' + entriesPerPage"></span>
+                                    <svg class="w-4 h-4 transition-transform" :class="entriesOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                    </svg>
                                 </button>
-                                <div x-show="open" x-transition class="absolute mt-2 w-56 bg-slate-800 border border-slate-700 rounded shadow-lg z-10">
-                                    <div class="p-3 space-y-2 text-slate-200 text-sm">
-                                        <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.acct"> Account Name</label>
-                                        <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.name"> Storage Vault</label>
-                                        <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.stored"> Stored</label>
-                                        <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.quota"> Quota</label>
-                                        <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.usage"> Usage</label>
-                                        <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.billing"> Billing</label>
-                                        <label class="flex items-center"><input type="checkbox" class="mr-2" x-model="cols.actions"> Actions</label>
-                                    </div>
+                                <div x-show="entriesOpen"
+                                     x-transition:enter="transition ease-out duration-100"
+                                     x-transition:enter-start="opacity-0 scale-95"
+                                     x-transition:enter-end="opacity-100 scale-100"
+                                     x-transition:leave="transition ease-in duration-75"
+                                     x-transition:leave-start="opacity-100 scale-100"
+                                     x-transition:leave-end="opacity-0 scale-95"
+                                     class="absolute left-0 mt-2 w-40 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden"
+                                     style="display: none;">
+                                    <template x-for="size in [10,25,50,100]" :key="'vaults-entries-' + size">
+                                        <button type="button"
+                                                class="w-full px-4 py-2 text-left text-sm transition"
+                                                :class="entriesPerPage === size ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
+                                                @click="setEntries(size); entriesOpen=false;">
+                                            <span x-text="size"></span>
+                                        </button>
+                                    </template>
                                 </div>
                             </div>
-                            <div class="w-72">
-                                <input type="text" x-model.debounce.200ms="search" placeholder="Search vaults..." class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-700 text-slate-200 focus:outline-none focus:ring-0 focus:border-sky-600">
+
+                            <div class="relative" @click.away="columnsOpen=false">
+                                <button type="button"
+                                        @click="columnsOpen=!columnsOpen"
+                                        class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
+                                    Columns
+                                    <svg class="w-4 h-4 transition-transform" :class="columnsOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                    </svg>
+                                </button>
+                                <div x-show="columnsOpen"
+                                     x-transition:enter="transition ease-out duration-100"
+                                     x-transition:enter-start="opacity-0 scale-95"
+                                     x-transition:enter-end="opacity-100 scale-100"
+                                     x-transition:leave="transition ease-in duration-75"
+                                     x-transition:leave-start="opacity-100 scale-100"
+                                     x-transition:leave-end="opacity-0 scale-95"
+                                     class="absolute left-0 mt-2 w-64 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden p-2"
+                                     style="display: none;">
+                                    <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Account Name</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.acct"></label>
+                                    <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Storage Vault</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.name"></label>
+                                    <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Stored</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.stored"></label>
+                                    <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Quota</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.quota"></label>
+                                    <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Usage</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.usage"></label>
+                                    <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Billing</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.billing"></label>
+                                    <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Actions</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.actions"></label>
+                                </div>
                             </div>
+
+                            <div class="flex-1"></div>
+                            <input type="text"
+                                   x-model.debounce.200ms="search"
+                                   placeholder="Search vaults..."
+                                   class="w-full xl:w-80 rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
                         </div>
 
-                        <table id="vaults-table" class="min-w-full divide-y divide-gray-700" x-init="
-                          (()=>{ try{ document.addEventListener('vaults:hydrate-start', ()=> window.ebShowLoader && window.ebShowLoader($el.closest('[data-vaults-loader-host]')) ); }catch(_){ }
-                                 try{ document.addEventListener('vaults:hydrate-end',   ()=> window.ebHideLoader && window.ebHideLoader($el.closest('[data-vaults-loader-host]')) ); }catch(_){ }
-                          })()
-                        ">
-                            <thead class="bg-gray-800/50">
-                                <tr>
-                                    <th x-show="cols.acct" data-sort="acct" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer select-none">Account Name</th>
-                                    <th x-show="cols.name" data-sort="name" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer select-none">Storage Vault</th>
-                                    <th x-show="cols.stored" data-sort="stored" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer select-none">Stored</th>
-                                    <th x-show="cols.quota" data-sort="quota" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer select-none">Quota</th>
-                                    <th x-show="cols.usage" data-sort="usage" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer select-none">Usage</th>
-                                    <th x-show="cols.billing" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Billing</th>
-                                    <th x-show="cols.actions" class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-gray-700">
-                                {if $accountGroups|@count > 0}
-                                    {foreach from=$accountGroups key=acctName item=group}
-                                        {assign var=acctTotals value=$group.totals}
-                                        {assign var=billableTB value=($acctTotals.quota>0)?ceil($acctTotals.quota/$tbBytes):0}
-                                        {foreach from=$group.vaults item=row}
-                                            {assign var=isLocked value=($row.packageId == 52 || $row.packageId == 57)}
-                                            <tr class="hover:bg-gray-800/60 vault-row"
-                                                x-show="matchesSearch($el)"
-                                                x-cloak
-                                                data-account="{$row.acct}"
-                                                data-name="{$row.vaultName}"
-                                                data-id="{if $row.vaultId}{$row.vaultId}{else}{$row.vaultName}{/if}"
-                                                data-type="{$row.destType}"
-                                                data-init-ts="{$row.repoInit}"
-                                                data-stored-bytes="{$row.usedBytes}"
-                                                data-used-bytes="{$row.usedBytes}"
-                                                data-quota-bytes="{$row.quotaBytes}"
-                                                data-usage-pct="{if $row.hasQuota}{$row.pct}{else}0{/if}"
-                                                data-service-id="{$row.serviceId}"
-                                                data-username="{$row.username}"
-                                                data-vault-id="{if $row.vaultId}{$row.vaultId}{else}{$row.vaultName}{/if}"
-                                                data-vault-locked="{if $isLocked}1{else}0{/if}"
-                                                data-vault-name="{$row.vaultName}">
-                                                <td x-show="cols.acct" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$row.acct}</td>
-                                                <td x-show="cols.name" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{$row.vaultName}</td>
-                                        <td x-show="cols.stored" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
-                                                    {assign var=cpSize value=$row.usedBytes}
-                                            {assign var=cpStart value=0}
-                                                    {assign var=cpEnd value=$row.usedMeasuredEnd}
-                                                    <button type="button" class="eb-stats-btn inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium bg-slate-700 hover:bg-slate-600 text-sky-400 cursor-pointer" title="View vault usage breakdown" data-vault-id="{if $row.vaultId}{$row.vaultId}{else}{$row.vaultName}{/if}" data-vault-name="{$row.vaultName|escape}" data-size-bytes="{$cpSize}" data-measure-start="{$cpStart}" data-measure-end="{$cpEnd}" data-service-id="{$row.serviceId}" data-username="{$row.username}">
-                                                {\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($cpSize, 2)}
-                                            </button>
-                                            <script type="application/json" class="eb-components">{$row.componentsJson}</script>
-                                        </td>
-                                        <td x-show="cols.quota" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300" data-cell="quota">
-                                                    {if not $row.hasQuota}
-                                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium bg-slate-700 text-slate-300">Unlimited</span>
-                                            {else}
-                                                <span class="inline-flex items-center gap-2">
-                                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium bg-slate-700 text-slate-200" title="Storage quota">{\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($row.quotaBytes, 2)}</span>
-                                                            {if $row.quotaEnabled}
-                                                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-900/40 text-emerald-300">On</span>
-                                                    {else}
-                                                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-700 text-slate-300">Off</span>
-                                                    {/if}
-                                                            <button type="button" class="configure-vault-button ml-1 p-1.5 rounded {if $isLocked}text-slate-500 opacity-50 cursor-not-allowed{else}hover:bg-slate-700 text-slate-300 cursor-pointer{/if}"
-                                                                title="{if $isLocked}Locked for Microsoft 365 services{else}Edit quota{/if}"
+                        <div class="overflow-x-auto rounded-lg border border-slate-800">
+                            <table id="vaults-table" class="min-w-full divide-y divide-slate-800 text-sm" x-init="
+                              (()=>{ try{ document.addEventListener('vaults:hydrate-start', ()=> window.ebShowLoader && window.ebShowLoader($el.closest('[data-vaults-loader-host]')) ); }catch(_){ }
+                                     try{ document.addEventListener('vaults:hydrate-end',   ()=> window.ebHideLoader && window.ebHideLoader($el.closest('[data-vaults-loader-host]')) ); }catch(_){ }
+                              })()
+                            ">
+                                <thead class="bg-slate-900/80 text-slate-300">
+                                    <tr>
+                                        <th x-show="cols.acct" class="px-4 py-3 text-left font-medium">
+                                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('acct')">Account Name <span x-text="sortIndicator('acct')"></span></button>
+                                        </th>
+                                        <th x-show="cols.name" class="px-4 py-3 text-left font-medium">
+                                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('name')">Storage Vault <span x-text="sortIndicator('name')"></span></button>
+                                        </th>
+                                        <th x-show="cols.stored" class="px-4 py-3 text-left font-medium">
+                                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('stored')">Stored <span x-text="sortIndicator('stored')"></span></button>
+                                        </th>
+                                        <th x-show="cols.quota" class="px-4 py-3 text-left font-medium">
+                                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('quota')">Quota <span x-text="sortIndicator('quota')"></span></button>
+                                        </th>
+                                        <th x-show="cols.usage" class="px-4 py-3 text-left font-medium">
+                                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('usage')">Usage <span x-text="sortIndicator('usage')"></span></button>
+                                        </th>
+                                        <th x-show="cols.billing" class="px-4 py-3 text-left font-medium">
+                                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('billing')">Billing <span x-text="sortIndicator('billing')"></span></button>
+                                        </th>
+                                        <th x-show="cols.actions" class="px-4 py-3 text-left font-medium">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-800" x-ref="tbody">
+                                    {if $accountGroups|@count > 0}
+                                        {foreach from=$accountGroups key=acctName item=group}
+                                            {assign var=acctTotals value=$group.totals}
+                                            {assign var=billableTB value=($acctTotals.quota>0)?ceil($acctTotals.quota/$tbBytes):0}
+                                            {foreach from=$group.vaults item=row}
+                                                {assign var=isLocked value=($row.packageId == 52 || $row.packageId == 57)}
+                                                <tr class="hover:bg-slate-800/50 vault-row"
+                                                    data-vault-row="1"
+                                                    data-account="{$row.acct}"
+                                                    data-name="{$row.vaultName}"
+                                                    data-id="{if $row.vaultId}{$row.vaultId}{else}{$row.vaultName}{/if}"
+                                                    data-type="{$row.destType}"
+                                                    data-init-ts="{$row.repoInit}"
+                                                    data-stored-bytes="{$row.usedBytes}"
+                                                    data-used-bytes="{$row.usedBytes}"
+                                                    data-quota-bytes="{$row.quotaBytes}"
+                                                    data-usage-pct="{if $row.hasQuota}{$row.pct}{else}0{/if}"
+                                                    data-billing-tb="{$billableTB}"
+                                                    data-service-id="{$row.serviceId}"
+                                                    data-username="{$row.username}"
+                                                    data-vault-id="{if $row.vaultId}{$row.vaultId}{else}{$row.vaultName}{/if}"
+                                                    data-vault-locked="{if $isLocked}1{else}0{/if}"
+                                                    data-vault-name="{$row.vaultName}">
+                                                    <td x-show="cols.acct" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{$row.acct}</td>
+                                                    <td x-show="cols.name" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{$row.vaultName}</td>
+                                                    <td x-show="cols.stored" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">
+                                                        {assign var=cpSize value=$row.usedBytes}
+                                                        {assign var=cpStart value=0}
+                                                        {assign var=cpEnd value=$row.usedMeasuredEnd}
+                                                        <button type="button" class="eb-stats-btn inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium bg-slate-700 hover:bg-slate-600 text-sky-400 cursor-pointer" title="View vault usage breakdown" data-vault-id="{if $row.vaultId}{$row.vaultId}{else}{$row.vaultName}{/if}" data-vault-name="{$row.vaultName|escape}" data-size-bytes="{$cpSize}" data-measure-start="{$cpStart}" data-measure-end="{$cpEnd}" data-service-id="{$row.serviceId}" data-username="{$row.username}">
+                                                            {\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($cpSize, 2)}
+                                                        </button>
+                                                        <script type="application/json" class="eb-components">{$row.componentsJson}</script>
+                                                    </td>
+                                                    <td x-show="cols.quota" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300" data-cell="quota">
+                                                        {if not $row.hasQuota}
+                                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium bg-slate-700 text-slate-300">Unlimited</span>
+                                                        {else}
+                                                            <span class="inline-flex items-center gap-2">
+                                                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium bg-slate-700 text-slate-200" title="Storage quota">{\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($row.quotaBytes, 2)}</span>
+                                                                {if $row.quotaEnabled}
+                                                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-900/40 text-emerald-300">On</span>
+                                                                {else}
+                                                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-700 text-slate-300">Off</span>
+                                                                {/if}
+                                                                <button type="button" class="configure-vault-button ml-1 p-1.5 rounded {if $isLocked}text-slate-500 opacity-50 cursor-not-allowed{else}hover:bg-slate-700 text-slate-300 cursor-pointer{/if}"
+                                                                    title="{if $isLocked}Locked for Microsoft 365 services{else}Edit quota{/if}"
+                                                                    {if $isLocked}disabled="disabled" aria-disabled="true"{/if}
+                                                                    data-vault-id="{if $row.vaultId}{$row.vaultId}{else}{$row.vaultName}{/if}"
+                                                                    data-vault-name="{$row.vaultName}"
+                                                                    data-vault-quota-enabled="{$row.quotaEnabled}"
+                                                                    data-vault-quota-bytes="{$row.quotaBytes}"
+                                                                    data-service-id="{$row.serviceId}"
+                                                                    data-username="{$row.username}">
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232a2.5 2.5 0 113.536 3.536L7.5 20.036 3 21l.964-4.5L15.232 5.232z"/></svg>
+                                                                </button>
+                                                            </span>
+                                                        {/if}
+                                                    </td>
+                                                    <td x-show="cols.usage" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300" data-cell="usage">
+                                                        {if $row.hasQuota}
+                                                            {assign var=pctClamped value=$row.pct}
+                                                            {if $pctClamped > 100}
+                                                                {assign var=pctClamped value=100}
+                                                            {elseif $pctClamped < 0}
+                                                                {assign var=pctClamped value=0}
+                                                            {/if}
+                                                            <div class="w-56">
+                                                                <div class="h-2.5 w-full rounded bg-slate-800/70 overflow-hidden" title="{\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($row.usedBytes, 2)} of {\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($row.quotaBytes, 2)} ({$pctClamped|string_format:'%.1f'}%)">
+                                                                    <div class="h-full transition-[width] duration-500" :class="pctColor({$pctClamped})" style="width: {$pctClamped}%;"></div>
+                                                                </div>
+                                                                <div class="mt-1 text-xs text-slate-400">{\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($row.usedBytes, 2)} / {\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($row.quotaBytes, 2)} ({$pctClamped|string_format:'%.1f'}%)</div>
+                                                            </div>
+                                                        {else}
+                                                            <div class="w-56">
+                                                                <div class="h-2.5 w-full rounded bg-slate-800/70 overflow-hidden">
+                                                                    <div class="h-full w-1/3 bg-gradient-to-r from-slate-600/40 via-slate-500/40 to-slate-600/40 animate-pulse"></div>
+                                                                </div>
+                                                                <div class="mt-1 text-xs text-slate-500">Usage unavailable (no quota)</div>
+                                                            </div>
+                                                        {/if}
+                                                    </td>
+                                                    <td x-show="cols.billing" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">
+                                                        {if $billableTB>0}{$billableTB} TB{else}—{/if}
+                                                    </td>
+                                                    <td x-show="cols.actions" class="px-4 py-3 whitespace-nowrap text-sm">
+                                                        <button class="open-vault-panel px-3 py-1.5 text-xs bg-slate-700 rounded text-white {if $isLocked}opacity-50 cursor-not-allowed{else}hover:bg-slate-600 cursor-pointer{/if}"
+                                                                title="{if $isLocked}Locked for Microsoft 365 services{else}Manage{/if}"
                                                                 {if $isLocked}disabled="disabled" aria-disabled="true"{/if}
                                                                 data-vault-id="{if $row.vaultId}{$row.vaultId}{else}{$row.vaultName}{/if}"
                                                                 data-vault-name="{$row.vaultName}"
                                                                 data-vault-quota-enabled="{$row.quotaEnabled}"
                                                                 data-vault-quota-bytes="{$row.quotaBytes}"
                                                                 data-service-id="{$row.serviceId}"
-                                                                data-username="{$row.username}">
-                                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232a2.5 2.5 0 113.536 3.536L7.5 20.036 3 21l.964-4.5L15.232 5.232z"/></svg>
-                                                            </button>
-                                                </span>
-                                            {/if}
-                                        </td>
-                                        <td x-show="cols.usage" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300" data-cell="usage">
-                                                    {if $row.hasQuota}
-                                                        {assign var=pctClamped value=$row.pct}
-                                                {if $pctClamped > 100}
-                                                    {assign var=pctClamped value=100}
-                                                {elseif $pctClamped < 0}
-                                                    {assign var=pctClamped value=0}
-                                                {/if}
-                                                <div class="w-56">
-                                                            <div class="h-2.5 w-full rounded bg-slate-800/70 overflow-hidden" title="{\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($row.usedBytes, 2)} of {\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($row.quotaBytes, 2)} ({$pctClamped|string_format:'%.1f'}%)">
-                                                        <div class="h-full transition-[width] duration-500" :class="pctColor({$pctClamped})" style="width: {$pctClamped}%;"></div>
-                                                    </div>
-                                                            <div class="mt-1 text-xs text-slate-400">{\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($row.usedBytes, 2)} / {\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($row.quotaBytes, 2)} ({$pctClamped|string_format:'%.1f'}%)</div>
-                                                </div>
-                                            {else}
-                                                <div class="w-56">
-                                                    <div class="h-2.5 w-full rounded bg-slate-800/70 overflow-hidden">
-                                                        <div class="h-full w-1/3 bg-gradient-to-r from-slate-600/40 via-slate-500/40 to-slate-600/40 animate-pulse"></div>
-                                                    </div>
-                                                    <div class="mt-1 text-xs text-slate-500">Usage unavailable (no quota)</div>
-                                                </div>
-                                            {/if}
-                                        </td>
-                                        <td x-show="cols.billing" class="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
-                                            {if $billableTB>0}{$billableTB} TB{else}—{/if}
-                                        </td>
-                                        <td x-show="cols.actions" class="px-4 py-4 whitespace-nowrap text-sm">
-                                                    <button class="open-vault-panel px-3 py-1.5 text-xs bg-slate-700 rounded text-white {if $isLocked}opacity-50 cursor-not-allowed{else}hover:bg-slate-600 cursor-pointer{/if}"
-                                                            title="{if $isLocked}Locked for Microsoft 365 services{else}Manage{/if}"
-                                                            {if $isLocked}disabled="disabled" aria-disabled="true"{/if}
-                                                            data-vault-id="{if $row.vaultId}{$row.vaultId}{else}{$row.vaultName}{/if}"
-                                                            data-vault-name="{$row.vaultName}"
-                                                            data-vault-quota-enabled="{$row.quotaEnabled}"
-                                                            data-vault-quota-bytes="{$row.quotaBytes}"
-                                                            data-service-id="{$row.serviceId}"
-                                                            data-username="{$row.username}">Manage</button>
-                                                </td>
-                                            </tr>
+                                                                data-username="{$row.username}">Manage</button>
+                                                    </td>
+                                                </tr>
+                                            {/foreach}
                                         {/foreach}
-                                    {/foreach}
-                                {else}
-                                    <tr>
-                                        <td colspan="7" class="text-center py-6 text-sm text-gray-400">No storage vaults found.</td>
+                                    {/if}
+                                    <tr x-ref="noResults" {if $accountGroups|@count > 0}style="display:none;"{/if}>
+                                        <td colspan="7" class="text-center py-8 text-slate-400">No storage vaults found.</td>
                                     </tr>
-                                {/if}
-                            </tbody>
-                        </table>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-400">
+                            <div x-text="pageSummary()"></div>
+                            <div class="flex items-center gap-2">
+                                <button type="button"
+                                        @click="prevPage()"
+                                        :disabled="currentPage <= 1"
+                                        class="px-3 py-1.5 rounded border border-slate-700 bg-slate-900/70 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed">
+                                    Prev
+                                </button>
+                                <span class="text-slate-300" x-text="'Page ' + currentPage + ' / ' + totalPages()"></span>
+                                <button type="button"
+                                        @click="nextPage()"
+                                        :disabled="currentPage >= totalPages()"
+                                        class="px-3 py-1.5 rounded border border-slate-700 bg-slate-900/70 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed">
+                                    Next
+                                </button>
+                            </div>
+                        </div>
                     </div>
                     </div>
                 </main>

@@ -67,7 +67,7 @@
     </style>
 </head>
 
-<body data-phone-cc-input="{$phoneNumberInputStyle}" class="flex eb-bg-page">
+<body data-phone-cc-input="{$phoneNumberInputStyle}" class="flex bg-slate-950">
 
     {$headeroutput}
 
@@ -1400,7 +1400,7 @@ x-data="{ openModal: null }"
 {* <div id="overlay" class="fixed inset-0 bg-black bg-opacity-50 hidden"></div> *}
 
 <!-- Main Content Container (right side) -->
-<div class="flex flex-col flex-1 min-h-screen lg:ml-64 transition-all duration-300">
+<div class="flex flex-col flex-1 min-w-0 min-h-screen lg:ml-64 transition-all duration-300 overflow-x-hidden">
     <!-- The main content area -->
     {$maincontent}
 

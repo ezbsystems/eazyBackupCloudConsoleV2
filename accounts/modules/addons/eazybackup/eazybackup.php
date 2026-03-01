@@ -3099,10 +3099,13 @@ function eazybackup_clientarea(array $vars)
             ->whereIn('username', $activeUsernames)
             ->count();
 
-        // Sum storage used for the client, but only from active WHMCS services
+        // Sum storage used for active cloud vaults only (types 1000/1003),
+        // aligned with eb_storage_daily rollup + storage trend chart scope.
         $totalStorageUsed = Capsule::table('comet_vaults')
             ->where('client_id', $clientId)
             ->whereIn('username', $activeUsernames)
+            ->where('is_active', 1)
+            ->whereIn('type', [1000, 1003])
             ->sum('total_bytes');
 
         $onlineDevices = Capsule::table('comet_devices')
@@ -3257,6 +3260,15 @@ function eazybackup_clientarea(array $vars)
                 ->whereNull('removed_at')
                 ->count();
 
+            // Per-user storage used aligned with dashboard Storage card scope
+            // (active cloud vaults only: destination types 1000 + 1003).
+            $total_storage_used_user = (int) Capsule::table('comet_vaults')
+                ->where('client_id', $clientId)
+                ->where('username', $service->username)
+                ->where('is_active', 1)
+                ->whereIn('type', [1000, 1003])
+                ->sum('total_bytes');
+
             // Get the full list of vaults for the current user
             $vaultsForUser = Capsule::table('comet_vaults')
                 ->select('name', 'total_bytes')
@@ -3397,6 +3409,7 @@ function eazybackup_clientarea(array $vars)
                 'total_devices' => $total_devices,
                 'total_protected_items' => $total_protected_items,
                 'vaults' => $vaultsForUser, // Pass the detailed vault list
+                'total_storage_used' => Helper::humanFileSize($total_storage_used_user, 2),
                 'hv_vm_count' => $hvCount,
                 'vmw_vm_count' => $vmwCount,
                 'm365_accounts' => $m365Accounts,

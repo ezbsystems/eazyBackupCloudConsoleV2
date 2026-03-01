@@ -202,6 +202,16 @@
       tbody.appendChild(tr);
     }
 
+    function renderSortIndicators(){
+      if (!thead) return;
+      thead.querySelectorAll('th[data-sort]').forEach((th) => {
+        const indicator = th.querySelector('[data-sort-indicator]');
+        if (!indicator) return;
+        const key = th.getAttribute('data-sort');
+        indicator.textContent = (state.sortBy === key) ? (state.sortDir === 'asc' ? '↑' : '↓') : '';
+      });
+    }
+
     function bindFilterControls(){
       chipButtons.forEach((btn) => {
         btn.addEventListener('click', () => {
@@ -251,7 +261,7 @@
       }
       for(const r of rows){
         const tr = document.createElement('tr');
-        tr.className = 'hover:bg-gray-800/60 cursor-pointer';
+        tr.className = 'hover:bg-slate-800/50 cursor-pointer';
         tr.setAttribute('data-job-id', r.JobID);
         tr.setAttribute('data-service-id', String(serviceId));
         tr.setAttribute('data-username', String(username));
@@ -286,9 +296,9 @@
             else if (dot.indexOf('amber')>=0) td.classList.add('text-amber-400');
             else if (dot.indexOf('red')>=0) td.classList.add('text-rose-400');
             else if (label === 'Missed') td.classList.add('text-slate-300');
-            else td.classList.add('text-gray-300');
+            else td.classList.add('text-slate-300');
           } else {
-            td.classList.add('text-gray-300');
+            td.classList.add('text-slate-300');
             td.textContent = cells[i]!==undefined? String(cells[i]) : '';
           }
           tr.appendChild(td);
@@ -296,6 +306,7 @@
         tbody.appendChild(tr);
       }
       renderPager(res.total||0);
+      renderSortIndicators();
       renderStatusChips();
       // Apply current column visibility to body cells
       syncColumnVisibility();
@@ -305,9 +316,19 @@
       if(!pagerEl) return;
       const pages = Math.max(1, Math.ceil(total / state.pageSize));
       pagerEl.innerHTML = '';
-      const mk = (label, page, disabled=false, current=false) => { const b=document.createElement('button'); b.className = 'px-2 py-1 text-xs rounded '+(current?'bg-sky-700 text-white':'bg-slate-700 text-slate-200')+(disabled?' opacity-50 cursor-not-allowed':''); b.textContent=label; if(!disabled) b.addEventListener('click',()=>{ state.page=page; load(); }); return b; };
+      const mk = (label, page, disabled=false, current=false) => {
+        const b = document.createElement('button');
+        b.className = 'px-3 py-1.5 rounded border border-slate-700 bg-slate-900/70 hover:bg-slate-800 text-xs text-slate-200' + (disabled ? ' opacity-50 cursor-not-allowed' : '');
+        b.textContent = label;
+        if(!disabled) b.addEventListener('click',()=>{ state.page=page; load(); });
+        else b.disabled = true;
+        return b;
+      };
       pagerEl.appendChild(mk('Prev', Math.max(1, state.page-1), state.page<=1));
-      pagerEl.appendChild(document.createTextNode(` Page ${state.page} / ${pages} `));
+      const pageText = document.createElement('span');
+      pageText.className = 'text-slate-300';
+      pageText.textContent = `Page ${state.page} / ${pages}`;
+      pagerEl.appendChild(pageText);
       pagerEl.appendChild(mk('Next', Math.min(pages, state.page+1), state.page>=pages));
     }
 
@@ -316,6 +337,7 @@
       th.addEventListener('click', () => {
         const key = th.getAttribute('data-sort');
         if(state.sortBy === key){ state.sortDir = (state.sortDir==='asc'?'desc':'asc'); } else { state.sortBy = key; state.sortDir = 'asc'; }
+        renderSortIndicators();
         load();
       });
     });
@@ -404,6 +426,7 @@
     // Public API
     bindFilterControls();
     renderStatusChips();
+    renderSortIndicators();
     return { reload: load };
   }
 
@@ -546,6 +569,16 @@
       tbody.appendChild(tr);
     }
 
+    function renderSortIndicators(){
+      if (!thead) return;
+      thead.querySelectorAll('th[data-sort]').forEach((th) => {
+        const indicator = th.querySelector('[data-sort-indicator]');
+        if (!indicator) return;
+        const key = th.getAttribute('data-sort');
+        indicator.textContent = (state.sortBy === key) ? (state.sortDir === 'asc' ? '↑' : '↓') : '';
+      });
+    }
+
     function bindFilterControls(){
       chipButtons.forEach((btn) => {
         btn.addEventListener('click', () => {
@@ -606,7 +639,7 @@
         }
         for (const r of rows) {
           const tr = document.createElement('tr');
-          tr.className = 'hover:bg-gray-800/60 cursor-pointer';
+          tr.className = 'hover:bg-slate-800/50 cursor-pointer';
           tr.setAttribute('data-job-id', r.JobID);
           tr.setAttribute('data-service-id', String(r.ServiceId != null ? r.ServiceId : (opts.serviceId || document.body.getAttribute('data-eb-serviceid') || '')));
           tr.setAttribute('data-username', String(r.Username || ''));
@@ -642,9 +675,9 @@
               else if (dot.indexOf('amber') >= 0) td.classList.add('text-amber-400');
               else if (dot.indexOf('red') >= 0) td.classList.add('text-rose-400');
               else if (label === 'Missed') td.classList.add('text-slate-300');
-              else td.classList.add('text-gray-300');
+              else td.classList.add('text-slate-300');
             } else {
-              td.classList.add('text-gray-300');
+              td.classList.add('text-slate-300');
               td.textContent = cells[i] !== undefined ? String(cells[i]) : '';
             }
             tr.appendChild(td);
@@ -652,6 +685,7 @@
           tbody.appendChild(tr);
         }
         renderPager(res.total || 0);
+        renderSortIndicators();
         renderStatusChips();
         renderUsernameDropdown();
         syncColumnVisibility();
@@ -666,13 +700,17 @@
       pagerEl.innerHTML = '';
       const mk = (label, page, disabled = false, current = false) => {
         const b = document.createElement('button');
-        b.className = 'px-2 py-1 text-xs rounded ' + (current ? 'bg-sky-700 text-white' : 'bg-slate-700 text-slate-200') + (disabled ? ' opacity-50 cursor-not-allowed' : '');
+        b.className = 'px-3 py-1.5 rounded border border-slate-700 bg-slate-900/70 hover:bg-slate-800 text-xs text-slate-200' + (disabled ? ' opacity-50 cursor-not-allowed' : '');
         b.textContent = label;
         if (!disabled) b.addEventListener('click', () => { state.page = page; load(); });
+        else b.disabled = true;
         return b;
       };
       pagerEl.appendChild(mk('Prev', Math.max(1, state.page - 1), state.page <= 1));
-      pagerEl.appendChild(document.createTextNode(` Page ${state.page} / ${pages} `));
+      const pageText = document.createElement('span');
+      pageText.className = 'text-slate-300';
+      pageText.textContent = `Page ${state.page} / ${pages}`;
+      pagerEl.appendChild(pageText);
       pagerEl.appendChild(mk('Next', Math.min(pages, state.page + 1), state.page >= pages));
     }
 
@@ -680,6 +718,7 @@
       th.addEventListener('click', () => {
         const key = th.getAttribute('data-sort');
         if (state.sortBy === key) { state.sortDir = (state.sortDir === 'asc' ? 'desc' : 'asc'); } else { state.sortBy = key; state.sortDir = 'asc'; }
+        renderSortIndicators();
         load();
       });
     });
@@ -769,6 +808,7 @@
     bindFilterControls();
     renderStatusChips();
     renderUsernameDropdown();
+    renderSortIndicators();
     return { reload: load };
   }
 

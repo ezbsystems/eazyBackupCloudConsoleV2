@@ -3,183 +3,290 @@
 </script>
 
 <script>
-jQuery(document).ready(function() {
-    jQuery('.myloader').css("display", "none");
+jQuery(function ($) {
+    var table = $('#tableServicesList')
+        .removeClass('medium-heading hidden')
+        .DataTable({
+            bInfo: false,
+            paging: true,
+            pageLength: 25,
+            lengthChange: false,
+            searching: true,
+            ordering: true,
+            order: [[0, 'asc']],
+            dom: 't',
+            columns: [{}, {}, {}, {}, {}]
+        });
 
-    var table = jQuery('#tableServicesList').removeClass('medium-heading hidden').DataTable({
-        "bInfo": false,       
-        "paging": false,      
-        "bPaginate": false,   
-        "ordering": true,     
-        "initComplete": function () {
-            var $filterContainer = jQuery('#tableServicesList_filter');
-            
-            $filterContainer.find('label').contents().filter(function() {
-                return this.nodeType === 3; // Text node
-            }).each(function() {
-                var text = jQuery.trim(jQuery(this).text());
-                jQuery(this).replaceWith('<span class="text-gray-400">' + text + '</span>');
-            });
-            
-            $filterContainer.find('input').removeClass().addClass(
-                "block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded " +
-                "focus:outline-none focus:ring-0 focus:border-sky-600"
-            ).css("border", "1px solid #4b5563"); 
+    function updateSortIndicators() {
+        var order = table.order();
+        var activeCol = order.length ? order[0][0] : null;
+        var activeDir = order.length ? order[0][1] : 'asc';
+        $('#tableServicesList .sort-indicator').text('');
+        if (activeCol !== null) {
+            $('#tableServicesList .sort-indicator[data-col="' + activeCol + '"]').text(activeDir === 'asc' ? '↑' : '↓');
         }
+    }
+
+    function applyStatusFilter(value) {
+        table.column(2).search(value, false, false).draw();
+    }
+
+    function updatePager() {
+        var info = table.page.info();
+        var start = info.recordsDisplay ? info.start + 1 : 0;
+        var end = info.recordsDisplay ? info.end : 0;
+        var total = info.recordsDisplay;
+        $('#e3ServicesPageSummary').text('Showing ' + start + '-' + end + ' of ' + total + ' services');
+        $('#e3ServicesPageLabel').text('Page ' + (info.page + 1) + ' / ' + (info.pages || 1));
+        $('#e3ServicesPrevPage').prop('disabled', info.page <= 0);
+        $('#e3ServicesNextPage').prop('disabled', info.page >= info.pages - 1 || info.pages === 0);
+    }
+
+    window.setE3ServicesEntries = function (size) {
+        table.page.len(Number(size) || 25).draw();
+    };
+
+    window.setE3ServicesStatus = function (status) {
+        applyStatusFilter(status || '');
+    };
+
+    window.setE3ServicesSearch = function (query) {
+        table.search(query || '').draw();
+    };
+
+    $(document).on('input', '#e3ServicesSearchInput', function () {
+        window.setE3ServicesSearch(this.value);
     });
+
+    $(document).on('click', '#e3ServicesPrevPage', function () {
+        table.page('previous').draw('page');
+    });
+
+    $(document).on('click', '#e3ServicesNextPage', function () {
+        table.page('next').draw('page');
+    });
+
+    $('#tableServicesList thead').on('click', 'button[data-col-index]', function () {
+        var index = Number($(this).data('col-index'));
+        var current = table.order();
+        var nextDir = 'asc';
+        if (current.length && current[0][0] === index && current[0][1] === 'asc') {
+            nextDir = 'desc';
+        }
+        table.order([index, nextDir]).draw();
+    });
+
+    table.on('order.dt', updateSortIndicators);
+    table.on('draw.dt', updatePager);
+    updateSortIndicators();
+    applyStatusFilter('active');
+    updatePager();
 });
 </script>
 
-<!-- Container for top heading + nav -->
 <div class="min-h-screen bg-slate-950 text-gray-300">
-    <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
-    <div class="container mx-auto px-4 pb-10 pt-6 relative pointer-events-relative w-full px-3 py-2 text-slate-300 bg-slate-900 border border-gray-600 rounded-md shadow-sm cursor-default focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500">
-        <div class="mb-6">
-            <nav class="inline-flex rounded-full bg-slate-900/80 p-1 text-xs font-medium text-slate-400" aria-label="Services Navigation">
-                <a href="{$WEB_ROOT}/clientarea.php?action=services"
-                class="px-4 py-1.5 rounded-full transition {if ($smarty.get.action eq 'services' || !$smarty.get.m) && $smarty.get.tab ne 'billing'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-                    Backup Services
-                </a>
-                <a href="{$WEB_ROOT}/clientarea.php?action=services&tab=billing"
-                class="px-4 py-1.5 rounded-full transition {if $smarty.get.tab eq 'billing'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-                    Billing Report
-                </a>                
-                <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=services-e3"
-                class="px-4 py-1.5 rounded-full transition {if $smarty.get.m eq 'eazybackup' && $smarty.get.a eq 'services-e3'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-                    e3 Object Storage
-                </a>
-            </nav>
-        </div>
-        <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
-            <div class="flex items-center gap-2 mb-4">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" />
-                </svg>
-                <h2 class="text-2xl font-semibold text-white">My Services</h2>
+    <div class="container mx-auto px-4 py-8">
+        <div class="overflow-hidden rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
+            <div class="-mx-6 -mt-6 mb-6 rounded-t-3xl border-b border-slate-800/80 bg-slate-900/50 px-6 py-3">
+                <nav class="flex flex-wrap items-center gap-1" aria-label="Services Navigation">
+                    <a href="{$WEB_ROOT}/clientarea.php?action=services"
+                       class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if ($smarty.get.action eq 'services' || !$smarty.get.m) && $smarty.get.tab ne 'billing'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 14.25v2.25m3-4.5v4.5m3-6.75v6.75m3-9v9M6 20.25h12A2.25 2.25 0 0 0 20.25 18V6A2.25 2.25 0 0 0 18 3.75H6A2.25 2.25 0 0 0 3.75 6v12A2.25 2.25 0 0 0 6 20.25Z" />
+                        </svg>
+                        <span class="text-sm font-medium">Backup Services</span>
+                    </a>
+                    <a href="{$WEB_ROOT}/clientarea.php?action=services&tab=billing"
+                       class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $smarty.get.tab eq 'billing'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                        </svg>
+                        <span class="text-sm font-medium">Billing Report</span>
+                    </a>
+                    <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=services-e3"
+                       class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $smarty.get.m eq 'eazybackup' && $smarty.get.a eq 'services-e3'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
+                        </svg>
+                        <span class="text-sm font-medium">e3 Object Storage</span>
+                    </a>
+                </nav>
             </div>
 
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-3">
+                <div>
+                    <div class="flex items-center gap-2 mb-1">
+                        <a href="{$WEB_ROOT}/clientarea.php?action=services" class="text-slate-400 hover:text-white text-sm">Services</a>
+                        <span class="text-slate-600">/</span>
+                        <span class="text-white text-sm font-medium">e3 Object Storage</span>
+                    </div>
+                    <h2 class="text-2xl font-semibold text-white">e3 Object Storage</h2>
+                    <p class="text-xs text-slate-400 mt-1">Manage your e3 object storage services and plan status.</p>
+                </div>
+            </div>
 
-<div class="p-4 rounded-md border border-slate-800/80 bg-slate-900/70">
-        <div class="overflow-visible mb-4">
-            <table id="tableServicesList" class="min-w-full">
-                <thead class="border-b border-slate-800/80">
-                    <tr>
-                        <th class="px-4 py-4 text-left text-sm font-semibold text-gray-300">
-                            {lang key='Service'}
-                        </th>
-                        <th class="px-4 py-4 text-left text-sm font-semibold text-gray-300">
-                            Username
-                        </th>                                           
-                        <th class="px-4 py-4 text-left text-sm font-semibold text-gray-300">
-                            {lang key='Signup Date'}
-                        </th>
-                        <th class="px-4 py-4 text-left text-sm font-semibold text-gray-300">
-                            {lang key='Next Due Date'}
-                        </th>
-                        <th class="px-4 py-4 text-left text-sm font-semibold text-gray-300">
-                            {lang key='Amount'}
-                        </th>
-                        <th class="px-4 py-4 text-left text-sm font-semibold text-gray-300">
-                            {lang key='Status'}
-                        </th>                
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-800/80">
-                    {if $services|@count > 0}
-                        {foreach from=$services item=service}
-                            <tr class="hover:bg-[#1118272e]">
-                                <td class="px-4 py-4 text-left text-sm font-medium text-gray-100">
-                                    <div>{$service->productname}</div>
-                                </td>
-                                <td class="px-4 py-4 text-left text-sm text-gray-400">{$service->username}</td>
-                                <td class="px-4 py-4 text-left text-sm text-gray-400">{$service->regdate}</td>
-                                <td class="px-4 py-4 text-left text-sm text-gray-400">{$service->nextduedate}</td>
-                                <td class="px-4 py-4 text-left text-sm text-gray-400">{$service->amount}</td>
-                                <td class="px-4 py-4 text-left text-sm text-gray-400">                  
-                                    <!-- Actions Dropdown Toggle -->
-                                    <div class="relative inline-block text-left ml-2" x-data="{ open: false }">
-                                        <button type="button" class="bg-sky-600 text-sm text-gray-100 hover:text-white hover:bg-sky-500 px-4 py-2 border border-sky-700 rounded flex items-center" 
-                                                id="actionsDropdown-{$service->id}" 
-                                                aria-haspopup="true" 
-                                                :aria-expanded="open" 
-                                                @click="open = !open">
-                                            Actions
-                                            <svg class="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                                                    d="M19 9l-7 7-7-7" />
-                                            </svg>
-                                        </button>
-                            
-                                        <!-- Dropdown menu using Alpine.js -->
-                                        <div class="origin-top-right absolute right-0 mt-2 w-56 rounded-md shadow-lg bg-slate-900/80 ring-1 ring-slate-800/80 z-10"
-                                            x-show="open"
-                                            x-transition
-                                            @click.away="open = false"
-                                            role="menu"
-                                            aria-orientation="vertical"
-                                            aria-labelledby="actionsDropdown-{$service->id}">
-                                            
-                                            <!-- Cancel Service -->
-                                            <a href="/clientarea.php?action=cancel&id={$service->id|escape:'html'}" 
-                                            class="block flex rounded-md items-center px-4 py-2 text-sm text-gray-300 bg-slate-800 hover:bg-slate-700" 
-                                            role="menuitem">
-                                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 mr-1">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" 
-                                                        d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
-                                                </svg>
-                                                Cancel Service
-                                            </a>
-                                        </div>
-                                    </div>
-                                </td>
+            <div class="rounded-2xl border border-slate-800/80 bg-slate-900/70 p-5 shadow-lg.">
+                <div class="mb-4 flex flex-col xl:flex-row xl:items-center gap-3">
+                    <div class="relative" x-data="{ isOpen: false, selected: 25 }" @click.away="isOpen = false">
+                        <button type="button"
+                                @click="isOpen = !isOpen"
+                                class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
+                            <span x-text="'Show ' + selected"></span>
+                            <svg class="w-4 h-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                            </svg>
+                        </button>
+                        <div x-show="isOpen"
+                             x-transition:enter="transition ease-out duration-100"
+                             x-transition:enter-start="opacity-0 scale-95"
+                             x-transition:enter-end="opacity-100 scale-100"
+                             x-transition:leave="transition ease-in duration-75"
+                             x-transition:leave-start="opacity-100 scale-100"
+                             x-transition:leave-end="opacity-0 scale-95"
+                             class="absolute left-0 mt-2 w-40 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden"
+                             style="display: none;">
+                            <template x-for="size in [10,25,50,100]" :key="'e3-entries-' + size">
+                                <button type="button"
+                                        class="w-full px-4 py-2 text-left text-sm transition"
+                                        :class="selected === size ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
+                                        @click="selected = size; isOpen = false; window.setE3ServicesEntries(size)">
+                                    <span x-text="size"></span>
+                                </button>
+                            </template>
+                        </div>
+                    </div>
+
+                    <div class="relative"
+                         x-data="{
+                            isOpen: false,
+                            selectedLabel: 'Active',
+                            options: [
+                              { value: 'active', label: 'Active' },
+                              { value: 'inactive', label: 'Inactive' },
+                              { value: 'suspended', label: 'Suspended' },
+                              { value: 'cancelled', label: 'Cancelled' },
+                              { value: '', label: 'All' }
+                            ]
+                         }"
+                         @click.away="isOpen = false">
+                        <button type="button"
+                                @click="isOpen = !isOpen"
+                                class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
+                            <span x-text="'Status: ' + selectedLabel"></span>
+                            <svg class="w-4 h-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                            </svg>
+                        </button>
+                        <div x-show="isOpen"
+                             x-transition:enter="transition ease-out duration-100"
+                             x-transition:enter-start="opacity-0 scale-95"
+                             x-transition:enter-end="opacity-100 scale-100"
+                             x-transition:leave="transition ease-in duration-75"
+                             x-transition:leave-start="opacity-100 scale-100"
+                             x-transition:leave-end="opacity-0 scale-95"
+                             class="absolute left-0 mt-2 w-56 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden"
+                             style="display: none;">
+                            <template x-for="opt in options" :key="'e3-status-' + (opt.value || 'all')">
+                                <button type="button"
+                                        class="w-full px-4 py-2 text-left text-sm transition"
+                                        :class="selectedLabel === opt.label ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
+                                        @click="selectedLabel = opt.label; isOpen = false; window.setE3ServicesStatus(opt.value)">
+                                    <span x-text="opt.label"></span>
+                                </button>
+                            </template>
+                        </div>
+                    </div>
+
+                    <div class="flex-1"></div>
+                    <input id="e3ServicesSearchInput"
+                           type="text"
+                           placeholder="Search username, service, or amount"
+                           class="w-full xl:w-80 rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
+                </div>
+
+                <div class="overflow-x-auto rounded-lg border border-slate-800">
+                    <table id="tableServicesList" class="min-w-full divide-y divide-slate-800 text-sm">
+                        <thead class="bg-slate-900/80 text-slate-300">
+                            <tr>
+                                <th class="px-4 py-3 text-left font-medium">
+                                    <button type="button" class="inline-flex items-center gap-1 hover:text-white" data-col-index="0">
+                                        Username
+                                        <span class="sort-indicator" data-col="0"></span>
+                                    </button>
+                                </th>
+                                <th class="px-4 py-3 text-left font-medium">
+                                    <button type="button" class="inline-flex items-center gap-1 hover:text-white" data-col-index="1">
+                                        Plan
+                                        <span class="sort-indicator" data-col="1"></span>
+                                    </button>
+                                </th>
+                                <th class="px-4 py-3 text-left font-medium">
+                                    <button type="button" class="inline-flex items-center gap-1 hover:text-white" data-col-index="2">
+                                        Status
+                                        <span class="sort-indicator" data-col="2"></span>
+                                    </button>
+                                </th>
+                                <th class="px-4 py-3 text-left font-medium">
+                                    <button type="button" class="inline-flex items-center gap-1 hover:text-white" data-col-index="3">
+                                        Amount
+                                        <span class="sort-indicator" data-col="3"></span>
+                                    </button>
+                                </th>
+                                <th class="px-4 py-3 text-left font-medium">
+                                    <button type="button" class="inline-flex items-center gap-1 hover:text-white" data-col-index="4">
+                                        Next Due Date
+                                        <span class="sort-indicator" data-col="4"></span>
+                                    </button>
+                                </th>
                             </tr>
-                        {/foreach}
-                    {else}
-                        <tr>
-                            <td colspan="7" class="px-4 py-4 text-center text-sm text-gray-300">
-                                You have no e3 Cloud Storage services.
-                            </td>
-                        </tr>
-                    {/if}
-                </tbody>
-            </table>
-        </div>
-        <div class="text-center mt-4 hidden" id="tableLoading">
-            <p>
-                <i class="fas fa-spinner fa-spin"></i> {lang key='loading'}
-            </p>
+                        </thead>
+                        <tbody class="divide-y divide-slate-800">
+                            {if $services|@count > 0}
+                                {foreach from=$services item=service}
+                                    <tr class="hover:bg-slate-800/50">
+                                        <td class="px-4 py-3 text-left">
+                                            <span class="font-medium text-slate-100">{$service->username}</span>
+                                        </td>
+                                        <td class="px-4 py-3 text-left text-slate-300">{$service->productname}</td>
+                                        <td class="px-4 py-3 text-left">
+                                            <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold {if strtolower($service->status) == 'active'}bg-emerald-500/15 text-emerald-200{else}bg-slate-700 text-slate-300{/if}">
+                                                <span class="h-1.5 w-1.5 rounded-full {if strtolower($service->status) == 'active'}bg-emerald-400{else}bg-slate-500{/if}"></span>
+                                                <span class="capitalize">{$service->status|lower}</span>
+                                            </span>
+                                        </td>
+                                        <td class="px-4 py-3 text-left text-slate-300">{$service->amount}</td>
+                                        <td class="px-4 py-3 text-left text-slate-300">{$service->nextduedate}</td>
+                                    </tr>
+                                {/foreach}
+                            {else}
+                                <tr>
+                                    <td colspan="5" class="px-4 py-8 text-center text-slate-400">
+                                        You have no e3 Cloud Storage services.
+                                    </td>
+                                </tr>
+                            {/if}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-400">
+                    <div id="e3ServicesPageSummary"></div>
+                    <div class="flex items-center gap-2">
+                        <button type="button"
+                                id="e3ServicesPrevPage"
+                                class="px-3 py-1.5 rounded border border-slate-700 bg-slate-900/70 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed">
+                            Prev
+                        </button>
+                        <span class="text-slate-300" id="e3ServicesPageLabel"></span>
+                        <button type="button"
+                                id="e3ServicesNextPage"
+                                class="px-3 py-1.5 rounded border border-slate-700 bg-slate-900/70 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed">
+                            Next
+                        </button>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 </div>
-
-{* JAVASCRIPT FUNCTIONS *}
-<script>
-function decryptPassword(serviceId) {
-    console.log("Decrypting password for service ID: " + serviceId);
-    fetch('index.php?m=eazybackup&a=decryptpassword&serviceid=' + serviceId)
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                const passwordSpan = document.getElementById('password-' + serviceId);
-                passwordSpan.innerText = data.password;
-                // Hide the password after 10 seconds
-                setTimeout(function() {
-                    passwordSpan.innerText = '******';
-                }, 10000);
-            } else {
-                alert(data.message);
-            }
-        })
-        .catch(error => console.error('Error:', error));
-}
-
-function copyToClipboard(elementId) {
-    const text = document.getElementById(elementId).innerText;
-    console.log("Copying text: " + text);
-    navigator.clipboard.writeText(text).then(() => {
-        alert('Password copied to clipboard');
-    }).catch(err => {
-        console.error('Error copying text: ', err);
-    });
-}
-</script>

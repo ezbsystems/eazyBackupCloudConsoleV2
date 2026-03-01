@@ -4,7 +4,18 @@ add_hook('ClientAreaHeadOutput', 1, function($vars) {
     $script = <<<EOD
 <script>
 jQuery(document).ready(function() {
+    function hasLegacyUsageColumns() {
+        var headers = jQuery('#tableServicesList thead th');
+        if (headers.length < 8) {
+            return false;
+        }
+        return jQuery.trim(headers.eq(2).text()).toLowerCase() === 'devices';
+    }
+
     function updateUsageData() {
+        if (!hasLegacyUsageColumns()) {
+            return;
+        }
         // Loop through each row in the services table
         jQuery('#tableServicesList tbody tr').each(function() {
             var row = jQuery(this);
@@ -63,7 +74,9 @@ jQuery(document).ready(function() {
         });
     }
     // Call our function once the page is ready
-    updateUsageData();
+    if (hasLegacyUsageColumns()) {
+        updateUsageData();
+    }
 });
 </script>
 EOD;

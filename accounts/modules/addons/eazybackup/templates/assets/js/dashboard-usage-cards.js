@@ -47,6 +47,23 @@
     } catch (_) {}
   }
 
+  function status24hFromSummaryCounts(summaryCounts) {
+    var c = (summaryCounts && typeof summaryCounts === 'object') ? summaryCounts : {};
+    return {
+      success: Number(c.Success || 0),
+      error: Number(c.Error || 0),
+      warning: Number(c.Warning || 0),
+      missed: Number(c.Missed || 0),
+      running: Number(c.Running || 0)
+    };
+  }
+
+  function applySummaryCountsToDonut(summaryCounts) {
+    var status24h = status24hFromSummaryCounts(summaryCounts);
+    setLegendCounts(status24h);
+    renderStatusDonut(status24h);
+  }
+
   function renderDevicesChart(points) {
     var el = byId('eb-devices-chart');
     if (!el) return;
@@ -142,60 +159,74 @@
   function renderStatusDonut(status24h) {
     var el = byId('eb-status24h-donut');
     if (!el) return;
-    if (!window.ApexCharts) {
+    if (!window.bb || typeof window.bb.generate !== 'function') {
       showMessage(el, 'Chart library unavailable');
       return;
     }
     destroyIfNeeded('status24h');
     prepareMount(el);
 
-    var values = [
-      Number((status24h && status24h.success) || 0),
-      Number((status24h && status24h.error) || 0),
-      Number((status24h && status24h.warning) || 0),
-      Number((status24h && status24h.missed) || 0),
-      Number((status24h && status24h.running) || 0)
-    ];
+    var success = Number((status24h && status24h.success) || 0);
+    var error = Number((status24h && status24h.error) || 0);
+    var warning = Number((status24h && status24h.warning) || 0);
+    var missed = Number((status24h && status24h.missed) || 0);
+    var running = Number((status24h && status24h.running) || 0);
 
-    var chart = new ApexCharts(el, {
-      chart: { type: 'donut', height: 180, parentHeightOffset: 0, toolbar: { show: false } },
-      series: values,
-      labels: ['Success', 'Error', 'Warning', 'Missed', 'Running'],
-      colors: ['#22c55e', '#ef4444', '#f59e0b', '#cbd5e1', '#0ea5e9'],
-      legend: { show: false },
-      dataLabels: {
-        enabled: true,
-        style: {
-          fontSize: '14px',
-          fontWeight: '600',
-          colors: ['#e2e8f0']
+    var columns = [];
+    if (success > 0) columns.push(['Success', success]);
+    if (error > 0) columns.push(['Error', error]);
+    if (warning > 0) columns.push(['Warning', warning]);
+    if (missed > 0) columns.push(['Missed', missed]);
+    if (running > 0) columns.push(['Running', running]);
+
+    if (columns.length === 0) {
+      showMessage(el, 'No status data');
+      return;
+    }
+
+    var chart = window.bb.generate({
+      bindto: el,
+      size: { height: 180 },
+      data: {
+        columns: columns,
+        type: 'donut',
+        colors: {
+          Success: 'rgb(0, 201, 80)',
+          Error: 'rgb(251, 44, 54)',
+          Warning: 'rgb(254, 154, 0)',
+          Missed: 'rgb(203, 213, 225)',
+          Running: 'rgb(0, 166, 244)'
         },
-        formatter: function (percent, opts) {
-          try {
-            var idx = opts && typeof opts.seriesIndex === 'number' ? opts.seriesIndex : -1;
-            var count = (opts && opts.w && opts.w.globals && Array.isArray(opts.w.globals.series) && idx >= 0)
-              ? Number(opts.w.globals.series[idx] || 0)
-              : 0;
-            // Hide labels for tiny slices so text never spills/overlaps.
-            if (count <= 0 || Number(percent || 0) < 5) return '';
-            return String(count);
-          } catch (_) {
-            return '';
+        order: null
+      },
+      arc: {
+        cornerRadius: 0
+      },
+      donut: {
+        label: {
+          show: true,
+          line: false,
+          threshold: 0.05,
+          ratio: 1.00,
+          format: function (value, ratio) {
+            if (Number(value || 0) <= 0 || Number(ratio || 0) < 0.05) return '';
+            return String(Math.round(Number(value || 0)));
           }
         },
-        dropShadow: { enabled: false }
+        expand: false,
+        width: 26,
+        padAngle: 0
       },
-      plotOptions: {
-        pie: {
-          donut: { size: '60%' },
-          dataLabels: { minAngleToShowLabel: 10 }
+      legend: { show: false },
+      tooltip: {
+        format: {
+          title: function (id) { return String(id || 'Status'); },
+          value: function (value) { return String(Math.round(Number(value || 0))); }
         }
       },
-      stroke: { width: 1, colors: ['#0f172a'] },
-      tooltip: { theme: 'dark' },
-      noData: { text: 'No status data' }
+      transition: { duration: 250 }
     });
-    chart.render();
+
     window.__ebUsageCharts = window.__ebUsageCharts || {};
     window.__ebUsageCharts.status24h = chart;
   }
@@ -214,8 +245,11 @@
         if (!data || data.status !== 'success') throw new Error('Invalid payload');
         renderDevicesChart(Array.isArray(data.devices30d) ? data.devices30d : []);
         renderStorageChart(Array.isArray(data.storage30d) ? data.storage30d : []);
-        setLegendCounts(data.status24h || {});
-        renderStatusDonut(data.status24h || {});
+        if (window.__EB_SUMMARY_COUNTS_24H && typeof window.__EB_SUMMARY_COUNTS_24H === 'object') {
+          applySummaryCountsToDonut(window.__EB_SUMMARY_COUNTS_24H);
+        } else {
+          showMessage(byId('eb-status24h-donut'), 'Waiting for summary...');
+        }
       })
       .catch(function () {
         showMessage(byId('eb-devices-chart'), 'Trend unavailable');
@@ -223,6 +257,17 @@
         showMessage(byId('eb-status24h-donut'), 'Trend unavailable');
       });
   }
+
+  function bindSummaryCountsBridge() {
+    if (window.__ebSummary24hBridgeBound) return;
+    window.__ebSummary24hBridgeBound = true;
+    window.addEventListener('eb:summary-counts-24h', function (ev) {
+      var detail = (ev && ev.detail) ? ev.detail : {};
+      applySummaryCountsToDonut(detail);
+    });
+  }
+
+  bindSummaryCountsBridge();
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', load);
