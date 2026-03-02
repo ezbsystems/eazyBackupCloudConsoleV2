@@ -454,6 +454,7 @@ function tenantDetailApp() {
         fieldErrors: {},
         tenantAssignSearch: '',
         tenants: [],
+        csrfToken: {/literal}{$csrfToken|@json_encode nofilter}{literal} || '',
 
         notification: { show: false, message: '', type: 'success' },
 
@@ -969,6 +970,7 @@ function tenantDetailApp() {
                     strict_acknowledged: this.form.strict_acknowledged ? '1' : '0',
                     recovery_key_downloaded: this.form.recovery_key_downloaded ? '1' : '0'
                 });
+                body.set('token', this.csrfToken);
 
                 const response = await fetch('modules/addons/cloudstorage/api/e3backup_user_create.php', {
                     method: 'POST',

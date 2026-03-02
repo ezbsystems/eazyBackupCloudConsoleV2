@@ -24,9 +24,11 @@ $tenants = [];
 if ($isMspClient) {
     $tenants = MspController::getTenants($loggedInUserId);
 }
+$csrfToken = function_exists('generate_token') ? generate_token('plain') : '';
 
 return [
     'isMspClient' => $isMspClient,
     'tenants' => $tenants,
+    'csrfToken' => $csrfToken,
 ];
 

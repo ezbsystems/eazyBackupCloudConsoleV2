@@ -254,6 +254,7 @@ function backupUserDetailApp() {
         userId: {/literal}{$user->id|intval}{literal},
         isMspClient: {/literal}{if $isMspClient}true{else}false{/if}{literal},
         canonicalTenants: {/literal}{$canonicalTenants|@json_encode nofilter}{literal} || [],
+        csrfToken: {/literal}{$csrfToken|@json_encode nofilter}{literal} || '',
         loading: true,
         updating: false,
         resettingPassword: false,
@@ -370,6 +371,7 @@ function backupUserDetailApp() {
                     email: this.updateForm.email,
                     status: this.updateForm.status
                 });
+                body.set('token', this.csrfToken);
                 if (this.isMspClient && this.shouldSendCanonicalTenantOnUpdate()) {
                     body.set('canonical_tenant_id', this.updateForm.tenant_id ? this.updateForm.tenant_id : 'direct');
                 }
