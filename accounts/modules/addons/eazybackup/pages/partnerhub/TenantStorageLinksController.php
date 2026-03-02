@@ -108,8 +108,8 @@ function eb_tenant_storage_links_storage_identifier_belongs_to_client(int $clien
     }
 
     if (!preg_match('/^s3_backup_user:(\d+)$/', $storageIdentifier, $matches)) {
-        // Keep backward-compatible behavior for non-user identifiers.
-        return true;
+        // Fail closed: only s3_backup_user:<id> identifiers are supported in Task 6 path.
+        return false;
     }
 
     $userId = (int) ($matches[1] ?? 0);

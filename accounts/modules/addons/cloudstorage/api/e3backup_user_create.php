@@ -94,11 +94,8 @@ if (!$isMsp && $tenantId !== null) {
     $errors['tenant_id'] = 'Direct accounts cannot assign tenants.';
 }
 
-if ($isMsp && $tenantId !== null) {
-    $tenant = MspController::getTenant($tenantId, $clientId);
-    if (!$tenant) {
-        $errors['tenant_id'] = 'Selected tenant does not belong to your account.';
-    }
+if ($isMsp && $canonicalTenantId === null && $tenantId !== null) {
+    $errors['tenant_id'] = 'Use canonical_tenant_id to assign tenant scope for MSP users.';
 }
 
 if (!$isMsp && $canonicalTenantId !== null) {
