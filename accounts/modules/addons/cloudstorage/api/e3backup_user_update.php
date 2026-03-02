@@ -113,8 +113,19 @@ if ($canonicalTenantProvided) {
 $errors = [];
 
 if ($isMsp && !$canonicalTenantProvided && $currentCanonicalLink && $tenantIdRaw !== null && $tenantId !== $currentTenantId) {
-    $errors['tenant_id'] = 'Canonical-managed users require canonical_tenant_id for scope changes.';
-    $tenantId = $currentTenantId;
+    if ($tenantId === null) {
+        $canonicalTenantProvided = true;
+        $canonicalTenantId = null;
+    } else {
+        $inferredCanonicalTenantId = eb_tenant_storage_links_infer_canonical_tenant_id_from_storage_tenant_id((int) $clientId, (int) $tenantId);
+        if ($inferredCanonicalTenantId !== null) {
+            $canonicalTenantProvided = true;
+            $canonicalTenantId = $inferredCanonicalTenantId;
+        } else {
+            $errors['tenant_id'] = 'Canonical-managed users require canonical_tenant_id for scope changes.';
+            $tenantId = $currentTenantId;
+        }
+    }
 }
 
 if ($username === '') {
