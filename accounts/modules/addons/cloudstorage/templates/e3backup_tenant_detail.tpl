@@ -641,6 +641,7 @@ function tenantDetailApp() {
                     postal_code: this.profileForm.postal_code,
                     country: (this.profileForm.country || '').toUpperCase()
                 });
+                body.set('token', this.csrfToken);
 
                 if (!this.isCreateMode) {
                     body.set('tenant_id', String(this.tenantId));
@@ -691,10 +692,12 @@ function tenantDetailApp() {
 
             this.deletingTenant = true;
             try {
+                const body = new URLSearchParams({ tenant_id: String(this.tenantId) });
+                body.set('token', this.csrfToken);
                 const response = await fetch('modules/addons/cloudstorage/api/e3backup_tenant_delete.php', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: new URLSearchParams({ tenant_id: String(this.tenantId) })
+                    body
                 });
                 const data = await response.json();
                 if (data.status !== 'success') {
@@ -843,6 +846,7 @@ function tenantDetailApp() {
                     role: this.memberForm.role || 'user',
                     status: this.memberForm.status || 'active'
                 });
+                body.set('token', this.csrfToken);
 
                 const response = await fetch('modules/addons/cloudstorage/api/e3backup_tenant_user_create.php', {
                     method: 'POST',
