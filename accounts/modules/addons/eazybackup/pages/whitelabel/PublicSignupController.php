@@ -65,7 +65,7 @@ function eazybackup_public_signup(array $vars)
         ];
     }
 
-    // POST: Validate, rate-limit, write event, create client + order, accept/provision, redirect to download
+    // POST: Validate, rate-limit, write event, create client + order, queue for approval
     $email = trim((string)($_POST['email'] ?? ''));
     $first = trim((string)($_POST['first_name'] ?? ''));
     $last  = trim((string)($_POST['last_name'] ?? ''));
@@ -156,8 +156,21 @@ function eazybackup_public_signup(array $vars)
     // Idempotency: if an event already exists for this tenant+email, avoid duplicate order
     $existing = Capsule::table('eb_whitelabel_signup_events')->where('tenant_id',(int)$tenant->id)->where('email',$email)->first();
     if ($existing) {
-        // If terminal, redirect to download; otherwise indicate processing
+        // If pending approval, show confirmation state. If terminal, redirect to download.
         $st = (string)($existing->status ?? '');
+        if ($st === 'pending_approval') {
+            return [
+                'pagetitle' => 'Signup received',
+                'templatefile' => 'templates/whitelabel/public-signup',
+                'forcessl' => true,
+                'vars' => [
+                    'signup_state' => 'pending_approval',
+                    'tenant' => (array)$tenant,
+                    'host' => $host,
+                    'flow' => $flow ? (array)$flow : [],
+                ],
+            ];
+        }
         if (in_array($st, ['emailed','completed','provisioned','accepted'], true)) {
             header('Location: index.php?m=eazybackup&a=public-download&existing=1'); exit;
         }
@@ -255,75 +268,29 @@ function eazybackup_public_signup(array $vars)
         $resOrder = localAPI('AddOrder', $orderPayload, $adminUser);
         if (($resOrder['result'] ?? '') !== 'success') { throw new \RuntimeException('order_create_failed'); }
         $orderId = (int)($resOrder['orderid'] ?? 0);
-        // Accept order (provision)
+        // Order is intentionally left pending for MSP approval before provisioning.
         try { logModuleCall('eazybackup','signup_post',['tenant_id'=>(int)$tenant->id,'event_id'=>$eventId,'orderId'=>$orderId],'order_ok'); } catch (\Throwable $__) {}
-        $resAccept = localAPI('AcceptOrder', ['orderid'=>$orderId,'sendemail'=>false], $adminUser);
-        if (($resAccept['result'] ?? '') !== 'success') { throw new \RuntimeException('order_accept_failed'); }
 
         // Update event status
         Capsule::table('eb_whitelabel_signup_events')->where('tenant_id',(int)$tenant->id)->where('email',$email)->update([
-            'status' => 'accepted',
+            'status' => 'pending_approval',
             'whmcs_client_id' => $clientId,
             'whmcs_order_id' => $orderId,
             'updated_at' => date('Y-m-d H:i:s'),
         ]);
+        try { logModuleCall('eazybackup','signup_post',['tenant_id'=>(int)$tenant->id,'event_id'=>$eventId,'orderId'=>$orderId],'pending_approval'); } catch (\Throwable $__) {}
 
-        // Try to read back Comet username from latest service
-        $svc = Capsule::table('tblhosting')->where('userid',$clientId)->orderBy('id','desc')->first();
-        if ($svc) {
-            Capsule::table('eb_whitelabel_signup_events')->where('tenant_id',(int)$tenant->id)->where('email',$email)->update([
-                'status' => 'provisioned',
-                'comet_username' => (string)($svc->username ?? ''),
-                'updated_at' => date('Y-m-d H:i:s'),
-            ]);
-            try { logModuleCall('eazybackup','signup_post',['tenant_id'=>(int)$tenant->id,'event_id'=>$eventId,'username'=>(string)($svc->username ?? '')],'provisioned'); } catch (\Throwable $__) {}
-        }
-
-        // Send emails if configured
-        try {
-            $downloadsUrl = rtrim((string)($vars['systemurl'] ?? ''), '/') . '/index.php?m=eazybackup&a=public-download&new=1';
-            // Customer Welcome
-            if ((int)($flow->send_customer_welcome ?? 1) === 1) {
-                $msgVars = [
-                    'Brand_ProductName' => (string)($tenant->product_name ?? ''),
-                    'Account_Username' => (string)($svc->username ?? ''),
-                    'Downloads_Url' => $downloadsUrl,
-                    'Brand_ServerAddress' => 'https://' . (string)($tenant->fqdn ?? $host) . '/',
-                ];
-                // Attempt MSP custom welcome via template; fall back to WHMCS email if not configured
-                try {
-                    require_once __DIR__ . '/EmailTriggers.php';
-                    $brandName = (string)($tenant->product_name ?? 'eazyBackup');
-                    $varsSend = [
-                        'customer_name' => $first . ' ' . $last,
-                        'brand_name' => $brandName,
-                        'portal_url' => $downloadsUrl,
-                        'help_url' => rtrim((string)($vars['systemurl'] ?? ''), '/') . '/index.php?m=eazybackup&a=knowledgebase',
-                    ];
-                    EmailTriggers::trigger((int)$tenant->id, 'welcome', (string)$email, $varsSend);
-                } catch (\Throwable $___) {
-                    @localAPI('SendEmail', ['messagename'=>'eB Partner Hub — Customer Welcome','id'=>$clientId,'customvars'=>$msgVars], $adminUser);
-                }
-            }
-            // MSP Notice (route to module setting notify_test_recipient as a simple default or admin email)
-            if ((int)($flow->send_msp_notice ?? 1) === 1) {
-                $mspEmail = (string)($vars['notify_test_recipient'] ?? ($vars['trialsignupemail'] ?? ''));
-                if ($mspEmail !== '') {
-                    $msgVars2 = [
-                        'Customer_Name' => $first . ' ' . $last,
-                        'Customer_Email' => $email,
-                        'Account_Username' => (string)($svc->username ?? ''),
-                        'Downloads_Url' => $downloadsUrl,
-                        'Brand_ProductName' => (string)($tenant->product_name ?? ''),
-                    ];
-                    @localAPI('SendEmail', ['customtype'=>'general','customsubject'=>'New signup: ' . $email,'custommessage'=>'New signup: '.$email.' Username: '.((string)($svc->username ?? '')).' Downloads: '.$downloadsUrl,'customvars'=>$msgVars2,'to'=>$mspEmail], $adminUser);
-                }
-            }
-        } catch (\Throwable $__) {}
-
-        // Redirect to download page
-        header('Location: index.php?m=eazybackup&a=public-download&new=1');
-        exit;
+        return [
+            'pagetitle' => 'Signup received',
+            'templatefile' => 'templates/whitelabel/public-signup',
+            'forcessl' => true,
+            'vars' => [
+                'signup_state' => 'pending_approval',
+                'tenant' => (array)$tenant,
+                'host' => $host,
+                'flow' => $flow ? (array)$flow : [],
+            ],
+        ];
     } catch (\Throwable $e) {
         try {
             Capsule::table('eb_whitelabel_signup_events')->where('tenant_id',(int)$tenant->id)->where('email',$email)->update([
