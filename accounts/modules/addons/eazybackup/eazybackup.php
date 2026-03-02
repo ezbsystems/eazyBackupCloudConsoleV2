@@ -3940,6 +3940,15 @@ function eazybackup_clientarea(array $vars)
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-clients') {
         require_once __DIR__ . '/pages/partnerhub/ClientsController.php';
         return eb_ph_clients_index($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenants-manage') {
+        require_once __DIR__ . '/pages/partnerhub/TenantsController.php';
+        return eb_ph_tenants_management_entry($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenants') {
+        require_once __DIR__ . '/pages/partnerhub/TenantsController.php';
+        return eb_ph_tenants_index($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenant') {
+        require_once __DIR__ . '/pages/partnerhub/TenantsController.php';
+        return eb_ph_tenant_detail($vars);
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-client') {
         require_once __DIR__ . '/pages/partnerhub/ClientViewController.php';
         return eb_ph_client_view($vars);
