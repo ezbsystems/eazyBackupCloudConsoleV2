@@ -99,10 +99,12 @@ if ($isMsp && !empty($user->tenant_id)) {
 $tenantId = $user->tenant_id !== null ? (int) $user->tenant_id : null;
 $canonicalTenantId = null;
 $canonicalTenantName = null;
+$isCanonicalManaged = false;
 $storageIdentifier = eb_tenant_storage_identifier_for_user((int) $user->id);
 if ($isMsp) {
     $canonicalLink = eb_tenant_storage_links_get_current_link_for_identifier((int) $clientId, $storageIdentifier);
     if ($canonicalLink && !empty($canonicalLink->tenant_id)) {
+        $isCanonicalManaged = true;
         $canonicalTenantId = (int) $canonicalLink->tenant_id;
         $canonicalTenant = eb_tenant_storage_links_resolve_tenant_for_client((int) $clientId, $canonicalTenantId);
         if ($canonicalTenant) {
@@ -187,6 +189,7 @@ if (
         'id' => (int) $user->id,
         'client_id' => (int) $user->client_id,
         'tenant_id' => $tenantId,
+        'is_canonical_managed' => $isCanonicalManaged,
         'canonical_tenant_id' => $canonicalTenantId,
         'username' => (string) $user->username,
         'email' => (string) $user->email,

@@ -267,6 +267,7 @@ function backupUserDetailApp() {
             tenant_name: {/literal}{$user->tenant_name|@json_encode nofilter}{literal},
             canonical_tenant_id: null,
             canonical_tenant_name: null,
+            is_canonical_managed: false,
             status: {/literal}{$user->status|@json_encode nofilter}{literal}
         },
         updateForm: {
@@ -317,6 +318,12 @@ function backupUserDetailApp() {
             this.updateForm.status = this.user.status || 'active';
         },
 
+        shouldSendCanonicalTenantOnUpdate() {
+            if (!this.isMspClient) return false;
+            if (this.updateForm.tenant_id) return true;
+            return !!this.user.is_canonical_managed;
+        },
+
         async loadUser() {
             this.loading = true;
             try {
@@ -363,7 +370,7 @@ function backupUserDetailApp() {
                     email: this.updateForm.email,
                     status: this.updateForm.status
                 });
-                if (this.isMspClient) {
+                if (this.isMspClient && this.shouldSendCanonicalTenantOnUpdate()) {
                     body.set('canonical_tenant_id', this.updateForm.tenant_id ? this.updateForm.tenant_id : 'direct');
                 }
 
