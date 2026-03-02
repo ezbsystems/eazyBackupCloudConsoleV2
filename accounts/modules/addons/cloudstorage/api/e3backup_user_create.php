@@ -43,6 +43,7 @@ $passwordConfirm = (string) ($_POST['password_confirm'] ?? '');
 $status = strtolower(trim((string) ($_POST['status'] ?? 'active')));
 $tenantIdRaw = $_POST['tenant_id'] ?? '';
 $tenantId = null;
+$canonicalTenantProvided = array_key_exists('canonical_tenant_id', $_POST);
 $canonicalTenantIdRaw = $_POST['canonical_tenant_id'] ?? null;
 $canonicalTenantId = null;
 
@@ -52,9 +53,12 @@ if ($tenantIdRaw !== null && $tenantIdRaw !== '' && (int) $tenantIdRaw > 0) {
 
 $errors = [];
 
-if ($canonicalTenantIdRaw !== null) {
+if ($canonicalTenantProvided) {
     if ($canonicalTenantIdRaw === '' || $canonicalTenantIdRaw === 'direct') {
         $canonicalTenantId = null;
+        if ($isMsp) {
+            $tenantId = null;
+        }
     } elseif ((int) $canonicalTenantIdRaw > 0) {
         $canonicalTenantId = (int) $canonicalTenantIdRaw;
     } else {
@@ -94,7 +98,7 @@ if (!$isMsp && $tenantId !== null) {
     $errors['tenant_id'] = 'Direct accounts cannot assign tenants.';
 }
 
-if ($isMsp && $tenantId !== null && $canonicalTenantId === null) {
+if ($isMsp && $tenantId !== null && !$canonicalTenantProvided) {
     $tenant = MspController::getTenant($tenantId, $clientId);
     if (!$tenant) {
         $errors['tenant_id'] = 'Selected tenant does not belong to your account.';

@@ -66,8 +66,10 @@ $targets = [
         'path' => $userCreateFile,
         'markers' => [
             'controller include marker' => "require_once __DIR__ . '/../../eazybackup/pages/partnerhub/TenantStorageLinksController.php';",
+            'canonical tenant post presence marker' => "\$canonicalTenantProvided = array_key_exists('canonical_tenant_id', \$_POST);",
             'canonical tenant post marker' => "\$canonicalTenantIdRaw = \$_POST['canonical_tenant_id'] ?? null;",
-            'msp legacy tenant compatibility marker' => 'if ($isMsp && $tenantId !== null && $canonicalTenantId === null) {',
+            'canonical direct precedence marker' => 'if ($isMsp) {',
+            'msp legacy tenant compatibility marker' => 'if ($isMsp && $tenantId !== null && !$canonicalTenantProvided) {',
             'msp legacy tenant ownership check marker' => 'MspController::getTenant($tenantId, $clientId);',
             'canonical tenant ownership check marker' => 'eb_tenant_storage_links_resolve_tenant_for_client((int) $clientId, $canonicalTenantId);',
             'canonical to storage tenant mapping marker' => '$tenantId = eb_tenant_storage_links_resolve_or_create_storage_tenant_id((int) $clientId, $canonicalTenantId);',
@@ -113,6 +115,8 @@ $targets = [
         'markers' => [
             'controller include marker' => "require_once __DIR__ . '/../../eazybackup/pages/partnerhub/TenantStorageLinksController.php';",
             'canonical link lookup marker' => 'eb_tenant_storage_links_get_current_link_for_identifier((int) $clientId, $storageIdentifier);',
+            'canonical managed state marker' => '$isCanonicalManaged = false;',
+            'canonical managed response marker' => "'is_canonical_managed' => \$isCanonicalManaged,",
             'canonical tenant id response marker' => "'canonical_tenant_id' => \$canonicalTenantId,",
             'canonical tenant name response marker' => "'canonical_tenant_name' => \$canonicalTenantName,",
         ],
@@ -130,11 +134,15 @@ $targets = [
         'markers' => [
             'canonical tenants state marker' => 'canonicalTenants: {/literal}{$canonicalTenants|@json_encode nofilter}{literal} || [],',
             'canonical selection prefill marker' => "this.updateForm.tenant_id = this.user.canonical_tenant_id ? String(this.user.canonical_tenant_id) : '';",
-            'canonical tenant submit marker' => "body.set('canonical_tenant_id', this.updateForm.tenant_id ? this.updateForm.tenant_id : 'direct');",
+            'canonical managed state marker' => 'is_canonical_managed: false,',
+            'canonical submit predicate marker' => 'shouldSendCanonicalTenantOnUpdate() {',
+            'canonical tenant submit marker' => "if (this.isMspClient && this.shouldSendCanonicalTenantOnUpdate()) {",
+            'canonical direct submit marker' => "body.set('canonical_tenant_id', this.updateForm.tenant_id ? this.updateForm.tenant_id : 'direct');",
             'canonical tenant label marker' => 'const tenant = this.canonicalTenants.find((item) => String(item.id) === String(this.updateForm.tenant_id));',
         ],
         'forbidden' => [
             'legacy tenant id submit forbidden marker' => "body.set('tenant_id', this.updateForm.tenant_id);",
+            'unguarded canonical direct submit forbidden marker' => "if (this.isMspClient) {\n                    body.set('canonical_tenant_id', this.updateForm.tenant_id ? this.updateForm.tenant_id : 'direct');",
         ],
     ],
 ];
