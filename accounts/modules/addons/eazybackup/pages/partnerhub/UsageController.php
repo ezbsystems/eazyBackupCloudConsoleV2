@@ -3,6 +3,16 @@
 use WHMCS\Database\Capsule;
 use PartnerHub\StripeService;
 
+function eb_usage_tenant_period_idempotency_key(int $tenantId, string $metric, int $periodStart, int $periodEnd): string
+{
+    return sha1(
+        'tenant:' . max(0, $tenantId)
+        . '|metric:' . trim($metric)
+        . '|period_start:' . max(0, $periodStart)
+        . '|period_end:' . max(0, $periodEnd)
+    );
+}
+
 function eb_ph_usage_push(array $vars): void
 {
     header('Content-Type: application/json');
@@ -16,11 +26,24 @@ function eb_ph_usage_push(array $vars): void
     $periodEnd = (int)($_POST['period_end'] ?? 0);
     if ($customerId <= 0 || $metric === '' || $qty < 0) { echo json_encode(['status'=>'error','message'=>'invalid']); return; }
     try {
+        $tenantId = (int) (Capsule::table('eb_customers')->where('id', $customerId)->value('tenant_id') ?? 0);
+
         // Record in ledger
-        $idKey = sha1($customerId.'|'.$metric.'|'.$periodStart.'|'.$periodEnd);
+        if ($tenantId > 0) {
+            $idKey = eb_usage_tenant_period_idempotency_key($tenantId, $metric, $periodStart ?: 0, $periodEnd ?: 0);
+        } else {
+            $idKey = sha1(
+                'customer:' . $customerId
+                . '|metric:' . $metric
+                . '|period_start:' . ($periodStart ?: 0)
+                . '|period_end:' . ($periodEnd ?: 0)
+            );
+        }
+
         Capsule::table('eb_usage_ledger')->updateOrInsert(
             ['idempotency_key' => $idKey],
             [
+                'tenant_id' => ($tenantId > 0 ? $tenantId : null),
                 'customer_id' => $customerId,
                 'metric' => $metric,
                 'qty' => $qty,
@@ -39,11 +62,12 @@ function eb_ph_usage_push(array $vars): void
         if (!$priceRow || !(int)$priceRow->is_metered) { echo json_encode(['status'=>'success','message'=>'recorded-only']); return; }
         // Retrieve subscription to get item id
         $svc = new StripeService();
-        $s = $svc->retrieveSubscription((string)$sub->stripe_subscription_id);
+        $stripeAccountId = (string) ($msp->stripe_connect_id ?? '');
+        $s = $svc->retrieveSubscription((string)$sub->stripe_subscription_id, $stripeAccountId !== '' ? $stripeAccountId : null);
         $items = (array)($s['items']['data'] ?? []);
         $itemId = count($items) ? (string)($items[0]['id'] ?? '') : '';
         if ($itemId !== '') {
-            $svc->createUsageRecord($itemId, $qty, time());
+            $svc->createUsageRecord($itemId, $qty, time(), $stripeAccountId !== '' ? $stripeAccountId : null, $idKey);
             Capsule::table('eb_usage_ledger')->where('idempotency_key',$idKey)->update([
                 'pushed_to_stripe_at' => date('Y-m-d H:i:s'),
             ]);
