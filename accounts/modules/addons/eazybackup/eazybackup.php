@@ -1095,6 +1095,15 @@ function eazybackup_migrate_schema(): void {
         });
     }
 
+    // Approval metadata for signup events is additive-only for safe upgrades.
+    if ($schema->hasTable('eb_whitelabel_signup_events')) {
+        eb_add_column_if_missing('eb_whitelabel_signup_events','approved_by_admin_id', fn(Blueprint $t)=>$t->integer('approved_by_admin_id')->nullable());
+        eb_add_column_if_missing('eb_whitelabel_signup_events','approved_at', fn(Blueprint $t)=>$t->timestamp('approved_at')->nullable());
+        eb_add_column_if_missing('eb_whitelabel_signup_events','approval_notes', fn(Blueprint $t)=>$t->text('approval_notes')->nullable());
+        eb_add_index_if_missing('eb_whitelabel_signup_events', "CREATE INDEX IF NOT EXISTS idx_wlse_approved_by ON eb_whitelabel_signup_events (approved_by_admin_id)");
+        eb_add_index_if_missing('eb_whitelabel_signup_events', "CREATE INDEX IF NOT EXISTS idx_wlse_approved_at ON eb_whitelabel_signup_events (approved_at)");
+    }
+
     // ========= Partner Hub: MSP + Customers + Billing (Phase 1 schema) =========
     // eb_msp_accounts
     if (!$schema->hasTable('eb_msp_accounts')) {
@@ -1135,6 +1144,7 @@ function eazybackup_migrate_schema(): void {
         $schema->create('eb_customers', function (Blueprint $t) {
             $t->bigIncrements('id');
             $t->bigInteger('msp_id')->index();
+            $t->bigInteger('tenant_id')->nullable()->unique('uq_eb_customers_tenant_id');
             $t->integer('whmcs_client_id')->unique();
             $t->string('name', 191)->default('');
             $t->string('external_ref', 191)->nullable();
@@ -1145,7 +1155,10 @@ function eazybackup_migrate_schema(): void {
             $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
             $t->index(['msp_id','status'], 'idx_customer_msp_status');
         });
+    } else {
+        eb_add_column_if_missing('eb_customers','tenant_id', fn(Blueprint $t)=>$t->bigInteger('tenant_id')->nullable());
     }
+    eb_add_index_if_missing('eb_customers', "CREATE UNIQUE INDEX IF NOT EXISTS uq_eb_customers_tenant_id ON eb_customers (tenant_id)");
 
     // eb_customer_user_links
     if (!$schema->hasTable('eb_customer_user_links')) {
@@ -1183,6 +1196,23 @@ function eazybackup_migrate_schema(): void {
             $t->unique('whmcs_service_id', 'uq_service');
             $t->index(['msp_id','customer_id'], 'idx_service_msp_customer');
         });
+    }
+
+    if (!$schema->hasTable('eb_tenant_storage_links')) {
+        $schema->create('eb_tenant_storage_links', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->bigInteger('tenant_id');
+            $t->string('storage_identifier', 191);
+            $t->enum('link_status', ['active','disabled'])->default('active');
+            $t->timestamp('created_at')->nullable()->useCurrent();
+            $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
+            $t->unique(['tenant_id','storage_identifier'], 'uq_tenant_storage_link');
+            $t->index('tenant_id', 'idx_tenant_storage_link_tenant');
+        });
+    }
+    if ($schema->hasTable('eb_tenant_storage_links')) {
+        eb_add_index_if_missing('eb_tenant_storage_links', "CREATE UNIQUE INDEX IF NOT EXISTS uq_tenant_storage_link ON eb_tenant_storage_links (tenant_id, storage_identifier)");
+        eb_add_index_if_missing('eb_tenant_storage_links', "CREATE INDEX IF NOT EXISTS idx_tenant_storage_link_tenant ON eb_tenant_storage_links (tenant_id)");
     }
 
     // Add nullable MSP/Customer scoping columns to Comet mirrors if present
@@ -1246,6 +1276,7 @@ function eazybackup_migrate_schema(): void {
     if (!$schema->hasTable('eb_usage_ledger')) {
         $schema->create('eb_usage_ledger', function (Blueprint $t) {
             $t->bigIncrements('id');
+            $t->bigInteger('tenant_id')->nullable()->index();
             $t->bigInteger('customer_id')->index();
             $t->string('metric', 64);
             $t->bigInteger('qty')->default(0);
@@ -1256,7 +1287,10 @@ function eazybackup_migrate_schema(): void {
             $t->timestamp('pushed_to_stripe_at')->nullable();
             $t->timestamp('created_at')->nullable()->useCurrent();
         });
+    } else {
+        eb_add_column_if_missing('eb_usage_ledger','tenant_id', fn(Blueprint $t)=>$t->bigInteger('tenant_id')->nullable()->index());
     }
+    eb_add_index_if_missing('eb_usage_ledger', "CREATE INDEX IF NOT EXISTS idx_usage_ledger_tenant_id ON eb_usage_ledger (tenant_id)");
 
     if (!$schema->hasTable('eb_invoice_cache')) {
         $schema->create('eb_invoice_cache', function (Blueprint $t) {
