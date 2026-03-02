@@ -182,6 +182,55 @@ function eb_tenant_storage_links_get_current_link_for_identifier(int $clientId, 
     return $link;
 }
 
+function eb_tenant_storage_links_infer_canonical_tenant_id_from_storage_tenant_id(int $clientId, ?int $storageTenantId): ?int
+{
+    if ($clientId <= 0 || $storageTenantId === null || $storageTenantId <= 0) {
+        return null;
+    }
+
+    try {
+        if (!Capsule::schema()->hasTable('s3_backup_tenants')) {
+            return null;
+        }
+    } catch (\Throwable $e) {
+        return null;
+    }
+
+    $storageTenant = Capsule::table('s3_backup_tenants')
+        ->where('id', (int) $storageTenantId)
+        ->where('client_id', $clientId)
+        ->first([
+            'id',
+            'slug',
+            'status',
+        ]);
+    if (!$storageTenant) {
+        return null;
+    }
+
+    $slug = trim((string) ($storageTenant->slug ?? ''));
+    if ($slug === '') {
+        return null;
+    }
+
+    $matches = [];
+    if (!preg_match('/^eb-canonical-(\d+)$/', $slug, $matches)) {
+        return null;
+    }
+
+    $canonicalTenantId = (int) ($matches[1] ?? 0);
+    if ($canonicalTenantId <= 0) {
+        return null;
+    }
+
+    $canonicalTenant = eb_tenant_storage_links_resolve_tenant_for_client($clientId, $canonicalTenantId);
+    if (!$canonicalTenant) {
+        return null;
+    }
+
+    return $canonicalTenantId;
+}
+
 function eb_tenant_storage_links_upsert_for_client(int $clientId, string $storageIdentifier, ?int $canonicalTenantId): array
 {
     $storageIdentifier = trim($storageIdentifier);

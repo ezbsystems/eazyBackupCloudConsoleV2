@@ -141,6 +141,8 @@
                        class="w-full xl:w-80 rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
             </div>
 
+            <p class="mb-3 text-xs text-amber-300" x-show="canonicalTenantLoadError" x-text="canonicalTenantLoadError"></p>
+
             <div class="overflow-x-auto rounded-lg border border-slate-800">
                 <table class="min-w-full divide-y divide-slate-800 text-sm">
                     <thead class="bg-slate-900/80 text-slate-300">
@@ -310,6 +312,7 @@ function backupUsersApp() {
         sortDirection: 'asc',
         showCreateModal: false,
         formErrorMessage: '',
+        canonicalTenantLoadError: '',
         fieldErrors: {},
         form: {
             username: '',
@@ -639,6 +642,7 @@ function backupUsersApp() {
         async loadCanonicalTenants() {
             if (!this.isMspClient) {
                 this.canonicalTenants = [];
+                this.canonicalTenantLoadError = '';
                 return;
             }
             try {
@@ -649,10 +653,12 @@ function backupUsersApp() {
                         id: tenant.id,
                         name: tenant.name || tenant.subdomain || tenant.fqdn || ('Tenant #' + tenant.id)
                     }));
+                    this.canonicalTenantLoadError = '';
                     return;
                 }
             } catch (error) {}
-            this.canonicalTenants = Array.isArray(this.tenants) ? this.tenants.slice() : [];
+            this.canonicalTenants = [];
+            this.canonicalTenantLoadError = 'Canonical tenant list unavailable. Only direct assignment is currently available.';
         },
 
         async createUser() {
