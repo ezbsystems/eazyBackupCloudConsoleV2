@@ -37,13 +37,15 @@ $targets = [
     'runtime schema migration source file' => [
         'path' => $schemaFile,
         'markers' => [
-            'runtime pending approval enum alter marker' => "ALTER TABLE eb_whitelabel_signup_events MODIFY COLUMN status ENUM('received','validated','ordered','pending_approval','accepted','provisioned','emailed','completed','failed') NOT NULL DEFAULT 'received'",
+            'runtime status enum alter marker' => "ALTER TABLE eb_whitelabel_signup_events MODIFY COLUMN status ENUM(",
+            'runtime pending approval enum token marker' => "'pending_approval'",
         ],
     ],
     'phase1 schema sql file' => [
         'path' => $schemaSqlFile,
         'markers' => [
-            'phase1 pending approval enum marker' => "status ENUM('received','validated','ordered','pending_approval','accepted','provisioned','emailed','completed','failed') NOT NULL DEFAULT 'received'",
+            'phase1 status enum column marker' => 'status ENUM(',
+            'phase1 pending approval enum token marker' => "'pending_approval'",
         ],
     ],
 ];

@@ -46,6 +46,8 @@ $targets = [
             'csrf check marker' => "check_token('plain', \$token)",
             'csrf fail-closed helper marker' => 'function eb_ph_signup_approvals_require_csrf_or_redirect(array $vars, string $token): void',
             'processing schema guard helper marker' => 'function eb_ph_signup_approvals_require_processing_schema_or_redirect(array $vars): void',
+            'processing schema guard approved marker' => "&& strpos(\$type, \"'approved'\") !== false",
+            'processing schema guard rejected marker' => "&& strpos(\$type, \"'rejected'\") !== false",
             'processing claim helper marker' => 'function eb_ph_signup_approvals_claim_processing(int $eventId, string $processingStatus, ?int $adminId): bool',
             'processing finalize helper marker' => 'function eb_ph_signup_approvals_finalize_from_processing(int $eventId, string $processingStatus, string $finalStatus, array $update): bool',
             'processing rollback helper marker' => 'function eb_ph_signup_approvals_rollback_to_pending(int $eventId, string $processingStatus, string $reason): bool',

@@ -87,6 +87,8 @@ function eb_ph_signup_approvals_require_processing_schema_or_redirect(array $var
                 strpos($type, "'pending_approval'") !== false
                 && strpos($type, "'approving'") !== false
                 && strpos($type, "'rejecting'") !== false
+                && strpos($type, "'approved'") !== false
+                && strpos($type, "'rejected'") !== false
             );
         } catch (\Throwable $__) {
             $supported = false;
