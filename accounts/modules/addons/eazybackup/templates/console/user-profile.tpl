@@ -1973,10 +1973,6 @@
                       <option value="903">First job for last X days</option>
                       <option value="905">First job for last X months</option>
                       <option value="906">First job for last X weeks</option>
-                      <option value="907">At most one per day (last X jobs)</option>
-                      <option value="908">At most one per week (last X jobs)</option>
-                      <option value="909">At most one per month (last X jobs)</option>
-                      <option value="910">At most one per year (last X jobs)</option>
                       <option value="911">First job for last X years</option>
                     </select>
                   </div>
@@ -2045,10 +2041,6 @@
                           <option value="903">First job for last X days</option>
                           <option value="905">First job for last X months</option>
                           <option value="906">First job for last X weeks</option>
-                          <option value="907">At most one per day (last X jobs)</option>
-                          <option value="908">At most one per week (last X jobs)</option>
-                          <option value="909">At most one per month (last X jobs)</option>
-                          <option value="910">At most one per year (last X jobs)</option>
                           <option value="911">First job for last X years</option>
                         </select>
                       </div>

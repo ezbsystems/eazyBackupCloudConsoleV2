@@ -1139,10 +1139,6 @@ document.addEventListener('DOMContentLoaded', function(){
           [903,'First job for each of last X days'],
           [905,'First job for last X months'],
           [906,'First job for last X weeks'],
-          [907,'Last X backups (one per day)'],
-          [908,'Last X backups (one per week)'],
-          [909,'Last X backups (one per month)'],
-          [910,'Last X backups (one per year)'],
           [911,'First job for last X years']
         ];
         opts.forEach(function(p){ var o=document.createElement('option'); o.value=String(p[0]); o.textContent=p[1]; sel.appendChild(o); });
