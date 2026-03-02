@@ -17,6 +17,16 @@ function eb_ph_tenants_redirect(array $vars, string $query = ''): void
     exit;
 }
 
+function eb_ph_tenant_redirect(array $vars, int $tenantId, string $query = ''): void
+{
+    $url = eb_ph_tenants_base_link($vars) . '&a=ph-tenant&id=' . $tenantId;
+    if ($query !== '') {
+        $url .= '&' . $query;
+    }
+    header('Location: ' . $url);
+    exit;
+}
+
 function eb_ph_tenants_statuses(): array
 {
     return ['queued', 'building', 'active', 'failed', 'suspended', 'removing'];
@@ -78,6 +88,30 @@ function eb_ph_tenants_require_context(array $vars): array
     return [$clientId, $msp];
 }
 
+function eb_ph_tenants_require_csrf_or_redirect(array $vars, string $token, ?int $tenantId = null): void
+{
+    $reject = function () use ($vars, $tenantId): void {
+        if ($tenantId !== null && $tenantId > 0) {
+            eb_ph_tenant_redirect($vars, $tenantId, 'error=csrf');
+        }
+        eb_ph_tenants_redirect($vars, 'error=csrf');
+    };
+
+    if ($token === '' || !function_exists('check_token')) {
+        $reject();
+    }
+
+    try {
+        $valid = (bool)check_token('plain', $token);
+    } catch (\Throwable $__) {
+        $reject();
+    }
+
+    if (!$valid) {
+        $reject();
+    }
+}
+
 function eb_ph_tenants_management_entry(array $vars)
 {
     return eb_ph_tenants_index($vars);
@@ -88,6 +122,9 @@ function eb_ph_tenants_index(array $vars)
     [$clientId, $msp] = eb_ph_tenants_require_context($vars);
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['eb_create_tenant'])) {
+        $token = (string)($_POST['token'] ?? '');
+        eb_ph_tenants_require_csrf_or_redirect($vars, $token);
+
         $subdomain = trim((string)($_POST['subdomain'] ?? ''));
         $fqdn = trim((string)($_POST['fqdn'] ?? ''));
         $status = eb_ph_tenants_normalize_status((string)($_POST['status'] ?? 'queued'));
@@ -152,6 +189,7 @@ function eb_ph_tenants_index(array $vars)
             'msp' => (array)$msp,
             'tenants' => $rows,
             'statuses' => eb_ph_tenants_statuses(),
+            'token' => function_exists('generate_token') ? generate_token('plain') : '',
             'notice' => (string)($_GET['notice'] ?? ''),
             'error' => (string)($_GET['error'] ?? ''),
         ],
@@ -172,6 +210,9 @@ function eb_ph_tenant_detail(array $vars)
     }
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['eb_save_tenant'])) {
+        $token = (string)($_POST['token'] ?? '');
+        eb_ph_tenants_require_csrf_or_redirect($vars, $token, $tenantId);
+
         $subdomain = trim((string)($_POST['subdomain'] ?? ''));
         $fqdn = trim((string)($_POST['fqdn'] ?? ''));
         if ($subdomain === '' || $fqdn === '') {
@@ -200,6 +241,18 @@ function eb_ph_tenant_detail(array $vars)
     }
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['eb_delete_tenant'])) {
+        $token = (string)($_POST['token'] ?? '');
+        eb_ph_tenants_require_csrf_or_redirect($vars, $token, $tenantId);
+
+        try {
+            $hasCanonicalLinks = Capsule::table('eb_customers')->where('tenant_id', $tenantId)->exists();
+        } catch (\Throwable $__) {
+            eb_ph_tenant_redirect($vars, $tenantId, 'error=tenant_ref_check_failed');
+        }
+        if ($hasCanonicalLinks) {
+            eb_ph_tenant_redirect($vars, $tenantId, 'error=tenant_in_use');
+        }
+
         try {
             Capsule::table('eb_whitelabel_tenants')->where('id', $tenantId)->where('client_id', $clientId)->delete();
             eb_ph_tenants_redirect($vars, 'notice=deleted');
@@ -225,6 +278,7 @@ function eb_ph_tenant_detail(array $vars)
             'msp' => (array)$msp,
             'tenant' => (array)$tenant,
             'statuses' => eb_ph_tenants_statuses(),
+            'token' => function_exists('generate_token') ? generate_token('plain') : '',
             'notice' => (string)($_GET['notice'] ?? ''),
             'error' => (string)($_GET['error'] ?? ''),
         ],

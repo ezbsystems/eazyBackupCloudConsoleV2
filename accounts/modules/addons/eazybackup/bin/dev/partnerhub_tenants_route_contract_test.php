@@ -37,6 +37,9 @@ $targets = [
             'context helper marker' => 'function eb_ph_tenants_require_context(array $vars): array',
             'reseller gate marker' => "Capsule::table('tbladdonmodules')",
             'msp lookup marker' => "Capsule::table('eb_msp_accounts')->where('whmcs_client_id', \$clientId)->first();",
+            'csrf helper marker' => 'function eb_ph_tenants_require_csrf_or_redirect(array $vars, string $token, ?int $tenantId = null): void',
+            'csrf validation marker' => "check_token('plain', \$token)",
+            'csrf fail-closed marker' => 'error=csrf',
             'management entry function marker' => 'function eb_ph_tenants_management_entry(array $vars)',
             'list function marker' => 'function eb_ph_tenants_index(array $vars)',
             'list create post marker' => "if (\$_SERVER['REQUEST_METHOD'] === 'POST' && isset(\$_POST['eb_create_tenant']))",
@@ -50,6 +53,8 @@ $targets = [
             'detail save marker' => "if (\$_SERVER['REQUEST_METHOD'] === 'POST' && isset(\$_POST['eb_save_tenant']))",
             'detail update marker' => "Capsule::table('eb_whitelabel_tenants')->where('id', \$tenantId)->where('client_id', \$clientId)->update([",
             'detail delete marker' => "if (\$_SERVER['REQUEST_METHOD'] === 'POST' && isset(\$_POST['eb_delete_tenant']))",
+            'detail delete canonical ref guard marker' => "Capsule::table('eb_customers')->where('tenant_id', \$tenantId)->exists();",
+            'detail delete canonical ref error marker' => 'error=tenant_in_use',
             'detail delete canonical marker' => "Capsule::table('eb_whitelabel_tenants')->where('id', \$tenantId)->where('client_id', \$clientId)->delete();",
             'detail template marker' => "'templatefile' => 'whitelabel/tenant-detail'",
         ],
@@ -59,6 +64,7 @@ $targets = [
         'markers' => [
             'tenants heading marker' => 'Tenant Management',
             'create tenant hidden marker' => 'name="eb_create_tenant"',
+            'create tenant csrf hidden marker' => 'name="token"',
             'manage tenant action marker' => '&a=ph-tenant&id=',
         ],
     ],
@@ -67,6 +73,7 @@ $targets = [
         'markers' => [
             'save tenant hidden marker' => 'name="eb_save_tenant"',
             'delete tenant hidden marker' => 'name="eb_delete_tenant"',
+            'tenant detail csrf hidden marker' => 'name="token"',
             'back to list marker' => '&a=ph-tenants',
         ],
     ],
@@ -100,6 +107,30 @@ foreach ($targets as $targetName => $target) {
             $failures[] = "FAIL: forbidden {$markerName}";
         }
     }
+}
+
+$controllerSource = @file_get_contents($controllerFile);
+if ($controllerSource === false) {
+    $failures[] = "FAIL: unable to read tenants controller source for ordering checks";
+} else {
+    if (substr_count($controllerSource, 'eb_ph_tenants_require_csrf_or_redirect(') < 4) {
+        $failures[] = 'FAIL: missing create/update/delete csrf enforcement calls';
+    }
+
+    $guardPos = strpos($controllerSource, "Capsule::table('eb_customers')->where('tenant_id', \$tenantId)->exists();");
+    $deletePos = strpos($controllerSource, "Capsule::table('eb_whitelabel_tenants')->where('id', \$tenantId)->where('client_id', \$clientId)->delete();");
+    if ($guardPos === false || $deletePos === false) {
+        $failures[] = 'FAIL: missing delete guard ordering markers';
+    } elseif ($guardPos > $deletePos) {
+        $failures[] = 'FAIL: tenant reference guard must run before delete';
+    }
+}
+
+$detailTemplateSource = @file_get_contents($detailTemplateFile);
+if ($detailTemplateSource === false) {
+    $failures[] = "FAIL: unable to read tenant detail template source for csrf count";
+} elseif (substr_count($detailTemplateSource, 'name="token"') < 2) {
+    $failures[] = 'FAIL: tenant detail template missing csrf fields on save/delete forms';
 }
 
 if ($failures !== []) {

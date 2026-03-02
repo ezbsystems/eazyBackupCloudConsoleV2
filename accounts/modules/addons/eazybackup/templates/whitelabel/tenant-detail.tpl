@@ -28,6 +28,9 @@
       <form method="post" action="{$modulelink}&a=ph-tenant&id={$tenant.id}" class="px-6 py-6 grid grid-cols-1 md:grid-cols-12 gap-4">
         <input type="hidden" name="tenant_id" value="{$tenant.id}" />
         <input type="hidden" name="eb_save_tenant" value="1" />
+        {if isset($token) && $token ne ''}
+          <input type="hidden" name="token" value="{$token}" />
+        {/if}
 
         <label class="md:col-span-4 block">
           <span class="text-sm text-white/70">Subdomain</span>
@@ -82,6 +85,9 @@
       <form method="post" action="{$modulelink}&a=ph-tenant&id={$tenant.id}" class="px-6 py-6 flex items-center justify-between">
         <input type="hidden" name="tenant_id" value="{$tenant.id}" />
         <input type="hidden" name="eb_delete_tenant" value="1" />
+        {if isset($token) && $token ne ''}
+          <input type="hidden" name="token" value="{$token}" />
+        {/if}
         <p class="text-sm text-white/70">Delete this tenant record from canonical tenant storage.</p>
         <button type="submit" class="rounded-xl px-4 py-2 font-medium text-white bg-rose-600 hover:bg-rose-500" onclick="return confirm('Delete this tenant?');">Delete Tenant</button>
       </form>
