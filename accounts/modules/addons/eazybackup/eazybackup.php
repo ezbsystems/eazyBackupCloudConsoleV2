@@ -1220,6 +1220,11 @@ function eazybackup_migrate_schema(): void {
         eb_add_column_if_missing('eb_whitelabel_signup_events','approval_notes', fn(Blueprint $t)=>$t->text('approval_notes')->nullable());
         eb_require_index('eb_whitelabel_signup_events', 'idx_wlse_approved_by', "CREATE INDEX idx_wlse_approved_by ON eb_whitelabel_signup_events (approved_by_admin_id)", ['approved_by_admin_id'], false);
         eb_require_index('eb_whitelabel_signup_events', 'idx_wlse_approved_at', "CREATE INDEX idx_wlse_approved_at ON eb_whitelabel_signup_events (approved_at)", ['approved_at'], false);
+        if ($schema->hasColumn('eb_whitelabel_signup_events', 'status')) {
+            try {
+                Capsule::statement("ALTER TABLE eb_whitelabel_signup_events MODIFY COLUMN status ENUM('received','validated','ordered','pending_approval','accepted','provisioned','emailed','completed','failed') NOT NULL DEFAULT 'received'");
+            } catch (\Throwable $__) { /* ignore */ }
+        }
     }
 
     // ========= Partner Hub: MSP + Customers + Billing (Phase 1 schema) =========

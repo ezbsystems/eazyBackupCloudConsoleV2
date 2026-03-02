@@ -132,27 +132,6 @@ function eazybackup_public_signup(array $vars)
         }
     } catch (\Throwable $__) {}
 
-    // Rate limiting: per-IP and per-email in last hour
-    try {
-        $cutoff = date('Y-m-d H:i:s', time() - 3600);
-        $rateIp    = (int)($flow->rate_ip ?? 0);
-        $rateEmail = (int)($flow->rate_email ?? 0);
-        if ($rateIp > 0) {
-            $cntIp = (int)Capsule::table('eb_whitelabel_signup_events')->where('tenant_id',(int)$tenant->id)->where('ip',$ip)->where('created_at','>',$cutoff)->count();
-            if ($cntIp >= $rateIp) {
-                try { logModuleCall('eazybackup','signup_post',['tenant_id'=>(int)$tenant->id,'ip'=>$ip,'count'=>$cntIp],'rate_limited_ip'); } catch (\Throwable $__) {}
-                return [ 'pagetitle'=>'Start your trial', 'templatefile'=>'templates/whitelabel/public-signup', 'vars'=>['errors'=>['rate_ip'], 'tenant'=>(array)$tenant, 'host'=>$host] ];
-            }
-        }
-        if ($rateEmail > 0) {
-            $cntEmail = (int)Capsule::table('eb_whitelabel_signup_events')->where('tenant_id',(int)$tenant->id)->where('email',$email)->where('created_at','>',$cutoff)->count();
-            if ($cntEmail >= $rateEmail) {
-                try { logModuleCall('eazybackup','signup_post',['tenant_id'=>(int)$tenant->id,'email'=>$email,'count'=>$cntEmail],'rate_limited_email'); } catch (\Throwable $__) {}
-                return [ 'pagetitle'=>'Start your trial', 'templatefile'=>'templates/whitelabel/public-signup', 'vars'=>['errors'=>['rate_email'], 'tenant'=>(array)$tenant, 'host'=>$host] ];
-            }
-        }
-    } catch (\Throwable $__) {}
-
     // Idempotency: if an event already exists for this tenant+email, avoid duplicate order
     $existing = Capsule::table('eb_whitelabel_signup_events')->where('tenant_id',(int)$tenant->id)->where('email',$email)->first();
     if ($existing) {
@@ -175,6 +154,27 @@ function eazybackup_public_signup(array $vars)
             header('Location: index.php?m=eazybackup&a=public-download&existing=1'); exit;
         }
     }
+
+    // Rate limiting: per-IP and per-email in last hour
+    try {
+        $cutoff = date('Y-m-d H:i:s', time() - 3600);
+        $rateIp    = (int)($flow->rate_ip ?? 0);
+        $rateEmail = (int)($flow->rate_email ?? 0);
+        if ($rateIp > 0) {
+            $cntIp = (int)Capsule::table('eb_whitelabel_signup_events')->where('tenant_id',(int)$tenant->id)->where('ip',$ip)->where('created_at','>',$cutoff)->count();
+            if ($cntIp >= $rateIp) {
+                try { logModuleCall('eazybackup','signup_post',['tenant_id'=>(int)$tenant->id,'ip'=>$ip,'count'=>$cntIp],'rate_limited_ip'); } catch (\Throwable $__) {}
+                return [ 'pagetitle'=>'Start your trial', 'templatefile'=>'templates/whitelabel/public-signup', 'vars'=>['errors'=>['rate_ip'], 'tenant'=>(array)$tenant, 'host'=>$host] ];
+            }
+        }
+        if ($rateEmail > 0) {
+            $cntEmail = (int)Capsule::table('eb_whitelabel_signup_events')->where('tenant_id',(int)$tenant->id)->where('email',$email)->where('created_at','>',$cutoff)->count();
+            if ($cntEmail >= $rateEmail) {
+                try { logModuleCall('eazybackup','signup_post',['tenant_id'=>(int)$tenant->id,'email'=>$email,'count'=>$cntEmail],'rate_limited_email'); } catch (\Throwable $__) {}
+                return [ 'pagetitle'=>'Start your trial', 'templatefile'=>'templates/whitelabel/public-signup', 'vars'=>['errors'=>['rate_email'], 'tenant'=>(array)$tenant, 'host'=>$host] ];
+            }
+        }
+    } catch (\Throwable $__) {}
 
     $now = date('Y-m-d H:i:s');
     $eventId = null;
