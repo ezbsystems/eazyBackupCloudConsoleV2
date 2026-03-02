@@ -40,6 +40,11 @@ $targets = [
             'client canonical conflict hard error marker' => 'Canonical tenant/customer conflict detected.',
             'tenant preflight comment marker (clients)' => 'Tenant-scoped preflight: ensure canonical customer before AddClient side effects.',
             'tenant preflight redirect marker (clients)' => 'Canonical customer already exists for tenant; redirect instead of AddClient create.',
+            'tenant preflight generic hard error marker (clients)' => 'Canonical tenant/customer enforcement failed.',
+            'tenant preflight fail marker (clients)' => 'tenant-preflight-failed=',
+        ],
+        'forbidden' => [
+            'tenant preflight soft-continue marker (clients)' => 'tenant-preflight-soft=',
         ],
     ],
     'public signup controller file' => [
@@ -49,6 +54,11 @@ $targets = [
             'service ensure marker (signup)' => 'ensureCustomerForTenant((int)$tenant->id)',
             'signup canonical conflict codes marker' => "['tenant_customer_owner_conflict', 'tenant_customer_conflict']",
             'signup canonical conflict hard fail marker' => 'tenant_customer_conflict_hard_fail',
+            'signup canonical generic hard fail marker' => 'tenant_customer_ensure_hard_fail',
+        ],
+        'forbidden' => [
+            'signup canonical non-blocking marker' => 'idempotent, non-blocking',
+            'signup canonical soft-continue marker' => 'tenant_customer_ensure_failed',
         ],
     ],
 ];
@@ -65,6 +75,12 @@ foreach ($targets as $targetName => $target) {
     foreach ($target['markers'] as $markerName => $needle) {
         if (strpos($source, $needle) === false) {
             $failures[] = "FAIL: missing {$markerName}";
+        }
+    }
+
+    foreach (($target['forbidden'] ?? []) as $markerName => $needle) {
+        if (strpos($source, $needle) !== false) {
+            $failures[] = "FAIL: forbidden {$markerName}";
         }
     }
 }

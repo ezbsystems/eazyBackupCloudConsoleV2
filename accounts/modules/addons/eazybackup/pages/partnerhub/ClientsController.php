@@ -179,7 +179,9 @@ function eb_ph_clients_index(array $vars)
                             $ebDebug[] = 'tenant-conflict=' . $tenantEnsureMessage;
                             try { logActivity("eazybackup: ph-clients tenant-customer conflict tenant={$tenantId} msg={$tenantEnsureMessage}"); } catch (\Throwable $_) { /* ignore */ }
                         } else {
-                            $ebDebug[] = 'tenant-preflight-soft=' . $tenantEnsureMessage;
+                            $tenantConflictHardError = 'Canonical tenant/customer enforcement failed.';
+                            $ebDebug[] = 'tenant-preflight-failed=' . $tenantEnsureMessage;
+                            try { logActivity("eazybackup: ph-clients tenant-customer ensure failed tenant={$tenantId} msg={$tenantEnsureMessage}"); } catch (\Throwable $_) { /* ignore */ }
                         }
                     }
                 }
