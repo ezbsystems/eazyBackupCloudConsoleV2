@@ -114,6 +114,12 @@ function eb_ph_signup_approvals_is_order_cancelled(?array $order): bool
     return $status === 'cancelled';
 }
 
+function eb_ph_signup_approvals_is_order_accepted_like(?array $order): bool
+{
+    $status = strtolower(trim((string)($order['status'] ?? '')));
+    return in_array($status, ['active', 'accepted', 'completed'], true);
+}
+
 function eb_ph_signup_approvals_is_invoice_cancelled(int $invoiceId, string $adminUser): bool
 {
     if ($invoiceId <= 0) {
@@ -325,21 +331,30 @@ function eb_ph_signup_approve(array $vars): void
     try {
         $accept = localAPI('AcceptOrder', $acceptData, $adminUser);
     } catch (\Throwable $e) {
-        $rolledBack = eb_ph_signup_approvals_rollback_to_pending($eventId, 'approving', 'Approve failed: accept exception');
-        if (!$rolledBack) {
-            eb_ph_signup_approvals_redirect($vars, 'error=race');
-        }
-        eb_ph_signup_approvals_redirect($vars, 'error=accept_exception');
-    }
-    if (($accept['result'] ?? '') !== 'success') {
-        $rolledBack = eb_ph_signup_approvals_rollback_to_pending($eventId, 'approving', 'Approve failed: accept failed');
-        if (!$rolledBack) {
-            eb_ph_signup_approvals_redirect($vars, 'error=race');
-        }
-        eb_ph_signup_approvals_redirect($vars, 'error=accept_failed');
+        $accept = ['result' => 'error', 'message' => 'exception'];
     }
 
     $approvalNotes = trim((string)($_POST['approval_notes'] ?? ''));
+    if (($accept['result'] ?? '') !== 'success') {
+        $latestOrder = eb_ph_signup_approvals_get_order_snapshot($orderId, $adminUser);
+        if (!eb_ph_signup_approvals_is_order_accepted_like($latestOrder)) {
+            $acceptReason = (($accept['message'] ?? '') === 'exception') ? 'Approve failed: accept exception' : 'Approve failed: accept failed';
+            $rolledBack = eb_ph_signup_approvals_rollback_to_pending($eventId, 'approving', $acceptReason);
+            if (!$rolledBack) {
+                eb_ph_signup_approvals_redirect($vars, 'error=race');
+            }
+            $redirectError = (($accept['message'] ?? '') === 'exception') ? 'error=accept_exception' : 'error=accept_failed';
+            eb_ph_signup_approvals_redirect($vars, $redirectError);
+        }
+
+        $reconciliationNote = 'Approved via reconciliation: AcceptOrder reported failure';
+        if ($approvalNotes !== '') {
+            $approvalNotes .= ' | ' . $reconciliationNote;
+        } else {
+            $approvalNotes = $reconciliationNote;
+        }
+    }
+
     $update = [
         'status' => 'approved',
         'approved_by_admin_id' => ($adminId && $adminId > 0) ? $adminId : null,
@@ -423,6 +438,7 @@ function eb_ph_signup_reject(array $vars): void
 
     $invoiceId = (int)($order['invoiceid'] ?? 0);
     $voidPathSucceeded = true;
+    $voidFollowupWarning = '';
     if ($invoiceId > 0) {
         $voidPathSucceeded = false;
         try {
@@ -439,16 +455,15 @@ function eb_ph_signup_reject(array $vars): void
         }
     }
     if (!$voidPathSucceeded) {
-        $rolledBack = eb_ph_signup_approvals_rollback_to_pending($eventId, 'rejecting', 'Reject failed: invoice void path did not succeed');
-        if (!$rolledBack) {
-            eb_ph_signup_approvals_redirect($vars, 'error=race');
-        }
-        eb_ph_signup_approvals_redirect($vars, 'error=void_failed');
+        $voidFollowupWarning = 'invoice void follow-up needed';
     }
 
     $notes = trim((string)($_POST['approval_notes'] ?? ''));
     if ($notes === '') {
         $notes = 'Rejected by MSP signup approvals';
+    }
+    if ($voidFollowupWarning !== '') {
+        $notes .= ' [warning: ' . $voidFollowupWarning . ']';
     }
 
     $update = [
@@ -461,5 +476,6 @@ function eb_ph_signup_reject(array $vars): void
         eb_ph_signup_approvals_redirect($vars, 'error=race');
     }
 
-    eb_ph_signup_approvals_redirect($vars, 'notice=rejected');
+    $redirectQuery = ($voidFollowupWarning !== '') ? 'notice=rejected&error=void_followup' : 'notice=rejected';
+    eb_ph_signup_approvals_redirect($vars, $redirectQuery);
 }
