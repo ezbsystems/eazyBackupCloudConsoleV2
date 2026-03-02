@@ -29,20 +29,7 @@ class TenantCustomerService
             throw new \InvalidArgumentException('tenant_id_required');
         }
 
-        $existing = $this->getCustomerForTenant($tenantId);
-        if ($existing !== null) {
-            return $existing;
-        }
-
         return Capsule::connection()->transaction(function () use ($tenantId): array {
-            $existingLocked = Capsule::table('eb_customers')
-                ->where('tenant_id', $tenantId)
-                ->lockForUpdate()
-                ->first();
-            if ($existingLocked) {
-                return (array)$existingLocked;
-            }
-
             $tenant = Capsule::table('eb_whitelabel_tenants')
                 ->where('id', $tenantId)
                 ->lockForUpdate()
@@ -58,6 +45,30 @@ class TenantCustomerService
 
             $mspId = $this->ensureMspAccountForClient($ownerClientId);
             $now = date('Y-m-d H:i:s');
+
+            $existingLocked = Capsule::table('eb_customers')
+                ->where('tenant_id', $tenantId)
+                ->lockForUpdate()
+                ->first();
+            if ($existingLocked) {
+                if ((int)($existingLocked->whmcs_client_id ?? 0) !== $ownerClientId) {
+                    throw new \RuntimeException('tenant_customer_owner_conflict');
+                }
+
+                if ((int)($existingLocked->msp_id ?? 0) !== $mspId) {
+                    Capsule::table('eb_customers')
+                        ->where('id', (int)$existingLocked->id)
+                        ->update([
+                            'msp_id' => $mspId,
+                            'updated_at' => $now,
+                        ]);
+                    $existingLocked = Capsule::table('eb_customers')->where('id', (int)$existingLocked->id)->first();
+                }
+
+                if ($existingLocked) {
+                    return (array)$existingLocked;
+                }
+            }
 
             $existingByClient = Capsule::table('eb_customers')
                 ->where('whmcs_client_id', $ownerClientId)
@@ -98,6 +109,16 @@ class TenantCustomerService
             } catch (\Throwable $e) {
                 $raced = Capsule::table('eb_customers')->where('tenant_id', $tenantId)->first();
                 if ($raced) {
+                    if ((int)($raced->whmcs_client_id ?? 0) !== $ownerClientId) {
+                        throw new \RuntimeException('tenant_customer_owner_conflict');
+                    }
+                    if ((int)($raced->msp_id ?? 0) !== $mspId) {
+                        Capsule::table('eb_customers')->where('id', (int)$raced->id)->update([
+                            'msp_id' => $mspId,
+                            'updated_at' => $now,
+                        ]);
+                        $raced = Capsule::table('eb_customers')->where('id', (int)$raced->id)->first();
+                    }
                     return (array)$raced;
                 }
 
