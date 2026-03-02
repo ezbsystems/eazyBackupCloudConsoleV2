@@ -165,6 +165,7 @@ function eb_ph_clients_index(array $vars)
                     $displayName = trim(($payload['companyname'] !== '' ? $payload['companyname'] : ($payload['firstname'].' '.$payload['lastname'])));
                     $ecid = 0;
                     $authoritativeMspId = (int)($msp->id ?? 0);
+                    $tenantConflictHardError = '';
                     $tenantId = (int)($_POST['tenant_id'] ?? 0);
                     if ($tenantId > 0) {
                         try {
@@ -189,36 +190,47 @@ function eb_ph_clients_index(array $vars)
                                 $authoritativeMspId = $tenantCustomerMspId;
                             }
                             $ebDebug[] = 'tenant=' . $tenantId;
-                        } catch (\Throwable $__) { /* preserve current client-create flow */ }
+                        } catch (\Throwable $tenantEnsureError) {
+                            $tenantEnsureMessage = (string)$tenantEnsureError->getMessage();
+                            if (in_array($tenantEnsureMessage, ['tenant_customer_owner_conflict', 'tenant_customer_conflict'], true)) {
+                                $tenantConflictHardError = 'Canonical tenant/customer conflict detected.';
+                                $ebDebug[] = 'tenant-conflict=' . $tenantEnsureMessage;
+                                try { logActivity("eazybackup: ph-clients tenant-customer conflict tenant={$tenantId} msg={$tenantEnsureMessage}"); } catch (\Throwable $_) { /* ignore */ }
+                            }
+                        }
                     }
-                    if ($ecid <= 0) {
-                        $ecid = Capsule::table('eb_customers')->insertGetId([
-                            'msp_id' => (int)($msp->id ?? 0),
-                            'whmcs_client_id' => $newId,
-                            'name' => $displayName,
-                            'status' => 'active',
-                            'created_at' => date('Y-m-d H:i:s'),
-                            'updated_at' => date('Y-m-d H:i:s'),
-                        ]);
-                    }
-                    // Optional pre-link Comet user
-                    $cometUser = trim((string)($_POST['comet_username'] ?? ''));
-                    if ($cometUser !== '') {
-                        try {
-                            Capsule::table('eb_customer_comet_accounts')->updateOrInsert(
-                                ['customer_id'=>$ecid,'comet_user_id'=>$cometUser],
-                                []
-                            );
-                            // Tag mirrors
-                            Capsule::table('comet_users')->where('username',$cometUser)->update([
-                                'msp_id' => $authoritativeMspId,
-                                'customer_id' => $ecid,
+                    if ($tenantConflictHardError !== '') {
+                        $createError = $tenantConflictHardError;
+                    } else {
+                        if ($ecid <= 0) {
+                            $ecid = Capsule::table('eb_customers')->insertGetId([
+                                'msp_id' => (int)($msp->id ?? 0),
+                                'whmcs_client_id' => $newId,
+                                'name' => $displayName,
+                                'status' => 'active',
+                                'created_at' => date('Y-m-d H:i:s'),
+                                'updated_at' => date('Y-m-d H:i:s'),
                             ]);
-                        } catch (\Throwable $__) { /* ignore */ }
+                        }
+                        // Optional pre-link Comet user
+                        $cometUser = trim((string)($_POST['comet_username'] ?? ''));
+                        if ($cometUser !== '') {
+                            try {
+                                Capsule::table('eb_customer_comet_accounts')->updateOrInsert(
+                                    ['customer_id'=>$ecid,'comet_user_id'=>$cometUser],
+                                    []
+                                );
+                                // Tag mirrors
+                                Capsule::table('comet_users')->where('username',$cometUser)->update([
+                                    'msp_id' => $authoritativeMspId,
+                                    'customer_id' => $ecid,
+                                ]);
+                            } catch (\Throwable $__) { /* ignore */ }
+                        }
+                        try { logActivity('eazybackup: ph-clients redirect to ph-client id=' . $ecid); } catch (\Throwable $_) { /* ignore */ }
+                        header('Location: '.$vars['modulelink'].'&a=ph-client&id='.$ecid);
+                        exit;
                     }
-                    try { logActivity('eazybackup: ph-clients redirect to ph-client id=' . $ecid); } catch (\Throwable $_) { /* ignore */ }
-                    header('Location: '.$vars['modulelink'].'&a=ph-client&id='.$ecid);
-                    exit;
                 } else {
                     $ebDebug[] = 'empty-clientid';
                     $createError = 'AddClient returned success but clientid was empty.';

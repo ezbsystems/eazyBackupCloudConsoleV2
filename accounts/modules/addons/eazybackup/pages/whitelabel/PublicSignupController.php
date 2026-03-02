@@ -184,8 +184,20 @@ function eazybackup_public_signup(array $vars)
             @require_once __DIR__ . '/../../lib/PartnerHub/TenantCustomerService.php';
         }
         (new TenantCustomerService())->ensureCustomerForTenant((int)$tenant->id);
-    } catch (\Throwable $__) {
-        try { logModuleCall('eazybackup','signup_post',['tenant_id'=>(int)$tenant->id,'event_id'=>$eventId,'email'=>$email],'tenant_customer_ensure_failed'); } catch (\Throwable $___) {}
+    } catch (\Throwable $tenantEnsureError) {
+        $tenantEnsureMessage = (string)$tenantEnsureError->getMessage();
+        if (in_array($tenantEnsureMessage, ['tenant_customer_owner_conflict', 'tenant_customer_conflict'], true)) {
+            try {
+                Capsule::table('eb_whitelabel_signup_events')->where('tenant_id',(int)$tenant->id)->where('email',$email)->update([
+                    'status' => 'failed',
+                    'error' => 'tenant_customer_conflict',
+                    'updated_at' => date('Y-m-d H:i:s'),
+                ]);
+            } catch (\Throwable $__) {}
+            try { logModuleCall('eazybackup','signup_post',['tenant_id'=>(int)$tenant->id,'event_id'=>$eventId,'email'=>$email],'tenant_customer_conflict_hard_fail'); } catch (\Throwable $__) {}
+            return [ 'pagetitle'=>'Start your trial', 'templatefile'=>'templates/whitelabel/public-signup', 'vars'=>['errors'=>['server'], 'tenant'=>(array)$tenant, 'host'=>$host] ];
+        }
+        try { logModuleCall('eazybackup','signup_post',['tenant_id'=>(int)$tenant->id,'event_id'=>$eventId,'email'=>$email],'tenant_customer_ensure_failed'); } catch (\Throwable $__) {}
     }
 
     // LocalAPI pipeline
