@@ -67,11 +67,13 @@ try {
     return {
       state: { override:false, mode:802, ranges:[], defaultMode:801, defaultRanges:[] },
       showAccountPolicy: false,
+      weekDays: ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'],
       newRange: { Type:900, Jobs:1, Days:0, Weeks:0, Months:0, Years:0, Timestamp:0, WeekOffset:0, MonthOffset:1, YearOffset:1 },
       init: function(){
         // Keep a direct pointer to the active retention component for save-time fallback.
         try { window.__ebRetentionComponent = this; window.__ebRetentionState = this.state; } catch(_) {}
       },
+      weekdayLabel: function(v){ var i=parseInt(v||0,10); return this.weekDays[i] || this.weekDays[0]; },
       labelFor: function(t){ var m={900:'Most recent X jobs',901:'Newer than date',902:'Jobs since (relative)',903:'First job for last X days',905:'First job for last X months',906:'First job for last X weeks',907:'At most one per day (last X jobs)',908:'At most one per week (last X jobs)',909:'At most one per month (last X jobs)',910:'At most one per year (last X jobs)',911:'First job for last X years'}; return m[t]||('Type '+t); },
       summaryFor: function(r){
         if(!r||!r.Type) return '';
@@ -84,9 +86,9 @@ try {
         if(t===901){ var ts=parseInt(r.Timestamp||0,10); var dt = ts? new Date(ts*1000).toISOString().slice(0,16).replace('T',' '):'set date'; return badge + 'Keep backups newer than '+dt; }
         if(t===902){ var d=r.Days||0,w=r.Weeks||0,m=r.Months||0,y=r.Years||0; var parts=[]; if(y) parts.push(y+' year'+(y>1?'s':'')); if(m) parts.push(m+' month'+(m>1?'s':'')); if(w) parts.push(w+' week'+(w>1?'s':'')); if(d) parts.push(d+' day'+(d>1?'s':'')); var txt = parts.length? ('the last '+parts.join(', ')) : 'a recent period'; return badge + 'Keep backups from '+txt; }
         if(t===903) return badge + 'Keep the first job for each of the last '+(r.Days||1)+' day(s)';
-        if(t===905) return badge + 'Keep the first job for the last '+(r.Months||1)+' month(s) (offset '+(r.MonthOffset||0)+')';
-        if(t===906) return badge + 'Keep the first job for the last '+(r.Weeks||1)+' week(s) (offset '+(r.WeekOffset||0)+')';
-        if(t===911) return badge + 'Keep the first job for the last '+(r.Years||1)+' year(s) (offset '+(r.YearOffset||0)+')';
+        if(t===905) return badge + 'Keep the first job for the last '+(r.Months||1)+' month(s) (on day '+(r.MonthOffset||1)+')';
+        if(t===906) return badge + 'Keep the first job for the last '+(r.Weeks||1)+' week(s) (every '+this.weekdayLabel(r.WeekOffset)+')';
+        if(t===911) return badge + 'Keep the first job for the last '+(r.Years||1)+' year(s) (on month '+(r.YearOffset||1)+')';
         return badge;
       },
       formattedPolicyLines: function(){ var out=[]; if(this.state.mode===801){ out.push('<li>[Mode] Keep everything (no deletions)</li>'); } else { (this.state.ranges||[]).forEach((r)=>{ out.push('<li>'+this.summaryFor(r).replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</li>'); }); } return out; },
@@ -860,7 +862,11 @@ document.addEventListener('DOMContentLoaded', function(){
       if (!currentVaultId) return false;
       // The retention editor is Alpine-driven; sync live UI state before building payload.
       syncRetentionStateFromAlpine();
-      const payloadRanges = (override && mode===MODES.DELETE_EXCEPT ? (ranges||[]).map(r=>clampRange(Object.assign({},r))) : []);
+      const payloadRanges = (override && mode===MODES.DELETE_EXCEPT
+        ? (ranges || [])
+            .map(r => sanitizeRangeForPayload(r))
+            .filter(Boolean)
+        : []);
       const r = await api('setVaultRetention', {
         vaultId: currentVaultId,
         override: !!override,
@@ -901,13 +907,13 @@ document.addEventListener('DOMContentLoaded', function(){
         else if (t===TYPES.NEWER_THAN_X) out.push('- Newer than ' + new Date((r.Timestamp||0)*1000).toISOString().slice(0,19).replace('T',' '));
         else if (t===TYPES.JOBS_SINCE) out.push('- Jobs since Days='+(r.Days||0)+' Weeks='+(r.Weeks||0)+' Months='+(r.Months||0)+' Years='+(r.Years||0));
         else if (t===TYPES.FIRST_JOB_FOR_EACH_LAST_X_DAYS) out.push('- First job for each of the last ' + (r.Days||1) + ' days');
-        else if (t===TYPES.FIRST_JOB_FOR_LAST_X_MONTHS) out.push('- First job for last ' + (r.Months||1) + ' months (offset ' + (r.MonthOffset||0) + ')');
-        else if (t===TYPES.FIRST_JOB_FOR_LAST_X_WEEKS) out.push('- First job for last ' + (r.Weeks||1) + ' weeks (offset ' + (r.WeekOffset||0) + ')');
+        else if (t===TYPES.FIRST_JOB_FOR_LAST_X_MONTHS) out.push('- First job for last ' + (r.Months||1) + ' months (on day ' + (r.MonthOffset||1) + ')');
+        else if (t===TYPES.FIRST_JOB_FOR_LAST_X_WEEKS) out.push('- First job for last ' + (r.Weeks||1) + ' weeks (every ' + (['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][parseInt(r.WeekOffset||0,10)] || 'Sunday') + ')');
         else if (t===TYPES.LAST_X_BACKUPS_EACH_DAY) out.push('- Last ' + (r.Jobs||1) + ' backups (one per day)');
         else if (t===TYPES.LAST_X_BACKUPS_EACH_WEEK) out.push('- Last ' + (r.Jobs||1) + ' backups (one per week)');
         else if (t===TYPES.LAST_X_BACKUPS_EACH_MONTH) out.push('- Last ' + (r.Jobs||1) + ' backups (one per month)');
         else if (t===TYPES.LAST_X_BACKUPS_EACH_YEAR) out.push('- Last ' + (r.Jobs||1) + ' backups (one per year)');
-        else if (t===TYPES.FIRST_JOB_FOR_LAST_X_YEARS) out.push('- First job for last ' + (r.Years||1) + ' years (offset ' + (r.YearOffset||0) + ')');
+        else if (t===TYPES.FIRST_JOB_FOR_LAST_X_YEARS) out.push('- First job for last ' + (r.Years||1) + ' years (on month ' + (r.YearOffset||1) + ')');
       });
       return out;
     }
@@ -969,17 +975,60 @@ document.addEventListener('DOMContentLoaded', function(){
       } catch (e) { try{ if(window.showToast) window.showToast('Failed to load profile','error'); }catch(_){} }
     });
 
-    function clampRange(r){
-      if ('Jobs' in r) r.Jobs = Math.max(1, parseInt(r.Jobs||'1',10));
-      if ('Days' in r) r.Days = Math.max(1, parseInt(r.Days||'1',10));
-      if ('Weeks' in r) r.Weeks = Math.max(1, parseInt(r.Weeks||'1',10));
-      if ('Months' in r) r.Months = Math.max(1, parseInt(r.Months||'1',10));
-      if ('Years' in r) r.Years = Math.max(1, parseInt(r.Years||'1',10));
-      if ('WeekOffset' in r) r.WeekOffset = Math.max(0, Math.min(6, parseInt(r.WeekOffset||'0',10)));
-      if ('MonthOffset' in r) r.MonthOffset = Math.max(1, Math.min(31, parseInt(r.MonthOffset||'1',10)));
-      if ('YearOffset' in r) r.YearOffset = Math.max(0, parseInt(r.YearOffset||'0',10));
-      if ('Timestamp' in r) r.Timestamp = Math.max(0, parseInt(r.Timestamp||'0',10));
-      return r;
+    function clampInt(value, min, max, fallback){
+      const parsed = parseInt(value, 10);
+      let out = Number.isFinite(parsed) ? parsed : fallback;
+      if (typeof min === 'number') out = Math.max(min, out);
+      if (typeof max === 'number') out = Math.min(max, out);
+      return out;
+    }
+
+    function sanitizeRangeForPayload(range){
+      const type = clampInt(range && range.Type, 1, null, 0);
+      if (!type) return null;
+
+      // Build payload fields strictly by retention type to avoid leaking stale values.
+      const out = { Type: type };
+      switch (type) {
+        case TYPES.MOST_RECENT_X_JOBS:
+        case TYPES.LAST_X_BACKUPS_EACH_DAY:
+        case TYPES.LAST_X_BACKUPS_EACH_WEEK:
+        case TYPES.LAST_X_BACKUPS_EACH_MONTH:
+        case TYPES.LAST_X_BACKUPS_EACH_YEAR:
+          out.Jobs = clampInt(range.Jobs, 1, null, 1);
+          break;
+        case TYPES.NEWER_THAN_X:
+          out.Timestamp = clampInt(range.Timestamp, 0, null, 0);
+          break;
+        case TYPES.JOBS_SINCE:
+          out.Days = clampInt(range.Days, 0, null, 0);
+          out.Weeks = clampInt(range.Weeks, 0, null, 0);
+          out.Months = clampInt(range.Months, 0, null, 0);
+          out.Years = clampInt(range.Years, 0, null, 0);
+          out.WeekOffset = clampInt(range.WeekOffset, 0, 6, 0);
+          out.MonthOffset = clampInt(range.MonthOffset, 1, 31, 1);
+          out.YearOffset = clampInt(range.YearOffset, 1, 12, 1);
+          break;
+        case TYPES.FIRST_JOB_FOR_EACH_LAST_X_DAYS:
+          out.Days = clampInt(range.Days, 1, null, 1);
+          break;
+        case TYPES.FIRST_JOB_FOR_LAST_X_MONTHS:
+          out.Months = clampInt(range.Months, 1, null, 1);
+          out.MonthOffset = clampInt(range.MonthOffset, 1, 31, 1);
+          break;
+        case TYPES.FIRST_JOB_FOR_LAST_X_WEEKS:
+          out.Weeks = clampInt(range.Weeks, 1, null, 1);
+          out.WeekOffset = clampInt(range.WeekOffset, 0, 6, 0);
+          break;
+        case TYPES.FIRST_JOB_FOR_LAST_X_YEARS:
+          out.Years = clampInt(range.Years, 1, null, 1);
+          out.YearOffset = clampInt(range.YearOffset, 1, 12, 1);
+          break;
+        default:
+          // Unknown type: still pass Type so backend can decide compatibility.
+          break;
+      }
+      return out;
     }
 
     function renderRetention(){
