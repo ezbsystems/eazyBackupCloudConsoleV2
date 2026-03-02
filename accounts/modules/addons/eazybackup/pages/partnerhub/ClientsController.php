@@ -2,6 +2,7 @@
 
 use WHMCS\Database\Capsule;
 use PartnerHub\StripeService;
+use PartnerHub\TenantCustomerService;
 use PartnerHub\WhmcsBridge;
 
 function eb_require_login_and_reseller(array $vars): void {
@@ -142,6 +143,9 @@ function eb_ph_clients_index(array $vars)
             if (!class_exists(\PartnerHub\WhmcsBridge::class)) {
                 @require_once __DIR__ . '/../../lib/PartnerHub/WhmcsBridge.php';
             }
+            if (!class_exists(\PartnerHub\TenantCustomerService::class)) {
+                @require_once __DIR__ . '/../../lib/PartnerHub/TenantCustomerService.php';
+            }
             $res = WhmcsBridge::addClient($payload, $adminUser);
             try {
                 $brief = [ 'result' => ($res['result'] ?? ''), 'message' => ($res['message'] ?? ''), 'clientid' => ($res['clientid'] ?? null) ];
@@ -159,14 +163,25 @@ function eb_ph_clients_index(array $vars)
                 if ($newId > 0) {
                     $ebDebug[] = 'clientid=' . $newId;
                     $displayName = trim(($payload['companyname'] !== '' ? $payload['companyname'] : ($payload['firstname'].' '.$payload['lastname'])));
-                    $ecid = Capsule::table('eb_customers')->insertGetId([
-                        'msp_id' => (int)($msp->id ?? 0),
-                        'whmcs_client_id' => $newId,
-                        'name' => $displayName,
-                        'status' => 'active',
-                        'created_at' => date('Y-m-d H:i:s'),
-                        'updated_at' => date('Y-m-d H:i:s'),
-                    ]);
+                    $ecid = 0;
+                    $tenantId = (int)($_POST['tenant_id'] ?? 0);
+                    if ($tenantId > 0) {
+                        try {
+                            $tenantCustomer = (new TenantCustomerService())->ensureCustomerForTenant($tenantId);
+                            $ecid = (int)($tenantCustomer['id'] ?? 0);
+                            $ebDebug[] = 'tenant=' . $tenantId;
+                        } catch (\Throwable $__) { /* preserve current client-create flow */ }
+                    }
+                    if ($ecid <= 0) {
+                        $ecid = Capsule::table('eb_customers')->insertGetId([
+                            'msp_id' => (int)($msp->id ?? 0),
+                            'whmcs_client_id' => $newId,
+                            'name' => $displayName,
+                            'status' => 'active',
+                            'created_at' => date('Y-m-d H:i:s'),
+                            'updated_at' => date('Y-m-d H:i:s'),
+                        ]);
+                    }
                     // Optional pre-link Comet user
                     $cometUser = trim((string)($_POST['comet_username'] ?? ''));
                     if ($cometUser !== '') {

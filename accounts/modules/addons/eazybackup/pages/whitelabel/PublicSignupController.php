@@ -2,6 +2,7 @@
 
 use WHMCS\Database\Capsule;
 use PartnerHub\StripeService;
+use PartnerHub\TenantCustomerService;
 
 /**
  * Public Signup Controller (GET/POST)
@@ -176,6 +177,16 @@ function eazybackup_public_signup(array $vars)
             'updated_at' => $now,
         ]);
     } catch (\Throwable $__) { /* unique dup ok */ }
+
+    // Ensure canonical tenant -> customer linkage exists (idempotent, non-blocking).
+    try {
+        if (!class_exists(\PartnerHub\TenantCustomerService::class)) {
+            @require_once __DIR__ . '/../../lib/PartnerHub/TenantCustomerService.php';
+        }
+        (new TenantCustomerService())->ensureCustomerForTenant((int)$tenant->id);
+    } catch (\Throwable $__) {
+        try { logModuleCall('eazybackup','signup_post',['tenant_id'=>(int)$tenant->id,'event_id'=>$eventId,'email'=>$email],'tenant_customer_ensure_failed'); } catch (\Throwable $___) {}
+    }
 
     // LocalAPI pipeline
     $adminUser = 'API';
