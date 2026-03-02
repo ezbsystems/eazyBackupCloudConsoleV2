@@ -75,7 +75,8 @@ $username = normalizeUserNameForUpdate((string) ($_POST['username'] ?? $currentU
 $email = strtolower(trim((string) ($_POST['email'] ?? $currentUser->email)));
 $status = strtolower(trim((string) ($_POST['status'] ?? $currentUser->status)));
 $tenantIdRaw = $_POST['tenant_id'] ?? null;
-$tenantId = $currentUser->tenant_id !== null ? (int) $currentUser->tenant_id : null;
+$currentTenantId = $currentUser->tenant_id !== null ? (int) $currentUser->tenant_id : null;
+$tenantId = $currentTenantId;
 $canonicalTenantProvided = array_key_exists('canonical_tenant_id', $_POST);
 $canonicalTenantIdRaw = $_POST['canonical_tenant_id'] ?? null;
 $canonicalTenantId = null;
@@ -93,6 +94,9 @@ if ($tenantIdRaw !== null) {
 if ($canonicalTenantProvided) {
     if ($canonicalTenantIdRaw === null || $canonicalTenantIdRaw === '' || $canonicalTenantIdRaw === 'direct') {
         $canonicalTenantId = null;
+        if ($isMsp) {
+            $tenantId = null;
+        }
     } elseif ((int) $canonicalTenantIdRaw > 0) {
         $canonicalTenantId = (int) $canonicalTenantIdRaw;
     } else {
@@ -101,6 +105,11 @@ if ($canonicalTenantProvided) {
 }
 
 $errors = [];
+
+if ($isMsp && !$canonicalTenantProvided && $tenantIdRaw !== null && $tenantId !== $currentTenantId) {
+    $errors['tenant_id'] = 'Use canonical_tenant_id to change tenant scope for MSP users.';
+    $tenantId = $currentTenantId;
+}
 
 if ($username === '') {
     $errors['username'] = 'Username is required.';

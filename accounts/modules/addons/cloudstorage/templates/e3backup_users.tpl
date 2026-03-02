@@ -683,8 +683,8 @@ function backupUsersApp() {
                     recovery_key_downloaded: this.form.recovery_key_downloaded ? '1' : '0'
                 });
 
-                if (this.isMspClient && this.form.tenant_id) {
-                    body.set('canonical_tenant_id', this.form.tenant_id);
+                if (this.isMspClient) {
+                    body.set('canonical_tenant_id', this.form.tenant_id ? this.form.tenant_id : 'direct');
                 }
 
                 const response = await fetch('modules/addons/cloudstorage/api/e3backup_user_create.php', {
