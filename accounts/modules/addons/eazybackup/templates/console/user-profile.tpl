@@ -1990,6 +1990,24 @@
                       <div><label class="block text-xs text-slate-400 mb-1">Years</label><input type="number" x-model.number="newRange.Years" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"></div>
                     </div>
                   </template>
+                  <div x-show="newRange.Type===903"><label class="block text-xs text-slate-400 mb-1">Days</label><input type="number" x-model.number="newRange.Days" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"></div>
+                  <div x-show="newRange.Type===905"><label class="block text-xs text-slate-400 mb-1">Months</label><input type="number" min="1" x-model.number="newRange.Months" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"><label class="block text-xs text-slate-400 mt-1">On day</label><input type="number" min="1" max="31" x-model.number="newRange.MonthOffset" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"></div>
+                  <div x-show="newRange.Type===906" class="grid grid-cols-2 gap-3 col-span-2">
+                    <div><label class="block text-xs text-slate-400 mb-1">Weeks</label><input type="number" min="1" x-model.number="newRange.Weeks" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"></div>
+                    <div x-data="{ open:false }" class="relative">
+                      <label class="block text-xs text-slate-400 mb-1">Week day</label>
+                      <button type="button" @click="open=!open" @keydown.escape.prevent.stop="open=false" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm text-left flex items-center justify-between">
+                        <span x-text="weekdayLabel(newRange.WeekOffset)"></span>
+                        <svg class="size-4 opacity-70" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.168l3.71-3.937a.75.75 0 1 1 1.08 1.04l-4.25 4.51a.75.75 0 0 1-1.08 0l-4.25-4.51a.75.75 0 0 1 .02-1.06Z" clip-rule="evenodd" /></svg>
+                      </button>
+                      <div x-show="open" @click.outside="open=false" class="absolute z-20 mt-1 w-full rounded-md border border-slate-600 bg-slate-900 shadow-lg overflow-hidden">
+                        <template x-for="(dayLabel, dayValue) in weekDays" :key="'new-weekday-'+dayValue">
+                          <button type="button" @click="newRange.WeekOffset=dayValue; open=false" class="w-full px-3 py-2 text-left text-sm text-slate-200 hover:bg-slate-800" x-text="dayLabel"></button>
+                        </template>
+                      </div>
+                    </div>
+                  </div>
+                  <div x-show="newRange.Type===911"><label class="block text-xs text-slate-400 mb-1">Years</label><input type="number" min="1" x-model.number="newRange.Years" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"><label class="block text-xs text-slate-400 mt-1">On month</label><input type="number" min="1" max="12" x-model.number="newRange.YearOffset" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"></div>
                 </div>
                 <div class="mt-3 flex justify-end">
                   <button class="rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 text-sm font-medium cursor-pointer" @click="addRangeFromNew()">Add rule</button>
@@ -2058,9 +2076,23 @@
                       </template>
                       <!-- Days/Weeks/Months/Years singular fields -->
                       <div x-show="r.Type===903"><label class="block text-xs text-slate-400 mb-1">Days</label><input type="number" x-model.number="r.Days" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"></div>
-                      <div x-show="r.Type===905"><label class="block text-xs text-slate-400 mb-1">Months</label><input type="number" x-model.number="r.Months" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"><label class="block text-xs text-slate-400 mt-1">Month Offset</label><input type="number" x-model.number="r.MonthOffset" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"></div>
-                      <div x-show="r.Type===906"><label class="block text-xs text-slate-400 mb-1">Weeks</label><input type="number" x-model.number="r.Weeks" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"><label class="block text-xs text-slate-400 mt-1">Week Offset</label><input type="number" x-model.number="r.WeekOffset" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"></div>
-                      <div x-show="r.Type===911"><label class="block text-xs text-slate-400 mb-1">Years</label><input type="number" x-model.number="r.Years" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"><label class="block text-xs text-slate-400 mt-1">Year Offset</label><input type="number" x-model.number="r.YearOffset" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"></div>
+                      <div x-show="r.Type===905"><label class="block text-xs text-slate-400 mb-1">Months</label><input type="number" min="1" x-model.number="r.Months" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"><label class="block text-xs text-slate-400 mt-1">On day</label><input type="number" min="1" max="31" x-model.number="r.MonthOffset" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"></div>
+                      <div x-show="r.Type===906" class="grid grid-cols-2 gap-3 col-span-2">
+                        <div><label class="block text-xs text-slate-400 mb-1">Weeks</label><input type="number" min="1" x-model.number="r.Weeks" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"></div>
+                        <div x-data="{ open:false }" class="relative">
+                          <label class="block text-xs text-slate-400 mb-1">Week day</label>
+                          <button type="button" @click="open=!open" @keydown.escape.prevent.stop="open=false" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm text-left flex items-center justify-between">
+                            <span x-text="weekdayLabel(r.WeekOffset)"></span>
+                            <svg class="size-4 opacity-70" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.168l3.71-3.937a.75.75 0 1 1 1.08 1.04l-4.25 4.51a.75.75 0 0 1-1.08 0l-4.25-4.51a.75.75 0 0 1 .02-1.06Z" clip-rule="evenodd" /></svg>
+                          </button>
+                          <div x-show="open" @click.outside="open=false" class="absolute z-20 mt-1 w-full rounded-md border border-slate-600 bg-slate-900 shadow-lg overflow-hidden">
+                            <template x-for="(dayLabel, dayValue) in weekDays" :key="'edit-weekday-'+i+'-'+dayValue">
+                              <button type="button" @click="r.WeekOffset=dayValue; open=false" class="w-full px-3 py-2 text-left text-sm text-slate-200 hover:bg-slate-800" x-text="dayLabel"></button>
+                            </template>
+                          </div>
+                        </div>
+                      </div>
+                      <div x-show="r.Type===911"><label class="block text-xs text-slate-400 mb-1">Years</label><input type="number" min="1" x-model.number="r.Years" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"><label class="block text-xs text-slate-400 mt-1">On month</label><input type="number" min="1" max="12" x-model.number="r.YearOffset" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"></div>
                     </div>
                   </div>
                 </div>
