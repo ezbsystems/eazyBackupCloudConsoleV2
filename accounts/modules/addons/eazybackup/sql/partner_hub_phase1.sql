@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS eb_whitelabel_signup_events (
   whmcs_client_id INT NULL,
   whmcs_order_id INT NULL,
   comet_username VARCHAR(255) NULL,
-  status ENUM('received','validated','ordered','pending_approval','accepted','provisioned','emailed','completed','failed') NOT NULL DEFAULT 'received',
+  status ENUM('received','validated','ordered','pending_approval','approving','rejecting','approved','rejected','accepted','provisioned','emailed','completed','failed') NOT NULL DEFAULT 'received',
   error TEXT NULL,
   ip VARCHAR(64) NULL,
   user_agent TEXT NULL,
