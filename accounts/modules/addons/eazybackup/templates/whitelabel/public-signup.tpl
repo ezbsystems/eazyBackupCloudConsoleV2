@@ -1,3 +1,14 @@
+{if $signup_state == 'pending_approval'}
+<div class="min-h-screen bg-gray-800 text-gray-200">
+  <div class="container mx-auto max-w-2xl px-4 py-16">
+    <div class="rounded-lg border border-emerald-500/30 bg-slate-900/80 p-6 text-center">
+      <h1 class="text-2xl font-semibold text-white mb-3">Signup received</h1>
+      <p class="text-sm text-emerald-300 mb-2">Your signup is pending MSP approval.</p>
+      <p class="text-sm text-gray-300">We will email you when approval is complete and provisioning begins.</p>
+    </div>
+  </div>
+</div>
+{else}
 <div class="min-h-screen bg-gray-800 text-gray-200">
   <div class="container mx-auto max-w-2xl px-4 py-10">
     <h1 class="text-2xl font-semibold text-white mb-4">Start your trial</h1>
@@ -105,5 +116,6 @@
     </script>
   </div>
 </div>
+{/if}
 
 
