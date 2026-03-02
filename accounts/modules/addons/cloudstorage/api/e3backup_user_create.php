@@ -109,6 +109,12 @@ if ($isMsp && $canonicalTenantId !== null) {
     $canonicalTenant = eb_tenant_storage_links_resolve_tenant_for_client((int) $clientId, $canonicalTenantId);
     if (!$canonicalTenant) {
         $errors['canonical_tenant_id'] = 'Selected canonical tenant does not belong to your account.';
+    } else {
+        try {
+            $tenantId = eb_tenant_storage_links_resolve_or_create_storage_tenant_id((int) $clientId, $canonicalTenantId);
+        } catch (\Throwable $e) {
+            $errors['canonical_tenant_id'] = 'Unable to map canonical tenant to storage scope.';
+        }
     }
 }
 
