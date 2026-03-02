@@ -270,13 +270,37 @@ function eb_tenant_storage_links_upsert_for_client(int $clientId, string $storag
             }
 
             $now = date('Y-m-d H:i:s');
-            Capsule::table('eb_tenant_storage_links')
-                ->updateOrInsert(['storage_identifier' => $storageIdentifier], [
+            $existingLink = Capsule::table('eb_tenant_storage_links')
+                ->where('storage_identifier', $storageIdentifier)
+                ->first(['id']);
+            if ($existingLink) {
+                Capsule::table('eb_tenant_storage_links')
+                    ->where('id', (int) $existingLink->id)
+                    ->update([
+                        'tenant_id' => $canonicalTenantId,
+                        'link_status' => 'active',
+                        'updated_at' => $now,
+                    ]);
+                return;
+            }
+
+            try {
+                Capsule::table('eb_tenant_storage_links')->insert([
                     'tenant_id' => $canonicalTenantId,
+                    'storage_identifier' => $storageIdentifier,
                     'link_status' => 'active',
                     'created_at' => $now,
                     'updated_at' => $now,
                 ]);
+            } catch (\Throwable $e) {
+                Capsule::table('eb_tenant_storage_links')
+                    ->where('storage_identifier', $storageIdentifier)
+                    ->update([
+                        'tenant_id' => $canonicalTenantId,
+                        'link_status' => 'active',
+                        'updated_at' => $now,
+                    ]);
+            }
         });
     } catch (\Throwable $e) {
         return ['ok' => false, 'message' => 'write_failed'];

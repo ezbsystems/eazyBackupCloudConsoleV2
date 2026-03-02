@@ -164,6 +164,8 @@ if ($isMsp && $tenantId !== null) {
     $tenant = MspController::getTenant($tenantId, $clientId);
     if (!$tenant) {
         $errors['tenant_id'] = 'Selected tenant does not belong to your account.';
+    } elseif (strtolower((string) ($tenant->status ?? '')) === 'deleted') {
+        $errors['tenant_id'] = 'Selected tenant is no longer available.';
     }
 }
 
