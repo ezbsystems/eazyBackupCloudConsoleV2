@@ -126,7 +126,7 @@ class TenantCustomerService
                 if ($racedByClient) {
                     $boundTenantId = (int)($racedByClient->tenant_id ?? 0);
                     if ($boundTenantId > 0 && $boundTenantId !== $tenantId) {
-                        throw $e;
+                        throw new \RuntimeException('tenant_customer_conflict', 0, $e);
                     }
 
                     Capsule::table('eb_customers')

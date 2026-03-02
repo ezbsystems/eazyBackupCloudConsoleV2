@@ -146,72 +146,95 @@ function eb_ph_clients_index(array $vars)
             if (!class_exists(\PartnerHub\TenantCustomerService::class)) {
                 @require_once __DIR__ . '/../../lib/PartnerHub/TenantCustomerService.php';
             }
-            $res = WhmcsBridge::addClient($payload, $adminUser);
-            try {
-                $brief = [ 'result' => ($res['result'] ?? ''), 'message' => ($res['message'] ?? ''), 'clientid' => ($res['clientid'] ?? null) ];
-                logActivity('eazybackup: ph-clients AddClient resp=' . json_encode($brief));
-            } catch (\Throwable $_) { /* ignore */ }
-            // If LocalAPI is blocked by token CSRF, abort with message
-            if (isset($res['result']) && $res['result'] === 'error' && stripos((string)($res['message'] ?? ''), 'invalid token') !== false) {
-                $createError = 'WHMCS token invalid; please refresh and try again.';
+            $authoritativeMspId = (int)($msp->id ?? 0);
+            $tenantConflictHardError = '';
+            $tenantPreflightCustomer = null;
+            $tenantId = (int)($_POST['tenant_id'] ?? 0);
+
+            // Tenant-scoped preflight: ensure canonical customer before AddClient side effects.
+            if ($tenantId > 0) {
+                try {
+                    $tenantOwned = Capsule::table('eb_whitelabel_tenants')
+                        ->where('id', $tenantId)
+                        ->where('client_id', $clientId)
+                        ->first();
+                    if (!$tenantOwned) {
+                        $ebDebug[] = 'tenant-denied=' . $tenantId;
+                        $tenantId = 0;
+                    }
+                } catch (\Throwable $__) {
+                    $tenantId = 0;
+                }
+
+                if ($tenantId > 0) {
+                    try {
+                        $tenantPreflightCustomer = (new TenantCustomerService())->ensureCustomerForTenant($tenantId);
+                        $tenantCustomerMspId = (int)($tenantPreflightCustomer['msp_id'] ?? 0);
+                        if ($tenantCustomerMspId > 0) { $authoritativeMspId = $tenantCustomerMspId; }
+                        $ebDebug[] = 'tenant-preflight=' . $tenantId;
+                    } catch (\Throwable $tenantEnsureError) {
+                        $tenantEnsureMessage = (string)$tenantEnsureError->getMessage();
+                        if (in_array($tenantEnsureMessage, ['tenant_customer_owner_conflict', 'tenant_customer_conflict'], true)) {
+                            $tenantConflictHardError = 'Canonical tenant/customer conflict detected.';
+                            $ebDebug[] = 'tenant-conflict=' . $tenantEnsureMessage;
+                            try { logActivity("eazybackup: ph-clients tenant-customer conflict tenant={$tenantId} msg={$tenantEnsureMessage}"); } catch (\Throwable $_) { /* ignore */ }
+                        } else {
+                            $ebDebug[] = 'tenant-preflight-soft=' . $tenantEnsureMessage;
+                        }
+                    }
+                }
             }
-            $ebDebug[] = 'resp=' . ($res['result'] ?? '');
-            // Also write a file log for absolute certainty (module logs can be filtered by settings)
-            try { if (function_exists('customFileLog')) { customFileLog('ph-clients AddClient payload', $payload); customFileLog('ph-clients AddClient response', $res); } } catch (\Throwable $_) {}
-            if (($res['result'] ?? '') === 'success') {
-                $newId = (int)($res['clientid'] ?? 0);
-                if ($newId > 0) {
-                    $ebDebug[] = 'clientid=' . $newId;
-                    $displayName = trim(($payload['companyname'] !== '' ? $payload['companyname'] : ($payload['firstname'].' '.$payload['lastname'])));
-                    $ecid = 0;
-                    $authoritativeMspId = (int)($msp->id ?? 0);
-                    $tenantConflictHardError = '';
-                    $tenantId = (int)($_POST['tenant_id'] ?? 0);
-                    if ($tenantId > 0) {
+
+            if ($tenantConflictHardError !== '') {
+                $createError = $tenantConflictHardError;
+            } elseif ($tenantPreflightCustomer !== null) {
+                $ecid = (int)($tenantPreflightCustomer['id'] ?? 0);
+                if ($ecid > 0) {
+                    // Canonical customer already exists for tenant; redirect instead of AddClient create.
+                    $cometUser = trim((string)($_POST['comet_username'] ?? ''));
+                    if ($cometUser !== '') {
                         try {
-                            $tenantOwned = Capsule::table('eb_whitelabel_tenants')
-                                ->where('id', $tenantId)
-                                ->where('client_id', $clientId)
-                                ->first();
-                            if (!$tenantOwned) {
-                                $ebDebug[] = 'tenant-denied=' . $tenantId;
-                                $tenantId = 0;
-                            }
-                        } catch (\Throwable $__) {
-                            $tenantId = 0;
-                        }
-                    }
-                    if ($tenantId > 0) {
-                        try {
-                            $tenantCustomer = (new TenantCustomerService())->ensureCustomerForTenant($tenantId);
-                            $ecid = (int)($tenantCustomer['id'] ?? 0);
-                            $tenantCustomerMspId = (int)($tenantCustomer['msp_id'] ?? 0);
-                            if ($tenantCustomerMspId > 0) {
-                                $authoritativeMspId = $tenantCustomerMspId;
-                            }
-                            $ebDebug[] = 'tenant=' . $tenantId;
-                        } catch (\Throwable $tenantEnsureError) {
-                            $tenantEnsureMessage = (string)$tenantEnsureError->getMessage();
-                            if (in_array($tenantEnsureMessage, ['tenant_customer_owner_conflict', 'tenant_customer_conflict'], true)) {
-                                $tenantConflictHardError = 'Canonical tenant/customer conflict detected.';
-                                $ebDebug[] = 'tenant-conflict=' . $tenantEnsureMessage;
-                                try { logActivity("eazybackup: ph-clients tenant-customer conflict tenant={$tenantId} msg={$tenantEnsureMessage}"); } catch (\Throwable $_) { /* ignore */ }
-                            }
-                        }
-                    }
-                    if ($tenantConflictHardError !== '') {
-                        $createError = $tenantConflictHardError;
-                    } else {
-                        if ($ecid <= 0) {
-                            $ecid = Capsule::table('eb_customers')->insertGetId([
-                                'msp_id' => (int)($msp->id ?? 0),
-                                'whmcs_client_id' => $newId,
-                                'name' => $displayName,
-                                'status' => 'active',
-                                'created_at' => date('Y-m-d H:i:s'),
-                                'updated_at' => date('Y-m-d H:i:s'),
+                            Capsule::table('eb_customer_comet_accounts')->updateOrInsert(
+                                ['customer_id'=>$ecid,'comet_user_id'=>$cometUser],
+                                []
+                            );
+                            Capsule::table('comet_users')->where('username',$cometUser)->update([
+                                'msp_id' => $authoritativeMspId,
+                                'customer_id' => $ecid,
                             ]);
-                        }
+                        } catch (\Throwable $__) { /* ignore */ }
+                    }
+                    try { logActivity('eazybackup: ph-clients redirect to existing tenant customer id=' . $ecid); } catch (\Throwable $_) { /* ignore */ }
+                    header('Location: '.$vars['modulelink'].'&a=ph-client&id='.$ecid);
+                    exit;
+                }
+                $createError = 'Unable to resolve canonical tenant customer.';
+            } else {
+                $res = WhmcsBridge::addClient($payload, $adminUser);
+                try {
+                    $brief = [ 'result' => ($res['result'] ?? ''), 'message' => ($res['message'] ?? ''), 'clientid' => ($res['clientid'] ?? null) ];
+                    logActivity('eazybackup: ph-clients AddClient resp=' . json_encode($brief));
+                } catch (\Throwable $_) { /* ignore */ }
+                // If LocalAPI is blocked by token CSRF, abort with message
+                if (isset($res['result']) && $res['result'] === 'error' && stripos((string)($res['message'] ?? ''), 'invalid token') !== false) {
+                    $createError = 'WHMCS token invalid; please refresh and try again.';
+                }
+                $ebDebug[] = 'resp=' . ($res['result'] ?? '');
+                // Also write a file log for absolute certainty (module logs can be filtered by settings)
+                try { if (function_exists('customFileLog')) { customFileLog('ph-clients AddClient payload', $payload); customFileLog('ph-clients AddClient response', $res); } } catch (\Throwable $_) {}
+                if (($res['result'] ?? '') === 'success') {
+                    $newId = (int)($res['clientid'] ?? 0);
+                    if ($newId > 0) {
+                        $ebDebug[] = 'clientid=' . $newId;
+                        $displayName = trim(($payload['companyname'] !== '' ? $payload['companyname'] : ($payload['firstname'].' '.$payload['lastname'])));
+                        $ecid = Capsule::table('eb_customers')->insertGetId([
+                            'msp_id' => (int)($msp->id ?? 0),
+                            'whmcs_client_id' => $newId,
+                            'name' => $displayName,
+                            'status' => 'active',
+                            'created_at' => date('Y-m-d H:i:s'),
+                            'updated_at' => date('Y-m-d H:i:s'),
+                        ]);
                         // Optional pre-link Comet user
                         $cometUser = trim((string)($_POST['comet_username'] ?? ''));
                         if ($cometUser !== '') {
@@ -230,15 +253,15 @@ function eb_ph_clients_index(array $vars)
                         try { logActivity('eazybackup: ph-clients redirect to ph-client id=' . $ecid); } catch (\Throwable $_) { /* ignore */ }
                         header('Location: '.$vars['modulelink'].'&a=ph-client&id='.$ecid);
                         exit;
+                    } else {
+                        $ebDebug[] = 'empty-clientid';
+                        $createError = 'AddClient returned success but clientid was empty.';
                     }
                 } else {
-                    $ebDebug[] = 'empty-clientid';
-                    $createError = 'AddClient returned success but clientid was empty.';
+                    $ebDebug[] = 'failed:' . ($res['message'] ?? '');
+                    try { logModuleCall('eazybackup', 'ph-clients:addClient', $payload, $res); } catch (\Throwable $_) { /* ignore logging errors */ }
+                    $createError = (string)($res['message'] ?? 'AddClient failed');
                 }
-            } else {
-                $ebDebug[] = 'failed:' . ($res['message'] ?? '');
-                try { logModuleCall('eazybackup', 'ph-clients:addClient', $payload, $res); } catch (\Throwable $_) { /* ignore logging errors */ }
-                $createError = (string)($res['message'] ?? 'AddClient failed');
             }
         } catch (\Throwable $e) {
             // Surface unexpected exceptions
