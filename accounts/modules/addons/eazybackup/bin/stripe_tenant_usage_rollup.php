@@ -42,6 +42,34 @@ function tenant_usage_rollup_parse_s3_user_id(string $storageIdentifier): ?int
     return $s3UserId > 0 ? $s3UserId : null;
 }
 
+function tenant_usage_rollup_pick_subscription_item_id(array $items): string
+{
+    foreach ($items as $item) {
+        if (!is_array($item)) {
+            continue;
+        }
+        $usageType = strtolower((string) ($item['price']['recurring']['usage_type'] ?? ''));
+        if ($usageType === 'metered') {
+            $id = (string) ($item['id'] ?? '');
+            if ($id !== '') {
+                return $id;
+            }
+        }
+    }
+
+    foreach ($items as $item) {
+        if (!is_array($item)) {
+            continue;
+        }
+        $id = (string) ($item['id'] ?? '');
+        if ($id !== '') {
+            return $id;
+        }
+    }
+
+    return '';
+}
+
 try {
     [$periodStartTs, $periodEndTs, $periodStart, $periodEnd] = tenant_usage_rollup_period_bounds_utc();
     $metric = 'STORAGE_TB';
@@ -79,113 +107,123 @@ try {
 
     foreach ($tenantToUserIds as $tenantId => $userIdMap) {
         $tenantId = (int) $tenantId;
-        if ($tenantId <= 0) {
-            continue;
-        }
-
-        $clientId = (int) ($tenantToClientId[$tenantId] ?? 0);
-        if ($clientId <= 0) {
-            continue;
-        }
-
-        $s3UserIds = array_map('intval', array_keys($userIdMap));
-        if ($s3UserIds === []) {
-            continue;
-        }
-
-        $s3Users = Capsule::table('s3_backup_users')
-            ->where('client_id', $clientId)
-            ->whereIn('id', $s3UserIds)
-            ->get(['username']);
-
-        $usernames = [];
-        foreach ($s3Users as $s3User) {
-            $username = trim((string) ($s3User->username ?? ''));
-            if ($username === '') {
+        try {
+            if ($tenantId <= 0) {
                 continue;
             }
-            $usernames[$username] = true;
-        }
-        $usernames = array_keys($usernames);
-        if ($usernames === []) {
+
+            $clientId = (int) ($tenantToClientId[$tenantId] ?? 0);
+            if ($clientId <= 0) {
+                continue;
+            }
+
+            $s3UserIds = array_map('intval', array_keys($userIdMap));
+            if ($s3UserIds === []) {
+                continue;
+            }
+
+            $s3Users = Capsule::table('s3_backup_users')
+                ->where('client_id', $clientId)
+                ->whereIn('id', $s3UserIds)
+                ->get(['username']);
+
+            $usernames = [];
+            foreach ($s3Users as $s3User) {
+                $username = trim((string) ($s3User->username ?? ''));
+                if ($username === '') {
+                    continue;
+                }
+                $usernames[$username] = true;
+            }
+            $usernames = array_keys($usernames);
+            if ($usernames === []) {
+                continue;
+            }
+
+            $sumBytes = (int) Capsule::table('eb_storage_daily')
+                ->where('client_id', $clientId)
+                ->whereIn('username', $usernames)
+                ->where('d', '>=', $periodStart->format('Y-m-d'))
+                ->where('d', '<', $periodEnd->format('Y-m-d'))
+                ->sum('bytes_total');
+            $qtyGb = (int) floor(max(0, $sumBytes) / (1024 * 1024 * 1024));
+
+            $customer = Capsule::table('eb_customers')
+                ->where('tenant_id', $tenantId)
+                ->first(['id', 'msp_id']);
+            if (!$customer) {
+                continue;
+            }
+
+            $customerId = (int) ($customer->id ?? 0);
+            $mspId = (int) ($customer->msp_id ?? 0);
+            if ($customerId <= 0 || $mspId <= 0) {
+                continue;
+            }
+
+            $sub = Capsule::table('eb_subscriptions')
+                ->where('customer_id', $customerId)
+                ->where('stripe_status', 'active')
+                ->orderBy('created_at', 'desc')
+                ->first();
+            if (!$sub) {
+                continue;
+            }
+
+            $priceRow = Capsule::table('eb_plan_prices')->where('id', (int) $sub->current_price_id)->first();
+            if (!$priceRow || !(int) $priceRow->is_metered) {
+                continue;
+            }
+
+            $idempotencyKey = tenant_usage_rollup_idempotency_key($tenantId, $metric, $periodStartTs, $periodEndTs);
+
+            $existingLedger = Capsule::table('eb_usage_ledger')
+                ->where('idempotency_key', $idempotencyKey)
+                ->first(['pushed_to_stripe_at']);
+            if ($existingLedger && !empty($existingLedger->pushed_to_stripe_at)) {
+                continue;
+            }
+
+            Capsule::table('eb_usage_ledger')->updateOrInsert(
+                ['idempotency_key' => $idempotencyKey],
+                [
+                    'tenant_id' => $tenantId,
+                    'customer_id' => $customerId,
+                    'metric' => $metric,
+                    'qty' => $qtyGb,
+                    'period_start' => $periodStart->format('Y-m-d H:i:s'),
+                    'period_end' => $periodEnd->format('Y-m-d H:i:s'),
+                    'source' => 'tenant_rollup',
+                    'pushed_to_stripe_at' => null,
+                    'created_at' => date('Y-m-d H:i:s'),
+                ]
+            );
+
+            $msp = Capsule::table('eb_msp_accounts')->where('id', $mspId)->first(['stripe_connect_id']);
+            $stripeAccountId = (string) ($msp->stripe_connect_id ?? '');
+            $subscription = $stripeService->retrieveSubscription((string) $sub->stripe_subscription_id, $stripeAccountId !== '' ? $stripeAccountId : null);
+            $items = (array) ($subscription['items']['data'] ?? []);
+            $subscriptionItemId = tenant_usage_rollup_pick_subscription_item_id($items);
+            if ($subscriptionItemId === '') {
+                continue;
+            }
+
+            $stripeService->createUsageRecord($subscriptionItemId, $qtyGb, $periodEndTs - 1, $stripeAccountId !== '' ? $stripeAccountId : null, $idempotencyKey);
+
+            Capsule::table('eb_usage_ledger')
+                ->where('idempotency_key', $idempotencyKey)
+                ->update([
+                    'pushed_to_stripe_at' => date('Y-m-d H:i:s'),
+                ]);
+        } catch (\Throwable $tenantError) {
+            try {
+                if (function_exists('logActivity')) {
+                    @logActivity('eazybackup: stripe_tenant_usage_rollup tenant ' . $tenantId . ' failed: ' . $tenantError->getMessage());
+                }
+            } catch (\Throwable $__) {
+            }
             continue;
         }
-
-        $sumBytes = (int) Capsule::table('eb_storage_daily')
-            ->where('client_id', $clientId)
-            ->whereIn('username', $usernames)
-            ->where('d', '>=', $periodStart->format('Y-m-d'))
-            ->where('d', '<', $periodEnd->format('Y-m-d'))
-            ->sum('bytes_total');
-        $qtyGb = (int) floor(max(0, $sumBytes) / (1024 * 1024 * 1024));
-
-        $customer = Capsule::table('eb_customers')
-            ->where('tenant_id', $tenantId)
-            ->first(['id', 'msp_id']);
-        if (!$customer) {
-            continue;
-        }
-
-        $customerId = (int) ($customer->id ?? 0);
-        $mspId = (int) ($customer->msp_id ?? 0);
-        if ($customerId <= 0 || $mspId <= 0) {
-            continue;
-        }
-
-        $sub = Capsule::table('eb_subscriptions')
-            ->where('customer_id', $customerId)
-            ->where('stripe_status', 'active')
-            ->orderBy('created_at', 'desc')
-            ->first();
-        if (!$sub) {
-            continue;
-        }
-
-        $priceRow = Capsule::table('eb_plan_prices')->where('id', (int) $sub->current_price_id)->first();
-        if (!$priceRow || !(int) $priceRow->is_metered) {
-            continue;
-        }
-
-        $idempotencyKey = tenant_usage_rollup_idempotency_key($tenantId, $metric, $periodStartTs, $periodEndTs);
-
-        $existingLedger = Capsule::table('eb_usage_ledger')
-            ->where('idempotency_key', $idempotencyKey)
-            ->first(['pushed_to_stripe_at']);
-        if ($existingLedger && !empty($existingLedger->pushed_to_stripe_at)) {
-            continue;
-        }
-
-        Capsule::table('eb_usage_ledger')->updateOrInsert(
-            ['idempotency_key' => $idempotencyKey],
-            [
-                'tenant_id' => $tenantId,
-                'customer_id' => $customerId,
-                'metric' => $metric,
-                'qty' => $qtyGb,
-                'period_start' => $periodStart->format('Y-m-d H:i:s'),
-                'period_end' => $periodEnd->format('Y-m-d H:i:s'),
-                'source' => 'tenant_rollup',
-                'pushed_to_stripe_at' => null,
-                'created_at' => date('Y-m-d H:i:s'),
-            ]
-        );
-
-        $msp = Capsule::table('eb_msp_accounts')->where('id', $mspId)->first(['stripe_connect_id']);
-        $stripeAccountId = (string) ($msp->stripe_connect_id ?? '');
-        $subscription = $stripeService->retrieveSubscription((string) $sub->stripe_subscription_id, $stripeAccountId !== '' ? $stripeAccountId : null);
-        $items = (array) ($subscription['items']['data'] ?? []);
-        $subscriptionItemId = count($items) ? (string) ($items[0]['id'] ?? '') : '';
-        if ($subscriptionItemId === '') {
-            continue;
-        }
-
-        $stripeService->createUsageRecord($subscriptionItemId, $qtyGb, $periodEndTs - 1, $stripeAccountId !== '' ? $stripeAccountId : null, $idempotencyKey);
-
-        Capsule::table('eb_usage_ledger')
-            ->where('idempotency_key', $idempotencyKey)
-            ->update([
-                'pushed_to_stripe_at' => date('Y-m-d H:i:s'),
-            ]);
     }
 
     fwrite(STDOUT, "[tenant-rollup] completed\n");
