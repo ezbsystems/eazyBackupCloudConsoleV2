@@ -26,6 +26,7 @@ $targets = [
             'transaction marker' => 'Capsule::connection()->transaction(function () use ($tenantId)',
             'tenant ownership conflict marker' => 'tenant_customer_owner_conflict',
             'existing tenant ownership check marker' => "if ((int)(\$existingLocked->whmcs_client_id ?? 0) !== \$ownerClientId)",
+            'race branch canonical conflict normalize marker' => "throw new \\RuntimeException('tenant_customer_conflict', 0, \$e);",
         ],
     ],
     'clients controller file' => [
@@ -37,6 +38,8 @@ $targets = [
             'authoritative msp marker (clients)' => "'msp_id' => \$authoritativeMspId",
             'client canonical conflict codes marker' => "['tenant_customer_owner_conflict', 'tenant_customer_conflict']",
             'client canonical conflict hard error marker' => 'Canonical tenant/customer conflict detected.',
+            'tenant preflight comment marker (clients)' => 'Tenant-scoped preflight: ensure canonical customer before AddClient side effects.',
+            'tenant preflight redirect marker (clients)' => 'Canonical customer already exists for tenant; redirect instead of AddClient create.',
         ],
     ],
     'public signup controller file' => [
