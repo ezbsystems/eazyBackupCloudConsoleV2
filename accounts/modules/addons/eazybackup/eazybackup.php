@@ -1224,6 +1224,9 @@ function eazybackup_migrate_schema(): void {
             try {
                 Capsule::statement("ALTER TABLE eb_whitelabel_signup_events MODIFY COLUMN status ENUM('received','validated','ordered','pending_approval','accepted','provisioned','emailed','completed','failed') NOT NULL DEFAULT 'received'");
             } catch (\Throwable $__) { /* ignore */ }
+            try {
+                Capsule::statement("ALTER TABLE eb_whitelabel_signup_events MODIFY COLUMN status ENUM('received','validated','ordered','pending_approval','approved','rejected','accepted','provisioned','emailed','completed','failed') NOT NULL DEFAULT 'received'");
+            } catch (\Throwable $__) { /* ignore */ }
         }
     }
 
@@ -3938,6 +3941,15 @@ function eazybackup_clientarea(array $vars)
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-client') {
         require_once __DIR__ . '/pages/partnerhub/ClientViewController.php';
         return eb_ph_client_view($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-signup-approvals') {
+        require_once __DIR__ . '/pages/partnerhub/SignupApprovalsController.php';
+        return eb_ph_signup_approvals_index($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-signup-approve') {
+        require_once __DIR__ . '/pages/partnerhub/SignupApprovalsController.php';
+        eb_ph_signup_approve($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-signup-reject') {
+        require_once __DIR__ . '/pages/partnerhub/SignupApprovalsController.php';
+        eb_ph_signup_reject($vars); exit;
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-stripe-onboard') {
         require_once __DIR__ . '/pages/partnerhub/StripeController.php';
         eb_ph_stripe_onboard($vars); exit;
