@@ -232,7 +232,7 @@ function eb_ph_signup_approvals_index(array $vars)
         ->join('eb_whitelabel_tenants as t', 't.id', '=', 'e.tenant_id')
         ->leftJoin('tblclients as wc', 'wc.id', '=', 'e.whmcs_client_id')
         ->where('t.client_id', $clientId)
-        ->where('e.status', 'pending_approval')
+        ->whereIn('e.status', ['pending_approval', 'approving', 'rejecting'])
         ->orderBy('e.created_at', 'asc')
         ->get([
             'e.id',

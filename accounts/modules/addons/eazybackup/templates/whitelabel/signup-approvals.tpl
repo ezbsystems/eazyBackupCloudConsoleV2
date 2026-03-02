@@ -49,19 +49,27 @@
                 <td class="px-4 py-3">{$row.whmcs_order_id|default:'-'|escape}</td>
                 <td class="px-4 py-3">{$row.created_at|escape}</td>
                 <td class="px-4 py-3 text-right">
-                  <div class="flex items-center justify-end gap-2">
-                    <form method="post" action="{$modulelink}&a=ph-signup-approve" class="inline-block">
-                      <input type="hidden" name="event_id" value="{$row.id|escape}" />
-                      <input type="hidden" name="token" value="{$token|escape}" />
-                      <button type="submit" class="rounded-lg px-3 py-1.5 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-500">Approve</button>
-                    </form>
-                    <form method="post" action="{$modulelink}&a=ph-signup-reject" class="inline-block">
-                      <input type="hidden" name="event_id" value="{$row.id|escape}" />
-                      <input type="hidden" name="approval_notes" value="Rejected from Partner Hub queue" />
-                      <input type="hidden" name="token" value="{$token|escape}" />
-                      <button type="submit" class="rounded-lg px-3 py-1.5 text-sm font-medium text-white bg-rose-600 hover:bg-rose-500">Reject</button>
-                    </form>
-                  </div>
+                  {if $row.status == 'pending_approval'}
+                    <div class="flex items-center justify-end gap-2">
+                      <form method="post" action="{$modulelink}&a=ph-signup-approve" class="inline-block">
+                        <input type="hidden" name="event_id" value="{$row.id|escape}" />
+                        <input type="hidden" name="token" value="{$token|escape}" />
+                        <button type="submit" class="rounded-lg px-3 py-1.5 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-500">Approve</button>
+                      </form>
+                      <form method="post" action="{$modulelink}&a=ph-signup-reject" class="inline-block">
+                        <input type="hidden" name="event_id" value="{$row.id|escape}" />
+                        <input type="hidden" name="approval_notes" value="Rejected from Partner Hub queue" />
+                        <input type="hidden" name="token" value="{$token|escape}" />
+                        <button type="submit" class="rounded-lg px-3 py-1.5 text-sm font-medium text-white bg-rose-600 hover:bg-rose-500">Reject</button>
+                      </form>
+                    </div>
+                  {elseif $row.status == 'approving'}
+                    <span class="inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-medium bg-amber-500/20 text-amber-200 ring-1 ring-amber-300/20">Approving in progress</span>
+                  {elseif $row.status == 'rejecting'}
+                    <span class="inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-medium bg-amber-500/20 text-amber-200 ring-1 ring-amber-300/20">Rejecting in progress</span>
+                  {else}
+                    <span class="inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-medium bg-white/10 text-white/70 ring-1 ring-white/15">{$row.status|escape}</span>
+                  {/if}
                 </td>
               </tr>
             {/foreach}

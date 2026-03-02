@@ -1222,9 +1222,6 @@ function eazybackup_migrate_schema(): void {
         eb_require_index('eb_whitelabel_signup_events', 'idx_wlse_approved_at', "CREATE INDEX idx_wlse_approved_at ON eb_whitelabel_signup_events (approved_at)", ['approved_at'], false);
         if ($schema->hasColumn('eb_whitelabel_signup_events', 'status')) {
             try {
-                Capsule::statement("ALTER TABLE eb_whitelabel_signup_events MODIFY COLUMN status ENUM('received','validated','ordered','pending_approval','accepted','provisioned','emailed','completed','failed') NOT NULL DEFAULT 'received'");
-            } catch (\Throwable $__) { /* ignore */ }
-            try {
                 Capsule::statement("ALTER TABLE eb_whitelabel_signup_events MODIFY COLUMN status ENUM('received','validated','ordered','pending_approval','approving','rejecting','approved','rejected','accepted','provisioned','emailed','completed','failed') NOT NULL DEFAULT 'received'");
             } catch (\Throwable $__) { /* ignore */ }
         }
