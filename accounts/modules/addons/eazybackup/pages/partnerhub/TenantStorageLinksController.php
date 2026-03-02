@@ -17,13 +17,26 @@ function eb_ph_tenant_storage_links_require_context(): array
     return [$clientId, $msp, null];
 }
 
+function eb_tenant_storage_links_is_assignable_tenant_status(string $status): bool
+{
+    $status = strtolower(trim($status));
+    return in_array($status, ['queued', 'building', 'active', 'failed', 'suspended'], true);
+}
+
 function eb_tenant_storage_links_resolve_tenant_for_client(int $clientId, int $canonicalTenantId)
 {
     if ($clientId <= 0 || $canonicalTenantId <= 0) {
         return null;
     }
 
-    return Capsule::table('eb_whitelabel_tenants')->where('id', $canonicalTenantId)->where('client_id', $clientId)->first();
+    $tenant = Capsule::table('eb_whitelabel_tenants')->where('id', $canonicalTenantId)->where('client_id', $clientId)->first();
+    if (!$tenant) {
+        return null;
+    }
+    if (!eb_tenant_storage_links_is_assignable_tenant_status((string) ($tenant->status ?? ''))) {
+        return null;
+    }
+    return $tenant;
 }
 
 function eb_tenant_storage_links_resolve_or_create_storage_tenant_id(int $clientId, int $canonicalTenantId): int
@@ -127,6 +140,48 @@ function eb_tenant_storage_links_storage_identifier_belongs_to_client(int $clien
     }
 }
 
+function eb_tenant_storage_links_get_current_link_for_identifier(int $clientId, string $storageIdentifier)
+{
+    if ($clientId <= 0) {
+        return null;
+    }
+
+    $storageIdentifier = trim($storageIdentifier);
+    if ($storageIdentifier === '') {
+        return null;
+    }
+
+    try {
+        if (!Capsule::schema()->hasTable('eb_tenant_storage_links') || !Capsule::schema()->hasTable('eb_whitelabel_tenants')) {
+            return null;
+        }
+    } catch (\Throwable $e) {
+        return null;
+    }
+
+    $link = Capsule::table('eb_tenant_storage_links as l')
+        ->join('eb_whitelabel_tenants as t', 't.id', '=', 'l.tenant_id')
+        ->where('t.client_id', $clientId)
+        ->where('l.storage_identifier', $storageIdentifier)
+        ->select([
+            'l.tenant_id',
+            'l.storage_identifier',
+            't.status as tenant_status',
+        ])
+        ->orderBy('l.updated_at', 'desc')
+        ->orderBy('l.id', 'desc')
+        ->first();
+
+    if (!$link) {
+        return null;
+    }
+    if (!eb_tenant_storage_links_is_assignable_tenant_status((string) ($link->tenant_status ?? ''))) {
+        return null;
+    }
+
+    return $link;
+}
+
 function eb_tenant_storage_links_upsert_for_client(int $clientId, string $storageIdentifier, ?int $canonicalTenantId): array
 {
     $storageIdentifier = trim($storageIdentifier);
@@ -206,7 +261,7 @@ function eb_ph_tenant_storage_links_list(array $vars): void
     try {
         $rows = Capsule::table('eb_whitelabel_tenants')
             ->where('client_id', $clientId)
-            ->where('status', '!=', 'deleted')
+            ->whereNotIn('status', ['deleted', 'removing'])
             ->orderBy('subdomain', 'asc')
             ->orderBy('id', 'asc')
             ->get([
@@ -222,6 +277,9 @@ function eb_ph_tenant_storage_links_list(array $vars): void
 
     $tenants = [];
     foreach ($rows as $row) {
+        if (!eb_tenant_storage_links_is_assignable_tenant_status((string) ($row->status ?? ''))) {
+            continue;
+        }
         $name = trim((string) ($row->subdomain ?? ''));
         if ($name === '') {
             $name = trim((string) ($row->fqdn ?? ''));
