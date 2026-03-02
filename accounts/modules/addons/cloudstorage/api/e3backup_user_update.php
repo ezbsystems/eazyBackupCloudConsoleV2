@@ -2,6 +2,7 @@
 
 require_once __DIR__ . '/../../../../init.php';
 require_once __DIR__ . '/../lib/Client/MspController.php';
+require_once __DIR__ . '/../../eazybackup/pages/partnerhub/TenantStorageLinksController.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -75,6 +76,9 @@ $email = strtolower(trim((string) ($_POST['email'] ?? $currentUser->email)));
 $status = strtolower(trim((string) ($_POST['status'] ?? $currentUser->status)));
 $tenantIdRaw = $_POST['tenant_id'] ?? null;
 $tenantId = $currentUser->tenant_id !== null ? (int) $currentUser->tenant_id : null;
+$canonicalTenantProvided = array_key_exists('canonical_tenant_id', $_POST);
+$canonicalTenantIdRaw = $_POST['canonical_tenant_id'] ?? null;
+$canonicalTenantId = null;
 
 if ($tenantIdRaw !== null) {
     if ($tenantIdRaw === '' || $tenantIdRaw === 'direct') {
@@ -83,6 +87,16 @@ if ($tenantIdRaw !== null) {
         $tenantId = (int) $tenantIdRaw;
     } else {
         userUpdateFail('Invalid tenant selection.', 400, ['tenant_id' => 'Invalid tenant selection']);
+    }
+}
+
+if ($canonicalTenantProvided) {
+    if ($canonicalTenantIdRaw === null || $canonicalTenantIdRaw === '' || $canonicalTenantIdRaw === 'direct') {
+        $canonicalTenantId = null;
+    } elseif ((int) $canonicalTenantIdRaw > 0) {
+        $canonicalTenantId = (int) $canonicalTenantIdRaw;
+    } else {
+        userUpdateFail('Invalid canonical tenant selection.', 400, ['canonical_tenant_id' => 'Invalid canonical tenant selection']);
     }
 }
 
@@ -115,6 +129,17 @@ if ($isMsp && $tenantId !== null) {
     }
 }
 
+if (!$isMsp && $canonicalTenantProvided && $canonicalTenantId !== null) {
+    $errors['canonical_tenant_id'] = 'Direct accounts cannot assign canonical tenants.';
+}
+
+if ($isMsp && $canonicalTenantProvided && $canonicalTenantId !== null) {
+    $canonicalTenant = eb_tenant_storage_links_resolve_tenant_for_client((int) $clientId, $canonicalTenantId);
+    if (!$canonicalTenant) {
+        $errors['canonical_tenant_id'] = 'Selected canonical tenant does not belong to your account.';
+    }
+}
+
 if (!empty($errors)) {
     userUpdateFail('Please correct the highlighted fields.', 400, $errors);
 }
@@ -138,16 +163,26 @@ if ($existing) {
 }
 
 try {
-    Capsule::table('s3_backup_users')
-        ->where('id', $userId)
-        ->where('client_id', $clientId)
-        ->update([
-            'tenant_id' => $tenantId,
-            'username' => $username,
-            'email' => $email,
-            'status' => $status,
-            'updated_at' => Capsule::raw('NOW()'),
-        ]);
+    Capsule::connection()->transaction(function () use ($userId, $clientId, $tenantId, $username, $email, $status, $isMsp, $canonicalTenantProvided, $canonicalTenantId) {
+        Capsule::table('s3_backup_users')
+            ->where('id', $userId)
+            ->where('client_id', $clientId)
+            ->update([
+                'tenant_id' => $tenantId,
+                'username' => $username,
+                'email' => $email,
+                'status' => $status,
+                'updated_at' => Capsule::raw('NOW()'),
+            ]);
+
+        if ($isMsp && $canonicalTenantProvided) {
+            $storageIdentifier = eb_tenant_storage_identifier_for_user((int) $userId);
+            $linkResult = eb_tenant_storage_links_upsert_for_client((int) $clientId, $storageIdentifier, $canonicalTenantId);
+            if (empty($linkResult['ok'])) {
+                throw new \RuntimeException((string) ($linkResult['message'] ?? 'tenant_storage_link_failed'));
+            }
+        }
+    });
 } catch (\Throwable $e) {
     userUpdateFail('Failed to update user.', 500);
 }

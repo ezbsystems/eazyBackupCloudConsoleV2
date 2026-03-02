@@ -3949,6 +3949,12 @@ function eazybackup_clientarea(array $vars)
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenant') {
         require_once __DIR__ . '/pages/partnerhub/TenantsController.php';
         return eb_ph_tenant_detail($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenant-storage-links') {
+        require_once __DIR__ . '/pages/partnerhub/TenantStorageLinksController.php';
+        eb_ph_tenant_storage_links_list($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenant-storage-links-write') {
+        require_once __DIR__ . '/pages/partnerhub/TenantStorageLinksController.php';
+        eb_ph_tenant_storage_links_write($vars); exit;
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-client') {
         require_once __DIR__ . '/pages/partnerhub/ClientViewController.php';
         return eb_ph_client_view($vars);
