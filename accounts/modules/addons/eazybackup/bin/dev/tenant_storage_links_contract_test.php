@@ -17,9 +17,12 @@ $controllerFile = $moduleRoot . '/pages/partnerhub/TenantStorageLinksController.
 $userCreateFile = $repoRoot . '/accounts/modules/addons/cloudstorage/api/e3backup_user_create.php';
 $userUpdateFile = $repoRoot . '/accounts/modules/addons/cloudstorage/api/e3backup_user_update.php';
 $usersTemplateFile = $repoRoot . '/accounts/modules/addons/cloudstorage/templates/e3backup_users.tpl';
+$userGetFile = $repoRoot . '/accounts/modules/addons/cloudstorage/api/e3backup_user_get.php';
+$userDetailPageFile = $repoRoot . '/accounts/modules/addons/cloudstorage/pages/e3backup_user_detail.php';
+$userDetailTemplateFile = $repoRoot . '/accounts/modules/addons/cloudstorage/templates/e3backup_user_detail.tpl';
 
 $targets = [
-    'module routing file' => [
+    'module file' => [
         'path' => $moduleFile,
         'markers' => [
             'tenant storage links list route marker' => "\$_REQUEST['a']) && \$_REQUEST['a'] === 'ph-tenant-storage-links'",
@@ -27,6 +30,10 @@ $targets = [
             'tenant storage links controller include marker' => "require_once __DIR__ . '/pages/partnerhub/TenantStorageLinksController.php';",
             'tenant storage links list handler marker' => 'eb_ph_tenant_storage_links_list($vars); exit;',
             'tenant storage links write handler marker' => 'eb_ph_tenant_storage_links_write($vars); exit;',
+            'tenant storage links dedupe helper marker' => 'function eb_dedupe_tenant_storage_links_by_storage_identifier(): void',
+            'tenant storage links dedupe invocation marker' => 'eb_dedupe_tenant_storage_links_by_storage_identifier();',
+            'tenant storage links storage unique create marker' => "\$t->unique('storage_identifier', 'uq_tenant_storage_link_storage_identifier');",
+            'tenant storage links storage unique require marker' => "eb_require_index('eb_tenant_storage_links', 'uq_tenant_storage_link_storage_identifier'",
         ],
     ],
     'tenant storage links controller file' => [
@@ -50,8 +57,9 @@ $targets = [
             'list assignable filter marker' => "->whereNotIn('status', ['deleted', 'removing'])",
             'storage ownership lookup marker' => "Capsule::table('s3_backup_users')->where('id', \$userId)->where('client_id', \$clientId)->exists();",
             'csrf fail-closed marker' => "if (\$token === '' || !function_exists('check_token')) {",
-            'tenant storage link table write marker' => "Capsule::table('eb_tenant_storage_links')->insert([",
-            'tenant storage link table delete marker' => "Capsule::table('eb_tenant_storage_links as l')",
+            'tenant storage link canonical key upsert marker' => "->updateOrInsert(['storage_identifier' => \$storageIdentifier], [",
+            'tenant storage link canonical key delete branch marker' => 'if ($canonicalTenantId === null) {',
+            'tenant storage link canonical key delete marker' => "->where('storage_identifier', \$storageIdentifier)",
         ],
     ],
     'cloudstorage user create api file' => [
@@ -98,6 +106,35 @@ $targets = [
         ],
         'forbidden' => [
             'legacy canonical fallback forbidden marker' => 'this.canonicalTenants = Array.isArray(this.tenants) ? this.tenants.slice() : [];',
+        ],
+    ],
+    'cloudstorage user get api file' => [
+        'path' => $userGetFile,
+        'markers' => [
+            'controller include marker' => "require_once __DIR__ . '/../../eazybackup/pages/partnerhub/TenantStorageLinksController.php';",
+            'canonical link lookup marker' => 'eb_tenant_storage_links_get_current_link_for_identifier((int) $clientId, $storageIdentifier);',
+            'canonical tenant id response marker' => "'canonical_tenant_id' => \$canonicalTenantId,",
+            'canonical tenant name response marker' => "'canonical_tenant_name' => \$canonicalTenantName,",
+        ],
+    ],
+    'cloudstorage user detail page file' => [
+        'path' => $userDetailPageFile,
+        'markers' => [
+            'controller include marker' => "require_once __DIR__ . '/../../eazybackup/pages/partnerhub/TenantStorageLinksController.php';",
+            'canonical tenants source marker' => "Capsule::table('eb_whitelabel_tenants')",
+            'canonical tenants template var marker' => "'canonicalTenants' => \$canonicalTenants,",
+        ],
+    ],
+    'cloudstorage user detail template file' => [
+        'path' => $userDetailTemplateFile,
+        'markers' => [
+            'canonical tenants state marker' => 'canonicalTenants: {/literal}{$canonicalTenants|@json_encode nofilter}{literal} || [],',
+            'canonical selection prefill marker' => "this.updateForm.tenant_id = this.user.canonical_tenant_id ? String(this.user.canonical_tenant_id) : '';",
+            'canonical tenant submit marker' => "body.set('canonical_tenant_id', this.updateForm.tenant_id ? this.updateForm.tenant_id : 'direct');",
+            'canonical tenant label marker' => 'const tenant = this.canonicalTenants.find((item) => String(item.id) === String(this.updateForm.tenant_id));',
+        ],
+        'forbidden' => [
+            'legacy tenant id submit forbidden marker' => "body.set('tenant_id', this.updateForm.tenant_id);",
         ],
     ],
 ];

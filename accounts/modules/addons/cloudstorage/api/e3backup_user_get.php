@@ -2,6 +2,7 @@
 
 require_once __DIR__ . '/../../../../init.php';
 require_once __DIR__ . '/../lib/Client/MspController.php';
+require_once __DIR__ . '/../../eazybackup/pages/partnerhub/TenantStorageLinksController.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -96,6 +97,27 @@ if ($isMsp && !empty($user->tenant_id)) {
 }
 
 $tenantId = $user->tenant_id !== null ? (int) $user->tenant_id : null;
+$canonicalTenantId = null;
+$canonicalTenantName = null;
+$storageIdentifier = eb_tenant_storage_identifier_for_user((int) $user->id);
+if ($isMsp) {
+    $canonicalLink = eb_tenant_storage_links_get_current_link_for_identifier((int) $clientId, $storageIdentifier);
+    if ($canonicalLink && !empty($canonicalLink->tenant_id)) {
+        $canonicalTenantId = (int) $canonicalLink->tenant_id;
+        $canonicalTenant = eb_tenant_storage_links_resolve_tenant_for_client((int) $clientId, $canonicalTenantId);
+        if ($canonicalTenant) {
+            $canonicalTenantName = trim((string) ($canonicalTenant->subdomain ?? ''));
+            if ($canonicalTenantName === '') {
+                $canonicalTenantName = trim((string) ($canonicalTenant->fqdn ?? ''));
+            }
+            if ($canonicalTenantName === '') {
+                $canonicalTenantName = 'Tenant #' . $canonicalTenantId;
+            }
+        } else {
+            $canonicalTenantId = null;
+        }
+    }
+}
 $onlineThresholdSeconds = getOnlineThresholdForUserDetail();
 $metrics = [
     'vaults_count' => 0,
@@ -165,12 +187,14 @@ if (
         'id' => (int) $user->id,
         'client_id' => (int) $user->client_id,
         'tenant_id' => $tenantId,
+        'canonical_tenant_id' => $canonicalTenantId,
         'username' => (string) $user->username,
         'email' => (string) $user->email,
         'status' => (string) $user->status,
         'created_at' => $user->created_at,
         'updated_at' => $user->updated_at,
         'tenant_name' => $user->tenant_name ?? null,
+        'canonical_tenant_name' => $canonicalTenantName,
         'vaults_count' => $metrics['vaults_count'],
         'jobs_count' => $metrics['jobs_count'],
         'agents_count' => $metrics['agents_count'],
