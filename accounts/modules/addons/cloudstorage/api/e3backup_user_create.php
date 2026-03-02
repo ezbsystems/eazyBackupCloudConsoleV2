@@ -33,6 +33,18 @@ if (!$ca->isLoggedIn()) {
     userCreateFail('Session timeout', 200);
 }
 
+$token = (string) ($_POST['token'] ?? '');
+if ($token === '' || !function_exists('check_token')) {
+    userCreateFail('CSRF validation failed.', 400);
+}
+try {
+    if (!check_token('plain', $token)) {
+        userCreateFail('CSRF validation failed.', 400);
+    }
+} catch (\Throwable $e) {
+    userCreateFail('CSRF validation failed.', 400);
+}
+
 $clientId = $ca->getUserID();
 $isMsp = MspController::isMspClient($clientId);
 

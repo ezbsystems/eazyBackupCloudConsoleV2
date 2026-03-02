@@ -101,9 +101,11 @@ if ($isMspClient) {
         ];
     }
 }
+$csrfToken = function_exists('generate_token') ? generate_token('plain') : '';
 
 return [
     'isMspClient' => $isMspClient,
+    'csrfToken' => $csrfToken,
     'canonicalTenants' => $canonicalTenants,
     'user' => $user,
 ];

@@ -300,6 +300,7 @@ function backupUsersApp() {
         loading: true,
         saving: false,
         isMspClient: {/literal}{if $isMspClient}true{else}false{/if}{literal},
+        csrfToken: {/literal}{$csrfToken|@json_encode nofilter}{literal} || '',
         tenants: {/literal}{$tenants|@json_encode nofilter}{literal} || [],
         canonicalTenants: [],
         tenantFilter: '',
@@ -688,6 +689,7 @@ function backupUsersApp() {
                     strict_acknowledged: this.form.strict_acknowledged ? '1' : '0',
                     recovery_key_downloaded: this.form.recovery_key_downloaded ? '1' : '0'
                 });
+                body.set('token', this.csrfToken);
 
                 if (this.isMspClient) {
                     body.set('canonical_tenant_id', this.form.tenant_id ? this.form.tenant_id : 'direct');

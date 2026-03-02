@@ -18,8 +18,11 @@ $userCreateFile = $repoRoot . '/accounts/modules/addons/cloudstorage/api/e3backu
 $userUpdateFile = $repoRoot . '/accounts/modules/addons/cloudstorage/api/e3backup_user_update.php';
 $usersTemplateFile = $repoRoot . '/accounts/modules/addons/cloudstorage/templates/e3backup_users.tpl';
 $userGetFile = $repoRoot . '/accounts/modules/addons/cloudstorage/api/e3backup_user_get.php';
+$usersPageFile = $repoRoot . '/accounts/modules/addons/cloudstorage/pages/e3backup_users.php';
 $userDetailPageFile = $repoRoot . '/accounts/modules/addons/cloudstorage/pages/e3backup_user_detail.php';
 $userDetailTemplateFile = $repoRoot . '/accounts/modules/addons/cloudstorage/templates/e3backup_user_detail.tpl';
+$tenantDetailPageFile = $repoRoot . '/accounts/modules/addons/cloudstorage/pages/e3backup_tenant_detail.php';
+$tenantDetailTemplateFile = $repoRoot . '/accounts/modules/addons/cloudstorage/templates/e3backup_tenant_detail.tpl';
 
 $targets = [
     'module file' => [
@@ -66,6 +69,10 @@ $targets = [
         'path' => $userCreateFile,
         'markers' => [
             'controller include marker' => "require_once __DIR__ . '/../../eazybackup/pages/partnerhub/TenantStorageLinksController.php';",
+            'csrf token post marker' => "\$token = (string) (\$_POST['token'] ?? '');",
+            'csrf fail-closed marker' => "if (\$token === '' || !function_exists('check_token')) {",
+            'csrf check marker' => "if (!check_token('plain', \$token)) {",
+            'csrf exception marker' => "} catch (\Throwable \$e) {",
             'canonical tenant post presence marker' => "\$canonicalTenantProvided = array_key_exists('canonical_tenant_id', \$_POST);",
             'canonical tenant post marker' => "\$canonicalTenantIdRaw = \$_POST['canonical_tenant_id'] ?? null;",
             'canonical direct precedence marker' => 'if ($isMsp) {',
@@ -81,6 +88,10 @@ $targets = [
         'path' => $userUpdateFile,
         'markers' => [
             'controller include marker' => "require_once __DIR__ . '/../../eazybackup/pages/partnerhub/TenantStorageLinksController.php';",
+            'csrf token post marker' => "\$token = (string) (\$_POST['token'] ?? '');",
+            'csrf fail-closed marker' => "if (\$token === '' || !function_exists('check_token')) {",
+            'csrf check marker' => "if (!check_token('plain', \$token)) {",
+            'csrf exception marker' => "} catch (\Throwable \$e) {",
             'canonical tenant post presence marker' => "\$canonicalTenantProvided = array_key_exists('canonical_tenant_id', \$_POST);",
             'canonical tenant post marker' => "\$canonicalTenantIdRaw = \$_POST['canonical_tenant_id'] ?? null;",
             'current canonical link lookup marker' => '$currentCanonicalLink = eb_tenant_storage_links_get_current_link_for_identifier((int) $clientId, $storageIdentifier);',
@@ -104,6 +115,8 @@ $targets = [
             'canonical tenants endpoint marker' => "index.php?m=eazybackup&a=ph-tenant-storage-links'",
             'canonical tenants safe-empty marker' => 'this.canonicalTenants = [];',
             'assign tenant source marker' => 'return this.canonicalTenants;',
+            'csrf token state marker' => "csrfToken: {/literal}{\$csrfToken|@json_encode nofilter}{literal} || '',",
+            'create csrf token submit marker' => "body.set('token', this.csrfToken);",
             'create canonical tenant submit marker' => "body.set('canonical_tenant_id', this.form.tenant_id ? this.form.tenant_id : 'direct');",
         ],
         'forbidden' => [
@@ -126,6 +139,8 @@ $targets = [
         'markers' => [
             'controller include marker' => "require_once __DIR__ . '/../../eazybackup/pages/partnerhub/TenantStorageLinksController.php';",
             'canonical tenants source marker' => "Capsule::table('eb_whitelabel_tenants')",
+            'csrf token generate marker' => "\$csrfToken = function_exists('generate_token') ? generate_token('plain') : '';",
+            'csrf token return marker' => "'csrfToken' => \$csrfToken,",
             'canonical tenants template var marker' => "'canonicalTenants' => \$canonicalTenants,",
         ],
     ],
@@ -133,9 +148,11 @@ $targets = [
         'path' => $userDetailTemplateFile,
         'markers' => [
             'canonical tenants state marker' => 'canonicalTenants: {/literal}{$canonicalTenants|@json_encode nofilter}{literal} || [],',
+            'csrf token state marker' => "csrfToken: {/literal}{\$csrfToken|@json_encode nofilter}{literal} || '',",
             'canonical selection prefill marker' => "this.updateForm.tenant_id = this.user.canonical_tenant_id ? String(this.user.canonical_tenant_id) : '';",
             'canonical managed state marker' => 'is_canonical_managed: false,',
             'canonical submit predicate marker' => 'shouldSendCanonicalTenantOnUpdate() {',
+            'update csrf token submit marker' => "body.set('token', this.csrfToken);",
             'canonical tenant submit marker' => "if (this.isMspClient && this.shouldSendCanonicalTenantOnUpdate()) {",
             'canonical direct submit marker' => "body.set('canonical_tenant_id', this.updateForm.tenant_id ? this.updateForm.tenant_id : 'direct');",
             'canonical tenant label marker' => 'const tenant = this.canonicalTenants.find((item) => String(item.id) === String(this.updateForm.tenant_id));',
@@ -143,6 +160,27 @@ $targets = [
         'forbidden' => [
             'legacy tenant id submit forbidden marker' => "body.set('tenant_id', this.updateForm.tenant_id);",
             'unguarded canonical direct submit forbidden marker' => "if (this.isMspClient) {\n                    body.set('canonical_tenant_id', this.updateForm.tenant_id ? this.updateForm.tenant_id : 'direct');",
+        ],
+    ],
+    'cloudstorage users page file' => [
+        'path' => $usersPageFile,
+        'markers' => [
+            'csrf token generate marker' => "\$csrfToken = function_exists('generate_token') ? generate_token('plain') : '';",
+            'csrf token return marker' => "'csrfToken' => \$csrfToken,",
+        ],
+    ],
+    'cloudstorage tenant detail page file' => [
+        'path' => $tenantDetailPageFile,
+        'markers' => [
+            'csrf token generate marker' => "\$csrfToken = function_exists('generate_token') ? generate_token('plain') : '';",
+            'csrf token return marker' => "'csrfToken' => \$csrfToken,",
+        ],
+    ],
+    'cloudstorage tenant detail template file' => [
+        'path' => $tenantDetailTemplateFile,
+        'markers' => [
+            'csrf token state marker' => "csrfToken: {/literal}{\$csrfToken|@json_encode nofilter}{literal} || '',",
+            'create csrf token submit marker' => "body.set('token', this.csrfToken);",
         ],
     ],
 ];
