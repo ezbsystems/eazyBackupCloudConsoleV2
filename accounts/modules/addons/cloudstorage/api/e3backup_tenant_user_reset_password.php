@@ -59,6 +59,7 @@ $user = Capsule::table('s3_backup_tenant_users as u')
     ->join('s3_backup_tenants as t', 'u.tenant_id', '=', 't.id')
     ->where('u.id', $userId)
     ->where('t.client_id', $clientId)
+    ->where('t.status', '!=', 'deleted')
     ->first(['u.id']);
 
 if (!$user) {
