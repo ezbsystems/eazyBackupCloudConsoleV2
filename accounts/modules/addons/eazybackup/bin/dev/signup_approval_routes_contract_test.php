@@ -15,6 +15,7 @@ $repoRoot = dirname($moduleRoot, 4);
 $controllerFile = $moduleRoot . '/pages/partnerhub/SignupApprovalsController.php';
 $templateFile = $moduleRoot . '/templates/whitelabel/signup-approvals.tpl';
 $moduleFile = $moduleRoot . '/eazybackup.php';
+$schemaSqlFile = $moduleRoot . '/sql/partner_hub_phase1.sql';
 $navFile = $repoRoot . '/accounts/templates/eazyBackup/includes/nav_partner_hub.tpl';
 
 $targets = [
@@ -28,7 +29,7 @@ $targets = [
             'signup approve controller exit marker' => 'eb_ph_signup_approve($vars); exit;',
             'signup reject route marker' => "\$_REQUEST['a']) && \$_REQUEST['a'] === 'ph-signup-reject'",
             'signup reject controller exit marker' => 'eb_ph_signup_reject($vars); exit;',
-            'signup status enum migration marker' => "ALTER TABLE eb_whitelabel_signup_events MODIFY COLUMN status ENUM('received','validated','ordered','pending_approval','approved','rejected','accepted','provisioned','emailed','completed','failed') NOT NULL DEFAULT 'received'",
+            'signup status enum migration marker' => "ALTER TABLE eb_whitelabel_signup_events MODIFY COLUMN status ENUM('received','validated','ordered','pending_approval','approving','rejecting','approved','rejected','accepted','provisioned','emailed','completed','failed') NOT NULL DEFAULT 'received'",
         ],
     ],
     'signup approvals controller file' => [
@@ -40,21 +41,35 @@ $targets = [
             'csrf token emit marker' => "'token' => function_exists('generate_token') ? generate_token('plain') : ''",
             'csrf check marker' => "check_token('plain', \$token)",
             'csrf fail-closed helper marker' => 'function eb_ph_signup_approvals_require_csrf_or_redirect(array $vars, string $token): void',
+            'processing claim helper marker' => 'function eb_ph_signup_approvals_claim_processing(int $eventId, string $processingStatus, ?int $adminId): bool',
+            'processing finalize helper marker' => 'function eb_ph_signup_approvals_finalize_from_processing(int $eventId, string $processingStatus, string $finalStatus, array $update): bool',
+            'processing rollback helper marker' => 'function eb_ph_signup_approvals_rollback_to_pending(int $eventId, string $processingStatus, string $reason): bool',
             'approve function marker' => 'function eb_ph_signup_approve(array $vars): void',
             'order ownership revalidation marker' => "localAPI('GetOrders'",
             'approve localapi marker' => "localAPI('AcceptOrder'",
             'approve status marker' => "'status' => 'approved'",
-            'approve race guard marker' => "->where('status', 'pending_approval')",
+            'approve claim marker' => "eb_ph_signup_approvals_claim_processing(\$eventId, 'approving', \$adminId)",
+            'approve finalize marker' => "eb_ph_signup_approvals_finalize_from_processing(\$eventId, 'approving', 'approved', \$update)",
+            'approve rollback marker' => "eb_ph_signup_approvals_rollback_to_pending(\$eventId, 'approving', 'Approve failed",
             'reject function marker' => 'function eb_ph_signup_reject(array $vars): void',
             'reject cancel marker' => "localAPI('CancelOrder'",
             'reject void marker' => "localAPI('UpdateInvoice'",
             'reject status marker' => "'status' => 'rejected'",
+            'reject claim marker' => "eb_ph_signup_approvals_claim_processing(\$eventId, 'rejecting', \$adminId)",
+            'reject finalize marker' => "eb_ph_signup_approvals_finalize_from_processing(\$eventId, 'rejecting', 'rejected', \$update)",
             'reject cancel path success marker' => '$cancelPathSucceeded',
+            'reject rollback marker' => "eb_ph_signup_approvals_rollback_to_pending(\$eventId, 'rejecting', 'Reject failed",
             'reject failure surfaced marker' => "eb_ph_signup_approvals_redirect(\$vars, 'error=cancel_failed')",
         ],
         'forbidden' => [
             'direct tblorders write marker' => "Capsule::table('tblorders')->where('id', \$orderId)->update(['status' => 'Cancelled'])",
             'direct tblinvoices write marker' => "Capsule::table('tblinvoices')->where('id', \$invoiceId)->update(['status' => 'Cancelled'])",
+        ],
+    ],
+    'phase1 schema sql file' => [
+        'path' => $schemaSqlFile,
+        'markers' => [
+            'phase1 signup status enum marker' => "status ENUM('received','validated','ordered','pending_approval','approving','rejecting','approved','rejected','accepted','provisioned','emailed','completed','failed') NOT NULL DEFAULT 'received'",
         ],
     ],
     'signup approvals template file' => [
