@@ -26,9 +26,105 @@ function eb_tenant_storage_links_resolve_tenant_for_client(int $clientId, int $c
     return Capsule::table('eb_whitelabel_tenants')->where('id', $canonicalTenantId)->where('client_id', $clientId)->first();
 }
 
+function eb_tenant_storage_links_resolve_or_create_storage_tenant_id(int $clientId, int $canonicalTenantId): int
+{
+    if ($clientId <= 0 || $canonicalTenantId <= 0) {
+        throw new \RuntimeException('invalid_tenant_mapping_input');
+    }
+
+    $canonicalTenant = eb_tenant_storage_links_resolve_tenant_for_client($clientId, $canonicalTenantId);
+    if (!$canonicalTenant) {
+        throw new \RuntimeException('canonical_tenant_not_found');
+    }
+
+    $slug = 'eb-canonical-' . $canonicalTenantId;
+    $name = trim((string) ($canonicalTenant->subdomain ?? ''));
+    if ($name === '') {
+        $name = trim((string) ($canonicalTenant->fqdn ?? ''));
+    }
+    if ($name === '') {
+        $name = 'Canonical Tenant #' . $canonicalTenantId;
+    }
+
+    try {
+        if (!Capsule::schema()->hasTable('s3_backup_tenants')) {
+            throw new \RuntimeException('storage_tenant_table_missing');
+        }
+    } catch (\Throwable $e) {
+        throw new \RuntimeException('storage_tenant_table_missing');
+    }
+
+    $existing = Capsule::table('s3_backup_tenants')
+        ->where('client_id', $clientId)
+        ->where('slug', $slug)
+        ->first();
+    if ($existing) {
+        $updates = ['updated_at' => Capsule::raw('NOW()')];
+        if ((string) ($existing->status ?? '') === 'deleted') {
+            $updates['status'] = 'active';
+        }
+        if (trim((string) ($existing->name ?? '')) === '') {
+            $updates['name'] = $name;
+        }
+        Capsule::table('s3_backup_tenants')->where('id', (int) $existing->id)->update($updates);
+        return (int) $existing->id;
+    }
+
+    try {
+        return (int) Capsule::table('s3_backup_tenants')->insertGetId([
+            'client_id' => $clientId,
+            'name' => $name,
+            'slug' => $slug,
+            'status' => 'active',
+            'created_at' => Capsule::raw('NOW()'),
+            'updated_at' => Capsule::raw('NOW()'),
+        ]);
+    } catch (\Throwable $e) {
+        $raced = Capsule::table('s3_backup_tenants')
+            ->where('client_id', $clientId)
+            ->where('slug', $slug)
+            ->first();
+        if ($raced) {
+            return (int) $raced->id;
+        }
+        throw new \RuntimeException('storage_tenant_create_failed');
+    }
+}
+
 function eb_tenant_storage_identifier_for_user(int $userId): string
 {
     return 's3_backup_user:' . max(0, $userId);
+}
+
+function eb_tenant_storage_links_storage_identifier_belongs_to_client(int $clientId, string $storageIdentifier): bool
+{
+    if ($clientId <= 0) {
+        return false;
+    }
+
+    $storageIdentifier = trim($storageIdentifier);
+    if ($storageIdentifier === '') {
+        return false;
+    }
+
+    if (!preg_match('/^s3_backup_user:(\d+)$/', $storageIdentifier, $matches)) {
+        // Keep backward-compatible behavior for non-user identifiers.
+        return true;
+    }
+
+    $userId = (int) ($matches[1] ?? 0);
+    if ($userId <= 0) {
+        return false;
+    }
+
+    try {
+        if (!Capsule::schema()->hasTable('s3_backup_users')) {
+            return false;
+        }
+        return Capsule::table('s3_backup_users')->where('id', $userId)->where('client_id', $clientId)->exists();
+    } catch (\Throwable $e) {
+        return false;
+    }
 }
 
 function eb_tenant_storage_links_upsert_for_client(int $clientId, string $storageIdentifier, ?int $canonicalTenantId): array
@@ -54,6 +150,10 @@ function eb_tenant_storage_links_upsert_for_client(int $clientId, string $storag
         if (!$canonicalTenant) {
             return ['ok' => false, 'message' => 'canonical_tenant_not_found'];
         }
+    }
+
+    if (!eb_tenant_storage_links_storage_identifier_belongs_to_client($clientId, $storageIdentifier)) {
+        return ['ok' => false, 'message' => 'storage_identifier_not_owned'];
     }
 
     try {
@@ -164,21 +264,28 @@ function eb_ph_tenant_storage_links_write(array $vars): void
     }
 
     $token = (string) ($_POST['token'] ?? '');
-    if (function_exists('check_token')) {
-        try {
-            if (!check_token('plain', $token)) {
-                echo json_encode(['status' => 'error', 'message' => 'csrf']);
-                return;
-            }
-        } catch (\Throwable $e) {
+    if ($token === '' || !function_exists('check_token')) {
+        echo json_encode(['status' => 'error', 'message' => 'csrf']);
+        return;
+    }
+    try {
+        if (!check_token('plain', $token)) {
             echo json_encode(['status' => 'error', 'message' => 'csrf']);
             return;
         }
+    } catch (\Throwable $e) {
+        echo json_encode(['status' => 'error', 'message' => 'csrf']);
+        return;
     }
 
     $storageIdentifier = trim((string) ($_POST['storage_identifier'] ?? ''));
     if ($storageIdentifier === '') {
         echo json_encode(['status' => 'error', 'message' => 'storage_identifier_required']);
+        return;
+    }
+
+    if (!eb_tenant_storage_links_storage_identifier_belongs_to_client($clientId, $storageIdentifier)) {
+        echo json_encode(['status' => 'error', 'message' => 'storage_identifier_not_owned']);
         return;
     }
 
