@@ -482,6 +482,46 @@ function eb_require_index(
     throw new \RuntimeException("Required index {$indexName} on {$table} is still missing after creation attempt.");
 }
 
+function eb_dedupe_tenant_storage_links_by_storage_identifier(): void {
+    $schema = Capsule::schema();
+    if (!$schema->hasTable('eb_tenant_storage_links')) {
+        return;
+    }
+
+    $duplicates = Capsule::table('eb_tenant_storage_links')
+        ->select([
+            'storage_identifier',
+            Capsule::raw('COUNT(*) as dup_count'),
+        ])
+        ->whereNotNull('storage_identifier')
+        ->where('storage_identifier', '!=', '')
+        ->groupBy('storage_identifier')
+        ->havingRaw('COUNT(*) > 1')
+        ->get();
+
+    foreach ($duplicates as $dup) {
+        $storageIdentifier = trim((string) ($dup->storage_identifier ?? ''));
+        if ($storageIdentifier === '') {
+            continue;
+        }
+
+        $keep = Capsule::table('eb_tenant_storage_links')
+            ->where('storage_identifier', $storageIdentifier)
+            ->orderByRaw("CASE WHEN link_status = 'active' THEN 0 ELSE 1 END")
+            ->orderBy('updated_at', 'desc')
+            ->orderBy('id', 'desc')
+            ->first(['id']);
+        if (!$keep) {
+            continue;
+        }
+
+        Capsule::table('eb_tenant_storage_links')
+            ->where('storage_identifier', $storageIdentifier)
+            ->where('id', '!=', (int) $keep->id)
+            ->delete();
+    }
+}
+
 /** Create or patch all addon tables */
 function eazybackup_migrate_schema(): void {
     $schema = Capsule::schema();
@@ -1335,10 +1375,13 @@ function eazybackup_migrate_schema(): void {
             $t->timestamp('created_at')->nullable()->useCurrent();
             $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
             $t->unique(['tenant_id','storage_identifier'], 'uq_tenant_storage_link');
+            $t->unique('storage_identifier', 'uq_tenant_storage_link_storage_identifier');
             $t->index('tenant_id', 'idx_tenant_storage_link_tenant');
         });
     }
     if ($schema->hasTable('eb_tenant_storage_links')) {
+        eb_dedupe_tenant_storage_links_by_storage_identifier();
+        eb_require_index('eb_tenant_storage_links', 'uq_tenant_storage_link_storage_identifier', "CREATE UNIQUE INDEX uq_tenant_storage_link_storage_identifier ON eb_tenant_storage_links (storage_identifier)", ['storage_identifier'], true);
         eb_require_index('eb_tenant_storage_links', 'uq_tenant_storage_link', "CREATE UNIQUE INDEX uq_tenant_storage_link ON eb_tenant_storage_links (tenant_id, storage_identifier)", ['tenant_id', 'storage_identifier'], true);
         eb_require_index('eb_tenant_storage_links', 'idx_tenant_storage_link_tenant', "CREATE INDEX idx_tenant_storage_link_tenant ON eb_tenant_storage_links (tenant_id)", ['tenant_id'], false);
     }

@@ -261,30 +261,22 @@ function eb_tenant_storage_links_upsert_for_client(int $clientId, string $storag
     }
 
     try {
-        Capsule::connection()->transaction(function () use ($clientId, $storageIdentifier, $canonicalTenantId): void {
-            $ownedTenantIds = Capsule::table('eb_whitelabel_tenants')
-                ->where('client_id', $clientId)
-                ->pluck('id')
-                ->map(static function ($id): int {
-                    return (int) $id;
-                })
-                ->all();
-
-            if ($ownedTenantIds !== []) {
-                Capsule::table('eb_tenant_storage_links as l')
-                    ->whereIn('l.tenant_id', $ownedTenantIds)
-                    ->where('l.storage_identifier', $storageIdentifier)
+        Capsule::connection()->transaction(function () use ($storageIdentifier, $canonicalTenantId): void {
+            if ($canonicalTenantId === null) {
+                Capsule::table('eb_tenant_storage_links')
+                    ->where('storage_identifier', $storageIdentifier)
                     ->delete();
+                return;
             }
 
-            if ($canonicalTenantId !== null) {
-                Capsule::table('eb_tenant_storage_links')->insert([
+            $now = date('Y-m-d H:i:s');
+            Capsule::table('eb_tenant_storage_links')
+                ->updateOrInsert(['storage_identifier' => $storageIdentifier], [
                     'tenant_id' => $canonicalTenantId,
-                    'storage_identifier' => $storageIdentifier,
-                    'created_at' => date('Y-m-d H:i:s'),
-                    'updated_at' => date('Y-m-d H:i:s'),
+                    'link_status' => 'active',
+                    'created_at' => $now,
+                    'updated_at' => $now,
                 ]);
-            }
         });
     } catch (\Throwable $e) {
         return ['ok' => false, 'message' => 'write_failed'];
