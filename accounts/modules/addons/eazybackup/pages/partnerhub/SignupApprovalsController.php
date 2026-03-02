@@ -74,6 +74,30 @@ function eb_ph_signup_approvals_require_csrf_or_redirect(array $vars, string $to
     }
 }
 
+function eb_ph_signup_approvals_require_processing_schema_or_redirect(array $vars): void
+{
+    static $supported = null;
+    if ($supported === null) {
+        $supported = false;
+        try {
+            $rows = Capsule::select("SHOW COLUMNS FROM `eb_whitelabel_signup_events` LIKE 'status'");
+            $row = $rows[0] ?? null;
+            $type = strtolower((string)($row->Type ?? ($row->type ?? '')));
+            $supported = (
+                strpos($type, "'pending_approval'") !== false
+                && strpos($type, "'approving'") !== false
+                && strpos($type, "'rejecting'") !== false
+            );
+        } catch (\Throwable $__) {
+            $supported = false;
+        }
+    }
+
+    if (!$supported) {
+        eb_ph_signup_approvals_redirect($vars, 'error=schema_status_enum');
+    }
+}
+
 function eb_ph_signup_approvals_get_order_snapshot(int $orderId, string $adminUser): ?array
 {
     if ($orderId <= 0) {
@@ -313,6 +337,7 @@ function eb_ph_signup_approve(array $vars): void
     if ($expectedClientId <= 0 || $orderUserId !== $expectedClientId) {
         eb_ph_signup_approvals_redirect($vars, 'error=order_owner');
     }
+    eb_ph_signup_approvals_require_processing_schema_or_redirect($vars);
     $adminId = isset($_SESSION['adminid']) ? (int)$_SESSION['adminid'] : null;
     if (!eb_ph_signup_approvals_claim_processing($eventId, 'approving', $adminId)) {
         eb_ph_signup_approvals_redirect($vars, 'error=race');
@@ -406,6 +431,7 @@ function eb_ph_signup_reject(array $vars): void
     if ($expectedClientId <= 0 || $orderUserId !== $expectedClientId) {
         eb_ph_signup_approvals_redirect($vars, 'error=order_owner');
     }
+    eb_ph_signup_approvals_require_processing_schema_or_redirect($vars);
     $adminId = isset($_SESSION['adminid']) ? (int)$_SESSION['adminid'] : null;
     if (!eb_ph_signup_approvals_claim_processing($eventId, 'rejecting', $adminId)) {
         eb_ph_signup_approvals_redirect($vars, 'error=race');

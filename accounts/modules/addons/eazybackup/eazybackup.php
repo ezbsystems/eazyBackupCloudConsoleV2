@@ -1223,7 +1223,12 @@ function eazybackup_migrate_schema(): void {
         if ($schema->hasColumn('eb_whitelabel_signup_events', 'status')) {
             try {
                 Capsule::statement("ALTER TABLE eb_whitelabel_signup_events MODIFY COLUMN status ENUM('received','validated','ordered','pending_approval','approving','rejecting','approved','rejected','accepted','provisioned','emailed','completed','failed') NOT NULL DEFAULT 'received'");
-            } catch (\Throwable $__) { /* ignore */ }
+            } catch (\Throwable $e) {
+                $schemaErr = 'eazybackup: schema enum alter failed for eb_whitelabel_signup_events.status: ' . $e->getMessage();
+                try { if (function_exists('logActivity')) { logActivity($schemaErr); } } catch (\Throwable $__) {}
+                try { if (function_exists('logModuleCall')) { @logModuleCall('eazybackup', 'schema:wlse-status-enum-alter', [], ['error' => $e->getMessage()]); } } catch (\Throwable $__) {}
+                try { if (function_exists('customFileLog')) { customFileLog('schema enum alter failed for eb_whitelabel_signup_events.status', $e->getMessage()); } } catch (\Throwable $__) {}
+            }
         }
     }
 
