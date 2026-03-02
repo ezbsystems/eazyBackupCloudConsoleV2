@@ -59,6 +59,101 @@ function eb_ph_signup_approvals_resolve_admin_user(): string
     return $adminUser;
 }
 
+function eb_ph_signup_approvals_require_csrf_or_redirect(array $vars, string $token): void
+{
+    if (!function_exists('check_token')) {
+        eb_ph_signup_approvals_redirect($vars, 'error=csrf');
+    }
+    try {
+        $valid = (bool)check_token('plain', $token);
+    } catch (\Throwable $__) {
+        eb_ph_signup_approvals_redirect($vars, 'error=csrf');
+    }
+    if (!$valid) {
+        eb_ph_signup_approvals_redirect($vars, 'error=csrf');
+    }
+}
+
+function eb_ph_signup_approvals_get_order_snapshot(int $orderId, string $adminUser): ?array
+{
+    if ($orderId <= 0) {
+        return null;
+    }
+    try {
+        $res = localAPI('GetOrders', ['id' => $orderId], $adminUser);
+    } catch (\Throwable $__) {
+        return null;
+    }
+    if (($res['result'] ?? '') !== 'success') {
+        return null;
+    }
+
+    $orders = $res['orders']['order'] ?? [];
+    if (!is_array($orders)) {
+        return null;
+    }
+    if (isset($orders['id'])) {
+        $orders = [$orders];
+    }
+    if (!isset($orders[0]) || !is_array($orders[0])) {
+        return null;
+    }
+    $order = $orders[0];
+
+    return [
+        'id' => (int)($order['id'] ?? 0),
+        'userid' => (int)($order['userid'] ?? 0),
+        'invoiceid' => (int)($order['invoiceid'] ?? 0),
+        'status' => (string)($order['status'] ?? ''),
+    ];
+}
+
+function eb_ph_signup_approvals_is_order_cancelled(?array $order): bool
+{
+    $status = strtolower(trim((string)($order['status'] ?? '')));
+    return $status === 'cancelled';
+}
+
+function eb_ph_signup_approvals_is_invoice_cancelled(int $invoiceId, string $adminUser): bool
+{
+    if ($invoiceId <= 0) {
+        return true;
+    }
+    try {
+        $res = localAPI('GetInvoices', ['invoiceid' => $invoiceId], $adminUser);
+    } catch (\Throwable $__) {
+        return false;
+    }
+    if (($res['result'] ?? '') !== 'success') {
+        return false;
+    }
+
+    $invoices = $res['invoices']['invoice'] ?? [];
+    if (!is_array($invoices)) {
+        return false;
+    }
+    if (isset($invoices['id'])) {
+        $invoices = [$invoices];
+    }
+    if (!isset($invoices[0]) || !is_array($invoices[0])) {
+        return false;
+    }
+    $status = strtolower(trim((string)($invoices[0]['status'] ?? '')));
+
+    return $status === 'cancelled';
+}
+
+function eb_ph_signup_approvals_update_when_pending(int $eventId, array $update): bool
+{
+    $update['updated_at'] = date('Y-m-d H:i:s');
+    $affected = Capsule::table('eb_whitelabel_signup_events')
+        ->where('id', $eventId)
+        ->where('status', 'pending_approval')
+        ->update($update);
+
+    return (int)$affected === 1;
+}
+
 function eb_ph_signup_approvals_get_event_for_client(int $eventId, int $clientId): ?object
 {
     return Capsule::table('eb_whitelabel_signup_events as e')
@@ -135,7 +230,7 @@ function eb_ph_signup_approve(array $vars): void
     }
 
     $token = (string)($_POST['token'] ?? '');
-    if (function_exists('check_token')) { try { if (!check_token('plain', $token)) { eb_ph_signup_approvals_redirect($vars, 'error=csrf'); } } catch (\Throwable $__) {} }
+    eb_ph_signup_approvals_require_csrf_or_redirect($vars, $token);
 
     $eventId = (int)($_POST['event_id'] ?? 0);
     if ($eventId <= 0) {
@@ -153,6 +248,16 @@ function eb_ph_signup_approve(array $vars): void
     }
 
     $adminUser = eb_ph_signup_approvals_resolve_admin_user();
+    $order = eb_ph_signup_approvals_get_order_snapshot($orderId, $adminUser);
+    if (!$order) {
+        eb_ph_signup_approvals_redirect($vars, 'error=order_lookup');
+    }
+    $expectedClientId = (int)($event->whmcs_client_id ?? 0);
+    $orderUserId = (int)($order['userid'] ?? 0);
+    if ($expectedClientId <= 0 || $orderUserId !== $expectedClientId) {
+        eb_ph_signup_approvals_redirect($vars, 'error=order_owner');
+    }
+
     $acceptData = [
         'orderid' => $orderId,
         'autosetup' => true,
@@ -173,12 +278,18 @@ function eb_ph_signup_approve(array $vars): void
     }
 
     $adminId = isset($_SESSION['adminid']) ? (int)$_SESSION['adminid'] : null;
-    Capsule::table('eb_whitelabel_signup_events')->where('id', $eventId)->update([
+    $approvalNotes = trim((string)($_POST['approval_notes'] ?? ''));
+    $update = [
         'status' => 'approved',
         'approved_by_admin_id' => ($adminId && $adminId > 0) ? $adminId : null,
         'approved_at' => date('Y-m-d H:i:s'),
-        'updated_at' => date('Y-m-d H:i:s'),
-    ]);
+    ];
+    if ($approvalNotes !== '') {
+        $update['approval_notes'] = substr($approvalNotes, 0, 65535);
+    }
+    if (!eb_ph_signup_approvals_update_when_pending($eventId, $update)) {
+        eb_ph_signup_approvals_redirect($vars, 'error=race');
+    }
 
     eb_ph_signup_approvals_redirect($vars, 'notice=approved');
 }
@@ -192,7 +303,7 @@ function eb_ph_signup_reject(array $vars): void
     }
 
     $token = (string)($_POST['token'] ?? '');
-    if (function_exists('check_token')) { try { if (!check_token('plain', $token)) { eb_ph_signup_approvals_redirect($vars, 'error=csrf'); } } catch (\Throwable $__) {} }
+    eb_ph_signup_approvals_require_csrf_or_redirect($vars, $token);
 
     $eventId = (int)($_POST['event_id'] ?? 0);
     if ($eventId <= 0) {
@@ -204,53 +315,68 @@ function eb_ph_signup_reject(array $vars): void
         eb_ph_signup_approvals_redirect($vars, 'error=notfound');
     }
 
-    $adminUser = eb_ph_signup_approvals_resolve_admin_user();
     $orderId = (int)($event->whmcs_order_id ?? 0);
-    $cancelIssues = [];
+    if ($orderId <= 0) {
+        eb_ph_signup_approvals_redirect($vars, 'error=order');
+    }
 
-    if ($orderId > 0) {
+    $adminUser = eb_ph_signup_approvals_resolve_admin_user();
+    $order = eb_ph_signup_approvals_get_order_snapshot($orderId, $adminUser);
+    if (!$order) {
+        eb_ph_signup_approvals_redirect($vars, 'error=order_lookup');
+    }
+    $expectedClientId = (int)($event->whmcs_client_id ?? 0);
+    $orderUserId = (int)($order['userid'] ?? 0);
+    if ($expectedClientId <= 0 || $orderUserId !== $expectedClientId) {
+        eb_ph_signup_approvals_redirect($vars, 'error=order_owner');
+    }
+
+    $cancelPathSucceeded = false;
+    try {
+        $cancelRes = localAPI('CancelOrder', [
+            'orderid' => $orderId,
+            'cancellationreason' => 'Rejected by MSP signup approvals',
+        ], $adminUser);
+        $cancelPathSucceeded = (($cancelRes['result'] ?? '') === 'success');
+    } catch (\Throwable $__) {
+        $cancelPathSucceeded = false;
+    }
+    if (!$cancelPathSucceeded) {
+        $latestOrder = eb_ph_signup_approvals_get_order_snapshot($orderId, $adminUser);
+        if (eb_ph_signup_approvals_is_order_cancelled($latestOrder)) {
+            $cancelPathSucceeded = true;
+            $order = $latestOrder;
+        }
+    }
+    if (!$cancelPathSucceeded) {
+        eb_ph_signup_approvals_update_when_pending($eventId, [
+            'approval_notes' => substr('Reject failed: cancel path did not succeed', 0, 65535),
+        ]);
+        eb_ph_signup_approvals_redirect($vars, 'error=cancel_failed');
+    }
+
+    $invoiceId = (int)($order['invoiceid'] ?? 0);
+    $voidPathSucceeded = true;
+    if ($invoiceId > 0) {
+        $voidPathSucceeded = false;
         try {
-            $cancelRes = localAPI('CancelOrder', [
-                'orderid' => $orderId,
-                'cancellationreason' => 'Rejected by MSP signup approvals',
+            $voidRes = localAPI('UpdateInvoice', [
+                'invoiceid' => $invoiceId,
+                'status' => 'Cancelled',
             ], $adminUser);
-            if (($cancelRes['result'] ?? '') !== 'success') {
-                $cancelIssues[] = 'cancel_order_failed';
-            }
+            $voidPathSucceeded = (($voidRes['result'] ?? '') === 'success');
         } catch (\Throwable $__) {
-            $cancelIssues[] = 'cancel_order_exception';
+            $voidPathSucceeded = false;
         }
-
-        $invoiceId = 0;
-        try {
-            $invoiceId = (int)(Capsule::table('tblorders')->where('id', $orderId)->value('invoiceid') ?? 0);
-        } catch (\Throwable $__) {
-            $invoiceId = 0;
+        if (!$voidPathSucceeded) {
+            $voidPathSucceeded = eb_ph_signup_approvals_is_invoice_cancelled($invoiceId, $adminUser);
         }
-        if ($invoiceId > 0) {
-            try {
-                $voidRes = localAPI('UpdateInvoice', [
-                    'invoiceid' => $invoiceId,
-                    'status' => 'Cancelled',
-                ], $adminUser);
-                if (($voidRes['result'] ?? '') !== 'success') {
-                    $cancelIssues[] = 'void_invoice_failed';
-                }
-            } catch (\Throwable $__) {
-                $cancelIssues[] = 'void_invoice_exception';
-            }
-            try {
-                Capsule::table('tblinvoices')->where('id', $invoiceId)->update(['status' => 'Cancelled']);
-            } catch (\Throwable $__) {
-                // Best effort.
-            }
-        }
-
-        try {
-            Capsule::table('tblorders')->where('id', $orderId)->update(['status' => 'Cancelled']);
-        } catch (\Throwable $__) {
-            // Best effort.
-        }
+    }
+    if (!$voidPathSucceeded) {
+        eb_ph_signup_approvals_update_when_pending($eventId, [
+            'approval_notes' => substr('Reject failed: invoice void path did not succeed', 0, 65535),
+        ]);
+        eb_ph_signup_approvals_redirect($vars, 'error=void_failed');
     }
 
     $adminId = isset($_SESSION['adminid']) ? (int)$_SESSION['adminid'] : null;
@@ -258,18 +384,16 @@ function eb_ph_signup_reject(array $vars): void
     if ($notes === '') {
         $notes = 'Rejected by MSP signup approvals';
     }
-    if (!empty($cancelIssues)) {
-        $notes .= ' [' . implode(',', $cancelIssues) . ']';
-    }
 
-    Capsule::table('eb_whitelabel_signup_events')->where('id', $eventId)->update([
+    $update = [
         'status' => 'rejected',
         'approval_notes' => substr($notes, 0, 65535),
         'approved_by_admin_id' => ($adminId && $adminId > 0) ? $adminId : null,
         'approved_at' => date('Y-m-d H:i:s'),
-        'updated_at' => date('Y-m-d H:i:s'),
-    ]);
+    ];
+    if (!eb_ph_signup_approvals_update_when_pending($eventId, $update)) {
+        eb_ph_signup_approvals_redirect($vars, 'error=race');
+    }
 
-    $redirectQuery = !empty($cancelIssues) ? 'notice=rejected&error=cancel' : 'notice=rejected';
-    eb_ph_signup_approvals_redirect($vars, $redirectQuery);
+    eb_ph_signup_approvals_redirect($vars, 'notice=rejected');
 }

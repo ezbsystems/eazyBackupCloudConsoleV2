@@ -39,13 +39,22 @@ $targets = [
             'pending queue filter marker' => "->where('e.status', 'pending_approval')",
             'csrf token emit marker' => "'token' => function_exists('generate_token') ? generate_token('plain') : ''",
             'csrf check marker' => "check_token('plain', \$token)",
+            'csrf fail-closed helper marker' => 'function eb_ph_signup_approvals_require_csrf_or_redirect(array $vars, string $token): void',
             'approve function marker' => 'function eb_ph_signup_approve(array $vars): void',
+            'order ownership revalidation marker' => "localAPI('GetOrders'",
             'approve localapi marker' => "localAPI('AcceptOrder'",
             'approve status marker' => "'status' => 'approved'",
+            'approve race guard marker' => "->where('status', 'pending_approval')",
             'reject function marker' => 'function eb_ph_signup_reject(array $vars): void',
             'reject cancel marker' => "localAPI('CancelOrder'",
             'reject void marker' => "localAPI('UpdateInvoice'",
             'reject status marker' => "'status' => 'rejected'",
+            'reject cancel path success marker' => '$cancelPathSucceeded',
+            'reject failure surfaced marker' => "eb_ph_signup_approvals_redirect(\$vars, 'error=cancel_failed')",
+        ],
+        'forbidden' => [
+            'direct tblorders write marker' => "Capsule::table('tblorders')->where('id', \$orderId)->update(['status' => 'Cancelled'])",
+            'direct tblinvoices write marker' => "Capsule::table('tblinvoices')->where('id', \$invoiceId)->update(['status' => 'Cancelled'])",
         ],
     ],
     'signup approvals template file' => [
@@ -78,6 +87,12 @@ foreach ($targets as $targetName => $target) {
     foreach ($target['markers'] as $markerName => $needle) {
         if (strpos($source, $needle) === false) {
             $failures[] = "FAIL: missing {$markerName}";
+        }
+    }
+
+    foreach (($target['forbidden'] ?? []) as $markerName => $needle) {
+        if (strpos($source, $needle) !== false) {
+            $failures[] = "FAIL: forbidden {$markerName}";
         }
     }
 }
