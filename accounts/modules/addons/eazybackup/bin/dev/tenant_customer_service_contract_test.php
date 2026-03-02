@@ -35,6 +35,8 @@ $targets = [
             'service ensure marker (clients)' => 'ensureCustomerForTenant($tenantId)',
             'tenant ownership validation marker (clients)' => "->where('client_id', \$clientId)",
             'authoritative msp marker (clients)' => "'msp_id' => \$authoritativeMspId",
+            'client canonical conflict codes marker' => "['tenant_customer_owner_conflict', 'tenant_customer_conflict']",
+            'client canonical conflict hard error marker' => 'Canonical tenant/customer conflict detected.',
         ],
     ],
     'public signup controller file' => [
@@ -42,6 +44,8 @@ $targets = [
         'markers' => [
             'service import marker (signup)' => 'use PartnerHub\\TenantCustomerService;',
             'service ensure marker (signup)' => 'ensureCustomerForTenant((int)$tenant->id)',
+            'signup canonical conflict codes marker' => "['tenant_customer_owner_conflict', 'tenant_customer_conflict']",
+            'signup canonical conflict hard fail marker' => 'tenant_customer_conflict_hard_fail',
         ],
     ],
 ];
