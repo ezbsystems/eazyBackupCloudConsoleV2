@@ -71,6 +71,12 @@ if ($isMsp && !empty($currentUser->tenant_id) && ($tenantClientId !== (int) $cli
     userUpdateFail('User not found.', 404);
 }
 
+$storageIdentifier = eb_tenant_storage_identifier_for_user((int) $userId);
+$currentCanonicalLink = null;
+if ($isMsp) {
+    $currentCanonicalLink = eb_tenant_storage_links_get_current_link_for_identifier((int) $clientId, $storageIdentifier);
+}
+
 $username = normalizeUserNameForUpdate((string) ($_POST['username'] ?? $currentUser->username));
 $email = strtolower(trim((string) ($_POST['email'] ?? $currentUser->email)));
 $status = strtolower(trim((string) ($_POST['status'] ?? $currentUser->status)));
@@ -106,8 +112,8 @@ if ($canonicalTenantProvided) {
 
 $errors = [];
 
-if ($isMsp && !$canonicalTenantProvided && $tenantIdRaw !== null && $tenantId !== $currentTenantId) {
-    $errors['tenant_id'] = 'Use canonical_tenant_id to change tenant scope for MSP users.';
+if ($isMsp && !$canonicalTenantProvided && $currentCanonicalLink && $tenantIdRaw !== null && $tenantId !== $currentTenantId) {
+    $errors['tenant_id'] = 'Canonical-managed users require canonical_tenant_id for scope changes.';
     $tenantId = $currentTenantId;
 }
 
@@ -178,7 +184,7 @@ if ($existing) {
 }
 
 try {
-    Capsule::connection()->transaction(function () use ($userId, $clientId, $tenantId, $username, $email, $status, $isMsp, $canonicalTenantProvided, $canonicalTenantId) {
+    Capsule::connection()->transaction(function () use ($userId, $clientId, $tenantId, $username, $email, $status, $isMsp, $canonicalTenantProvided, $canonicalTenantId, $storageIdentifier) {
         Capsule::table('s3_backup_users')
             ->where('id', $userId)
             ->where('client_id', $clientId)
@@ -191,7 +197,6 @@ try {
             ]);
 
         if ($isMsp && $canonicalTenantProvided) {
-            $storageIdentifier = eb_tenant_storage_identifier_for_user((int) $userId);
             $linkResult = eb_tenant_storage_links_upsert_for_client((int) $clientId, $storageIdentifier, $canonicalTenantId);
             if (empty($linkResult['ok'])) {
                 throw new \RuntimeException((string) ($linkResult['message'] ?? 'tenant_storage_link_failed'));
