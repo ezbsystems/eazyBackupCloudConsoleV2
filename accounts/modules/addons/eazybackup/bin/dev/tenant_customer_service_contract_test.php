@@ -24,6 +24,8 @@ $targets = [
             'get method signature marker' => 'public function getCustomerForTenant(int $tenantId): ?array',
             'tenant lookup marker' => "->where('tenant_id', \$tenantId)",
             'transaction marker' => 'Capsule::connection()->transaction(function () use ($tenantId)',
+            'tenant ownership conflict marker' => 'tenant_customer_owner_conflict',
+            'existing tenant ownership check marker' => "if ((int)(\$existingLocked->whmcs_client_id ?? 0) !== \$ownerClientId)",
         ],
     ],
     'clients controller file' => [
@@ -31,6 +33,8 @@ $targets = [
         'markers' => [
             'service import marker (clients)' => 'use PartnerHub\\TenantCustomerService;',
             'service ensure marker (clients)' => 'ensureCustomerForTenant($tenantId)',
+            'tenant ownership validation marker (clients)' => "->where('client_id', \$clientId)",
+            'authoritative msp marker (clients)' => "'msp_id' => \$authoritativeMspId",
         ],
     ],
     'public signup controller file' => [

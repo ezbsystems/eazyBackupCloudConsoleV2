@@ -164,11 +164,30 @@ function eb_ph_clients_index(array $vars)
                     $ebDebug[] = 'clientid=' . $newId;
                     $displayName = trim(($payload['companyname'] !== '' ? $payload['companyname'] : ($payload['firstname'].' '.$payload['lastname'])));
                     $ecid = 0;
+                    $authoritativeMspId = (int)($msp->id ?? 0);
                     $tenantId = (int)($_POST['tenant_id'] ?? 0);
+                    if ($tenantId > 0) {
+                        try {
+                            $tenantOwned = Capsule::table('eb_whitelabel_tenants')
+                                ->where('id', $tenantId)
+                                ->where('client_id', $clientId)
+                                ->first();
+                            if (!$tenantOwned) {
+                                $ebDebug[] = 'tenant-denied=' . $tenantId;
+                                $tenantId = 0;
+                            }
+                        } catch (\Throwable $__) {
+                            $tenantId = 0;
+                        }
+                    }
                     if ($tenantId > 0) {
                         try {
                             $tenantCustomer = (new TenantCustomerService())->ensureCustomerForTenant($tenantId);
                             $ecid = (int)($tenantCustomer['id'] ?? 0);
+                            $tenantCustomerMspId = (int)($tenantCustomer['msp_id'] ?? 0);
+                            if ($tenantCustomerMspId > 0) {
+                                $authoritativeMspId = $tenantCustomerMspId;
+                            }
                             $ebDebug[] = 'tenant=' . $tenantId;
                         } catch (\Throwable $__) { /* preserve current client-create flow */ }
                     }
@@ -192,7 +211,7 @@ function eb_ph_clients_index(array $vars)
                             );
                             // Tag mirrors
                             Capsule::table('comet_users')->where('username',$cometUser)->update([
-                                'msp_id' => (int)($msp->id ?? 0),
+                                'msp_id' => $authoritativeMspId,
                                 'customer_id' => $ecid,
                             ]);
                         } catch (\Throwable $__) { /* ignore */ }
