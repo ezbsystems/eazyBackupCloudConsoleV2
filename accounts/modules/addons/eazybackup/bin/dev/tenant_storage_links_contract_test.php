@@ -16,6 +16,12 @@ $moduleFile = $moduleRoot . '/eazybackup.php';
 $controllerFile = $moduleRoot . '/pages/partnerhub/TenantStorageLinksController.php';
 $userCreateFile = $repoRoot . '/accounts/modules/addons/cloudstorage/api/e3backup_user_create.php';
 $userUpdateFile = $repoRoot . '/accounts/modules/addons/cloudstorage/api/e3backup_user_update.php';
+$userResetPasswordFile = $repoRoot . '/accounts/modules/addons/cloudstorage/api/e3backup_user_reset_password.php';
+$userDeleteFile = $repoRoot . '/accounts/modules/addons/cloudstorage/api/e3backup_user_delete.php';
+$tenantCreateFile = $repoRoot . '/accounts/modules/addons/cloudstorage/api/e3backup_tenant_create.php';
+$tenantUpdateFile = $repoRoot . '/accounts/modules/addons/cloudstorage/api/e3backup_tenant_update.php';
+$tenantDeleteFile = $repoRoot . '/accounts/modules/addons/cloudstorage/api/e3backup_tenant_delete.php';
+$tenantUserCreateFile = $repoRoot . '/accounts/modules/addons/cloudstorage/api/e3backup_tenant_user_create.php';
 $usersTemplateFile = $repoRoot . '/accounts/modules/addons/cloudstorage/templates/e3backup_users.tpl';
 $userGetFile = $repoRoot . '/accounts/modules/addons/cloudstorage/api/e3backup_user_get.php';
 $usersPageFile = $repoRoot . '/accounts/modules/addons/cloudstorage/pages/e3backup_users.php';
@@ -107,6 +113,60 @@ $targets = [
             'tenant storage link upsert marker' => 'eb_tenant_storage_links_upsert_for_client((int) $clientId, $storageIdentifier, $canonicalTenantId);',
         ],
     ],
+    'cloudstorage user reset password api file' => [
+        'path' => $userResetPasswordFile,
+        'markers' => [
+            'csrf token post marker' => "\$token = (string) (\$_POST['token'] ?? '');",
+            'csrf fail-closed marker' => "if (\$token === '' || !function_exists('check_token')) {",
+            'csrf check marker' => "if (!check_token('plain', \$token)) {",
+            'csrf exception marker' => "} catch (\Throwable \$e) {",
+        ],
+    ],
+    'cloudstorage user delete api file' => [
+        'path' => $userDeleteFile,
+        'markers' => [
+            'csrf token post marker' => "\$token = (string) (\$_POST['token'] ?? '');",
+            'csrf fail-closed marker' => "if (\$token === '' || !function_exists('check_token')) {",
+            'csrf check marker' => "if (!check_token('plain', \$token)) {",
+            'csrf exception marker' => "} catch (\Throwable \$e) {",
+        ],
+    ],
+    'cloudstorage tenant create api file' => [
+        'path' => $tenantCreateFile,
+        'markers' => [
+            'csrf token post marker' => "\$token = (string) (\$_POST['token'] ?? '');",
+            'csrf fail-closed marker' => "if (\$token === '' || !function_exists('check_token')) {",
+            'csrf check marker' => "if (!check_token('plain', \$token)) {",
+            'csrf exception marker' => "} catch (\Throwable \$e) {",
+        ],
+    ],
+    'cloudstorage tenant update api file' => [
+        'path' => $tenantUpdateFile,
+        'markers' => [
+            'csrf token post marker' => "\$token = (string) (\$_POST['token'] ?? '');",
+            'csrf fail-closed marker' => "if (\$token === '' || !function_exists('check_token')) {",
+            'csrf check marker' => "if (!check_token('plain', \$token)) {",
+            'csrf exception marker' => "} catch (\Throwable \$e) {",
+        ],
+    ],
+    'cloudstorage tenant delete api file' => [
+        'path' => $tenantDeleteFile,
+        'markers' => [
+            'csrf token post marker' => "\$token = (string) (\$_POST['token'] ?? '');",
+            'csrf fail-closed marker' => "if (\$token === '' || !function_exists('check_token')) {",
+            'csrf check marker' => "if (!check_token('plain', \$token)) {",
+            'csrf exception marker' => "} catch (\Throwable \$e) {",
+        ],
+    ],
+    'cloudstorage tenant user create api file' => [
+        'path' => $tenantUserCreateFile,
+        'markers' => [
+            'csrf token post marker' => "\$token = (string) (\$_POST['token'] ?? '');",
+            'csrf fail-closed marker' => "if (\$token === '' || !function_exists('check_token')) {",
+            'csrf check marker' => "if (!check_token('plain', \$token)) {",
+            'csrf exception marker' => "} catch (\Throwable \$e) {",
+        ],
+    ],
     'cloudstorage users template file' => [
         'path' => $usersTemplateFile,
         'markers' => [
@@ -153,6 +213,8 @@ $targets = [
             'canonical managed state marker' => 'is_canonical_managed: false,',
             'canonical submit predicate marker' => 'shouldSendCanonicalTenantOnUpdate() {',
             'update csrf token submit marker' => "body.set('token', this.csrfToken);",
+            'reset csrf token submit marker' => "password_confirm: this.passwordForm.password_confirm\n                });\n                body.set('token', this.csrfToken);",
+            'delete csrf token submit marker' => "const body = new URLSearchParams({ user_id: String(this.userId) });\n                body.set('token', this.csrfToken);",
             'canonical tenant submit marker' => "if (this.isMspClient && this.shouldSendCanonicalTenantOnUpdate()) {",
             'canonical direct submit marker' => "body.set('canonical_tenant_id', this.updateForm.tenant_id ? this.updateForm.tenant_id : 'direct');",
             'canonical tenant label marker' => 'const tenant = this.canonicalTenants.find((item) => String(item.id) === String(this.updateForm.tenant_id));',
@@ -181,6 +243,9 @@ $targets = [
         'markers' => [
             'csrf token state marker' => "csrfToken: {/literal}{\$csrfToken|@json_encode nofilter}{literal} || '',",
             'create csrf token submit marker' => "body.set('token', this.csrfToken);",
+            'tenant profile csrf token submit marker' => "country: (this.profileForm.country || '').toUpperCase()\n                });\n                body.set('token', this.csrfToken);",
+            'tenant delete csrf token submit marker' => "const body = new URLSearchParams({ tenant_id: String(this.tenantId) });\n                body.set('token', this.csrfToken);",
+            'tenant member csrf token submit marker' => "status: this.memberForm.status || 'active'\n                });\n                body.set('token', this.csrfToken);",
         ],
     ],
 ];

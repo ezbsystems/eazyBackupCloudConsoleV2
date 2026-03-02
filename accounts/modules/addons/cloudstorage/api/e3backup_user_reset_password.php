@@ -27,6 +27,18 @@ if (!$ca->isLoggedIn()) {
     userResetFail('Session timeout', 200);
 }
 
+$token = (string) ($_POST['token'] ?? '');
+if ($token === '' || !function_exists('check_token')) {
+    userResetFail('CSRF validation failed.', 400);
+}
+try {
+    if (!check_token('plain', $token)) {
+        userResetFail('CSRF validation failed.', 400);
+    }
+} catch (\Throwable $e) {
+    userResetFail('CSRF validation failed.', 400);
+}
+
 $clientId = $ca->getUserID();
 $isMsp = MspController::isMspClient($clientId);
 $userId = (int) ($_POST['user_id'] ?? 0);

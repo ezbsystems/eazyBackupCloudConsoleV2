@@ -426,6 +426,7 @@ function backupUserDetailApp() {
                     password: this.passwordForm.password,
                     password_confirm: this.passwordForm.password_confirm
                 });
+                body.set('token', this.csrfToken);
                 const response = await fetch('modules/addons/cloudstorage/api/e3backup_user_reset_password.php', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -456,6 +457,7 @@ function backupUserDetailApp() {
             this.deleting = true;
             try {
                 const body = new URLSearchParams({ user_id: String(this.userId) });
+                body.set('token', this.csrfToken);
                 const response = await fetch('modules/addons/cloudstorage/api/e3backup_user_delete.php', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
