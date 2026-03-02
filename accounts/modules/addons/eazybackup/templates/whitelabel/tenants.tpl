@@ -27,6 +27,9 @@
       <div class="border-t border-white/10"></div>
       <form method="post" action="{$modulelink}&a=ph-tenants" class="px-6 py-6 grid grid-cols-1 md:grid-cols-12 gap-4">
         <input type="hidden" name="eb_create_tenant" value="1" />
+        {if isset($token) && $token ne ''}
+          <input type="hidden" name="token" value="{$token}" />
+        {/if}
         <label class="md:col-span-3 block">
           <span class="text-sm text-white/70">Subdomain</span>
           <input name="subdomain" required class="mt-2 w-full rounded-xl bg-[rgb(var(--bg-input))] text-white/90 ring-1 ring-white/10 focus:ring-2 focus:ring-[rgb(var(--accent))] focus:outline-none px-3.5 py-2.5" />
