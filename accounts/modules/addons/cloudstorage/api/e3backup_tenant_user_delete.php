@@ -17,6 +17,22 @@ if (!$ca->isLoggedIn()) {
     (new JsonResponse(['status' => 'fail', 'message' => 'Session timeout'], 200))->send();
     exit;
 }
+
+$token = (string) ($_POST['token'] ?? '');
+if ($token === '' || !function_exists('check_token')) {
+    (new JsonResponse(['status' => 'fail', 'message' => 'CSRF validation failed'], 400))->send();
+    exit;
+}
+try {
+    if (!check_token('plain', $token)) {
+        (new JsonResponse(['status' => 'fail', 'message' => 'CSRF validation failed'], 400))->send();
+        exit;
+    }
+} catch (\Throwable $e) {
+    (new JsonResponse(['status' => 'fail', 'message' => 'CSRF validation failed'], 400))->send();
+    exit;
+}
+
 $clientId = $ca->getUserID();
 
 // Check MSP access

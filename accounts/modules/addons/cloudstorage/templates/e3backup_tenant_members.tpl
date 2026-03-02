@@ -198,6 +198,7 @@ function tenantMembersApp() {
         resettingPassword: false,
         newPassword: '',
         tenantFilter: new URLSearchParams(window.location.search).get('tenant_id') || '',
+        csrfToken: {/literal}{$csrfToken|@json_encode nofilter}{literal} || '',
         form: {
             tenant_id: '',
             name: '',
@@ -292,6 +293,7 @@ function tenantMembersApp() {
                 } else {
                     params.set('user_id', this.editingUser.id);
                 }
+                params.set('token', this.csrfToken);
 
                 const res = await fetch(endpoint, {
                     method: 'POST',
@@ -320,13 +322,15 @@ function tenantMembersApp() {
         async doResetPassword() {
             this.resettingPassword = true;
             try {
+                const body = new URLSearchParams({
+                    user_id: this.passwordUser.id,
+                    password: this.newPassword
+                });
+                body.set('token', this.csrfToken);
                 const res = await fetch('modules/addons/cloudstorage/api/e3backup_tenant_user_reset_password.php', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: new URLSearchParams({
-                        user_id: this.passwordUser.id,
-                        password: this.newPassword
-                    })
+                    body
                 });
                 const data = await res.json();
                 if (data.status === 'success') {
@@ -345,10 +349,12 @@ function tenantMembersApp() {
             if (!confirm('Delete member ' + user.name + '? This cannot be undone.')) return;
 
             try {
+                const body = new URLSearchParams({ user_id: user.id });
+                body.set('token', this.csrfToken);
                 const res = await fetch('modules/addons/cloudstorage/api/e3backup_tenant_user_delete.php', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: new URLSearchParams({ user_id: user.id })
+                    body
                 });
                 const data = await res.json();
                 if (data.status === 'success') {

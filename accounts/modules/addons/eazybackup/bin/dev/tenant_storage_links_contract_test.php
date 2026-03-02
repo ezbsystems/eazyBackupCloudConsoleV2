@@ -22,6 +22,9 @@ $tenantCreateFile = $repoRoot . '/accounts/modules/addons/cloudstorage/api/e3bac
 $tenantUpdateFile = $repoRoot . '/accounts/modules/addons/cloudstorage/api/e3backup_tenant_update.php';
 $tenantDeleteFile = $repoRoot . '/accounts/modules/addons/cloudstorage/api/e3backup_tenant_delete.php';
 $tenantUserCreateFile = $repoRoot . '/accounts/modules/addons/cloudstorage/api/e3backup_tenant_user_create.php';
+$tenantUserUpdateFile = $repoRoot . '/accounts/modules/addons/cloudstorage/api/e3backup_tenant_user_update.php';
+$tenantUserResetPasswordFile = $repoRoot . '/accounts/modules/addons/cloudstorage/api/e3backup_tenant_user_reset_password.php';
+$tenantUserDeleteFile = $repoRoot . '/accounts/modules/addons/cloudstorage/api/e3backup_tenant_user_delete.php';
 $usersTemplateFile = $repoRoot . '/accounts/modules/addons/cloudstorage/templates/e3backup_users.tpl';
 $userGetFile = $repoRoot . '/accounts/modules/addons/cloudstorage/api/e3backup_user_get.php';
 $usersPageFile = $repoRoot . '/accounts/modules/addons/cloudstorage/pages/e3backup_users.php';
@@ -29,6 +32,8 @@ $userDetailPageFile = $repoRoot . '/accounts/modules/addons/cloudstorage/pages/e
 $userDetailTemplateFile = $repoRoot . '/accounts/modules/addons/cloudstorage/templates/e3backup_user_detail.tpl';
 $tenantDetailPageFile = $repoRoot . '/accounts/modules/addons/cloudstorage/pages/e3backup_tenant_detail.php';
 $tenantDetailTemplateFile = $repoRoot . '/accounts/modules/addons/cloudstorage/templates/e3backup_tenant_detail.tpl';
+$tenantMembersPageFile = $repoRoot . '/accounts/modules/addons/cloudstorage/pages/e3backup_tenant_members.php';
+$tenantMembersTemplateFile = $repoRoot . '/accounts/modules/addons/cloudstorage/templates/e3backup_tenant_members.tpl';
 
 $targets = [
     'module file' => [
@@ -167,6 +172,33 @@ $targets = [
             'csrf exception marker' => "} catch (\Throwable \$e) {",
         ],
     ],
+    'cloudstorage tenant user update api file' => [
+        'path' => $tenantUserUpdateFile,
+        'markers' => [
+            'csrf token post marker' => "\$token = (string) (\$_POST['token'] ?? '');",
+            'csrf fail-closed marker' => "if (\$token === '' || !function_exists('check_token')) {",
+            'csrf check marker' => "if (!check_token('plain', \$token)) {",
+            'csrf exception marker' => "} catch (\Throwable \$e) {",
+        ],
+    ],
+    'cloudstorage tenant user reset password api file' => [
+        'path' => $tenantUserResetPasswordFile,
+        'markers' => [
+            'csrf token post marker' => "\$token = (string) (\$_POST['token'] ?? '');",
+            'csrf fail-closed marker' => "if (\$token === '' || !function_exists('check_token')) {",
+            'csrf check marker' => "if (!check_token('plain', \$token)) {",
+            'csrf exception marker' => "} catch (\Throwable \$e) {",
+        ],
+    ],
+    'cloudstorage tenant user delete api file' => [
+        'path' => $tenantUserDeleteFile,
+        'markers' => [
+            'csrf token post marker' => "\$token = (string) (\$_POST['token'] ?? '');",
+            'csrf fail-closed marker' => "if (\$token === '' || !function_exists('check_token')) {",
+            'csrf check marker' => "if (!check_token('plain', \$token)) {",
+            'csrf exception marker' => "} catch (\Throwable \$e) {",
+        ],
+    ],
     'cloudstorage users template file' => [
         'path' => $usersTemplateFile,
         'markers' => [
@@ -246,6 +278,22 @@ $targets = [
             'tenant profile csrf token submit marker' => "country: (this.profileForm.country || '').toUpperCase()\n                });\n                body.set('token', this.csrfToken);",
             'tenant delete csrf token submit marker' => "const body = new URLSearchParams({ tenant_id: String(this.tenantId) });\n                body.set('token', this.csrfToken);",
             'tenant member csrf token submit marker' => "status: this.memberForm.status || 'active'\n                });\n                body.set('token', this.csrfToken);",
+        ],
+    ],
+    'cloudstorage tenant members page file' => [
+        'path' => $tenantMembersPageFile,
+        'markers' => [
+            'csrf token generate marker' => "\$csrfToken = function_exists('generate_token') ? generate_token('plain') : '';",
+            'csrf token return marker' => "'csrfToken' => \$csrfToken,",
+        ],
+    ],
+    'cloudstorage tenant members template file' => [
+        'path' => $tenantMembersTemplateFile,
+        'markers' => [
+            'csrf token state marker' => "csrfToken: {/literal}{\$csrfToken|@json_encode nofilter}{literal} || '',",
+            'save member csrf token submit marker' => "params.set('token', this.csrfToken);",
+            'reset member csrf token submit marker' => "password: this.newPassword\n                });\n                body.set('token', this.csrfToken);",
+            'delete member csrf token submit marker' => "const body = new URLSearchParams({ user_id: user.id });\n                body.set('token', this.csrfToken);",
         ],
     ],
 ];
