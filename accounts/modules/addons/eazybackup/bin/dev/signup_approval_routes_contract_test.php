@@ -31,13 +31,16 @@ $targets = [
             'signup reject controller exit marker' => 'eb_ph_signup_reject($vars); exit;',
             'signup status enum migration marker' => "ALTER TABLE eb_whitelabel_signup_events MODIFY COLUMN status ENUM('received','validated','ordered','pending_approval','approving','rejecting','approved','rejected','accepted','provisioned','emailed','completed','failed') NOT NULL DEFAULT 'received'",
         ],
+        'forbidden' => [
+            'legacy narrowing enum migration marker' => "ALTER TABLE eb_whitelabel_signup_events MODIFY COLUMN status ENUM('received','validated','ordered','pending_approval','accepted','provisioned','emailed','completed','failed') NOT NULL DEFAULT 'received'",
+        ],
     ],
     'signup approvals controller file' => [
         'path' => $controllerFile,
         'markers' => [
             'index function marker' => 'function eb_ph_signup_approvals_index(array $vars)',
             'template marker' => "'templatefile' => 'whitelabel/signup-approvals'",
-            'pending queue filter marker' => "->where('e.status', 'pending_approval')",
+            'queue status filter marker' => "->whereIn('e.status', ['pending_approval', 'approving', 'rejecting'])",
             'csrf token emit marker' => "'token' => function_exists('generate_token') ? generate_token('plain') : ''",
             'csrf check marker' => "check_token('plain', \$token)",
             'csrf fail-closed helper marker' => 'function eb_ph_signup_approvals_require_csrf_or_redirect(array $vars, string $token): void',
@@ -79,6 +82,9 @@ $targets = [
             'approve action marker' => '&a=ph-signup-approve',
             'reject action marker' => '&a=ph-signup-reject',
             'csrf hidden input marker' => 'name="token"',
+            'pending actions guard marker' => "{if \$row.status == 'pending_approval'}",
+            'processing approving ui marker' => 'Approving in progress',
+            'processing rejecting ui marker' => 'Rejecting in progress',
         ],
     ],
     'partner hub nav file' => [
