@@ -3126,6 +3126,7 @@ function eazybackup_clientarea(array $vars)
             ->selectRaw("SUM(CASE WHEN type = 'engine1/file' THEN 1 ELSE 0 END) AS files_folders")
             ->selectRaw("SUM(CASE WHEN type = 'engine1/windisk' THEN 1 ELSE 0 END) AS disk_image")
             ->selectRaw("SUM(CASE WHEN type = 'engine1/hyperv' THEN 1 ELSE 0 END) AS hyper_v")
+            ->selectRaw("SUM(CASE WHEN type = 'engine1/vmware' THEN 1 ELSE 0 END) AS vmware")
             ->selectRaw("SUM(CASE WHEN type = 'engine1/mssql' THEN 1 ELSE 0 END) AS sql_server")
             ->selectRaw("SUM(CASE WHEN type = 'engine1/winmsofficemail' THEN 1 ELSE 0 END) AS office_365")
             ->selectRaw("SUM(CASE WHEN type = 'engine1/systemstate' THEN 1 ELSE 0 END) AS system_state")
@@ -3138,6 +3139,7 @@ function eazybackup_clientarea(array $vars)
             'files_folders' => (int)($engineCountsRow->files_folders ?? 0),
             'disk_image' => (int)($engineCountsRow->disk_image ?? 0),
             'hyper_v' => (int)($engineCountsRow->hyper_v ?? 0),
+            'vmware' => (int)($engineCountsRow->vmware ?? 0),
             'sql_server' => (int)($engineCountsRow->sql_server ?? 0),
             'office_365' => (int)($engineCountsRow->office_365 ?? 0),
             'system_state' => (int)($engineCountsRow->system_state ?? 0),
