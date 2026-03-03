@@ -5,7 +5,7 @@
 <div class="min-h-screen bg-[rgb(var(--bg-page))] text-[rgb(var(--text-primary))]">
   <div class="mx-auto max-w-6xl px-6 py-8">
     <div class="flex items-center justify-between">
-      <h1 class="text-2xl font-semibold tracking-tight">Tenant Management</h1>
+      <h1 class="text-2xl font-semibold tracking-tight">Customer Tenants</h1>
       <a href="{$modulelink}&a=ph-clients" class="rounded-xl px-4 py-2 text-white/80 ring-1 ring-white/10 hover:bg-white/5">Back to Clients</a>
     </div>
 
@@ -55,18 +55,6 @@
           <span class="text-sm text-white/70">Custom Domain (optional)</span>
           <input name="custom_domain" class="mt-2 w-full rounded-xl bg-[rgb(var(--bg-input))] text-white/90 ring-1 ring-white/10 focus:ring-2 focus:ring-[rgb(var(--accent))] focus:outline-none px-3.5 py-2.5" />
         </label>
-        <label class="md:col-span-2 block">
-          <span class="text-sm text-white/70">Product ID</span>
-          <input name="product_id" type="number" min="0" step="1" class="mt-2 w-full rounded-xl bg-[rgb(var(--bg-input))] text-white/90 ring-1 ring-white/10 focus:ring-2 focus:ring-[rgb(var(--accent))] focus:outline-none px-3.5 py-2.5" />
-        </label>
-        <label class="md:col-span-2 block">
-          <span class="text-sm text-white/70">Server ID</span>
-          <input name="server_id" type="number" min="0" step="1" class="mt-2 w-full rounded-xl bg-[rgb(var(--bg-input))] text-white/90 ring-1 ring-white/10 focus:ring-2 focus:ring-[rgb(var(--accent))] focus:outline-none px-3.5 py-2.5" />
-        </label>
-        <label class="md:col-span-2 block">
-          <span class="text-sm text-white/70">Server Group ID</span>
-          <input name="servergroup_id" type="number" min="0" step="1" class="mt-2 w-full rounded-xl bg-[rgb(var(--bg-input))] text-white/90 ring-1 ring-white/10 focus:ring-2 focus:ring-[rgb(var(--accent))] focus:outline-none px-3.5 py-2.5" />
-        </label>
         <div class="md:col-span-2 flex items-end justify-end">
           <button type="submit" class="rounded-xl px-4 py-2 font-medium text-white bg-[rgb(var(--accent))] hover:bg-[rgb(var(--accent))]/90">Create</button>
         </div>
@@ -85,6 +73,7 @@
               <th class="px-4 py-3 font-medium">ID</th>
               <th class="px-4 py-3 font-medium">FQDN</th>
               <th class="px-4 py-3 font-medium">Status</th>
+              <th class="px-4 py-3 font-medium">White-label</th>
               <th class="px-4 py-3 font-medium">Org ID</th>
               <th class="px-4 py-3 font-medium text-right">Actions</th>
             </tr>
@@ -95,6 +84,9 @@
                 <td class="px-4 py-3">{$tenant.id|escape}</td>
                 <td class="px-4 py-3">{$tenant.fqdn|escape}</td>
                 <td class="px-4 py-3">{$tenant.status|escape}</td>
+                <td class="px-4 py-3">
+                  <span class="inline-flex items-center rounded-full px-2.5 py-1 text-xs ring-1 ring-white/15 text-white/70">Pending</span>
+                </td>
                 <td class="px-4 py-3">{$tenant.org_id|default:'-'|escape}</td>
                 <td class="px-4 py-3 text-right">
                   <a class="rounded-lg px-3 py-1.5 ring-1 ring-white/10 hover:bg-white/10" href="{$modulelink}&a=ph-tenant&id={$tenant.id}">Manage</a>
@@ -102,7 +94,7 @@
               </tr>
             {foreachelse}
               <tr>
-                <td colspan="5" class="px-4 py-6 text-center text-white/50">No tenants yet.</td>
+                <td colspan="6" class="px-4 py-6 text-center text-white/50">No tenants yet.</td>
               </tr>
             {/foreach}
           </tbody>

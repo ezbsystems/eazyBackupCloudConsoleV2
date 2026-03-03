@@ -6,7 +6,7 @@
   <div class="mx-auto max-w-4xl px-6 py-8">
     <div class="flex items-center justify-between">
       <h1 class="text-2xl font-semibold tracking-tight">Tenant #{$tenant.id|escape}</h1>
-      <a href="{$modulelink}&a=ph-tenants" class="rounded-xl px-4 py-2 text-white/80 ring-1 ring-white/10 hover:bg-white/5">Back to Tenant Management</a>
+      <a href="{$modulelink}&a=ph-tenants" class="rounded-xl px-4 py-2 text-white/80 ring-1 ring-white/10 hover:bg-white/5">Back to Customer Tenants</a>
     </div>
 
     {if $notice neq ''}
@@ -58,23 +58,20 @@
           <input name="custom_domain" value="{$tenant.custom_domain|escape}" class="mt-2 w-full rounded-xl bg-[rgb(var(--bg-input))] text-white/90 ring-1 ring-white/10 focus:ring-2 focus:ring-[rgb(var(--accent))] focus:outline-none px-3.5 py-2.5" />
         </label>
 
-        <label class="md:col-span-4 block">
-          <span class="text-sm text-white/70">Product ID</span>
-          <input type="number" name="product_id" min="0" step="1" value="{$tenant.product_id|default:''|escape}" class="mt-2 w-full rounded-xl bg-[rgb(var(--bg-input))] text-white/90 ring-1 ring-white/10 focus:ring-2 focus:ring-[rgb(var(--accent))] focus:outline-none px-3.5 py-2.5" />
-        </label>
-        <label class="md:col-span-4 block">
-          <span class="text-sm text-white/70">Server ID</span>
-          <input type="number" name="server_id" min="0" step="1" value="{$tenant.server_id|default:''|escape}" class="mt-2 w-full rounded-xl bg-[rgb(var(--bg-input))] text-white/90 ring-1 ring-white/10 focus:ring-2 focus:ring-[rgb(var(--accent))] focus:outline-none px-3.5 py-2.5" />
-        </label>
-        <label class="md:col-span-4 block">
-          <span class="text-sm text-white/70">Server Group ID</span>
-          <input type="number" name="servergroup_id" min="0" step="1" value="{$tenant.servergroup_id|default:''|escape}" class="mt-2 w-full rounded-xl bg-[rgb(var(--bg-input))] text-white/90 ring-1 ring-white/10 focus:ring-2 focus:ring-[rgb(var(--accent))] focus:outline-none px-3.5 py-2.5" />
-        </label>
-
         <div class="md:col-span-12 flex justify-end">
           <button type="submit" class="rounded-xl px-4 py-2 font-medium text-white bg-[rgb(var(--accent))] hover:bg-[rgb(var(--accent))]/90">Save Tenant</button>
         </div>
       </form>
+    </section>
+
+    <section class="mt-6 rounded-2xl bg-[rgb(var(--bg-card))] ring-1 ring-white/10 overflow-hidden">
+      <div class="px-6 py-5">
+        <h2 class="text-lg font-medium">White-label Status</h2>
+      </div>
+      <div class="border-t border-white/10"></div>
+      <div class="px-6 py-5">
+        <span class="inline-flex items-center rounded-full px-3 py-1 text-xs ring-1 ring-white/15 text-white/70">Pending</span>
+      </div>
     </section>
 
     <section class="mt-6 rounded-2xl bg-[rgb(var(--bg-card))] ring-1 ring-rose-500/30 overflow-hidden">
