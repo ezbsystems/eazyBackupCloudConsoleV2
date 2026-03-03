@@ -1114,6 +1114,7 @@ function eazybackup_migrate_schema(): void {
             $t->bigIncrements('id');
             $t->integer('client_id');
             $t->enum('status', ['queued','building','active','failed','suspended','removing'])->default('queued');
+            $t->bigInteger('canonical_tenant_id')->nullable();
             $t->string('org_id',191)->nullable();
             $t->string('subdomain',191);
             $t->string('fqdn',255);
@@ -1137,12 +1138,27 @@ function eazybackup_migrate_schema(): void {
         });
     } else {
         // Ensure columns exist on upgrade
+        eb_add_column_if_missing('eb_whitelabel_tenants','canonical_tenant_id', fn(Blueprint $t)=>$t->bigInteger('canonical_tenant_id')->nullable());
         eb_add_column_if_missing('eb_whitelabel_tenants','custom_domain', fn(Blueprint $t)=>$t->string('custom_domain',255)->nullable());
         eb_add_column_if_missing('eb_whitelabel_tenants','custom_domain_status', fn(Blueprint $t)=>$t->string('custom_domain_status',32)->nullable());
         // Public ULID used for customer-facing URLs
         eb_add_column_if_missing('eb_whitelabel_tenants','public_id', fn(Blueprint $t)=>$t->char('public_id',26)->nullable());
         eb_add_index_if_missing('eb_whitelabel_tenants', "CREATE UNIQUE INDEX IF NOT EXISTS idx_eb_wl_tenants_public_id ON eb_whitelabel_tenants (public_id)");
     }
+    eb_require_index(
+        'eb_whitelabel_tenants',
+        'idx_canonical_tenant_id',
+        'CREATE INDEX idx_canonical_tenant_id ON eb_whitelabel_tenants (canonical_tenant_id)',
+        ['canonical_tenant_id'],
+        false
+    );
+    eb_require_index(
+        'eb_whitelabel_tenants',
+        'uniq_canonical_tenant',
+        'CREATE UNIQUE INDEX uniq_canonical_tenant ON eb_whitelabel_tenants (canonical_tenant_id)',
+        ['canonical_tenant_id'],
+        true
+    );
 
     // --- eb_whitelabel_builds ---
     if (!$schema->hasTable('eb_whitelabel_builds')) {
