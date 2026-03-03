@@ -65,6 +65,26 @@
         return Number.isNaN(d.getTime()) ? '-' : d.toLocaleString();
     }
 
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function safeUrl(value) {
+        if (!value) return '';
+        try {
+            const url = new URL(String(value), window.location.origin);
+            if (url.protocol === 'https:' || url.protocol === 'http:') {
+                return url.href;
+            }
+        } catch (error) {}
+        return '';
+    }
+
     async function loadInvoices() {
         invoicesBody.innerHTML = '<tr><td colspan="5" class="py-3 text-slate-400">Loading invoices...</td></tr>';
         const response = await fetch('index.php?api=invoices', { credentials: 'same-origin' });
@@ -82,18 +102,20 @@
         }
 
         invoicesBody.innerHTML = invoices.map((invoice) => {
-            const hosted = invoice.hosted_invoice_url || '';
-            const sendUrl = invoice.send_url || invoice.hosted_invoice_url || '';
-            const downloadUrl = invoice.download_url || invoice.hosted_invoice_url || '';
+            const hosted = safeUrl(invoice.hosted_invoice_url || '');
+            const sendUrl = safeUrl(invoice.send_url || invoice.hosted_invoice_url || '');
+            const downloadUrl = safeUrl(invoice.download_url || invoice.hosted_invoice_url || '');
             const sendLink = sendUrl ? `<a class="text-sky-300 hover:underline mr-3" href="${sendUrl}" target="_blank" rel="noopener">Send invoice</a>` : '<span class="text-slate-500 mr-3">Send invoice</span>';
             const downloadLink = downloadUrl ? `<a class="text-sky-300 hover:underline" href="${downloadUrl}" target="_blank" rel="noopener">Download</a>` : '<span class="text-slate-500">Download</span>';
-            const invoiceLabel = hosted ? `<a class="text-sky-300 hover:underline" href="${hosted}" target="_blank" rel="noopener">${invoice.stripe_invoice_id || '-'}</a>` : (invoice.stripe_invoice_id || '-');
+            const invoiceId = escapeHtml(invoice.stripe_invoice_id || '-');
+            const invoiceStatus = escapeHtml(invoice.status || '-');
+            const invoiceLabel = hosted ? `<a class="text-sky-300 hover:underline" href="${hosted}" target="_blank" rel="noopener">${invoiceId}</a>` : invoiceId;
             return `
                 <tr class="border-b border-slate-800">
                     <td class="py-2 pr-4">${invoiceLabel}</td>
                     <td class="py-2 pr-4">${formatMoney(invoice.amount_total, invoice.currency)}</td>
-                    <td class="py-2 pr-4">${invoice.status || '-'}</td>
-                    <td class="py-2 pr-4">${formatDate(invoice.created)}</td>
+                    <td class="py-2 pr-4">${invoiceStatus}</td>
+                    <td class="py-2 pr-4">${escapeHtml(formatDate(invoice.created))}</td>
                     <td class="py-2 pr-4">${sendLink}${downloadLink}</td>
                 </tr>
             `;
@@ -118,10 +140,10 @@
 
         paymentMethodsBody.innerHTML = paymentMethods.map((method) => `
             <tr class="border-b border-slate-800">
-                <td class="py-2 pr-4">${method.stripe_payment_intent_id || '-'}</td>
+                <td class="py-2 pr-4">${escapeHtml(method.stripe_payment_intent_id || '-')}</td>
                 <td class="py-2 pr-4">${formatMoney(method.amount, method.currency)}</td>
-                <td class="py-2 pr-4">${method.status || '-'}</td>
-                <td class="py-2 pr-4">${formatDate(method.created)}</td>
+                <td class="py-2 pr-4">${escapeHtml(method.status || '-')}</td>
+                <td class="py-2 pr-4">${escapeHtml(formatDate(method.created))}</td>
             </tr>
         `).join('');
     }
@@ -131,22 +153,23 @@
             await Promise.all([loadInvoices(), loadPaymentMethods()]);
         } catch (error) {
             const message = (error && error.message) ? error.message : 'Request failed';
-            invoicesBody.innerHTML = `<tr><td colspan="5" class="py-3 text-rose-300">${message}</td></tr>`;
-            paymentMethodsBody.innerHTML = `<tr><td colspan="4" class="py-3 text-rose-300">${message}</td></tr>`;
+            const safeMessage = escapeHtml(message);
+            invoicesBody.innerHTML = `<tr><td colspan="5" class="py-3 text-rose-300">${safeMessage}</td></tr>`;
+            paymentMethodsBody.innerHTML = `<tr><td colspan="4" class="py-3 text-rose-300">${safeMessage}</td></tr>`;
         }
     }
 
     refreshInvoices.addEventListener('click', () => {
         loadInvoices().catch((error) => {
             const message = (error && error.message) ? error.message : 'Request failed';
-            invoicesBody.innerHTML = `<tr><td colspan="5" class="py-3 text-rose-300">${message}</td></tr>`;
+            invoicesBody.innerHTML = `<tr><td colspan="5" class="py-3 text-rose-300">${escapeHtml(message)}</td></tr>`;
         });
     });
 
     refreshPaymentMethods.addEventListener('click', () => {
         loadPaymentMethods().catch((error) => {
             const message = (error && error.message) ? error.message : 'Request failed';
-            paymentMethodsBody.innerHTML = `<tr><td colspan="4" class="py-3 text-rose-300">${message}</td></tr>`;
+            paymentMethodsBody.innerHTML = `<tr><td colspan="4" class="py-3 text-rose-300">${escapeHtml(message)}</td></tr>`;
         });
     });
 
