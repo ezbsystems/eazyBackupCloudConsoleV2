@@ -19,6 +19,11 @@
         Unable to process the request ({$error|escape}).
       </div>
     {/if}
+    {if isset($legacy_notice) && $legacy_notice neq ''}
+      <div class="mt-4 rounded-xl bg-amber-500/10 ring-1 ring-amber-400/30 px-4 py-3 text-sm text-amber-100">
+        You were redirected here from a legacy e3 tenants URL ({$legacy_notice|escape}). Customer tenant management now lives in Partner Hub.
+      </div>
+    {/if}
 
     <section class="mt-6 rounded-2xl bg-[rgb(var(--bg-card))] ring-1 ring-white/10 overflow-hidden">
       <div class="px-6 py-5">

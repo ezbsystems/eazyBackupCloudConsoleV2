@@ -21,6 +21,11 @@
         Unable to process the request ({$error|escape}).
       </div>
     {/if}
+    {if isset($legacy_notice) && $legacy_notice neq ''}
+      <div class="mt-4 rounded-xl bg-amber-500/10 ring-1 ring-amber-400/30 px-4 py-3 text-sm text-amber-100">
+        You were redirected here from a legacy e3 tenant URL ({$legacy_notice|escape}). This Partner Hub page is the canonical tenant view.
+      </div>
+    {/if}
 
     <nav class="mt-6 inline-flex flex-wrap gap-2 rounded-2xl bg-[rgb(var(--bg-card))] p-2 ring-1 ring-white/10" aria-label="Tenant detail tabs">
       <a href="{$tab_links.profile|default:'#'|escape}" class="rounded-xl px-3 py-2 text-sm {if $activeTab eq 'profile'}bg-white/10 text-white{else}text-white/70 hover:bg-white/5{/if}">Profile</a>
