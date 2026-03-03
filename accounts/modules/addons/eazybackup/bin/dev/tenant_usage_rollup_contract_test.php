@@ -53,6 +53,8 @@ $targets = [
         'markers' => [
             'tenant idempotency helper marker' => 'function eb_usage_tenant_period_idempotency_key(int $tenantId, string $metric, int $periodStart, int $periodEnd): string',
             'period normalization helper marker' => 'function eb_usage_normalize_period_bounds(int $periodStart, int $periodEnd): array',
+            'future period guard marker' => "throw new \\InvalidArgumentException('period_in_future');",
+            'period end clamp marker' => 'if ($resolvedPeriodEnd > $nowTs) {',
             'manual metered item picker helper marker' => 'function eb_usage_pick_subscription_item_id(array $items): string',
             'manual metered usage type preference marker' => "if (\$usageType === 'metered') {",
             'deterministic usage timestamp helper marker' => 'function eb_usage_clamp_usage_timestamp(int $periodStart, int $periodEnd, ?int $nowTs = null): int',
@@ -86,6 +88,40 @@ foreach ($targets as $targetName => $target) {
             $failures[] = "FAIL: missing {$markerName}";
         }
     }
+}
+
+if ($failures !== []) {
+    foreach ($failures as $failure) {
+        echo $failure . PHP_EOL;
+    }
+    exit(1);
+}
+
+require_once $usageControllerFile;
+
+// Behavioral assertions for helper functions to avoid marker-only regressions.
+try {
+    eb_usage_normalize_period_bounds(time() + 3600, time() + 7200);
+    $failures[] = 'FAIL: future period should throw period_in_future';
+} catch (\InvalidArgumentException $e) {
+    if ($e->getMessage() !== 'period_in_future') {
+        $failures[] = 'FAIL: future period threw unexpected error';
+    }
+} catch (\Throwable $e) {
+    $failures[] = 'FAIL: future period threw non-InvalidArgumentException';
+}
+
+$pickedMetered = eb_usage_pick_subscription_item_id([
+    ['id' => 'si_fixed', 'price' => ['recurring' => ['usage_type' => 'licensed']]],
+    ['id' => 'si_metered', 'price' => ['recurring' => ['usage_type' => 'metered']]],
+]);
+if ($pickedMetered !== 'si_metered') {
+    $failures[] = 'FAIL: metered picker should prefer metered item id';
+}
+
+$clamped = eb_usage_clamp_usage_timestamp(100, 200, 150);
+if ($clamped !== 149) {
+    $failures[] = 'FAIL: usage timestamp clamp should use now-1 inside period';
 }
 
 if ($failures !== []) {
