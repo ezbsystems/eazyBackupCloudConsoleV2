@@ -279,7 +279,29 @@
               <h2 class="text-lg font-semibold text-white">Create Customer Tenant</h2>
               <button type="button" @click="openCreateModal = false" class="rounded-lg p-2 text-slate-400 hover:text-white hover:bg-slate-800">×</button>
             </div>
-            <form method="post" action="{$modulelink}&a=ph-tenants" class="p-6 space-y-6" @submit="savingModal = true">
+            <div x-data="{
+              showAdmin: false,
+              autoPassword: '1',
+              errors: { name: '', contact_email: '', contact_name: '', country: '', admin_password: '' },
+              validateForm() {
+                this.errors = { name: '', contact_email: '', contact_name: '', country: '', admin_password: '' };
+                const name = this.$refs.nameInput ? this.$refs.nameInput.value.trim() : '';
+                const contactEmail = this.$refs.contactEmailInput ? this.$refs.contactEmailInput.value.trim() : '';
+                const contactName = this.$refs.contactNameInput ? this.$refs.contactNameInput.value.trim() : '';
+                const country = this.$refs.countryInput ? this.$refs.countryInput.value.trim() : '';
+                if (name === '') this.errors.name = 'Required';
+                if (contactEmail === '') this.errors.contact_email = 'Required';
+                else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) this.errors.contact_email = 'Invalid email format';
+                if (contactName === '') this.errors.contact_name = 'Required';
+                if (country !== '' && !/^[A-Za-z]{2}$/.test(country)) this.errors.country = 'Must be 2 letters';
+                if (this.showAdmin && this.autoPassword === '0') {
+                  const pw = this.$refs.adminPasswordInput ? this.$refs.adminPasswordInput.value : '';
+                  if (pw.length < 8) this.errors.admin_password = 'Minimum 8 characters';
+                }
+                return !this.errors.name && !this.errors.contact_email && !this.errors.contact_name && !this.errors.country && !this.errors.admin_password;
+              }
+            }">
+            <form method="post" action="{$modulelink}&a=ph-tenants" class="p-6 space-y-6" @submit="if(!validateForm()) $event.preventDefault()">
               <input type="hidden" name="eb_create_tenant" value="1" />
               {if isset($token) && $token neq ''}
                 <input type="hidden" name="token" value="{$token}" />
@@ -290,7 +312,8 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div class="md:col-span-2">
                     <label class="block text-sm font-medium text-slate-300 mb-1">Company Name <span class="text-rose-400">*</span></label>
-                    <input type="text" name="name" required placeholder="Acme Corporation" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                    <input type="text" name="name" x-ref="nameInput" required placeholder="Acme Corporation" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500" :class="errors.name ? 'border-rose-500' : ''">
+                    <p x-show="errors.name" class="text-rose-400 text-xs mt-1" x-text="errors.name"></p>
                   </div>
                   <div>
                     <label class="block text-sm font-medium text-slate-300 mb-1">Slug</label>
@@ -313,11 +336,13 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label class="block text-sm font-medium text-slate-300 mb-1">Contact Email <span class="text-rose-400">*</span></label>
-                    <input type="email" name="contact_email" required placeholder="billing@acme.com" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                    <input type="email" name="contact_email" x-ref="contactEmailInput" required placeholder="billing@acme.com" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500" :class="errors.contact_email ? 'border-rose-500' : ''">
+                    <p x-show="errors.contact_email" class="text-rose-400 text-xs mt-1" x-text="errors.contact_email"></p>
                   </div>
                   <div>
                     <label class="block text-sm font-medium text-slate-300 mb-1">Contact Name <span class="text-rose-400">*</span></label>
-                    <input type="text" name="contact_name" required placeholder="Jane Smith" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                    <input type="text" name="contact_name" x-ref="contactNameInput" required placeholder="Jane Smith" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500" :class="errors.contact_name ? 'border-rose-500' : ''">
+                    <p x-show="errors.contact_name" class="text-rose-400 text-xs mt-1" x-text="errors.contact_name"></p>
                   </div>
                   <div class="md:col-span-2">
                     <label class="block text-sm font-medium text-slate-300 mb-1">Phone</label>
@@ -351,13 +376,14 @@
                   </div>
                   <div>
                     <label class="block text-sm font-medium text-slate-300 mb-1">Country Code</label>
-                    <input type="text" name="country" maxlength="2" placeholder="CA" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500 uppercase">
-                    <p class="text-xs text-slate-500 mt-1">2-letter ISO code (e.g. CA, US, GB)</p>
+                    <input type="text" name="country" x-ref="countryInput" maxlength="2" placeholder="CA" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500 uppercase" :class="errors.country ? 'border-rose-500' : ''">
+                    <p x-show="errors.country" class="text-rose-400 text-xs mt-1" x-text="errors.country"></p>
+                    <p x-show="!errors.country" class="text-xs text-slate-500 mt-1">2-letter ISO code (e.g. CA, US, GB)</p>
                   </div>
                 </div>
               </div>
 
-              <div class="rounded-xl border border-slate-800 bg-slate-800/50 p-5" x-data="{ showAdmin: false, autoPassword: '1' }">
+              <div class="rounded-xl border border-slate-800 bg-slate-800/50 p-5">
                 <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">Portal Admin Account</h3>
                 <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
                   <input type="checkbox" name="create_admin" value="1" x-model="showAdmin" class="rounded bg-slate-800 border-slate-600 text-amber-500 focus:ring-amber-500">
@@ -387,7 +413,8 @@
                   </div>
                   <div x-show="autoPassword === '0'" x-cloak class="mt-2" style="display: none;">
                     <label class="block text-sm font-medium text-slate-300 mb-1">Password</label>
-                    <input type="password" name="admin_password" minlength="8" placeholder="Minimum 8 characters" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                    <input type="password" name="admin_password" x-ref="adminPasswordInput" minlength="8" placeholder="Minimum 8 characters" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500" :class="errors.admin_password ? 'border-rose-500' : ''">
+                    <p x-show="errors.admin_password" class="text-rose-400 text-xs mt-1" x-text="errors.admin_password"></p>
                   </div>
                 </div>
               </div>
@@ -402,6 +429,7 @@
                 </button>
               </div>
             </form>
+            </div>
           </div>
         </div>
       </main>
