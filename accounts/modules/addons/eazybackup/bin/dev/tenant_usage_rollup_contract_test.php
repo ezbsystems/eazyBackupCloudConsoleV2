@@ -20,12 +20,16 @@ $targets = [
         'path' => $rollupScriptFile,
         'markers' => [
             'period bounds helper marker' => 'function tenant_usage_rollup_period_bounds_utc(?DateTimeImmutable $now = null): array',
+            'closed period current month anchor marker' => '$currentMonthStart = new DateTimeImmutable($now->format(\'Y-m-01 00:00:00\'), new DateTimeZone(\'UTC\'));',
+            'closed period start previous month marker' => '$periodStart = $currentMonthStart->modify(\'-1 month\');',
+            'closed period end current month marker' => '$periodEnd = $currentMonthStart;',
             'tenant period idempotency helper marker' => 'function tenant_usage_rollup_idempotency_key(int $tenantId, string $metric, int $periodStartTs, int $periodEndTs): string',
             'rollup usage timestamp clamp helper marker' => 'function tenant_usage_rollup_clamp_usage_timestamp(int $periodStartTs, int $periodEndTs, ?int $nowTs = null): int',
             'rollup usage timestamp clamp upper marker' => '$upperBound = min($periodEndTs - 1, $nowTs - 1);',
             'rollup usage timestamp clamp lower marker' => 'if ($upperBound < $periodStartTs) {',
             'metered item picker helper marker' => 'function tenant_usage_rollup_pick_subscription_item_id(array $items): string',
             'metered usage type preference marker' => "if (\$usageType === 'metered') {",
+            'rollup metered fail-closed marker' => 'return \'\'; // fail closed: no metered subscription item found',
             'canonical tenant links query marker' => "Capsule::table('eb_tenant_storage_links as tsl')",
             'storage identifier parser marker' => "preg_match('/^s3_backup_user:(\\d+)$/', \$storageIdentifier, \$matches)",
             's3 backup users lookup marker' => "Capsule::table('s3_backup_users')",
@@ -57,6 +61,7 @@ $targets = [
             'period end clamp marker' => 'if ($resolvedPeriodEnd > $nowTs) {',
             'manual metered item picker helper marker' => 'function eb_usage_pick_subscription_item_id(array $items): string',
             'manual metered usage type preference marker' => "if (\$usageType === 'metered') {",
+            'manual metered fail-closed marker' => 'return \'\'; // fail closed: no metered subscription item found',
             'deterministic usage timestamp helper marker' => 'function eb_usage_clamp_usage_timestamp(int $periodStart, int $periodEnd, ?int $nowTs = null): int',
             'manual usage timestamp clamp upper marker' => '$upperBound = min($periodEnd - 1, $nowTs - 1);',
             'manual usage timestamp clamp lower marker' => 'if ($upperBound < $periodStart) {',
@@ -117,6 +122,13 @@ $pickedMetered = eb_usage_pick_subscription_item_id([
 ]);
 if ($pickedMetered !== 'si_metered') {
     $failures[] = 'FAIL: metered picker should prefer metered item id';
+}
+
+$pickedNoMetered = eb_usage_pick_subscription_item_id([
+    ['id' => 'si_fixed', 'price' => ['recurring' => ['usage_type' => 'licensed']]],
+]);
+if ($pickedNoMetered !== '') {
+    $failures[] = 'FAIL: metered picker should fail closed when no metered item exists';
 }
 
 $clamped = eb_usage_clamp_usage_timestamp(100, 200, 150);
