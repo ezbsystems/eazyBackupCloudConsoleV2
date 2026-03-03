@@ -29,14 +29,14 @@ function eb_ph_tenant_redirect(array $vars, int $tenantId, string $query = ''): 
 
 function eb_ph_tenants_statuses(): array
 {
-    return ['queued', 'building', 'active', 'failed', 'suspended', 'removing'];
+    return ['active', 'suspended'];
 }
 
 function eb_ph_tenants_normalize_status(string $status): string
 {
     $status = strtolower(trim($status));
     if (!in_array($status, eb_ph_tenants_statuses(), true)) {
-        return 'queued';
+        return 'active';
     }
     return $status;
 }
@@ -54,6 +54,92 @@ function eb_ph_tenants_strip_infra_fields(array $input): array
 {
     unset($input['product_id'], $input['server_id'], $input['servergroup_id']);
     return $input;
+}
+
+function eb_ph_tenants_slugify(string $value): string
+{
+    $value = strtolower(trim($value));
+    $value = preg_replace('/[^a-z0-9]+/', '-', $value) ?? '';
+    return trim($value, '-');
+}
+
+function eb_ph_tenants_is_valid_slug(string $value): bool
+{
+    return (bool)preg_match('/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/', $value);
+}
+
+function eb_ph_tenants_existing_slug_owner(int $clientId, string $slug, ?int $ignoreTenantId = null): ?int
+{
+    if ($slug === '') {
+        return null;
+    }
+    $query = Capsule::table('s3_backup_tenants')
+        ->where('client_id', $clientId)
+        ->where('slug', $slug)
+        ->where('status', '!=', 'deleted');
+    if ($ignoreTenantId !== null && $ignoreTenantId > 0) {
+        $query->where('id', '!=', $ignoreTenantId);
+    }
+    $row = $query->first(['id']);
+    if (!$row) {
+        return null;
+    }
+    return (int)($row->id ?? 0);
+}
+
+function eb_ph_tenants_delete_blockers(int $tenantId): array
+{
+    $blockers = [];
+    if ($tenantId <= 0) {
+        return $blockers;
+    }
+
+    if (Capsule::schema()->hasTable('eb_customers')) {
+        $linkedCustomers = (int)Capsule::table('eb_customers')->where('tenant_id', $tenantId)->count();
+        if ($linkedCustomers > 0) {
+            $blockers['customer_links'] = $linkedCustomers;
+        }
+    }
+    if (Capsule::schema()->hasTable('s3_backup_tenant_users')) {
+        $members = (int)Capsule::table('s3_backup_tenant_users')->where('tenant_id', $tenantId)->count();
+        if ($members > 0) {
+            $blockers['members'] = $members;
+        }
+    }
+    if (Capsule::schema()->hasTable('eb_tenant_storage_links')) {
+        $storageLinks = (int)Capsule::table('eb_tenant_storage_links')->where('tenant_id', $tenantId)->count();
+        if ($storageLinks > 0) {
+            $blockers['storage_links'] = $storageLinks;
+        }
+    }
+    if (Capsule::schema()->hasTable('s3_backup_users')) {
+        $storageUsers = (int)Capsule::table('s3_backup_users')->where('tenant_id', $tenantId)->count();
+        if ($storageUsers > 0) {
+            $blockers['storage_users'] = $storageUsers;
+        }
+    }
+    if (Capsule::schema()->hasTable('s3_cloudbackup_agents')) {
+        $agents = (int)Capsule::table('s3_cloudbackup_agents')->where('tenant_id', $tenantId)->count();
+        if ($agents > 0) {
+            $blockers['agents'] = $agents;
+        }
+    }
+    if (Capsule::schema()->hasTable('s3_backup_usage_snapshots')) {
+        $usageRows = (int)Capsule::table('s3_backup_usage_snapshots')
+            ->where('tenant_id', $tenantId)
+            ->where(function ($q) {
+                $q->where('storage_bytes', '>', 0)
+                    ->orWhere('agent_count', '>', 0)
+                    ->orWhere('disk_image_agent_count', '>', 0)
+                    ->orWhere('vm_count', '>', 0);
+            })
+            ->count();
+        if ($usageRows > 0) {
+            $blockers['usage'] = $usageRows;
+        }
+    }
+
+    return $blockers;
 }
 
 function eb_ph_tenants_require_context(array $vars): array
@@ -132,43 +218,37 @@ function eb_ph_tenants_index(array $vars)
         $token = (string)($_POST['token'] ?? '');
         eb_ph_tenants_require_csrf_or_redirect($vars, $token);
 
-        $subdomain = trim((string)($post['subdomain'] ?? ''));
-        $fqdn = trim((string)($post['fqdn'] ?? ''));
-        $status = eb_ph_tenants_normalize_status((string)($post['status'] ?? 'queued'));
-
-        if ($subdomain === '' || $fqdn === '') {
-            eb_ph_tenants_redirect($vars, 'error=missing_fields');
+        $name = trim((string)($post['name'] ?? ''));
+        $slugRaw = trim((string)($post['slug'] ?? ''));
+        $slug = eb_ph_tenants_slugify($slugRaw !== '' ? $slugRaw : $name);
+        $contactEmail = strtolower(trim((string)($post['contact_email'] ?? '')));
+        $status = eb_ph_tenants_normalize_status((string)($post['status'] ?? 'active'));
+        if ($status === 'deleted') {
+            $status = 'active';
         }
 
-        $insert = [
-            'client_id' => $clientId,
-            'status' => $status,
-            'org_id' => trim((string)($post['org_id'] ?? '')) ?: null,
-            'subdomain' => $subdomain,
-            'fqdn' => $fqdn,
-            'custom_domain' => trim((string)($post['custom_domain'] ?? '')) ?: null,
-            'product_id' => null,
-            'server_id' => null,
-            'servergroup_id' => null,
-            'idempotency_key' => eb_ph_tenants_generate_idempotency_key(),
-            'created_at' => date('Y-m-d H:i:s'),
-            'updated_at' => date('Y-m-d H:i:s'),
-        ];
+        if ($name === '' || $slug === '') {
+            eb_ph_tenants_redirect($vars, 'error=missing_fields');
+        }
+        if (!eb_ph_tenants_is_valid_slug($slug)) {
+            eb_ph_tenants_redirect($vars, 'error=invalid_slug');
+        }
+        if ($contactEmail !== '' && !filter_var($contactEmail, FILTER_VALIDATE_EMAIL)) {
+            eb_ph_tenants_redirect($vars, 'error=invalid_email');
+        }
+        if (eb_ph_tenants_existing_slug_owner($clientId, $slug) !== null) {
+            eb_ph_tenants_redirect($vars, 'error=slug_taken');
+        }
 
         try {
-            $tenantId = (int)Capsule::table('eb_whitelabel_tenants')->insertGetId([
-                'client_id' => $insert['client_id'],
-                'status' => $insert['status'],
-                'org_id' => $insert['org_id'],
-                'subdomain' => $insert['subdomain'],
-                'fqdn' => $insert['fqdn'],
-                'custom_domain' => $insert['custom_domain'],
-                'product_id' => $insert['product_id'],
-                'server_id' => $insert['server_id'],
-                'servergroup_id' => $insert['servergroup_id'],
-                'idempotency_key' => $insert['idempotency_key'],
-                'created_at' => $insert['created_at'],
-                'updated_at' => $insert['updated_at'],
+            $tenantId = (int)Capsule::table('s3_backup_tenants')->insertGetId([
+                'client_id' => $clientId,
+                'name' => $name,
+                'slug' => $slug,
+                'contact_email' => $contactEmail !== '' ? $contactEmail : null,
+                'status' => $status,
+                'created_at' => Capsule::raw('NOW()'),
+                'updated_at' => Capsule::raw('NOW()'),
             ]);
             header('Location: ' . eb_ph_tenants_base_link($vars) . '&a=ph-tenant&id=' . $tenantId . '&notice=created');
             exit;
@@ -177,7 +257,8 @@ function eb_ph_tenants_index(array $vars)
         }
     }
 
-    $rowsCol = Capsule::table('eb_whitelabel_tenants')->where('client_id', $clientId)
+    $rowsCol = Capsule::table('s3_backup_tenants')->where('client_id', $clientId)
+        ->where('status', '!=', 'deleted')
         ->orderBy('created_at', 'desc')
         ->get();
     $rows = [];
@@ -211,7 +292,11 @@ function eb_ph_tenant_detail(array $vars)
         eb_ph_tenants_redirect($vars, 'error=not_found');
     }
 
-    $tenant = Capsule::table('eb_whitelabel_tenants')->where('id', $tenantId)->where('client_id', $clientId)->first();
+    $tenant = Capsule::table('s3_backup_tenants')
+        ->where('id', $tenantId)
+        ->where('client_id', $clientId)
+        ->where('status', '!=', 'deleted')
+        ->first();
     if (!$tenant) {
         eb_ph_tenants_redirect($vars, 'error=not_found');
     }
@@ -221,21 +306,37 @@ function eb_ph_tenant_detail(array $vars)
         $token = (string)($_POST['token'] ?? '');
         eb_ph_tenants_require_csrf_or_redirect($vars, $token, $tenantId);
 
-        $subdomain = trim((string)($post['subdomain'] ?? ''));
-        $fqdn = trim((string)($post['fqdn'] ?? ''));
-        if ($subdomain === '' || $fqdn === '') {
+        $name = trim((string)($post['name'] ?? ''));
+        $slug = eb_ph_tenants_slugify((string)($post['slug'] ?? ''));
+        $contactEmail = strtolower(trim((string)($post['contact_email'] ?? '')));
+        if ($name === '' || $slug === '') {
             header('Location: ' . eb_ph_tenants_base_link($vars) . '&a=ph-tenant&id=' . $tenantId . '&error=missing_fields');
+            exit;
+        }
+        if (!eb_ph_tenants_is_valid_slug($slug)) {
+            header('Location: ' . eb_ph_tenants_base_link($vars) . '&a=ph-tenant&id=' . $tenantId . '&error=invalid_slug');
+            exit;
+        }
+        if ($contactEmail !== '' && !filter_var($contactEmail, FILTER_VALIDATE_EMAIL)) {
+            header('Location: ' . eb_ph_tenants_base_link($vars) . '&a=ph-tenant&id=' . $tenantId . '&error=invalid_email');
+            exit;
+        }
+        if (eb_ph_tenants_existing_slug_owner($clientId, $slug, $tenantId) !== null) {
+            header('Location: ' . eb_ph_tenants_base_link($vars) . '&a=ph-tenant&id=' . $tenantId . '&error=slug_taken');
             exit;
         }
 
         try {
-            Capsule::table('eb_whitelabel_tenants')->where('id', $tenantId)->where('client_id', $clientId)->update([
-                'status' => eb_ph_tenants_normalize_status((string)($post['status'] ?? 'queued')),
-                'org_id' => trim((string)($post['org_id'] ?? '')) ?: null,
-                'subdomain' => $subdomain,
-                'fqdn' => $fqdn,
-                'custom_domain' => trim((string)($post['custom_domain'] ?? '')) ?: null,
-                'updated_at' => date('Y-m-d H:i:s'),
+            $status = eb_ph_tenants_normalize_status((string)($post['status'] ?? 'active'));
+            if ($status === 'deleted') {
+                $status = 'active';
+            }
+            Capsule::table('s3_backup_tenants')->where('id', $tenantId)->where('client_id', $clientId)->update([
+                'name' => $name,
+                'slug' => $slug,
+                'contact_email' => $contactEmail !== '' ? $contactEmail : null,
+                'status' => $status,
+                'updated_at' => Capsule::raw('NOW()'),
             ]);
             header('Location: ' . eb_ph_tenants_base_link($vars) . '&a=ph-tenant&id=' . $tenantId . '&notice=saved');
             exit;
@@ -250,16 +351,19 @@ function eb_ph_tenant_detail(array $vars)
         eb_ph_tenants_require_csrf_or_redirect($vars, $token, $tenantId);
 
         try {
-            $hasCanonicalLinks = Capsule::table('eb_customers')->where('tenant_id', $tenantId)->exists();
+            $blockers = eb_ph_tenants_delete_blockers($tenantId);
         } catch (\Throwable $__) {
             eb_ph_tenant_redirect($vars, $tenantId, 'error=tenant_ref_check_failed');
         }
-        if ($hasCanonicalLinks) {
+        if (!empty($blockers)) {
             eb_ph_tenant_redirect($vars, $tenantId, 'error=tenant_in_use');
         }
 
         try {
-            Capsule::table('eb_whitelabel_tenants')->where('id', $tenantId)->where('client_id', $clientId)->delete();
+            Capsule::table('s3_backup_tenants')->where('id', $tenantId)->where('client_id', $clientId)->update([
+                'status' => 'deleted',
+                'updated_at' => Capsule::raw('NOW()'),
+            ]);
             eb_ph_tenants_redirect($vars, 'notice=deleted');
         } catch (\Throwable $__) {
             header('Location: ' . eb_ph_tenants_base_link($vars) . '&a=ph-tenant&id=' . $tenantId . '&error=delete_failed');
@@ -267,7 +371,11 @@ function eb_ph_tenant_detail(array $vars)
         }
     }
 
-    $tenant = Capsule::table('eb_whitelabel_tenants')->where('id', $tenantId)->where('client_id', $clientId)->first();
+    $tenant = Capsule::table('s3_backup_tenants')
+        ->where('id', $tenantId)
+        ->where('client_id', $clientId)
+        ->where('status', '!=', 'deleted')
+        ->first();
     if (!$tenant) {
         eb_ph_tenants_redirect($vars, 'notice=deleted');
     }

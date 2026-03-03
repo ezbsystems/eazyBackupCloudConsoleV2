@@ -5,7 +5,7 @@
 <div class="min-h-screen bg-[rgb(var(--bg-page))] text-[rgb(var(--text-primary))]">
   <div class="mx-auto max-w-4xl px-6 py-8">
     <div class="flex items-center justify-between">
-      <h1 class="text-2xl font-semibold tracking-tight">Tenant #{$tenant.id|escape}</h1>
+      <h1 class="text-2xl font-semibold tracking-tight">Customer Tenant #{$tenant.id|escape} - {$tenant.name|default:'Unnamed'|escape}</h1>
       <a href="{$modulelink}&a=ph-tenants" class="rounded-xl px-4 py-2 text-white/80 ring-1 ring-white/10 hover:bg-white/5">Back to Customer Tenants</a>
     </div>
 
@@ -22,7 +22,7 @@
 
     <section class="mt-6 rounded-2xl bg-[rgb(var(--bg-card))] ring-1 ring-white/10 overflow-hidden">
       <div class="px-6 py-5">
-        <h2 class="text-lg font-medium">Edit Tenant</h2>
+        <h2 class="text-lg font-medium">Edit Customer Tenant</h2>
       </div>
       <div class="border-t border-white/10"></div>
       <form method="post" action="{$modulelink}&a=ph-tenant&id={$tenant.id}" class="px-6 py-6 grid grid-cols-1 md:grid-cols-12 gap-4">
@@ -32,13 +32,13 @@
           <input type="hidden" name="token" value="{$token}" />
         {/if}
 
-        <label class="md:col-span-4 block">
-          <span class="text-sm text-white/70">Subdomain</span>
-          <input name="subdomain" value="{$tenant.subdomain|escape}" required class="mt-2 w-full rounded-xl bg-[rgb(var(--bg-input))] text-white/90 ring-1 ring-white/10 focus:ring-2 focus:ring-[rgb(var(--accent))] focus:outline-none px-3.5 py-2.5" />
-        </label>
         <label class="md:col-span-5 block">
-          <span class="text-sm text-white/70">FQDN</span>
-          <input name="fqdn" value="{$tenant.fqdn|escape}" required class="mt-2 w-full rounded-xl bg-[rgb(var(--bg-input))] text-white/90 ring-1 ring-white/10 focus:ring-2 focus:ring-[rgb(var(--accent))] focus:outline-none px-3.5 py-2.5" />
+          <span class="text-sm text-white/70">Tenant Name</span>
+          <input name="name" value="{$tenant.name|escape}" required class="mt-2 w-full rounded-xl bg-[rgb(var(--bg-input))] text-white/90 ring-1 ring-white/10 focus:ring-2 focus:ring-[rgb(var(--accent))] focus:outline-none px-3.5 py-2.5" />
+        </label>
+        <label class="md:col-span-4 block">
+          <span class="text-sm text-white/70">Slug</span>
+          <input name="slug" value="{$tenant.slug|escape}" required class="mt-2 w-full rounded-xl bg-[rgb(var(--bg-input))] text-white/90 ring-1 ring-white/10 focus:ring-2 focus:ring-[rgb(var(--accent))] focus:outline-none px-3.5 py-2.5" />
         </label>
         <label class="md:col-span-3 block">
           <span class="text-sm text-white/70">Status</span>
@@ -49,28 +49,32 @@
           </select>
         </label>
 
-        <label class="md:col-span-4 block">
-          <span class="text-sm text-white/70">Org ID</span>
-          <input name="org_id" value="{$tenant.org_id|escape}" class="mt-2 w-full rounded-xl bg-[rgb(var(--bg-input))] text-white/90 ring-1 ring-white/10 focus:ring-2 focus:ring-[rgb(var(--accent))] focus:outline-none px-3.5 py-2.5" />
+        <label class="md:col-span-6 block">
+          <span class="text-sm text-white/70">Contact Email</span>
+          <input type="email" name="contact_email" value="{$tenant.contact_email|escape}" class="mt-2 w-full rounded-xl bg-[rgb(var(--bg-input))] text-white/90 ring-1 ring-white/10 focus:ring-2 focus:ring-[rgb(var(--accent))] focus:outline-none px-3.5 py-2.5" />
         </label>
-        <label class="md:col-span-8 block">
-          <span class="text-sm text-white/70">Custom Domain</span>
-          <input name="custom_domain" value="{$tenant.custom_domain|escape}" class="mt-2 w-full rounded-xl bg-[rgb(var(--bg-input))] text-white/90 ring-1 ring-white/10 focus:ring-2 focus:ring-[rgb(var(--accent))] focus:outline-none px-3.5 py-2.5" />
+        <label class="md:col-span-3 block">
+          <span class="text-sm text-white/70">Created</span>
+          <input value="{$tenant.created_at|default:'-'|escape}" disabled class="mt-2 w-full rounded-xl bg-white/5 text-white/60 ring-1 ring-white/10 px-3.5 py-2.5" />
+        </label>
+        <label class="md:col-span-3 block">
+          <span class="text-sm text-white/70">Last Updated</span>
+          <input value="{$tenant.updated_at|default:'-'|escape}" disabled class="mt-2 w-full rounded-xl bg-white/5 text-white/60 ring-1 ring-white/10 px-3.5 py-2.5" />
         </label>
 
         <div class="md:col-span-12 flex justify-end">
-          <button type="submit" class="rounded-xl px-4 py-2 font-medium text-white bg-[rgb(var(--accent))] hover:bg-[rgb(var(--accent))]/90">Save Tenant</button>
+          <button type="submit" class="rounded-xl px-4 py-2 font-medium text-white bg-[rgb(var(--accent))] hover:bg-[rgb(var(--accent))]/90">Save Customer Tenant</button>
         </div>
       </form>
     </section>
 
     <section class="mt-6 rounded-2xl bg-[rgb(var(--bg-card))] ring-1 ring-white/10 overflow-hidden">
       <div class="px-6 py-5">
-        <h2 class="text-lg font-medium">White-label Status</h2>
+        <h2 class="text-lg font-medium">Canonical Tenant Status</h2>
       </div>
       <div class="border-t border-white/10"></div>
       <div class="px-6 py-5">
-        <span class="inline-flex items-center rounded-full px-3 py-1 text-xs ring-1 ring-white/15 text-white/70">Pending</span>
+        <span class="inline-flex items-center rounded-full px-3 py-1 text-xs ring-1 ring-white/15 text-white/70">{$tenant.status|default:'active'|escape}</span>
       </div>
     </section>
 
@@ -85,8 +89,8 @@
         {if isset($token) && $token ne ''}
           <input type="hidden" name="token" value="{$token}" />
         {/if}
-        <p class="text-sm text-white/70">Delete this tenant record from canonical tenant storage.</p>
-        <button type="submit" class="rounded-xl px-4 py-2 font-medium text-white bg-rose-600 hover:bg-rose-500" onclick="return confirm('Delete this tenant?');">Delete Tenant</button>
+        <p class="text-sm text-white/70">Delete this customer tenant (marks canonical status as deleted when safe).</p>
+        <button type="submit" class="rounded-xl px-4 py-2 font-medium text-white bg-rose-600 hover:bg-rose-500" onclick="return confirm('Delete this customer tenant?');">Delete Customer Tenant</button>
       </form>
     </section>
   </div>
