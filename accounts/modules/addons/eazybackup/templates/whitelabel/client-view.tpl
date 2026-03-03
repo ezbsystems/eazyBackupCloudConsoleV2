@@ -110,7 +110,7 @@
         </form>
       </section>
 
-      <section class="md:col-span-6 rounded-2xl bg-[rgb(var(--bg-card))] shadow-xl shadow-black/20 ring-1 ring-white/10 overflow-hidden">
+      <section class="md:col-span-6 rounded-2xl eb-bg-card shadow-xl shadow-black/20 ring-1 ring-white/10 overflow-hidden">
         <div class="px-6 py-5"><h2 class="text-lg font-medium">Billing</h2></div>
         <div class="border-t border-white/10"></div>
         <div class="px-6 py-6 grid grid-cols-2 gap-4 text-sm">

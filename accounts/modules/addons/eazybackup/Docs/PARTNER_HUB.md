@@ -9,6 +9,16 @@ This document describes the eazyBackup Partner Hub project and Phase 1 deliverab
 - Redirect to a branded download page after signup
 - Client-area controls to configure the public signup flow and attach a signup domain
 
+## Canonical Tenant Billing Release Gate
+
+The Partner Hub canonical billing rollout is gated by the release script:
+
+`php accounts/modules/addons/eazybackup/bin/dev/msp_billing_release_gate.php`
+
+This gate validates core routing, schema markers, approval flow safety markers, and portal entry points before release.
+
+Tenant Portal sections: Billing, Services, Cloud Storage
+
 ## Feature Flags & Routing
 - Addon setting `PARTNER_HUB_SIGNUP_ENABLED` gates public routes and Partner Hub nav.
 - Addon setting `ops_whmcs_upstream` is used by HostOps when writing HTTPS vhosts for signup domains.

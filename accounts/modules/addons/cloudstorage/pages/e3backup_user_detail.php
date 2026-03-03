@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/../../eazybackup/pages/partnerhub/TenantStorageLinksController.php';
+
 use WHMCS\ClientArea;
 use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
@@ -66,14 +68,45 @@ if ($isMspClient && !empty($user->tenant_id)) {
     }
 }
 
-$tenants = [];
+$canonicalTenants = [];
 if ($isMspClient) {
-    $tenants = MspController::getTenants($loggedInUserId);
+    $rows = Capsule::table('eb_whitelabel_tenants')
+        ->where('client_id', $loggedInUserId)
+        ->whereNotIn('status', ['deleted', 'removing'])
+        ->orderBy('subdomain', 'asc')
+        ->orderBy('id', 'asc')
+        ->get([
+            'id',
+            'subdomain',
+            'fqdn',
+            'status',
+        ]);
+    foreach ($rows as $row) {
+        if (!eb_tenant_storage_links_is_assignable_tenant_status((string) ($row->status ?? ''))) {
+            continue;
+        }
+        $name = trim((string) ($row->subdomain ?? ''));
+        if ($name === '') {
+            $name = trim((string) ($row->fqdn ?? ''));
+        }
+        if ($name === '') {
+            $name = 'Tenant #' . (int) $row->id;
+        }
+        $canonicalTenants[] = [
+            'id' => (int) $row->id,
+            'name' => $name,
+            'subdomain' => (string) ($row->subdomain ?? ''),
+            'fqdn' => (string) ($row->fqdn ?? ''),
+            'status' => (string) ($row->status ?? ''),
+        ];
+    }
 }
+$csrfToken = function_exists('generate_token') ? generate_token('plain') : '';
 
 return [
     'isMspClient' => $isMspClient,
-    'tenants' => $tenants,
+    'csrfToken' => $csrfToken,
+    'canonicalTenants' => $canonicalTenants,
     'user' => $user,
 ];
 

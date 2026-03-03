@@ -17,6 +17,7 @@
     <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=ph-clients" class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]">Clients</a>
     {/if}
     <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=whitelabel-branding" class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]">White-Label Tenants</a>
+    <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=ph-signup-approvals" class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]">Signup Approvals</a>
 
     {if !isset($eb_ph_show_catalog) || $eb_ph_show_catalog}
     <div>

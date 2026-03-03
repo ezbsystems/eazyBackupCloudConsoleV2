@@ -25,7 +25,9 @@ if (!$isMspClient) {
     header('Location: index.php?m=cloudstorage&page=e3backup');
     exit;
 }
+$csrfToken = function_exists('generate_token') ? generate_token('plain') : '';
 
 return [
     'isMspClient' => $isMspClient,
+    'csrfToken' => $csrfToken,
 ];

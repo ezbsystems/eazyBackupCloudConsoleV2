@@ -46,7 +46,7 @@
                             </div>
                             <div>
                                 <div class="text-slate-400 text-xs uppercase tracking-wide">Tenant</div>
-                                <div class="text-slate-100 mt-1" x-text="isMspClient ? (user.tenant_name || 'Direct') : 'Direct'"></div>
+                                <div class="text-slate-100 mt-1" x-text="isMspClient ? (user.canonical_tenant_name || user.tenant_name || 'Direct') : 'Direct'"></div>
                             </div>
                             <div>
                                 <div class="text-slate-400 text-xs uppercase tracking-wide">Status</div>
@@ -253,7 +253,8 @@ function backupUserDetailApp() {
     return {
         userId: {/literal}{$user->id|intval}{literal},
         isMspClient: {/literal}{if $isMspClient}true{else}false{/if}{literal},
-        tenants: {/literal}{$tenants|@json_encode nofilter}{literal} || [],
+        canonicalTenants: {/literal}{$canonicalTenants|@json_encode nofilter}{literal} || [],
+        csrfToken: {/literal}{$csrfToken|@json_encode nofilter}{literal} || '',
         loading: true,
         updating: false,
         resettingPassword: false,
@@ -265,6 +266,9 @@ function backupUserDetailApp() {
             email: {/literal}{$user->email|@json_encode nofilter}{literal},
             tenant_id: {/literal}{$user->tenant_id|@json_encode nofilter}{literal},
             tenant_name: {/literal}{$user->tenant_name|@json_encode nofilter}{literal},
+            canonical_tenant_id: null,
+            canonical_tenant_name: null,
+            is_canonical_managed: false,
             status: {/literal}{$user->status|@json_encode nofilter}{literal}
         },
         updateForm: {
@@ -291,13 +295,13 @@ function backupUserDetailApp() {
 
         get filteredTenants() {
             const query = this.tenantSearch.trim().toLowerCase();
-            if (!query) return this.tenants;
-            return this.tenants.filter((tenant) => (tenant.name || '').toLowerCase().includes(query));
+            if (!query) return this.canonicalTenants;
+            return this.canonicalTenants.filter((tenant) => (tenant.name || '').toLowerCase().includes(query));
         },
 
         updateTenantLabel() {
             if (!this.updateForm.tenant_id) return 'Direct (No Tenant)';
-            const tenant = this.tenants.find((item) => String(item.id) === String(this.updateForm.tenant_id));
+            const tenant = this.canonicalTenants.find((item) => String(item.id) === String(this.updateForm.tenant_id));
             return tenant ? tenant.name : 'Select tenant';
         },
 
@@ -311,8 +315,14 @@ function backupUserDetailApp() {
         assignFormsFromUser() {
             this.updateForm.username = this.user.username || '';
             this.updateForm.email = this.user.email || '';
-            this.updateForm.tenant_id = this.user.tenant_id ? String(this.user.tenant_id) : '';
+            this.updateForm.tenant_id = this.user.canonical_tenant_id ? String(this.user.canonical_tenant_id) : '';
             this.updateForm.status = this.user.status || 'active';
+        },
+
+        shouldSendCanonicalTenantOnUpdate() {
+            if (!this.isMspClient) return false;
+            if (this.updateForm.tenant_id) return true;
+            return !!this.user.is_canonical_managed;
         },
 
         async loadUser() {
@@ -361,8 +371,9 @@ function backupUserDetailApp() {
                     email: this.updateForm.email,
                     status: this.updateForm.status
                 });
-                if (this.isMspClient) {
-                    body.set('tenant_id', this.updateForm.tenant_id);
+                body.set('token', this.csrfToken);
+                if (this.isMspClient && this.shouldSendCanonicalTenantOnUpdate()) {
+                    body.set('canonical_tenant_id', this.updateForm.tenant_id ? this.updateForm.tenant_id : 'direct');
                 }
 
                 const response = await fetch('modules/addons/cloudstorage/api/e3backup_user_update.php', {
@@ -378,6 +389,9 @@ function backupUserDetailApp() {
                 } else {
                     this.updateError = data.message || 'Failed to update user.';
                     this.updateErrors = data.errors || {};
+                    if (this.updateErrors.canonical_tenant_id && !this.updateErrors.tenant_id) {
+                        this.updateErrors.tenant_id = this.updateErrors.canonical_tenant_id;
+                    }
                 }
             } catch (error) {
                 this.updateError = 'Failed to update user.';
@@ -412,6 +426,7 @@ function backupUserDetailApp() {
                     password: this.passwordForm.password,
                     password_confirm: this.passwordForm.password_confirm
                 });
+                body.set('token', this.csrfToken);
                 const response = await fetch('modules/addons/cloudstorage/api/e3backup_user_reset_password.php', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -442,6 +457,7 @@ function backupUserDetailApp() {
             this.deleting = true;
             try {
                 const body = new URLSearchParams({ user_id: String(this.userId) });
+                body.set('token', this.csrfToken);
                 const response = await fetch('modules/addons/cloudstorage/api/e3backup_user_delete.php', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },

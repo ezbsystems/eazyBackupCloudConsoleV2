@@ -27,7 +27,6 @@ if (!$isMspClient) {
     exit;
 }
 
-return [
-    'isMspClient' => $isMspClient,
-];
+header('Location: index.php?m=eazybackup&a=ph-tenants-manage');
+exit;
 

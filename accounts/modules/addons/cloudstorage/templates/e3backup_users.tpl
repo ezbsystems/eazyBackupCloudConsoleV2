@@ -141,6 +141,8 @@
                        class="w-full xl:w-80 rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
             </div>
 
+            <p class="mb-3 text-xs text-amber-300" x-show="canonicalTenantLoadError" x-text="canonicalTenantLoadError"></p>
+
             <div class="overflow-x-auto rounded-lg border border-slate-800">
                 <table class="min-w-full divide-y divide-slate-800 text-sm">
                     <thead class="bg-slate-900/80 text-slate-300">
@@ -298,7 +300,9 @@ function backupUsersApp() {
         loading: true,
         saving: false,
         isMspClient: {/literal}{if $isMspClient}true{else}false{/if}{literal},
+        csrfToken: {/literal}{$csrfToken|@json_encode nofilter}{literal} || '',
         tenants: {/literal}{$tenants|@json_encode nofilter}{literal} || [],
+        canonicalTenants: [],
         tenantFilter: '',
         tenantSearch: '',
         tenantAssignSearch: '',
@@ -309,6 +313,7 @@ function backupUsersApp() {
         sortDirection: 'asc',
         showCreateModal: false,
         formErrorMessage: '',
+        canonicalTenantLoadError: '',
         fieldErrors: {},
         form: {
             username: '',
@@ -341,6 +346,8 @@ function backupUsersApp() {
         init() {
             if (!this.isMspClient) {
                 this.columnState.tenant = false;
+            } else {
+                this.loadCanonicalTenants();
             }
             this.loadUsers();
         },
@@ -353,8 +360,8 @@ function backupUsersApp() {
 
         get filteredAssignTenants() {
             const search = this.tenantAssignSearch.trim().toLowerCase();
-            if (!search) return this.tenants;
-            return this.tenants.filter((tenant) => (tenant.name || '').toLowerCase().includes(search));
+            if (!search) return this.canonicalTenants;
+            return this.canonicalTenants.filter((tenant) => (tenant.name || '').toLowerCase().includes(search));
         },
 
         tenantFilterLabel() {
@@ -366,7 +373,7 @@ function backupUsersApp() {
 
         createTenantLabel() {
             if (!this.form.tenant_id) return 'Direct (No Tenant)';
-            const tenant = this.tenants.find((item) => String(item.id) === String(this.form.tenant_id));
+            const tenant = this.canonicalTenants.find((item) => String(item.id) === String(this.form.tenant_id));
             return tenant ? tenant.name : 'Select tenant';
         },
 
@@ -633,6 +640,28 @@ function backupUsersApp() {
             this.loading = false;
         },
 
+        async loadCanonicalTenants() {
+            if (!this.isMspClient) {
+                this.canonicalTenants = [];
+                this.canonicalTenantLoadError = '';
+                return;
+            }
+            try {
+                const response = await fetch('index.php?m=eazybackup&a=ph-tenant-storage-links');
+                const data = await response.json();
+                if (data.status === 'success' && Array.isArray(data.tenants)) {
+                    this.canonicalTenants = data.tenants.map((tenant) => ({
+                        id: tenant.id,
+                        name: tenant.name || tenant.subdomain || tenant.fqdn || ('Tenant #' + tenant.id)
+                    }));
+                    this.canonicalTenantLoadError = '';
+                    return;
+                }
+            } catch (error) {}
+            this.canonicalTenants = [];
+            this.canonicalTenantLoadError = 'Canonical tenant list unavailable. Only direct assignment is currently available.';
+        },
+
         async createUser() {
             this.formErrorMessage = '';
             if (!this.validateCreateForm()) {
@@ -660,9 +689,10 @@ function backupUsersApp() {
                     strict_acknowledged: this.form.strict_acknowledged ? '1' : '0',
                     recovery_key_downloaded: this.form.recovery_key_downloaded ? '1' : '0'
                 });
+                body.set('token', this.csrfToken);
 
-                if (this.isMspClient && this.form.tenant_id) {
-                    body.set('tenant_id', this.form.tenant_id);
+                if (this.isMspClient) {
+                    body.set('canonical_tenant_id', this.form.tenant_id ? this.form.tenant_id : 'direct');
                 }
 
                 const response = await fetch('modules/addons/cloudstorage/api/e3backup_user_create.php', {
@@ -678,6 +708,9 @@ function backupUsersApp() {
                 } else {
                     this.formErrorMessage = data.message || 'Failed to create user.';
                     this.fieldErrors = data.errors || {};
+                    if (this.fieldErrors.canonical_tenant_id && !this.fieldErrors.tenant_id) {
+                        this.fieldErrors.tenant_id = this.fieldErrors.canonical_tenant_id;
+                    }
                 }
             } catch (error) {
                 this.formErrorMessage = 'Failed to create user.';

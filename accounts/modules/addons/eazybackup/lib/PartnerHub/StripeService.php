@@ -29,7 +29,7 @@ class StripeService
         return $this->getSetting('stripe_platform_publishable_key');
     }
 
-    private function request(string $method, string $path, array $params = [], ?string $apiKey = null, ?string $stripeAccount = null): array
+    private function request(string $method, string $path, array $params = [], ?string $apiKey = null, ?string $stripeAccount = null, ?array $extraHeaders = null): array
     {
         $apiKey = $apiKey ?: $this->getSecret();
         $url = rtrim($this->apiBase,'/').$path;
@@ -39,6 +39,13 @@ class StripeService
         ];
         if ($stripeAccount) {
             $headers[] = 'Stripe-Account: '.$stripeAccount;
+        }
+        if (is_array($extraHeaders)) {
+            foreach ($extraHeaders as $header) {
+                if (is_string($header) && $header !== '') {
+                    $headers[] = $header;
+                }
+            }
         }
         $opts = [
             CURLOPT_URL => $url,
@@ -234,13 +241,14 @@ class StripeService
         return $this->request('GET','/v1/subscriptions/'.$subscriptionId, [], null, $stripeAccount);
     }
 
-    public function createUsageRecord(string $subscriptionItemId, int $quantity, int $timestamp): array
+    public function createUsageRecord(string $subscriptionItemId, int $quantity, int $timestamp, ?string $stripeAccount = null, ?string $idempotencyKey = null): array
     {
+        $headers = $idempotencyKey ? ['Idempotency-Key: '.$idempotencyKey] : null;
         return $this->request('POST','/v1/subscription_items/'.$subscriptionItemId.'/usage_records',[
             'quantity' => $quantity,
             'timestamp' => $timestamp,
             'action' => 'set',
-        ]);
+        ], null, $stripeAccount, $headers);
     }
 
     public function createPaymentIntentOneTime(string $mspAccountId, array $params): array

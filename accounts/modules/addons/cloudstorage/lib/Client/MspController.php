@@ -62,6 +62,7 @@ class MspController
         return Capsule::table('s3_backup_tenants')
             ->where('id', $tenantId)
             ->where('client_id', $clientId)
+            ->where('status', '!=', 'deleted')
             ->first();
     }
 

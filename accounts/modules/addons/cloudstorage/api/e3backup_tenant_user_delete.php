@@ -17,6 +17,22 @@ if (!$ca->isLoggedIn()) {
     (new JsonResponse(['status' => 'fail', 'message' => 'Session timeout'], 200))->send();
     exit;
 }
+
+$token = (string) ($_POST['token'] ?? '');
+if ($token === '' || !function_exists('check_token')) {
+    (new JsonResponse(['status' => 'fail', 'message' => 'CSRF validation failed'], 400))->send();
+    exit;
+}
+try {
+    if (!check_token('plain', $token)) {
+        (new JsonResponse(['status' => 'fail', 'message' => 'CSRF validation failed'], 400))->send();
+        exit;
+    }
+} catch (\Throwable $e) {
+    (new JsonResponse(['status' => 'fail', 'message' => 'CSRF validation failed'], 400))->send();
+    exit;
+}
+
 $clientId = $ca->getUserID();
 
 // Check MSP access
@@ -37,6 +53,7 @@ $user = Capsule::table('s3_backup_tenant_users as u')
     ->join('s3_backup_tenants as t', 'u.tenant_id', '=', 't.id')
     ->where('u.id', $userId)
     ->where('t.client_id', $clientId)
+    ->where('t.status', '!=', 'deleted')
     ->first(['u.id']);
 
 if (!$user) {
