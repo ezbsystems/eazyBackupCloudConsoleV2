@@ -19,6 +19,65 @@ This gate validates core routing, schema markers, approval flow safety markers, 
 
 Tenant Portal sections: Billing, Services, Cloud Storage
 
+## Tenant v2 Rollout Notes
+
+Tenant v2 rollout keeps Partner Hub aligned with canonical tenant ownership and cloud storage routing contracts.
+
+### Migration Checklist
+- [ ] **TODO: Canonical table ownership** - `s3_backup_tenants` is canonical and owned by Cloud Storage; Partner Hub integrations must use canonical linkage, not duplicate tenant profile tables.
+- [ ] **TODO: Hidden infra fields** - keep `product_id`, `server_id`, and `servergroup_id` hidden from tenant-facing forms and APIs; only internal provisioning paths may set or update them.
+- [ ] **TODO: Legacy route compatibility policy** - preserve current legacy route behavior (`a=whitelabel*` and portal `?msp=` entry flow) during Tenant v2 rollout, with redirects/deprecation notes before removal.
+- [ ] Re-run `php accounts/modules/addons/eazybackup/bin/dev/msp_billing_release_gate.php` before and after rollout edits.
+
+### Task 1 Verification Log
+- Pre-edit gate run: `MSP_BILLING_RELEASE_GATE_PASS`
+- Post-edit gate run: `MSP_BILLING_RELEASE_GATE_PASS`
+
+### Task 8 Deployment and Operations Checklist (Tenant v2)
+
+#### Pre-release checklist
+- [ ] Confirm environment has prerequisite schema migrations for Tenant v2 canonical links (including required canonical tenant linkage columns).
+- [ ] Run release gate command:
+  - `php accounts/modules/addons/eazybackup/bin/dev/msp_billing_release_gate.php`
+  - Expected result: `MSP_BILLING_RELEASE_GATE_PASS` and process exit `0`.
+- [ ] Run canonical migration dry-run:
+  - `php accounts/modules/addons/eazybackup/bin/dev/migrate_tenant_v2_canonical.php --dry-run`
+  - Expected result: `TENANT_V2_CANONICAL_MIGRATION_REPORT` output with process exit `0`.
+  - Release criteria before `--apply`: `ambiguous=0`, `manual_invalid=0`, and `unmapped=0` unless an explicit manual mapping exception is approved.
+- [ ] Capture backup/snapshot and change window metadata before live migration.
+- [ ] Run canonical migration apply during approved change window:
+  - `php accounts/modules/addons/eazybackup/bin/dev/migrate_tenant_v2_canonical.php --apply`
+  - Expected result: `TENANT_V2_CANONICAL_MIGRATION_REPORT` with `mode=APPLY`, `manual_invalid=0`, and `applied_updates=<n>` matching approved migration scope.
+
+#### Rollback notes
+- If pre-release checks fail: do not run live migration; resolve environment/schema blockers and rerun both checks.
+- If rollout was applied and regressions are detected: restore pre-release DB snapshot and deploy last known-good app revision.
+- If route behavior regresses after app deploy: disable/revert new Partner Hub tenant routes and keep legacy cloudstorage wrapper routes active until fix is verified.
+- After any rollback: rerun release gate and dry-run migration; only reopen rollout when both checks pass.
+
+#### Post-deploy verification queries and docs
+- Re-run release gate and dry-run commands (same commands as pre-release) and archive output in release notes.
+- DB verification queries:
+  - `SHOW TABLES LIKE 's3_backup_tenants';` (expect one row)
+  - `SHOW COLUMNS FROM eb_whitelabel_tenants LIKE 'canonical_tenant_id';` (expect one row after schema prereqs are complete)
+  - `SELECT id, canonical_tenant_id FROM eb_whitelabel_tenants ORDER BY id DESC LIMIT 20;` (expect canonical links on migrated tenants)
+  - `SELECT COUNT(*) AS missing_links FROM eb_whitelabel_tenants WHERE canonical_tenant_id IS NULL OR canonical_tenant_id = 0;` (expect `0`, or match approved exception list)
+- Document command outputs, query snapshots, and rollback decision points in the deployment ticket for auditability.
+
+#### Operational notes for dry-run failures (missing DB column migration)
+- Failure signature: migration dry-run prints `ERROR: eb_whitelabel_tenants.canonical_tenant_id is missing. Run addon schema migration first.`
+- Expected behavior: treat this as environment readiness drift (schema migration missing), not application code failure.
+- Required response:
+  1. Apply prerequisite schema migration in that environment.
+  2. Re-run `msp_billing_release_gate.php`.
+  3. Re-run `migrate_tenant_v2_canonical.php --dry-run`.
+  4. Continue rollout only when both commands exit `0` with expected pass output.
+
+#### Task 8 Verification Log
+- Release gate run: `MSP_BILLING_RELEASE_GATE_PASS` (exit `0`).
+- Migration dry-run run: `ERROR: eb_whitelabel_tenants.canonical_tenant_id is missing. Run addon schema migration first.` (exit `1`).
+- Interpretation: environment readiness blocker (schema prereq missing); do not run `--apply` until schema migration is complete in target environment.
+
 ## Feature Flags & Routing
 - Addon setting `PARTNER_HUB_SIGNUP_ENABLED` gates public routes and Partner Hub nav.
 - Addon setting `ops_whmcs_upstream` is used by HostOps when writing HTTPS vhosts for signup domains.
@@ -82,7 +141,7 @@ All tables InnoDB + utf8mb4.
 - `eb_whitelabel_signup_events`
   - id (PK), tenant_id, host_header, email, whmcs_client_id, whmcs_order_id, comet_username, status (received|validated|ordered|accepted|provisioned|emailed|completed|failed), error, ip, user_agent, created_at, updated_at
   - Unique(tenant_id,email), Key(tenant_id), Key(status)
-- Existing: `eb_whitelabel_tenants` is the canonical tenant record (client ownership, org_id, FQDN, product/server refs, branding/email JSON).
+- Existing: `eb_whitelabel_tenants` stores white-label capability/provisioning records (client ownership, org_id, FQDN, product/server refs, branding/email JSON) and should be linked to canonical customer tenants (`s3_backup_tenants`) during Tenant v2 rollout.
 
 ## Database Schema (Email Templates)
 All tables InnoDB + utf8mb4.
