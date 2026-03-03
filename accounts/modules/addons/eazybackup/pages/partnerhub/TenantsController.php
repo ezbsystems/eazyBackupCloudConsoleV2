@@ -209,6 +209,62 @@ function eb_ph_tenants_management_entry(array $vars)
     return eb_ph_tenants_index($vars);
 }
 
+function eb_ph_tenant_tab_links(array $vars, int $tenantId): array
+{
+    $base = eb_ph_tenants_base_link($vars);
+    return [
+        'profile' => $base . '&a=ph-tenant&id=' . $tenantId,
+        'members' => $base . '&a=ph-tenant-members&id=' . $tenantId,
+        'storage_users' => $base . '&a=ph-tenant-storage-users&id=' . $tenantId,
+        'billing' => $base . '&a=ph-tenant-billing&id=' . $tenantId,
+        'white_label' => $base . '&a=ph-tenant-whitelabel&id=' . $tenantId,
+    ];
+}
+
+function eb_ph_tenant_require_owned(array $vars): array
+{
+    [$clientId, $msp] = eb_ph_tenants_require_context($vars);
+    $tenantId = (int)($_GET['id'] ?? $_POST['tenant_id'] ?? 0);
+    if ($tenantId <= 0) {
+        eb_ph_tenants_redirect($vars, 'error=not_found');
+    }
+
+    $tenant = Capsule::table('s3_backup_tenants')
+        ->where('id', $tenantId)
+        ->where('client_id', $clientId)
+        ->where('status', '!=', 'deleted')
+        ->first();
+    if (!$tenant) {
+        eb_ph_tenants_redirect($vars, 'error=not_found');
+    }
+
+    return [$clientId, $msp, $tenantId, $tenant];
+}
+
+function eb_ph_tenant_shell_response(array $vars, array $msp, array $tenant, string $activeTab, array $tabVars = []): array
+{
+    $tenantId = (int)($tenant['id'] ?? 0);
+    $tabVars['tab_links'] = eb_ph_tenant_tab_links($vars, $tenantId);
+    $tabVars['active_tab'] = $activeTab;
+
+    return [
+        'pagetitle' => 'Tenant Detail',
+        'templatefile' => 'whitelabel/tenant-detail',
+        'breadcrumb' => ['index.php?m=eazybackup' => 'eazyBackup'],
+        'requirelogin' => true,
+        'forcessl' => true,
+        'vars' => array_merge([
+            'modulelink' => eb_ph_tenants_base_link($vars),
+            'msp' => $msp,
+            'tenant' => $tenant,
+            'statuses' => eb_ph_tenants_statuses(),
+            'token' => function_exists('generate_token') ? generate_token('plain') : '',
+            'notice' => (string)($_GET['notice'] ?? ''),
+            'error' => (string)($_GET['error'] ?? ''),
+        ], $tabVars),
+    ];
+}
+
 function eb_ph_tenants_index(array $vars)
 {
     [$clientId, $msp] = eb_ph_tenants_require_context($vars);
@@ -286,20 +342,7 @@ function eb_ph_tenants_index(array $vars)
 
 function eb_ph_tenant_detail(array $vars)
 {
-    [$clientId, $msp] = eb_ph_tenants_require_context($vars);
-    $tenantId = (int)($_GET['id'] ?? $_POST['tenant_id'] ?? 0);
-    if ($tenantId <= 0) {
-        eb_ph_tenants_redirect($vars, 'error=not_found');
-    }
-
-    $tenant = Capsule::table('s3_backup_tenants')
-        ->where('id', $tenantId)
-        ->where('client_id', $clientId)
-        ->where('status', '!=', 'deleted')
-        ->first();
-    if (!$tenant) {
-        eb_ph_tenants_redirect($vars, 'error=not_found');
-    }
+    [$clientId, $msp, $tenantId, $tenant] = eb_ph_tenant_require_owned($vars);
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['eb_save_tenant'])) {
         $post = eb_ph_tenants_strip_infra_fields((array)$_POST);
@@ -380,21 +423,43 @@ function eb_ph_tenant_detail(array $vars)
         eb_ph_tenants_redirect($vars, 'notice=deleted');
     }
 
-    return [
-        'pagetitle' => 'Tenant Detail',
-        'templatefile' => 'whitelabel/tenant-detail',
-        'breadcrumb' => ['index.php?m=eazybackup' => 'eazyBackup'],
-        'requirelogin' => true,
-        'forcessl' => true,
-        'vars' => [
-            'modulelink' => eb_ph_tenants_base_link($vars),
-            'msp' => (array)$msp,
-            'tenant' => (array)$tenant,
-            'statuses' => eb_ph_tenants_statuses(),
-            'token' => function_exists('generate_token') ? generate_token('plain') : '',
-            'notice' => (string)($_GET['notice'] ?? ''),
-            'error' => (string)($_GET['error'] ?? ''),
-        ],
-    ];
+    return eb_ph_tenant_shell_response($vars, (array)$msp, (array)$tenant, 'profile');
+}
+
+function eb_ph_tenant_storage_users(array $vars)
+{
+    [$clientId, $msp, $tenantId, $tenant] = eb_ph_tenant_require_owned($vars);
+
+    $rows = [];
+    $error = '';
+    try {
+        if (!Capsule::schema()->hasTable('s3_backup_users')) {
+            $error = 'storage_users_table_missing';
+        } else {
+            $result = Capsule::table('s3_backup_users')
+                ->where('client_id', $clientId)
+                ->where('tenant_id', $tenantId)
+                ->orderBy('username', 'asc')
+                ->orderBy('id', 'asc')
+                ->get([
+                    'id',
+                    'username',
+                    'email',
+                    'status',
+                    'created_at',
+                    'updated_at',
+                ]);
+            foreach ($result as $row) {
+                $rows[] = (array)$row;
+            }
+        }
+    } catch (\Throwable $__) {
+        $error = 'storage_users_query_failed';
+    }
+
+    return eb_ph_tenant_shell_response($vars, (array)$msp, (array)$tenant, 'storage_users', [
+        'storage_users' => $rows,
+        'storage_users_error' => $error,
+    ]);
 }
 

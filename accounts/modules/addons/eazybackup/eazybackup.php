@@ -4010,6 +4010,18 @@ function eazybackup_clientarea(array $vars)
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenant') {
         require_once __DIR__ . '/pages/partnerhub/TenantsController.php';
         return eb_ph_tenant_detail($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenant-members') {
+        require_once __DIR__ . '/pages/partnerhub/TenantMembersController.php';
+        return eb_ph_tenant_members($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenant-storage-users') {
+        require_once __DIR__ . '/pages/partnerhub/TenantsController.php';
+        return eb_ph_tenant_storage_users($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenant-billing') {
+        require_once __DIR__ . '/pages/partnerhub/TenantBillingController.php';
+        return eb_ph_tenant_billing($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenant-whitelabel') {
+        require_once __DIR__ . '/pages/partnerhub/TenantWhiteLabelController.php';
+        return eb_ph_tenant_whitelabel($vars);
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenant-storage-links') {
         require_once __DIR__ . '/pages/partnerhub/TenantStorageLinksController.php';
         eb_ph_tenant_storage_links_list($vars); exit;
