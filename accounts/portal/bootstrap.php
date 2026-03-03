@@ -164,6 +164,13 @@ function portal_require_auth(): array
         header('Location: ' . $url);
         exit;
     }
+    $requestedTenantId = portal_resolve_tenant_context();
+    if ($requestedTenantId !== null && $requestedTenantId > 0 && $requestedTenantId !== (int) $row->tenant_id) {
+        $_SESSION['portal_user'] = null;
+        $url = '/portal/index.php?page=login&msp=' . rawurlencode((string) ($_GET['msp'] ?? ''));
+        header('Location: ' . $url);
+        exit;
+    }
 
     $sess['user_id'] = (int) $row->user_id;
     $sess['tenant_id'] = (int) $row->tenant_id;
@@ -207,6 +214,11 @@ function portal_require_auth_json(): array
             't.name as tenant_name',
         ]);
     if (!$row) {
+        $_SESSION['portal_user'] = null;
+        portal_json(['status' => 'fail', 'message' => 'auth'], 401);
+    }
+    $requestedTenantId = portal_resolve_tenant_context();
+    if ($requestedTenantId !== null && $requestedTenantId > 0 && $requestedTenantId !== (int) $row->tenant_id) {
         $_SESSION['portal_user'] = null;
         portal_json(['status' => 'fail', 'message' => 'auth'], 401);
     }

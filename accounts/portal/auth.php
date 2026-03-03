@@ -34,7 +34,7 @@ function portal_login(string $email, string $password): array
         return ['status' => 'fail', 'message' => 'Invalid credentials'];
     }
     if (count($matches) > 1) {
-        return ['status' => 'fail', 'message' => 'Ambiguous account context'];
+        return ['status' => 'fail', 'message' => 'Invalid credentials'];
     }
 
     $user = (object) $matches[0];
