@@ -17,11 +17,18 @@ function eb_usage_normalize_period_bounds(int $periodStart, int $periodEnd): arr
 {
     $tz = new \DateTimeZone('UTC');
     $now = new \DateTimeImmutable('now', $tz);
+    $nowTs = $now->getTimestamp();
     $monthStart = new \DateTimeImmutable($now->format('Y-m-01 00:00:00'), $tz);
 
     $resolvedPeriodStart = ($periodStart > 0) ? $periodStart : $monthStart->getTimestamp();
     $resolvedPeriodEnd = ($periodEnd > 0) ? $periodEnd : $monthStart->modify('+1 month')->getTimestamp();
 
+    if ($resolvedPeriodStart >= $nowTs) {
+        throw new \InvalidArgumentException('period_in_future');
+    }
+    if ($resolvedPeriodEnd > $nowTs) {
+        $resolvedPeriodEnd = $nowTs;
+    }
     if ($resolvedPeriodEnd <= $resolvedPeriodStart) {
         throw new \InvalidArgumentException('invalid_period');
     }
