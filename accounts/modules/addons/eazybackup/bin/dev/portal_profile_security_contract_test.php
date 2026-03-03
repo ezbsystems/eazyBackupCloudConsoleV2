@@ -44,7 +44,7 @@ $targets = [
         'path' => $profileUpdateApiFile,
         'markers' => [
             'auth include marker' => "require_once __DIR__ . '/../auth.php';",
-            'auth required marker' => '$session = portal_require_auth();',
+            'auth required marker' => '$session = portal_require_auth_json();',
             'csrf validation marker' => '!portal_validate_csrf()',
             'method guard marker' => "\$_SERVER['REQUEST_METHOD'] !== 'POST'",
             'normalized email marker' => '$email = strtolower(trim((string) ($_POST[\'email\'] ?? \'\')));',
@@ -61,7 +61,7 @@ $targets = [
         'path' => $changePasswordApiFile,
         'markers' => [
             'auth include marker' => "require_once __DIR__ . '/../auth.php';",
-            'auth required marker' => '$session = portal_require_auth();',
+            'auth required marker' => '$session = portal_require_auth_json();',
             'csrf validation marker' => '!portal_validate_csrf()',
             'method guard marker' => "\$_SERVER['REQUEST_METHOD'] !== 'POST'",
             'current password verify marker' => 'password_verify($currentPassword, (string) ($user->password_hash ?? \'\'))',

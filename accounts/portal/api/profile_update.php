@@ -4,7 +4,7 @@ require_once __DIR__ . '/../auth.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
 
-$session = portal_require_auth();
+$session = portal_require_auth_json();
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     portal_json(['status' => 'fail', 'message' => 'Invalid method'], 405);
