@@ -10,7 +10,7 @@ The e3 Cloud Backup system supports a multi-tenant architecture designed for Man
 - ✅ Phase 3: Agent Enrollment Flow (Complete)
 - ✅ Jobs Management: MSP-Aware Job List, Creation & Actions (Complete)
 - ✅ Phase 4: Tenant Portal (Complete)
-- ⏳ Phase 5: Billing Integration (Pending)
+- ✅ Phase 5: Billing Integration (Canonical tenant + Stripe Connect complete)
 
 ## User Hierarchy Model
 
@@ -148,6 +148,17 @@ Agents can be enrolled via two methods:
 | VM backup (Hyper-V/Proxmox/VMware) | $3.50/VM/month | Job count by engine type |
 
 Usage is tracked via the `s3_backup_usage_snapshots` table with monthly snapshots.
+
+## Canonical Tenant + Stripe Connect Billing
+
+The MSP billing architecture now uses canonical tenants from Partner Hub and links cloud storage users through `eb_tenant_storage_links`.
+
+Key release expectations:
+- Signup approvals are MSP-reviewed before provisioning.
+- Tenant-scoped portal routes support Billing, Services, and Cloud Storage (including default-domain `portal/?msp=` access).
+- Stripe is the authoritative source of invoice state, hosted invoice links, and payment status synchronization.
+
+This document should be read together with Partner Hub billing docs and the release gate script to validate deploy readiness.
 
 ---
 
@@ -1436,7 +1447,8 @@ Branding is detected in this priority:
 ---
 
 ## Phase 5: Billing Integration
-- Usage tracking cron
-- WHMCS billing hooks
-- Invoice generation logic
+- ✅ Tenant-aggregate usage rollup with idempotent Stripe metered usage push
+- ✅ Canonical tenant/customer billing linkage and portal billing APIs
+- ✅ Stripe-authoritative invoice/payment cache rendering in tenant portal
+- ✅ MSP release gate script for canonical tenant billing readiness
 
