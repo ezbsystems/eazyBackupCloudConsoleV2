@@ -18,6 +18,19 @@ function portal_json(array $payload, int $code = 200): void
 
 function portal_detect_branding(): array
 {
+    $tenantContextId = portal_resolve_tenant_context();
+    if ($tenantContextId !== null && $tenantContextId > 0) {
+        $tenantBrandingJson = Capsule::table('s3_backup_tenants')
+            ->where('id', $tenantContextId)
+            ->whereNotNull('branding_json')
+            ->value('branding_json');
+        $tenantBranding = $tenantBrandingJson ? json_decode((string) $tenantBrandingJson, true) : [];
+        if (!is_array($tenantBranding)) {
+            $tenantBranding = [];
+        }
+        return array_merge(portal_default_branding(), $tenantBranding);
+    }
+
     $clientId = portal_resolve_client_context();
     if ($clientId !== null && $clientId > 0) {
         return portal_load_branding($clientId);
@@ -26,10 +39,37 @@ function portal_detect_branding(): array
     return portal_default_branding();
 }
 
+function portal_resolve_tenant_context(): ?int
+{
+    $mspParam = $_GET['msp'] ?? null;
+    if (!$mspParam) {
+        return null;
+    }
+
+    $tenant = Capsule::table('s3_backup_tenants')
+        ->where('slug', $mspParam)
+        ->where('status', 'active')
+        ->first(['id']);
+    if ($tenant && !empty($tenant->id)) {
+        return (int) $tenant->id;
+    }
+
+    return null;
+}
+
 function portal_resolve_client_context(): ?int
 {
     $host = $_SERVER['HTTP_HOST'] ?? '';
-    $mspParam = $_GET['msp'] ?? null;
+
+    $tenantContextId = portal_resolve_tenant_context();
+    if ($tenantContextId !== null && $tenantContextId > 0) {
+        $tenant = Capsule::table('s3_backup_tenants')
+            ->where('id', $tenantContextId)
+            ->first(['client_id']);
+        if ($tenant && !empty($tenant->client_id)) {
+            return (int) $tenant->client_id;
+        }
+    }
 
     if ($host) {
         $domain = Capsule::table('s3_msp_portal_domains')
@@ -38,16 +78,6 @@ function portal_resolve_client_context(): ?int
             ->first();
         if ($domain && !empty($domain->client_id)) {
             return (int) $domain->client_id;
-        }
-    }
-
-    if ($mspParam) {
-        $tenant = Capsule::table('s3_backup_tenants')
-            ->where('slug', $mspParam)
-            ->where('status', 'active')
-            ->first();
-        if ($tenant && !empty($tenant->client_id)) {
-            return (int) $tenant->client_id;
         }
     }
 

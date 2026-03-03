@@ -6,6 +6,7 @@ use Illuminate\Database\Capsule\Manager as Capsule;
 
 function portal_login(string $email, string $password): array
 {
+    $tenantContextId = portal_resolve_tenant_context();
     $clientContextId = portal_resolve_client_context();
 
     $query = Capsule::table('s3_backup_tenant_users as u')
@@ -13,7 +14,9 @@ function portal_login(string $email, string $password): array
         ->whereRaw('LOWER(u.email) = LOWER(?)', [$email])
         ->where('u.status', 'active')
         ->where('t.status', 'active');
-    if ($clientContextId !== null && $clientContextId > 0) {
+    if ($tenantContextId !== null && $tenantContextId > 0) {
+        $query->where('u.tenant_id', $tenantContextId);
+    } elseif ($clientContextId !== null && $clientContextId > 0) {
         $query->where('t.client_id', $clientContextId);
     }
     $matches = $query->orderBy('u.id', 'asc')->get([
