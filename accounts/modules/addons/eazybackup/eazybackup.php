@@ -4022,6 +4022,9 @@ function eazybackup_clientarea(array $vars)
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenant-whitelabel') {
         require_once __DIR__ . '/pages/partnerhub/TenantWhiteLabelController.php';
         return eb_ph_tenant_whitelabel($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenant-whitelabel-enable') {
+        require_once __DIR__ . '/pages/partnerhub/TenantWhiteLabelController.php';
+        eb_ph_tenant_whitelabel_enable($vars); exit;
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenant-storage-links') {
         require_once __DIR__ . '/pages/partnerhub/TenantStorageLinksController.php';
         eb_ph_tenant_storage_links_list($vars); exit;

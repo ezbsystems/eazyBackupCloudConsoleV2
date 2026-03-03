@@ -3,6 +3,45 @@
 use WHMCS\Database\Capsule;
 
 require_once __DIR__ . '/TenantsController.php';
+require_once __DIR__ . '/../whitelabel/BuildController.php';
+
+function eb_ph_tenant_whitelabel_redirect(array $vars, int $tenantId, string $query = ''): void
+{
+    $url = eb_ph_tenants_base_link($vars) . '&a=ph-tenant-whitelabel&id=' . $tenantId;
+    if ($query !== '') {
+        $url .= '&' . $query;
+    }
+    header('Location: ' . $url);
+    exit;
+}
+
+function eb_ph_tenant_whitelabel_enable(array $vars): void
+{
+    if (strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET')) !== 'POST') {
+        eb_ph_tenants_redirect($vars, 'error=invalid_method');
+    }
+
+    [$clientId, $msp, $tenantId, $tenant] = eb_ph_tenant_require_owned($vars);
+    $token = (string)($_POST['token'] ?? '');
+    eb_ph_tenants_require_csrf_or_redirect($vars, $token, $tenantId);
+
+    try {
+        $enabled = eazybackup_whitelabel_enable_for_canonical_tenant($vars, (int)$clientId, (int)$tenantId, (array)$tenant);
+    } catch (\Throwable $_) {
+        eb_ph_tenant_whitelabel_redirect($vars, $tenantId, 'error=whitelabel_enable_failed');
+    }
+
+    if (!is_array($enabled) || empty($enabled['ok'])) {
+        $err = is_array($enabled) ? (string)($enabled['error'] ?? 'whitelabel_enable_failed') : 'whitelabel_enable_failed';
+        eb_ph_tenant_whitelabel_redirect($vars, $tenantId, 'error=' . urlencode($err));
+    }
+
+    if (!empty($enabled['already_enabled'])) {
+        eb_ph_tenant_whitelabel_redirect($vars, $tenantId, 'notice=whitelabel_already_enabled');
+    }
+
+    eb_ph_tenant_whitelabel_redirect($vars, $tenantId, 'notice=whitelabel_enabled');
+}
 
 function eb_ph_tenant_whitelabel(array $vars)
 {
@@ -23,6 +62,7 @@ function eb_ph_tenant_whitelabel(array $vars)
                 ->first([
                     'id',
                     'status',
+                    'canonical_tenant_id',
                     'subdomain',
                     'fqdn',
                     'custom_domain',
@@ -68,10 +108,18 @@ function eb_ph_tenant_whitelabel(array $vars)
         $wlError = 'tenant_whitelabel_query_failed';
     }
 
+    $mappingState = 'not_mapped';
+    if ($wlTenant) {
+        $mappingState = ((int)($wlTenant->canonical_tenant_id ?? 0) === $tenantId) ? 'mapped' : 'mismatch';
+    }
+
     return eb_ph_tenant_shell_response($vars, (array)$msp, (array)$tenant, 'white_label', [
         'whitelabel_error' => $wlError,
         'whitelabel_tenant' => $wlTenant ? (array)$wlTenant : null,
         'whitelabel_custom_domains' => $customDomains,
         'whitelabel_assets_by_type' => $assetsByType,
+        'whitelabel_mapping_state' => $mappingState,
+        'whitelabel_enabled' => $wlTenant ? 1 : 0,
+        'whitelabel_enable_action' => eb_ph_tenants_base_link($vars) . '&a=ph-tenant-whitelabel-enable',
     ]);
 }

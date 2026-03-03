@@ -5,6 +5,191 @@ use Illuminate\Database\Capsule\Manager as DB;
 
 require_once __DIR__ . '/../../lib/Whitelabel/Builder.php';
 
+function eazybackup_whitelabel_queue_provisioning_steps(array $vars, int $tenantId, bool $markBuilding = true): void
+{
+    if ($tenantId <= 0) {
+        throw new InvalidArgumentException('invalid_tenant_id');
+    }
+
+    if (!Capsule::schema()->hasTable('eb_whitelabel_builds')) {
+        throw new RuntimeException('whitelabel_builds_table_missing');
+    }
+
+    $steps = ['dns','nginx','cert','org','admin','branding','email','storage','whmcs','verify'];
+    foreach ($steps as $step) {
+        $existing = Capsule::table('eb_whitelabel_builds')
+            ->where('tenant_id', (int)$tenantId)
+            ->where('step', $step)
+            ->first(['id', 'status']);
+
+        if (!$existing) {
+            Capsule::table('eb_whitelabel_builds')->insert([
+                'tenant_id' => (int)$tenantId,
+                'step' => $step,
+                'status' => 'queued',
+                'log_json' => json_encode([]),
+                'idempotency_key' => sha1((int)$tenantId . ':' . $step),
+                'started_at' => null,
+                'finished_at' => null,
+                'last_error' => null,
+            ]);
+            continue;
+        }
+
+        $status = strtolower(trim((string)($existing->status ?? '')));
+        if (in_array($status, ['failed', 'error', 'cancelled', 'running'], true)) {
+            Capsule::table('eb_whitelabel_builds')
+                ->where('id', (int)$existing->id)
+                ->update([
+                    'status' => 'queued',
+                    'started_at' => null,
+                    'finished_at' => null,
+                    'last_error' => null,
+                ]);
+        }
+    }
+
+    if ($markBuilding) {
+        Capsule::table('eb_whitelabel_tenants')->where('id', (int)$tenantId)->update([
+            'status' => 'building',
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+    }
+}
+
+function eazybackup_whitelabel_enable_for_canonical_tenant(array $vars, int $clientId, int $canonicalTenantId, array $canonicalTenant = []): array
+{
+    $out = [
+        'ok' => false,
+        'tenant_id' => 0,
+        'already_enabled' => false,
+        'error' => '',
+    ];
+
+    if ($clientId <= 0 || $canonicalTenantId <= 0) {
+        $out['error'] = 'invalid_input';
+        return $out;
+    }
+
+    try {
+        if (!Capsule::schema()->hasTable('eb_whitelabel_tenants')) {
+            $out['error'] = 'whitelabel_table_missing';
+            return $out;
+        }
+    } catch (\Throwable $_) {
+        $out['error'] = 'whitelabel_table_probe_failed';
+        return $out;
+    }
+
+    $now = date('Y-m-d H:i:s');
+    $existing = Capsule::table('eb_whitelabel_tenants')
+        ->where('client_id', $clientId)
+        ->where('canonical_tenant_id', $canonicalTenantId)
+        ->first();
+
+    if ($existing) {
+        $tenantId = (int)($existing->id ?? 0);
+        $statusBefore = strtolower(trim((string)($existing->status ?? '')));
+        try {
+            eazybackup_whitelabel_queue_provisioning_steps($vars, $tenantId, in_array($statusBefore, ['queued', 'failed'], true));
+        } catch (\Throwable $_) {
+            $out['error'] = 'enable_queue_failed';
+            $out['tenant_id'] = $tenantId;
+            return $out;
+        }
+        $out['ok'] = true;
+        $out['tenant_id'] = $tenantId;
+        $out['already_enabled'] = true;
+        return $out;
+    }
+
+    $baseDomain = strtolower(trim((string)($vars['whitelabel_base_domain'] ?? 'obcbackup.com')));
+    if ($baseDomain === '') {
+        $baseDomain = 'obcbackup.com';
+    }
+
+    $nameHint = trim((string)($canonicalTenant['slug'] ?? ''));
+    if ($nameHint === '') {
+        $nameHint = trim((string)($canonicalTenant['name'] ?? ''));
+    }
+    $nameHint = strtolower($nameHint);
+    $nameHint = preg_replace('/[^a-z0-9]+/', '-', $nameHint) ?? '';
+    $nameHint = trim($nameHint, '-');
+    if ($nameHint === '') {
+        $nameHint = 'tenant-' . $canonicalTenantId;
+    }
+
+    $baseSubdomain = substr($nameHint, 0, 48);
+    $subdomain = $baseSubdomain;
+    $fqdn = $subdomain . '.' . $baseDomain;
+    for ($i = 2; $i <= 50; $i++) {
+        $dupe = Capsule::table('eb_whitelabel_tenants')->where('fqdn', $fqdn)->first(['id']);
+        if (!$dupe) {
+            break;
+        }
+        $suffix = '-' . $i;
+        $subdomain = substr($baseSubdomain, 0, max(1, 48 - strlen($suffix))) . $suffix;
+        $fqdn = $subdomain . '.' . $baseDomain;
+    }
+
+    $publicId = '';
+    if (function_exists('eazybackup_generate_ulid')) {
+        try {
+            $publicId = (string)eazybackup_generate_ulid();
+        } catch (\Throwable $_) {
+            $publicId = '';
+        }
+    }
+
+    try {
+        $tenantId = (int)Capsule::table('eb_whitelabel_tenants')->insertGetId([
+            'client_id' => $clientId,
+            'status' => 'queued',
+            'canonical_tenant_id' => $canonicalTenantId,
+            'org_id' => null,
+            'subdomain' => $subdomain,
+            'fqdn' => $fqdn,
+            'custom_domain' => null,
+            'custom_domain_status' => null,
+            'product_id' => null,
+            'server_id' => null,
+            'servergroup_id' => null,
+            'comet_admin_user' => null,
+            'comet_admin_pass_enc' => null,
+            'brand_json' => json_encode([]),
+            'email_json' => json_encode([]),
+            'policy_ids_json' => json_encode([]),
+            'storage_template_json' => json_encode([]),
+            'idempotency_key' => sha1($clientId . ':' . $canonicalTenantId . ':' . $fqdn),
+            'last_build_id' => null,
+            'public_id' => $publicId !== '' ? $publicId : null,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+    } catch (\Throwable $_) {
+        $raced = Capsule::table('eb_whitelabel_tenants')
+            ->where('client_id', $clientId)
+            ->where('canonical_tenant_id', $canonicalTenantId)
+            ->first();
+        if (!$raced) {
+            $out['error'] = 'enable_insert_failed';
+            return $out;
+        }
+        $tenantId = (int)($raced->id ?? 0);
+    }
+
+    try {
+        eazybackup_whitelabel_queue_provisioning_steps($vars, $tenantId, true);
+    } catch (\Throwable $_) {
+        $out['error'] = 'enable_queue_failed';
+        $out['tenant_id'] = $tenantId;
+        return $out;
+    }
+    $out['ok'] = true;
+    $out['tenant_id'] = $tenantId;
+    return $out;
+}
+
 /**
  * Client: White-Label Intake (GET/POST)
  * - GET renders existing intake form template for branding fields
@@ -207,19 +392,7 @@ function eazybackup_whitelabel_intake(array $vars)
     } catch (\Throwable $_) { /* non-fatal; continue */ }
 
     // Initialize step rows as queued; actual execution will be driven by loader polling / dev panel
-    try {
-        $builder = new \EazyBackup\Whitelabel\Builder($vars);
-        foreach (['dns','nginx','cert','org','admin','branding','email','storage','whmcs','verify'] as $st) {
-            // ensureStep is idempotent
-            $ref = new \ReflectionMethod($builder, 'ensureStep');
-            $ref->setAccessible(true);
-            $ref->invoke($builder, (int)$tenantId, $st, 'queued');
-        }
-        Capsule::table('eb_whitelabel_tenants')->where('id', $tenantId)->update([
-            'status' => 'building',
-            'updated_at' => date('Y-m-d H:i:s'),
-        ]);
-    } catch (\Throwable $_) { /* safe to ignore; loader can still runImmediate */ }
+    eazybackup_whitelabel_queue_provisioning_steps($vars, (int)$tenantId, true);
 
     // Ticket creation moved to status endpoint after all steps succeed
 
@@ -741,14 +914,14 @@ function eazybackup_whitelabel_loader(array $vars)
     }
     // DEV: handle step runner
     if (strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['dev_step'])) {
+        $step = preg_replace('/[^a-z]/','', (string)($_POST['dev_step'] ?? ''));
+        if ($step === '') { $step = 'verify'; }
         try {
             // Release the PHP session lock so polling requests can proceed concurrently
             try { if (session_status() === PHP_SESSION_ACTIVE) { session_write_close(); } } catch (\Throwable $_) {}
             try { @ignore_user_abort(true); } catch (\Throwable $_) {}
             try { @set_time_limit(0); } catch (\Throwable $_) {}
             $builder = new \EazyBackup\Whitelabel\Builder($vars);
-            $step = preg_replace('/[^a-z]/','', (string)($_POST['dev_step'] ?? ''));
-            if ($step === '') { $step = 'verify'; }
             // Special kickoff value will execute the whole pipeline
             if ($step === 'kickoff') {
                 $builder->runImmediate((int)$tenantObj->id);
@@ -757,7 +930,23 @@ function eazybackup_whitelabel_loader(array $vars)
             } else {
                 $builder->runImmediate((int)$tenantObj->id);
             }
-        } catch (\Throwable $_) {}
+        } catch (\Throwable $e) {
+            $err = substr((string)$e->getMessage(), 0, 500);
+            try {
+                if ($step !== 'kickoff' && Capsule::schema()->hasTable('eb_whitelabel_builds')) {
+                    Capsule::table('eb_whitelabel_builds')
+                        ->where('tenant_id', (int)$tenantObj->id)
+                        ->where('step', $step)
+                        ->where('status', 'running')
+                        ->update([
+                            'status' => 'failed',
+                            'finished_at' => date('Y-m-d H:i:s'),
+                            'last_error' => $err !== '' ? $err : 'step_runner_exception',
+                        ]);
+                }
+            } catch (\Throwable $__) {}
+            try { logModuleCall('eazybackup', 'whitelabel_loader_step_exception', ['tenant_id'=>(int)$tenantObj->id, 'step'=>$step], $err); } catch (\Throwable $__) {}
+        }
     }
 
     return [
