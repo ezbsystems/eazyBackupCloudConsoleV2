@@ -37,7 +37,7 @@
                 <div class="pointer-events-none absolute -inset-1 opacity-20 bg-[radial-gradient(40rem_40rem_at_100%_0%,_#ef44441a,_transparent_45%)]"></div>
                 <div class="relative flex items-start gap-3">
                    
-                    <p class="text-sm text-red-200/90">
+                    <p class="text-sm text-white">
                         <span class="font-semibold text-red-400">Important:</span>
                         All backed-up data associated with this service will be permanently destroyed on the removal date with no chance of recovery.
                         This action is irreversible.
@@ -71,7 +71,7 @@
                         <fieldset>
                             <div class="mb-4">
                                 <label for="cancellationreason" class="block text-sm font-medium text-gray-300 pb-2">{lang key='clientareacancelreason'}</label>
-                                <textarea name="cancellationreason" id="cancellationreason" class="block w-full px-3 py-2 border border-slate-800 text-gray-300 bg-slate-900/60 rounded-xl focus:outline-none focus:ring-0 focus:border-sky-600" rows="6"></textarea>
+                                <textarea name="cancellationreason" id="cancellationreason" class="block w-full px-3 py-2 border border-slate-800 text-gray-300 bg-slate-900/60 rounded-xl focus:outline-none focus:ring-1 focus:ring-slate-600" rows="6"></textarea>
                             </div>
 
                             {if $domainid}

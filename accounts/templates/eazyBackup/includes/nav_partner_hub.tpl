@@ -1,6 +1,6 @@
 {* Partner Hub — nested sidebar navigation *}
 {if !isset($eb_partner_hub_enabled) || $eb_partner_hub_enabled}
-<div x-data="{ldelim} open: false, sect: {ldelim} catalog:false,billing:false,money:false,stripe:false,settings:false {rdelim} {rdelim}" class="relative">
+<div x-data="{ldelim} open: false, sect: {ldelim} catalog:false,billing:false,money:false,stripe:false,settings:false,portal:false {rdelim} {rdelim}" class="relative">
   <button @click="open = !open" class="flex items-center w-full px-2 py-2 text-left text-gray-300 rounded-md hover:bg-[#1B2C50]">
   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-3">
     <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 7.125C2.25 6.504 2.754 6 3.375 6h6c.621 0 1.125.504 1.125 1.125v3.75c0 .621-.504 1.125-1.125 1.125h-6a1.125 1.125 0 0 1-1.125-1.125v-3.75ZM14.25 8.625c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v8.25c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 0 1-1.125-1.125v-8.25ZM3.75 16.125c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v2.25c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 0 1-1.125-1.125v-2.25Z" />
@@ -17,7 +17,9 @@
     <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=ph-clients" class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]">Clients</a>
     {/if}
     <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=whitelabel-branding" class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]">White-Label Tenants</a>
+    <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=ph-tenants-manage" class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]">Tenant Management</a>
     <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=ph-signup-approvals" class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]">Signup Approvals</a>
+    <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup_users" class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]">Storage Users (e3)</a>
 
     {if !isset($eb_ph_show_catalog) || $eb_ph_show_catalog}
     <div>
@@ -81,6 +83,17 @@
       </div>
     </div>
     {/if}
+
+    <div>
+      <button @click="sect.portal=!sect.portal" class="flex items-center w-full px-2 py-1 text-left text-gray-300 rounded-md hover:bg-[#1B2C50]">Tenant Portal
+        <svg class="w-4 h-4 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+      </button>
+      <div x-show="sect.portal" class="mt-1 space-y-1 pl-6">
+        <a href="{$WEB_ROOT}/portal/index.php?page=billing" class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]">Billing</a>
+        <a href="{$WEB_ROOT}/portal/index.php?page=services" class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]">Services</a>
+        <a href="{$WEB_ROOT}/portal/index.php?page=cloud_storage" class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]">Cloud Storage</a>
+      </div>
+    </div>
   </div>
 </div>
 {/if}
