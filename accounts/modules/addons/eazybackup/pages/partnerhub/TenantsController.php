@@ -50,6 +50,12 @@ function eb_ph_tenants_generate_idempotency_key(): string
     }
 }
 
+function eb_ph_tenants_strip_infra_fields(array $input): array
+{
+    unset($input['product_id'], $input['server_id'], $input['servergroup_id']);
+    return $input;
+}
+
 function eb_ph_tenants_require_context(array $vars): array
 {
     if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) {
@@ -122,12 +128,13 @@ function eb_ph_tenants_index(array $vars)
     [$clientId, $msp] = eb_ph_tenants_require_context($vars);
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['eb_create_tenant'])) {
+        $post = eb_ph_tenants_strip_infra_fields((array)$_POST);
         $token = (string)($_POST['token'] ?? '');
         eb_ph_tenants_require_csrf_or_redirect($vars, $token);
 
-        $subdomain = trim((string)($_POST['subdomain'] ?? ''));
-        $fqdn = trim((string)($_POST['fqdn'] ?? ''));
-        $status = eb_ph_tenants_normalize_status((string)($_POST['status'] ?? 'queued'));
+        $subdomain = trim((string)($post['subdomain'] ?? ''));
+        $fqdn = trim((string)($post['fqdn'] ?? ''));
+        $status = eb_ph_tenants_normalize_status((string)($post['status'] ?? 'queued'));
 
         if ($subdomain === '' || $fqdn === '') {
             eb_ph_tenants_redirect($vars, 'error=missing_fields');
@@ -136,13 +143,13 @@ function eb_ph_tenants_index(array $vars)
         $insert = [
             'client_id' => $clientId,
             'status' => $status,
-            'org_id' => trim((string)($_POST['org_id'] ?? '')) ?: null,
+            'org_id' => trim((string)($post['org_id'] ?? '')) ?: null,
             'subdomain' => $subdomain,
             'fqdn' => $fqdn,
-            'custom_domain' => trim((string)($_POST['custom_domain'] ?? '')) ?: null,
-            'product_id' => (int)($_POST['product_id'] ?? 0) > 0 ? (int)$_POST['product_id'] : null,
-            'server_id' => (int)($_POST['server_id'] ?? 0) > 0 ? (int)$_POST['server_id'] : null,
-            'servergroup_id' => (int)($_POST['servergroup_id'] ?? 0) > 0 ? (int)$_POST['servergroup_id'] : null,
+            'custom_domain' => trim((string)($post['custom_domain'] ?? '')) ?: null,
+            'product_id' => null,
+            'server_id' => null,
+            'servergroup_id' => null,
             'idempotency_key' => eb_ph_tenants_generate_idempotency_key(),
             'created_at' => date('Y-m-d H:i:s'),
             'updated_at' => date('Y-m-d H:i:s'),
@@ -179,7 +186,7 @@ function eb_ph_tenants_index(array $vars)
     }
 
     return [
-        'pagetitle' => 'Partner Hub - Tenant Management',
+        'pagetitle' => 'Partner Hub - Customer Tenants',
         'templatefile' => 'whitelabel/tenants',
         'breadcrumb' => ['index.php?m=eazybackup' => 'eazyBackup'],
         'requirelogin' => true,
@@ -210,11 +217,12 @@ function eb_ph_tenant_detail(array $vars)
     }
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['eb_save_tenant'])) {
+        $post = eb_ph_tenants_strip_infra_fields((array)$_POST);
         $token = (string)($_POST['token'] ?? '');
         eb_ph_tenants_require_csrf_or_redirect($vars, $token, $tenantId);
 
-        $subdomain = trim((string)($_POST['subdomain'] ?? ''));
-        $fqdn = trim((string)($_POST['fqdn'] ?? ''));
+        $subdomain = trim((string)($post['subdomain'] ?? ''));
+        $fqdn = trim((string)($post['fqdn'] ?? ''));
         if ($subdomain === '' || $fqdn === '') {
             header('Location: ' . eb_ph_tenants_base_link($vars) . '&a=ph-tenant&id=' . $tenantId . '&error=missing_fields');
             exit;
@@ -222,14 +230,11 @@ function eb_ph_tenant_detail(array $vars)
 
         try {
             Capsule::table('eb_whitelabel_tenants')->where('id', $tenantId)->where('client_id', $clientId)->update([
-                'status' => eb_ph_tenants_normalize_status((string)($_POST['status'] ?? 'queued')),
-                'org_id' => trim((string)($_POST['org_id'] ?? '')) ?: null,
+                'status' => eb_ph_tenants_normalize_status((string)($post['status'] ?? 'queued')),
+                'org_id' => trim((string)($post['org_id'] ?? '')) ?: null,
                 'subdomain' => $subdomain,
                 'fqdn' => $fqdn,
-                'custom_domain' => trim((string)($_POST['custom_domain'] ?? '')) ?: null,
-                'product_id' => (int)($_POST['product_id'] ?? 0) > 0 ? (int)$_POST['product_id'] : null,
-                'server_id' => (int)($_POST['server_id'] ?? 0) > 0 ? (int)$_POST['server_id'] : null,
-                'servergroup_id' => (int)($_POST['servergroup_id'] ?? 0) > 0 ? (int)$_POST['servergroup_id'] : null,
+                'custom_domain' => trim((string)($post['custom_domain'] ?? '')) ?: null,
                 'updated_at' => date('Y-m-d H:i:s'),
             ]);
             header('Location: ' . eb_ph_tenants_base_link($vars) . '&a=ph-tenant&id=' . $tenantId . '&notice=saved');
