@@ -25,6 +25,7 @@ function portal_login(string $email, string $password): array
     }
 
     $branding = portal_detect_branding();
+    session_regenerate_id(true);
 
     $_SESSION['portal_user'] = [
         'user_id' => (int) $user->id,

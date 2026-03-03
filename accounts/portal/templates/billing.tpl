@@ -113,7 +113,7 @@
             return `
                 <tr class="border-b border-slate-800">
                     <td class="py-2 pr-4">${invoiceLabel}</td>
-                    <td class="py-2 pr-4">${formatMoney(invoice.amount_total, invoice.currency)}</td>
+                    <td class="py-2 pr-4">${escapeHtml(formatMoney(invoice.amount_total, invoice.currency))}</td>
                     <td class="py-2 pr-4">${invoiceStatus}</td>
                     <td class="py-2 pr-4">${escapeHtml(formatDate(invoice.created))}</td>
                     <td class="py-2 pr-4">${sendLink}${downloadLink}</td>
@@ -141,7 +141,7 @@
         paymentMethodsBody.innerHTML = paymentMethods.map((method) => `
             <tr class="border-b border-slate-800">
                 <td class="py-2 pr-4">${escapeHtml(method.stripe_payment_intent_id || '-')}</td>
-                <td class="py-2 pr-4">${formatMoney(method.amount, method.currency)}</td>
+                <td class="py-2 pr-4">${escapeHtml(formatMoney(method.amount, method.currency))}</td>
                 <td class="py-2 pr-4">${escapeHtml(method.status || '-')}</td>
                 <td class="py-2 pr-4">${escapeHtml(formatDate(method.created))}</td>
             </tr>
