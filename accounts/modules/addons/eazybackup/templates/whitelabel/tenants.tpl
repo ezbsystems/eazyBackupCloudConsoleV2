@@ -2,12 +2,15 @@
 {include file="$template/includes/head.tpl"}
 {include file="modules/addons/eazybackup/templates/partials/_ui-tokens.tpl"}
 
-<div class="min-h-screen bg-[rgb(var(--bg-page))] text-[rgb(var(--text-primary))]">
-  <div class="mx-auto max-w-6xl px-6 py-8">
-    <div class="flex items-center justify-between">
-      <h1 class="text-2xl font-semibold tracking-tight">Customer Tenants</h1>
-      <a href="{$modulelink}&a=ph-clients" class="rounded-xl px-4 py-2 text-white/80 ring-1 ring-white/10 hover:bg-white/5">Back to Clients</a>
-    </div>
+<div class="min-h-screen bg-slate-950 text-gray-100 overflow-x-hidden">
+  <div class="container mx-auto max-w-full px-4 pb-8 pt-6">
+    <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)]">
+      <main class="min-w-0">
+        <div class="flex items-center justify-between border-b border-slate-800/60 px-6 py-4">
+          <h1 class="text-2xl font-semibold tracking-tight">Customer Tenants</h1>
+          <a href="{$modulelink}&a=ph-clients" class="rounded-xl px-4 py-2 text-white/80 ring-1 ring-white/10 hover:bg-white/5">Back to Clients</a>
+        </div>
+        <div class="p-6">
 
     {if $notice neq ''}
       <div class="mt-4 rounded-xl bg-emerald-500/20 ring-1 ring-emerald-400/30 px-4 py-3 text-sm text-white">
@@ -101,6 +104,9 @@
         </table>
       </div>
     </section>
+        </div>
+      </main>
+    </div>
   </div>
 </div>
 
