@@ -6,21 +6,42 @@ use Illuminate\Database\Capsule\Manager as Capsule;
 
 function portal_login(string $email, string $password): array
 {
-    $user = Capsule::table('s3_backup_tenant_users')
-        ->whereRaw('LOWER(email) = LOWER(?)', [$email])
-        ->where('status', 'active')
-        ->first();
+    $clientContextId = portal_resolve_client_context();
 
-    if (!$user || !password_verify($password, $user->password_hash)) {
+    $query = Capsule::table('s3_backup_tenant_users as u')
+        ->join('s3_backup_tenants as t', 'u.tenant_id', '=', 't.id')
+        ->whereRaw('LOWER(u.email) = LOWER(?)', [$email])
+        ->where('u.status', 'active')
+        ->where('t.status', 'active');
+    if ($clientContextId !== null && $clientContextId > 0) {
+        $query->where('t.client_id', $clientContextId);
+    }
+    $matches = $query->orderBy('u.id', 'asc')->get([
+        'u.id as user_id',
+        'u.tenant_id',
+        'u.password_hash',
+        'u.email',
+        'u.name',
+        'u.role',
+        't.client_id',
+        't.name as tenant_name',
+    ]);
+
+    if (!$matches || count($matches) < 1) {
+        return ['status' => 'fail', 'message' => 'Invalid credentials'];
+    }
+    if (count($matches) > 1) {
+        return ['status' => 'fail', 'message' => 'Ambiguous account context'];
+    }
+
+    $user = (object) $matches[0];
+    if (!password_verify($password, (string) ($user->password_hash ?? ''))) {
         return ['status' => 'fail', 'message' => 'Invalid credentials'];
     }
 
-    $tenant = Capsule::table('s3_backup_tenants')
-        ->where('id', $user->tenant_id)
-        ->where('status', 'active')
-        ->first();
-
-    if (!$tenant) {
+    $tenantId = (int) ($user->tenant_id ?? 0);
+    $clientId = (int) ($user->client_id ?? 0);
+    if ($tenantId <= 0 || $clientId <= 0) {
         return ['status' => 'fail', 'message' => 'Tenant unavailable'];
     }
 
@@ -28,19 +49,19 @@ function portal_login(string $email, string $password): array
     session_regenerate_id(true);
 
     $_SESSION['portal_user'] = [
-        'user_id' => (int) $user->id,
-        'tenant_id' => (int) $user->tenant_id,
-        'client_id' => (int) $tenant->client_id,
-        'email' => $user->email,
-        'name' => $user->name,
-        'role' => $user->role,
-        'tenant_name' => $tenant->name,
+        'user_id' => (int) $user->user_id,
+        'tenant_id' => $tenantId,
+        'client_id' => $clientId,
+        'email' => (string) ($user->email ?? ''),
+        'name' => (string) ($user->name ?? ''),
+        'role' => (string) ($user->role ?? ''),
+        'tenant_name' => (string) ($user->tenant_name ?? ''),
         'branding' => $branding,
         'logged_in_at' => time(),
     ];
 
     Capsule::table('s3_backup_tenant_users')
-        ->where('id', $user->id)
+        ->where('id', (int) $user->user_id)
         ->update([
             'last_login_at' => Capsule::raw('NOW()'),
             'updated_at' => Capsule::raw('NOW()'),

@@ -18,6 +18,16 @@ function portal_json(array $payload, int $code = 200): void
 
 function portal_detect_branding(): array
 {
+    $clientId = portal_resolve_client_context();
+    if ($clientId !== null && $clientId > 0) {
+        return portal_load_branding($clientId);
+    }
+
+    return portal_default_branding();
+}
+
+function portal_resolve_client_context(): ?int
+{
     $host = $_SERVER['HTTP_HOST'] ?? '';
     $mspParam = $_GET['msp'] ?? null;
 
@@ -26,21 +36,22 @@ function portal_detect_branding(): array
             ->where('domain', $host)
             ->where('is_verified', 1)
             ->first();
-        if ($domain) {
-            return portal_load_branding((int) $domain->client_id);
+        if ($domain && !empty($domain->client_id)) {
+            return (int) $domain->client_id;
         }
     }
 
     if ($mspParam) {
         $tenant = Capsule::table('s3_backup_tenants')
             ->where('slug', $mspParam)
+            ->where('status', 'active')
             ->first();
-        if ($tenant) {
-            return portal_load_branding((int) $tenant->client_id);
+        if ($tenant && !empty($tenant->client_id)) {
+            return (int) $tenant->client_id;
         }
     }
 
-    return portal_default_branding();
+    return null;
 }
 
 function portal_load_branding(int $clientId): array
