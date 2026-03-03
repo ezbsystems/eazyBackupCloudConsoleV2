@@ -174,6 +174,18 @@ Tenant v2 rollout must preserve canonical tenant ownership while keeping portal 
 - Pre-edit gate run: `MSP_BILLING_RELEASE_GATE_PASS`
 - Post-edit gate run: `MSP_BILLING_RELEASE_GATE_PASS`
 
+#### Task 7 Compatibility Wrappers (Legacy e3 Tenant URLs)
+
+Legacy e3 tenant routes remain available as compatibility entry points, but canonical tenant management is now Partner Hub-only.
+
+- Legacy route wrapper: `index.php?m=cloudstorage&page=e3backup&view=tenants` redirects to `index.php?m=eazybackup&a=ph-tenants-manage`.
+- Legacy deep-link wrappers map existing bookmarked paths to canonical pages:
+  - `view=tenant_detail&tenant_id={id}` -> `a=ph-tenant&id={id}`
+  - `view=tenant_members&tenant_id={id}` (and `tenant_users`) -> `a=ph-tenant-members&id={id}`
+  - `view=tenant_detail&mode=create` -> `a=ph-tenants-manage`
+- Legacy tenant detail/member templates include in-page compatibility callouts and Partner Hub deep-link actions.
+- Create/edit/delete/write actions on legacy tenant pages now redirect to Partner Hub tenant pages instead of executing legacy write APIs.
+
 ---
 
 # Phase 1: Database & Backend Foundation

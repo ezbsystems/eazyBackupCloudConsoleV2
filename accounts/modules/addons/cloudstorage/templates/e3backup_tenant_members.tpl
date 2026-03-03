@@ -10,16 +10,34 @@
                     <div class="flex items-center gap-2 mb-1">
                         <a href="index.php?m=cloudstorage&page=e3backup" class="text-slate-400 hover:text-white text-sm">e3 Cloud Backup</a>
                         <span class="text-slate-600">/</span>
-                        <a href="index.php?m=cloudstorage&page=e3backup&view=tenants" class="text-slate-400 hover:text-white text-sm">Tenants</a>
+                        <a href="index.php?m=eazybackup&a=ph-tenants-manage" class="text-slate-400 hover:text-white text-sm">Partner Hub Tenants</a>
                         <span class="text-slate-600">/</span>
                         <span class="text-white text-sm font-medium">Tenant Members</span>
                     </div>
                     <h1 class="text-2xl font-semibold text-white">Tenant Members</h1>
                     <p class="text-xs text-slate-400 mt-1">Manage members who can access the tenant portal to manage backups and perform restores.</p>
                 </div>
-                <button @click="openCreateModal()" class="mt-4 sm:mt-0 px-4 py-2 rounded-md bg-amber-600 text-white text-sm font-semibold hover:bg-amber-500">
-                    + Create Member
+                <button @click="openPartnerHub('members')" class="mt-4 sm:mt-0 px-4 py-2 rounded-md bg-amber-600 text-white text-sm font-semibold hover:bg-amber-500">
+                    Manage in Partner Hub
                 </button>
+            </div>
+
+            <div class="mb-5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm">
+                <p class="text-amber-100 font-medium">Legacy compatibility view</p>
+                <p class="text-amber-200/90 mt-1">
+                    This page remains available for bookmarked legacy URLs. Member create/edit/reset/delete actions are now handled only in Partner Hub to avoid divergent tenant writes.
+                </p>
+                <div class="mt-3 flex flex-wrap gap-2">
+                    <a href="index.php?m=eazybackup&a=ph-tenants-manage"
+                       class="inline-flex px-3 py-1.5 rounded-md border border-amber-400/40 text-amber-100 hover:bg-amber-400/10">
+                        Partner Hub Tenant List
+                    </a>
+                    <button type="button"
+                            @click="openPartnerHub('members')"
+                            class="inline-flex px-3 py-1.5 rounded-md border border-amber-400/40 text-amber-100 hover:bg-amber-400/10">
+                        Partner Hub Tenant Members
+                    </button>
+                </div>
             </div>
 
             <div class="mb-4 flex items-center gap-4">
@@ -42,7 +60,7 @@
                             <th class="px-4 py-3 text-left font-medium">Role</th>
                             <th class="px-4 py-3 text-left font-medium">Status</th>
                             <th class="px-4 py-3 text-left font-medium">Last Login</th>
-                            <th class="px-4 py-3 text-left font-medium">Actions</th>
+                            <th class="px-4 py-3 text-left font-medium">Canonical Action</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-800">
@@ -83,9 +101,9 @@
                                 <td class="px-4 py-3 text-slate-300" x-text="user.last_login_at || 'Never'"></td>
                                 <td class="px-4 py-3">
                                     <div class="flex gap-1">
-                                        <button @click="openEditModal(user)" class="text-xs px-2 py-1 rounded bg-slate-800 border border-slate-700 hover:border-slate-500">Edit</button>
-                                        <button @click="resetPassword(user)" class="text-xs px-2 py-1 rounded bg-slate-800 border border-slate-700 hover:border-slate-500">Reset PW</button>
-                                        <button @click="deleteUser(user)" class="text-xs px-2 py-1 rounded bg-rose-900/50 border border-rose-700 hover:border-rose-500 text-rose-200">Delete</button>
+                                        <button @click="openPartnerHubForUser(user, 'members')" class="text-xs px-2 py-1 rounded bg-slate-800 border border-slate-700 hover:border-slate-500">
+                                            Open in Partner Hub
+                                        </button>
                                     </div>
                                 </td>
                             </tr>
@@ -215,6 +233,31 @@ function tenantMembersApp() {
             this.loadUsers();
         },
 
+        openPartnerHub(target = 'members', tenantId = '') {
+            const resolvedTenantId = String(tenantId || this.tenantFilter || '').trim();
+            if (!resolvedTenantId) {
+                window.location.href = 'index.php?m=eazybackup&a=ph-tenants-manage&legacy=e3-tenant-members';
+                return;
+            }
+
+            if (target === 'profile') {
+                window.location.href = 'index.php?m=eazybackup&a=ph-tenant&id=' + encodeURIComponent(resolvedTenantId) + '&legacy=e3-tenant-members';
+                return;
+            }
+
+            if (target === 'storage_users') {
+                window.location.href = 'index.php?m=eazybackup&a=ph-tenant-storage-users&id=' + encodeURIComponent(resolvedTenantId) + '&legacy=e3-tenant-members';
+                return;
+            }
+
+            window.location.href = 'index.php?m=eazybackup&a=ph-tenant-members&id=' + encodeURIComponent(resolvedTenantId) + '&legacy=e3-tenant-members';
+        },
+
+        openPartnerHubForUser(user, target = 'members') {
+            const tenantId = user && user.tenant_id ? user.tenant_id : this.tenantFilter;
+            this.openPartnerHub(target, tenantId);
+        },
+
         syncTenantFilterToUrl() {
             try {
                 const nextUrl = new URL(window.location.href);
@@ -248,123 +291,29 @@ function tenantMembersApp() {
         },
 
         openCreateModal() {
-            this.editingUser = null;
-            this.form = {
-                tenant_id: this.tenantFilter || '',
-                name: '',
-                email: '',
-                password: '',
-                role: 'user',
-                status: 'active'
-            };
-            this.showModal = true;
+            this.openPartnerHub('members');
         },
 
         openEditModal(user) {
-            this.editingUser = user;
-            this.form = {
-                tenant_id: user.tenant_id,
-                name: user.name,
-                email: user.email,
-                password: '',
-                role: user.role,
-                status: user.status
-            };
-            this.showModal = true;
+            this.openPartnerHubForUser(user, 'members');
         },
 
         async saveUser() {
             this.saving = true;
-            try {
-                const endpoint = this.editingUser
-                    ? 'modules/addons/cloudstorage/api/e3backup_tenant_user_update.php'
-                    : 'modules/addons/cloudstorage/api/e3backup_tenant_user_create.php';
-
-                const params = new URLSearchParams({
-                    tenant_id: this.form.tenant_id,
-                    name: this.form.name,
-                    email: this.form.email,
-                    role: this.form.role,
-                    status: this.form.status
-                });
-
-                if (!this.editingUser) {
-                    params.set('password', this.form.password);
-                } else {
-                    params.set('user_id', this.editingUser.id);
-                }
-                params.set('token', this.csrfToken);
-
-                const res = await fetch(endpoint, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: params
-                });
-                const data = await res.json();
-                if (data.status === 'success') {
-                    this.showModal = false;
-                    this.loadUsers();
-                } else {
-                    alert(data.message || 'Failed to save member');
-                }
-            } catch (e) {
-                alert('Failed to save member');
-            }
-            this.saving = false;
+            this.openPartnerHub('members', this.form.tenant_id || this.tenantFilter);
         },
 
         resetPassword(user) {
-            this.passwordUser = user;
-            this.newPassword = '';
-            this.showPasswordModal = true;
+            this.openPartnerHubForUser(user, 'members');
         },
 
         async doResetPassword() {
             this.resettingPassword = true;
-            try {
-                const body = new URLSearchParams({
-                    user_id: this.passwordUser.id,
-                    password: this.newPassword
-                });
-                body.set('token', this.csrfToken);
-                const res = await fetch('modules/addons/cloudstorage/api/e3backup_tenant_user_reset_password.php', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body
-                });
-                const data = await res.json();
-                if (data.status === 'success') {
-                    this.showPasswordModal = false;
-                    alert('Password updated successfully');
-                } else {
-                    alert(data.message || 'Failed to reset password');
-                }
-            } catch (e) {
-                alert('Failed to reset password');
-            }
-            this.resettingPassword = false;
+            this.openPartnerHubForUser(this.passwordUser, 'members');
         },
 
         async deleteUser(user) {
-            if (!confirm('Delete member ' + user.name + '? This cannot be undone.')) return;
-
-            try {
-                const body = new URLSearchParams({ user_id: user.id });
-                body.set('token', this.csrfToken);
-                const res = await fetch('modules/addons/cloudstorage/api/e3backup_tenant_user_delete.php', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body
-                });
-                const data = await res.json();
-                if (data.status === 'success') {
-                    this.loadUsers();
-                } else {
-                    alert(data.message || 'Failed to delete member');
-                }
-            } catch (e) {
-                alert('Failed to delete member');
-            }
+            this.openPartnerHubForUser(user, 'members');
         }
     };
 }

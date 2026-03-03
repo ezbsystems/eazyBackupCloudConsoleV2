@@ -18,15 +18,40 @@
                     <p class="text-xs text-slate-400 mt-1">Manage tenant profile, tenant members, and backup users from one place.</p>
                 </div>
                 <div class="flex flex-wrap items-center gap-2">
-                    <a href="index.php?m=cloudstorage&page=e3backup&view=tenants"
+                    <a href="index.php?m=eazybackup&a=ph-tenants-manage"
                        class="px-3 py-2 rounded-md border border-slate-700 bg-slate-900/70 text-sm text-slate-200 hover:bg-slate-800">
-                        Back to Tenants
+                        Open Partner Hub Tenants
                     </a>
                     <button type="button"
                             x-show="!isCreateMode && tenantId"
-                            @click="deleteTenant()"
+                            @click="redirectToPartnerHub('profile')"
                             class="px-3 py-2 rounded-md border border-rose-700 bg-rose-900/30 text-sm font-medium text-rose-200 hover:border-rose-500 hover:bg-rose-900/45">
-                        Delete Tenant
+                        Manage in Partner Hub
+                    </button>
+                </div>
+            </div>
+
+            <div class="mb-6 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm">
+                <p class="text-amber-100 font-medium">Legacy compatibility view</p>
+                <p class="text-amber-200/90 mt-1">
+                    This URL still works for bookmarks, but tenant create/edit and member/storage user changes now happen in Partner Hub to keep canonical tenant data in one place.
+                </p>
+                <div class="mt-3 flex flex-wrap gap-2">
+                    <a href="index.php?m=eazybackup&a=ph-tenants-manage"
+                       class="inline-flex px-3 py-1.5 rounded-md border border-amber-400/40 text-amber-100 hover:bg-amber-400/10">
+                        Partner Hub Tenant List
+                    </a>
+                    <button type="button"
+                            x-show="tenantId"
+                            @click="redirectToPartnerHub('profile')"
+                            class="inline-flex px-3 py-1.5 rounded-md border border-amber-400/40 text-amber-100 hover:bg-amber-400/10">
+                        Partner Hub Tenant Profile
+                    </button>
+                    <button type="button"
+                            x-show="tenantId"
+                            @click="redirectToPartnerHub('members')"
+                            class="inline-flex px-3 py-1.5 rounded-md border border-amber-400/40 text-amber-100 hover:bg-amber-400/10">
+                        Partner Hub Tenant Members
                     </button>
                 </div>
             </div>
@@ -197,15 +222,15 @@
 
                                 <div class="flex justify-end gap-3 pt-2">
                                     <button type="button"
-                                            @click="window.location.href='index.php?m=cloudstorage&page=e3backup&view=tenants'"
+                                            @click="redirectToPartnerHub('manage')"
                                             class="px-4 py-2 rounded-md bg-slate-700 text-white text-sm font-medium hover:bg-slate-600">
-                                        Cancel
+                                        Open Partner Hub
                                     </button>
                                     <button type="submit"
                                             :disabled="savingProfile"
                                             class="px-4 py-2 rounded-md bg-violet-600 text-white text-sm font-semibold hover:bg-violet-500 disabled:opacity-60 disabled:cursor-not-allowed">
-                                        <span x-show="!savingProfile" x-text="isCreateMode ? 'Create Tenant' : 'Save Changes'"></span>
-                                        <span x-show="savingProfile" x-text="isCreateMode ? 'Creating...' : 'Saving...'"></span>
+                                        <span x-show="!savingProfile" x-text="isCreateMode ? 'Create in Partner Hub' : 'Edit in Partner Hub'"></span>
+                                        <span x-show="savingProfile">Redirecting...</span>
                                     </button>
                                 </div>
                             </form>
@@ -218,9 +243,9 @@
                                     <p class="text-xs text-slate-400">Portal access accounts for this tenant.</p>
                                 </div>
                                 <button type="button"
-                                        @click="openCreateMemberModal()"
+                                        @click="redirectToPartnerHub('members')"
                                         class="px-4 py-2 rounded-md bg-amber-600 text-white text-sm font-semibold hover:bg-amber-500">
-                                    + Create Member
+                                    Manage in Partner Hub
                                 </button>
                             </div>
 
@@ -277,9 +302,9 @@
                                     <p class="text-xs text-slate-400">Backup identities scoped to this tenant.</p>
                                 </div>
                                 <button type="button"
-                                        @click="openCreateModal()"
+                                        @click="redirectToPartnerHub('storage_users')"
                                         class="px-4 py-2 rounded-md bg-amber-600 text-white text-sm font-semibold hover:bg-amber-500">
-                                    + Create Backup User
+                                    Manage in Partner Hub
                                 </button>
                             </div>
 
@@ -536,6 +561,23 @@ function tenantDetailApp() {
             this.loadTenant();
         },
 
+        partnerHubUrl(target = 'manage') {
+            if (target === 'manage' || this.isCreateMode || !this.tenantId) {
+                return 'index.php?m=eazybackup&a=ph-tenants-manage&legacy=e3-tenant-detail';
+            }
+            if (target === 'members') {
+                return 'index.php?m=eazybackup&a=ph-tenant-members&id=' + encodeURIComponent(this.tenantId) + '&legacy=e3-tenant-detail';
+            }
+            if (target === 'storage_users') {
+                return 'index.php?m=eazybackup&a=ph-tenant-storage-users&id=' + encodeURIComponent(this.tenantId) + '&legacy=e3-tenant-detail';
+            }
+            return 'index.php?m=eazybackup&a=ph-tenant&id=' + encodeURIComponent(this.tenantId) + '&legacy=e3-tenant-detail';
+        },
+
+        redirectToPartnerHub(target = 'manage') {
+            window.location.href = this.partnerHubUrl(target);
+        },
+
         populateFormFromTenant(tenant) {
             this.profileForm = {
                 name: tenant.name || '',
@@ -616,100 +658,12 @@ function tenantDetailApp() {
         },
 
         async saveProfile() {
-            this.profileError = '';
-            if (!this.validateProfileForm()) {
-                return;
-            }
-
             this.savingProfile = true;
-            try {
-                const endpoint = this.isCreateMode
-                    ? 'modules/addons/cloudstorage/api/e3backup_tenant_create.php'
-                    : 'modules/addons/cloudstorage/api/e3backup_tenant_update.php';
-
-                const body = new URLSearchParams({
-                    name: this.profileForm.name,
-                    slug: this.profileForm.slug,
-                    status: this.profileForm.status,
-                    contact_email: this.profileForm.contact_email,
-                    contact_name: this.profileForm.contact_name,
-                    contact_phone: this.profileForm.contact_phone,
-                    address_line1: this.profileForm.address_line1,
-                    address_line2: this.profileForm.address_line2,
-                    city: this.profileForm.city,
-                    state: this.profileForm.state,
-                    postal_code: this.profileForm.postal_code,
-                    country: (this.profileForm.country || '').toUpperCase()
-                });
-                body.set('token', this.csrfToken);
-
-                if (!this.isCreateMode) {
-                    body.set('tenant_id', String(this.tenantId));
-                } else {
-                    body.set('create_admin', this.profileForm.create_admin ? '1' : '0');
-                    if (this.profileForm.create_admin) {
-                        body.set('admin_email', this.profileForm.admin_email || '');
-                        body.set('admin_name', this.profileForm.admin_name || '');
-                        body.set('auto_password', this.profileForm.auto_password || '1');
-                        if (this.profileForm.auto_password === '0') {
-                            body.set('admin_password', this.profileForm.admin_password || '');
-                        }
-                    }
-                }
-
-                const response = await fetch(endpoint, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body
-                });
-                const data = await response.json();
-
-                if (data.status !== 'success') {
-                    this.profileError = data.message || 'Failed to save tenant profile.';
-                    return;
-                }
-
-                if (this.isCreateMode && data.tenant_id) {
-                    window.location.href = 'index.php?m=cloudstorage&page=e3backup&view=tenant_detail&tenant_id=' + encodeURIComponent(data.tenant_id);
-                    return;
-                }
-
-                await this.loadTenant();
-                this.showNotification('Tenant profile updated successfully.', 'success');
-            } catch (error) {
-                this.profileError = 'Failed to save tenant profile.';
-            } finally {
-                this.savingProfile = false;
-            }
+            this.redirectToPartnerHub(this.isCreateMode ? 'manage' : 'profile');
         },
 
         async deleteTenant() {
-            if (!this.tenantId || this.isCreateMode) return;
-            if (this.deletingTenant) return;
-
-            const confirmed = window.confirm('Delete tenant "' + (this.profileForm.name || '') + '"? This action cannot be undone.');
-            if (!confirmed) return;
-
-            this.deletingTenant = true;
-            try {
-                const body = new URLSearchParams({ tenant_id: String(this.tenantId) });
-                body.set('token', this.csrfToken);
-                const response = await fetch('modules/addons/cloudstorage/api/e3backup_tenant_delete.php', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body
-                });
-                const data = await response.json();
-                if (data.status !== 'success') {
-                    this.showNotification(data.message || 'Failed to delete tenant.', 'error');
-                    return;
-                }
-                window.location.href = 'index.php?m=cloudstorage&page=e3backup&view=tenants';
-            } catch (error) {
-                this.showNotification('Failed to delete tenant.', 'error');
-            } finally {
-                this.deletingTenant = false;
-            }
+            this.redirectToPartnerHub('profile');
         },
 
         async loadMembers(forceReload = false) {
@@ -816,15 +770,7 @@ function tenantDetailApp() {
         },
 
         openCreateMemberModal() {
-            this.memberForm = {
-                name: '',
-                email: '',
-                password: '',
-                role: 'user',
-                status: 'active'
-            };
-            this.memberFormError = '';
-            this.showCreateMemberModal = true;
+            this.redirectToPartnerHub('members');
         },
 
         closeCreateMemberModal() {
@@ -833,59 +779,12 @@ function tenantDetailApp() {
         },
 
         async createMember() {
-            if (!this.tenantId) return;
-            this.memberFormError = '';
             this.memberSaving = true;
-
-            try {
-                const body = new URLSearchParams({
-                    tenant_id: String(this.tenantId),
-                    name: this.memberForm.name || '',
-                    email: this.memberForm.email || '',
-                    password: this.memberForm.password || '',
-                    role: this.memberForm.role || 'user',
-                    status: this.memberForm.status || 'active'
-                });
-                body.set('token', this.csrfToken);
-
-                const response = await fetch('modules/addons/cloudstorage/api/e3backup_tenant_user_create.php', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body
-                });
-                const data = await response.json();
-                if (data.status !== 'success') {
-                    this.memberFormError = data.message || 'Failed to create member.';
-                    return;
-                }
-
-                this.closeCreateMemberModal();
-                await this.loadMembers(true);
-                await this.loadTenant();
-                this.showNotification('Tenant member created successfully.', 'success');
-            } catch (error) {
-                this.memberFormError = 'Failed to create member.';
-            } finally {
-                this.memberSaving = false;
-            }
+            this.redirectToPartnerHub('members');
         },
 
         openCreateModal() {
-            this.form = {
-                username: '',
-                password: '',
-                password_confirm: '',
-                email: '',
-                tenant_id: String(this.tenantId || ''),
-                status: 'active',
-                encryption_mode: 'managed',
-                managed_acknowledged: false,
-                strict_acknowledged: false,
-                recovery_key_downloaded: false
-            };
-            this.formErrorMessage = '';
-            this.fieldErrors = {};
-            this.showCreateModal = true;
+            this.redirectToPartnerHub('storage_users');
         },
 
         closeCreateModal() {
@@ -946,56 +845,8 @@ function tenantDetailApp() {
         },
 
         async createUser() {
-            if (!this.tenantId) return;
-            this.formErrorMessage = '';
-            if (!this.validateCreateForm()) {
-                return;
-            }
             this.saving = true;
-
-            try {
-                let passwordToSend = this.form.password;
-                let passwordConfirmToSend = this.form.password_confirm;
-                if (this.form.encryption_mode === 'strict') {
-                    const generated = this.generateRecoveryKey().slice(0, 24);
-                    passwordToSend = generated;
-                    passwordConfirmToSend = generated;
-                }
-
-                const body = new URLSearchParams({
-                    username: this.form.username,
-                    password: passwordToSend,
-                    password_confirm: passwordConfirmToSend,
-                    email: this.form.email,
-                    status: this.form.status || 'active',
-                    tenant_id: String(this.tenantId),
-                    encryption_mode: this.form.encryption_mode,
-                    managed_acknowledged: this.form.managed_acknowledged ? '1' : '0',
-                    strict_acknowledged: this.form.strict_acknowledged ? '1' : '0',
-                    recovery_key_downloaded: this.form.recovery_key_downloaded ? '1' : '0'
-                });
-                body.set('token', this.csrfToken);
-
-                const response = await fetch('modules/addons/cloudstorage/api/e3backup_user_create.php', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body
-                });
-                const data = await response.json();
-                if (data.status !== 'success') {
-                    this.formErrorMessage = data.message || 'Failed to create backup user.';
-                    this.fieldErrors = data.errors || {};
-                    return;
-                }
-
-                this.closeCreateModal();
-                await this.loadBackupUsers(true);
-                this.showNotification('Backup user created successfully.', 'success');
-            } catch (error) {
-                this.formErrorMessage = 'Failed to create backup user.';
-            } finally {
-                this.saving = false;
-            }
+            this.redirectToPartnerHub('storage_users');
         },
 
         formatDate(value) {

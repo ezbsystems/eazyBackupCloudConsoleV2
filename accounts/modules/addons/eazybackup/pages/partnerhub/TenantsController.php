@@ -260,6 +260,7 @@ function eb_ph_tenant_shell_response(array $vars, array $msp, array $tenant, str
             'statuses' => eb_ph_tenants_statuses(),
             'token' => function_exists('generate_token') ? generate_token('plain') : '',
             'notice' => (string)($_GET['notice'] ?? ''),
+            'legacy_notice' => (string)($_GET['legacy'] ?? ''),
             'error' => (string)($_GET['error'] ?? ''),
         ], $tabVars),
     ];
@@ -335,6 +336,7 @@ function eb_ph_tenants_index(array $vars)
             'statuses' => eb_ph_tenants_statuses(),
             'token' => function_exists('generate_token') ? generate_token('plain') : '',
             'notice' => (string)($_GET['notice'] ?? ''),
+            'legacy_notice' => (string)($_GET['legacy'] ?? ''),
             'error' => (string)($_GET['error'] ?? ''),
         ],
     ];
