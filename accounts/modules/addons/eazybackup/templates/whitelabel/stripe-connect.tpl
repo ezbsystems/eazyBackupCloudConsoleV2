@@ -1,19 +1,21 @@
+{include file="modules/addons/eazybackup/templates/partials/_ui-tokens.tpl"}
+<div class="min-h-screen eb-bg-page eb-text-primary">
 <div class="p-6">
-  <h2 class="text-xl font-semibold text-gray-100 mb-4">Stripe Connect — Status</h2>
+  <h2 class="text-xl font-semibold mb-4">Stripe Connect — Status</h2>
   <div class="mb-3 flex items-center justify-between text-xs text-gray-400">
     <div>Last checked: {if $msp && $msp->last_verification_check}{$msp->last_verification_check|escape}{else}—{/if}</div>
     <a href="{$modulelink}&a=ph-stripe-connect" class="underline hover:text-gray-200">Refresh</a>
   </div>
 
   {if !$status.hasAccount}
-    <div class="rounded-2xl bg-[rgb(var(--bg-card))] ring-1 ring-white/10 p-4 mb-4">
+    <div class="rounded-2xl eb-bg-card ring-1 ring-white/10 p-4 mb-4">
       <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div class="text-gray-300">Connect your Stripe Express account to start accepting payments and receiving payouts.</div>
         <a href="{$modulelink}&a=ph-stripe-onboard" class="inline-flex items-center px-5 py-2.5 rounded-xl bg-[#1B2C50] text-white hover:bg-[#254074] transition">Connect Stripe</a>
       </div>
     </div>
   {elseif !$status.chargesEnabled || !$status.payoutsEnabled || ($status.currentlyDue|@count > 0)}
-    <div class="rounded-2xl bg-[rgb(var(--bg-card))] ring-1 ring-white/10 p-4 mb-4">
+    <div class="rounded-2xl eb-bg-card ring-1 ring-white/10 p-4 mb-4">
       <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div class="text-gray-300">Your Stripe account setup requires additional information to enable payments and payouts.</div>
         <a href="{$modulelink}&a=ph-stripe-onboard" class="inline-flex items-center px-5 py-2.5 rounded-xl bg-[#1B2C50] text-white hover:bg-[#254074] transition">Resume Onboarding</a>
@@ -21,7 +23,7 @@
     </div>
   {/if}
 
-  <div class="rounded-2xl bg-[rgb(var(--bg-card))] ring-1 ring-white/10 p-4 mb-4">
+  <div class="rounded-2xl eb-bg-card ring-1 ring-white/10 p-4 mb-4">
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
       <div>
         <div class="text-gray-400 text-sm">Charges</div>
@@ -68,11 +70,12 @@
     {/if}
   </div>
 
-  <div class="rounded-2xl bg-[rgb(var(--bg-card))] ring-1 ring-white/10 p-4">
+  <div class="rounded-2xl eb-bg-card ring-1 ring-white/10 p-4">
     <h3 class="text-lg font-semibold text-gray-100 mb-2">Manage Account</h3>
     <p class="text-gray-300 mb-3">Use the embedded account management to update business, people, and payouts.</p>
     <a href="{$modulelink}&a=ph-stripe-manage" class="inline-flex items-center px-4 py-2 rounded bg-[#1B2C50] text-white">Open Account Management</a>
   </div>
+</div>
 </div>
 
 
