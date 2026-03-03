@@ -12,10 +12,10 @@
 </style>
 {/literal}
 
-<div id="global-jobs-page" class="min-h-screen bg-slate-950 text-gray-300">
+<div id="global-jobs-page" class="min-h-screen bg-slate-950 text-gray-100 overflow-x-hidden">
   {* <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div> *}
 
-  <div class="container mx-auto px-4 py-8">
+  <div class="container mx-auto max-w-full px-4 pb-8 pt-6">
     <div x-data="{ 
       sidebarOpen: true,
       sidebarCollapsed: localStorage.getItem('eb_sidebar_collapsed') === 'true' || window.innerWidth < 1360,
