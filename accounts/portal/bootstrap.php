@@ -46,12 +46,35 @@ function portal_resolve_tenant_context(): ?int
         return null;
     }
 
-    $tenant = Capsule::table('s3_backup_tenants')
+    $domainClientId = portal_resolve_client_context_from_domain();
+    $query = Capsule::table('s3_backup_tenants')
         ->where('slug', $mspParam)
-        ->where('status', 'active')
-        ->first(['id']);
-    if ($tenant && !empty($tenant->id)) {
-        return (int) $tenant->id;
+        ->where('status', 'active');
+    if ($domainClientId !== null && $domainClientId > 0) {
+        $query->where('client_id', $domainClientId);
+    }
+
+    $matches = $query->orderBy('id', 'asc')->limit(2)->get(['id']);
+    if (!$matches || count($matches) !== 1) {
+        return null;
+    }
+
+    return (int) ($matches[0]->id ?? 0);
+}
+
+function portal_resolve_client_context_from_domain(): ?int
+{
+    $host = $_SERVER['HTTP_HOST'] ?? '';
+    if (!$host) {
+        return null;
+    }
+
+    $domain = Capsule::table('s3_msp_portal_domains')
+        ->where('domain', $host)
+        ->where('is_verified', 1)
+        ->first();
+    if ($domain && !empty($domain->client_id)) {
+        return (int) $domain->client_id;
     }
 
     return null;
@@ -59,7 +82,10 @@ function portal_resolve_tenant_context(): ?int
 
 function portal_resolve_client_context(): ?int
 {
-    $host = $_SERVER['HTTP_HOST'] ?? '';
+    $domainClientId = portal_resolve_client_context_from_domain();
+    if ($domainClientId !== null && $domainClientId > 0) {
+        return $domainClientId;
+    }
 
     $tenantContextId = portal_resolve_tenant_context();
     if ($tenantContextId !== null && $tenantContextId > 0) {
@@ -68,16 +94,6 @@ function portal_resolve_client_context(): ?int
             ->first(['client_id']);
         if ($tenant && !empty($tenant->client_id)) {
             return (int) $tenant->client_id;
-        }
-    }
-
-    if ($host) {
-        $domain = Capsule::table('s3_msp_portal_domains')
-            ->where('domain', $host)
-            ->where('is_verified', 1)
-            ->first();
-        if ($domain && !empty($domain->client_id)) {
-            return (int) $domain->client_id;
         }
     }
 
