@@ -6,6 +6,10 @@ use Illuminate\Database\Capsule\Manager as Capsule;
 
 function portal_login(string $email, string $password): array
 {
+    if (portal_msp_context_is_invalid()) {
+        return ['status' => 'fail', 'message' => 'Invalid credentials'];
+    }
+
     $tenantContextId = portal_resolve_tenant_context();
     $clientContextId = portal_resolve_client_context();
 

@@ -80,7 +80,7 @@
         if (!value) return '';
         try {
             const url = new URL(String(value), window.location.origin);
-            if (url.protocol === 'https:' || url.protocol === 'http:') {
+            if (url.protocol === 'https:') {
                 return url.href;
             }
         } catch (error) {}
