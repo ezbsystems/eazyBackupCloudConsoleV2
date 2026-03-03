@@ -279,6 +279,15 @@ function eb_ph_tenants_index(array $vars)
         $slugRaw = trim((string)($post['slug'] ?? ''));
         $slug = eb_ph_tenants_slugify($slugRaw !== '' ? $slugRaw : $name);
         $contactEmail = strtolower(trim((string)($post['contact_email'] ?? '')));
+        $contactName = trim((string)($post['contact_name'] ?? ''));
+        $contactPhone = trim((string)($post['contact_phone'] ?? ''));
+        $addressLine1 = trim((string)($post['address_line1'] ?? ''));
+        $addressLine2 = trim((string)($post['address_line2'] ?? ''));
+        $city = trim((string)($post['city'] ?? ''));
+        $state = trim((string)($post['state'] ?? ''));
+        $postalCode = trim((string)($post['postal_code'] ?? ''));
+        $countryRaw = trim((string)($post['country'] ?? ''));
+        $country = $countryRaw !== '' ? strtoupper($countryRaw) : null;
         $status = eb_ph_tenants_normalize_status((string)($post['status'] ?? 'active'));
         if ($status === 'deleted') {
             $status = 'active';
@@ -293,20 +302,51 @@ function eb_ph_tenants_index(array $vars)
         if ($contactEmail !== '' && !filter_var($contactEmail, FILTER_VALIDATE_EMAIL)) {
             eb_ph_tenants_redirect($vars, 'error=invalid_email');
         }
+        if ($country !== null && $country !== '' && !preg_match('/^[A-Z]{2}$/', $country)) {
+            eb_ph_tenants_redirect($vars, 'error=invalid_country');
+        }
         if (eb_ph_tenants_existing_slug_owner($clientId, $slug) !== null) {
             eb_ph_tenants_redirect($vars, 'error=slug_taken');
         }
 
+        // Admin user creation from modal is deferred; create_admin / admin_email / admin_name / auto_password / admin_password are ignored here.
+        $insert = [
+            'client_id' => $clientId,
+            'name' => $name,
+            'slug' => $slug,
+            'contact_email' => $contactEmail !== '' ? $contactEmail : null,
+            'status' => $status,
+            'created_at' => Capsule::raw('NOW()'),
+            'updated_at' => Capsule::raw('NOW()'),
+        ];
+        $schema = Capsule::schema();
+        if ($schema->hasColumn('s3_backup_tenants', 'contact_name')) {
+            $insert['contact_name'] = $contactName !== '' ? $contactName : null;
+        }
+        if ($schema->hasColumn('s3_backup_tenants', 'contact_phone')) {
+            $insert['contact_phone'] = $contactPhone !== '' ? $contactPhone : null;
+        }
+        if ($schema->hasColumn('s3_backup_tenants', 'address_line1')) {
+            $insert['address_line1'] = $addressLine1 !== '' ? $addressLine1 : null;
+        }
+        if ($schema->hasColumn('s3_backup_tenants', 'address_line2')) {
+            $insert['address_line2'] = $addressLine2 !== '' ? $addressLine2 : null;
+        }
+        if ($schema->hasColumn('s3_backup_tenants', 'city')) {
+            $insert['city'] = $city !== '' ? $city : null;
+        }
+        if ($schema->hasColumn('s3_backup_tenants', 'state')) {
+            $insert['state'] = $state !== '' ? $state : null;
+        }
+        if ($schema->hasColumn('s3_backup_tenants', 'postal_code')) {
+            $insert['postal_code'] = $postalCode !== '' ? $postalCode : null;
+        }
+        if ($schema->hasColumn('s3_backup_tenants', 'country')) {
+            $insert['country'] = $country;
+        }
+
         try {
-            $tenantId = (int)Capsule::table('s3_backup_tenants')->insertGetId([
-                'client_id' => $clientId,
-                'name' => $name,
-                'slug' => $slug,
-                'contact_email' => $contactEmail !== '' ? $contactEmail : null,
-                'status' => $status,
-                'created_at' => Capsule::raw('NOW()'),
-                'updated_at' => Capsule::raw('NOW()'),
-            ]);
+            $tenantId = (int)Capsule::table('s3_backup_tenants')->insertGetId($insert);
             header('Location: ' . eb_ph_tenants_base_link($vars) . '&a=ph-tenant&id=' . $tenantId . '&notice=created');
             exit;
         } catch (\Throwable $__) {
