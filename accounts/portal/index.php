@@ -9,6 +9,7 @@ $apiRoutes = [
     'change_password' => __DIR__ . '/api/change_password.php',
     'invoices' => __DIR__ . '/api/invoices.php',
     'payment_methods' => __DIR__ . '/api/payment_methods.php',
+    'services' => __DIR__ . '/api/services.php',
 ];
 
 if ($api !== '' && isset($apiRoutes[$api])) {
@@ -47,6 +48,12 @@ switch ($page) {
         break;
     case 'billing':
         $template = 'billing.tpl';
+        break;
+    case 'services':
+        $template = 'services.tpl';
+        break;
+    case 'cloud_storage':
+        $template = 'cloud_storage.tpl';
         break;
     case 'settings':
     default:

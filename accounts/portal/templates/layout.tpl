@@ -15,6 +15,8 @@
             </div>
             <nav class="flex items-center gap-2 text-sm">
                 <a href="index.php?page=dashboard<?= $mspSuffix ?>" class="px-3 py-2 rounded <?= ($page ?? '') === 'dashboard' ? 'bg-slate-700 text-white' : 'text-slate-300 hover:text-white' ?>">Dashboard</a>
+                <a href="index.php?page=services<?= $mspSuffix ?>" class="px-3 py-2 rounded <?= ($page ?? '') === 'services' ? 'bg-slate-700 text-white' : 'text-slate-300 hover:text-white' ?>">Services</a>
+                <a href="index.php?page=cloud_storage<?= $mspSuffix ?>" class="px-3 py-2 rounded <?= ($page ?? '') === 'cloud_storage' ? 'bg-slate-700 text-white' : 'text-slate-300 hover:text-white' ?>">Cloud Storage</a>
                 <a href="index.php?page=settings<?= $mspSuffix ?>" class="px-3 py-2 rounded <?= ($page ?? '') === 'settings' ? 'bg-slate-700 text-white' : 'text-slate-300 hover:text-white' ?>">Settings</a>
                 <a href="index.php?page=billing<?= $mspSuffix ?>" class="px-3 py-2 rounded <?= ($page ?? '') === 'billing' ? 'bg-slate-700 text-white' : 'text-slate-300 hover:text-white' ?>">Billing</a>
             </nav>
