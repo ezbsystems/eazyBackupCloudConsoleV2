@@ -1,7 +1,6 @@
 <?php
 
 use WHMCS\ClientArea;
-use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
@@ -26,13 +25,11 @@ if (!$isMspClient) {
     header('Location: index.php?m=cloudstorage&page=e3backup');
     exit;
 }
+$tenantId = isset($_GET['tenant_id']) ? (int)$_GET['tenant_id'] : 0;
+if ($tenantId > 0) {
+    header('Location: index.php?m=eazybackup&a=ph-tenant-members&id=' . $tenantId . '&legacy=e3-tenant-members');
+    exit;
+}
 
-// Get tenants for dropdown
-$tenants = MspController::getTenants($loggedInUserId);
-$csrfToken = function_exists('generate_token') ? generate_token('plain') : '';
-
-return [
-    'isMspClient' => $isMspClient,
-    'tenants' => $tenants,
-    'csrfToken' => $csrfToken,
-];
+header('Location: index.php?m=eazybackup&a=ph-tenants-manage&legacy=e3-tenant-members');
+exit;

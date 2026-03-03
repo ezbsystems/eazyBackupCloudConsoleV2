@@ -25,9 +25,18 @@ if (!$isMspClient) {
     header('Location: index.php?m=cloudstorage&page=e3backup');
     exit;
 }
-$csrfToken = function_exists('generate_token') ? generate_token('plain') : '';
+$tenantId = isset($_GET['tenant_id']) ? (int)$_GET['tenant_id'] : 0;
+$mode = strtolower(trim((string)($_GET['mode'] ?? '')));
 
-return [
-    'isMspClient' => $isMspClient,
-    'csrfToken' => $csrfToken,
-];
+if ($mode === 'create') {
+    header('Location: index.php?m=eazybackup&a=ph-tenants-manage&legacy=e3-tenant-create');
+    exit;
+}
+
+if ($tenantId > 0) {
+    header('Location: index.php?m=eazybackup&a=ph-tenant&id=' . $tenantId . '&legacy=e3-tenant-detail');
+    exit;
+}
+
+header('Location: index.php?m=eazybackup&a=ph-tenants-manage&legacy=e3-tenant-detail');
+exit;
