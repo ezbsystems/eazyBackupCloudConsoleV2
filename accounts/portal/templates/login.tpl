@@ -24,6 +24,7 @@
     const password = document.getElementById('portal-login-password');
     const error = document.getElementById('portal-login-error');
     const csrfToken = <?= json_encode($csrf ?? '') ?>;
+    const mspSlug = (new URLSearchParams(window.location.search)).get('msp');
 
     form.addEventListener('submit', async (event) => {
         event.preventDefault();
@@ -35,7 +36,8 @@
                 email: email.value.trim(),
                 password: password.value
             });
-            const response = await fetch('index.php?api=login', {
+            const loginApiUrl = mspSlug ? `index.php?api=login&msp=${encodeURIComponent(mspSlug)}` : 'index.php?api=login';
+            const response = await fetch(loginApiUrl, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
@@ -47,7 +49,7 @@
             if (!response.ok || !payload || payload.status !== 'success') {
                 throw new Error((payload && payload.message) ? payload.message : 'Login failed');
             }
-            window.location.href = 'index.php?page=dashboard';
+            window.location.href = mspSlug ? `index.php?page=dashboard&msp=${encodeURIComponent(mspSlug)}` : 'index.php?page=dashboard';
         } catch (e) {
             error.textContent = e.message || 'Login failed';
             error.classList.remove('hidden');

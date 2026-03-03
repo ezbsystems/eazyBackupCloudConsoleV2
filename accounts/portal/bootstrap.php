@@ -90,7 +90,11 @@ function portal_require_auth(): array
 {
     $sess = portal_session();
     if (!$sess) {
-        header('Location: /portal/index.php?page=login');
+        $url = '/portal/index.php?page=login';
+        if (!empty($_GET['msp'])) {
+            $url .= '&msp=' . rawurlencode((string) $_GET['msp']);
+        }
+        header('Location: ' . $url);
         exit;
     }
 
@@ -98,7 +102,11 @@ function portal_require_auth(): array
     $userId = (int) ($sess['user_id'] ?? 0);
     if ($tenantId <= 0 || $userId <= 0) {
         $_SESSION['portal_user'] = null;
-        header('Location: /portal/index.php?page=login');
+        $url = '/portal/index.php?page=login';
+        if (!empty($_GET['msp'])) {
+            $url .= '&msp=' . rawurlencode((string) $_GET['msp']);
+        }
+        header('Location: ' . $url);
         exit;
     }
 
@@ -119,7 +127,11 @@ function portal_require_auth(): array
         ]);
     if (!$row) {
         $_SESSION['portal_user'] = null;
-        header('Location: /portal/index.php?page=login');
+        $url = '/portal/index.php?page=login';
+        if (!empty($_GET['msp'])) {
+            $url .= '&msp=' . rawurlencode((string) $_GET['msp']);
+        }
+        header('Location: ' . $url);
         exit;
     }
 
