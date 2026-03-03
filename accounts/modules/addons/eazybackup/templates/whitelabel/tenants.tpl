@@ -36,39 +36,227 @@
         <h2 class="text-lg font-medium">Existing Customer Tenants</h2>
       </div>
       <div class="border-t border-white/10"></div>
-      <div class="overflow-x-auto">
-        <table class="w-full text-sm">
-          <thead class="bg-white/5 text-white/70">
-            <tr class="text-left">
-              <th class="px-4 py-3 font-medium">ID</th>
-              <th class="px-4 py-3 font-medium">Name</th>
-              <th class="px-4 py-3 font-medium">Slug</th>
-              <th class="px-4 py-3 font-medium">Contact Email</th>
-              <th class="px-4 py-3 font-medium">Status</th>
-              <th class="px-4 py-3 font-medium">Updated</th>
-              <th class="px-4 py-3 font-medium text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-white/10">
+      <div class="p-4"
+           x-data="{
+             columnsOpen: false,
+             entriesOpen: false,
+             search: '',
+             entriesPerPage: 25,
+             currentPage: 1,
+             sortKey: 'name',
+             sortDirection: 'asc',
+             filteredCount: 0,
+             rows: [],
+             cols: { id: true, name: true, slug: true, contact_email: true, status: true, updated: true, actions: true },
+             init() {
+               this.rows = Array.from(this.$refs.tbody.querySelectorAll('tr[data-tenant-row]'));
+               this.$watch('search', () => { this.currentPage = 1; this.refreshRows(); });
+               this.refreshRows();
+             },
+             setEntries(size) {
+               this.entriesPerPage = Number(size) || 25;
+               this.currentPage = 1;
+               this.refreshRows();
+             },
+             setSort(key) {
+               if (this.sortKey === key) {
+                 this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
+               } else {
+                 this.sortKey = key;
+                 this.sortDirection = 'asc';
+               }
+               this.refreshRows();
+             },
+             sortIndicator(key) {
+               if (this.sortKey !== key) return '';
+               return this.sortDirection === 'asc' ? '↑' : '↓';
+             },
+             sortValue(row, key) {
+               if (key === 'id') return Number(row.getAttribute('data-tenant-id') || 0);
+               return String(row.getAttribute('data-' + key) || '').toLowerCase();
+             },
+             compareRows(left, right) {
+               const a = this.sortValue(left, this.sortKey);
+               const b = this.sortValue(right, this.sortKey);
+               if (a < b) return this.sortDirection === 'asc' ? -1 : 1;
+               if (a > b) return this.sortDirection === 'asc' ? 1 : -1;
+               return 0;
+             },
+             refreshRows() {
+               const query = this.search.trim().toLowerCase();
+               const filtered = this.rows.filter((row) => {
+                 if (!query) return true;
+                 return (row.textContent || '').toLowerCase().includes(query);
+               });
+               filtered.sort((a, b) => this.compareRows(a, b));
+               filtered.forEach((row) => this.$refs.tbody.appendChild(row));
+               this.filteredCount = filtered.length;
+               const pages = this.totalPages();
+               if (this.currentPage > pages) this.currentPage = pages;
+               const start = (this.currentPage - 1) * this.entriesPerPage;
+               const end = start + this.entriesPerPage;
+               const visibleRows = new Set(filtered.slice(start, end));
+               this.rows.forEach((row) => {
+                 row.style.display = visibleRows.has(row) ? '' : 'none';
+               });
+               if (this.$refs.noResults) {
+                 this.$refs.noResults.style.display = filtered.length === 0 ? '' : 'none';
+               }
+             },
+             totalPages() {
+               return Math.max(1, Math.ceil(this.filteredCount / this.entriesPerPage));
+             },
+             pageSummary() {
+               if (this.filteredCount === 0) return 'Showing 0 of 0 tenants';
+               const start = (this.currentPage - 1) * this.entriesPerPage + 1;
+               const end = Math.min(start + this.entriesPerPage - 1, this.filteredCount);
+               return 'Showing ' + start + '-' + end + ' of ' + this.filteredCount + ' tenants';
+             },
+             prevPage() {
+               if (this.currentPage <= 1) return;
+               this.currentPage -= 1;
+               this.refreshRows();
+             },
+             nextPage() {
+               if (this.currentPage >= this.totalPages()) return;
+               this.currentPage += 1;
+               this.refreshRows();
+             }
+           }"
+           x-init="init()">
+        <div class="mb-4 flex flex-col xl:flex-row xl:items-center gap-3">
+          <div class="relative" @click.away="entriesOpen=false">
+            <button type="button"
+                    @click="entriesOpen=!entriesOpen"
+                    class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
+              <span x-text="'Show ' + entriesPerPage"></span>
+              <svg class="w-4 h-4 transition-transform" :class="entriesOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+              </svg>
+            </button>
+            <div x-show="entriesOpen"
+                 x-transition:enter="transition ease-out duration-100"
+                 x-transition:enter-start="opacity-0 scale-95"
+                 x-transition:enter-end="opacity-100 scale-100"
+                 x-transition:leave="transition ease-in duration-75"
+                 x-transition:leave-start="opacity-100 scale-100"
+                 x-transition:leave-end="opacity-0 scale-95"
+                 class="absolute left-0 mt-2 w-40 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden"
+                 style="display: none;">
+              <template x-for="size in [10,25,50,100]" :key="'tenants-entries-' + size">
+                <button type="button"
+                        class="w-full px-4 py-2 text-left text-sm transition"
+                        :class="entriesPerPage === size ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
+                        @click="setEntries(size); entriesOpen=false;">
+                  <span x-text="size"></span>
+                </button>
+              </template>
+            </div>
+          </div>
+          <div class="relative" @click.away="columnsOpen=false">
+            <button type="button"
+                    @click="columnsOpen=!columnsOpen"
+                    class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
+              Columns
+              <svg class="w-4 h-4 transition-transform" :class="columnsOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+              </svg>
+            </button>
+            <div x-show="columnsOpen"
+                 x-transition:enter="transition ease-out duration-100"
+                 x-transition:enter-start="opacity-0 scale-95"
+                 x-transition:enter-end="opacity-100 scale-100"
+                 x-transition:leave="transition ease-in duration-75"
+                 x-transition:leave-start="opacity-100 scale-100"
+                 x-transition:leave-end="opacity-0 scale-95"
+                 class="absolute left-0 mt-2 w-64 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden p-2"
+                 style="display: none;">
+              <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>ID</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.id"></label>
+              <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Name</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.name"></label>
+              <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Slug</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.slug"></label>
+              <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Contact Email</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.contact_email"></label>
+              <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Status</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.status"></label>
+              <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Updated</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.updated"></label>
+              <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Actions</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.actions"></label>
+            </div>
+          </div>
+          <div class="flex-1"></div>
+          <input type="text"
+                 x-model.debounce.200ms="search"
+                 placeholder="Search tenants..."
+                 class="w-full xl:w-80 rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
+        </div>
+        <div class="overflow-x-auto rounded-lg border border-slate-800">
+          <table class="min-w-full divide-y divide-slate-800 text-sm">
+            <thead class="bg-slate-900/80 text-slate-300">
+              <tr>
+                <th x-show="cols.id" class="px-4 py-3 text-left font-medium">
+                  <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('id')">ID <span x-text="sortIndicator('id')"></span></button>
+                </th>
+                <th x-show="cols.name" class="px-4 py-3 text-left font-medium">
+                  <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('name')">Name <span x-text="sortIndicator('name')"></span></button>
+                </th>
+                <th x-show="cols.slug" class="px-4 py-3 text-left font-medium">
+                  <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('slug')">Slug <span x-text="sortIndicator('slug')"></span></button>
+                </th>
+                <th x-show="cols.contact_email" class="px-4 py-3 text-left font-medium">
+                  <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('contact_email')">Contact Email <span x-text="sortIndicator('contact_email')"></span></button>
+                </th>
+                <th x-show="cols.status" class="px-4 py-3 text-left font-medium">
+                  <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('status')">Status <span x-text="sortIndicator('status')"></span></button>
+                </th>
+                <th x-show="cols.updated" class="px-4 py-3 text-left font-medium">
+                  <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('updated')">Updated <span x-text="sortIndicator('updated')"></span></button>
+                </th>
+                <th x-show="cols.actions" class="px-4 py-3 text-right font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-800" x-ref="tbody">
             {foreach from=$tenants item=tenant}
-              <tr class="hover:bg-white/5">
-                <td class="px-4 py-3">{$tenant.id|escape}</td>
-                <td class="px-4 py-3">{$tenant.name|escape}</td>
-                <td class="px-4 py-3">{$tenant.slug|escape}</td>
-                <td class="px-4 py-3">{$tenant.contact_email|default:'-'|escape}</td>
-                <td class="px-4 py-3">{$tenant.status|escape}</td>
-                <td class="px-4 py-3">{$tenant.updated_at|default:'-'|escape}</td>
-                <td class="px-4 py-3 text-right">
+              <tr class="hover:bg-slate-800/50"
+                  data-tenant-row="1"
+                  data-tenant-id="{$tenant.id}"
+                  data-name="{$tenant.name|escape}"
+                  data-slug="{$tenant.slug|escape}"
+                  data-contact-email="{$tenant.contact_email|default:'-'|escape}"
+                  data-status="{$tenant.status|escape}"
+                  data-updated="{$tenant.updated_at|default:''|escape}">
+                <td x-show="cols.id" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{$tenant.id|escape}</td>
+                <td x-show="cols.name" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{$tenant.name|escape}</td>
+                <td x-show="cols.slug" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{$tenant.slug|escape}</td>
+                <td x-show="cols.contact_email" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{$tenant.contact_email|default:'-'|escape}</td>
+                <td x-show="cols.status" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{$tenant.status|escape}</td>
+                <td x-show="cols.updated" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{$tenant.updated_at|default:'-'|escape}</td>
+                <td x-show="cols.actions" class="px-4 py-3 text-right">
                   <a class="rounded-lg px-3 py-1.5 ring-1 ring-white/10 hover:bg-white/10" href="{$modulelink}&a=ph-tenant&id={$tenant.id}">Manage</a>
                 </td>
               </tr>
             {foreachelse}
-              <tr>
-                <td colspan="7" class="px-4 py-6 text-center text-white/50">No customer tenants yet.</td>
-              </tr>
             {/foreach}
-          </tbody>
-        </table>
+              <tr x-ref="noResults" {if $tenants|@count > 0}style="display:none;"{/if}>
+                <td colspan="7" class="px-4 py-6 text-center text-slate-400">No customer tenants yet.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-400">
+          <div x-text="pageSummary()"></div>
+          <div class="flex items-center gap-2">
+            <button type="button"
+                    @click="prevPage()"
+                    :disabled="currentPage <= 1"
+                    class="px-3 py-1.5 rounded border border-slate-700 bg-slate-900/70 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed">
+              Prev
+            </button>
+            <span class="text-slate-300" x-text="'Page ' + currentPage + ' / ' + totalPages()"></span>
+            <button type="button"
+                    @click="nextPage()"
+                    :disabled="currentPage >= totalPages()"
+                    class="px-3 py-1.5 rounded border border-slate-700 bg-slate-900/70 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed">
+              Next
+            </button>
+          </div>
+        </div>
       </div>
     </section>
         </div>
