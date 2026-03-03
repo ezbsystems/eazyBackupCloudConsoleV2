@@ -62,6 +62,19 @@ function portal_resolve_tenant_context(): ?int
     return (int) ($matches[0]->id ?? 0);
 }
 
+function portal_has_msp_context_param(): bool
+{
+    return isset($_GET['msp']) && trim((string) $_GET['msp']) !== '';
+}
+
+function portal_msp_context_is_invalid(): bool
+{
+    if (!portal_has_msp_context_param()) {
+        return false;
+    }
+    return portal_resolve_tenant_context() === null;
+}
+
 function portal_resolve_client_context_from_domain(): ?int
 {
     $host = strtolower(trim((string) ($_SERVER['HTTP_HOST'] ?? '')));
@@ -136,6 +149,12 @@ function portal_session(): ?array
 
 function portal_require_auth(): array
 {
+    if (portal_msp_context_is_invalid()) {
+        $_SESSION['portal_user'] = null;
+        header('Location: /portal/index.php?page=login&msp=' . rawurlencode((string) ($_GET['msp'] ?? '')));
+        exit;
+    }
+
     $sess = portal_session();
     if (!$sess) {
         $url = '/portal/index.php?page=login';
@@ -204,6 +223,11 @@ function portal_require_auth(): array
 
 function portal_require_auth_json(): array
 {
+    if (portal_msp_context_is_invalid()) {
+        $_SESSION['portal_user'] = null;
+        portal_json(['status' => 'fail', 'message' => 'auth'], 401);
+    }
+
     $sess = portal_session();
     if (!$sess) {
         portal_json(['status' => 'fail', 'message' => 'auth'], 401);
