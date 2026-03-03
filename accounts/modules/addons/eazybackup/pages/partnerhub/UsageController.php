@@ -29,12 +29,42 @@ function eb_usage_normalize_period_bounds(int $periodStart, int $periodEnd): arr
     return [$resolvedPeriodStart, $resolvedPeriodEnd];
 }
 
-function eb_usage_record_timestamp_for_period(int $periodStart, int $periodEnd): int
+function eb_usage_pick_subscription_item_id(array $items): string
 {
-    if ($periodEnd > $periodStart && $periodEnd > 1) {
-        return $periodEnd - 1;
+    foreach ($items as $item) {
+        if (!is_array($item)) {
+            continue;
+        }
+        $usageType = strtolower((string) ($item['price']['recurring']['usage_type'] ?? ''));
+        if ($usageType === 'metered') {
+            $id = (string) ($item['id'] ?? '');
+            if ($id !== '') {
+                return $id;
+            }
+        }
     }
-    return max(1, $periodStart);
+
+    foreach ($items as $item) {
+        if (!is_array($item)) {
+            continue;
+        }
+        $id = (string) ($item['id'] ?? '');
+        if ($id !== '') {
+            return $id;
+        }
+    }
+
+    return '';
+}
+
+function eb_usage_clamp_usage_timestamp(int $periodStart, int $periodEnd, ?int $nowTs = null): int
+{
+    $nowTs = $nowTs ?? time();
+    $upperBound = min($periodEnd - 1, $nowTs - 1);
+    if ($upperBound < $periodStart) {
+        return max(1, $periodStart);
+    }
+    return $upperBound;
 }
 
 function eb_ph_usage_push(array $vars): void
@@ -104,9 +134,9 @@ function eb_ph_usage_push(array $vars): void
         $stripeAccountId = (string) ($msp->stripe_connect_id ?? '');
         $s = $svc->retrieveSubscription((string)$sub->stripe_subscription_id, $stripeAccountId !== '' ? $stripeAccountId : null);
         $items = (array)($s['items']['data'] ?? []);
-        $itemId = count($items) ? (string)($items[0]['id'] ?? '') : '';
+        $itemId = eb_usage_pick_subscription_item_id($items);
         if ($itemId !== '') {
-            $usageTimestamp = eb_usage_record_timestamp_for_period($resolvedPeriodStart, $resolvedPeriodEnd);
+            $usageTimestamp = eb_usage_clamp_usage_timestamp($resolvedPeriodStart, $resolvedPeriodEnd);
             $svc->createUsageRecord($itemId, $qty, $usageTimestamp, $stripeAccountId !== '' ? $stripeAccountId : null, $idKey);
             Capsule::table('eb_usage_ledger')->where('idempotency_key',$idKey)->update([
                 'pushed_to_stripe_at' => date('Y-m-d H:i:s'),
