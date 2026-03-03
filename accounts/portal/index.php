@@ -6,6 +6,8 @@ $api = $_GET['api'] ?? '';
 $apiRoutes = [
     'profile_update' => __DIR__ . '/api/profile_update.php',
     'change_password' => __DIR__ . '/api/change_password.php',
+    'invoices' => __DIR__ . '/api/invoices.php',
+    'payment_methods' => __DIR__ . '/api/payment_methods.php',
 ];
 
 if ($api !== '' && isset($apiRoutes[$api])) {
@@ -47,6 +49,9 @@ switch ($page) {
         break;
     case 'restore':
         $template = 'restore.tpl';
+        break;
+    case 'billing':
+        $template = 'billing.tpl';
         break;
     case 'settings':
     default:
