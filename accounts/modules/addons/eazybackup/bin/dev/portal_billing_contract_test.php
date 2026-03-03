@@ -31,7 +31,8 @@ $targets = [
     'portal layout template file' => [
         'path' => $layoutTemplateFile,
         'markers' => [
-            'billing nav href marker' => 'href="index.php?page=billing"',
+            'billing nav href marker' => 'href="index.php?page=billing<?= $mspSuffix ?>"',
+            'msp nav suffix marker' => '$mspSuffix',
             'billing nav label marker' => '>Billing<',
         ],
     ],
