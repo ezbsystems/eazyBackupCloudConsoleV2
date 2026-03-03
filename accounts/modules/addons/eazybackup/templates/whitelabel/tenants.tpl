@@ -5,7 +5,7 @@
 <div class="min-h-screen bg-slate-950 text-gray-100 overflow-x-hidden">
   <div class="container mx-auto max-w-full px-4 pb-8 pt-6">
     <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)]">
-      <main class="min-w-0" x-data="{ openCreateModal: false }">
+      <main class="min-w-0" x-data="{ openCreateModal: false, savingModal: false }">
         <div class="flex items-center justify-between border-b border-slate-800/60 px-6 py-4">
           <h1 class="text-2xl font-semibold tracking-tight">Customer Tenants</h1>
           <div class="flex items-center gap-2">
@@ -259,6 +259,150 @@
         </div>
       </div>
     </section>
+        </div>
+
+        <!-- Create Tenant Modal -->
+        <div x-show="openCreateModal"
+             x-transition:enter="transition ease-out duration-200"
+             x-transition:enter-start="opacity-0"
+             x-transition:enter-end="opacity-100"
+             x-transition:leave="transition ease-in duration-150"
+             x-transition:leave-start="opacity-100"
+             x-transition:leave-end="opacity-0"
+             class="fixed inset-0 z-50 flex items-center justify-center p-4"
+             style="display: none;"
+             @keydown.escape.window="openCreateModal = false">
+          <div class="absolute inset-0 bg-black/60" @click="openCreateModal = false"></div>
+          <div class="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl"
+               @click.stop>
+            <div class="sticky top-0 z-10 flex items-center justify-between border-b border-slate-700 px-6 py-4 bg-slate-900">
+              <h2 class="text-lg font-semibold text-white">Create Customer Tenant</h2>
+              <button type="button" @click="openCreateModal = false" class="rounded-lg p-2 text-slate-400 hover:text-white hover:bg-slate-800">×</button>
+            </div>
+            <form method="post" action="{$modulelink}&a=ph-tenants" class="p-6 space-y-6" @submit="savingModal = true">
+              <input type="hidden" name="eb_create_tenant" value="1" />
+              {if isset($token) && $token neq ''}
+                <input type="hidden" name="token" value="{$token}" />
+              {/if}
+
+              <div class="rounded-xl border border-slate-800 bg-slate-800/50 p-5">
+                <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">Organization</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div class="md:col-span-2">
+                    <label class="block text-sm font-medium text-slate-300 mb-1">Company Name <span class="text-rose-400">*</span></label>
+                    <input type="text" name="name" required placeholder="Acme Corporation" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-slate-300 mb-1">Slug</label>
+                    <input type="text" name="slug" placeholder="auto-from-name" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono">
+                    <p class="text-xs text-slate-500 mt-1">URL-friendly identifier. Optional.</p>
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-slate-300 mb-1">Status</label>
+                    <select name="status" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                      {foreach from=$statuses item=s}
+                        <option value="{$s|escape}">{$s|escape}</option>
+                      {/foreach}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div class="rounded-xl border border-slate-800 bg-slate-800/50 p-5">
+                <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">Contact Information</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label class="block text-sm font-medium text-slate-300 mb-1">Contact Email <span class="text-rose-400">*</span></label>
+                    <input type="email" name="contact_email" required placeholder="billing@acme.com" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-slate-300 mb-1">Contact Name <span class="text-rose-400">*</span></label>
+                    <input type="text" name="contact_name" required placeholder="Jane Smith" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                  </div>
+                  <div class="md:col-span-2">
+                    <label class="block text-sm font-medium text-slate-300 mb-1">Phone</label>
+                    <input type="tel" name="contact_phone" placeholder="+1 (555) 123-4567" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                  </div>
+                </div>
+              </div>
+
+              <div class="rounded-xl border border-slate-800 bg-slate-800/50 p-5">
+                <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">Billing Address <span class="text-slate-500 font-normal">(optional)</span></h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div class="md:col-span-2">
+                    <label class="block text-sm font-medium text-slate-300 mb-1">Address Line 1</label>
+                    <input type="text" name="address_line1" placeholder="123 Main Street" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                  </div>
+                  <div class="md:col-span-2">
+                    <label class="block text-sm font-medium text-slate-300 mb-1">Address Line 2</label>
+                    <input type="text" name="address_line2" placeholder="Suite 100" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-slate-300 mb-1">City</label>
+                    <input type="text" name="city" placeholder="Toronto" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-slate-300 mb-1">State / Province</label>
+                    <input type="text" name="state" placeholder="Ontario" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-slate-300 mb-1">Postal Code</label>
+                    <input type="text" name="postal_code" placeholder="M5V 1A1" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-slate-300 mb-1">Country Code</label>
+                    <input type="text" name="country" maxlength="2" placeholder="CA" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500 uppercase">
+                    <p class="text-xs text-slate-500 mt-1">2-letter ISO code (e.g. CA, US, GB)</p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="rounded-xl border border-slate-800 bg-slate-800/50 p-5" x-data="{ showAdmin: false, autoPassword: '1' }">
+                <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">Portal Admin Account</h3>
+                <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                  <input type="checkbox" name="create_admin" value="1" x-model="showAdmin" class="rounded bg-slate-800 border-slate-600 text-amber-500 focus:ring-amber-500">
+                  Create portal admin user for this tenant
+                </label>
+                <div x-show="showAdmin" x-cloak class="space-y-4 mt-4 pl-4 border-l border-amber-600/30" style="display: none;">
+                  <p class="text-xs text-slate-400">Creates a tenant member that can log in to the tenant portal.</p>
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label class="block text-sm font-medium text-slate-300 mb-1">Admin Email</label>
+                      <input type="email" name="admin_email" placeholder="admin@acme.com" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                    </div>
+                    <div>
+                      <label class="block text-sm font-medium text-slate-300 mb-1">Admin Name</label>
+                      <input type="text" name="admin_name" placeholder="Admin User" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                    </div>
+                  </div>
+                  <div class="space-y-2">
+                    <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                      <input type="radio" name="auto_password" value="1" x-model="autoPassword" class="bg-slate-800 border-slate-600 text-amber-500 focus:ring-amber-500">
+                      Auto-generate password and email to user
+                    </label>
+                    <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                      <input type="radio" name="auto_password" value="0" x-model="autoPassword" class="bg-slate-800 border-slate-600 text-amber-500 focus:ring-amber-500">
+                      Set password manually
+                    </label>
+                  </div>
+                  <div x-show="autoPassword === '0'" x-cloak class="mt-2" style="display: none;">
+                    <label class="block text-sm font-medium text-slate-300 mb-1">Password</label>
+                    <input type="password" name="admin_password" minlength="8" placeholder="Minimum 8 characters" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                  </div>
+                </div>
+              </div>
+
+              <div class="flex justify-end gap-3 pt-2 border-t border-slate-700">
+                <button type="button" @click="openCreateModal = false" class="px-4 py-2 rounded-lg border border-slate-600 bg-slate-800 text-slate-200 text-sm font-medium hover:bg-slate-700">
+                  Cancel
+                </button>
+                <button type="submit" :disabled="savingModal" class="px-4 py-2 rounded-lg bg-amber-600 text-white text-sm font-semibold hover:bg-amber-500 disabled:opacity-60 disabled:cursor-not-allowed">
+                  <span x-show="!savingModal">Create Tenant</span>
+                  <span x-show="savingModal" style="display: none;">Saving…</span>
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       </main>
     </div>
