@@ -3,14 +3,14 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title><?= htmlspecialchars(($branding['name'] ?? 'Portal') . ' Portal') ?></title>
+    <title><?= htmlspecialchars(($branding['company_name'] ?? $branding['name'] ?? 'Portal') . ' Portal') ?></title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen">
     <header class="border-b border-slate-800 bg-slate-900/70">
         <div class="container mx-auto px-4 py-3 flex items-center justify-between">
             <div class="font-semibold text-white">
-                <?= htmlspecialchars($branding['name'] ?? 'Portal') ?>
+                <?= htmlspecialchars($branding['company_name'] ?? $branding['name'] ?? 'Portal') ?>
             </div>
             <nav class="flex items-center gap-2 text-sm">
                 <a href="index.php?page=dashboard" class="px-3 py-2 rounded <?= ($page ?? '') === 'dashboard' ? 'bg-slate-700 text-white' : 'text-slate-300 hover:text-white' ?>">Dashboard</a>

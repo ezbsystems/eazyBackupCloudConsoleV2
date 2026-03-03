@@ -4,6 +4,7 @@ require_once __DIR__ . '/auth.php';
 
 $api = $_GET['api'] ?? '';
 $apiRoutes = [
+    'login' => __DIR__ . '/api/login.php',
     'profile_update' => __DIR__ . '/api/profile_update.php',
     'change_password' => __DIR__ . '/api/change_password.php',
     'invoices' => __DIR__ . '/api/invoices.php',
@@ -19,7 +20,7 @@ $page = $_GET['page'] ?? 'dashboard';
 $session = portal_session();
 
 // Public pages
-$public = ['login', 'password_reset', 'password_reset_confirm'];
+$public = ['login'];
 
 if (!in_array($page, $public, true)) {
     $session = portal_require_auth();
@@ -31,12 +32,6 @@ $csrf = portal_issue_csrf();
 switch ($page) {
     case 'login':
         $template = 'login.tpl';
-        break;
-    case 'password_reset':
-        $template = 'password_reset.tpl';
-        break;
-    case 'password_reset_confirm':
-        $template = 'password_reset_confirm.tpl';
         break;
     case 'dashboard':
         $template = 'dashboard.tpl';

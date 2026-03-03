@@ -82,6 +82,45 @@ function portal_require_auth(): array
         header('Location: /portal/index.php?page=login');
         exit;
     }
+
+    $tenantId = (int) ($sess['tenant_id'] ?? 0);
+    $userId = (int) ($sess['user_id'] ?? 0);
+    if ($tenantId <= 0 || $userId <= 0) {
+        $_SESSION['portal_user'] = null;
+        header('Location: /portal/index.php?page=login');
+        exit;
+    }
+
+    $row = Capsule::table('s3_backup_tenant_users as u')
+        ->join('s3_backup_tenants as t', 'u.tenant_id', '=', 't.id')
+        ->where('u.id', $userId)
+        ->where('u.tenant_id', $tenantId)
+        ->where('u.status', 'active')
+        ->where('t.status', 'active')
+        ->first([
+            'u.id as user_id',
+            'u.tenant_id',
+            'u.email',
+            'u.name',
+            'u.role',
+            't.client_id',
+            't.name as tenant_name',
+        ]);
+    if (!$row) {
+        $_SESSION['portal_user'] = null;
+        header('Location: /portal/index.php?page=login');
+        exit;
+    }
+
+    $sess['user_id'] = (int) $row->user_id;
+    $sess['tenant_id'] = (int) $row->tenant_id;
+    $sess['client_id'] = (int) ($row->client_id ?? 0);
+    $sess['email'] = (string) ($row->email ?? '');
+    $sess['name'] = (string) ($row->name ?? '');
+    $sess['role'] = (string) ($row->role ?? '');
+    $sess['tenant_name'] = (string) ($row->tenant_name ?? '');
+    $_SESSION['portal_user'] = $sess;
+
     return $sess;
 }
 
