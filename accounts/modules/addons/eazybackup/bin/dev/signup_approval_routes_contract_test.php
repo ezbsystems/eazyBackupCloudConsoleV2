@@ -1,0 +1,140 @@
+<?php
+
+declare(strict_types=1);
+
+/**
+ * Contract test: Partner Hub signup approval routes and handlers.
+ *
+ * Run:
+ * php accounts/modules/addons/eazybackup/bin/dev/signup_approval_routes_contract_test.php
+ */
+
+$moduleRoot = dirname(__DIR__, 2);
+$repoRoot = dirname($moduleRoot, 4);
+
+$controllerFile = $moduleRoot . '/pages/partnerhub/SignupApprovalsController.php';
+$templateFile = $moduleRoot . '/templates/whitelabel/signup-approvals.tpl';
+$moduleFile = $moduleRoot . '/eazybackup.php';
+$schemaSqlFile = $moduleRoot . '/sql/partner_hub_phase1.sql';
+$navFile = $repoRoot . '/accounts/templates/eazyBackup/includes/nav_partner_hub.tpl';
+
+$targets = [
+    'module routing file' => [
+        'path' => $moduleFile,
+        'markers' => [
+            'signup approvals route marker' => "\$_REQUEST['a']) && \$_REQUEST['a'] === 'ph-signup-approvals'",
+            'signup approvals controller include marker' => "require_once __DIR__ . '/pages/partnerhub/SignupApprovalsController.php';",
+            'signup approvals controller return marker' => 'return eb_ph_signup_approvals_index($vars);',
+            'signup approve route marker' => "\$_REQUEST['a']) && \$_REQUEST['a'] === 'ph-signup-approve'",
+            'signup approve controller exit marker' => 'eb_ph_signup_approve($vars); exit;',
+            'signup reject route marker' => "\$_REQUEST['a']) && \$_REQUEST['a'] === 'ph-signup-reject'",
+            'signup reject controller exit marker' => 'eb_ph_signup_reject($vars); exit;',
+            'signup status enum migration marker' => "ALTER TABLE eb_whitelabel_signup_events MODIFY COLUMN status ENUM('received','validated','ordered','pending_approval','approving','rejecting','approved','rejected','accepted','provisioned','emailed','completed','failed') NOT NULL DEFAULT 'received'",
+            'signup status enum migration failure log marker' => 'schema enum alter failed for eb_whitelabel_signup_events.status',
+        ],
+        'forbidden' => [
+            'legacy narrowing enum migration marker' => "ALTER TABLE eb_whitelabel_signup_events MODIFY COLUMN status ENUM('received','validated','ordered','pending_approval','accepted','provisioned','emailed','completed','failed') NOT NULL DEFAULT 'received'",
+        ],
+    ],
+    'signup approvals controller file' => [
+        'path' => $controllerFile,
+        'markers' => [
+            'index function marker' => 'function eb_ph_signup_approvals_index(array $vars)',
+            'template marker' => "'templatefile' => 'whitelabel/signup-approvals'",
+            'queue status filter marker' => "->whereIn('e.status', ['pending_approval', 'approving', 'rejecting'])",
+            'csrf token emit marker' => "'token' => function_exists('generate_token') ? generate_token('plain') : ''",
+            'csrf check marker' => "check_token('plain', \$token)",
+            'csrf fail-closed helper marker' => 'function eb_ph_signup_approvals_require_csrf_or_redirect(array $vars, string $token): void',
+            'processing schema guard helper marker' => 'function eb_ph_signup_approvals_require_processing_schema_or_redirect(array $vars): void',
+            'processing schema guard approved marker' => "&& strpos(\$type, \"'approved'\") !== false",
+            'processing schema guard rejected marker' => "&& strpos(\$type, \"'rejected'\") !== false",
+            'processing claim helper marker' => 'function eb_ph_signup_approvals_claim_processing(int $eventId, string $processingStatus, ?int $adminId): bool',
+            'processing finalize helper marker' => 'function eb_ph_signup_approvals_finalize_from_processing(int $eventId, string $processingStatus, string $finalStatus, array $update): bool',
+            'processing rollback helper marker' => 'function eb_ph_signup_approvals_rollback_to_pending(int $eventId, string $processingStatus, string $reason): bool',
+            'accept reconciliation helper marker' => 'function eb_ph_signup_approvals_is_order_accepted_like(?array $order): bool',
+            'approve function marker' => 'function eb_ph_signup_approve(array $vars): void',
+            'order ownership revalidation marker' => "localAPI('GetOrders'",
+            'approve localapi marker' => "localAPI('AcceptOrder'",
+            'approve status marker' => "'status' => 'approved'",
+            'approve claim marker' => "eb_ph_signup_approvals_claim_processing(\$eventId, 'approving', \$adminId)",
+            'approve schema guard call marker' => 'eb_ph_signup_approvals_require_processing_schema_or_redirect($vars);',
+            'approve finalize marker' => "eb_ph_signup_approvals_finalize_from_processing(\$eventId, 'approving', 'approved', \$update)",
+            'approve rollback marker' => "eb_ph_signup_approvals_rollback_to_pending(\$eventId, 'approving', \$acceptReason)",
+            'approve reconciliation check marker' => "eb_ph_signup_approvals_is_order_accepted_like(\$latestOrder)",
+            'approve reconciliation note marker' => 'Approved via reconciliation: AcceptOrder reported failure',
+            'reject function marker' => 'function eb_ph_signup_reject(array $vars): void',
+            'reject cancel marker' => "localAPI('CancelOrder'",
+            'reject void marker' => "localAPI('UpdateInvoice'",
+            'reject status marker' => "'status' => 'rejected'",
+            'reject claim marker' => "eb_ph_signup_approvals_claim_processing(\$eventId, 'rejecting', \$adminId)",
+            'reject schema guard call marker' => 'eb_ph_signup_approvals_require_processing_schema_or_redirect($vars);',
+            'reject finalize marker' => "eb_ph_signup_approvals_finalize_from_processing(\$eventId, 'rejecting', 'rejected', \$update)",
+            'reject cancel path success marker' => '$cancelPathSucceeded',
+            'reject rollback marker' => "eb_ph_signup_approvals_rollback_to_pending(\$eventId, 'rejecting', 'Reject failed",
+            'reject failure surfaced marker' => "eb_ph_signup_approvals_redirect(\$vars, 'error=cancel_failed')",
+            'reject void followup warning marker' => 'invoice void follow-up needed',
+        ],
+        'forbidden' => [
+            'direct tblorders write marker' => "Capsule::table('tblorders')->where('id', \$orderId)->update(['status' => 'Cancelled'])",
+            'direct tblinvoices write marker' => "Capsule::table('tblinvoices')->where('id', \$invoiceId)->update(['status' => 'Cancelled'])",
+            'reject void rollback marker' => "eb_ph_signup_approvals_rollback_to_pending(\$eventId, 'rejecting', 'Reject failed: invoice void path did not succeed')",
+        ],
+    ],
+    'phase1 schema sql file' => [
+        'path' => $schemaSqlFile,
+        'markers' => [
+            'phase1 signup status enum marker' => "status ENUM('received','validated','ordered','pending_approval','approving','rejecting','approved','rejected','accepted','provisioned','emailed','completed','failed') NOT NULL DEFAULT 'received'",
+        ],
+    ],
+    'signup approvals template file' => [
+        'path' => $templateFile,
+        'markers' => [
+            'page heading marker' => 'Pending Signup Approvals',
+            'approve action marker' => '&a=ph-signup-approve',
+            'reject action marker' => '&a=ph-signup-reject',
+            'csrf hidden input marker' => 'name="token"',
+            'pending actions guard marker' => "{if \$row.status == 'pending_approval'}",
+            'processing approving ui marker' => 'Approving in progress',
+            'processing rejecting ui marker' => 'Rejecting in progress',
+        ],
+    ],
+    'partner hub nav file' => [
+        'path' => $navFile,
+        'markers' => [
+            'signup approvals nav link marker' => '&a=ph-signup-approvals',
+            'signup approvals nav label marker' => 'Signup Approvals',
+        ],
+    ],
+];
+
+$failures = [];
+foreach ($targets as $targetName => $target) {
+    $path = $target['path'];
+    $source = @file_get_contents($path);
+    if ($source === false) {
+        $failures[] = "FAIL: unable to read {$targetName} at {$path}";
+        continue;
+    }
+
+    foreach ($target['markers'] as $markerName => $needle) {
+        if (strpos($source, $needle) === false) {
+            $failures[] = "FAIL: missing {$markerName}";
+        }
+    }
+
+    foreach (($target['forbidden'] ?? []) as $markerName => $needle) {
+        if (strpos($source, $needle) !== false) {
+            $failures[] = "FAIL: forbidden {$markerName}";
+        }
+    }
+}
+
+if ($failures !== []) {
+    foreach ($failures as $failure) {
+        echo $failure . PHP_EOL;
+    }
+    exit(1);
+}
+
+echo "signup-approval-routes-contract-ok\n";
+exit(0);

@@ -1,5 +1,7 @@
+{include file="modules/addons/eazybackup/templates/partials/_ui-tokens.tpl"}
+<div class="min-h-screen eb-bg-page eb-text-primary">
 <div class="p-6">
-  <h2 class="text-xl font-semibold text-gray-100 mb-4">Subscriptions</h2>
+  <h2 class="text-xl font-semibold mb-4">Subscriptions</h2>
   <form method="get" action="{$modulelink}" class="mb-4">
     <input type="hidden" name="m" value="eazybackup"/>
     <input type="hidden" name="a" value="ph-billing-subscriptions"/>
@@ -9,7 +11,7 @@
     </div>
   </form>
 
-  <div class="rounded-2xl bg-[rgb(var(--bg-card))] ring-1 ring-white/10 overflow-hidden">
+  <div class="rounded-2xl eb-bg-card ring-1 ring-white/10 overflow-hidden">
     <table class="min-w-full text-sm text-gray-200">
       <thead class="bg-gray-900/60">
         <tr>
@@ -55,6 +57,7 @@
       </tbody>
     </table>
   </div>
+</div>
 </div>
 
 

@@ -364,6 +364,164 @@ function eb_add_index_if_missing(string $table, string $indexSql): void {
     }
 }
 
+function eb_index_exists(string $table, string $indexName): bool {
+    $schema = Capsule::schema();
+    if (!$schema->hasTable($table)) {
+        return false;
+    }
+
+    $conn = Capsule::connection();
+    $dbName = (string) $conn->getDatabaseName();
+    $rows = $conn->select(
+        'SELECT 1 FROM information_schema.statistics WHERE table_schema = ? AND table_name = ? AND index_name = ? LIMIT 1',
+        [$dbName, $table, $indexName]
+    );
+    return !empty($rows);
+}
+
+function eb_has_index_for_columns(string $table, array $columns, ?bool $requireUnique = null): bool {
+    $schema = Capsule::schema();
+    if (!$schema->hasTable($table)) {
+        return false;
+    }
+
+    $expected = array_values(array_map('strval', $columns));
+    if ($expected === []) {
+        return false;
+    }
+
+    $conn = Capsule::connection();
+    $dbName = (string) $conn->getDatabaseName();
+    $rows = $conn->select(
+        'SELECT index_name, seq_in_index, column_name, non_unique
+         FROM information_schema.statistics
+         WHERE table_schema = ? AND table_name = ?
+         ORDER BY index_name ASC, seq_in_index ASC',
+        [$dbName, $table]
+    );
+
+    $indexes = [];
+    foreach ($rows as $row) {
+        $indexName = isset($row->index_name) ? (string) $row->index_name : '';
+        if ($indexName === '') {
+            continue;
+        }
+
+        $seq = isset($row->seq_in_index) ? (int) $row->seq_in_index : 0;
+        if ($seq <= 0) {
+            continue;
+        }
+
+        $columnName = isset($row->column_name) ? (string) $row->column_name : '';
+        if ($columnName === '') {
+            continue;
+        }
+
+        if (!isset($indexes[$indexName])) {
+            $indexes[$indexName] = [
+                'is_unique' => (isset($row->non_unique) ? (int) $row->non_unique : 1) === 0,
+                'cols' => [],
+            ];
+        }
+        $indexes[$indexName]['cols'][$seq] = $columnName;
+    }
+
+    foreach ($indexes as $meta) {
+        ksort($meta['cols']);
+        $actual = array_values($meta['cols']);
+        if ($actual !== $expected) {
+            continue;
+        }
+        if ($requireUnique !== null && $meta['is_unique'] !== $requireUnique) {
+            continue;
+        }
+        return true;
+    }
+
+    return false;
+}
+
+function eb_require_index(
+    string $table,
+    string $indexName,
+    string $createSql,
+    ?array $equivalentColumns = null,
+    ?bool $equivalentMustBeUnique = null
+): void {
+    $schema = Capsule::schema();
+    if (!$schema->hasTable($table)) {
+        return;
+    }
+
+    if (eb_index_exists($table, $indexName)) {
+        return;
+    }
+    if ($equivalentColumns !== null && eb_has_index_for_columns($table, $equivalentColumns, $equivalentMustBeUnique)) {
+        return;
+    }
+
+    try {
+        Capsule::connection()->statement($createSql);
+    } catch (\Throwable $e) {
+        if (eb_index_exists($table, $indexName)) {
+            return;
+        }
+        if ($equivalentColumns !== null && eb_has_index_for_columns($table, $equivalentColumns, $equivalentMustBeUnique)) {
+            return;
+        }
+        throw new \RuntimeException("Failed creating required index {$indexName} on {$table}: " . $e->getMessage(), 0, $e);
+    }
+
+    if (eb_index_exists($table, $indexName)) {
+        return;
+    }
+    if ($equivalentColumns !== null && eb_has_index_for_columns($table, $equivalentColumns, $equivalentMustBeUnique)) {
+        return;
+    }
+
+    throw new \RuntimeException("Required index {$indexName} on {$table} is still missing after creation attempt.");
+}
+
+function eb_dedupe_tenant_storage_links_by_storage_identifier(): void {
+    $schema = Capsule::schema();
+    if (!$schema->hasTable('eb_tenant_storage_links')) {
+        return;
+    }
+
+    $duplicates = Capsule::table('eb_tenant_storage_links')
+        ->select([
+            'storage_identifier',
+            Capsule::raw('COUNT(*) as dup_count'),
+        ])
+        ->whereNotNull('storage_identifier')
+        ->where('storage_identifier', '!=', '')
+        ->groupBy('storage_identifier')
+        ->havingRaw('COUNT(*) > 1')
+        ->get();
+
+    foreach ($duplicates as $dup) {
+        $storageIdentifier = trim((string) ($dup->storage_identifier ?? ''));
+        if ($storageIdentifier === '') {
+            continue;
+        }
+
+        $keep = Capsule::table('eb_tenant_storage_links')
+            ->where('storage_identifier', $storageIdentifier)
+            ->orderByRaw("CASE WHEN link_status = 'active' THEN 0 ELSE 1 END")
+            ->orderBy('updated_at', 'desc')
+            ->orderBy('id', 'desc')
+            ->first(['id']);
+        if (!$keep) {
+            continue;
+        }
+
+        Capsule::table('eb_tenant_storage_links')
+            ->where('storage_identifier', $storageIdentifier)
+            ->where('id', '!=', (int) $keep->id)
+            ->delete();
+    }
+}
+
 /** Create or patch all addon tables */
 function eazybackup_migrate_schema(): void {
     $schema = Capsule::schema();
@@ -1095,6 +1253,25 @@ function eazybackup_migrate_schema(): void {
         });
     }
 
+    // Approval metadata for signup events is additive-only for safe upgrades.
+    if ($schema->hasTable('eb_whitelabel_signup_events')) {
+        eb_add_column_if_missing('eb_whitelabel_signup_events','approved_by_admin_id', fn(Blueprint $t)=>$t->integer('approved_by_admin_id')->nullable());
+        eb_add_column_if_missing('eb_whitelabel_signup_events','approved_at', fn(Blueprint $t)=>$t->timestamp('approved_at')->nullable());
+        eb_add_column_if_missing('eb_whitelabel_signup_events','approval_notes', fn(Blueprint $t)=>$t->text('approval_notes')->nullable());
+        eb_require_index('eb_whitelabel_signup_events', 'idx_wlse_approved_by', "CREATE INDEX idx_wlse_approved_by ON eb_whitelabel_signup_events (approved_by_admin_id)", ['approved_by_admin_id'], false);
+        eb_require_index('eb_whitelabel_signup_events', 'idx_wlse_approved_at', "CREATE INDEX idx_wlse_approved_at ON eb_whitelabel_signup_events (approved_at)", ['approved_at'], false);
+        if ($schema->hasColumn('eb_whitelabel_signup_events', 'status')) {
+            try {
+                Capsule::statement("ALTER TABLE eb_whitelabel_signup_events MODIFY COLUMN status ENUM('received','validated','ordered','pending_approval','approving','rejecting','approved','rejected','accepted','provisioned','emailed','completed','failed') NOT NULL DEFAULT 'received'");
+            } catch (\Throwable $e) {
+                $schemaErr = 'eazybackup: schema enum alter failed for eb_whitelabel_signup_events.status: ' . $e->getMessage();
+                try { if (function_exists('logActivity')) { logActivity($schemaErr); } } catch (\Throwable $__) {}
+                try { if (function_exists('logModuleCall')) { @logModuleCall('eazybackup', 'schema:wlse-status-enum-alter', [], ['error' => $e->getMessage()]); } } catch (\Throwable $__) {}
+                try { if (function_exists('customFileLog')) { customFileLog('schema enum alter failed for eb_whitelabel_signup_events.status', $e->getMessage()); } } catch (\Throwable $__) {}
+            }
+        }
+    }
+
     // ========= Partner Hub: MSP + Customers + Billing (Phase 1 schema) =========
     // eb_msp_accounts
     if (!$schema->hasTable('eb_msp_accounts')) {
@@ -1135,6 +1312,7 @@ function eazybackup_migrate_schema(): void {
         $schema->create('eb_customers', function (Blueprint $t) {
             $t->bigIncrements('id');
             $t->bigInteger('msp_id')->index();
+            $t->bigInteger('tenant_id')->nullable()->unique('uq_eb_customers_tenant_id');
             $t->integer('whmcs_client_id')->unique();
             $t->string('name', 191)->default('');
             $t->string('external_ref', 191)->nullable();
@@ -1145,7 +1323,10 @@ function eazybackup_migrate_schema(): void {
             $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
             $t->index(['msp_id','status'], 'idx_customer_msp_status');
         });
+    } else {
+        eb_add_column_if_missing('eb_customers','tenant_id', fn(Blueprint $t)=>$t->bigInteger('tenant_id')->nullable());
     }
+    eb_require_index('eb_customers', 'uq_eb_customers_tenant_id', "CREATE UNIQUE INDEX uq_eb_customers_tenant_id ON eb_customers (tenant_id)", ['tenant_id'], true);
 
     // eb_customer_user_links
     if (!$schema->hasTable('eb_customer_user_links')) {
@@ -1183,6 +1364,26 @@ function eazybackup_migrate_schema(): void {
             $t->unique('whmcs_service_id', 'uq_service');
             $t->index(['msp_id','customer_id'], 'idx_service_msp_customer');
         });
+    }
+
+    if (!$schema->hasTable('eb_tenant_storage_links')) {
+        $schema->create('eb_tenant_storage_links', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->bigInteger('tenant_id');
+            $t->string('storage_identifier', 191);
+            $t->enum('link_status', ['active','disabled'])->default('active');
+            $t->timestamp('created_at')->nullable()->useCurrent();
+            $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
+            $t->unique(['tenant_id','storage_identifier'], 'uq_tenant_storage_link');
+            $t->unique('storage_identifier', 'uq_tenant_storage_link_storage_identifier');
+            $t->index('tenant_id', 'idx_tenant_storage_link_tenant');
+        });
+    }
+    if ($schema->hasTable('eb_tenant_storage_links')) {
+        eb_dedupe_tenant_storage_links_by_storage_identifier();
+        eb_require_index('eb_tenant_storage_links', 'uq_tenant_storage_link_storage_identifier', "CREATE UNIQUE INDEX uq_tenant_storage_link_storage_identifier ON eb_tenant_storage_links (storage_identifier)", ['storage_identifier'], true);
+        eb_require_index('eb_tenant_storage_links', 'uq_tenant_storage_link', "CREATE UNIQUE INDEX uq_tenant_storage_link ON eb_tenant_storage_links (tenant_id, storage_identifier)", ['tenant_id', 'storage_identifier'], true);
+        eb_require_index('eb_tenant_storage_links', 'idx_tenant_storage_link_tenant', "CREATE INDEX idx_tenant_storage_link_tenant ON eb_tenant_storage_links (tenant_id)", ['tenant_id'], false);
     }
 
     // Add nullable MSP/Customer scoping columns to Comet mirrors if present
@@ -1246,6 +1447,7 @@ function eazybackup_migrate_schema(): void {
     if (!$schema->hasTable('eb_usage_ledger')) {
         $schema->create('eb_usage_ledger', function (Blueprint $t) {
             $t->bigIncrements('id');
+            $t->bigInteger('tenant_id')->nullable();
             $t->bigInteger('customer_id')->index();
             $t->string('metric', 64);
             $t->bigInteger('qty')->default(0);
@@ -1256,7 +1458,10 @@ function eazybackup_migrate_schema(): void {
             $t->timestamp('pushed_to_stripe_at')->nullable();
             $t->timestamp('created_at')->nullable()->useCurrent();
         });
+    } else {
+        eb_add_column_if_missing('eb_usage_ledger','tenant_id', fn(Blueprint $t)=>$t->bigInteger('tenant_id')->nullable());
     }
+    eb_require_index('eb_usage_ledger', 'idx_usage_ledger_tenant_id', "CREATE INDEX idx_usage_ledger_tenant_id ON eb_usage_ledger (tenant_id)", ['tenant_id'], false);
 
     if (!$schema->hasTable('eb_invoice_cache')) {
         $schema->create('eb_invoice_cache', function (Blueprint $t) {
@@ -3780,9 +3985,33 @@ function eazybackup_clientarea(array $vars)
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-clients') {
         require_once __DIR__ . '/pages/partnerhub/ClientsController.php';
         return eb_ph_clients_index($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenants-manage') {
+        require_once __DIR__ . '/pages/partnerhub/TenantsController.php';
+        return eb_ph_tenants_management_entry($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenants') {
+        require_once __DIR__ . '/pages/partnerhub/TenantsController.php';
+        return eb_ph_tenants_index($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenant') {
+        require_once __DIR__ . '/pages/partnerhub/TenantsController.php';
+        return eb_ph_tenant_detail($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenant-storage-links') {
+        require_once __DIR__ . '/pages/partnerhub/TenantStorageLinksController.php';
+        eb_ph_tenant_storage_links_list($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenant-storage-links-write') {
+        require_once __DIR__ . '/pages/partnerhub/TenantStorageLinksController.php';
+        eb_ph_tenant_storage_links_write($vars); exit;
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-client') {
         require_once __DIR__ . '/pages/partnerhub/ClientViewController.php';
         return eb_ph_client_view($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-signup-approvals') {
+        require_once __DIR__ . '/pages/partnerhub/SignupApprovalsController.php';
+        return eb_ph_signup_approvals_index($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-signup-approve') {
+        require_once __DIR__ . '/pages/partnerhub/SignupApprovalsController.php';
+        eb_ph_signup_approve($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-signup-reject') {
+        require_once __DIR__ . '/pages/partnerhub/SignupApprovalsController.php';
+        eb_ph_signup_reject($vars); exit;
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-stripe-onboard') {
         require_once __DIR__ . '/pages/partnerhub/StripeController.php';
         eb_ph_stripe_onboard($vars); exit;

@@ -2,7 +2,7 @@
 {include file="$template/includes/head.tpl"}
 {include file="modules/addons/eazybackup/templates/partials/_ui-tokens.tpl"}
 
-<div class="min-h-screen bg-[rgb(var(--bg-page))] text-[rgb(var(--text-primary))]">
+<div class="min-h-screen eb-bg-page eb-text-primary">
   <div class="mx-auto max-w-5xl px-6 py-8">
     <div class="flex items-center justify-between">
       <h1 class="text-2xl font-semibold tracking-tight">Clients</h1>
@@ -61,7 +61,7 @@
       </select>
     </div>
 
-    <div class="mt-6 rounded-2xl overflow-hidden ring-1 ring-white/10">
+    <div class="mt-6 rounded-2xl eb-bg-card overflow-hidden ring-1 ring-white/10">
       <table class="w-full text-sm">
         <thead class="bg-white/5 text-white/70">
           <tr class="text-left">
