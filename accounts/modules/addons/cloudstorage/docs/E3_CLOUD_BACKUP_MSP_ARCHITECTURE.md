@@ -160,6 +160,20 @@ Key release expectations:
 
 This document should be read together with Partner Hub billing docs and the release gate script to validate deploy readiness.
 
+### Tenant v2 Rollout Notes
+
+Tenant v2 rollout must preserve canonical tenant ownership while keeping portal and billing behavior backward compatible.
+
+#### Migration Checklist
+- [ ] **TODO: Canonical table ownership** - treat `s3_backup_tenants` as the canonical tenant profile table owned by Cloud Storage; Partner Hub should link via canonical mapping, not fork ownership.
+- [ ] **TODO: Hidden infra fields** - keep `product_id`, `server_id`, and `servergroup_id` internal-only (not exposed in tenant-facing UI/API payloads).
+- [ ] **TODO: Legacy route compatibility policy** - keep existing portal compatibility (`portal/?msp=` and current tenant entry patterns) during Tenant v2 rollout; phase removals only after redirects and operator notice.
+- [ ] Run `php accounts/modules/addons/eazybackup/bin/dev/msp_billing_release_gate.php` before/after rollout edits and verify `MSP_BILLING_RELEASE_GATE_PASS`.
+
+#### Task 1 Verification Log
+- Pre-edit gate run: `MSP_BILLING_RELEASE_GATE_PASS`
+- Post-edit gate run: `MSP_BILLING_RELEASE_GATE_PASS`
+
 ---
 
 # Phase 1: Database & Backend Foundation
