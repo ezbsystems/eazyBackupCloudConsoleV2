@@ -662,6 +662,9 @@ foreach ($hostingsArray as $hosting) {
     'engine1/proxmox'         => 'Proxmox (PVE)',
   ];
 
+**Dashboard Protected Items icons (client area):**  
+The Comet Server web UI uses a proprietary icon font (`cometicon-*`, e.g. `cometicon-vmware`) which is not redistributable. For the eazyBackup client area dashboard, the VMware icon is taken from [Simple Icons](https://simpleicons.org/?q=vmware) (CC0-1.0) and stored as `templates/assets/images/vmware.svg` for use in the Protected Items count card.
+
 ## Comet Backup Vault → Friendly Type Mapping**
   VAULT_TYPES = [
       "0" => "INVALID",
