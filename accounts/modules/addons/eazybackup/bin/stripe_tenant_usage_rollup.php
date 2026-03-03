@@ -10,8 +10,10 @@ require_once __DIR__ . '/../eazybackup.php';
 function tenant_usage_rollup_period_bounds_utc(?DateTimeImmutable $now = null): array
 {
     $now = $now ?: new DateTimeImmutable('now', new DateTimeZone('UTC'));
-    $periodStart = new DateTimeImmutable($now->format('Y-m-01 00:00:00'), new DateTimeZone('UTC'));
-    $periodEnd = $periodStart->modify('+1 month');
+    // Closed period: roll up the previous UTC month only.
+    $currentMonthStart = new DateTimeImmutable($now->format('Y-m-01 00:00:00'), new DateTimeZone('UTC'));
+    $periodStart = $currentMonthStart->modify('-1 month');
+    $periodEnd = $currentMonthStart;
 
     return [
         $periodStart->getTimestamp(),
@@ -57,17 +59,7 @@ function tenant_usage_rollup_pick_subscription_item_id(array $items): string
         }
     }
 
-    foreach ($items as $item) {
-        if (!is_array($item)) {
-            continue;
-        }
-        $id = (string) ($item['id'] ?? '');
-        if ($id !== '') {
-            return $id;
-        }
-    }
-
-    return '';
+    return ''; // fail closed: no metered subscription item found
 }
 
 function tenant_usage_rollup_clamp_usage_timestamp(int $periodStartTs, int $periodEndTs, ?int $nowTs = null): int

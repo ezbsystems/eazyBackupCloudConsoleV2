@@ -51,17 +51,7 @@ function eb_usage_pick_subscription_item_id(array $items): string
         }
     }
 
-    foreach ($items as $item) {
-        if (!is_array($item)) {
-            continue;
-        }
-        $id = (string) ($item['id'] ?? '');
-        if ($id !== '') {
-            return $id;
-        }
-    }
-
-    return '';
+    return ''; // fail closed: no metered subscription item found
 }
 
 function eb_usage_clamp_usage_timestamp(int $periodStart, int $periodEnd, ?int $nowTs = null): int
