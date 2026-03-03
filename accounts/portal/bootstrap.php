@@ -64,7 +64,9 @@ function portal_resolve_tenant_context(): ?int
 
 function portal_resolve_client_context_from_domain(): ?int
 {
-    $host = $_SERVER['HTTP_HOST'] ?? '';
+    $host = strtolower(trim((string) ($_SERVER['HTTP_HOST'] ?? '')));
+    $host = preg_replace('/:\d+$/', '', $host);
+    $host = rtrim((string) $host, '.');
     if (!$host) {
         return null;
     }

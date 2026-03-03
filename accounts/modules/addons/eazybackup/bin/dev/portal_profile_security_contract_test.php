@@ -33,8 +33,10 @@ $targets = [
         'markers' => [
             'profile form marker' => 'id="profile-form"',
             'password form marker' => 'id="password-form"',
-            'profile endpoint marker' => "index.php?api=profile_update",
-            'password endpoint marker' => "index.php?api=change_password",
+            'msp slug marker' => "const mspSlug = (new URLSearchParams(window.location.search)).get('msp');",
+            'api url helper marker' => 'const apiUrl = (name) => mspSlug ?',
+            'profile endpoint marker' => "submitForm(apiUrl('profile_update')",
+            'password endpoint marker' => "submitForm(apiUrl('change_password')",
             'csrf header marker' => "'X-CSRF-Token': csrfToken",
             'profile status marker' => 'id="profile-status"',
             'password status marker' => 'id="password-status"',
