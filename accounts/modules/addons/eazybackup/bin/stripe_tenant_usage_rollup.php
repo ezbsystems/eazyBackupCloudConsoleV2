@@ -70,6 +70,16 @@ function tenant_usage_rollup_pick_subscription_item_id(array $items): string
     return '';
 }
 
+function tenant_usage_rollup_clamp_usage_timestamp(int $periodStartTs, int $periodEndTs, ?int $nowTs = null): int
+{
+    $nowTs = $nowTs ?? time();
+    $upperBound = min($periodEndTs - 1, $nowTs - 1);
+    if ($upperBound < $periodStartTs) {
+        return max(1, $periodStartTs);
+    }
+    return $upperBound;
+}
+
 try {
     [$periodStartTs, $periodEndTs, $periodStart, $periodEnd] = tenant_usage_rollup_period_bounds_utc();
     $metric = 'STORAGE_TB';
@@ -208,7 +218,8 @@ try {
                 continue;
             }
 
-            $stripeService->createUsageRecord($subscriptionItemId, $qtyGb, $periodEndTs - 1, $stripeAccountId !== '' ? $stripeAccountId : null, $idempotencyKey);
+            $usageTimestamp = tenant_usage_rollup_clamp_usage_timestamp($periodStartTs, $periodEndTs);
+            $stripeService->createUsageRecord($subscriptionItemId, $qtyGb, $usageTimestamp, $stripeAccountId !== '' ? $stripeAccountId : null, $idempotencyKey);
 
             Capsule::table('eb_usage_ledger')
                 ->where('idempotency_key', $idempotencyKey)
