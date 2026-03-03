@@ -51,7 +51,7 @@ $targets = [
         'path' => $invoicesApiFile,
         'markers' => [
             'auth include marker' => "require_once __DIR__ . '/../auth.php';",
-            'auth required marker' => '$session = portal_require_auth();',
+            'auth required marker' => '$session = portal_require_auth_json();',
             'method guard marker' => "\$_SERVER['REQUEST_METHOD'] !== 'GET'",
             'tenant id marker' => '$tenantId = (int) ($session[\'tenant_id\'] ?? 0);',
             'tenant scoped customer lookup marker' => "->where('tenant_id', \$tenantId)",
@@ -65,7 +65,7 @@ $targets = [
         'path' => $paymentMethodsApiFile,
         'markers' => [
             'auth include marker' => "require_once __DIR__ . '/../auth.php';",
-            'auth required marker' => '$session = portal_require_auth();',
+            'auth required marker' => '$session = portal_require_auth_json();',
             'method guard marker' => "\$_SERVER['REQUEST_METHOD'] !== 'GET'",
             'tenant id marker' => '$tenantId = (int) ($session[\'tenant_id\'] ?? 0);',
             'tenant scoped customer lookup marker' => "->where('tenant_id', \$tenantId)",
