@@ -201,7 +201,21 @@
           {if $whitelabel_error|default:'' neq ''}
             <div class="text-rose-200">Unable to load white-label data ({$whitelabel_error|escape}).</div>
           {elseif !$whitelabel_tenant}
-            <div class="text-white/70">No white-label tenant is mapped to this canonical tenant.</div>
+            <div class="rounded-xl bg-white/5 ring-1 ring-white/10 p-4">
+              <div class="font-medium text-white">Status: Not enabled</div>
+              <div class="mt-1 text-white/70">No white-label tenant is mapped to this canonical tenant yet.</div>
+              <div class="mt-1 text-white/70">Mapping State: {$whitelabel_mapping_state|default:'not_mapped'|escape}</div>
+            </div>
+            <form method="post" action="{$whitelabel_enable_action|escape}" class="mt-4">
+              <input type="hidden" name="tenant_id" value="{$tenant.id|escape}" />
+              <input type="hidden" name="enable_whitelabel" value="1" />
+              {if isset($token) && $token ne ''}
+                <input type="hidden" name="token" value="{$token}" />
+              {/if}
+              <button type="submit" class="rounded-xl px-4 py-2 font-medium text-white bg-[rgb(var(--accent))] hover:bg-[rgb(var(--accent))]/90">
+                Enable White Label
+              </button>
+            </form>
           {else}
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div class="rounded-xl bg-white/5 ring-1 ring-white/10 p-4">
@@ -209,13 +223,17 @@
                 <div class="mt-1">FQDN: {$whitelabel_tenant.fqdn|default:'-'|escape}</div>
                 <div class="mt-1">Subdomain: {$whitelabel_tenant.subdomain|default:'-'|escape}</div>
                 <div class="mt-1">Custom Domain: {$whitelabel_tenant.custom_domain|default:'-'|escape}</div>
+                <div class="mt-1">Custom Domain State: {$whitelabel_tenant.custom_domain_status|default:'-'|escape}</div>
               </div>
               <div class="rounded-xl bg-white/5 ring-1 ring-white/10 p-4">
+                <div>Enabled: Yes</div>
+                <div class="mt-1">Mapping State: {$whitelabel_mapping_state|default:'mapped'|escape}</div>
                 <div>Custom Domains: {$whitelabel_custom_domains|@count}</div>
                 <div class="mt-1">Asset Types: {$whitelabel_assets_by_type|@count}</div>
                 <div class="mt-1">Org ID: {$whitelabel_tenant.org_id|default:'-'|escape}</div>
               </div>
             </div>
+            <div class="mt-4 text-white/60">White-label infrastructure IDs are managed internally and are not editable here.</div>
           {/if}
         </div>
       </section>
