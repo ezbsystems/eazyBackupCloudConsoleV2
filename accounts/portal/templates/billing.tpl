@@ -49,6 +49,8 @@
 
 <script>
 (() => {
+    const mspSlug = (new URLSearchParams(window.location.search)).get('msp');
+    const apiUrl = (name) => mspSlug ? `index.php?api=${encodeURIComponent(name)}&msp=${encodeURIComponent(mspSlug)}` : `index.php?api=${encodeURIComponent(name)}`;
     const invoicesBody = document.getElementById('billing-invoices-body');
     const paymentMethodsBody = document.getElementById('billing-payment-methods-body');
     const refreshInvoices = document.getElementById('billing-refresh-invoices');
@@ -87,7 +89,7 @@
 
     async function loadInvoices() {
         invoicesBody.innerHTML = '<tr><td colspan="5" class="py-3 text-slate-400">Loading invoices...</td></tr>';
-        const response = await fetch('index.php?api=invoices', { credentials: 'same-origin' });
+        const response = await fetch(apiUrl('invoices'), { credentials: 'same-origin' });
         const payload = await response.json();
         const invoices = (((payload || {}).data || {}).invoices || []);
 
@@ -124,7 +126,7 @@
 
     async function loadPaymentMethods() {
         paymentMethodsBody.innerHTML = '<tr><td colspan="4" class="py-3 text-slate-400">Loading payment activity...</td></tr>';
-        const response = await fetch('index.php?api=payment_methods', { credentials: 'same-origin' });
+        const response = await fetch(apiUrl('payment_methods'), { credentials: 'same-origin' });
         const payload = await response.json();
         const paymentMethods = (((payload || {}).data || {}).payment_methods || []);
 

@@ -48,6 +48,8 @@
 <script>
 (() => {
     const csrfToken = <?= json_encode($csrf ?? '') ?>;
+    const mspSlug = (new URLSearchParams(window.location.search)).get('msp');
+    const apiUrl = (name) => mspSlug ? `index.php?api=${encodeURIComponent(name)}&msp=${encodeURIComponent(mspSlug)}` : `index.php?api=${encodeURIComponent(name)}`;
     const profileForm = document.getElementById('profile-form');
     const passwordForm = document.getElementById('password-form');
     const profileStatus = document.getElementById('profile-status');
@@ -88,7 +90,7 @@
         setStatus(profileStatus, 'Saving profile...', true);
 
         try {
-            await submitForm('index.php?api=profile_update', profileForm);
+            await submitForm(apiUrl('profile_update'), profileForm);
             setStatus(profileStatus, 'Profile updated.', true);
         } catch (error) {
             setStatus(profileStatus, error.message || 'Profile update failed.', false);
@@ -100,7 +102,7 @@
         setStatus(passwordStatus, 'Changing password...', true);
 
         try {
-            await submitForm('index.php?api=change_password', passwordForm);
+            await submitForm(apiUrl('change_password'), passwordForm);
             passwordForm.reset();
             setStatus(passwordStatus, 'Password changed.', true);
         } catch (error) {

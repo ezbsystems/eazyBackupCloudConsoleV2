@@ -39,8 +39,10 @@ $targets = [
     'portal billing template file' => [
         'path' => $billingTemplateFile,
         'markers' => [
-            'invoices api endpoint marker' => "index.php?api=invoices",
-            'payment methods api endpoint marker' => "index.php?api=payment_methods",
+            'msp slug marker' => "const mspSlug = (new URLSearchParams(window.location.search)).get('msp');",
+            'api url helper marker' => 'const apiUrl = (name) => mspSlug ?',
+            'invoices api endpoint marker' => "fetch(apiUrl('invoices')",
+            'payment methods api endpoint marker' => "fetch(apiUrl('payment_methods')",
             'invoice send link marker' => 'Send invoice',
             'invoice download link marker' => 'Download',
             'hosted invoice field marker' => 'invoice.hosted_invoice_url',
