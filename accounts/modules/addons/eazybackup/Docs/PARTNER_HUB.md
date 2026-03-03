@@ -19,6 +19,20 @@ This gate validates core routing, schema markers, approval flow safety markers, 
 
 Tenant Portal sections: Billing, Services, Cloud Storage
 
+## Tenant v2 Rollout Notes
+
+Tenant v2 rollout keeps Partner Hub aligned with canonical tenant ownership and cloud storage routing contracts.
+
+### Migration Checklist
+- [ ] **TODO: Canonical table ownership** - `s3_backup_tenants` is canonical and owned by Cloud Storage; Partner Hub integrations must use canonical linkage, not duplicate tenant profile tables.
+- [ ] **TODO: Hidden infra fields** - keep `product_id`, `server_id`, and `servergroup_id` hidden from tenant-facing forms and APIs; only internal provisioning paths may set or update them.
+- [ ] **TODO: Legacy route compatibility policy** - preserve current legacy route behavior (`a=whitelabel*` and portal `?msp=` entry flow) during Tenant v2 rollout, with redirects/deprecation notes before removal.
+- [ ] Re-run `php accounts/modules/addons/eazybackup/bin/dev/msp_billing_release_gate.php` before and after rollout edits.
+
+### Task 1 Verification Log
+- Pre-edit gate run: `MSP_BILLING_RELEASE_GATE_PASS`
+- Post-edit gate run: `MSP_BILLING_RELEASE_GATE_PASS`
+
 ## Feature Flags & Routing
 - Addon setting `PARTNER_HUB_SIGNUP_ENABLED` gates public routes and Partner Hub nav.
 - Addon setting `ops_whmcs_upstream` is used by HostOps when writing HTTPS vhosts for signup domains.
@@ -82,7 +96,7 @@ All tables InnoDB + utf8mb4.
 - `eb_whitelabel_signup_events`
   - id (PK), tenant_id, host_header, email, whmcs_client_id, whmcs_order_id, comet_username, status (received|validated|ordered|accepted|provisioned|emailed|completed|failed), error, ip, user_agent, created_at, updated_at
   - Unique(tenant_id,email), Key(tenant_id), Key(status)
-- Existing: `eb_whitelabel_tenants` is the canonical tenant record (client ownership, org_id, FQDN, product/server refs, branding/email JSON).
+- Existing: `eb_whitelabel_tenants` stores white-label capability/provisioning records (client ownership, org_id, FQDN, product/server refs, branding/email JSON) and should be linked to canonical customer tenants (`s3_backup_tenants`) during Tenant v2 rollout.
 
 ## Database Schema (Email Templates)
 All tables InnoDB + utf8mb4.
