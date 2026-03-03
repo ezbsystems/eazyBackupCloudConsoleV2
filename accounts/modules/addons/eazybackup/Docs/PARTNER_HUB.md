@@ -78,6 +78,10 @@ Tenant v2 rollout keeps Partner Hub aligned with canonical tenant ownership and 
 - Migration dry-run run: `ERROR: eb_whitelabel_tenants.canonical_tenant_id is missing. Run addon schema migration first.` (exit `1`).
 - Interpretation: environment readiness blocker (schema prereq missing); do not run `--apply` until schema migration is complete in target environment.
 
+### Customer Tenants list and create modal (2026-03-03)
+- Route: `index.php?m=eazybackup&a=ph-tenants` (Partner Hub → Customer Tenants).
+- Template: `templates/whitelabel/tenants.tpl`. List page uses vaults-style table (entries/columns/search/sort/pagination). Create flow is a modal with full-e3 intake (organization, contact, billing address, optional portal admin block). Client-side validation and inline errors for required name/contact email/contact name, country format, and manual admin password length. Backend create path persists contact and address fields to `s3_backup_tenants`; portal admin user creation from the modal is deferred (form fields collected only). See `docs/plans/2026-03-03-tenant-list-modal-design.md` for design and implementation notes.
+
 ## Feature Flags & Routing
 - Addon setting `PARTNER_HUB_SIGNUP_ENABLED` gates public routes and Partner Hub nav.
 - Addon setting `ops_whmcs_upstream` is used by HostOps when writing HTTPS vhosts for signup domains.
