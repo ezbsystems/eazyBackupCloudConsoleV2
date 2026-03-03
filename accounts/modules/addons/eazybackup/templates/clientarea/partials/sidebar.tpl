@@ -2,7 +2,7 @@
 {assign var=ebIsDashboard value=$ebSidebarPage eq 'dashboard'}
 {assign var=ebIsUserProfile value=$ebSidebarPage eq 'user-profile'}
 
-<aside :class="sidebarCollapsed ? 'w-20' : 'w-64'" class="relative flex-shrink-0 border-r border-slate-800/80 bg-slate-900/50 rounded-tl-3xl rounded-bl-3xl transition-all duration-300 ease-in-out">
+<aside :class="sidebarCollapsed ? 'w-20' : 'w-48'" class="relative flex-shrink-0 border-r border-slate-800/80 bg-slate-900/50 rounded-tl-3xl rounded-bl-3xl transition-all duration-300 ease-in-out">
     <div class="rounded-tl-3xl flex flex-col h-full">
         <div class="rounded-tl-3xl p-4 border-b border-slate-800/60">
             <div class="flex items-center gap-3" :class="sidebarCollapsed && 'justify-center'">

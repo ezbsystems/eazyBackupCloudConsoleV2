@@ -141,16 +141,16 @@
         </script>
         {/literal}
 
-<div class="min-h-screen min-w-0 bg-slate-950 text-gray-300 overflow-x-hidden">
+<div class="min-h-screen bg-slate-950 text-gray-100 overflow-x-hidden">
     {* <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div> *}
-    <div class="container mx-auto min-w-0 max-w-full overflow-x-hidden px-4 py-8">
+    <div class="container mx-auto max-w-full px-4 pb-8 pt-6">
         <div class="w-full max-w-full min-w-0 overflow-hidden rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
             <div class="-mx-6 -mt-6 mb-6 rounded-t-3xl border-b border-slate-800/80 bg-slate-900/50 px-6 py-3">
                 <nav class="flex flex-wrap items-center gap-1" aria-label="Services Navigation">
                     <a href="{$WEB_ROOT}/clientarea.php?action=services"
-                       class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if ($smarty.get.action eq 'services' || !$smarty.get.m) && $smarty.get.tab ne 'billing'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
+                       class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if ($smarty.get.action eq 'services' || !$smarty.get.m) && $smarty.get.tab ne 'billing'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">                    
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 14.25v2.25m3-4.5v4.5m3-6.75v6.75m3-9v9M6 20.25h12A2.25 2.25 0 0 0 20.25 18V6A2.25 2.25 0 0 0 18 3.75H6A2.25 2.25 0 0 0 3.75 6v12A2.25 2.25 0 0 0 6 20.25Z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0 3 3m-3-3-3 3M6.75 19.5a4.5 4.5 0 0 1-1.41-8.775 5.25 5.25 0 0 1 10.233-2.33 3 3 0 0 1 3.758 3.848A3.752 3.752 0 0 1 18 19.5H6.75Z" />
                         </svg>
                         <span class="text-sm font-medium">Backup Services</span>
                     </a>
