@@ -15,7 +15,7 @@ if (!portal_validate_csrf()) {
 }
 
 $name = trim((string) ($_POST['name'] ?? ''));
-$email = trim((string) ($_POST['email'] ?? ''));
+$email = strtolower(trim((string) ($_POST['email'] ?? '')));
 
 if ($name === '' || $email === '') {
     portal_json(['status' => 'fail', 'message' => 'Name and email are required'], 400);
@@ -32,14 +32,54 @@ if ($tenantId <= 0 || $userId <= 0) {
     portal_json(['status' => 'fail', 'message' => 'Invalid session'], 401);
 }
 
-$updated = Capsule::table('s3_backup_tenant_users')
+$current = Capsule::table('s3_backup_tenant_users')
     ->where('id', $userId)
     ->where('tenant_id', $tenantId)
-    ->update([
-        'name' => $name,
-        'email' => $email,
-        'updated_at' => Capsule::raw('NOW()'),
+    ->first(['name', 'email']);
+
+if (!$current) {
+    portal_json(['status' => 'fail', 'message' => 'Invalid session'], 401);
+}
+
+if ((string) ($current->name ?? '') === $name && strtolower((string) ($current->email ?? '')) === $email) {
+    $_SESSION['portal_user']['name'] = $name;
+    $_SESSION['portal_user']['email'] = $email;
+
+    portal_json([
+        'status' => 'success',
+        'data' => [
+            'name' => $name,
+            'email' => $email,
+        ],
     ]);
+}
+
+$duplicateExists = Capsule::table('s3_backup_tenant_users')
+    ->where('tenant_id', $tenantId)
+    ->where('id', '!=', $userId)
+    ->whereRaw('LOWER(email) = ?', [$email])
+    ->exists();
+
+if ($duplicateExists) {
+    portal_json(['status' => 'fail', 'message' => 'Email already in use for this tenant'], 400);
+}
+
+try {
+    $updated = Capsule::table('s3_backup_tenant_users')
+        ->where('id', $userId)
+        ->where('tenant_id', $tenantId)
+        ->update([
+            'name' => $name,
+            'email' => $email,
+            'updated_at' => Capsule::raw('NOW()'),
+        ]);
+} catch (\Throwable $e) {
+    $dbMessage = strtolower($e->getMessage());
+    if (strpos($dbMessage, 'duplicate') !== false || strpos($dbMessage, 'unique') !== false) {
+        portal_json(['status' => 'fail', 'message' => 'Email already in use for this tenant'], 400);
+    }
+    throw $e;
+}
 
 if ($updated < 1) {
     portal_json(['status' => 'fail', 'message' => 'Profile update failed'], 400);
