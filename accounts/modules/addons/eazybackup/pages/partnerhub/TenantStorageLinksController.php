@@ -59,16 +59,22 @@ function eb_tenant_storage_links_resolve_or_create_storage_tenant_id(int $client
         $name = 'Canonical Tenant #' . $canonicalTenantId;
     }
 
+    $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id', $clientId)->first();
+    if (!$msp) {
+        throw new \RuntimeException('msp_not_found');
+    }
+    $mspId = (int) $msp->id;
+
     try {
-        if (!Capsule::schema()->hasTable('s3_backup_tenants')) {
+        if (!Capsule::schema()->hasTable('eb_tenants')) {
             throw new \RuntimeException('storage_tenant_table_missing');
         }
     } catch (\Throwable $e) {
         throw new \RuntimeException('storage_tenant_table_missing');
     }
 
-    $existing = Capsule::table('s3_backup_tenants')
-        ->where('client_id', $clientId)
+    $existing = Capsule::table('eb_tenants')
+        ->where('msp_id', $mspId)
         ->where('slug', $slug)
         ->first();
     if ($existing) {
@@ -79,13 +85,13 @@ function eb_tenant_storage_links_resolve_or_create_storage_tenant_id(int $client
         if (trim((string) ($existing->name ?? '')) === '') {
             $updates['name'] = $name;
         }
-        Capsule::table('s3_backup_tenants')->where('id', (int) $existing->id)->update($updates);
+        Capsule::table('eb_tenants')->where('id', (int) $existing->id)->update($updates);
         return (int) $existing->id;
     }
 
     try {
-        return (int) Capsule::table('s3_backup_tenants')->insertGetId([
-            'client_id' => $clientId,
+        return (int) Capsule::table('eb_tenants')->insertGetId([
+            'msp_id' => $mspId,
             'name' => $name,
             'slug' => $slug,
             'status' => 'active',
@@ -93,8 +99,8 @@ function eb_tenant_storage_links_resolve_or_create_storage_tenant_id(int $client
             'updated_at' => Capsule::raw('NOW()'),
         ]);
     } catch (\Throwable $e) {
-        $raced = Capsule::table('s3_backup_tenants')
-            ->where('client_id', $clientId)
+        $raced = Capsule::table('eb_tenants')
+            ->where('msp_id', $mspId)
             ->where('slug', $slug)
             ->first();
         if ($raced) {
@@ -188,17 +194,23 @@ function eb_tenant_storage_links_infer_canonical_tenant_id_from_storage_tenant_i
         return null;
     }
 
+    $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id', $clientId)->first();
+    if (!$msp) {
+        return null;
+    }
+    $mspId = (int) $msp->id;
+
     try {
-        if (!Capsule::schema()->hasTable('s3_backup_tenants')) {
+        if (!Capsule::schema()->hasTable('eb_tenants')) {
             return null;
         }
     } catch (\Throwable $e) {
         return null;
     }
 
-    $storageTenant = Capsule::table('s3_backup_tenants')
+    $storageTenant = Capsule::table('eb_tenants')
         ->where('id', (int) $storageTenantId)
-        ->where('client_id', $clientId)
+        ->where('msp_id', $mspId)
         ->first([
             'id',
             'slug',

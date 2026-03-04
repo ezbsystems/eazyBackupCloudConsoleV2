@@ -178,13 +178,13 @@
         <div class="border-t border-white/10"></div>
         <div class="px-6 py-5 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
           <div class="rounded-xl bg-white/5 ring-1 ring-white/10 p-4">
-            <div class="text-white/60">Customer Record</div>
-            {if $billing_customer}
-              <div class="mt-2">ID #{$billing_customer.id|escape} / WHMCS Client #{$billing_customer.whmcs_client_id|escape}</div>
-              <div class="mt-1">Stripe Customer: {$billing_customer.stripe_customer_id|default:'-'|escape}</div>
-              <div class="mt-1">Status: {$billing_customer.status|default:'-'|escape}</div>
+            <div class="text-white/60">Tenant Billing</div>
+            {if $billing_tenant}
+              <div class="mt-2">Tenant ID #{$billing_tenant.id|escape}</div>
+              <div class="mt-1">Stripe Customer: {$billing_tenant.stripe_customer_id|default:'-'|escape}</div>
+              <div class="mt-1">Status: {$billing_tenant.status|default:'-'|escape}</div>
             {else}
-              <div class="mt-2 text-white/70">No mapped billing customer found for this tenant.</div>
+              <div class="mt-2 text-white/70">No billing data for this tenant.</div>
             {/if}
           </div>
           <div class="rounded-xl bg-white/5 ring-1 ring-white/10 p-4">
