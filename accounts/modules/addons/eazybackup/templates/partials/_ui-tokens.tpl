@@ -1,4 +1,14 @@
 <style>
+[x-cloak] { display: none !important; }
+
+/* Global dark slim scrollbar (Chrome/Edge/Safari) */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.6); }
+::-webkit-scrollbar-thumb { background: rgba(51, 65, 85, 0.8); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(71, 85, 105, 0.9); }
+::-webkit-scrollbar-corner { background: rgba(15, 23, 42, 0.6); }
+* { scrollbar-width: thin; scrollbar-color: rgba(51, 65, 85, 0.8) rgba(15, 23, 42, 0.6); }
+
 :root {
   /* Surfaces (RGB triples) */
   --bg-page: 30 41 59;     /* #1E293B  base canvas */
