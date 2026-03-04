@@ -4,8 +4,19 @@
 
 <div class="min-h-screen bg-slate-950 text-gray-100 overflow-x-hidden">
   <div class="container mx-auto max-w-full px-4 pb-8 pt-6">
-    <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)]">
-      <main class="min-w-0" x-data="{ openCreateModal: false, savingModal: false }">
+    <div x-data="{
+      sidebarCollapsed: localStorage.getItem('eb_ph_sidebar_collapsed') === 'true' || window.innerWidth < 1360,
+      toggleCollapse() {
+        this.sidebarCollapsed = !this.sidebarCollapsed;
+        localStorage.setItem('eb_ph_sidebar_collapsed', this.sidebarCollapsed);
+      },
+      handleResize() {
+        if (window.innerWidth < 1360 && !this.sidebarCollapsed) this.sidebarCollapsed = true;
+      }
+    }" x-init="window.addEventListener('resize', () => handleResize())" class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)]">
+      <div class="flex">
+        {include file="modules/addons/eazybackup/templates/whitelabel/partials/sidebar_partner_hub.tpl" ebPhSidebarPage='tenants'}
+        <main class="flex-1 min-w-0 overflow-x-auto" x-data="{ openCreateModal: false, savingModal: false }">
         <div class="flex items-center justify-between border-b border-slate-800/60 px-6 py-4">
           <h1 class="text-2xl font-semibold tracking-tight">Customer Tenants</h1>
           <div class="flex items-center gap-2">
@@ -413,7 +424,8 @@
             </div>
           </div>
         </div>
-      </main>
+        </main>
+      </div>
     </div>
   </div>
 </div>
