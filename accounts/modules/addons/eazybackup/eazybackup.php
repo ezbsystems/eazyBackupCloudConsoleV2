@@ -1604,6 +1604,7 @@ function eazybackup_migrate_schema(): void {
         eb_add_column_if_missing('eb_catalog_products','updated_by', fn(Blueprint $t)=>$t->bigInteger('updated_by')->nullable());
         eb_add_column_if_missing('eb_catalog_products','base_metric_code', fn(Blueprint $t)=>$t->enum('base_metric_code',[ 'STORAGE_TB','DEVICE_COUNT','DISK_IMAGE','HYPERV_VM','PROXMOX_VM','VMWARE_VM','M365_USER','GENERIC' ])->nullable());
         eb_add_column_if_missing('eb_catalog_products','features_json', fn(Blueprint $t)=>$t->text('features_json')->nullable());
+        eb_require_index('eb_catalog_products', 'idx_catalog_whmcs_pid', "CREATE INDEX idx_catalog_whmcs_pid ON eb_catalog_products (whmcs_product_id)", ['whmcs_product_id'], false);
     }
     // --- Partner Hub Catalog: Prices ---
     if (!$schema->hasTable('eb_catalog_prices')) {
