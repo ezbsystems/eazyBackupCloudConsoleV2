@@ -1353,6 +1353,44 @@ function eazybackup_migrate_schema(): void {
         });
     }
 
+    if (!$schema->hasTable('eb_tenant_users')) {
+        $schema->create('eb_tenant_users', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->bigInteger('tenant_id');
+            $t->string('email', 255);
+            $t->string('password_hash', 255);
+            $t->string('name', 255);
+            $t->enum('role', ['admin','user'])->default('user');
+            $t->enum('status', ['active','disabled'])->default('active');
+            $t->string('password_reset_token', 64)->nullable();
+            $t->dateTime('password_reset_expires')->nullable();
+            $t->dateTime('last_login_at')->nullable();
+            $t->timestamp('created_at')->nullable()->useCurrent();
+            $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
+            $t->unique(['tenant_id','email'], 'uq_tenant_user_email');
+            $t->index('tenant_id', 'idx_tenant_user_tenant');
+            $t->index('email', 'idx_tenant_user_email_lookup');
+        });
+    }
+
+    if (!$schema->hasTable('eb_tenant_services')) {
+        $schema->create('eb_tenant_services', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->bigInteger('tenant_id');
+            $t->bigInteger('msp_id');
+            $t->integer('hosting_id')->nullable();
+            $t->bigInteger('catalog_product_id')->nullable();
+            $t->enum('status', ['active','suspended','cancelled','pending'])->default('pending');
+            $t->timestamp('provisioned_at')->nullable();
+            $t->timestamp('created_at')->nullable()->useCurrent();
+            $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
+            $t->unique('hosting_id', 'uq_tenant_hosting');
+            $t->index('tenant_id', 'idx_ts_tenant');
+            $t->index('msp_id', 'idx_ts_msp');
+            $t->index('catalog_product_id', 'idx_ts_catalog');
+        });
+    }
+
     // eb_customers
     if (!$schema->hasTable('eb_customers')) {
         $schema->create('eb_customers', function (Blueprint $t) {
