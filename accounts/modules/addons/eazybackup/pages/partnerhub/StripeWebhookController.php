@@ -182,16 +182,15 @@ function eb_ph_stripe_webhook(): void
             case 'invoice.payment_failed':
                 $invId = (string)($obj['id'] ?? '');
                 if ($invId !== '') {
-                    // Resolve customer row
                     $stripeCustomer = (string)($obj['customer'] ?? '');
-                    $custId = null;
+                    $tenantId = null;
                     if ($stripeCustomer !== '') {
-                        $custId = Capsule::table('eb_customers')->where('stripe_customer_id',$stripeCustomer)->value('id');
+                        $tenantId = Capsule::table('eb_tenants')->where('stripe_customer_id',$stripeCustomer)->value('id');
                     }
                     Capsule::table('eb_invoice_cache')->updateOrInsert(
                         ['stripe_invoice_id' => $invId],
                         [
-                            'customer_id' => (int)($custId ?? 0),
+                            'tenant_id' => (int)($tenantId ?? 0),
                             'amount_total' => (int)($obj['amount_total'] ?? 0),
                             'amount_tax' => (int)($obj['tax'] ?? 0),
                             'status' => (string)($obj['status'] ?? ''),
@@ -208,15 +207,15 @@ function eb_ph_stripe_webhook(): void
             case 'charge.refunded':
                 $pi = (string)($obj['payment_intent'] ?? '');
                 $stripeCustomer = (string)($obj['customer'] ?? '');
-                $custId = null;
+                $tenantId = null;
                 if ($stripeCustomer !== '') {
-                    $custId = Capsule::table('eb_customers')->where('stripe_customer_id',$stripeCustomer)->value('id');
+                    $tenantId = Capsule::table('eb_tenants')->where('stripe_customer_id',$stripeCustomer)->value('id');
                 }
                 if ($pi !== '') {
                     Capsule::table('eb_payment_cache')->updateOrInsert(
                         ['stripe_payment_intent_id' => $pi],
                         [
-                            'customer_id' => (int)($custId ?? 0),
+                            'tenant_id' => (int)($tenantId ?? 0),
                             'amount' => (int)($obj['amount'] ?? 0),
                             'currency' => (string)($obj['currency'] ?? 'usd'),
                             'status' => (string)($obj['status'] ?? ''),
@@ -230,15 +229,15 @@ function eb_ph_stripe_webhook(): void
             case 'payment_intent.payment_failed':
                 $pi = (string)($obj['id'] ?? '');
                 $stripeCustomer = (string)($obj['customer'] ?? '');
-                $custId = null;
+                $tenantId = null;
                 if ($stripeCustomer !== '') {
-                    $custId = Capsule::table('eb_customers')->where('stripe_customer_id',$stripeCustomer)->value('id');
+                    $tenantId = Capsule::table('eb_tenants')->where('stripe_customer_id',$stripeCustomer)->value('id');
                 }
                 if ($pi !== '') {
                     Capsule::table('eb_payment_cache')->updateOrInsert(
                         ['stripe_payment_intent_id' => $pi],
                         [
-                            'customer_id' => (int)($custId ?? 0),
+                            'tenant_id' => (int)($tenantId ?? 0),
                             'amount' => (int)($obj['amount'] ?? 0),
                             'currency' => (string)($obj['currency'] ?? 'usd'),
                             'status' => (string)($obj['status'] ?? ''),

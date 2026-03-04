@@ -81,6 +81,7 @@ All steps are idempotent and safe to re‑run individually in DEV.
 
 - `eb_whitelabel_tenants`
   - `id BIGINT PK`, `client_id`, `status` (`queued|building|active|failed|suspended|removing`), `org_id`, `subdomain`, `fqdn`, `custom_domain`, `product_id`, `server_id`, `servergroup_id`, `comet_admin_user`, `comet_admin_pass_enc` (encrypted), `brand_json`, `email_json`, `policy_ids_json`, `storage_template_json`, `idempotency_key`, `last_build_id`, `created_at`, `updated_at`.
+  - `canonical_tenant_id` (BIGINT NULL, indexed) — Links to the canonical tenant in the eazybackup addon: `eb_tenants.id`. Used by Partner Hub billing, signup, and storage links. Populated by `TenantCustomerService::ensureCustomerForTenant()` when the whitelabel tenant is used in signup or when canonical tenant is first needed.
 
 - `eb_whitelabel_builds`
   - `id BIGINT PK`, `tenant_id`, `step` (`dns|nginx|cert|org|admin|branding|email|storage|whmcs|verify`), `status` (`queued|running|success|failed`), `log_json`, `last_error`, `started_at`, `finished_at`, `idempotency_key`.

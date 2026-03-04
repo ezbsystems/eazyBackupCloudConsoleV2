@@ -1,8 +1,8 @@
 {include file="modules/addons/eazybackup/templates/partials/_ui-tokens.tpl"}
 
-<div class="min-h-screen bg-slate-950 text-gray-300">
+<div class="min-h-screen bg-slate-950 text-gray-100 overflow-x-hidden">
   <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
-  <div class="container mx-auto max-w-full px-4 pb-10 pt-6 relative">
+  <div class="container mx-auto max-w-full px-4 pb-8 pt-6 relative">
     <section class="w-full max-w-full min-w-0 overflow-hidden rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
       <div class="mb-6 flex items-center gap-3">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 text-slate-200">

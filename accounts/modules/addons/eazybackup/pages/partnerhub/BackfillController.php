@@ -9,12 +9,12 @@ function eb_ph_invoices_refresh(array $vars): void
     if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { echo json_encode(['status'=>'error','message'=>'auth']); return; }
     $clientId = (int)$_SESSION['uid'];
     $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
-    $customerId = (int)($_POST['customer_id'] ?? 0);
-    $cust = Capsule::table('eb_customers')->where('id',$customerId)->where('msp_id',(int)($msp->id ?? 0))->first();
-    if (!$cust) { echo json_encode(['status'=>'error','message'=>'invalid']); return; }
+    $tenantId = (int)($_POST['tenant_id'] ?? $_POST['customer_id'] ?? 0);
+    $tenant = Capsule::table('eb_tenants')->where('id',$tenantId)->where('msp_id',(int)($msp->id ?? 0))->first();
+    if (!$tenant) { echo json_encode(['status'=>'error','message'=>'invalid']); return; }
     try {
         $svc = new StripeService();
-        $scus = (string)($cust->stripe_customer_id ?? '');
+        $scus = (string)($tenant->stripe_customer_id ?? '');
         if ($scus === '') { echo json_encode(['status'=>'success','message'=>'no-stripe-customer']); return; }
         $gte = time() - 86400 * 30; // last 30 days for manual refresh
         $invs = $svc->listInvoices($scus, $gte, 100);
@@ -23,7 +23,7 @@ function eb_ph_invoices_refresh(array $vars): void
             Capsule::table('eb_invoice_cache')->updateOrInsert(
                 ['stripe_invoice_id' => $invId],
                 [
-                    'customer_id' => (int)$cust->id,
+                    'tenant_id' => (int)$tenant->id,
                     'amount_total' => (int)($iv['amount_total'] ?? 0),
                     'amount_tax' => (int)($iv['tax'] ?? 0),
                     'status' => (string)($iv['status'] ?? ''),
@@ -40,7 +40,7 @@ function eb_ph_invoices_refresh(array $vars): void
             Capsule::table('eb_payment_cache')->updateOrInsert(
                 ['stripe_payment_intent_id' => $pi],
                 [
-                    'customer_id' => (int)$cust->id,
+                    'tenant_id' => (int)$tenant->id,
                     'amount' => (int)($ch['amount'] ?? 0),
                     'currency' => (string)($ch['currency'] ?? 'usd'),
                     'status' => (string)($ch['status'] ?? ''),

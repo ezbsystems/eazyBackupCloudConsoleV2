@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * Contract test: tenant-customer 1:1 service and controller wiring.
+ * Contract test: TenantCustomerService bridges eb_whitelabel_tenants and eb_tenants via canonical_tenant_id.
  *
  * Run:
  * php accounts/modules/addons/eazybackup/bin/dev/tenant_customer_service_contract_test.php
@@ -11,7 +11,6 @@ declare(strict_types=1);
 
 $moduleRoot = dirname(__DIR__, 2);
 $serviceFile = $moduleRoot . '/lib/PartnerHub/TenantCustomerService.php';
-$clientsControllerFile = $moduleRoot . '/pages/partnerhub/ClientsController.php';
 $publicSignupControllerFile = $moduleRoot . '/pages/whitelabel/PublicSignupController.php';
 
 $targets = [
@@ -20,31 +19,15 @@ $targets = [
         'markers' => [
             'namespace marker' => 'namespace PartnerHub;',
             'class marker' => 'class TenantCustomerService',
-            'ensure method signature marker' => 'public function ensureCustomerForTenant(int $tenantId): array',
-            'get method signature marker' => 'public function getCustomerForTenant(int $tenantId): ?array',
-            'tenant lookup marker' => "->where('tenant_id', \$tenantId)",
-            'transaction marker' => 'Capsule::connection()->transaction(function () use ($tenantId)',
-            'tenant ownership conflict marker' => 'tenant_customer_owner_conflict',
-            'existing tenant ownership check marker' => "if ((int)(\$existingLocked->whmcs_client_id ?? 0) !== \$ownerClientId)",
-            'race branch canonical conflict normalize marker' => "throw new \\RuntimeException('tenant_customer_conflict', 0, \$e);",
-        ],
-    ],
-    'clients controller file' => [
-        'path' => $clientsControllerFile,
-        'markers' => [
-            'service import marker (clients)' => 'use PartnerHub\\TenantCustomerService;',
-            'service ensure marker (clients)' => 'ensureCustomerForTenant($tenantId)',
-            'tenant ownership validation marker (clients)' => "->where('client_id', \$clientId)",
-            'authoritative msp marker (clients)' => "'msp_id' => \$authoritativeMspId",
-            'client canonical conflict codes marker' => "['tenant_customer_owner_conflict', 'tenant_customer_conflict']",
-            'client canonical conflict hard error marker' => 'Canonical tenant/customer conflict detected.',
-            'tenant preflight comment marker (clients)' => 'Tenant-scoped preflight: ensure canonical customer before AddClient side effects.',
-            'tenant preflight redirect marker (clients)' => 'Canonical customer already exists for tenant; redirect instead of AddClient create.',
-            'tenant preflight generic hard error marker (clients)' => 'Canonical tenant/customer enforcement failed.',
-            'tenant preflight fail marker (clients)' => 'tenant-preflight-failed=',
-        ],
-        'forbidden' => [
-            'tenant preflight soft-continue marker (clients)' => 'tenant-preflight-soft=',
+            'ensure method signature marker' => 'public function ensureCustomerForTenant(int $whitelabelTenantId): array',
+            'get method signature marker' => 'public function getCustomerForTenant(int $whitelabelTenantId): ?array',
+            'eb_whitelabel_tenants marker' => 'eb_whitelabel_tenants',
+            'canonical_tenant_id marker' => 'canonical_tenant_id',
+            'eb_tenants marker' => 'eb_tenants',
+            'transaction marker' => 'Capsule::connection()->transaction(function () use ($whitelabelTenantId)',
+            'tenant_not_found marker' => 'tenant_not_found',
+            'tenant_owner_client_missing marker' => 'tenant_owner_client_missing',
+            'tenant_customer_create_failed marker' => 'tenant_customer_create_failed',
         ],
     ],
     'public signup controller file' => [
@@ -57,7 +40,6 @@ $targets = [
             'signup canonical generic hard fail marker' => 'tenant_customer_ensure_hard_fail',
         ],
         'forbidden' => [
-            'signup canonical non-blocking marker' => 'idempotent, non-blocking',
             'signup canonical soft-continue marker' => 'tenant_customer_ensure_failed',
         ],
     ],

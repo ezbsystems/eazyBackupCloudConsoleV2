@@ -280,7 +280,13 @@ function eb_ph_tenants_index(array $vars)
         $city = trim((string)($post['city'] ?? ''));
         $state = trim((string)($post['state'] ?? ''));
         $postalCode = trim((string)($post['postal_code'] ?? ''));
-        $countryRaw = trim((string)($post['country'] ?? ''));
+        $countryRaw = (string)($post['country'] ?? '');
+        $countryRaw = preg_replace('/[\x{200B}-\x{200D}\x{FEFF}]/u', '', $countryRaw) ?? $countryRaw;
+        if (function_exists('mb_convert_kana')) {
+            $countryRaw = mb_convert_kana($countryRaw, 'as', 'UTF-8');
+        }
+        $countryRaw = preg_replace('/\s+/u', '', trim($countryRaw)) ?? trim($countryRaw);
+        $countryRaw = preg_replace('/[^A-Za-z]/', '', $countryRaw) ?? $countryRaw;
         $country = $countryRaw !== '' ? strtoupper($countryRaw) : null;
         $status = eb_ph_tenants_normalize_status((string)($post['status'] ?? 'active'));
         if ($status === 'deleted') {

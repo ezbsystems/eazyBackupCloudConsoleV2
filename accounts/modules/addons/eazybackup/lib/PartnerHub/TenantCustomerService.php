@@ -4,17 +4,35 @@ namespace PartnerHub;
 
 use WHMCS\Database\Capsule;
 
+/**
+ * Bridges eb_whitelabel_tenants and eb_tenants via canonical_tenant_id.
+ * No WHMCS client or eb_customers; tenants are eb_tenants only.
+ */
 class TenantCustomerService
 {
-    public function getCustomerForTenant(int $tenantId): ?array
+    /**
+     * Return the canonical tenant (eb_tenants) for a whitelabel tenant, or null.
+     *
+     * @param int $whitelabelTenantId eb_whitelabel_tenants.id
+     * @return array|null eb_tenants row as array, or null
+     */
+    public function getCustomerForTenant(int $whitelabelTenantId): ?array
     {
-        if ($tenantId <= 0) {
+        if ($whitelabelTenantId <= 0) {
             return null;
         }
 
         try {
-            $row = Capsule::table('eb_customers')
-                ->where('tenant_id', $tenantId)
+            $wl = Capsule::table('eb_whitelabel_tenants')
+                ->where('id', $whitelabelTenantId)
+                ->first(['canonical_tenant_id']);
+            $canonicalId = (int)($wl->canonical_tenant_id ?? 0);
+            if ($canonicalId <= 0) {
+                return null;
+            }
+
+            $row = Capsule::table('eb_tenants')
+                ->where('id', $canonicalId)
                 ->first();
         } catch (\Throwable $__) {
             return null;
@@ -23,129 +41,77 @@ class TenantCustomerService
         return $row ? (array)$row : null;
     }
 
-    public function ensureCustomerForTenant(int $tenantId): array
+    /**
+     * Ensure a canonical eb_tenants row exists for the whitelabel tenant and link via canonical_tenant_id.
+     * Returns the eb_tenants row (existing or newly created).
+     *
+     * @param int $whitelabelTenantId eb_whitelabel_tenants.id
+     * @return array eb_tenants row as array
+     * @throws \RuntimeException tenant_not_found, tenant_owner_client_missing, tenant_customer_create_failed
+     */
+    public function ensureCustomerForTenant(int $whitelabelTenantId): array
     {
-        if ($tenantId <= 0) {
+        if ($whitelabelTenantId <= 0) {
             throw new \InvalidArgumentException('tenant_id_required');
         }
 
-        return Capsule::connection()->transaction(function () use ($tenantId): array {
-            $tenant = Capsule::table('eb_whitelabel_tenants')
-                ->where('id', $tenantId)
+        return Capsule::connection()->transaction(function () use ($whitelabelTenantId): array {
+            $wlTenant = Capsule::table('eb_whitelabel_tenants')
+                ->where('id', $whitelabelTenantId)
                 ->lockForUpdate()
                 ->first();
-            if (!$tenant) {
+            if (!$wlTenant) {
                 throw new \RuntimeException('tenant_not_found');
             }
 
-            $ownerClientId = (int)($tenant->client_id ?? 0);
+            $ownerClientId = (int)($wlTenant->client_id ?? 0);
             if ($ownerClientId <= 0) {
                 throw new \RuntimeException('tenant_owner_client_missing');
             }
 
+            $canonicalId = (int)($wlTenant->canonical_tenant_id ?? 0);
+            if ($canonicalId > 0) {
+                $existing = Capsule::table('eb_tenants')->where('id', $canonicalId)->first();
+                if ($existing) {
+                    return (array)$existing;
+                }
+            }
+
             $mspId = $this->ensureMspAccountForClient($ownerClientId);
+            $name = $this->resolveClientDisplayName($ownerClientId);
+            $slug = 'wl-' . $whitelabelTenantId;
             $now = date('Y-m-d H:i:s');
 
-            $existingLocked = Capsule::table('eb_customers')
-                ->where('tenant_id', $tenantId)
-                ->lockForUpdate()
-                ->first();
-            if ($existingLocked) {
-                if ((int)($existingLocked->whmcs_client_id ?? 0) !== $ownerClientId) {
-                    throw new \RuntimeException('tenant_customer_owner_conflict');
-                }
-
-                if ((int)($existingLocked->msp_id ?? 0) !== $mspId) {
-                    Capsule::table('eb_customers')
-                        ->where('id', (int)$existingLocked->id)
-                        ->update([
-                            'msp_id' => $mspId,
-                            'updated_at' => $now,
-                        ]);
-                    $existingLocked = Capsule::table('eb_customers')->where('id', (int)$existingLocked->id)->first();
-                }
-
-                if ($existingLocked) {
-                    return (array)$existingLocked;
-                }
-            }
-
-            $existingByClient = Capsule::table('eb_customers')
-                ->where('whmcs_client_id', $ownerClientId)
-                ->lockForUpdate()
-                ->first();
-            if ($existingByClient) {
-                $boundTenantId = (int)($existingByClient->tenant_id ?? 0);
-                if ($boundTenantId > 0 && $boundTenantId !== $tenantId) {
-                    throw new \RuntimeException('tenant_customer_conflict');
-                }
-
-                Capsule::table('eb_customers')
-                    ->where('id', (int)$existingByClient->id)
-                    ->update([
-                        'msp_id' => $mspId,
-                        'tenant_id' => $tenantId,
-                        'updated_at' => $now,
-                    ]);
-
-                $updated = Capsule::table('eb_customers')->where('id', (int)$existingByClient->id)->first();
-                if ($updated) {
-                    return (array)$updated;
-                }
-            }
-
-            $displayName = $this->resolveClientDisplayName($ownerClientId);
-
             try {
-                $customerId = (int)Capsule::table('eb_customers')->insertGetId([
+                $newId = (int)Capsule::table('eb_tenants')->insertGetId([
                     'msp_id' => $mspId,
-                    'tenant_id' => $tenantId,
-                    'whmcs_client_id' => $ownerClientId,
-                    'name' => $displayName,
+                    'name' => $name !== '' ? $name : 'Tenant ' . $whitelabelTenantId,
+                    'slug' => $slug,
                     'status' => 'active',
                     'created_at' => $now,
                     'updated_at' => $now,
                 ]);
             } catch (\Throwable $e) {
-                $raced = Capsule::table('eb_customers')->where('tenant_id', $tenantId)->first();
-                if ($raced) {
-                    if ((int)($raced->whmcs_client_id ?? 0) !== $ownerClientId) {
-                        throw new \RuntimeException('tenant_customer_owner_conflict');
-                    }
-                    if ((int)($raced->msp_id ?? 0) !== $mspId) {
-                        Capsule::table('eb_customers')->where('id', (int)$raced->id)->update([
-                            'msp_id' => $mspId,
-                            'updated_at' => $now,
-                        ]);
-                        $raced = Capsule::table('eb_customers')->where('id', (int)$raced->id)->first();
-                    }
-                    return (array)$raced;
-                }
-
-                $racedByClient = Capsule::table('eb_customers')->where('whmcs_client_id', $ownerClientId)->first();
-                if ($racedByClient) {
-                    $boundTenantId = (int)($racedByClient->tenant_id ?? 0);
-                    if ($boundTenantId > 0 && $boundTenantId !== $tenantId) {
-                        throw new \RuntimeException('tenant_customer_conflict', 0, $e);
-                    }
-
-                    Capsule::table('eb_customers')
-                        ->where('id', (int)$racedByClient->id)
-                        ->update([
-                            'msp_id' => $mspId,
-                            'tenant_id' => $tenantId,
-                            'updated_at' => $now,
-                        ]);
-                    $updated = Capsule::table('eb_customers')->where('id', (int)$racedByClient->id)->first();
-                    if ($updated) {
-                        return (array)$updated;
+                $raced = Capsule::table('eb_whitelabel_tenants')
+                    ->where('id', $whitelabelTenantId)
+                    ->first(['canonical_tenant_id']);
+                $racedCanonical = (int)($raced->canonical_tenant_id ?? 0);
+                if ($racedCanonical > 0) {
+                    $row = Capsule::table('eb_tenants')->where('id', $racedCanonical)->first();
+                    if ($row) {
+                        return (array)$row;
                     }
                 }
-
                 throw $e;
             }
 
-            $created = Capsule::table('eb_customers')->where('id', $customerId)->first();
+            Capsule::table('eb_whitelabel_tenants')
+                ->where('id', $whitelabelTenantId)
+                ->update([
+                    'canonical_tenant_id' => $newId,
+                ]);
+
+            $created = Capsule::table('eb_tenants')->where('id', $newId)->first();
             if ($created) {
                 return (array)$created;
             }
@@ -187,8 +153,6 @@ class TenantCustomerService
 
     private function resolveClientDisplayName(int $clientId): string
     {
-        $name = '';
-
         try {
             $row = Capsule::table('tblclients')
                 ->where('id', $clientId)
@@ -210,11 +174,7 @@ class TenantCustomerService
                 }
             }
         } catch (\Throwable $__) {
-            // Ignore and fall back below.
-        }
-
-        if ($name !== '') {
-            return $name;
+            // ignore
         }
 
         return 'Client #' . $clientId;

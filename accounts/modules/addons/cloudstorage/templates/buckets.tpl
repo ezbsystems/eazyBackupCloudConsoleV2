@@ -646,7 +646,7 @@
                             <div class="mb-4 flex items-center">
                                 <input
                                     type="checkbox"
-                                    class="h-4 w-4 text-amber-600 bg-gray-700 border-gray-600 rounded focus:ring-amber-500"
+                                    class="h-4 w-4 text-amber-600 bg-gray-700 border-gray-600 rounded focus:ring-sky-500"
                                     id="setDefaultRetentionToggle"
                                     name="setDefaultRetention"
                                 >
@@ -1336,7 +1336,7 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
                         <button
                             type="button"
                             id="cancelDeleteRequestButton"
-                            class="hidden bg-amber-700 hover:bg-amber-600 text-white px-4 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-amber-500"
+                            class="hidden bg-amber-700 hover:bg-amber-600 text-white px-4 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500"
                         >
                             Cancel deletion request
                         </button>

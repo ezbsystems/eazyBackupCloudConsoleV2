@@ -24,7 +24,7 @@ Tenant Portal sections: Billing, Services, Cloud Storage
 Tenant v2 rollout keeps Partner Hub aligned with canonical tenant ownership and cloud storage routing contracts.
 
 ### Migration Checklist
-- [ ] **TODO: Canonical table ownership** - `s3_backup_tenants` is canonical and owned by Cloud Storage; Partner Hub integrations must use canonical linkage, not duplicate tenant profile tables.
+- [x] **Canonical table ownership** — `eb_tenants` (eazybackup) is the canonical tenant table; Partner Hub and cloudstorage integrations use it via `eb_whitelabel_tenants.canonical_tenant_id` or `eb_msp_accounts` + `msp_id`. Legacy `s3_backup_tenants` creation is skipped when `eb_tenants` exists.
 - [ ] **TODO: Hidden infra fields** - keep `product_id`, `server_id`, and `servergroup_id` hidden from tenant-facing forms and APIs; only internal provisioning paths may set or update them.
 - [ ] **TODO: Legacy route compatibility policy** - preserve current legacy route behavior (`a=whitelabel*` and portal `?msp=` entry flow) during Tenant v2 rollout, with redirects/deprecation notes before removal.
 - [ ] Re-run `php accounts/modules/addons/eazybackup/bin/dev/msp_billing_release_gate.php` before and after rollout edits.
@@ -58,9 +58,9 @@ Tenant v2 rollout keeps Partner Hub aligned with canonical tenant ownership and 
 #### Post-deploy verification queries and docs
 - Re-run release gate and dry-run commands (same commands as pre-release) and archive output in release notes.
 - DB verification queries:
-  - `SHOW TABLES LIKE 's3_backup_tenants';` (expect one row)
+  - `SHOW TABLES LIKE 'eb_tenants';` (expect one row — canonical tenant table)
   - `SHOW COLUMNS FROM eb_whitelabel_tenants LIKE 'canonical_tenant_id';` (expect one row after schema prereqs are complete)
-  - `SELECT id, canonical_tenant_id FROM eb_whitelabel_tenants ORDER BY id DESC LIMIT 20;` (expect canonical links on migrated tenants)
+  - `SELECT id, canonical_tenant_id FROM eb_whitelabel_tenants ORDER BY id DESC LIMIT 20;` (expect canonical links to `eb_tenants.id` where migrated)
   - `SELECT COUNT(*) AS missing_links FROM eb_whitelabel_tenants WHERE canonical_tenant_id IS NULL OR canonical_tenant_id = 0;` (expect `0`, or match approved exception list)
 - Document command outputs, query snapshots, and rollback decision points in the deployment ticket for auditability.
 
@@ -80,7 +80,7 @@ Tenant v2 rollout keeps Partner Hub aligned with canonical tenant ownership and 
 
 ### Customer Tenants list and create modal (2026-03-03)
 - Route: `index.php?m=eazybackup&a=ph-tenants` (Partner Hub → Customer Tenants).
-- Template: `templates/whitelabel/tenants.tpl`. List page uses vaults-style table (entries/columns/search/sort/pagination). Create flow is a modal with full-e3 intake (organization, contact, billing address, optional portal admin block). Client-side validation and inline errors for required name/contact email/contact name, country format, and manual admin password length. Backend create path persists contact and address fields to `s3_backup_tenants`; portal admin user creation from the modal is deferred (form fields collected only). See `docs/plans/2026-03-03-tenant-list-modal-design.md` for design and implementation notes.
+- Template: `templates/whitelabel/tenants.tpl`. List page uses vaults-style table (entries/columns/search/sort/pagination). Create flow is a modal with full-e3 intake (organization, contact, billing address, optional portal admin block). Client-side validation and inline errors for required name/contact email/contact name, country format, and manual admin password length. Backend create path persists contact and address fields to `eb_tenants` (canonical tenant table); portal admin user creation from the modal is deferred (form fields collected only). See `docs/plans/2026-03-03-tenant-list-modal-design.md` for design and implementation notes.
 
 ## Feature Flags & Routing
 - Addon setting `PARTNER_HUB_SIGNUP_ENABLED` gates public routes and Partner Hub nav.
@@ -145,7 +145,7 @@ All tables InnoDB + utf8mb4.
 - `eb_whitelabel_signup_events`
   - id (PK), tenant_id, host_header, email, whmcs_client_id, whmcs_order_id, comet_username, status (received|validated|ordered|accepted|provisioned|emailed|completed|failed), error, ip, user_agent, created_at, updated_at
   - Unique(tenant_id,email), Key(tenant_id), Key(status)
-- Existing: `eb_whitelabel_tenants` stores white-label capability/provisioning records (client ownership, org_id, FQDN, product/server refs, branding/email JSON) and should be linked to canonical customer tenants (`s3_backup_tenants`) during Tenant v2 rollout.
+- Existing: `eb_whitelabel_tenants` stores white-label capability/provisioning records (client ownership, org_id, FQDN, product/server refs, branding/email JSON) and is linked to the canonical tenant via `canonical_tenant_id` → `eb_tenants.id`.
 
 ## Database Schema (Email Templates)
 All tables InnoDB + utf8mb4.
@@ -248,27 +248,28 @@ Note: Email template tables are also created/maintained automatically by `eazyba
 ### Overview
 - Added MSP-managed Clients, Plans, Subscriptions, and Stripe Connect (destination charges, on_behalf_of, application_fee).
 - Stripe-first billing with Stripe Tax; WHMCS remains the source for authentication/profile.
-- Webhook-driven invoice/charge/subscription cache; nightly backfill; per-customer on-demand refresh.
+- Webhook-driven invoice/charge/subscription cache; nightly backfill; per-tenant on-demand refresh.
 - Services tab to associate WHMCS services with Comet users; Usage ledger and metered usage push.
 - Public signup enhancements: enable/disable per tenant; plan/price selection; optional card capture.
 
 ### Files Added/Updated
 
-- Library (Stripe + WHMCS bridges):
-  - `lib/PartnerHub/StripeService.php` — Connect (accounts/links), Customers, SetupIntents, Prices/Products, Subscriptions, Usage Records, Charges/Invoices list.
+- Library (Stripe + WHMCS bridges + tenant bridge):
+  - `lib/PartnerHub/StripeService.php` — Connect (accounts/links), Stripe Customers (created from `eb_tenants`), SetupIntents, Prices/Products, Subscriptions, Usage Records, Charges/Invoices list. `ensureStripeCustomerFor(tenantId, stripeAccount)` reads/writes `eb_tenants.stripe_customer_id`.
   - `lib/PartnerHub/WhmcsBridge.php` — LocalAPI helpers: `AddClient`, `UpdateClient`, `AddUser`, `AddClientUser`.
+  - `lib/PartnerHub/TenantCustomerService.php` — Bridges `eb_whitelabel_tenants` and `eb_tenants` via `canonical_tenant_id`; `getCustomerForTenant(whitelabelTenantId)` returns canonical tenant row; `ensureCustomerForTenant(whitelabelTenantId)` creates/links `eb_tenants` when missing (used by public signup).
 
 - Controllers (Client area → Partner Hub):
-  - `pages/partnerhub/ClientsController.php` — Clients list (search/sort/paginate), create Client (LocalAPI) and Partner-Hub Customer.
-  - `pages/partnerhub/ClientViewController.php` — Client Summary/Profile/Services/Subscriptions/Invoices/Transactions; computes KPIs; loads caches.
+  - `pages/partnerhub/ClientsController.php` — Clients list (search/sort/paginate), create Tenant (insert into `eb_tenants` only; no WHMCS client for tenants).
+  - `pages/partnerhub/ClientViewController.php` — Client Summary/Profile/Services/Subscriptions/Invoices/Transactions; computes KPIs; loads from `eb_tenants` and billing caches.
   - `pages/partnerhub/PlansController.php` — MSP plans management; creates Stripe Product + Price and persists `eb_plans` / `eb_plan_prices`.
-  - `pages/partnerhub/SubscriptionsController.php` — Subscription create; posts to Stripe Subscriptions with `transfer_data.destination`, `on_behalf_of`, `automatic_tax`, optional `application_fee_amount`; persists `eb_subscriptions`.
+  - `pages/partnerhub/SubscriptionsController.php` — Subscription create; posts to Stripe Subscriptions with `transfer_data.destination`, `on_behalf_of`, `automatic_tax`, optional `application_fee_amount`; persists `eb_subscriptions` (tenant_id).
   - `pages/partnerhub/StripeController.php` — Connect onboarding (AccountLink redirect) and SetupIntent endpoint for Add Card (client-side Elements).
-  - `pages/partnerhub/StripeWebhookController.php` — Handles `invoice.*`, `charge.*`, `payment_intent.*`, `customer.subscription.*`; updates caches and subscription status.
-  - `pages/partnerhub/BackfillController.php` — Per-customer “Refresh” action to backfill invoices/charges for last 30 days (JSON response + toast).
-  - `pages/partnerhub/ServicesController.php` — Link WHMCS service → Comet user; updates `eb_service_links` and tags comet mirrors (msp_id/customer_id).
-  - `pages/partnerhub/UsageController.php` — Records usage in `eb_usage_ledger`; pushes a Stripe Usage Record if subscription is metered.
-  - `pages/partnerhub/ProfileController.php` — Profile save (Client view) via `WhmcsBridge::updateClient` (JSON + toast).
+  - `pages/partnerhub/StripeWebhookController.php` — Handles `invoice.*`, `charge.*`, `payment_intent.*`, `customer.subscription.*`; updates caches by `tenant_id` (resolved from `eb_tenants.stripe_customer_id`).
+  - `pages/partnerhub/BackfillController.php` — Per-tenant “Refresh” action to backfill invoices/charges for last 30 days (JSON response + toast).
+  - `pages/partnerhub/ServicesController.php` — Link WHMCS service → Comet user; updates `eb_service_links` (tenant_id) and `eb_tenant_comet_accounts`.
+  - `pages/partnerhub/UsageController.php` — Records usage in `eb_usage_ledger` by tenant_id; pushes a Stripe Usage Record if subscription is metered.
+  - `pages/partnerhub/ProfileController.php` — Profile save (Client view) updates `eb_tenants` contact/address fields (JSON + toast).
 
 - Controllers (Public):
   - `pages/whitelabel/PublicSignupController.php` — GET: renders signup (per-tenant branding, plan/price list); POST: validates, abuse controls, creates WHMCS Client, optional card capture (SetupIntent + attach PM + set default), creates Order, Accepts Order, emails, redirects to download.
@@ -289,7 +290,7 @@ Note: Email template tables are also created/maintained automatically by `eazyba
   - `assets/js/stripe-elements.js` — Minimal helper to mount card and confirm SetupIntent; used in client view Add Card.
 
 - Cron / Backfill:
-  - `bin/stripe_backfill_caches.php` — Nightly job to fetch last 7 days of invoices/charges for all customers and update caches.
+  - `bin/stripe_backfill_caches.php` — Nightly job to fetch last 7 days of invoices/charges for all tenants (`eb_tenants` with `stripe_customer_id`) and update `eb_invoice_cache` / `eb_payment_cache` by tenant_id.
 
 - Router and hooks:
   - `eazybackup.php` — Added Partner Hub routes (`ph-*`), public `public-setupintent`, and migrations; wired all controllers above.
@@ -301,25 +302,26 @@ Note: Email template tables are also created/maintained automatically by `eazyba
   - `eb_whitelabel_signup_domains` — per-tenant signup host verification.
   - `eb_whitelabel_signup_flows` — extended with: `is_enabled TINYINT(1)`, `plan_price_id BIGINT`, `require_card TINYINT(1)` and branding/abuse fields.
 
-- MSP + Customers + Billing:
+- MSP + Tenants + Billing (canonical model):
   - `eb_msp_accounts` — MSP linkage to WHMCS client; `stripe_connect_id`, branding/invoice JSON.
-  - `eb_customers` — Partner-Hub Customer mapping to WHMCS Client; optional `stripe_customer_id` for platform.
-  - `eb_customer_user_links` — Maps WHMCS users to Customers (Owner/Viewer).
-  - `eb_customer_comet_accounts` — Customer ↔ Comet user pivot.
-  - `eb_service_links` — WHMCS service → Comet user; optional `msp_id`, `customer_id` for scoping.
+  - `eb_tenants` — Canonical tenant (no WHMCS client per tenant); `msp_id`, name, slug, contact_*, address_*, `stripe_customer_id`, status.
+  - `eb_tenant_users` — Tenant portal users (replaces legacy customer user links).
+  - `eb_tenant_services` — Links tenant to MSP-owned WHMCS service (hosting_id) and catalog product.
+  - `eb_tenant_comet_accounts` — Tenant ↔ Comet user pivot.
+  - `eb_service_links` — WHMCS service → Comet user; `msp_id`, `tenant_id`, `comet_user_id`.
   - `eb_plans` / `eb_plan_prices` — MSP plans; Stripe Product/Price linkage; supports metered prices (`is_metered`, `metric_code`).
-  - `eb_subscriptions` — MSP subscriptions; Stripe subscription id/status; current price.
-  - `eb_usage_ledger` — Metric, qty, window, source, idempotency, `pushed_to_stripe_at`.
-  - `eb_invoice_cache` / `eb_payment_cache` — Cached invoices and payment intents/charges for fast UI.
-  - Mirrors: added nullable `msp_id`, `customer_id` to `comet_users`, `comet_devices`, `comet_items`, `comet_jobs` when present.
+  - `eb_subscriptions` — MSP subscriptions; `tenant_id`, Stripe subscription id/status; current price.
+  - `eb_usage_ledger` — `tenant_id`, metric, qty, window, source, idempotency, `pushed_to_stripe_at`.
+  - `eb_invoice_cache` / `eb_payment_cache` — Cached invoices and payment intents/charges by `tenant_id`.
+  - Comet mirrors: nullable `tenant_id` (and `msp_id`) on `comet_users`, `comet_devices`, `comet_items`, `comet_jobs` when present.
 
 ### Routing (new)
 
 - Client area (Partner Hub):
   - `a=ph-clients`, `a=ph-client`, `a=ph-plans`, `a=ph-subscriptions`.
   - `a=ph-stripe-onboard`, `a=ph-stripe-setupintent`, `a=ph-stripe-subscribe`, `a=ph-stripe-webhook` (POST).
-  - `a=ph-invoices-refresh` (per-customer JSON refresh), `a=ph-services-link` (service ↔ Comet user), `a=ph-usage-push` (usage ledger + usage record).
-  - `a=ph-client-profile-update` (WHMCS client profile save).
+  - `a=ph-invoices-refresh` (per-tenant JSON refresh), `a=ph-services-link` (service ↔ Comet user, tenant_id), `a=ph-usage-push` (usage ledger by tenant_id + usage record).
+  - `a=ph-client-profile-update` (tenant profile save: updates `eb_tenants` contact/address fields).
 
 - Public:
   - `a=public-signup` (GET/POST; per-host tenant resolution; Turnstile; abuse controls; idempotent events; WHMCS client/order/accept; optional card capture).
@@ -332,13 +334,13 @@ Note: Email template tables are also created/maintained automatically by `eazyba
 - Plans/Prices: creates Stripe Product and monthly Price; persists to `eb_plans`/`eb_plan_prices`.
 - Subscriptions: creates Stripe Subscription with `transfer_data.destination` (MSP), `on_behalf_of` (MSP), `automatic_tax`, optional application fee; mirrors to DB; webhook keeps status in sync.
 - Webhooks: caches invoices/charges/payment intents and updates subscriptions; defensive JSON handling.
-- Invoice/Transaction refresh: per-customer JSON endpoint to re-pull recent data (toast in UI); nightly backfill cron covers drift.
-- Services Link: associates WHMCS service id to Comet user (pivot + mirrors); toast on success.
+- Invoice/Transaction refresh: per-tenant JSON endpoint to re-pull recent data (toast in UI); nightly backfill cron covers drift.
+- Services Link: associates WHMCS service id to Comet user and tenant (eb_service_links + eb_tenant_comet_accounts); toast on success.
 - Usage Ledger: records metric/qty window; if metered price is active, pushes Stripe Usage Record and stamps `pushed_to_stripe_at`.
 - Public Signup (enhanced): enable/disable per tenant; plan/price select; optional card capture before order; same abuse controls/Turnstile; welcome + MSP notice emails; redirect to download.
 
 ### Security & UX Notes
-- All Partner Hub routes enforce client ownership; JSON actions scope by `msp_id` and `customer_id`.
+- All Partner Hub routes enforce client ownership; JSON actions scope by `msp_id` and `tenant_id` (eb_tenants).
 - CSRF where applicable (existing token helpers); public route gated by host + feature flag + Turnstile + rate limiting + domain allow/deny.
 - Minimal PII in caches; Stripe keys come from addon settings; logs via `logModuleCall` for observability.
 - Non-blocking toasts for manual actions (refresh, link, usage, profile save) for a smoother UX.
@@ -371,9 +373,9 @@ This iteration focused on stabilizing the Partner Hub Clients flow, improving cl
 
 ### Routing changes (client management)
 - `a=ph-client` (GET) — Manage Client page (Client Summary/Billing/Subscriptions/Transactions/Services). Template: `templates/whitelabel/client-view.tpl` (updated styling + controls).
-- `a=ph-client-profile-update` (POST, JSON) — Save client profile edits for the selected Partner‑Hub Customer.
-  - Request body: `customer_id`, and any of `firstname, lastname, companyname, email, address1, address2, city, state, postcode, country, phonenumber`.
-  - Auth: requires MSP client session; scoping verified via `eb_customers (msp_id)`.
+- `a=ph-client-profile-update` (POST, JSON) — Save tenant profile edits for the selected Client (tenant).
+  - Request body: `tenant_id` (or legacy `customer_id`), and any of `firstname, lastname, companyname, email, address1, address2, city, state, postcode, country, phonenumber`. Values are mapped to `eb_tenants` (name, contact_name, contact_email, contact_phone, address_line1/2, city, state, postal_code, country).
+  - Auth: requires MSP client session; scoping verified via `eb_tenants (msp_id)`.
   - Response: `{ status: 'success' }` or `{ status: 'error', message }`.
 
 ### Logging / Observability
@@ -404,7 +406,7 @@ No functional changes this session; Phase 1 behavior remains as documented:
 - Eliminated inline JS for profile save to align with strict CSP (`style-src`/`script-src` policies). All dynamic behavior is now in `assets/js/client-profile.js`.
 
 ### Database Schema
-- No new tables were added in this session. Existing Partner Hub and Email Template schemas remain as previously documented.
+- No new tables were added in this session. Partner Hub uses the canonical tenant model (`eb_tenants`, `eb_tenant_users`, `eb_tenant_services`, `eb_tenant_comet_accounts`) as documented in the “MSP + Tenants + Billing” section above.
 
 ## Updates — Stripe Connect Billing (Oct 2025)
 
@@ -442,7 +444,7 @@ This update completes Stripe Connect Express with Direct Charges in Partner Hub.
   - `a=ph-money-balance` — Balance summary + Balance Transactions (filters, CSV export)
 
 ### Backfill/Refresh
-- `a=ph-invoices-refresh` — Refresh last 30 days of invoices/charges per customer
+- `a=ph-invoices-refresh` — Refresh last 30 days of invoices/charges per tenant
 - `a=ph-payouts-refresh` — Refresh last 30 days of payouts
 - `a=ph-disputes-refresh` — Refresh last 30 days of disputes
 

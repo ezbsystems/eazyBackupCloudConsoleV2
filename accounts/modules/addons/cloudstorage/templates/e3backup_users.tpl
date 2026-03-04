@@ -1,10 +1,10 @@
 <div class="min-h-screen bg-slate-950 text-gray-200" x-data="backupUsersApp()">
-    <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
+    {* <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div> *}
     <div class="container mx-auto px-4 py-6 relative pointer-events-auto">
         {assign var="activeNav" value="users"}
         {include file="modules/addons/cloudstorage/templates/partials/e3backup_nav.tpl"}
 
-        <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
+        <div class="rounded-3xl border border-slate-800/80 bg-slate-950 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
             <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-3">
                 <div>
                     <div class="flex items-center gap-2 mb-1">
@@ -47,7 +47,7 @@
                         </div>
                         <div class="px-4 py-2 border-b border-slate-800">
                             <input type="text" x-model="tenantSearch" placeholder="Search tenants"
-                                   class="w-full rounded-md bg-slate-950 border border-slate-700 px-3 py-2 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-amber-500">
+                                   class="w-full rounded-md bg-slate-950 border border-slate-700 px-3 py-2 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
                         </div>
                         <div class="py-1 max-h-72 overflow-auto">
                             <button type="button"
@@ -126,7 +126,7 @@
                             <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer">
                                 <span x-text="col.label"></span>
                                 <input type="checkbox"
-                                       class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500"
+                                       class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500"
                                        :checked="columnState[col.key]"
                                        @change="toggleColumn(col.key)">
                             </label>

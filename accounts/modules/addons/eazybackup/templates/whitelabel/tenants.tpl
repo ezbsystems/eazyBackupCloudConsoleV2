@@ -31,7 +31,7 @@
       </div>
     {/if}
 
-    <section class="mt-6 rounded-2xl bg-[rgb(var(--bg-card))] ring-1 ring-white/10 overflow-hidden">
+    <section class="bg-slate-950/70 rounded-2xl border border-slate-800/80 p-4">
       <div class="px-6 py-5">
         <h2 class="text-lg font-medium">Existing Customer Tenants</h2>
       </div>
@@ -171,13 +171,13 @@
                  x-transition:leave-end="opacity-0 scale-95"
                  class="absolute left-0 mt-2 w-64 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden p-2"
                  style="display: none;">
-              <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>ID</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.id"></label>
-              <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Name</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.name"></label>
-              <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Slug</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.slug"></label>
-              <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Contact Email</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.contact_email"></label>
-              <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Status</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.status"></label>
-              <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Updated</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.updated"></label>
-              <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Actions</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500" x-model="cols.actions"></label>
+              <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>ID</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500" x-model="cols.id"></label>
+              <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Name</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500" x-model="cols.name"></label>
+              <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Slug</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500" x-model="cols.slug"></label>
+              <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Contact Email</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500" x-model="cols.contact_email"></label>
+              <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Status</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500" x-model="cols.status"></label>
+              <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Updated</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500" x-model="cols.updated"></label>
+              <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Actions</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500" x-model="cols.actions"></label>
             </div>
           </div>
           <div class="flex-1"></div>
@@ -269,39 +269,19 @@
              x-transition:leave="transition ease-in duration-150"
              x-transition:leave-start="opacity-100"
              x-transition:leave-end="opacity-0"
-             class="fixed inset-0 z-50 flex items-center justify-center p-4"
+             class="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto p-4"
              style="display: none;"
              @keydown.escape.window="openCreateModal = false">
-          <div class="absolute inset-0 bg-black/60" @click="openCreateModal = false"></div>
-          <div class="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl"
+          <div class="absolute inset-0 bg-black/60 min-h-full" @click="openCreateModal = false"></div>
+          <div class="relative w-full max-w-2xl max-h-[85vh] flex flex-col rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl my-auto"
                @click.stop>
-            <div class="sticky top-0 z-10 flex items-center justify-between border-b border-slate-700 px-6 py-4 bg-slate-900">
+            <div class="flex-shrink-0 flex items-center justify-between border-b border-slate-700 px-6 py-4 bg-slate-900 rounded-t-2xl">
               <h2 class="text-lg font-semibold text-white">Create Customer Tenant</h2>
               <button type="button" @click="openCreateModal = false" class="rounded-lg p-2 text-slate-400 hover:text-white hover:bg-slate-800">×</button>
             </div>
-            <div x-data="{
-              showAdmin: false,
-              autoPassword: '1',
-              errors: { name: '', contact_email: '', contact_name: '', country: '', admin_password: '' },
-              validateForm() {
-                this.errors = { name: '', contact_email: '', contact_name: '', country: '', admin_password: '' };
-                const name = this.$refs.nameInput ? this.$refs.nameInput.value.trim() : '';
-                const contactEmail = this.$refs.contactEmailInput ? this.$refs.contactEmailInput.value.trim() : '';
-                const contactName = this.$refs.contactNameInput ? this.$refs.contactNameInput.value.trim() : '';
-                const country = this.$refs.countryInput ? this.$refs.countryInput.value.trim() : '';
-                if (name === '') this.errors.name = 'Required';
-                if (contactEmail === '') this.errors.contact_email = 'Required';
-                else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) this.errors.contact_email = 'Invalid email format';
-                if (contactName === '') this.errors.contact_name = 'Required';
-                if (country !== '' && !/^[A-Za-z]{2}$/.test(country)) this.errors.country = 'Must be 2 letters';
-                if (this.showAdmin && this.autoPassword === '0') {
-                  const pw = this.$refs.adminPasswordInput ? this.$refs.adminPasswordInput.value : '';
-                  if (pw.length < 8) this.errors.admin_password = 'Minimum 8 characters';
-                }
-                return !this.errors.name && !this.errors.contact_email && !this.errors.contact_name && !this.errors.country && !this.errors.admin_password;
-              }
-            }">
-            <form method="post" action="{$modulelink}&a=ph-tenants" class="p-6 space-y-6" @submit="if(!validateForm()) $event.preventDefault()">
+            <div class="flex-1 min-h-0 overflow-y-auto">
+            <div x-data="{ showAdmin: false, autoPassword: '1' }">
+            <form id="create-tenant-form" method="post" action="{$modulelink}&a=ph-tenants" class="p-6 space-y-6">
               <input type="hidden" name="eb_create_tenant" value="1" />
               {if isset($token) && $token neq ''}
                 <input type="hidden" name="token" value="{$token}" />
@@ -312,17 +292,17 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div class="md:col-span-2">
                     <label class="block text-sm font-medium text-slate-300 mb-1">Company Name <span class="text-rose-400">*</span></label>
-                    <input type="text" name="name" x-ref="nameInput" required placeholder="Acme Corporation" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500" :class="errors.name ? 'border-rose-500' : ''">
-                    <p x-show="errors.name" class="text-rose-400 text-xs mt-1" x-text="errors.name"></p>
+                    <input type="text" name="name" required placeholder="Acme Corporation" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500">
+                    <p id="create-tenant-error-name" class="hidden text-rose-400 text-xs mt-1"></p>
                   </div>
                   <div>
                     <label class="block text-sm font-medium text-slate-300 mb-1">Slug</label>
-                    <input type="text" name="slug" placeholder="auto-from-name" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono">
+                    <input type="text" name="slug" placeholder="auto-from-name" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono">
                     <p class="text-xs text-slate-500 mt-1">URL-friendly identifier. Optional.</p>
                   </div>
                   <div>
                     <label class="block text-sm font-medium text-slate-300 mb-1">Status</label>
-                    <select name="status" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                    <select name="status" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500">
                       {foreach from=$statuses item=s}
                         <option value="{$s|escape}">{$s|escape}</option>
                       {/foreach}
@@ -336,17 +316,17 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label class="block text-sm font-medium text-slate-300 mb-1">Contact Email <span class="text-rose-400">*</span></label>
-                    <input type="email" name="contact_email" x-ref="contactEmailInput" required placeholder="billing@acme.com" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500" :class="errors.contact_email ? 'border-rose-500' : ''">
-                    <p x-show="errors.contact_email" class="text-rose-400 text-xs mt-1" x-text="errors.contact_email"></p>
+                    <input type="email" name="contact_email" required placeholder="billing@acme.com" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500">
+                    <p id="create-tenant-error-contact_email" class="hidden text-rose-400 text-xs mt-1"></p>
                   </div>
                   <div>
                     <label class="block text-sm font-medium text-slate-300 mb-1">Contact Name <span class="text-rose-400">*</span></label>
-                    <input type="text" name="contact_name" x-ref="contactNameInput" required placeholder="Jane Smith" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500" :class="errors.contact_name ? 'border-rose-500' : ''">
-                    <p x-show="errors.contact_name" class="text-rose-400 text-xs mt-1" x-text="errors.contact_name"></p>
+                    <input type="text" name="contact_name" required placeholder="Jane Smith" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500">
+                    <p id="create-tenant-error-contact_name" class="hidden text-rose-400 text-xs mt-1"></p>
                   </div>
                   <div class="md:col-span-2">
                     <label class="block text-sm font-medium text-slate-300 mb-1">Phone</label>
-                    <input type="tel" name="contact_phone" placeholder="+1 (555) 123-4567" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                    <input type="tel" name="contact_phone" placeholder="+1 (555) 123-4567" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500">
                   </div>
                 </div>
               </div>
@@ -356,29 +336,29 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div class="md:col-span-2">
                     <label class="block text-sm font-medium text-slate-300 mb-1">Address Line 1</label>
-                    <input type="text" name="address_line1" placeholder="123 Main Street" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                    <input type="text" name="address_line1" placeholder="123 Main Street" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500">
                   </div>
                   <div class="md:col-span-2">
                     <label class="block text-sm font-medium text-slate-300 mb-1">Address Line 2</label>
-                    <input type="text" name="address_line2" placeholder="Suite 100" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                    <input type="text" name="address_line2" placeholder="Suite 100" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500">
                   </div>
                   <div>
                     <label class="block text-sm font-medium text-slate-300 mb-1">City</label>
-                    <input type="text" name="city" placeholder="Toronto" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                    <input type="text" name="city" placeholder="Toronto" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500">
                   </div>
                   <div>
                     <label class="block text-sm font-medium text-slate-300 mb-1">State / Province</label>
-                    <input type="text" name="state" placeholder="Ontario" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                    <input type="text" name="state" placeholder="Ontario" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500">
                   </div>
                   <div>
                     <label class="block text-sm font-medium text-slate-300 mb-1">Postal Code</label>
-                    <input type="text" name="postal_code" placeholder="M5V 1A1" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                    <input type="text" name="postal_code" placeholder="M5V 1A1" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500">
                   </div>
                   <div>
                     <label class="block text-sm font-medium text-slate-300 mb-1">Country Code</label>
-                    <input type="text" name="country" x-ref="countryInput" maxlength="2" placeholder="CA" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500 uppercase" :class="errors.country ? 'border-rose-500' : ''">
-                    <p x-show="errors.country" class="text-rose-400 text-xs mt-1" x-text="errors.country"></p>
-                    <p x-show="!errors.country" class="text-xs text-slate-500 mt-1">2-letter ISO code (e.g. CA, US, GB)</p>
+                    <input type="text" name="country" maxlength="2" placeholder="CA" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 uppercase" autocomplete="off" inputmode="text" autocapitalize="characters">
+                    <p id="create-tenant-error-country" class="hidden text-rose-400 text-xs mt-1"></p>
+                    <p id="create-tenant-hint-country" class="text-xs text-slate-500 mt-1">2-letter ISO code (e.g. CA, US, GB)</p>
                   </div>
                 </div>
               </div>
@@ -386,7 +366,7 @@
               <div class="rounded-xl border border-slate-800 bg-slate-800/50 p-5">
                 <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">Portal Admin Account</h3>
                 <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
-                  <input type="checkbox" name="create_admin" value="1" x-model="showAdmin" class="rounded bg-slate-800 border-slate-600 text-amber-500 focus:ring-amber-500">
+                  <input type="checkbox" name="create_admin" value="1" x-model="showAdmin" class="rounded bg-slate-800 border-slate-600 text-amber-500 focus:ring-sky-500">
                   Create portal admin user for this tenant
                 </label>
                 <div x-show="showAdmin" x-cloak class="space-y-4 mt-4 pl-4 border-l border-amber-600/30" style="display: none;">
@@ -394,27 +374,27 @@
                   <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label class="block text-sm font-medium text-slate-300 mb-1">Admin Email</label>
-                      <input type="email" name="admin_email" placeholder="admin@acme.com" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                      <input type="email" name="admin_email" placeholder="admin@acme.com" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500">
                     </div>
                     <div>
                       <label class="block text-sm font-medium text-slate-300 mb-1">Admin Name</label>
-                      <input type="text" name="admin_name" placeholder="Admin User" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                      <input type="text" name="admin_name" placeholder="Admin User" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500">
                     </div>
                   </div>
                   <div class="space-y-2">
                     <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
-                      <input type="radio" name="auto_password" value="1" x-model="autoPassword" class="bg-slate-800 border-slate-600 text-amber-500 focus:ring-amber-500">
+                      <input type="radio" name="auto_password" value="1" x-model="autoPassword" class="bg-slate-800 border-slate-600 text-amber-500 focus:ring-sky-500">
                       Auto-generate password and email to user
                     </label>
                     <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
-                      <input type="radio" name="auto_password" value="0" x-model="autoPassword" class="bg-slate-800 border-slate-600 text-amber-500 focus:ring-amber-500">
+                      <input type="radio" name="auto_password" value="0" x-model="autoPassword" class="bg-slate-800 border-slate-600 text-amber-500 focus:ring-sky-500">
                       Set password manually
                     </label>
                   </div>
                   <div x-show="autoPassword === '0'" x-cloak class="mt-2" style="display: none;">
                     <label class="block text-sm font-medium text-slate-300 mb-1">Password</label>
-                    <input type="password" name="admin_password" x-ref="adminPasswordInput" minlength="8" placeholder="Minimum 8 characters" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500" :class="errors.admin_password ? 'border-rose-500' : ''">
-                    <p x-show="errors.admin_password" class="text-rose-400 text-xs mt-1" x-text="errors.admin_password"></p>
+                    <input type="password" name="admin_password" minlength="8" placeholder="Minimum 8 characters" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500">
+                    <p id="create-tenant-error-admin_password" class="hidden text-rose-400 text-xs mt-1"></p>
                   </div>
                 </div>
               </div>
@@ -430,10 +410,119 @@
               </div>
             </form>
             </div>
+            </div>
           </div>
         </div>
       </main>
     </div>
   </div>
 </div>
+
+
+
+<script>
+(function () {
+  function normalizeCountry(value) {
+    var v = String(value || '');
+    v = v.trim().toUpperCase().replace(/\s+/g, '');
+    return v;
+  }
+
+  function showError(form, field, message) {
+    var input = form.querySelector('[name="' + field + '"]');
+    var el = document.getElementById('create-tenant-error-' + field);
+    if (input) input.classList.add('border-rose-500');
+    if (el) {
+      el.textContent = message;
+      el.classList.remove('hidden');
+    }
+    if (field === 'country') {
+      var hint = document.getElementById('create-tenant-hint-country');
+      if (hint) hint.classList.add('hidden');
+    }
+  }
+
+  function clearError(form, field) {
+    var input = form.querySelector('[name="' + field + '"]');
+    var el = document.getElementById('create-tenant-error-' + field);
+    if (input) input.classList.remove('border-rose-500');
+    if (el) {
+      el.textContent = '';
+      el.classList.add('hidden');
+    }
+    if (field === 'country') {
+      var hint = document.getElementById('create-tenant-hint-country');
+      if (hint) hint.classList.remove('hidden');
+    }
+  }
+
+  function validateCreateTenantForm(form) {
+    ['name', 'contact_email', 'contact_name', 'country', 'admin_password'].forEach(function (f) {
+      clearError(form, f);
+    });
+
+    var hasError = false;
+    var name = (form.querySelector('[name="name"]') || {}).value || '';
+    var email = (form.querySelector('[name="contact_email"]') || {}).value || '';
+    var contactName = (form.querySelector('[name="contact_name"]') || {}).value || '';
+    var countryInput = form.querySelector('[name="country"]');
+    var country = normalizeCountry(countryInput ? countryInput.value : '').slice(0, 2);
+    if (countryInput) countryInput.value = country;
+
+    if (String(name).trim() === '') {
+      showError(form, 'name', 'Required');
+      hasError = true;
+    }
+
+    var emailVal = String(email).trim();
+    if (emailVal === '') {
+      showError(form, 'contact_email', 'Required');
+      hasError = true;
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailVal)) {
+      showError(form, 'contact_email', 'Invalid email format');
+      hasError = true;
+    }
+
+    if (String(contactName).trim() === '') {
+      showError(form, 'contact_name', 'Required');
+      hasError = true;
+    }
+
+    // Country is constrained at input level (letters only, max 2). Backend remains source of truth.
+
+    var createAdmin = form.querySelector('[name="create_admin"]');
+    var autoPassword = form.querySelector('[name="auto_password"]:checked');
+    var adminPassword = (form.querySelector('[name="admin_password"]') || {}).value || '';
+    if (createAdmin && createAdmin.checked && autoPassword && autoPassword.value === '0' && String(adminPassword).length < 8) {
+      showError(form, 'admin_password', 'Minimum 8 characters');
+      hasError = true;
+    }
+
+    return !hasError;
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    var form = document.getElementById('create-tenant-form');
+    if (!form) return;
+    var countryInput = form.querySelector('[name="country"]');
+    if (countryInput) {
+      countryInput.addEventListener('input', function () {
+        countryInput.value = normalizeCountry(countryInput.value).slice(0, 2);
+        clearError(form, 'country');
+      });
+      countryInput.addEventListener('paste', function () {
+        window.setTimeout(function () {
+          countryInput.value = normalizeCountry(countryInput.value).slice(0, 2);
+          clearError(form, 'country');
+        }, 0);
+      });
+    }
+    form.addEventListener('submit', function (event) {
+      if (!validateCreateTenantForm(form)) {
+        event.preventDefault();
+      }
+    });
+  });
+})();
+</script>
 

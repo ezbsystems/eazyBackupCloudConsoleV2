@@ -33,13 +33,13 @@ function eb_ph_catalog_plans_index(array $vars)
         ->orderBy('p.name','asc')
         ->get(['p.*']);
 
-    $customers = Capsule::table('eb_customers')->where('msp_id',(int)$msp->id)->orderBy('id','desc')->limit(200)->get();
+    $tenants = Capsule::table('eb_tenants')->where('msp_id',(int)$msp->id)->orderBy('id','desc')->limit(200)->get();
 
     // Normalize to arrays for Smarty
     $plansArr = []; foreach ((array)$plans as $r) { $plansArr[] = (array)$r; }
     $componentsArr = []; foreach ((array)$components as $r) { $componentsArr[] = (array)$r; }
     $pricesArr = []; foreach ((array)$prices as $r) { $pricesArr[] = (array)$r; }
-    $customersArr = []; foreach ((array)$customers as $r) { $customersArr[] = (array)$r; }
+    $tenantsArr = []; foreach ((array)$tenants as $r) { $tenantsArr[] = (array)$r; }
 
     return [
         'pagetitle' => 'Catalog — Plans',
@@ -52,7 +52,8 @@ function eb_ph_catalog_plans_index(array $vars)
             'plans' => $plansArr,
             'components' => $componentsArr,
             'prices' => $pricesArr,
-            'customers' => $customersArr,
+            'tenants' => $tenantsArr,
+            'customers' => $tenantsArr,
             'modulelink' => $vars['modulelink'] ?? ('index.php?m=eazybackup'),
             'token' => function_exists('generate_token') ? generate_token('plain') : '',
         ],
@@ -137,12 +138,12 @@ function eb_ph_plan_assign(array $vars): void
 
     try { if (!Capsule::schema()->hasTable('eb_plan_instances') && function_exists('eazybackup_migrate_schema')) { @eazybackup_migrate_schema(); } } catch (\Throwable $__) {}
 
-    $customerId = (int)($_POST['customer_id'] ?? 0);
+    $tenantId = (int)($_POST['tenant_id'] ?? $_POST['customer_id'] ?? 0);
     $cometUserId = (string)($_POST['comet_user_id'] ?? '');
     $planId = (int)($_POST['plan_id'] ?? 0);
     $feePercent = isset($_POST['application_fee_percent']) && $_POST['application_fee_percent'] !== '' ? (float)$_POST['application_fee_percent'] : null;
 
-    if ($customerId <= 0 || $planId <= 0 || $cometUserId === '') { echo json_encode(['status'=>'error','message'=>'invalid']); return; }
+    if ($tenantId <= 0 || $planId <= 0 || $cometUserId === '') { echo json_encode(['status'=>'error','message'=>'invalid']); return; }
 
     $plan = Capsule::table('eb_plan_templates')->where('id',$planId)->first();
     if (!$plan || (int)$plan->msp_id !== (int)$msp->id) { echo json_encode(['status'=>'error','message'=>'scope']); return; }
@@ -155,8 +156,7 @@ function eb_ph_plan_assign(array $vars): void
     try {
         $svc = new StripeService();
         $cSvc = new CatalogService();
-        // Ensure stripe customer on connected account
-        $scus = $svc->ensureStripeCustomerFor($customerId, $acct);
+        $scus = $svc->ensureStripeCustomerFor($tenantId, $acct);
 
         // Build items
         $priceRows = Capsule::table('eb_catalog_prices')->whereIn('id', array_map(function($c){ return (int)$c->price_id; }, iterator_to_array($components)))->get();
@@ -178,7 +178,7 @@ function eb_ph_plan_assign(array $vars): void
 
         $instanceId = Capsule::table('eb_plan_instances')->insertGetId([
             'msp_id' => (int)$msp->id,
-            'customer_id' => $customerId,
+            'customer_id' => $tenantId,
             'comet_user_id' => $cometUserId,
             'plan_id' => (int)$plan->id,
             'plan_version' => (int)$plan->version,
@@ -211,11 +211,11 @@ function eb_ph_plan_assign(array $vars): void
                 ]);
             }
         }
-        try { if (function_exists('logModuleCall')) { @logModuleCall('eazybackup','ph-plan-assign',[ 'customer_id'=>$customerId,'plan_id'=>$planId,'items'=>count($items) ],[ 'subscription_id'=>$subId,'plan_instance_id'=>$instanceId ]); } } catch (\Throwable $__) {}
+        try { if (function_exists('logModuleCall')) { @logModuleCall('eazybackup','ph-plan-assign',[ 'tenant_id'=>$tenantId,'plan_id'=>$planId,'items'=>count($items) ],[ 'subscription_id'=>$subId,'plan_instance_id'=>$instanceId ]); } } catch (\Throwable $__) {}
         echo json_encode(['status'=>'success','subscription_id'=>$subId,'plan_instance_id'=>$instanceId]);
         return;
     } catch (\Throwable $e) {
-        try { if (function_exists('logModuleCall')) { @logModuleCall('eazybackup','ph-plan-assign-error',[ 'customer_id'=>$customerId,'plan_id'=>$planId ], $e->getMessage()); } } catch (\Throwable $__) {}
+        try { if (function_exists('logModuleCall')) { @logModuleCall('eazybackup','ph-plan-assign-error',[ 'tenant_id'=>$tenantId,'plan_id'=>$planId ], $e->getMessage()); } } catch (\Throwable $__) {}
         echo json_encode(['status'=>'error','message'=>$e->getMessage()]);
         return;
     }
