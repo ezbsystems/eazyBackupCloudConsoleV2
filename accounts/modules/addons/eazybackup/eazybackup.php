@@ -1596,6 +1596,7 @@ function eazybackup_migrate_schema(): void {
             $t->index('active');
         });
     } else {
+        eb_add_column_if_missing('eb_catalog_products','whmcs_product_id', fn(Blueprint $t)=>$t->integer('whmcs_product_id')->nullable());
         eb_add_column_if_missing('eb_catalog_products','is_published', fn(Blueprint $t)=>$t->tinyInteger('is_published')->default(0));
         eb_add_column_if_missing('eb_catalog_products','published_at', fn(Blueprint $t)=>$t->dateTime('published_at')->nullable());
         eb_add_column_if_missing('eb_catalog_products','default_currency', fn(Blueprint $t)=>$t->char('default_currency',3)->nullable());
