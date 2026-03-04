@@ -68,13 +68,13 @@ function eb_ph_tenants_is_valid_slug(string $value): bool
     return (bool)preg_match('/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/', $value);
 }
 
-function eb_ph_tenants_existing_slug_owner(int $clientId, string $slug, ?int $ignoreTenantId = null): ?int
+function eb_ph_tenants_existing_slug_owner(int $mspId, string $slug, ?int $ignoreTenantId = null): ?int
 {
     if ($slug === '') {
         return null;
     }
-    $query = Capsule::table('s3_backup_tenants')
-        ->where('client_id', $clientId)
+    $query = Capsule::table('eb_tenants')
+        ->where('msp_id', $mspId)
         ->where('slug', $slug)
         ->where('status', '!=', 'deleted');
     if ($ignoreTenantId !== null && $ignoreTenantId > 0) {
@@ -94,14 +94,8 @@ function eb_ph_tenants_delete_blockers(int $tenantId): array
         return $blockers;
     }
 
-    if (Capsule::schema()->hasTable('eb_customers')) {
-        $linkedCustomers = (int)Capsule::table('eb_customers')->where('tenant_id', $tenantId)->count();
-        if ($linkedCustomers > 0) {
-            $blockers['customer_links'] = $linkedCustomers;
-        }
-    }
-    if (Capsule::schema()->hasTable('s3_backup_tenant_users')) {
-        $members = (int)Capsule::table('s3_backup_tenant_users')->where('tenant_id', $tenantId)->count();
+    if (Capsule::schema()->hasTable('eb_tenant_users')) {
+        $members = (int)Capsule::table('eb_tenant_users')->where('tenant_id', $tenantId)->count();
         if ($members > 0) {
             $blockers['members'] = $members;
         }
@@ -229,9 +223,9 @@ function eb_ph_tenant_require_owned(array $vars): array
         eb_ph_tenants_redirect($vars, 'error=not_found');
     }
 
-    $tenant = Capsule::table('s3_backup_tenants')
+    $tenant = Capsule::table('eb_tenants')
         ->where('id', $tenantId)
-        ->where('client_id', $clientId)
+        ->where('msp_id', (int)$msp->id)
         ->where('status', '!=', 'deleted')
         ->first();
     if (!$tenant) {
@@ -305,13 +299,13 @@ function eb_ph_tenants_index(array $vars)
         if ($country !== null && $country !== '' && !preg_match('/^[A-Z]{2}$/', $country)) {
             eb_ph_tenants_redirect($vars, 'error=invalid_country');
         }
-        if (eb_ph_tenants_existing_slug_owner($clientId, $slug) !== null) {
+        if (eb_ph_tenants_existing_slug_owner((int)$msp->id, $slug) !== null) {
             eb_ph_tenants_redirect($vars, 'error=slug_taken');
         }
 
         // Admin user creation from modal is deferred; create_admin / admin_email / admin_name / auto_password / admin_password are ignored here.
         $insert = [
-            'client_id' => $clientId,
+            'msp_id' => (int)$msp->id,
             'name' => $name,
             'slug' => $slug,
             'contact_email' => $contactEmail !== '' ? $contactEmail : null,
@@ -320,33 +314,33 @@ function eb_ph_tenants_index(array $vars)
             'updated_at' => Capsule::raw('NOW()'),
         ];
         $schema = Capsule::schema();
-        if ($schema->hasColumn('s3_backup_tenants', 'contact_name')) {
+        if ($schema->hasTable('eb_tenants') && $schema->hasColumn('eb_tenants', 'contact_name')) {
             $insert['contact_name'] = $contactName !== '' ? $contactName : null;
         }
-        if ($schema->hasColumn('s3_backup_tenants', 'contact_phone')) {
+        if ($schema->hasTable('eb_tenants') && $schema->hasColumn('eb_tenants', 'contact_phone')) {
             $insert['contact_phone'] = $contactPhone !== '' ? $contactPhone : null;
         }
-        if ($schema->hasColumn('s3_backup_tenants', 'address_line1')) {
+        if ($schema->hasTable('eb_tenants') && $schema->hasColumn('eb_tenants', 'address_line1')) {
             $insert['address_line1'] = $addressLine1 !== '' ? $addressLine1 : null;
         }
-        if ($schema->hasColumn('s3_backup_tenants', 'address_line2')) {
+        if ($schema->hasTable('eb_tenants') && $schema->hasColumn('eb_tenants', 'address_line2')) {
             $insert['address_line2'] = $addressLine2 !== '' ? $addressLine2 : null;
         }
-        if ($schema->hasColumn('s3_backup_tenants', 'city')) {
+        if ($schema->hasTable('eb_tenants') && $schema->hasColumn('eb_tenants', 'city')) {
             $insert['city'] = $city !== '' ? $city : null;
         }
-        if ($schema->hasColumn('s3_backup_tenants', 'state')) {
+        if ($schema->hasTable('eb_tenants') && $schema->hasColumn('eb_tenants', 'state')) {
             $insert['state'] = $state !== '' ? $state : null;
         }
-        if ($schema->hasColumn('s3_backup_tenants', 'postal_code')) {
+        if ($schema->hasTable('eb_tenants') && $schema->hasColumn('eb_tenants', 'postal_code')) {
             $insert['postal_code'] = $postalCode !== '' ? $postalCode : null;
         }
-        if ($schema->hasColumn('s3_backup_tenants', 'country')) {
+        if ($schema->hasTable('eb_tenants') && $schema->hasColumn('eb_tenants', 'country')) {
             $insert['country'] = $country;
         }
 
         try {
-            $tenantId = (int)Capsule::table('s3_backup_tenants')->insertGetId($insert);
+            $tenantId = (int)Capsule::table('eb_tenants')->insertGetId($insert);
             header('Location: ' . eb_ph_tenants_base_link($vars) . '&a=ph-tenant&id=' . $tenantId . '&notice=created');
             exit;
         } catch (\Throwable $__) {
@@ -354,7 +348,7 @@ function eb_ph_tenants_index(array $vars)
         }
     }
 
-    $rowsCol = Capsule::table('s3_backup_tenants')->where('client_id', $clientId)
+    $rowsCol = Capsule::table('eb_tenants')->where('msp_id', (int)$msp->id)
         ->where('status', '!=', 'deleted')
         ->orderBy('created_at', 'desc')
         ->get();
@@ -406,7 +400,7 @@ function eb_ph_tenant_detail(array $vars)
             header('Location: ' . eb_ph_tenants_base_link($vars) . '&a=ph-tenant&id=' . $tenantId . '&error=invalid_email');
             exit;
         }
-        if (eb_ph_tenants_existing_slug_owner($clientId, $slug, $tenantId) !== null) {
+        if (eb_ph_tenants_existing_slug_owner((int)$msp->id, $slug, $tenantId) !== null) {
             header('Location: ' . eb_ph_tenants_base_link($vars) . '&a=ph-tenant&id=' . $tenantId . '&error=slug_taken');
             exit;
         }
@@ -416,7 +410,7 @@ function eb_ph_tenant_detail(array $vars)
             if ($status === 'deleted') {
                 $status = 'active';
             }
-            Capsule::table('s3_backup_tenants')->where('id', $tenantId)->where('client_id', $clientId)->update([
+            Capsule::table('eb_tenants')->where('id', $tenantId)->where('msp_id', (int)$msp->id)->update([
                 'name' => $name,
                 'slug' => $slug,
                 'contact_email' => $contactEmail !== '' ? $contactEmail : null,
@@ -445,7 +439,7 @@ function eb_ph_tenant_detail(array $vars)
         }
 
         try {
-            Capsule::table('s3_backup_tenants')->where('id', $tenantId)->where('client_id', $clientId)->update([
+            Capsule::table('eb_tenants')->where('id', $tenantId)->where('msp_id', (int)$msp->id)->update([
                 'status' => 'deleted',
                 'updated_at' => Capsule::raw('NOW()'),
             ]);
@@ -456,9 +450,9 @@ function eb_ph_tenant_detail(array $vars)
         }
     }
 
-    $tenant = Capsule::table('s3_backup_tenants')
+    $tenant = Capsule::table('eb_tenants')
         ->where('id', $tenantId)
-        ->where('client_id', $clientId)
+        ->where('msp_id', (int)$msp->id)
         ->where('status', '!=', 'deleted')
         ->first();
     if (!$tenant) {
