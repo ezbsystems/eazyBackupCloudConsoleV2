@@ -82,6 +82,14 @@ Tenant v2 rollout keeps Partner Hub aligned with canonical tenant ownership and 
 - Route: `index.php?m=eazybackup&a=ph-tenants` (Partner Hub → Customer Tenants).
 - Template: `templates/whitelabel/tenants.tpl`. List page uses vaults-style table (entries/columns/search/sort/pagination). Create flow is a modal with full-e3 intake (organization, contact, billing address, optional portal admin block). Client-side validation and inline errors for required name/contact email/contact name, country format, and manual admin password length. Backend create path persists contact and address fields to `eb_tenants` (canonical tenant table); portal admin user creation from the modal is deferred (form fields collected only). See `docs/plans/2026-03-03-tenant-list-modal-design.md` for design and implementation notes.
 
+## Partner Hub vertical sidebar
+
+Full-page Partner Hub views use a fixed left vertical sidebar for navigation. The partial is `templates/whitelabel/partials/sidebar_partner_hub.tpl`. It uses the same conditionals as the header nav (`nav_partner_hub.tpl`): `eb_ph_show_overview`, `eb_ph_show_clients`, `eb_ph_show_catalog`, `eb_ph_show_billing`, `eb_ph_show_money`, `eb_ph_show_stripe`, `eb_ph_show_settings`. Collapse state is stored in `localStorage` under `eb_ph_sidebar_collapsed`.
+
+**Using the sidebar in a template:** After the container div, add a wrapper div with Alpine `x-data` for `sidebarCollapsed`, `toggleCollapse()`, and `handleResize()` (init from `localStorage.getItem('eb_ph_sidebar_collapsed')` and `window.innerWidth < 1360`), then `<div class="flex">`, include the sidebar with `ebPhSidebarPage='page-id'`, then `<main class="flex-1 min-w-0 overflow-x-auto">` wrapping the existing content. Close with `</main>`, `</div>`, and the wrapper `</div>`. See `tenants.tpl` or `vaults.tpl` (clientarea) for the exact pattern.
+
+**Adding a new Partner Hub page to the sidebar:** Add the link in `sidebar_partner_hub.tpl` with the same conditional as in `nav_partner_hub.tpl`, and set `ebPhSidebarPage` in the new template so the correct item is highlighted.
+
 ## Feature Flags & Routing
 - Addon setting `PARTNER_HUB_SIGNUP_ENABLED` gates public routes and Partner Hub nav.
 - Addon setting `ops_whmcs_upstream` is used by HostOps when writing HTTPS vhosts for signup domains.
