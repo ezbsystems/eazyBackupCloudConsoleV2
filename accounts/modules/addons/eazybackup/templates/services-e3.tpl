@@ -126,7 +126,7 @@ jQuery(function ($) {
                 </div>
             </div>
 
-            <div class="rounded-2xl border border-slate-800/80 bg-slate-900/70 p-5 shadow-lg.">
+            <div class="rounded-2xl border border-slate-800/80 bg-slate-900/70 p-5 shadow-lg">
                 <div class="mb-4 flex flex-col xl:flex-row xl:items-center gap-3">
                     <div class="relative" x-data="{ isOpen: false, selected: 25 }" @click.away="isOpen = false">
                         <button type="button"

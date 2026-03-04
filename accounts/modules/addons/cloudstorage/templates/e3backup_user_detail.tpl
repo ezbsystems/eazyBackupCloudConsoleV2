@@ -94,13 +94,13 @@
                                 <div>
                                     <label class="block text-sm font-medium text-slate-300 mb-1">Username</label>
                                     <input type="text" x-model.trim="updateForm.username"
-                                           class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                                           class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500">
                                     <p class="text-xs text-rose-300 mt-1" x-show="updateErrors.username" x-text="updateErrors.username"></p>
                                 </div>
                                 <div>
                                     <label class="block text-sm font-medium text-slate-300 mb-1">Email</label>
                                     <input type="email" x-model.trim="updateForm.email"
-                                           class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                                           class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500">
                                     <p class="text-xs text-rose-300 mt-1" x-show="updateErrors.email" x-text="updateErrors.email"></p>
                                 </div>
 
@@ -110,7 +110,7 @@
                                     <div class="relative" x-data="{ isOpen: false }" @click.away="isOpen = false">
                                         <button type="button"
                                                 @click="isOpen = !isOpen"
-                                                class="w-full inline-flex items-center justify-between gap-2 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                                                class="w-full inline-flex items-center justify-between gap-2 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500">
                                             <span class="truncate" x-text="updateTenantLabel()"></span>
                                             <svg class="w-4 h-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                                                 <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
@@ -127,7 +127,7 @@
                                              style="display: none;">
                                             <div class="px-3 py-2 border-b border-slate-800">
                                                 <input type="text" x-model="tenantSearch" placeholder="Search tenants"
-                                                       class="w-full rounded-md bg-slate-950 border border-slate-700 px-3 py-2 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-amber-500">
+                                                       class="w-full rounded-md bg-slate-950 border border-slate-700 px-3 py-2 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
                                             </div>
                                             <div class="py-1 max-h-64 overflow-auto">
                                                 <button type="button"
@@ -156,7 +156,7 @@
                                     <div class="relative" x-data="{ isOpen: false }" @click.away="isOpen = false">
                                         <button type="button"
                                                 @click="isOpen = !isOpen"
-                                                class="w-full inline-flex items-center justify-between gap-2 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                                                class="w-full inline-flex items-center justify-between gap-2 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500">
                                             <span x-text="updateForm.status === 'disabled' ? 'Disabled' : 'Active'"></span>
                                             <svg class="w-4 h-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                                                 <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
@@ -207,13 +207,13 @@
                                     <div>
                                         <label class="block text-sm font-medium text-slate-300 mb-1">New Password</label>
                                         <input type="password" x-model="passwordForm.password"
-                                               class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                                               class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500">
                                         <p class="text-xs text-rose-300 mt-1" x-show="passwordErrors.password" x-text="passwordErrors.password"></p>
                                     </div>
                                     <div>
                                         <label class="block text-sm font-medium text-slate-300 mb-1">Confirm Password</label>
                                         <input type="password" x-model="passwordForm.password_confirm"
-                                               class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                                               class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500">
                                         <p class="text-xs text-rose-300 mt-1" x-show="passwordErrors.password_confirm" x-text="passwordErrors.password_confirm"></p>
                                     </div>
                                     <div>

@@ -199,7 +199,7 @@
 
 
 
-            <div id="services-wrapper" class="w-full max-w-full min-w-0 rounded-2xl border border-slate-800/80 bg-slate-900/70 p-5 shadow-lg.">
+            <div id="services-wrapper" class="w-full max-w-full min-w-0 rounded-2xl border border-slate-800/80 bg-slate-900/70 p-5 shadow-lg">
                 <div class="table-container clearfix">                
                     <div class="header-lined mb-4"></div>
                     <div id="successMessage" 
@@ -706,7 +706,7 @@
                                         <template x-for="col in columns" :key="col.idx">
                                             <label class="flex items-center justify-between py-1 px-2 hover:bg-slate-800 rounded cursor-pointer">
                                             <span class="pr-2 truncate" x-text="col.label || ('Column ' + col.idx)"></span>
-                                            <input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500"
+                                            <input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500"
                                                     :checked="col.visible"
                                                     @change="toggle(col.idx)">
                                             </label>

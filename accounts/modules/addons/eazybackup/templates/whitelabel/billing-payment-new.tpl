@@ -1,5 +1,6 @@
-<div class="p-6" x-data="{ paying: false }">
-  <div class="space-y-6">
+<div class="min-h-screen bg-slate-950 text-gray-100 overflow-x-hidden">
+  <div class="container mx-auto max-w-full px-4 pb-8 pt-6">
+    <div class="space-y-6" x-data="{ paying: false }">
     <div>
       <h1 class="text-xl font-semibold text-slate-50 tracking-tight">New One-time Payment</h1>
       <p class="mt-1 text-sm text-slate-400">Charge a saved card for setup fees, project work, or ad‑hoc adjustments.</p>
@@ -7,12 +8,12 @@
 
     <form id="new-payment-form" class="rounded-2xl bg-slate-900/80 border border-slate-800 shadow-[0_18px_20px_-24px_rgba(0,0,0,0.9)] px-6 py-5 space-y-6" @submit.prevent="">
       <div class="space-y-2">
-        <label class="block text-sm font-medium text-slate-200">Customer</label>
-        <p class="text-xs text-slate-400">Choose an existing client with a Stripe customer profile.</p>
-        <select id="np-customer" class="w-full mt-1 rounded-xl bg-slate-950/70 border border-slate-700 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500/80 focus:border-sky-500/80">
+        <label class="block text-sm font-medium text-slate-200">Client</label>
+        <p class="text-xs text-slate-400">Choose a tenant with a Stripe customer profile.</p>
+        <select id="np-tenant" class="w-full mt-1 rounded-xl bg-slate-950/70 border border-slate-700 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500/80 focus:border-sky-500/80">
           <option value="">-- None --</option>
-          {foreach from=$customers item=c}
-            <option value="{$c.id}">{$c.name|escape}</option>
+          {foreach from=$tenants item=t}
+            <option value="{$t.id}">{$t.name|escape}</option>
           {/foreach}
         </select>
       </div>
@@ -131,11 +132,11 @@
     btn.addEventListener('click', async function(){
       btn.disabled = true;
       try {
-        const customer_id = document.getElementById('np-customer').value;
+        const tenant_id = document.getElementById('np-tenant').value;
         const amount = document.getElementById('np-amount').value;
         const currency = document.getElementById('np-currency').value;
         const application_fee = document.getElementById('np-fee').value;
-        const data = await createPaymentIntent({ customer_id, amount, currency, application_fee });
+        const data = await createPaymentIntent({ tenant_id, amount, currency, application_fee });
         if (!data || data.status !== 'success' || !data.client_secret || !data.publishable) {
           alert(data && data.message ? data.message : 'Failed to create payment');
           btn.disabled = false; return;
@@ -159,6 +160,8 @@
     });
   });
   </script>
+    </div>
+  </div>
 </div>
 
 

@@ -64,13 +64,12 @@ function eb_ph_stripe_setup_intent(array $vars): void
 {
     header('Content-Type: application/json');
     try {
-        $customerId = (int)($_POST['customer_id'] ?? 0);
+        $tenantId = (int)($_POST['tenant_id'] ?? $_POST['customer_id'] ?? 0);
         $clientId = (int)($_SESSION['uid'] ?? 0);
         $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
         $svc = new StripeService();
-        // Ensure Stripe customer exists
         $acct = (string)($msp->stripe_connect_id ?? '');
-        $scus = $svc->ensureStripeCustomerFor($customerId, $acct ?: null);
+        $scus = $svc->ensureStripeCustomerFor($tenantId, $acct ?: null);
         $si = $svc->createSetupIntent($scus, $acct ?: null);
         echo json_encode(['status'=>'success','client_secret'=>$si['client_secret'] ?? null,'publishable'=>$svc->getPublishable()]);
         return;

@@ -1492,6 +1492,20 @@ function eazybackup_migrate_schema(): void {
             $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
             $t->index(['tenant_id','stripe_status'], 'idx_sub_tenant_status');
         });
+    } else {
+        eb_add_column_if_missing('eb_subscriptions', 'tenant_id', fn(Blueprint $t)=>$t->bigInteger('tenant_id')->nullable()->index());
+        eb_require_index('eb_subscriptions', 'idx_sub_tenant_status', "CREATE INDEX idx_sub_tenant_status ON eb_subscriptions (tenant_id, stripe_status)", ['tenant_id', 'stripe_status'], false);
+        try {
+            if ($schema->hasTable('eb_customers') && $schema->hasColumn('eb_subscriptions', 'customer_id')) {
+                Capsule::statement("
+                    UPDATE eb_subscriptions s
+                    JOIN eb_customers c ON c.id = s.customer_id
+                    SET s.tenant_id = c.tenant_id
+                    WHERE (s.tenant_id IS NULL OR s.tenant_id = 0)
+                      AND c.tenant_id IS NOT NULL
+                ");
+            }
+        } catch (\Throwable $__) {}
     }
 
     if (!$schema->hasTable('eb_usage_ledger')) {
@@ -1523,6 +1537,19 @@ function eazybackup_migrate_schema(): void {
             $t->string('currency', 8)->default('USD');
             $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
         });
+    } else {
+        eb_add_column_if_missing('eb_invoice_cache', 'tenant_id', fn(Blueprint $t)=>$t->bigInteger('tenant_id')->nullable()->index());
+        try {
+            if ($schema->hasTable('eb_customers') && $schema->hasColumn('eb_invoice_cache', 'customer_id')) {
+                Capsule::statement("
+                    UPDATE eb_invoice_cache i
+                    JOIN eb_customers c ON c.id = i.customer_id
+                    SET i.tenant_id = c.tenant_id
+                    WHERE (i.tenant_id IS NULL OR i.tenant_id = 0)
+                      AND c.tenant_id IS NOT NULL
+                ");
+            }
+        } catch (\Throwable $__) {}
     }
 
     if (!$schema->hasTable('eb_payment_cache')) {
@@ -1536,6 +1563,19 @@ function eazybackup_migrate_schema(): void {
             $t->unsignedInteger('created')->default(0); // epoch seconds
             $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
         });
+    } else {
+        eb_add_column_if_missing('eb_payment_cache', 'tenant_id', fn(Blueprint $t)=>$t->bigInteger('tenant_id')->nullable()->index());
+        try {
+            if ($schema->hasTable('eb_customers') && $schema->hasColumn('eb_payment_cache', 'customer_id')) {
+                Capsule::statement("
+                    UPDATE eb_payment_cache p
+                    JOIN eb_customers c ON c.id = p.customer_id
+                    SET p.tenant_id = c.tenant_id
+                    WHERE (p.tenant_id IS NULL OR p.tenant_id = 0)
+                      AND c.tenant_id IS NOT NULL
+                ");
+            }
+        } catch (\Throwable $__) {}
     }
 
     // --- Partner Hub Catalog: Products ---
@@ -4992,6 +5032,7 @@ function eazybackup_output($vars)
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=devices">Devices</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=items">Protected Items</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=billing">Billing</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=income-forecast">Income Forecast</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=nfr">NFR</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=terms">Terms</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=privacy">Privacy</a></li>'
@@ -5147,6 +5188,7 @@ function eazybackup_output($vars)
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=devices">Devices</a></li>'
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=items">Protected Items</a></li>'
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=billing">Billing</a></li>'
+                   . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=income-forecast">Income Forecast</a></li>'
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=nfr">NFR</a></li>'
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=terms">Terms</a></li>'
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=privacy">Privacy</a></li>'
@@ -5203,6 +5245,7 @@ function eazybackup_output($vars)
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=devices">Devices</a></li>'
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=items">Protected Items</a></li>'
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=billing">Billing</a></li>'
+                   . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=income-forecast">Income Forecast</a></li>'
                    . '<li class="nav-item"><a class="nav-link active" href="#">NFR</a></li>'
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=terms">Terms</a></li>'
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=privacy">Privacy</a></li>'
@@ -5339,6 +5382,7 @@ function eazybackup_output($vars)
                       . '<li class="nav-item"><a class="nav-link active" href="#">Devices</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=items">Protected Items</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=billing">Billing</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=income-forecast">Income Forecast</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=nfr">NFR</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=terms">Terms</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=privacy">Privacy</a></li>'
@@ -5506,6 +5550,7 @@ function eazybackup_output($vars)
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=devices">Devices</a></li>'
                       . '<li class="nav-item"><a class="nav-link active" href="#">Protected Items</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=billing">Billing</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=income-forecast">Income Forecast</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=nfr">NFR</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=terms">Terms</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=privacy">Privacy</a></li>'
@@ -5615,6 +5660,7 @@ function eazybackup_output($vars)
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=devices">Devices</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=items">Protected Items</a></li>'
                       . '<li class="nav-item"><a class="nav-link active" href="#">Billing</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=income-forecast">Income Forecast</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=nfr">NFR</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=terms">Terms</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=privacy">Privacy</a></li>'
@@ -5827,6 +5873,128 @@ function eazybackup_output($vars)
                 echo $html;
                 return;
             }
+            case 'income-forecast': {
+                $controller = __DIR__ . '/pages/admin/powerpanel/income_forecast.php';
+                if (!is_file($controller)) {
+                    echo '<div class="alert alert-danger">Controller not found.</div>';
+                    return;
+                }
+
+                $data = require $controller;
+                $e = function ($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); };
+                $year = (int)($data['year'] ?? (int)date('Y'));
+                $month = (int)($data['month'] ?? (int)date('n'));
+                $page = (int)($data['page'] ?? 1);
+                $perPage = (int)($data['perPage'] ?? 50);
+                $rows = $data['rows'] ?? [];
+                $totalRows = (int)($data['totalRows'] ?? count($rows));
+                $pagination = (string)($data['pagination'] ?? '');
+                $sort = (string)($data['sort'] ?? 'renewal_date');
+                $dir = (string)($data['dir'] ?? 'asc');
+                $sortLinks = $data['sortLinks'] ?? [];
+                $totals = $data['totals'] ?? [
+                    'renewal_amount' => 0.0,
+                    'tax_amount' => 0.0,
+                    'grand_total' => 0.0,
+                ];
+
+                $monthName = date('F', strtotime(sprintf('%04d-%02d-01', $year, $month)));
+                $html = '';
+                $html .= '<div class="container-fluid">';
+                $html .= '<ul class="nav nav-tabs mb-3">'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=storage">Storage</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=devices">Devices</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=items">Protected Items</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=billing">Billing</a></li>'
+                      . '<li class="nav-item"><a class="nav-link active" href="#">Income Forecast</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=nfr">NFR</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=terms">Terms</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=privacy">Privacy</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=whitelabel">White-Label</a></li>'
+                      . '</ul>';
+
+                $html .= '<form method="get" class="mb-3 form-inline" style="margin-bottom:15px">'
+                      . '<input type="hidden" name="module" value="eazybackup"/>'
+                      . '<input type="hidden" name="action" value="powerpanel"/>'
+                      . '<input type="hidden" name="view" value="income-forecast"/>'
+                      . '<input type="hidden" name="sort" value="' . $e($sort) . '"/>'
+                      . '<input type="hidden" name="dir" value="' . $e($dir) . '"/>'
+                      . '<div class="form-group" style="margin-right:15px;margin-bottom:10px">'
+                      . '<label for="forecast-year" class="mr-2">Year</label>'
+                      . '<select id="forecast-year" class="form-control" name="year">';
+                for ($y = ((int)date('Y') - 3); $y <= ((int)date('Y') + 5); $y++) {
+                    $sel = ($year === $y) ? ' selected' : '';
+                    $html .= '<option value="' . (int)$y . '"' . $sel . '>' . (int)$y . '</option>';
+                }
+                $html .= '</select>'
+                      . '</div>'
+                      . '<div class="form-group" style="margin-right:15px;margin-bottom:10px">'
+                      . '<label for="forecast-month" class="mr-2">Month</label>'
+                      . '<select id="forecast-month" class="form-control" name="month">';
+                for ($m = 1; $m <= 12; $m++) {
+                    $sel = ($month === $m) ? ' selected' : '';
+                    $html .= '<option value="' . $m . '"' . $sel . '>' . $e(date('F', strtotime('2000-' . str_pad((string)$m, 2, '0', STR_PAD_LEFT) . '-01'))) . '</option>';
+                }
+                $html .= '</select>'
+                      . '</div>'
+                      . '<div class="form-group" style="margin-right:15px;margin-bottom:10px">'
+                      . '<label for="forecast-per-page" class="mr-2">Per Page</label>'
+                      . '<select id="forecast-per-page" class="form-control" name="perPage">';
+                foreach ([25, 50, 100, 250, 500, 2000] as $pp) {
+                    $sel = ($perPage === $pp) ? ' selected' : '';
+                    $html .= '<option value="' . $pp . '"' . $sel . '>' . $pp . '</option>';
+                }
+                $html .= '</select>'
+                      . '</div>'
+                      . '<button type="submit" class="btn btn-primary mb-2 mr-2">Filter</button>'
+                      . '<a href="addonmodules.php?module=eazybackup&action=powerpanel&view=income-forecast" class="btn btn-default mb-2">Reset</a>'
+                      . '</form>';
+
+                $html .= '<div class="clearfix" style="margin:10px 0 15px 0">'
+                      .   '<div class="pull-left" style="padding-top:7px; font-weight:600;">Total Services: ' . (int)$totalRows . '</div>'
+                      .   '<div class="pull-right">' . $pagination . '</div>'
+                      . '</div>';
+
+                $html .= '<div class="panel panel-default" style="margin-bottom:15px">'
+                      . '<div class="panel-heading"><strong>Renewal Totals for ' . $e($monthName . ' ' . $year) . '</strong></div>'
+                      . '<div class="panel-body">'
+                      . '<div><strong>Total Renewal Amount:</strong> $' . number_format((float)($totals['renewal_amount'] ?? 0), 2) . '</div>'
+                      . '<div><strong>Total Tax Amount:</strong> $' . number_format((float)($totals['tax_amount'] ?? 0), 2) . '</div>'
+                      . '<div><strong>Total Including Tax:</strong> $' . number_format((float)($totals['grand_total'] ?? 0), 2) . '</div>'
+                      . '</div>'
+                      . '</div>';
+
+                $html .= '<div class="table-responsive">'
+                      . '<table class="table table-striped table-condensed">'
+                      . '<thead><tr>'
+                      . '<th><a href="' . $e($sortLinks['username'] ?? '#') . '">Service Username' . ($sort === 'username' ? ' <span class="text-muted">(' . strtoupper($e($dir)) . ')</span>' : '') . '</a></th>'
+                      . '<th><a href="' . $e($sortLinks['billingcycle'] ?? '#') . '">Billing Cycle' . ($sort === 'billingcycle' ? ' <span class="text-muted">(' . strtoupper($e($dir)) . ')</span>' : '') . '</a></th>'
+                      . '<th class="text-right"><a href="' . $e($sortLinks['amount'] ?? '#') . '">Amount' . ($sort === 'amount' ? ' <span class="text-muted">(' . strtoupper($e($dir)) . ')</span>' : '') . '</a></th>'
+                      . '<th class="text-right">Tax</th>'
+                      . '<th>Renewal Date</th>'
+                      . '</tr></thead><tbody>';
+
+                if (!empty($rows)) {
+                    foreach ($rows as $r) {
+                        $serviceLink = 'clientsservices.php?userid=' . (int)$r['user_id'] . '&id=' . (int)$r['service_id'];
+                        $html .= '<tr>'
+                              . '<td><a href="' . $e($serviceLink) . '">' . $e((string)($r['username'] ?? '')) . '</a></td>'
+                              . '<td>' . $e((string)($r['billingcycle'] ?? '')) . '</td>'
+                              . '<td class="text-right">$' . number_format((float)($r['amount'] ?? 0), 2) . '</td>'
+                              . '<td class="text-right">$' . number_format((float)($r['tax_amount'] ?? 0), 2) . '</td>'
+                              . '<td>' . $e((string)($r['renewal_date'] ?? $r['nextduedate'] ?? '')) . '</td>'
+                              . '</tr>';
+                    }
+                } else {
+                    $html .= '<tr><td colspan="5" class="text-center text-muted">No active service renewals found for the selected month.</td></tr>';
+                }
+
+                $html .= '</tbody></table></div>';
+                $html .= '<div class="mt-2">' . $pagination . '</div>';
+                $html .= '</div>';
+                echo $html;
+                return;
+            }
             default:
                 // Admin white-label tenants view
                 if ($view === 'whitelabel') {
@@ -5858,11 +6026,13 @@ function eazybackup_output($vars)
     $linkDevices = 'addonmodules.php?module=eazybackup&action=powerpanel&view=devices';
     $linkItems   = 'addonmodules.php?module=eazybackup&action=powerpanel&view=items';
     $linkBilling = 'addonmodules.php?module=eazybackup&action=powerpanel&view=billing';
+    $linkIncomeForecast = 'addonmodules.php?module=eazybackup&action=powerpanel&view=income-forecast';
     echo '<div class="alert alert-info">eazyBackup Power Panel: '
         . '<a class="btn btn-primary" href="' . $linkStorage . '">Open Storage</a> '
         . '<a class="btn btn-default" href="' . $linkDevices . '">Open Devices</a> '
         . '<a class="btn btn-default" href="' . $linkItems   . '">Open Protected Items</a> '
-        . '<a class="btn btn-default" href="' . $linkBilling . '">Open Billing</a>'
+        . '<a class="btn btn-default" href="' . $linkBilling . '">Open Billing</a> '
+        . '<a class="btn btn-default" href="' . $linkIncomeForecast . '">Open Income Forecast</a>'
         . '</div>';
 }
 
@@ -5876,6 +6046,7 @@ function eazybackup_sidebar($vars)
         . '<a href="' . $base . '&action=powerpanel&view=devices" class="list-group-item"><i class="fa fa-hdd"></i> Power Panel: Devices</a>'
         . '<a href="' . $base . '&action=powerpanel&view=items" class="list-group-item"><i class="fa fa-shield-alt"></i> Power Panel: Protected Items</a>'
         . '<a href="' . $base . '&action=powerpanel&view=billing" class="list-group-item"><i class="fa fa-balance-scale"></i> Power Panel: Billing</a>'
+        . '<a href="' . $base . '&action=powerpanel&view=income-forecast" class="list-group-item"><i class="fa fa-line-chart"></i> Power Panel: Income Forecast</a>'
         . '<a href="' . $base . '&action=powerpanel&view=terms" class="list-group-item"><i class="fa fa-file-text-o"></i> Power Panel: Terms</a>'
         . '<a href="' . $base . '&action=powerpanel&view=privacy" class="list-group-item"><i class="fa fa-user-secret"></i> Power Panel: Privacy</a>'
         . '</div>';

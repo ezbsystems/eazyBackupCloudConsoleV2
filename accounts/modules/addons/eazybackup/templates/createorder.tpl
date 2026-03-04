@@ -786,7 +786,7 @@
                       <!-- Input -->
                       <div class="w-3/4">
                         <input type="text" id="username" name="username" placeholder="Username"
-                          class="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2.5 text-sm text-slate-100 placeholder:text-gray-500 text-white outline-1 -outline-offset-1 outline-white/10 placeholder:text-gray-500 focus:outline-2 focus:-outline-offset-2 focus:outline-[slate-600] {if !empty($errors.username)}border-red-500{/if} transition hover:bg-slate-800/50"
+                          class="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-2.5 text-sm text-slate-100 placeholder:text-gray-400 text-white outline-1 -outline-offset-1 outline-white/10 focus:outline-2 focus:-outline-offset-2 focus:outline-slate-500 {if !empty($errors.username)}border-red-500{/if} transition hover:bg-slate-800/70"
                           {if !empty($POST.username)}value="{$POST.username|escape:"html"}" {/if}>
                         {if !empty($errors.username)}
                           <p class="text-red-500 text-xs mt-1">{$errors.username}</p>
@@ -815,7 +815,7 @@
                         <div class="flex-1 relative">
                           <input :type="showPassword ? 'text' : 'password'" id="password" name="password"
                             placeholder="Create password"
-                            class="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2.5 text-sm text-slate-100 placeholder:text-gray-500 text-white outline-1 -outline-offset-1 outline-white/10 placeholder:text-gray-500 focus:outline-2 focus:-outline-offset-2 focus:outline-slate-600 transition hover:bg-slate-800/50 {if !empty($errors.password)}border-red-500{/if}">
+                            class="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2.5 text-sm text-slate-100 placeholder:text-gray-400 text-white outline-1 -outline-offset-1 outline-white/10 focus:outline-2 focus:-outline-offset-2 focus:outline-slate-500 {if !empty($errors.username)}border-red-500{/if} transition hover:bg-slate-800/70">
                           <button type="button" @click="showPassword = !showPassword" tabindex="-1"
                             class="absolute inset-y-0 right-3 flex items-center text-gray-400">
                             <!-- Hidden Icon -->

@@ -43,9 +43,22 @@ class MspController
 
     /**
      * Get all tenants for an MSP client.
+     * Uses eb_tenants when present (eazybackup canonical); otherwise s3_backup_tenants.
      */
     public static function getTenants(int $clientId): array
     {
+        if (Capsule::schema()->hasTable('eb_tenants')) {
+            $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id', $clientId)->first();
+            if (!$msp) {
+                return [];
+            }
+            return Capsule::table('eb_tenants')
+                ->where('msp_id', (int)$msp->id)
+                ->where('status', '!=', 'deleted')
+                ->orderBy('name')
+                ->get()
+                ->toArray();
+        }
         return Capsule::table('s3_backup_tenants')
             ->where('client_id', $clientId)
             ->where('status', '!=', 'deleted')
@@ -56,9 +69,21 @@ class MspController
 
     /**
      * Get a tenant by ID, ensuring it belongs to the specified client.
+     * Uses eb_tenants when present; otherwise s3_backup_tenants.
      */
     public static function getTenant(int $tenantId, int $clientId): ?object
     {
+        if (Capsule::schema()->hasTable('eb_tenants')) {
+            $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id', $clientId)->first();
+            if (!$msp) {
+                return null;
+            }
+            return Capsule::table('eb_tenants')
+                ->where('id', $tenantId)
+                ->where('msp_id', (int)$msp->id)
+                ->where('status', '!=', 'deleted')
+                ->first();
+        }
         return Capsule::table('s3_backup_tenants')
             ->where('id', $tenantId)
             ->where('client_id', $clientId)

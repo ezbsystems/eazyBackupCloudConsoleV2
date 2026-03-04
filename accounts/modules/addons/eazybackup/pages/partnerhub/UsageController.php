@@ -74,43 +74,29 @@ function eb_ph_usage_push(array $vars): void
         echo json_encode(['status'=>'error','message'=>'msp']);
         return;
     }
-    $customerId = (int)($_POST['customer_id'] ?? 0);
+    $tenantId = (int)($_POST['tenant_id'] ?? $_POST['customer_id'] ?? 0);
     $metric = (string)($_POST['metric'] ?? '');
     $qty = (int)($_POST['qty'] ?? 0);
     $periodStart = (int)($_POST['period_start'] ?? 0);
     $periodEnd = (int)($_POST['period_end'] ?? 0);
-    if ($customerId <= 0 || $metric === '' || $qty < 0) { echo json_encode(['status'=>'error','message'=>'invalid']); return; }
+    if ($tenantId <= 0 || $metric === '' || $qty < 0) { echo json_encode(['status'=>'error','message'=>'invalid']); return; }
     try {
-        [$resolvedPeriodStart, $resolvedPeriodEnd] = eb_usage_normalize_period_bounds($periodStart, $periodEnd);
-
-        $ownedCustomer = Capsule::table('eb_customers')
-            ->where('id', $customerId)
+        $tenant = Capsule::table('eb_tenants')
+            ->where('id', $tenantId)
             ->where('msp_id', (int) $msp->id)
-            ->first(['id', 'tenant_id']);
-        if (!$ownedCustomer) {
-            echo json_encode(['status'=>'error','message'=>'customer']);
+            ->first(['id']);
+        if (!$tenant) {
+            echo json_encode(['status'=>'error','message'=>'tenant']);
             return;
         }
 
-        $tenantId = (int) ($ownedCustomer->tenant_id ?? 0);
-
-        // Record in ledger
-        if ($tenantId > 0) {
-            $idKey = eb_usage_tenant_period_idempotency_key($tenantId, $metric, $resolvedPeriodStart, $resolvedPeriodEnd);
-        } else {
-            $idKey = sha1(
-                'customer:' . $customerId
-                . '|metric:' . $metric
-                . '|period_start:' . $resolvedPeriodStart
-                . '|period_end:' . $resolvedPeriodEnd
-            );
-        }
+        [$resolvedPeriodStart, $resolvedPeriodEnd] = eb_usage_normalize_period_bounds($periodStart, $periodEnd);
+        $idKey = eb_usage_tenant_period_idempotency_key((int)$tenant->id, $metric, $resolvedPeriodStart, $resolvedPeriodEnd);
 
         Capsule::table('eb_usage_ledger')->updateOrInsert(
             ['idempotency_key' => $idKey],
             [
-                'tenant_id' => ($tenantId > 0 ? $tenantId : null),
-                'customer_id' => $customerId,
+                'tenant_id' => (int)$tenant->id,
                 'metric' => $metric,
                 'qty' => $qty,
                 'period_start' => date('Y-m-d H:i:s', $resolvedPeriodStart),
@@ -122,7 +108,7 @@ function eb_ph_usage_push(array $vars): void
         );
 
         // Find active subscription and price for the metric, then push usage
-        $sub = Capsule::table('eb_subscriptions')->where('customer_id',$customerId)->where('stripe_status','active')->orderBy('created_at','desc')->first();
+        $sub = Capsule::table('eb_subscriptions')->where('tenant_id',$tenantId)->where('stripe_status','active')->orderBy('created_at','desc')->first();
         if (!$sub) { echo json_encode(['status'=>'success','message'=>'recorded-only']); return; }
         $priceRow = Capsule::table('eb_plan_prices')->where('id',(int)$sub->current_price_id)->first();
         if (!$priceRow || !(int)$priceRow->is_metered) { echo json_encode(['status'=>'success','message'=>'recorded-only']); return; }

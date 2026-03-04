@@ -77,18 +77,19 @@ try {
     $metric = 'STORAGE_TB';
     $stripeService = new StripeService();
 
+    // eb_tenant_storage_links.tenant_id = eb_tenants.id (canonical). Join eb_tenants for msp_id.
     $linkRows = Capsule::table('eb_tenant_storage_links as tsl')
-        ->join('eb_whitelabel_tenants as wt', 'wt.id', '=', 'tsl.tenant_id')
+        ->join('eb_tenants as t', 't.id', '=', 'tsl.tenant_id')
         ->where('tsl.link_status', 'active')
-        ->whereNotIn('wt.status', ['deleted', 'removing'])
+        ->where('t.status', 'active')
         ->get([
             'tsl.tenant_id',
-            'wt.client_id',
+            't.msp_id',
             'tsl.storage_identifier',
         ]);
 
     $tenantToUserIds = [];
-    $tenantToClientId = [];
+    $tenantToMspId = [];
     foreach ($linkRows as $row) {
         $tenantId = (int) ($row->tenant_id ?? 0);
         if ($tenantId <= 0) {
@@ -100,7 +101,7 @@ try {
             continue;
         }
 
-        $tenantToClientId[$tenantId] = (int) ($row->client_id ?? 0);
+        $tenantToMspId[$tenantId] = (int) ($row->msp_id ?? 0);
         if (!isset($tenantToUserIds[$tenantId])) {
             $tenantToUserIds[$tenantId] = [];
         }
@@ -114,8 +115,8 @@ try {
                 continue;
             }
 
-            $clientId = (int) ($tenantToClientId[$tenantId] ?? 0);
-            if ($clientId <= 0) {
+            $mspId = (int) ($tenantToMspId[$tenantId] ?? 0);
+            if ($mspId <= 0) {
                 continue;
             }
 
@@ -124,47 +125,43 @@ try {
                 continue;
             }
 
-            $s3Users = Capsule::table('s3_backup_users')
-                ->where('client_id', $clientId)
-                ->whereIn('id', $s3UserIds)
-                ->get(['username']);
+            $mspRow = Capsule::table('eb_msp_accounts')->where('id', $mspId)->first(['whmcs_client_id']);
+            $clientId = (int) ($mspRow->whmcs_client_id ?? 0);
+            if ($clientId <= 0) {
+                continue;
+            }
 
             $usernames = [];
-            foreach ($s3Users as $s3User) {
-                $username = trim((string) ($s3User->username ?? ''));
-                if ($username === '') {
-                    continue;
+            if (Capsule::schema()->hasTable('s3_backup_users')) {
+                $s3Users = Capsule::table('s3_backup_users')
+                    ->where('client_id', $clientId)
+                    ->whereIn('id', $s3UserIds)
+                    ->get(['username']);
+                foreach ($s3Users as $s3User) {
+                    $username = trim((string) ($s3User->username ?? ''));
+                    if ($username !== '') {
+                        $usernames[$username] = true;
+                    }
                 }
-                $usernames[$username] = true;
             }
             $usernames = array_keys($usernames);
             if ($usernames === []) {
                 continue;
             }
 
-            $sumBytes = (int) Capsule::table('eb_storage_daily')
-                ->where('client_id', $clientId)
-                ->whereIn('username', $usernames)
-                ->where('d', '>=', $periodStart->format('Y-m-d'))
-                ->where('d', '<', $periodEnd->format('Y-m-d'))
-                ->sum('bytes_total');
+            $sumBytes = 0;
+            if (Capsule::schema()->hasTable('eb_storage_daily')) {
+                $sumBytes = (int) Capsule::table('eb_storage_daily')
+                    ->where('client_id', $clientId)
+                    ->whereIn('username', $usernames)
+                    ->where('d', '>=', $periodStart->format('Y-m-d'))
+                    ->where('d', '<', $periodEnd->format('Y-m-d'))
+                    ->sum('bytes_total');
+            }
             $qtyGb = (int) floor(max(0, $sumBytes) / (1024 * 1024 * 1024));
 
-            $customer = Capsule::table('eb_customers')
-                ->where('tenant_id', $tenantId)
-                ->first(['id', 'msp_id']);
-            if (!$customer) {
-                continue;
-            }
-
-            $customerId = (int) ($customer->id ?? 0);
-            $mspId = (int) ($customer->msp_id ?? 0);
-            if ($customerId <= 0 || $mspId <= 0) {
-                continue;
-            }
-
             $sub = Capsule::table('eb_subscriptions')
-                ->where('customer_id', $customerId)
+                ->where('tenant_id', $tenantId)
                 ->where('stripe_status', 'active')
                 ->orderBy('created_at', 'desc')
                 ->first();
@@ -190,7 +187,6 @@ try {
                 ['idempotency_key' => $idempotencyKey],
                 [
                     'tenant_id' => $tenantId,
-                    'customer_id' => $customerId,
                     'metric' => $metric,
                     'qty' => $qtyGb,
                     'period_start' => $periodStart->format('Y-m-d H:i:s'),

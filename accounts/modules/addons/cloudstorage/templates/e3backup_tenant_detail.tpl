@@ -403,27 +403,27 @@
 
                 <div>
                     <label class="block text-sm font-medium text-slate-300 mb-1">Name <span class="text-rose-400">*</span></label>
-                    <input type="text" x-model.trim="memberForm.name" required placeholder="Jane Smith" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                    <input type="text" x-model.trim="memberForm.name" required placeholder="Jane Smith" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500">
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-slate-300 mb-1">Email <span class="text-rose-400">*</span></label>
-                    <input type="email" x-model.trim="memberForm.email" required placeholder="jane@example.com" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                    <input type="email" x-model.trim="memberForm.email" required placeholder="jane@example.com" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500">
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-slate-300 mb-1">Password <span class="text-rose-400">*</span></label>
-                    <input type="password" x-model="memberForm.password" required minlength="8" placeholder="Minimum 8 characters" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                    <input type="password" x-model="memberForm.password" required minlength="8" placeholder="Minimum 8 characters" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500">
                 </div>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                         <label class="block text-sm font-medium text-slate-300 mb-1">Role</label>
-                        <select x-model="memberForm.role" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                        <select x-model="memberForm.role" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500">
                             <option value="user">User</option>
                             <option value="admin">Admin</option>
                         </select>
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-slate-300 mb-1">Status</label>
-                        <select x-model="memberForm.status" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                        <select x-model="memberForm.status" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500">
                             <option value="active">Active</option>
                             <option value="disabled">Disabled</option>
                         </select>

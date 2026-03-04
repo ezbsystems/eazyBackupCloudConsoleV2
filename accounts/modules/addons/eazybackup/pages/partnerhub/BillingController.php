@@ -13,18 +13,20 @@ function eb_ph_billing_subscriptions(array $vars)
     $page = max(1, (int)($_GET['p'] ?? 1));
     $per = min(100, max(10, (int)($_GET['per'] ?? 25)));
 
+    try { if (function_exists('eazybackup_migrate_schema')) { @eazybackup_migrate_schema(); } } catch (\Throwable $__) {}
+
     $base = Capsule::table('eb_subscriptions as s')
-        ->leftJoin('eb_customers as c','c.id','=','s.customer_id')
+        ->leftJoin('eb_tenants as t','t.id','=','s.tenant_id')
         ->leftJoin('eb_plans as p','p.id','=','s.plan_id')
         ->leftJoin('eb_plan_prices as pp','pp.id','=','s.current_price_id')
         ->where('s.msp_id', (int)$msp->id);
 
     if ($q !== '') {
         $base->where(function($w) use ($q){
-            $w->where('c.name','like','%'.$q.'%')
+            $w->where('t.name','like','%'.$q.'%')
               ->orWhere('s.stripe_subscription_id','like','%'.$q.'%')
               ->orWhere('p.name','like','%'.$q.'%')
-              ->orWhere('pp.nickname','like','%'.$q+'%');
+              ->orWhere('pp.nickname','like','%'.$q.'%');
         });
     }
 
@@ -33,8 +35,8 @@ function eb_ph_billing_subscriptions(array $vars)
         ->forPage($page, $per)
         ->get([
             's.*',
-            'c.name as customer_name',
-            'c.id as customer_row_id',
+            't.name as tenant_name',
+            't.id as tenant_row_id',
             'p.name as plan_name',
             'pp.nickname as price_nickname',
             'pp.billing_cycle as price_cycle'
@@ -71,14 +73,15 @@ function eb_ph_billing_invoices(array $vars)
     $q = trim((string)($_GET['q'] ?? ''));
     $page = max(1, (int)($_GET['p'] ?? 1));
     $per = min(100, max(10, (int)($_GET['per'] ?? 25)));
+    try { if (function_exists('eazybackup_migrate_schema')) { @eazybackup_migrate_schema(); } } catch (\Throwable $__) {}
 
     $base = Capsule::table('eb_invoice_cache as i')
-        ->leftJoin('eb_customers as c','c.id','=','i.customer_id')
-        ->where('c.msp_id', (int)$msp->id);
+        ->leftJoin('eb_tenants as t','t.id','=','i.tenant_id')
+        ->where('t.msp_id', (int)$msp->id);
 
     if ($q !== '') {
         $base->where(function($w) use ($q){
-            $w->where('c.name','like','%'.$q.'%')
+            $w->where('t.name','like','%'.$q.'%')
               ->orWhere('i.stripe_invoice_id','like','%'.$q.'%')
               ->orWhere('i.status','like','%'.$q.'%');
         });
@@ -89,8 +92,8 @@ function eb_ph_billing_invoices(array $vars)
         ->forPage($page, $per)
         ->get([
             'i.*',
-            'c.name as customer_name',
-            'c.id as customer_row_id'
+            't.name as tenant_name',
+            't.id as tenant_row_id'
         ]);
 
     $rows = [];
@@ -124,14 +127,15 @@ function eb_ph_billing_payments(array $vars)
     $q = trim((string)($_GET['q'] ?? ''));
     $page = max(1, (int)($_GET['p'] ?? 1));
     $per = min(100, max(10, (int)($_GET['per'] ?? 25)));
+    try { if (function_exists('eazybackup_migrate_schema')) { @eazybackup_migrate_schema(); } } catch (\Throwable $__) {}
 
     $base = Capsule::table('eb_payment_cache as p')
-        ->leftJoin('eb_customers as c','c.id','=','p.customer_id')
-        ->where('c.msp_id', (int)$msp->id);
+        ->leftJoin('eb_tenants as t','t.id','=','p.tenant_id')
+        ->where('t.msp_id', (int)$msp->id);
 
     if ($q !== '') {
         $base->where(function($w) use ($q){
-            $w->where('c.name','like','%'.$q.'%')
+            $w->where('t.name','like','%'.$q.'%')
               ->orWhere('p.stripe_payment_intent_id','like','%'.$q.'%')
               ->orWhere('p.status','like','%'.$q.'%');
         });
@@ -142,8 +146,8 @@ function eb_ph_billing_payments(array $vars)
         ->forPage($page, $per)
         ->get([
             'p.*',
-            'c.name as customer_name',
-            'c.id as customer_row_id'
+            't.name as tenant_name',
+            't.id as tenant_row_id'
         ]);
 
     $rows = [];
@@ -174,9 +178,9 @@ function eb_ph_billing_payment_new(array $vars)
     $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
     if (!$msp) { header('Location: '.$vars['modulelink'].'&a=ph-clients'); exit; }
 
-    $customers = Capsule::table('eb_customers')->where('msp_id',(int)$msp->id)->orderBy('name','asc')->get(['id','name']);
-    $custArr = [];
-    foreach ($customers as $c) { $custArr[] = (array)$c; }
+    $tenants = Capsule::table('eb_tenants')->where('msp_id',(int)$msp->id)->orderBy('name','asc')->get(['id','name']);
+    $tenantArr = [];
+    foreach ($tenants as $t) { $tenantArr[] = (array)$t; }
 
     return [
         'pagetitle' => 'New Payment',
@@ -184,7 +188,7 @@ function eb_ph_billing_payment_new(array $vars)
         'breadcrumb' => [ 'index.php?m=eazybackup' => 'eazyBackup', $vars['modulelink'].'&a=ph-billing-payments' => 'Payments' ],
         'requirelogin' => true,
         'forcessl' => true,
-        'vars' => [ 'modulelink' => $vars['modulelink'], 'msp' => $msp, 'customers' => $custArr ],
+        'vars' => [ 'modulelink' => $vars['modulelink'], 'msp' => $msp, 'tenants' => $tenantArr, 'customers' => $tenantArr ],
     ];
 }
 
@@ -196,7 +200,7 @@ function eb_ph_billing_create_payment(array $vars): void
         $clientId = (int)$_SESSION['uid'];
         $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
         if (!$msp || (string)($msp->stripe_connect_id ?? '') === '') { echo json_encode(['status'=>'error','message'=>'no_account']); return; }
-        $customerId = (int)($_POST['customer_id'] ?? 0);
+        $tenantId = (int)($_POST['tenant_id'] ?? $_POST['customer_id'] ?? 0);
         $amountDec = (string)($_POST['amount'] ?? '0'); // decimal as string
         $feeDec = (string)($_POST['application_fee'] ?? '0');
         $currency = strtoupper(trim((string)($_POST['currency'] ?? 'USD')));
@@ -214,12 +218,11 @@ function eb_ph_billing_create_payment(array $vars): void
         ];
         if ($feeMinor > 0) { $params['application_fee_amount'] = $feeMinor; }
 
-        // Optional: tie to connected customer if provided
-        if ($customerId > 0) {
-            $cust = Capsule::table('eb_customers')->where('id',$customerId)->where('msp_id',(int)$msp->id)->first();
-            if ($cust) {
+        if ($tenantId > 0) {
+            $tenant = Capsule::table('eb_tenants')->where('id',$tenantId)->where('msp_id',(int)$msp->id)->first();
+            if ($tenant) {
                 $svc = new \PartnerHub\StripeService();
-                $scus = $svc->ensureStripeCustomerFor((int)$cust->id, $acct);
+                $scus = $svc->ensureStripeCustomerFor($tenantId, $acct);
                 if ($scus !== '') { $params['customer'] = $scus; }
                 $pi = $svc->createPaymentIntentOneTime($acct, $params);
                 echo json_encode(['status'=>'success','client_secret'=>$pi['client_secret'] ?? null, 'publishable'=>(new \PartnerHub\StripeService())->getPublishable()]);
@@ -254,8 +257,8 @@ function eb_ph_money_payouts(array $vars)
     if ($q !== '') {
         $base->where(function($w) use ($q){
             $w->where('p.stripe_payout_id','like','%'.$q.'%')
-              ->orWhere('p.status','like','%'.$q+'%')
-              ->orWhere('p.currency','like','%'.$q+'%');
+              ->orWhere('p.status','like','%'.$q.'%')
+              ->orWhere('p.currency','like','%'.$q.'%');
         });
     }
 
@@ -301,9 +304,9 @@ function eb_ph_money_disputes(array $vars)
 
     if ($q !== '') {
         $base->where(function($w) use ($q){
-            $w->where('d.stripe_dispute_id','like','%'.$q+'%')
-              ->orWhere('d.status','like','%'.$q+'%')
-              ->orWhere('d.currency','like','%'.$q+'%');
+            $w->where('d.stripe_dispute_id','like','%'.$q.'%')
+              ->orWhere('d.status','like','%'.$q.'%')
+              ->orWhere('d.currency','like','%'.$q.'%');
         });
     }
 

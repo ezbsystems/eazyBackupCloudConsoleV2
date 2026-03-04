@@ -152,7 +152,7 @@
 
                             <!-- Cloud-to-Cloud Backup -->
                             <button type="button"
-                                    class="group relative rounded-xl border-2 border-slate-600 bg-slate-800/70 px-5 py-5 text-left transition-all duration-200 hover:border-amber-400 hover:bg-slate-800 hover:shadow-lg hover:shadow-amber-500/10 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 focus:ring-offset-slate-900"
+                                    class="group relative rounded-xl border-2 border-slate-600 bg-slate-800/70 px-5 py-5 text-left transition-all duration-200 hover:border-amber-400 hover:bg-slate-800 hover:shadow-lg hover:shadow-amber-500/10 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 focus:ring-offset-slate-900"
                                     data-choice="cloud2cloud"
                                     onclick="ebChooseProduct(this)">
                                 <div class="flex items-start gap-4">

@@ -1,6 +1,6 @@
-<div class="min-h-screen bg-slate-950 text-gray-200" x-data="tenantMembersApp()">
+<div class="min-h-screen bg-slate-950 text-gray-100 overflow-x-hidden" x-data="tenantMembersApp()">
     <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
-    <div class="container mx-auto px-4 py-6 relative pointer-events-auto">
+    <div class="container mx-auto max-w-full px-4 pb-8 pt-6 relative pointer-events-auto">
         {assign var="activeNav" value="tenant_members"}
         {include file="modules/addons/cloudstorage/templates/partials/e3backup_nav.tpl"}
 
@@ -14,7 +14,7 @@
                         <span class="text-slate-600">/</span>
                         <span class="text-white text-sm font-medium">Tenant Members</span>
                     </div>
-                    <h1 class="text-2xl font-semibold text-white">Tenant Members</h1>
+                    <h2 class="text-2xl font-semibold text-white">Tenant Members</h2>
                     <p class="text-xs text-slate-400 mt-1">Manage members who can access the tenant portal to manage backups and perform restores.</p>
                 </div>
                 <button @click="openPartnerHub('members')" class="mt-4 sm:mt-0 px-4 py-2 rounded-md bg-amber-600 text-white text-sm font-semibold hover:bg-amber-500">
@@ -42,7 +42,7 @@
 
             <div class="mb-4 flex items-center gap-4">
                 <label class="text-sm text-slate-400">Tenant:</label>
-                <select x-model="tenantFilter" @change="syncTenantFilterToUrl(); loadUsers()" class="rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none focus:ring-1 focus:ring-amber-500">
+                <select x-model="tenantFilter" @change="syncTenantFilterToUrl(); loadUsers()" class="w-full max-w-xs px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 placeholder:text-gray-400 text-white outline-1 -outline-offset-1 outline-white/10 focus:outline-2 focus:-outline-offset-2 focus:outline-sky-700 transition">
                     <option value="">All Tenants</option>
                     {foreach from=$tenants item=tenant}
                     <option value="{$tenant->id}">{$tenant->name|escape}</option>
@@ -101,7 +101,7 @@
                                 <td class="px-4 py-3 text-slate-300" x-text="user.last_login_at || 'Never'"></td>
                                 <td class="px-4 py-3">
                                     <div class="flex gap-1">
-                                        <button @click="openPartnerHubForUser(user, 'members')" class="text-xs px-2 py-1 rounded bg-slate-800 border border-slate-700 hover:border-slate-500">
+                                        <button type="button" @click="openPartnerHubForUser(user, 'members')" class="px-3 py-1.5 text-xs bg-slate-700 rounded text-white hover:bg-slate-600 cursor-pointer">
                                             Open in Partner Hub
                                         </button>
                                     </div>
@@ -114,7 +114,7 @@
         </div>
     </div>
 
-    <div x-show="showModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60" @click.self="showModal = false">
+    <div x-show="showModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-950/70 backdrop-blur-sm" @click.self="showModal = false">
         <div class="w-full max-w-md rounded-xl border border-slate-700 bg-slate-900 shadow-2xl">
             <div class="flex items-center justify-between border-b border-slate-700 px-6 py-4">
                 <h3 class="text-lg font-semibold text-white" x-text="editingUser ? 'Edit Member' : 'Create Member'"></h3>
@@ -123,7 +123,7 @@
             <form @submit.prevent="saveUser()" class="p-6 space-y-4">
                 <div>
                     <label class="block text-sm font-medium text-slate-300 mb-1">Tenant <span class="text-rose-400">*</span></label>
-                    <select x-model="form.tenant_id" required :disabled="editingUser" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:opacity-50">
+                    <select x-model="form.tenant_id" required :disabled="editingUser" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 placeholder:text-gray-400 text-white outline-1 -outline-offset-1 outline-white/10 focus:outline-2 focus:-outline-offset-2 focus:outline-sky-700 transition disabled:opacity-50 disabled:cursor-not-allowed">
                         <option value="">Select Tenant</option>
                         {foreach from=$tenants item=tenant}
                         <option value="{$tenant->id}">{$tenant->name|escape}</option>
@@ -133,24 +133,24 @@
 
                 <div>
                     <label class="block text-sm font-medium text-slate-300 mb-1">Name <span class="text-rose-400">*</span></label>
-                    <input type="text" x-model="form.name" required placeholder="John Smith" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                    <input type="text" x-model="form.name" required placeholder="John Smith" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 placeholder:text-gray-400 text-white outline-1 -outline-offset-1 outline-white/10 focus:outline-2 focus:-outline-offset-2 focus:outline-sky-700 transition">
                 </div>
 
                 <div>
                     <label class="block text-sm font-medium text-slate-300 mb-1">Email <span class="text-rose-400">*</span></label>
-                    <input type="email" x-model="form.email" required placeholder="john@example.com" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                    <input type="email" x-model="form.email" required placeholder="john@example.com" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 placeholder:text-gray-400 text-white outline-1 -outline-offset-1 outline-white/10 focus:outline-2 focus:-outline-offset-2 focus:outline-sky-700 transition">
                 </div>
 
                 <template x-if="!editingUser">
                     <div>
                         <label class="block text-sm font-medium text-slate-300 mb-1">Password <span class="text-rose-400">*</span></label>
-                        <input type="password" x-model="form.password" required minlength="8" placeholder="Minimum 8 characters" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                        <input type="password" x-model="form.password" required minlength="8" placeholder="Minimum 8 characters" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 placeholder:text-gray-400 text-white outline-1 -outline-offset-1 outline-white/10 focus:outline-2 focus:-outline-offset-2 focus:outline-sky-700 transition">
                     </div>
                 </template>
 
                 <div>
                     <label class="block text-sm font-medium text-slate-300 mb-1">Role</label>
-                    <select x-model="form.role" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                    <select x-model="form.role" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 placeholder:text-gray-400 text-white outline-1 -outline-offset-1 outline-white/10 focus:outline-2 focus:-outline-offset-2 focus:outline-sky-700 transition">
                         <option value="user">User</option>
                         <option value="admin">Admin</option>
                     </select>
@@ -159,7 +159,7 @@
 
                 <div>
                     <label class="block text-sm font-medium text-slate-300 mb-1">Status</label>
-                    <select x-model="form.status" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                    <select x-model="form.status" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 placeholder:text-gray-400 text-white outline-1 -outline-offset-1 outline-white/10 focus:outline-2 focus:-outline-offset-2 focus:outline-sky-700 transition">
                         <option value="active">Active</option>
                         <option value="disabled">Disabled</option>
                     </select>
@@ -176,7 +176,7 @@
         </div>
     </div>
 
-    <div x-show="showPasswordModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60" @click.self="showPasswordModal = false">
+    <div x-show="showPasswordModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-950/70 backdrop-blur-sm" @click.self="showPasswordModal = false">
         <div class="w-full max-w-md rounded-xl border border-slate-700 bg-slate-900 shadow-2xl">
             <div class="flex items-center justify-between border-b border-slate-700 px-6 py-4">
                 <h3 class="text-lg font-semibold text-white">Reset Password</h3>
@@ -187,7 +187,7 @@
 
                 <div>
                     <label class="block text-sm font-medium text-slate-300 mb-1">New Password <span class="text-rose-400">*</span></label>
-                    <input type="password" x-model="newPassword" required minlength="8" placeholder="Minimum 8 characters" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                    <input type="password" x-model="newPassword" required minlength="8" placeholder="Minimum 8 characters" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 placeholder:text-gray-400 text-white outline-1 -outline-offset-1 outline-white/10 focus:outline-2 focus:-outline-offset-2 focus:outline-sky-700 transition">
                 </div>
 
                 <div class="flex justify-end gap-3 pt-4">

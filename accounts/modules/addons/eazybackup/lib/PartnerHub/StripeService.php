@@ -151,22 +151,22 @@ class StripeService
         return $this->request('POST','/v1/prices', $params, null, $stripeAccount);
     }
 
-    public function ensureStripeCustomerFor(int $customerRowId, ?string $stripeAccount = null): string
+    public function ensureStripeCustomerFor(int $tenantId, ?string $stripeAccount = null): string
     {
-        $cust = Capsule::table('eb_customers')->where('id',$customerRowId)->first();
-        if (!$cust) { throw new \RuntimeException('Customer not found'); }
-        $scus = (string)($cust->stripe_customer_id ?? '');
+        $tenant = Capsule::table('eb_tenants')->where('id',$tenantId)->first();
+        if (!$tenant) { throw new \RuntimeException('Tenant not found'); }
+        $scus = (string)($tenant->stripe_customer_id ?? '');
         if ($scus !== '') { return $scus; }
-        $wc = Capsule::table('tblclients')->where('id',(int)$cust->whmcs_client_id)->first();
-        $name = trim(((string)($wc->companyname ?? '')) !== '' ? (string)$wc->companyname : ((string)($wc->firstname ?? '') . ' ' . (string)($wc->lastname ?? '')));
-        $email = (string)($wc->email ?? '');
+        $name = trim((string)($tenant->name ?? ''));
+        if ($name === '') { $name = trim((string)($tenant->contact_name ?? '')); }
+        $email = (string)($tenant->contact_email ?? '');
         $created = $this->request('POST','/v1/customers',[
-            'name' => $name,
-            'email' => $email,
+            'name' => $name !== '' ? $name : 'Tenant ' . $tenantId,
+            'email' => $email !== '' ? $email : null,
         ], null, $stripeAccount);
         $scus = (string)($created['id'] ?? '');
         if ($scus !== '') {
-            Capsule::table('eb_customers')->where('id',$customerRowId)->update([
+            Capsule::table('eb_tenants')->where('id',$tenantId)->update([
                 'stripe_customer_id' => $scus,
                 'updated_at' => date('Y-m-d H:i:s'),
             ]);

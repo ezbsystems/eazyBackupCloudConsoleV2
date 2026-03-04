@@ -6,19 +6,139 @@ Use three surfaces, one accent, neutral separators, and consistent spacing/typog
 
 We have created a partial that can be included on any page (templates/partials/_ui-tokens.tpl). This avoids touching Tailwind config.
 
+---
 
-Page wrapper (add to each page)
-<div class="min-h-screen bg-[rgb(var(--bg-page))] text-[rgb(var(--text-primary))]">
-  <div class="mx-auto max-w-none px-6 py-8"> <!-- page container -->
-    <!-- your content -->
-  </div>
+## Page structure
+
+Every template must use the same outer and inner containers. If the page has a horizontal navbar, add the content card, navbar, and breadcrumb as below. Every template must include a page heading and description.
+
+Reference: `accounts/templates/eazyBackup/clientareaproducts.tpl`.
+
+### Outer container (required)
+
+**Every full-page template must start with this wrapper.** Wrap the entire page in:
+
+```html
+<div class="min-h-screen bg-slate-950 text-gray-100 overflow-x-hidden">
+  <!-- inner container + content -->
 </div>
+```
+
+### Inner container (required)
+
+**Direct child of the outer container.** Every full-page template must have this as the first child of the outer container:
+
+```html
+<div class="container mx-auto max-w-full px-4 pb-8 pt-6">
+  <!-- content card (if navbar) or main content -->
+</div>
+```
+
+When adding or updating a template, always apply both the outer and inner container first; then add navbar (if any), heading block, and content. Do not use `p-6` alone, or `max-w-5xl` / `max-w-6xl` / `px-6 py-8` for the inner container—use the exact classes above.
+
+### Content card (when the template has a navbar)
+
+When the page has a horizontal navbar, wrap the navbar and main content in a single card so the navbar sits in the card’s top border area:
+
+```html
+<div class="w-full max-w-full min-w-0 overflow-hidden rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
+  <!-- navbar strip (optional, see below) -->
+  <!-- breadcrumb + heading block + main content -->
+</div>
+```
+
+### Horizontal navbar (optional)
+
+Use when the template has multiple sections or tabs (e.g. Backup Services, Billing Report, e3 Object Storage). Place the navbar as the first child of the content card so it visually sits in the card header.
+
+**Navbar container:**
+
+```html
+<div class="-mx-6 -mt-6 mb-6 rounded-t-3xl border-b border-slate-800/80 bg-slate-900/50 px-6 py-3">
+  <nav class="flex flex-wrap items-center gap-1" aria-label="…">
+    <!-- nav links -->
+  </nav>
+</div>
+```
+
+**Each nav link:**
+
+- **Wrapper:** `<a href="…" class="…">` with the classes below.
+- **Base (all links):** `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200`
+- **Active state:** `bg-white/10 text-white ring-1 ring-white/20`
+- **Inactive state:** `text-slate-400 hover:text-white hover:bg-white/5`
+- **Icon:** Every nav item must include an icon. Use an SVG with `class="w-5 h-5 flex-shrink-0"`.
+- **Label:** `<span class="text-sm font-medium">Label</span>` after the icon.
+
+Example (one active, one inactive):
+
+```html
+<a href="…" class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 bg-white/10 text-white ring-1 ring-white/20">
+  <svg class="w-5 h-5 flex-shrink-0" …>…</svg>
+  <span class="text-sm font-medium">Active Tab</span>
+</a>
+<a href="…" class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 text-slate-400 hover:text-white hover:bg-white/5">
+  <svg class="w-5 h-5 flex-shrink-0" …>…</svg>
+  <span class="text-sm font-medium">Other Tab</span>
+</a>
+```
+
+### Breadcrumb (when the template has a navbar)
+
+When a navbar is present, show a breadcrumb-style trail above the page heading. Place it in the same block as the heading and description.
+
+**Wrapper:** `flex items-center gap-2 mb-1`
+
+- **Ancestor link:** `text-slate-400 hover:text-white text-sm`
+- **Separator:** `<span class="text-slate-600">/</span>`
+- **Current page (no link):** `<span class="text-white text-sm font-medium">Current Page</span>`
+
+```html
+<div class="flex items-center gap-2 mb-1">
+  <a href="…" class="text-slate-400 hover:text-white text-sm">Parent</a>
+  <span class="text-slate-600">/</span>
+  <span class="text-white text-sm font-medium">Current Page</span>
+</div>
+```
+
+### Page heading (required)
+
+Every template must have a single main heading:
+
+```html
+<h2 class="text-2xl font-semibold text-white">Page Title</h2>
+```
+
+### Page description (required)
+
+Place a short description directly under the heading:
+
+```html
+<p class="text-xs text-slate-400 mt-1">
+  Short description of what this page is for.
+</p>
+```
+
+**Heading + description block layout:** Use a flex row when you need primary actions on the right (e.g. “Export”); otherwise a single column is fine.
+
+```html
+<div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-3">
+  <div>
+    <div class="flex items-center gap-2 mb-1"><!-- breadcrumb, if navbar --></div>
+    <h2 class="text-2xl font-semibold text-white">…</h2>
+    <p class="text-xs text-slate-400 mt-1">…</p>
+  </div>
+  <div class="shrink-0"><!-- optional action buttons --></div>
+</div>
+```
+
+---
 
 2) Typography + Spacing scale
 
-H1: text-2xl font-semibold tracking-tight
+**Page title (main H2):** `text-2xl font-semibold text-white` — use for the single main heading on each template (see Page structure above).
 
-H2/section title: text-lg font-medium
+H2/section title (in-content): text-lg font-medium
 
 Body: default
 
@@ -33,70 +153,8 @@ Card radius: rounded-2xl (outer), rounded-xl (inner/controls)
 3) Components (copy/paste patterns)
 Card (single source of structure)
 
-Use one card per major block; separate sections with borders—not more background colors.
 
-<section class="mt-6 rounded-2xl bg-[rgb(var(--bg-card))] shadow-xl shadow-black/20 ring-1 ring-white/10 overflow-hidden">
-  <div class="px-6 py-5">
-    <h2 class="text-lg font-medium">Section Title</h2>
-  </div>
-  <div class="border-t border-white/10"></div>
-  <div class="px-6 py-6">
-    <!-- content -->
-  </div>
-</section>
-
-Form field (universal)
-<label class="block">
-  <span class="text-sm text-[rgb(var(--text-secondary))]">Label</span>
-  <input type="text"
-    class="mt-2 w-full rounded-xl bg-[rgb(var(--bg-input))] text-white/90 placeholder-white/30
-           ring-1 ring-white/10 focus:ring-2 focus:ring-[rgb(var(--accent))] focus:outline-none
-           px-3.5 py-2.5" placeholder="Placeholder">
-</label>
-
-Textarea / Select
-
-Same classes as inputs. For select, add appearance-none pr-10 and a tiny chevron absolutely positioned.
-
-Inline field group (input + button)
-<div class="mt-2 flex rounded-xl overflow-hidden">
-  <input class="flex-1 rounded-l-xl bg-[rgb(var(--bg-input))] text-white/90
-               ring-1 ring-white/10 focus:ring-2 focus:ring-[rgb(var(--accent))]
-               focus:outline-none px-3.5 py-2.5">
-  <button class="rounded-r-xl px-3 ring-1 ring-l-0 ring-white/10 bg-white/5 hover:bg-white/10
-                 focus:outline-none focus:ring-2 focus:ring-[rgb(var(--accent))]">
-    <!-- icon -->
-  </button>
-</div>
-
-File input (styled label shell)
-<div>
-  <span class="block text-sm text-[rgb(var(--text-secondary))]">Upload</span>
-  <label class="mt-2 flex items-center justify-between rounded-xl bg-[rgb(var(--bg-input))]
-                 ring-1 ring-white/10 cursor-pointer hover:ring-[rgb(var(--accent))]/50">
-    <span class="px-3.5 py-2.5 text-white/70">Choose file…</span>
-    <input type="file" class="hidden">
-    <span class="px-3.5 py-2.5 text-xs text-white/40">PNG, JPG, SVG</span>
-  </label>
-</div>
-
-Buttons
-<!-- Primary -->
-<button class="rounded-xl px-4 py-2 font-medium text-white
-               bg-[rgb(var(--accent))] hover:bg-[rgb(var(--accent))]/90
-               focus-visible:outline-none focus-visible:ring-2
-               focus-visible:ring-[rgb(var(--accent))]">
-  Save
-</button>
-
-<!-- Secondary / Ghost -->
-<button class="rounded-xl px-4 py-2 text-white/80 ring-1 ring-white/10
-               hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2
-               focus-visible:ring-[rgb(var(--accent))]">
-  Cancel
-</button>
-
-Number stepper (increment/decrement)
+## Number stepper (increment/decrement)
 
 Use this Alpine/Tailwind stepper for numeric inputs to keep controls consistent across the app. It is fully keyboard accessible, keeps the neutral input shell, and uses our accent for focus.
 
@@ -191,58 +249,6 @@ Keep the shell consistent; change only hue and icon.
   Heads-up…
 </div>
 
-Tables (compact, dark)
-<div class="mt-6 rounded-2xl overflow-hidden ring-1 ring-white/10">
-  <table class="w-full text-sm">
-    <thead class="bg-white/5 text-white/70">
-      <tr class="text-left">
-        <th class="px-4 py-3 font-medium">Name</th>
-        <th class="px-4 py-3 font-medium">Status</th>
-        <th class="px-4 py-3 font-medium text-right">Actions</th>
-      </tr>
-    </thead>
-    <tbody class="divide-y divide-white/10">
-      <tr class="hover:bg-white/5">
-        <td class="px-4 py-3">Acme</td>
-        <td class="px-4 py-3">
-          <span class="inline-flex items-center gap-2 rounded-md bg-white/5 ring-1 ring-white/10 px-2 py-1">
-            <span class="h-2 w-2 rounded-full bg-emerald-400"></span> Active
-          </span>
-        </td>
-        <td class="px-4 py-3 text-right">
-          <button class="rounded-lg px-3 py-1.5 ring-1 ring-white/10 hover:bg-white/10">Manage</button>
-        </td>
-      </tr>
-    </tbody>
-  </table>
-</div>
-
-Tabs (underline style—no extra backgrounds)
-<div class="flex gap-6 border-b border-white/10">
-  <button class="py-3 -mb-px border-b-2 border-transparent text-white/70 hover:text-white"
-          x-bind:class="active==='overview' ? 'border-white/60 text-white' : ''">Overview</button>
-  <button class="py-3 -mb-px border-b-2 border-transparent text-white/70 hover:text-white"
-          x-bind:class="active==='settings' ? 'border-white/60 text-white' : ''">Settings</button>
-</div>
-
-Modals (overlay + card)
-<div class="fixed inset-0 z-50 flex items-center justify-center">
-  <div class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
-  <div class="relative w-full max-w-lg rounded-2xl bg-slate-900
-              ring-1 ring-white/10 shadow-xl shadow-black/30">
-    <div class="px-6 py-5">
-      <h3 class="text-lg font-medium">Modal title</h3>
-    </div>
-    <div class="border-t border-white/10"></div>
-    <div class="px-6 py-6">
-      <!-- content -->
-    </div>
-    <div class="border-t border-white/10"></div>
-    <div class="px-6 py-4 flex justify-end gap-3">
-      <!-- buttons -->
-    </div>
-  </div>
-</div>
 
 ---
 
@@ -257,10 +263,12 @@ Use these standardized patterns for all slide-out drawers and modal overlays to 
 | Drawer background | `bg-slate-950/95` |
 | Drawer border | `border-l border-slate-800` |
 | Drawer shadow | `shadow-2xl` |
-| Modal background | `bg-slate-900/95` or `bg-slate-900` |
+| Modal overlay (wrapper) | `fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-950/70 backdrop-blur-xs` |
+| Modal container/panel | `rounded-xl border border-slate-700 bg-slate-900 shadow-2xl` |
+| Modal background | `bg-slate-900` (use on panel; see Modal container above) |
 | Modal border | `border border-slate-700` |
-| Modal shadow | `shadow-2xl` or `shadow-xl shadow-black/30` |
-| Backdrop | `bg-black/50` (drawers) or `bg-black/60` (modals) |
+| Modal shadow | `shadow-2xl` |
+| Backdrop | `bg-black/50` (drawers) or `bg-gray-950/70 backdrop-blur-xs` (modals) |
 | Header border | `border-b border-slate-800` |
 | Footer border | `border-t border-slate-800` |
 | Section dividers | `border-slate-700` or `border-slate-800` |
@@ -406,20 +414,16 @@ Standard close button for drawer headers:
 
 ### Modal with Transitions
 
-Centered modal overlay with fade and scale animation:
+Centered modal overlay with fade and scale animation. Use the canonical overlay and panel classes below.
+
+**Modal overlay (backdrop + wrapper):** `fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-950/70 backdrop-blur-xs`
+
+**Modal container/panel:** `rounded-xl border border-slate-700 bg-slate-900 shadow-2xl`
 
 ```html
-<div x-show="open" class="fixed inset-0 z-[10070] flex items-center justify-center">
-  {* Backdrop *}
-  <div x-show="open"
-       x-transition:enter="transition ease-out duration-200"
-       x-transition:enter-start="opacity-0"
-       x-transition:enter-end="opacity-100"
-       x-transition:leave="transition ease-in duration-150"
-       x-transition:leave-start="opacity-100"
-       x-transition:leave-end="opacity-0"
-       class="absolute inset-0 bg-black/60"></div>
-  
+<div x-show="open"
+     @click.self="open = false"
+     class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-950/70 backdrop-blur-xs">
   {* Modal Panel *}
   <div x-show="open"
        x-transition:enter="transition ease-out duration-200"
@@ -428,7 +432,7 @@ Centered modal overlay with fade and scale animation:
        x-transition:leave="transition ease-in duration-150"
        x-transition:leave-start="opacity-100 scale-100"
        x-transition:leave-end="opacity-0 scale-95"
-       class="relative w-full max-w-md mx-4 bg-slate-900/95 border border-slate-700 rounded-xl shadow-2xl">
+       class="relative w-full max-w-md rounded-xl border border-slate-700 bg-slate-900 shadow-2xl">
     
     {* Header *}
     <div class="px-5 py-4 border-b border-slate-700 flex items-center justify-between">
@@ -513,6 +517,112 @@ For primary actions in drawers/modals, use this gradient button:
 
 ---
 
+## Tables
+
+All data tables in the client area must follow the same structure and styling so they look and behave consistently. Use the pattern from `accounts/templates/eazyBackup/clientareaproducts.tpl` as the reference.
+
+### Table outer container
+
+Wrap the entire table block (toolbar, table, and footer) in a single container:
+
+```html
+<div class="w-full max-w-full min-w-0 rounded-2xl border border-slate-800/80 bg-slate-900/70 p-5 shadow-lg">
+  <!-- toolbar, table, footer -->
+</div>
+```
+
+- **Width:** `w-full max-w-full min-w-0` so the table can shrink correctly in flex layouts.
+- **Surface:** `rounded-2xl border border-slate-800/80 bg-slate-900/70 p-5 shadow-lg`.
+
+### Toolbar (above the table)
+
+Use a single row with **Alpine.js dropdowns** for options and a **search field** on the right.
+
+**Layout:**
+
+```html
+<div class="mb-4 flex flex-col xl:flex-row xl:items-center gap-3">
+  <!-- Left: dropdowns (entries, filters, columns) -->
+  <!-- Spacer: flex-1 -->
+  <!-- Right: search input -->
+</div>
+```
+
+**Number of entries dropdown (Alpine):**
+
+- Button: `inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80`
+- Chevron: `w-4 h-4` with `:class="isOpen ? 'rotate-180' : ''"` for open state.
+- Panel: `absolute left-0 mt-2 w-40 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden`
+- Option items: `w-full px-4 py-2 text-left text-sm transition` with selected state `bg-slate-800/70 text-white`, default `text-slate-200 hover:bg-slate-800/60`.
+
+**Filter / column visibility dropdowns:** Use the same button and panel styling. Panel width can be `w-56` or `w-64` as needed (e.g. for “Columns” with checkboxes).
+
+**Search field:**
+
+- Position: right side of toolbar (after `flex-1` spacer).
+- Classes: `w-full xl:w-80 rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80`
+- Use a context-specific placeholder (e.g. “Search username, plan, or amount”).
+
+### Table structure
+
+**Scroll wrapper:**
+
+```html
+<div class="overflow-x-auto rounded-lg border border-slate-800">
+  <table class="min-w-full divide-y divide-slate-800 text-sm">
+```
+
+**Header (thead):**
+
+- Row: `bg-slate-900/80 text-slate-300`
+- Cell: `px-4 py-3 text-left font-medium`
+
+**Sortable columns:**
+
+- Use a `<button type="button">` inside each sortable `<th>` with `data-col-index="0"` (or the column index).
+- Button classes: `inline-flex items-center gap-1 hover:text-white`
+- Sort indicator: a `<span class="sort-indicator" data-col="0">` (or same index). Drive the visible arrow (↑ / ↓) via JS (e.g. DataTables `order` API and a single active column). All tables must use sortable columns; only the “Actions” column (if present) is non-sortable.
+
+**Body (tbody):**
+
+- Row divider: `divide-y divide-slate-800` on `<tbody>`.
+- Row: `hover:bg-slate-800/50 cursor-default`.
+- Cell: `px-4 py-3 text-left`.
+- **Cell text:** default body cells `text-slate-300`, primary/lead column (e.g. name) `font-medium text-slate-100`. Font size is `text-sm` from the table.
+
+**Actions column:**
+
+- If the table has an actions column, use the **“Manage” button** style:
+  - `px-3 py-1.5 text-xs bg-slate-700 rounded text-white hover:bg-slate-600 cursor-pointer`
+- Actions can open an Alpine dropdown; panel: `rounded-md border border-slate-700 bg-slate-800 shadow-lg` (e.g. `w-48 origin-top-right`).
+
+### Table footer (below the table)
+
+**Layout:**
+
+```html
+<div class="mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-400">
+  <div><!-- bottom left: entry summary --></div>
+  <div class="flex items-center gap-2"><!-- bottom right: pagination --></div>
+</div>
+```
+
+- **Bottom left:** “Showing X–Y of Z [items]” (or equivalent). Same container as above; no extra classes. Keep text size `text-xs text-slate-400` to match the footer row.
+- **Bottom right:** Pagination controls and page info.
+  - Prev/Next buttons: `px-3 py-1.5 rounded border border-slate-700 bg-slate-900/70 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed`
+  - Page label between them: `text-slate-300` (e.g. “Page 1 / 5”).
+
+### Checklist for new tables
+
+- Outer container: `w-full max-w-full min-w-0 rounded-2xl border border-slate-800/80 bg-slate-900/70 p-5 shadow-lg`
+- Toolbar: Alpine dropdowns for “Show N” and any filters/column toggles; search on the right with the rounded-full input style
+- Table: `min-w-full divide-y divide-slate-800 text-sm`; thead `bg-slate-900/80 text-slate-300`; tbody rows `hover:bg-slate-800/50`; cells `text-slate-300` / primary column `text-slate-100`
+- Sortable headers: button + `sort-indicator` span; column sort arrows match the example (↑/↓ in the active column only)
+- Actions: “Manage” button styling when an actions column is present
+- Footer: entry summary bottom left, pagination and page info bottom right, `text-xs text-slate-400` and button styles as above
+
+---
+
 4) Layout patterns
 Two-column form
 <div class="grid grid-cols-1 md:grid-cols-12 gap-6">
@@ -552,7 +662,9 @@ Maintain tap targets ≥ 40px tall (py-2.5 or more on touch-heavy actions).
 
 Include tokens partial (_ui-tokens.tpl) near the top.
 
-Wrap with page wrapper + container.
+Use the canonical page structure: outer container (`min-h-screen bg-slate-950 text-gray-100 overflow-x-hidden`), inner container (`container mx-auto max-w-full px-4 pb-8 pt-6`). If the template has a navbar, wrap content in the content card and use the navbar + breadcrumb + heading block (see Page structure).
+
+Every template must have a page heading (`<h2 class="text-2xl font-semibold text-white">`) and a page description (`<p class="text-xs text-slate-400 mt-1">`). If there is a navbar, add the breadcrumb above the heading.
 
 Replace multiple nested panels with one card + dividers.
 
@@ -560,7 +672,7 @@ Convert all inputs/buttons to the universal classes.
 
 Standardize banners and status pills.
 
-Ensure headings/labels follow the typography scale.
+Ensure in-content headings/labels follow the typography scale (page title uses the page heading style above).
 
 Simplify hovers/focus per interaction rules.
 
@@ -587,16 +699,47 @@ templates/partials/card-close.tpl
   </div>
 </section>
 
-Form fields (canonical classes)
+## Form fields (canonical classes)
 
-Use this class for all inputs, selects, and textareas to ensure consistent spacing, colors, and focus rings:
+### Text inputs, textareas, and native selects
 
-class="mt-2 w-full rounded-xl bg-[rgb(var(--bg-input))] text-white/90 placeholder-white/30 ring-1 ring-white/10 focus:ring-2 focus:ring-[rgb(var(--accent))] focus:outline-none px-3.5 py-2.5"
+Use this class for all text inputs, textareas, and (when styled as a single control) native selects so spacing, colors, and focus match across the app:
 
-Notes:
-- Add `placeholder-white/30` to provide soft placeholder contrast.
-- For selects, add `appearance-none pr-10` and position a chevron if needed.
-- Keep labels with `text-sm text-[rgb(var(--text-secondary))]` and wrap each field in a `<label class="block">`.
+```
+w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 placeholder:text-gray-400 text-white outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:-outline-offset-2 focus-within:outline-sky-700 transition
+```
+
+- **Placeholder:** `placeholder:text-gray-400` for soft contrast.
+- **Labels:** Use `text-sm text-slate-400` (or your label style) and wrap each field in a `<label class="block">` (or associate via `for`/`id`).
+- Add `mt-2` (or your spacing) on the input when it follows a label.
+
+### Dropdown (select-style) trigger button
+
+For Alpine (or other) dropdowns that replace a `<select>`, style the trigger button like a form field so it matches text inputs:
+
+**Trigger button:**
+
+```
+w-full inline-flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 placeholder:text-gray-400 text-white outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:-outline-offset-2 focus-within:outline-sky-700 transition
+```
+
+- **Selected value:** Wrap in `<span class="truncate">` so long labels don’t break layout.
+- **Chevron icon:** Use a down chevron SVG with `class="w-4 h-4 transition-transform"` and `:class="isOpen ? 'rotate-180' : ''"` when the dropdown is open/closed.
+
+Example (Alpine):
+
+```html
+<button type="button"
+        @click="isOpen = !isOpen"
+        class="w-full inline-flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 placeholder:text-gray-400 text-white outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:-outline-offset-2 focus-within:outline-sky-700 transition">
+  <span class="truncate" x-text="selectedLabel"></span>
+  <svg class="w-4 h-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+    <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+  </svg>
+</button>
+```
+
+Dropdown panel styling (for the open list): use `rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50` (e.g. `absolute left-0 mt-2 w-full ...`). See Tables section for toolbar dropdown panel styling.
 
 
 templates/partials/banner.tpl (params: type=neutral|success|warning, text=…).
