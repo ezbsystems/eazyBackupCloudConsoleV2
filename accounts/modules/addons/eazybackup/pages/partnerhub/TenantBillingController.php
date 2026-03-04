@@ -10,30 +10,14 @@ function eb_ph_tenant_billing(array $vars)
 
     $mspId = (int)($msp->id ?? 0);
     $billingError = '';
-    $customer = null;
     $subscriptionsCount = 0;
     $usageMetricsCount = 0;
     $invoicesCount = 0;
 
     try {
-        if ($mspId > 0 && Capsule::schema()->hasTable('eb_customers')) {
-            $customer = Capsule::table('eb_customers')
-                ->where('tenant_id', $tenantId)
-                ->where('msp_id', $mspId)
-                ->first([
-                    'id',
-                    'whmcs_client_id',
-                    'name',
-                    'status',
-                    'stripe_customer_id',
-                    'created_at',
-                    'updated_at',
-                ]);
-        }
-
-        if ($customer && Capsule::schema()->hasTable('eb_subscriptions')) {
+        if ($mspId > 0 && Capsule::schema()->hasTable('eb_subscriptions')) {
             $subscriptionsCount = (int)Capsule::table('eb_subscriptions')
-                ->where('customer_id', (int)$customer->id)
+                ->where('tenant_id', $tenantId)
                 ->count();
         }
 
@@ -44,9 +28,9 @@ function eb_ph_tenant_billing(array $vars)
                 ->value('cnt') ?? 0);
         }
 
-        if ($customer && Capsule::schema()->hasTable('eb_invoice_cache')) {
+        if (Capsule::schema()->hasTable('eb_invoice_cache')) {
             $invoicesCount = (int)Capsule::table('eb_invoice_cache')
-                ->where('customer_id', (int)$customer->id)
+                ->where('tenant_id', $tenantId)
                 ->count();
         }
     } catch (\Throwable $__) {
@@ -55,7 +39,7 @@ function eb_ph_tenant_billing(array $vars)
 
     return eb_ph_tenant_shell_response($vars, (array)$msp, (array)$tenant, 'billing', [
         'billing_error' => $billingError,
-        'billing_customer' => $customer ? (array)$customer : null,
+        'billing_tenant' => (array)$tenant,
         'billing_subscriptions_count' => $subscriptionsCount,
         'billing_usage_metrics_count' => $usageMetricsCount,
         'billing_invoices_count' => $invoicesCount,

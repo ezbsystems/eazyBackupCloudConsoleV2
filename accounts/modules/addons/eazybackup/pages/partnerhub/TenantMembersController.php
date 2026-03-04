@@ -11,10 +11,10 @@ function eb_ph_tenant_members(array $vars)
     $rows = [];
     $error = '';
     try {
-        if (!Capsule::schema()->hasTable('s3_backup_tenant_users')) {
+        if (!Capsule::schema()->hasTable('eb_tenant_users')) {
             $error = 'tenant_members_table_missing';
         } else {
-            $result = Capsule::table('s3_backup_tenant_users')
+            $result = Capsule::table('eb_tenant_users')
                 ->where('tenant_id', $tenantId)
                 ->orderByRaw("CASE WHEN role = 'admin' THEN 0 ELSE 1 END")
                 ->orderBy('name', 'asc')
