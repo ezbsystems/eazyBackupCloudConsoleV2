@@ -2,8 +2,8 @@
 
 use WHMCS\Database\Capsule;
 use PartnerHub\StripeService;
-use PartnerHub\TenantCustomerService;
-use PartnerHub\WhmcsBridge;
+
+require_once __DIR__ . '/TenantsController.php';
 
 function eb_require_login_and_reseller(array $vars): void {
     if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) {
@@ -78,225 +78,101 @@ function eb_ph_clients_index(array $vars)
         }
     } catch (\Throwable $__) { /* ignore */ }
 
-    // Handle create client POST
+    // Handle create tenant POST (creates eb_tenants row; no WHMCS client)
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['eb_create_client'])) {
         try {
-            // Activity log: POST received
-            try {
-                $keys = implode(',', array_keys($_POST ?? []));
-                logActivity("eazybackup: ph-clients POST received (keys={$keys})");
-            } catch (\Throwable $_) { /* ignore logging errors */ }
+            try { logActivity('eazybackup: ph-clients POST create-tenant'); } catch (\Throwable $_) { /* ignore */ }
             $ebDebug[] = 'post-branch';
-            // Normalize country to ISO 3166-1 alpha-2 if a full name was provided
+            $companyName = trim((string)($_POST['companyname'] ?? ''));
+            $first = trim((string)($_POST['firstname'] ?? ''));
+            $last = trim((string)($_POST['lastname'] ?? ''));
+            $name = $companyName !== '' ? $companyName : trim($first . ' ' . $last);
+            if ($name === '') {
+                $name = trim((string)($_POST['email'] ?? ''));
+            }
+            if ($name === '') {
+                $name = 'Tenant';
+            }
+            $slugRaw = trim((string)($_POST['slug'] ?? ''));
+            $slug = eb_ph_tenants_slugify($slugRaw !== '' ? $slugRaw : $name);
+            $contactEmail = strtolower(trim((string)($_POST['email'] ?? '')));
+            $contactName = trim($first . ' ' . $last);
+            if ($contactName === '') {
+                $contactName = $companyName;
+            }
             $countryRaw = trim((string)($_POST['country'] ?? ''));
-            $country = strtoupper($countryRaw);
-            if (strlen($country) !== 2) {
+            $country = strlen($countryRaw) === 2 ? strtoupper($countryRaw) : null;
+            if ($country === null && $countryRaw !== '') {
                 try {
-                    $code = (string)(Capsule::table('tblcountries')
-                        ->whereRaw('LOWER(name)=LOWER(?)', [$countryRaw])
-                        ->value('country') ?? '');
+                    $code = (string)(Capsule::table('tblcountries')->whereRaw('LOWER(name)=LOWER(?)', [$countryRaw])->value('country') ?? '');
                     if ($code !== '') { $country = strtoupper($code); }
-                } catch (\Throwable $__) { /* ignore country lookup errors */ }
+                } catch (\Throwable $__) { /* ignore */ }
             }
-            $payload = [
-                'firstname'    => (string)($_POST['firstname'] ?? ''),
-                'lastname'     => (string)($_POST['lastname'] ?? ''),
-                'companyname'  => (string)($_POST['companyname'] ?? ''),
-                'email'        => (string)($_POST['email'] ?? ''),
-                'password2'    => (string)($_POST['password'] ?? ''),
-                'address1'     => (string)($_POST['address1'] ?? ''),
-                'address2'     => (string)($_POST['address2'] ?? ''),
-                'city'         => (string)($_POST['city'] ?? ''),
-                'state'        => (string)($_POST['state'] ?? ''),
-                'postcode'     => (string)($_POST['postcode'] ?? ''),
-                'country'      => $country,
-                'phonenumber'  => (string)($_POST['phonenumber'] ?? ''),
-                // Best-effort to reduce API validation friction
-                'skipvalidation' => true,
-            ];
-            // Optional fields if provided
-            $currency = (int)($_POST['currency'] ?? 0);
-            if ($currency > 0) { $payload['currency'] = $currency; }
-            $pm = trim((string)($_POST['payment_method'] ?? ''));
-            if ($pm !== '') { $payload['paymentmethod'] = $pm; }
-            if ($payload['password2'] === '') { $payload['password2'] = bin2hex(random_bytes(8)); }
-            // Resolve admin username for LocalAPI: module setting 'adminuser' → first active admin → 'API'
-            $adminUser = 'API';
-            try {
-                $cfgAdmin = (string)(Capsule::table('tbladdonmodules')->where('module','eazybackup')->where('setting','adminuser')->value('value') ?? '');
-                if ($cfgAdmin !== '') { $adminUser = $cfgAdmin; }
-                else {
-                    $firstAdmin = Capsule::table('tbladmins')->where('disabled', 0)->orderBy('id','asc')->value('username');
-                    if ($firstAdmin) { $adminUser = (string)$firstAdmin; }
-                }
-            } catch (\Throwable $__) { /* use default */ }
-            try { logActivity("eazybackup: ph-clients AddClient admin={$adminUser}"); } catch (\Throwable $_) { /* ignore */ }
-            $ebDebug[] = 'admin=' . $adminUser;
-            // Sanity ping to LocalAPI to verify it runs under this admin user
-            try {
-                $ping = localAPI('GetConfigurationValue', ['setting' => 'CompanyName'], $adminUser);
-                $ebDebug[] = 'ping=' . ($ping['result'] ?? '');
-            } catch (\Throwable $__) {
-                $ebDebug[] = 'ping=ex';
-            }
-            // Fallback include if autoload mapping missed
-            if (!class_exists(\PartnerHub\WhmcsBridge::class)) {
-                @require_once __DIR__ . '/../../lib/PartnerHub/WhmcsBridge.php';
-            }
-            if (!class_exists(\PartnerHub\TenantCustomerService::class)) {
-                @require_once __DIR__ . '/../../lib/PartnerHub/TenantCustomerService.php';
-            }
-            $authoritativeMspId = (int)($msp->id ?? 0);
-            $tenantConflictHardError = '';
-            $tenantPreflightCustomer = null;
-            $tenantId = (int)($_POST['tenant_id'] ?? 0);
-
-            // Tenant-scoped preflight: ensure canonical customer before AddClient side effects.
-            if ($tenantId > 0) {
-                try {
-                    $tenantOwned = Capsule::table('eb_whitelabel_tenants')
-                        ->where('id', $tenantId)
-                        ->where('client_id', $clientId)
-                        ->first();
-                    if (!$tenantOwned) {
-                        $ebDebug[] = 'tenant-denied=' . $tenantId;
-                        $tenantId = 0;
-                    }
-                } catch (\Throwable $__) {
-                    $tenantId = 0;
-                }
-
-                if ($tenantId > 0) {
-                    try {
-                        $tenantPreflightCustomer = (new TenantCustomerService())->ensureCustomerForTenant($tenantId);
-                        $tenantCustomerMspId = (int)($tenantPreflightCustomer['msp_id'] ?? 0);
-                        if ($tenantCustomerMspId > 0) { $authoritativeMspId = $tenantCustomerMspId; }
-                        $ebDebug[] = 'tenant-preflight=' . $tenantId;
-                    } catch (\Throwable $tenantEnsureError) {
-                        $tenantEnsureMessage = (string)$tenantEnsureError->getMessage();
-                        if (in_array($tenantEnsureMessage, ['tenant_customer_owner_conflict', 'tenant_customer_conflict'], true)) {
-                            $tenantConflictHardError = 'Canonical tenant/customer conflict detected.';
-                            $ebDebug[] = 'tenant-conflict=' . $tenantEnsureMessage;
-                            try { logActivity("eazybackup: ph-clients tenant-customer conflict tenant={$tenantId} msg={$tenantEnsureMessage}"); } catch (\Throwable $_) { /* ignore */ }
-                        } else {
-                            $tenantConflictHardError = 'Canonical tenant/customer enforcement failed.';
-                            $ebDebug[] = 'tenant-preflight-failed=' . $tenantEnsureMessage;
-                            try { logActivity("eazybackup: ph-clients tenant-customer ensure failed tenant={$tenantId} msg={$tenantEnsureMessage}"); } catch (\Throwable $_) { /* ignore */ }
-                        }
-                    }
-                }
-            }
-
-            if ($tenantConflictHardError !== '') {
-                $createError = $tenantConflictHardError;
-            } elseif ($tenantPreflightCustomer !== null) {
-                $ecid = (int)($tenantPreflightCustomer['id'] ?? 0);
-                if ($ecid > 0) {
-                    // Canonical customer already exists for tenant; redirect instead of AddClient create.
-                    $cometUser = trim((string)($_POST['comet_username'] ?? ''));
-                    if ($cometUser !== '') {
-                        try {
-                            Capsule::table('eb_customer_comet_accounts')->updateOrInsert(
-                                ['customer_id'=>$ecid,'comet_user_id'=>$cometUser],
-                                []
-                            );
-                            Capsule::table('comet_users')->where('username',$cometUser)->update([
-                                'msp_id' => $authoritativeMspId,
-                                'customer_id' => $ecid,
-                            ]);
-                        } catch (\Throwable $__) { /* ignore */ }
-                    }
-                    try { logActivity('eazybackup: ph-clients redirect to existing tenant customer id=' . $ecid); } catch (\Throwable $_) { /* ignore */ }
-                    header('Location: '.$vars['modulelink'].'&a=ph-client&id='.$ecid);
-                    exit;
-                }
-                $createError = 'Unable to resolve canonical tenant customer.';
+            if (!eb_ph_tenants_is_valid_slug($slug)) {
+                $createError = 'Invalid slug.';
+            } elseif (eb_ph_tenants_existing_slug_owner((int)$msp->id, $slug) !== null) {
+                $createError = 'Slug already in use.';
             } else {
-                $res = WhmcsBridge::addClient($payload, $adminUser);
-                try {
-                    $brief = [ 'result' => ($res['result'] ?? ''), 'message' => ($res['message'] ?? ''), 'clientid' => ($res['clientid'] ?? null) ];
-                    logActivity('eazybackup: ph-clients AddClient resp=' . json_encode($brief));
-                } catch (\Throwable $_) { /* ignore */ }
-                // If LocalAPI is blocked by token CSRF, abort with message
-                if (isset($res['result']) && $res['result'] === 'error' && stripos((string)($res['message'] ?? ''), 'invalid token') !== false) {
-                    $createError = 'WHMCS token invalid; please refresh and try again.';
-                }
-                $ebDebug[] = 'resp=' . ($res['result'] ?? '');
-                // Also write a file log for absolute certainty (module logs can be filtered by settings)
-                try { if (function_exists('customFileLog')) { customFileLog('ph-clients AddClient payload', $payload); customFileLog('ph-clients AddClient response', $res); } } catch (\Throwable $_) {}
-                if (($res['result'] ?? '') === 'success') {
-                    $newId = (int)($res['clientid'] ?? 0);
-                    if ($newId > 0) {
-                        $ebDebug[] = 'clientid=' . $newId;
-                        $displayName = trim(($payload['companyname'] !== '' ? $payload['companyname'] : ($payload['firstname'].' '.$payload['lastname'])));
-                        $ecid = Capsule::table('eb_customers')->insertGetId([
-                            'msp_id' => (int)($msp->id ?? 0),
-                            'whmcs_client_id' => $newId,
-                            'name' => $displayName,
-                            'status' => 'active',
-                            'created_at' => date('Y-m-d H:i:s'),
-                            'updated_at' => date('Y-m-d H:i:s'),
-                        ]);
-                        // Optional pre-link Comet user
-                        $cometUser = trim((string)($_POST['comet_username'] ?? ''));
-                        if ($cometUser !== '') {
-                            try {
-                                Capsule::table('eb_customer_comet_accounts')->updateOrInsert(
-                                    ['customer_id'=>$ecid,'comet_user_id'=>$cometUser],
-                                    []
-                                );
-                                // Tag mirrors
-                                Capsule::table('comet_users')->where('username',$cometUser)->update([
-                                    'msp_id' => $authoritativeMspId,
-                                    'customer_id' => $ecid,
-                                ]);
-                            } catch (\Throwable $__) { /* ignore */ }
+                $insert = [
+                    'msp_id' => (int)$msp->id,
+                    'name' => $name,
+                    'slug' => $slug,
+                    'contact_email' => $contactEmail !== '' ? $contactEmail : null,
+                    'contact_name' => $contactName !== '' ? $contactName : null,
+                    'contact_phone' => trim((string)($_POST['phonenumber'] ?? '')) ?: null,
+                    'address_line1' => trim((string)($_POST['address1'] ?? '')) ?: null,
+                    'address_line2' => trim((string)($_POST['address2'] ?? '')) ?: null,
+                    'city' => trim((string)($_POST['city'] ?? '')) ?: null,
+                    'state' => trim((string)($_POST['state'] ?? '')) ?: null,
+                    'postal_code' => trim((string)($_POST['postcode'] ?? '')) ?: null,
+                    'country' => $country,
+                    'status' => 'active',
+                    'created_at' => Capsule::raw('NOW()'),
+                    'updated_at' => Capsule::raw('NOW()'),
+                ];
+                $tenantId = (int)Capsule::table('eb_tenants')->insertGetId($insert);
+                $cometUser = trim((string)($_POST['comet_username'] ?? ''));
+                if ($cometUser !== '' && Capsule::schema()->hasTable('eb_tenant_comet_accounts')) {
+                    try {
+                        Capsule::table('eb_tenant_comet_accounts')->updateOrInsert(
+                            ['tenant_id' => $tenantId, 'comet_user_id' => $cometUser],
+                            []
+                        );
+                        if (Capsule::schema()->hasTable('comet_users') && Capsule::schema()->hasColumn('comet_users', 'tenant_id')) {
+                            Capsule::table('comet_users')->where('username', $cometUser)->update([
+                                'msp_id' => (int)$msp->id,
+                                'tenant_id' => $tenantId,
+                            ]);
                         }
-                        try { logActivity('eazybackup: ph-clients redirect to ph-client id=' . $ecid); } catch (\Throwable $_) { /* ignore */ }
-                        header('Location: '.$vars['modulelink'].'&a=ph-client&id='.$ecid);
-                        exit;
-                    } else {
-                        $ebDebug[] = 'empty-clientid';
-                        $createError = 'AddClient returned success but clientid was empty.';
-                    }
-                } else {
-                    $ebDebug[] = 'failed:' . ($res['message'] ?? '');
-                    try { logModuleCall('eazybackup', 'ph-clients:addClient', $payload, $res); } catch (\Throwable $_) { /* ignore logging errors */ }
-                    $createError = (string)($res['message'] ?? 'AddClient failed');
+                    } catch (\Throwable $__) { /* ignore */ }
                 }
+                try { logActivity('eazybackup: ph-clients created tenant id=' . $tenantId); } catch (\Throwable $_) { /* ignore */ }
+                header('Location: ' . ($vars['modulelink'] ?? 'index.php?m=eazybackup') . '&a=ph-tenant&id=' . $tenantId . '&notice=created');
+                exit;
             }
         } catch (\Throwable $e) {
-            // Surface unexpected exceptions
             try { logActivity('eazybackup: ph-clients EX=' . $e->getMessage()); } catch (\Throwable $_) { /* ignore */ }
-            try { if (function_exists('customFileLog')) { customFileLog('ph-clients exception', $e->getMessage()); } } catch (\Throwable $_) {}
             $createError = 'Error: ' . $e->getMessage();
-            try { $ebDebug[] = 'ex=' . $e->getMessage(); } catch (\Throwable $_) {}
+            $ebDebug[] = 'ex=' . $e->getMessage();
         }
     }
 
-    // Basic server-side pagination & filtering
+    // List tenants (eb_tenants) for this MSP
     $q = trim((string)($_GET['q'] ?? ''));
     $page = max(1, (int)($_GET['p'] ?? 1));
     $per = min(100, max(10, (int)($_GET['per'] ?? 25)));
 
-    $base = Capsule::table('eb_customers as c')
-        ->leftJoin('tblclients as wc','wc.id','=','c.whmcs_client_id')
-        ->where('c.msp_id', (int)($msp->id ?? 0));
+    $base = Capsule::table('eb_tenants as t')->where('t.msp_id', (int)($msp->id ?? 0));
     if ($q !== '') {
-        $base->where(function($w) use ($q){
-            $w->where('c.name','like','%'.$q.'%')
-              ->orWhere('c.external_ref','like','%'.$q.'%')
-              ->orWhere('wc.firstname','like','%'.$q.'%')
-              ->orWhere('wc.lastname','like','%'.$q.'%')
-              ->orWhere('wc.companyname','like','%'.$q.'%')
-              ->orWhere('wc.email','like','%'.$q.'%');
+        $base->where(function ($w) use ($q) {
+            $w->where('t.name', 'like', '%' . $q . '%')
+              ->orWhere('t.contact_email', 'like', '%' . $q . '%')
+              ->orWhere('t.contact_name', 'like', '%' . $q . '%')
+              ->orWhere('t.external_ref', 'like', '%' . $q . '%');
         });
     }
-    $total = (int)($base->count());
-    $rowsCol = $base->orderBy('c.created_at','desc')
-        ->forPage($page, $per)
-        ->get(['c.*','wc.firstname','wc.lastname','wc.companyname','wc.email']);
-    // Convert Collection<stdClass> to array of arrays for Smarty
+    $total = (int)$base->count();
+    $rowsCol = $base->orderBy('t.created_at', 'desc')->forPage($page, $per)->get(['t.*']);
     $rows = [];
     foreach ($rowsCol as $r) { $rows[] = (array)$r; }
 
