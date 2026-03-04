@@ -1447,60 +1447,63 @@ function cloudstorage_activate() {
         }
 
         // -----------------------------
-        // MSP / Tenant tables
+        // MSP / Tenant tables (legacy — skip if eazybackup has created eb_tenants)
         // -----------------------------
-        if (!Capsule::schema()->hasTable('s3_backup_tenants')) {
-            Capsule::schema()->create('s3_backup_tenants', function ($table) {
-                $table->increments('id');
-                $table->unsignedInteger('client_id');              // MSP's WHMCS client_id
-                $table->string('name', 255);
-                $table->string('slug', 100);
-                $table->string('ceph_uid', 191)->nullable();       // Ceph RGW user ID
-                $table->string('bucket_name', 255)->nullable();    // Optional dedicated bucket
-                $table->unsignedBigInteger('storage_quota_bytes')->nullable();
-                $table->enum('status', ['active', 'suspended', 'deleted'])->default('active');
-                $table->text('branding_json')->nullable();         // Logo, colors, support info
-                $table->timestamp('created_at')->useCurrent();
-                $table->timestamp('updated_at')->useCurrent();
+        if (!Capsule::schema()->hasTable('eb_tenants')) {
+            if (!Capsule::schema()->hasTable('s3_backup_tenants')) {
+                Capsule::schema()->create('s3_backup_tenants', function ($table) {
+                    $table->increments('id');
+                    $table->unsignedInteger('client_id');              // MSP's WHMCS client_id
+                    $table->string('name', 255);
+                    $table->string('slug', 100);
+                    $table->string('ceph_uid', 191)->nullable();       // Ceph RGW user ID
+                    $table->string('bucket_name', 255)->nullable();    // Optional dedicated bucket
+                    $table->unsignedBigInteger('storage_quota_bytes')->nullable();
+                    $table->enum('status', ['active', 'suspended', 'deleted'])->default('active');
+                    $table->text('branding_json')->nullable();         // Logo, colors, support info
+                    $table->timestamp('created_at')->useCurrent();
+                    $table->timestamp('updated_at')->useCurrent();
 
-                $table->unique(['client_id', 'slug']);
-                $table->index('client_id');
-                $table->index('ceph_uid');
-                $table->index('status');
-            });
-            logModuleCall('cloudstorage', 'activate', [], 'Created s3_backup_tenants table', [], []);
+                    $table->unique(['client_id', 'slug']);
+                    $table->index('client_id');
+                    $table->index('ceph_uid');
+                    $table->index('status');
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Created s3_backup_tenants table', [], []);
+            }
+
+            // Add profile/billing columns to s3_backup_tenants for enhanced onboarding
+            if (Capsule::schema()->hasTable('s3_backup_tenants')) {
+                if (!Capsule::schema()->hasColumn('s3_backup_tenants', 'contact_email')) {
+                    Capsule::schema()->table('s3_backup_tenants', function ($table) {
+                        $table->string('contact_email', 255)->nullable()->after('slug');
+                        $table->string('contact_name', 255)->nullable()->after('contact_email');
+                        $table->string('contact_phone', 50)->nullable()->after('contact_name');
+                    });
+                    logModuleCall('cloudstorage', 'activate', [], 'Added contact fields to s3_backup_tenants', [], []);
+                }
+                if (!Capsule::schema()->hasColumn('s3_backup_tenants', 'address_line1')) {
+                    Capsule::schema()->table('s3_backup_tenants', function ($table) {
+                        $table->string('address_line1', 255)->nullable()->after('contact_phone');
+                        $table->string('address_line2', 255)->nullable()->after('address_line1');
+                        $table->string('city', 100)->nullable()->after('address_line2');
+                        $table->string('state', 100)->nullable()->after('city');
+                        $table->string('postal_code', 20)->nullable()->after('state');
+                        $table->string('country', 2)->nullable()->after('postal_code'); // ISO 3166-1 alpha-2
+                    });
+                    logModuleCall('cloudstorage', 'activate', [], 'Added address fields to s3_backup_tenants', [], []);
+                }
+                if (!Capsule::schema()->hasColumn('s3_backup_tenants', 'stripe_customer_id')) {
+                    Capsule::schema()->table('s3_backup_tenants', function ($table) {
+                        $table->string('stripe_customer_id', 255)->nullable()->after('country');
+                    });
+                    logModuleCall('cloudstorage', 'activate', [], 'Added stripe_customer_id to s3_backup_tenants', [], []);
+                }
+            }
         }
 
-        // Add profile/billing columns to s3_backup_tenants for enhanced onboarding
-        if (Capsule::schema()->hasTable('s3_backup_tenants')) {
-            if (!Capsule::schema()->hasColumn('s3_backup_tenants', 'contact_email')) {
-                Capsule::schema()->table('s3_backup_tenants', function ($table) {
-                    $table->string('contact_email', 255)->nullable()->after('slug');
-                    $table->string('contact_name', 255)->nullable()->after('contact_email');
-                    $table->string('contact_phone', 50)->nullable()->after('contact_name');
-                });
-                logModuleCall('cloudstorage', 'activate', [], 'Added contact fields to s3_backup_tenants', [], []);
-            }
-            if (!Capsule::schema()->hasColumn('s3_backup_tenants', 'address_line1')) {
-                Capsule::schema()->table('s3_backup_tenants', function ($table) {
-                    $table->string('address_line1', 255)->nullable()->after('contact_phone');
-                    $table->string('address_line2', 255)->nullable()->after('address_line1');
-                    $table->string('city', 100)->nullable()->after('address_line2');
-                    $table->string('state', 100)->nullable()->after('city');
-                    $table->string('postal_code', 20)->nullable()->after('state');
-                    $table->string('country', 2)->nullable()->after('postal_code'); // ISO 3166-1 alpha-2
-                });
-                logModuleCall('cloudstorage', 'activate', [], 'Added address fields to s3_backup_tenants', [], []);
-            }
-            if (!Capsule::schema()->hasColumn('s3_backup_tenants', 'stripe_customer_id')) {
-                Capsule::schema()->table('s3_backup_tenants', function ($table) {
-                    $table->string('stripe_customer_id', 255)->nullable()->after('country');
-                });
-                logModuleCall('cloudstorage', 'activate', [], 'Added stripe_customer_id to s3_backup_tenants', [], []);
-            }
-        }
-
-        if (!Capsule::schema()->hasTable('s3_backup_tenant_users')) {
+        if (!Capsule::schema()->hasTable('eb_tenant_users')) {
+            if (!Capsule::schema()->hasTable('s3_backup_tenant_users')) {
             Capsule::schema()->create('s3_backup_tenant_users', function ($table) {
                 $table->increments('id');
                 $table->unsignedInteger('tenant_id');
@@ -1521,6 +1524,7 @@ function cloudstorage_activate() {
                 $table->foreign('tenant_id')->references('id')->on('s3_backup_tenants')->onDelete('cascade');
             });
             logModuleCall('cloudstorage', 'activate', [], 'Created s3_backup_tenant_users table', [], []);
+            }
         }
 
         if (!Capsule::schema()->hasTable('s3_backup_users')) {
