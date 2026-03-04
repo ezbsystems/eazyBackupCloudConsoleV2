@@ -1323,6 +1323,36 @@ function eazybackup_migrate_schema(): void {
         eb_add_column_if_missing('eb_msp_accounts','default_fee_percent', fn(Blueprint $t)=>$t->decimal('default_fee_percent',5,2)->nullable());
     }
 
+    // ========= Canonical Tenants (replaces eb_customers + s3_backup_tenants) =========
+    if (!$schema->hasTable('eb_tenants')) {
+        $schema->create('eb_tenants', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->bigInteger('msp_id');
+            $t->string('name', 255);
+            $t->string('slug', 100);
+            $t->string('contact_email', 255)->nullable();
+            $t->string('contact_name', 255)->nullable();
+            $t->string('contact_phone', 50)->nullable();
+            $t->string('address_line1', 255)->nullable();
+            $t->string('address_line2', 255)->nullable();
+            $t->string('city', 100)->nullable();
+            $t->string('state', 100)->nullable();
+            $t->string('postal_code', 20)->nullable();
+            $t->char('country', 2)->nullable();
+            $t->string('stripe_customer_id', 255)->nullable();
+            $t->string('external_ref', 191)->nullable();
+            $t->enum('status', ['active','suspended','deleted'])->default('active');
+            $t->text('notes')->nullable();
+            $t->text('branding_json')->nullable();
+            $t->timestamp('created_at')->nullable()->useCurrent();
+            $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
+            $t->unique(['msp_id','slug'], 'uq_tenant_msp_slug');
+            $t->index('msp_id', 'idx_tenant_msp_id');
+            $t->index('status', 'idx_tenant_status');
+            $t->index('stripe_customer_id', 'idx_tenant_stripe_customer');
+        });
+    }
+
     // eb_customers
     if (!$schema->hasTable('eb_customers')) {
         $schema->create('eb_customers', function (Blueprint $t) {
