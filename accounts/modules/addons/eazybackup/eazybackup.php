@@ -1391,49 +1391,15 @@ function eazybackup_migrate_schema(): void {
         });
     }
 
-    // eb_customers
-    if (!$schema->hasTable('eb_customers')) {
-        $schema->create('eb_customers', function (Blueprint $t) {
+    // eb_tenant_comet_accounts (pivot)
+    if (!$schema->hasTable('eb_tenant_comet_accounts')) {
+        $schema->create('eb_tenant_comet_accounts', function (Blueprint $t) {
             $t->bigIncrements('id');
-            $t->bigInteger('msp_id')->index();
-            $t->bigInteger('tenant_id')->nullable()->unique('uq_eb_customers_tenant_id');
-            $t->integer('whmcs_client_id')->unique();
-            $t->string('name', 191)->default('');
-            $t->string('external_ref', 191)->nullable();
-            $t->enum('status', ['active','inactive'])->default('active');
-            $t->text('notes')->nullable();
-            $t->string('stripe_customer_id', 255)->nullable()->index();
-            $t->timestamp('created_at')->nullable()->useCurrent();
-            $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
-            $t->index(['msp_id','status'], 'idx_customer_msp_status');
-        });
-    } else {
-        eb_add_column_if_missing('eb_customers','tenant_id', fn(Blueprint $t)=>$t->bigInteger('tenant_id')->nullable());
-    }
-    eb_require_index('eb_customers', 'uq_eb_customers_tenant_id', "CREATE UNIQUE INDEX uq_eb_customers_tenant_id ON eb_customers (tenant_id)", ['tenant_id'], true);
-
-    // eb_customer_user_links
-    if (!$schema->hasTable('eb_customer_user_links')) {
-        $schema->create('eb_customer_user_links', function (Blueprint $t) {
-            $t->bigIncrements('id');
-            $t->bigInteger('customer_id');
-            $t->integer('whmcs_user_id');
-            $t->enum('role', ['Owner','Viewer'])->default('Owner');
-            $t->unique(['customer_id','whmcs_user_id'], 'uq_customer_user');
-            $t->index('customer_id', 'idx_cul_customer');
-            $t->index('whmcs_user_id', 'idx_cul_user');
-        });
-    }
-
-    // eb_customer_comet_accounts (pivot)
-    if (!$schema->hasTable('eb_customer_comet_accounts')) {
-        $schema->create('eb_customer_comet_accounts', function (Blueprint $t) {
-            $t->bigIncrements('id');
-            $t->bigInteger('customer_id');
+            $t->bigInteger('tenant_id');
             $t->string('comet_user_id', 191);
-            $t->unique(['customer_id','comet_user_id'], 'uq_customer_comet');
-            $t->index('customer_id', 'idx_cca_customer');
-            $t->index('comet_user_id', 'idx_cca_comet');
+            $t->unique(['tenant_id','comet_user_id'], 'uq_tenant_comet');
+            $t->index('tenant_id', 'idx_tca_tenant');
+            $t->index('comet_user_id', 'idx_tca_comet');
         });
     }
 
@@ -1443,10 +1409,10 @@ function eazybackup_migrate_schema(): void {
             $t->bigIncrements('id');
             $t->integer('whmcs_service_id');
             $t->bigInteger('msp_id')->nullable();
-            $t->bigInteger('customer_id')->nullable();
+            $t->bigInteger('tenant_id')->nullable();
             $t->string('comet_user_id', 191)->nullable();
             $t->unique('whmcs_service_id', 'uq_service');
-            $t->index(['msp_id','customer_id'], 'idx_service_msp_customer');
+            $t->index(['msp_id','tenant_id'], 'idx_service_msp_tenant');
         });
     }
 
@@ -1470,11 +1436,11 @@ function eazybackup_migrate_schema(): void {
         eb_require_index('eb_tenant_storage_links', 'idx_tenant_storage_link_tenant', "CREATE INDEX idx_tenant_storage_link_tenant ON eb_tenant_storage_links (tenant_id)", ['tenant_id'], false);
     }
 
-    // Add nullable MSP/Customer scoping columns to Comet mirrors if present
+    // Add nullable MSP/Tenant scoping columns to Comet mirrors if present
     foreach (['comet_users','comet_devices','comet_items','comet_jobs'] as $mirror) {
         if ($schema->hasTable($mirror)) {
             eb_add_column_if_missing($mirror, 'msp_id', fn(Blueprint $t)=>$t->bigInteger('msp_id')->nullable()->index());
-            eb_add_column_if_missing($mirror, 'customer_id', fn(Blueprint $t)=>$t->bigInteger('customer_id')->nullable()->index());
+            eb_add_column_if_missing($mirror, 'tenant_id', fn(Blueprint $t)=>$t->bigInteger('tenant_id')->nullable()->index());
         }
     }
 
@@ -1514,7 +1480,7 @@ function eazybackup_migrate_schema(): void {
         $schema->create('eb_subscriptions', function (Blueprint $t) {
             $t->bigIncrements('id');
             $t->bigInteger('msp_id')->index();
-            $t->bigInteger('customer_id')->index();
+            $t->bigInteger('tenant_id')->index();
             $t->bigInteger('plan_id')->nullable()->index();
             $t->string('stripe_subscription_id', 255)->nullable()->unique();
             $t->string('stripe_status', 32)->default('active');
@@ -1524,15 +1490,14 @@ function eazybackup_migrate_schema(): void {
             $t->tinyInteger('cancel_at_period_end')->default(0);
             $t->timestamp('created_at')->nullable()->useCurrent();
             $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
-            $t->index(['customer_id','stripe_status'], 'idx_sub_customer_status');
+            $t->index(['tenant_id','stripe_status'], 'idx_sub_tenant_status');
         });
     }
 
     if (!$schema->hasTable('eb_usage_ledger')) {
         $schema->create('eb_usage_ledger', function (Blueprint $t) {
             $t->bigIncrements('id');
-            $t->bigInteger('tenant_id')->nullable();
-            $t->bigInteger('customer_id')->index();
+            $t->bigInteger('tenant_id')->index();
             $t->string('metric', 64);
             $t->bigInteger('qty')->default(0);
             $t->timestamp('period_start');
@@ -1542,15 +1507,13 @@ function eazybackup_migrate_schema(): void {
             $t->timestamp('pushed_to_stripe_at')->nullable();
             $t->timestamp('created_at')->nullable()->useCurrent();
         });
-    } else {
-        eb_add_column_if_missing('eb_usage_ledger','tenant_id', fn(Blueprint $t)=>$t->bigInteger('tenant_id')->nullable());
     }
     eb_require_index('eb_usage_ledger', 'idx_usage_ledger_tenant_id', "CREATE INDEX idx_usage_ledger_tenant_id ON eb_usage_ledger (tenant_id)", ['tenant_id'], false);
 
     if (!$schema->hasTable('eb_invoice_cache')) {
         $schema->create('eb_invoice_cache', function (Blueprint $t) {
             $t->bigIncrements('id');
-            $t->bigInteger('customer_id')->index();
+            $t->bigInteger('tenant_id')->index();
             $t->string('stripe_invoice_id', 255)->unique();
             $t->bigInteger('amount_total')->default(0);
             $t->bigInteger('amount_tax')->default(0);
@@ -1565,7 +1528,7 @@ function eazybackup_migrate_schema(): void {
     if (!$schema->hasTable('eb_payment_cache')) {
         $schema->create('eb_payment_cache', function (Blueprint $t) {
             $t->bigIncrements('id');
-            $t->bigInteger('customer_id')->index();
+            $t->bigInteger('tenant_id')->index();
             $t->string('stripe_payment_intent_id', 255)->unique();
             $t->bigInteger('amount')->default(0);
             $t->string('currency', 8)->default('USD');
