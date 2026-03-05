@@ -20,6 +20,7 @@ if (!$ca->isLoggedIn()) {
 $clientId = $ca->getUserID();
 
 $isMsp = MspController::isMspClient($clientId);
+$tenantTable = MspController::getTenantTableName();
 $tenantFilter = isset($_GET['tenant_id']) ? $_GET['tenant_id'] : null;
 
 function getModuleSetting(string $key, $default = null)
@@ -63,8 +64,15 @@ $query = Capsule::table('s3_cloudbackup_agents as a')
     ]);
 
 if ($isMsp) {
-    $query->leftJoin('s3_backup_tenants as t', 'a.tenant_id', '=', 't.id')
-          ->addSelect('t.name as tenant_name');
+    $query->leftJoin($tenantTable . ' as t', function ($join) use ($clientId, $tenantTable) {
+        $join->on('a.tenant_id', '=', 't.id');
+        if ($tenantTable === 'eb_tenants') {
+            $mspId = MspController::getMspIdForClient((int)$clientId);
+            $join->where('t.msp_id', '=', (int)($mspId ?? 0));
+        } else {
+            $join->where('t.client_id', '=', (int)$clientId);
+        }
+    })->addSelect('t.name as tenant_name');
     
     // Apply tenant filter
     if ($tenantFilter !== null) {

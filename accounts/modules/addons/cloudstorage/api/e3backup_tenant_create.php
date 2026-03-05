@@ -47,6 +47,15 @@ if (!MspController::isMspClient($clientId)) {
     exit;
 }
 
+$tenantTable = MspController::getTenantTableName();
+$tenantUsersTable = MspController::getTenantUsersTableName();
+$isCanonicalTenantModel = ($tenantTable === 'eb_tenants');
+$mspId = MspController::getMspIdForClient($clientId);
+if ($isCanonicalTenantModel && $mspId === null) {
+    (new JsonResponse(['status' => 'fail', 'message' => 'MSP account not provisioned'], 400))->send();
+    exit;
+}
+
 $ensureProduct = Provisioner::ensureCloudStorageProductActive((int) $clientId, true);
 logModuleCall('cloudstorage', 'e3backup_tenant_create_ensure_active_product', [
     'client_id' => $clientId,
@@ -122,11 +131,11 @@ if (!preg_match('/^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/', $slug)) {
     exit;
 }
 
-// Check slug uniqueness for this client
-$existing = Capsule::table('s3_backup_tenants')
-    ->where('client_id', $clientId)
+// Check slug uniqueness for this MSP scope
+$existing = Capsule::table($tenantTable)
     ->where('slug', $slug)
     ->where('status', '!=', 'deleted')
+    ->where($isCanonicalTenantModel ? 'msp_id' : 'client_id', $isCanonicalTenantModel ? (int)$mspId : (int)$clientId)
     ->first();
 
 if ($existing) {
@@ -167,8 +176,7 @@ if ($createAdmin) {
 $cephUid = 'tenant_' . $clientId . '_' . $slug . '_' . substr(md5(random_bytes(8)), 0, 8);
 
 // Create tenant with all profile fields
-$tenantId = Capsule::table('s3_backup_tenants')->insertGetId([
-    'client_id' => $clientId,
+$tenantInsert = [
     'name' => $name,
     'slug' => $slug,
     'contact_email' => $contactEmail,
@@ -180,11 +188,17 @@ $tenantId = Capsule::table('s3_backup_tenants')->insertGetId([
     'state' => $state ?: null,
     'postal_code' => $postalCode ?: null,
     'country' => $country ?: null,
-    'ceph_uid' => $cephUid,
     'status' => in_array($status, ['active', 'suspended']) ? $status : 'active',
     'created_at' => Capsule::raw('NOW()'),
     'updated_at' => Capsule::raw('NOW()'),
-]);
+];
+if ($isCanonicalTenantModel) {
+    $tenantInsert['msp_id'] = (int)$mspId;
+} else {
+    $tenantInsert['client_id'] = (int)$clientId;
+    $tenantInsert['ceph_uid'] = $cephUid;
+}
+$tenantId = Capsule::table($tenantTable)->insertGetId($tenantInsert);
 
 $adminCreated = false;
 $welcomeEmailSent = false;
@@ -193,13 +207,13 @@ $welcomeEmailSkipped = false;
 // Create admin user if requested
 if ($createAdmin && $tenantId) {
     // Check email uniqueness within tenant
-    $existingUser = Capsule::table('s3_backup_tenant_users')
+    $existingUser = Capsule::table($tenantUsersTable)
         ->where('tenant_id', $tenantId)
         ->where('email', $adminEmail)
         ->first();
     
     if (!$existingUser) {
-        Capsule::table('s3_backup_tenant_users')->insert([
+        Capsule::table($tenantUsersTable)->insert([
             'tenant_id' => $tenantId,
             'email' => $adminEmail,
             'name' => $adminName,
@@ -260,7 +274,7 @@ logModuleCall('cloudstorage', 'e3backup_tenant_create_bootstrap_bucket', [
 ], $tenantBucket);
 if (($tenantBucket['status'] ?? 'fail') !== 'success') {
     try {
-        Capsule::table('s3_backup_tenants')->where('id', $tenantId)->delete();
+        Capsule::table($tenantTable)->where('id', $tenantId)->delete();
     } catch (\Throwable $e) {
         logModuleCall('cloudstorage', 'e3backup_tenant_create_bucket_cleanup_fail', [
             'client_id' => $clientId,

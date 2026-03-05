@@ -20,6 +20,7 @@ if (!$ca->isLoggedIn()) {
 $clientId = $ca->getUserID();
 
 $isMsp = MspController::isMspClient($clientId);
+$tenantTable = MspController::getTenantTableName();
 
 // Build query based on MSP status
 $query = Capsule::table('s3_agent_enrollment_tokens as t')
@@ -37,8 +38,15 @@ $query = Capsule::table('s3_agent_enrollment_tokens as t')
     ]);
 
 if ($isMsp) {
-    $query->leftJoin('s3_backup_tenants as tn', 't.tenant_id', '=', 'tn.id')
-          ->addSelect('tn.name as tenant_name');
+    $query->leftJoin($tenantTable . ' as tn', function ($join) use ($tenantTable, $clientId) {
+        $join->on('t.tenant_id', '=', 'tn.id');
+        if ($tenantTable === 'eb_tenants') {
+            $mspId = MspController::getMspIdForClient((int)$clientId);
+            $join->where('tn.msp_id', '=', (int)($mspId ?? 0));
+        } else {
+            $join->where('tn.client_id', '=', (int)$clientId);
+        }
+    })->addSelect('tn.name as tenant_name');
 }
 
 $tokens = $query->orderByDesc('t.created_at')->get();

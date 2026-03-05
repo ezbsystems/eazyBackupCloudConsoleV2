@@ -21,6 +21,8 @@ if (is_null($product) || is_null($product->username)) {
 }
 
 $isMspClient = MspController::isMspClient($loggedInUserId);
+$tenantTable = MspController::getTenantTableName();
+$tenantUsersTable = MspController::getTenantUsersTableName();
 
 // Get agent count
 $agentCount = Capsule::table('s3_cloudbackup_agents')
@@ -32,16 +34,16 @@ $agentCount = Capsule::table('s3_cloudbackup_agents')
 $tenantCount = 0;
 $tenantUserCount = 0;
 if ($isMspClient) {
-    $tenantCount = Capsule::table('s3_backup_tenants')
-        ->where('client_id', $loggedInUserId)
-        ->where('status', '!=', 'deleted')
-        ->count();
+    $tenantCountQuery = Capsule::table($tenantTable . ' as t')
+        ->where('t.status', '!=', 'deleted');
+    MspController::scopeTenantOwnership($tenantCountQuery, 't', (int)$loggedInUserId);
+    $tenantCount = $tenantCountQuery->count();
     
-    $tenantUserCount = Capsule::table('s3_backup_tenant_users as tu')
-        ->join('s3_backup_tenants as t', 'tu.tenant_id', '=', 't.id')
-        ->where('t.client_id', $loggedInUserId)
-        ->where('tu.status', 'active')
-        ->count();
+    $tenantUserCountQuery = Capsule::table($tenantUsersTable . ' as tu')
+        ->join($tenantTable . ' as t', 'tu.tenant_id', '=', 't.id')
+        ->where('tu.status', 'active');
+    MspController::scopeTenantOwnership($tenantUserCountQuery, 't', (int)$loggedInUserId);
+    $tenantUserCount = $tenantUserCountQuery->count();
 }
 
 // Get enrollment token count
@@ -102,7 +104,7 @@ $liveRunsQuery = Capsule::table('s3_cloudbackup_runs as r')
     ->leftJoin('s3_cloudbackup_agents as a', 'j.agent_uuid', '=', 'a.agent_uuid');
 
 if ($hasJobTenant) {
-    $liveRunsQuery->leftJoin('s3_backup_tenants as t', 'j.tenant_id', '=', 't.id');
+    $liveRunsQuery->leftJoin($tenantTable . ' as t', 'j.tenant_id', '=', 't.id');
 }
 
 $orderCol = $hasRunIdCol ? 'r.started_at' : 'r.id';

@@ -9,7 +9,7 @@ function eb_ph_settings_checkout_show(array $vars)
     if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { header('Location: clientarea.php'); exit; }
     $clientId = (int)$_SESSION['uid'];
     $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
-    if (!$msp) { header('Location: index.php?m=eazybackup&a=ph-clients'); exit; }
+    if (!$msp) { header('Location: index.php?m=eazybackup&a=ph-tenants-manage'); exit; }
 
     $mspId = (int)$msp->id;
 
@@ -36,7 +36,7 @@ function eb_ph_settings_checkout_show(array $vars)
     return [
         'pagetitle' => 'Settings — Checkout & Dunning',
         'templatefile' => 'whitelabel/settings-checkout',
-        'breadcrumb' => [ 'index.php?m=eazybackup' => 'eazyBackup', 'index.php?m=eazybackup&a=ph-clients' => 'Partner Hub' ],
+        'breadcrumb' => [ 'index.php?m=eazybackup' => 'eazyBackup', 'index.php?m=eazybackup&a=ph-tenants-manage' => 'Partner Hub' ],
         'requirelogin' => true,
         'forcessl' => true,
         'vars' => [

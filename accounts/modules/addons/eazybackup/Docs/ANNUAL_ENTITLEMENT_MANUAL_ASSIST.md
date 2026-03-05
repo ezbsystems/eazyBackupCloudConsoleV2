@@ -9,6 +9,7 @@ The system is explicitly manual-assist; it does not perform any of the following
 - **No automatic config qty changes** - `tblhostingconfigoptions.qty` is never modified by this feature
 - **No automatic invoice generation** - No WHMCS invoices, line items, or gateway charges are created
 - **Display and audit only** - The panel shows usage vs entitlement for admin review; all billing actions are performed manually in WHMCS
+- **Legacy server endpoint rule** - Config ID `89` (Server endpoint LEGACY) is billing/audit only: usage is intentionally fixed at `0`, while config qty remains visible
 
 ## Cycle Reset Rule
 
@@ -68,7 +69,12 @@ When enabling this feature for the first time on an existing installation:
 
 ## Tracked Config IDs
 
-Billable config IDs (from `AnnualEntitlementConfig::billableConfigIds()`): 67, 88, 89, 91, 60, 97, 99, 102 (Cloud Storage, Endpoints cid=88, Endpoints alt cid=89, Disk Image, M365, Hyper-V, VMware, Proxmox).
+Billable config IDs (from `AnnualEntitlementConfig::billableConfigIds()`): 67, 88, 89, 91, 60, 97, 99, 102 (Cloud Storage, Endpoints cid=88, Server endpoint LEGACY cid=89, Disk Image, M365, Hyper-V, VMware, Proxmox).
+
+Status behavior in the panel:
+- `WITHIN_ENTITLEMENT` - usage is within paid units
+- `PRORATION_REQUIRED` - usage is above paid units
+- `LEGACY_BILLING` - legacy billing-only row (currently config ID `89`), usage is fixed at 0
 
 Usage is computed from Comet tables (`comet_devices`, `comet_items`, `comet_vaults`) per config ID.
 

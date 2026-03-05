@@ -7,10 +7,10 @@ function eb_ph_client_view(array $vars)
     if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { header('Location: clientarea.php'); exit; }
     $clientId = (int)$_SESSION['uid'];
     $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
-    if (!$msp) { header('Location: index.php?m=eazybackup&a=ph-clients'); exit; }
+    if (!$msp) { header('Location: index.php?m=eazybackup&a=ph-tenants-manage'); exit; }
     $id = (int)($_GET['id'] ?? 0);
     $tenant = Capsule::table('eb_tenants')->where('id', $id)->where('msp_id', (int)$msp->id)->first();
-    if (!$tenant) { header('Location: index.php?m=eazybackup&a=ph-clients'); exit; }
+    if (!$tenant) { header('Location: index.php?m=eazybackup&a=ph-tenants-manage'); exit; }
 
     // KPIs via cached tables (fallback to 0)
     try { $paid = (int) Capsule::table('eb_invoice_cache')->where('tenant_id', $tenant->id)->where('status','paid')->sum('amount_total'); }
@@ -67,7 +67,7 @@ function eb_ph_client_view(array $vars)
         return [
             'pagetitle' => 'Tenant — ' . (string)$tenant->name,
             'templatefile' => 'whitelabel/client-view',
-            'breadcrumb' => [ 'index.php?m=eazybackup' => 'eazyBackup', 'index.php?m=eazybackup&a=ph-clients' => 'Clients' ],
+            'breadcrumb' => [ 'index.php?m=eazybackup' => 'eazyBackup', 'index.php?m=eazybackup&a=ph-tenants-manage' => 'Tenants' ],
             'requirelogin' => true,
             'forcessl' => true,
             'vars' => [
@@ -97,7 +97,7 @@ function eb_ph_client_view(array $vars)
         return [
             'pagetitle' => 'Tenant',
             'templatefile' => 'whitelabel/client-view',
-            'breadcrumb' => [ 'index.php?m=eazybackup' => 'eazyBackup', 'index.php?m=eazybackup&a=ph-clients' => 'Clients' ],
+            'breadcrumb' => [ 'index.php?m=eazybackup' => 'eazyBackup', 'index.php?m=eazybackup&a=ph-tenants-manage' => 'Tenants' ],
             'requirelogin' => true,
             'forcessl' => true,
             'vars' => [

@@ -9,7 +9,7 @@ function eb_ph_settings_email_show(array $vars)
     if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { header('Location: clientarea.php'); exit; }
     $clientId = (int)$_SESSION['uid'];
     $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
-    if (!$msp) { header('Location: index.php?m=eazybackup&a=ph-clients'); exit; }
+    if (!$msp) { header('Location: index.php?m=eazybackup&a=ph-tenants-manage'); exit; }
     $mspId = (int)$msp->id;
 
     $settings = SettingsService::getEmailSettings($mspId);
@@ -28,7 +28,7 @@ function eb_ph_settings_email_show(array $vars)
     return [
         'pagetitle' => 'Settings — Email Templates',
         'templatefile' => 'whitelabel/settings-email',
-        'breadcrumb' => [ 'index.php?m=eazybackup' => 'eazyBackup', 'index.php?m=eazybackup&a=ph-clients' => 'Partner Hub' ],
+        'breadcrumb' => [ 'index.php?m=eazybackup' => 'eazyBackup', 'index.php?m=eazybackup&a=ph-tenants-manage' => 'Partner Hub' ],
         'requirelogin' => true,
         'forcessl' => true,
         'vars' => [

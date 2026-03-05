@@ -10,7 +10,7 @@
         <main class="flex-1 min-w-0 overflow-x-auto">
     <div class="flex items-center justify-between">
       <h1 class="text-2xl font-semibold tracking-tight">Pending Signup Approvals</h1>
-      <a href="{$modulelink}&a=ph-clients" class="rounded-lg px-3 py-1.5 ring-1 ring-white/10 hover:bg-white/10 text-sm">Back to Clients</a>
+      <a href="{$modulelink}&a=ph-tenants-manage" class="rounded-lg px-3 py-1.5 ring-1 ring-white/10 hover:bg-white/10 text-sm">Back to Tenants</a>
     </div>
 
     {if isset($notice) && $notice == 'approved'}

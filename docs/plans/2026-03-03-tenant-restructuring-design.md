@@ -1,7 +1,7 @@
 # Tenant Model Restructuring — Design Spec
 
 **Date:** 2026-03-03
-**Status:** Draft
+**Status:** Implemented (follow-up hardening completed 2026-03-05)
 **Scope:** Replace `eb_customers` and `s3_backup_tenants` with a single canonical `eb_tenants` table owned by the `eazybackup` addon module. Align all Partner Hub billing, catalog, and service tables to the new model.
 
 ---

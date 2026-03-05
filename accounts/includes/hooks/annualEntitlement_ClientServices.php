@@ -97,7 +97,7 @@ add_hook('AdminAreaHeadOutput', 112223, function ($vars) {
         $labelMap = [
             67  => 'Cloud Storage (TiB)',
             88  => 'Endpoints',
-            89  => 'Endpoints (alt)',
+            89  => 'Server endpoint LEGACY',
             91  => 'Disk Image',
             60  => 'M365 Accounts',
             97  => 'Hyper-V',
@@ -183,6 +183,14 @@ function annual_entitlement_build_rows(int $serviceId, int $clientId, string $us
             'next_due'       => $nextDue,
         ];
         $built = $snapshotService->buildLedgerRow($in);
+        $status = (string)$built['status'];
+        $suggestedDelta = (int)$built['recommended_delta'];
+
+        // Legacy billing SKU: keep qty visible for audit, but usage is intentionally fixed at zero.
+        if ($configId === 89) {
+            $status = 'LEGACY_BILLING';
+            $suggestedDelta = 0;
+        }
 
         Capsule::table('eb_annual_entitlement_ledger')->updateOrInsert(
             [
@@ -197,8 +205,8 @@ function annual_entitlement_build_rows(int $serviceId, int $clientId, string $us
                 'current_usage_qty'  => $usageQty,
                 'current_config_qty' => $configQty,
                 'max_paid_qty'       => $maxPaidQty,
-                'status'             => $built['status'],
-                'recommended_delta'  => $built['recommended_delta'],
+                'status'             => $status,
+                'recommended_delta'  => $suggestedDelta,
             ]
         );
 
@@ -208,8 +216,8 @@ function annual_entitlement_build_rows(int $serviceId, int $clientId, string $us
             'usage_qty'       => $usageQty,
             'config_qty'      => $configQty,
             'max_paid_qty'    => $maxPaidQty,
-            'status'          => $built['status'],
-            'suggested_delta' => $built['recommended_delta'],
+            'status'          => $status,
+            'suggested_delta' => $suggestedDelta,
         ];
     }
 
@@ -234,12 +242,15 @@ function annual_entitlement_compute_usage_qty(int $configId, string $username): 
             return (int)ceil($bytes / $TIB);
 
         case 88:
-        case 89:
             // Endpoints: active device count from comet_devices for username
             return (int)Capsule::table('comet_devices')
                 ->where('username', $username)
                 ->whereNull('revoked_at')
                 ->count();
+
+        case 89:
+            // Legacy Server endpoint SKU: usage tracking is intentionally disabled.
+            return 0;
 
         case 91:
             // Disk image: distinct owner_device count in comet_items type engine1/windisk
@@ -297,14 +308,14 @@ function annual_entitlement_render_panel(array $rows, array $labelMap, int $serv
     $csrfToken = function_exists('generate_token') ? (string)generate_token('plain') : '';
     $guide = ''
         . '<div class="alert alert-info" style="margin-bottom:12px;">'
-        . '<strong>How to use this panel (manual-assist mode)</strong><br>'
-        . '<span class="text-muted">'
-        . 'WITHIN_ENTITLEMENT: Usage is within units already paid this cycle. '
-        . 'PRORATION_REQUIRED: Usage is above paid units for this cycle.<br>'
-        . 'Suggested &Delta;: Extra units to bill now (manually) for the current cycle.<br>'
-        . 'Mark paid: After you manually bill/adjust in WHMCS, click this button to set Max paid to the higher of Usage and Config qty for this cycle, then record an audit event.<br>'
-        . 'No automatic qty changes and no automatic invoice generation are performed by this panel.'
-        . '</span>'
+        . '<strong>How to use this panel (manual-assist mode)</strong>'
+        . '<ul class="text-muted" style="margin:8px 0 0 18px;">'
+        . '<li><strong>WITHIN_ENTITLEMENT</strong>: Usage is within units already paid this cycle.</li>'
+        . '<li><strong>PRORATION_REQUIRED</strong>: Usage is above paid units for this cycle.</li>'         
+        . '<li><strong>Suggested &Delta;</strong>: Extra units to bill now (manually) for the current cycle.</li>'
+        . '<li><strong>Mark paid</strong>: After manual billing/adjustment in WHMCS, click this to set Max paid to the higher of Usage and Config qty for this cycle.</li>'
+        . '<li>No automatic qty changes and no automatic invoice generation are performed by this panel.</li>'
+        . '</ul>'
         . '</div>';
     $header = '<tr><td colspan="2" class="fieldarea"><div class="panel panel-default"><div class="panel-heading"><strong>Annual Entitlement</strong></div><div class="panel-body">' . $guide;
     $table = '<table class="table table-striped table-condensed ae-entitlement-table"><thead><tr><th>Config</th><th>Usage</th><th>Config qty</th><th>Max paid</th><th>Status</th><th>Suggested &Delta;</th><th>Action</th></tr></thead><tbody>';
@@ -332,7 +343,9 @@ function annual_entitlement_render_panel(array $rows, array $labelMap, int $serv
         $table .= '</tr>';
     }
 
-    $table .= '</tbody></table></div></div></td></tr>';
+    $table .= '</tbody></table>';
+    $table .= '<div class="alert alert-warning" style="margin-top:10px; margin-bottom:0;">Legacy Server endpoint units are retained for billing history; usage is intentionally fixed at 0.</div>';
+    $table .= '</div></div></td></tr>';
     $tokenEscaped = htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8');
     $script = '<input type="hidden" id="ae-csrf-token" value="' . $tokenEscaped . '">
     <script type="text/javascript">

@@ -34,6 +34,8 @@ try {
 }
 
 $clientId = $ca->getUserID();
+$tenantTable = MspController::getTenantTableName();
+$tenantUsersTable = MspController::getTenantUsersTableName();
 
 // Check MSP access
 if (!MspController::isMspClient($clientId)) {
@@ -53,12 +55,13 @@ if ($userId <= 0) {
 }
 
 // Verify ownership via tenant
-$user = Capsule::table('s3_backup_tenant_users as u')
-    ->join('s3_backup_tenants as t', 'u.tenant_id', '=', 't.id')
+$userQuery = Capsule::table($tenantUsersTable . ' as u')
+    ->join($tenantTable . ' as t', 'u.tenant_id', '=', 't.id')
     ->where('u.id', $userId)
-    ->where('t.client_id', $clientId)
     ->where('t.status', '!=', 'deleted')
-    ->first(['u.*']);
+    ->select(['u.*']);
+MspController::scopeTenantOwnership($userQuery, 't', (int)$clientId);
+$user = $userQuery->first();
 
 if (!$user) {
     (new JsonResponse(['status' => 'fail', 'message' => 'User not found'], 404))->send();
@@ -74,7 +77,7 @@ if (!empty($name)) {
 if (!empty($email) && filter_var($email, FILTER_VALIDATE_EMAIL)) {
     // Check uniqueness if email changed
     if ($email !== $user->email) {
-        $existing = Capsule::table('s3_backup_tenant_users')
+        $existing = Capsule::table($tenantUsersTable)
             ->where('tenant_id', $user->tenant_id)
             ->where('email', $email)
             ->where('id', '!=', $userId)
@@ -96,7 +99,7 @@ if (in_array($status, ['active', 'disabled'])) {
     $update['status'] = $status;
 }
 
-Capsule::table('s3_backup_tenant_users')
+Capsule::table($tenantUsersTable)
     ->where('id', $userId)
     ->update($update);
 

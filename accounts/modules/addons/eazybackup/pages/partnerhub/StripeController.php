@@ -8,7 +8,7 @@ function eb_ph_stripe_onboard(array $vars)
     if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { header('Location: clientarea.php'); exit; }
     $clientId = (int)$_SESSION['uid'];
     $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
-    if (!$msp) { header('Location: index.php?m=eazybackup&a=ph-clients'); exit; }
+    if (!$msp) { header('Location: index.php?m=eazybackup&a=ph-tenants-manage'); exit; }
     // Generate an onboarding link (Express account)
     $svc = new StripeService();
     try {
@@ -17,7 +17,7 @@ function eb_ph_stripe_onboard(array $vars)
 		$sec = $svc->getSecret();
 		if ($pub === '' || $sec === '') {
 			try { if (function_exists('logActivity')) { @logActivity('eazybackup: ph-stripe-onboard missing platform keys (publishable/secret)'); } } catch (\Throwable $___) { /* ignore */ }
-			header('Location: '.$vars['modulelink'].'&a=ph-clients&onboard_error=1');
+			header('Location: '.$vars['modulelink'].'&a=ph-tenants-manage&onboard_error=1');
 			return '';
 		}
         $acct = $svc->ensureConnectedAccount((int)$msp->id);
@@ -44,8 +44,8 @@ function eb_ph_stripe_onboard(array $vars)
                 if (stripos($cand, 'https://') === 0) { $base = $cand; break; }
             }
             if ($base === '') { throw new \RuntimeException('base_url_unresolved'); }
-            $refresh = $base.'/index.php?m=eazybackup&a=ph-clients&onboard_refresh=1';
-            $return  = $base.'/index.php?m=eazybackup&a=ph-clients&onboard_success=1';
+            $refresh = $base.'/index.php?m=eazybackup&a=ph-tenants-manage&onboard_refresh=1';
+            $return  = $base.'/index.php?m=eazybackup&a=ph-tenants-manage&onboard_success=1';
             // Log URLs for diagnostics
             try { if (function_exists('logActivity')) { @logActivity('eazybackup: ph-stripe-onboard urls base='.$base); } } catch (\Throwable $___) { /* ignore */ }
             $url = $svc->createAccountLink($acct, $refresh, $return);
@@ -55,8 +55,8 @@ function eb_ph_stripe_onboard(array $vars)
 		// Log and fallthrough to graceful client notice
 		try { if (function_exists('logActivity')) { @logActivity('eazybackup: ph-stripe-onboard error: '.$__->getMessage()); } } catch (\Throwable $___) { /* ignore */ }
 	}
-	// Graceful fallback with a query flag consumed by ClientsController/clients.tpl
-    header('Location: '.$vars['modulelink'].'&a=ph-clients&onboard_error=1');
+	// Graceful fallback with a query flag consumed by tenant management route
+    header('Location: '.$vars['modulelink'].'&a=ph-tenants-manage&onboard_error=1');
     exit;
 }
 
@@ -64,7 +64,7 @@ function eb_ph_stripe_setup_intent(array $vars): void
 {
     header('Content-Type: application/json');
     try {
-        $tenantId = (int)($_POST['tenant_id'] ?? $_POST['customer_id'] ?? 0);
+        $tenantId = (int)($_POST['tenant_id'] ?? 0);
         $clientId = (int)($_SESSION['uid'] ?? 0);
         $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
         $svc = new StripeService();
@@ -84,7 +84,7 @@ function eb_ph_stripe_connect_status(array $vars)
     if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { header('Location: clientarea.php'); exit; }
     $clientId = (int)$_SESSION['uid'];
     $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
-    if (!$msp) { header('Location: '.$vars['modulelink'].'&a=ph-clients'); exit; }
+    if (!$msp) { header('Location: '.$vars['modulelink'].'&a=ph-tenants-manage'); exit; }
 
     $acctId = (string)($msp->stripe_connect_id ?? '');
     $status = [ 'hasAccount' => false, 'chargesEnabled' => false, 'payoutsEnabled' => false, 'currentlyDue' => [] ];
@@ -142,7 +142,7 @@ function eb_ph_stripe_manage(array $vars)
     if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { header('Location: clientarea.php'); exit; }
     $clientId = (int)$_SESSION['uid'];
     $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
-    if (!$msp) { header('Location: '.$vars['modulelink'].'&a=ph-clients'); exit; }
+    if (!$msp) { header('Location: '.$vars['modulelink'].'&a=ph-tenants-manage'); exit; }
     // Minimal shell page; frontend should fetch ph-stripe-account-session JSON and mount embedded component
     return [
         'pagetitle' => 'Manage Stripe Account',

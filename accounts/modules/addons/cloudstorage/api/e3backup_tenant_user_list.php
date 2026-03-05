@@ -18,6 +18,8 @@ if (!$ca->isLoggedIn()) {
     exit;
 }
 $clientId = $ca->getUserID();
+$tenantTable = MspController::getTenantTableName();
+$tenantUsersTable = MspController::getTenantUsersTableName();
 
 // Check MSP access
 if (!MspController::isMspClient($clientId)) {
@@ -27,9 +29,8 @@ if (!MspController::isMspClient($clientId)) {
 
 $tenantId = isset($_GET['tenant_id']) ? (int)$_GET['tenant_id'] : null;
 
-$query = Capsule::table('s3_backup_tenant_users as u')
-    ->join('s3_backup_tenants as t', 'u.tenant_id', '=', 't.id')
-    ->where('t.client_id', $clientId)
+$query = Capsule::table($tenantUsersTable . ' as u')
+    ->join($tenantTable . ' as t', 'u.tenant_id', '=', 't.id')
     ->where('t.status', '!=', 'deleted')
     ->select([
         'u.id',
@@ -42,6 +43,7 @@ $query = Capsule::table('s3_backup_tenant_users as u')
         'u.created_at',
         't.name as tenant_name',
     ]);
+MspController::scopeTenantOwnership($query, 't', (int)$clientId);
 
 if ($tenantId !== null && $tenantId > 0) {
     $query->where('u.tenant_id', $tenantId);

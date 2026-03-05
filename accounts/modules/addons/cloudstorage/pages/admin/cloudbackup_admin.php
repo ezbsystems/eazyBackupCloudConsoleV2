@@ -103,10 +103,11 @@ function cloudbackup_get_watchdog_status(): array
 function cloudbackup_get_tenants_for_filter(): array
 {
     try {
-        if (!Capsule::schema()->hasTable('s3_backup_tenants')) {
+        $tenantTable = \WHMCS\Module\Addon\CloudStorage\Client\MspController::getTenantTableName();
+        if (!Capsule::schema()->hasTable($tenantTable)) {
             return [];
         }
-        $rows = Capsule::table('s3_backup_tenants')
+        $rows = Capsule::table($tenantTable)
             ->select('id', 'name')
             ->orderBy('name', 'asc')
             ->get();

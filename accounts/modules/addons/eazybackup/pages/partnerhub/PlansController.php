@@ -8,7 +8,7 @@ function eb_ph_plans_index(array $vars)
     if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { header('Location: clientarea.php'); exit; }
     $clientId = (int)$_SESSION['uid'];
     $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
-    if (!$msp) { header('Location: '.$vars['modulelink'].'&a=ph-clients'); exit; }
+    if (!$msp) { header('Location: '.$vars['modulelink'].'&a=ph-tenants-manage'); exit; }
 
     // Handle create plan POST (name, currency, amount)
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['eb_create_plan'])) {

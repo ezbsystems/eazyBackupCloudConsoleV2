@@ -18,7 +18,7 @@
       var hidden = form.querySelector('input[name="eb_endpoint"]');
       if (hidden && hidden.value) return hidden.value;
       try{
-        var back = document.querySelector('a[href*="&a=ph-clients"]');
+        var back = document.querySelector('a[href*="&a=ph-tenants-manage"]');
         if(back){
           var ml = back.getAttribute('href').split('&a=')[0];
           return ml + '&a=ph-client-profile-update';

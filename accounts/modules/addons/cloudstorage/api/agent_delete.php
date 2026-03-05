@@ -25,6 +25,7 @@ if (!$ca->isLoggedIn()) {
     respond(['status' => 'fail', 'message' => 'Session timeout'], 200);
 }
 $clientId = $ca->getUserID();
+$tenantTable = MspController::getTenantTableName();
 
 $agentUuid = trim((string) ($_POST['agent_uuid'] ?? ''));
 if ($agentUuid === '') {
@@ -48,10 +49,14 @@ if ((int)$agent->client_id === (int)$clientId) {
     // MSP: check if the agent belongs to one of their tenants
     $tenantId = $agent->tenant_id;
     if ($tenantId) {
-        $tenant = Capsule::table('s3_backup_tenants')
-            ->where('id', $tenantId)
-            ->where('parent_client_id', $clientId)
-            ->first();
+        $tenantQuery = Capsule::table($tenantTable)->where('id', $tenantId)->where('status', '!=', 'deleted');
+        if ($tenantTable === 'eb_tenants') {
+            $mspId = MspController::getMspIdForClient((int)$clientId);
+            $tenantQuery->where('msp_id', (int)($mspId ?? 0));
+        } else {
+            $tenantQuery->where('client_id', (int)$clientId);
+        }
+        $tenant = $tenantQuery->first();
         if ($tenant) {
             $authorized = true;
         }

@@ -1,6 +1,7 @@
 <?php
 
 use WHMCS\Database\Capsule;
+use PartnerHub\StripeService;
 
 function eb_ph_tenants_base_link(array $vars): string
 {
@@ -167,7 +168,7 @@ function eb_ph_tenants_require_context(array $vars): array
 
     $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id', $clientId)->first();
     if (!$msp) {
-        header('Location: ' . eb_ph_tenants_base_link($vars) . '&a=ph-clients');
+        header('Location: ' . eb_ph_tenants_base_link($vars) . '&a=ph-tenants-manage');
         exit;
     }
 
@@ -363,6 +364,30 @@ function eb_ph_tenants_index(array $vars)
         $rows[] = (array)$row;
     }
 
+    // Stripe Connect status for onboarding CTA/alerts on tenant list page.
+    $connect = [ 'hasAccount' => false, 'chargesEnabled' => false, 'payoutsEnabled' => false, 'detailsSubmitted' => false ];
+    $connectDue = [];
+    try {
+        if ($msp && (string)($msp->stripe_connect_id ?? '') !== '') {
+            $svc = new StripeService();
+            $acct = $svc->retrieveAccount((string)$msp->stripe_connect_id);
+            $connect = [
+                'hasAccount' => true,
+                'chargesEnabled' => (bool)($acct['charges_enabled'] ?? false),
+                'payoutsEnabled' => (bool)($acct['payouts_enabled'] ?? false),
+                'detailsSubmitted' => (bool)($acct['details_submitted'] ?? false),
+            ];
+            $reqs = $acct['requirements'] ?? [];
+            if (is_array($reqs) && isset($reqs['currently_due']) && is_array($reqs['currently_due'])) {
+                $connectDue = $reqs['currently_due'];
+            }
+        }
+    } catch (\Throwable $__) { /* ignore */ }
+
+    $onboardError = isset($_GET['onboard_error']) && $_GET['onboard_error'] !== '';
+    $onboardSuccess = isset($_GET['onboard_success']) && $_GET['onboard_success'] !== '';
+    $onboardRefresh = isset($_GET['onboard_refresh']) && $_GET['onboard_refresh'] !== '';
+
     return [
         'pagetitle' => 'Partner Hub - Customer Tenants',
         'templatefile' => 'whitelabel/tenants',
@@ -378,6 +403,11 @@ function eb_ph_tenants_index(array $vars)
             'notice' => (string)($_GET['notice'] ?? ''),
             'legacy_notice' => (string)($_GET['legacy'] ?? ''),
             'error' => (string)($_GET['error'] ?? ''),
+            'connect' => $connect,
+            'connect_due' => $connectDue,
+            'onboardError' => $onboardError,
+            'onboardSuccess' => $onboardSuccess,
+            'onboardRefresh' => $onboardRefresh,
         ],
     ];
 }

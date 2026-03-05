@@ -7,6 +7,44 @@ use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 
 class MspController
 {
+    public static function hasCanonicalTenantModel(): bool
+    {
+        return Capsule::schema()->hasTable('eb_tenants') && Capsule::schema()->hasTable('eb_msp_accounts');
+    }
+
+    public static function getTenantTableName(): string
+    {
+        return self::hasCanonicalTenantModel() ? 'eb_tenants' : 's3_backup_tenants';
+    }
+
+    public static function getTenantUsersTableName(): string
+    {
+        return Capsule::schema()->hasTable('eb_tenant_users') ? 'eb_tenant_users' : 's3_backup_tenant_users';
+    }
+
+    public static function getMspIdForClient(int $clientId): ?int
+    {
+        if ($clientId <= 0 || !self::hasCanonicalTenantModel()) {
+            return null;
+        }
+        $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id', $clientId)->first();
+        return $msp ? (int)$msp->id : null;
+    }
+
+    public static function scopeTenantOwnership($query, string $tenantAlias, int $clientId): void
+    {
+        if (self::hasCanonicalTenantModel()) {
+            $mspId = self::getMspIdForClient($clientId);
+            if ($mspId === null) {
+                $query->whereRaw('1 = 0');
+                return;
+            }
+            $query->where($tenantAlias . '.msp_id', $mspId);
+            return;
+        }
+        $query->where($tenantAlias . '.client_id', $clientId);
+    }
+
     /**
      * Check if a client is an MSP based on client group membership.
      */
@@ -47,13 +85,13 @@ class MspController
      */
     public static function getTenants(int $clientId): array
     {
-        if (Capsule::schema()->hasTable('eb_tenants')) {
-            $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id', $clientId)->first();
-            if (!$msp) {
+        if (self::hasCanonicalTenantModel()) {
+            $mspId = self::getMspIdForClient($clientId);
+            if ($mspId === null) {
                 return [];
             }
             return Capsule::table('eb_tenants')
-                ->where('msp_id', (int)$msp->id)
+                ->where('msp_id', $mspId)
                 ->where('status', '!=', 'deleted')
                 ->orderBy('name')
                 ->get()
@@ -73,14 +111,14 @@ class MspController
      */
     public static function getTenant(int $tenantId, int $clientId): ?object
     {
-        if (Capsule::schema()->hasTable('eb_tenants')) {
-            $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id', $clientId)->first();
-            if (!$msp) {
+        if (self::hasCanonicalTenantModel()) {
+            $mspId = self::getMspIdForClient($clientId);
+            if ($mspId === null) {
                 return null;
             }
             return Capsule::table('eb_tenants')
                 ->where('id', $tenantId)
-                ->where('msp_id', (int)$msp->id)
+                ->where('msp_id', $mspId)
                 ->where('status', '!=', 'deleted')
                 ->first();
         }

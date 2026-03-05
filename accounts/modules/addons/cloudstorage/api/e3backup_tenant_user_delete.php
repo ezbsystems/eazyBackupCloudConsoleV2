@@ -34,6 +34,8 @@ try {
 }
 
 $clientId = $ca->getUserID();
+$tenantTable = MspController::getTenantTableName();
+$tenantUsersTable = MspController::getTenantUsersTableName();
 
 // Check MSP access
 if (!MspController::isMspClient($clientId)) {
@@ -49,12 +51,13 @@ if ($userId <= 0) {
 }
 
 // Verify ownership via tenant
-$user = Capsule::table('s3_backup_tenant_users as u')
-    ->join('s3_backup_tenants as t', 'u.tenant_id', '=', 't.id')
+$userQuery = Capsule::table($tenantUsersTable . ' as u')
+    ->join($tenantTable . ' as t', 'u.tenant_id', '=', 't.id')
     ->where('u.id', $userId)
-    ->where('t.client_id', $clientId)
     ->where('t.status', '!=', 'deleted')
-    ->first(['u.id']);
+    ->select(['u.id']);
+MspController::scopeTenantOwnership($userQuery, 't', (int)$clientId);
+$user = $userQuery->first();
 
 if (!$user) {
     (new JsonResponse(['status' => 'fail', 'message' => 'User not found'], 404))->send();
@@ -70,7 +73,7 @@ Capsule::table('s3_cloudbackup_agents')
     ]);
 
 // Delete the user
-Capsule::table('s3_backup_tenant_users')->where('id', $userId)->delete();
+Capsule::table($tenantUsersTable)->where('id', $userId)->delete();
 
 (new JsonResponse(['status' => 'success', 'message' => 'User deleted successfully'], 200))->send();
 exit;

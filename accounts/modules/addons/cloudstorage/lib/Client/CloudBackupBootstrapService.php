@@ -162,10 +162,18 @@ class CloudBackupBootstrapService
     public static function ensureTenantBucket(int $clientId, int $tenantId): array
     {
         try {
-            $tenant = Capsule::table('s3_backup_tenants')
-                ->where('id', $tenantId)
-                ->where('client_id', $clientId)
-                ->first();
+            $tenantTable = MspController::getTenantTableName();
+            $tenantQuery = Capsule::table($tenantTable)->where('id', $tenantId);
+            if ($tenantTable === 'eb_tenants') {
+                $mspId = MspController::getMspIdForClient($clientId);
+                if ($mspId === null) {
+                    return ['status' => 'fail', 'message' => 'MSP account not found.'];
+                }
+                $tenantQuery->where('msp_id', (int)$mspId);
+            } else {
+                $tenantQuery->where('client_id', $clientId);
+            }
+            $tenant = $tenantQuery->first();
             if (!$tenant) {
                 return ['status' => 'fail', 'message' => 'Tenant not found.'];
             }
@@ -213,8 +221,10 @@ class CloudBackupBootstrapService
                 return ['status' => 'fail', 'message' => 'Unable to resolve tenant bucket after creation.'];
             }
 
-            $tenantUpdates = ['bucket_name' => $bucketName, 'updated_at' => Capsule::raw('NOW()')];
-            Capsule::table('s3_backup_tenants')->where('id', $tenantId)->update($tenantUpdates);
+            if (Capsule::schema()->hasColumn($tenantTable, 'bucket_name')) {
+                $tenantUpdates = ['bucket_name' => $bucketName, 'updated_at' => Capsule::raw('NOW()')];
+                Capsule::table($tenantTable)->where('id', $tenantId)->update($tenantUpdates);
+            }
 
             return ['status' => 'success', 'bucket' => $bucket, 'owner_user' => $owner];
         } catch (\Throwable $e) {

@@ -36,14 +36,6 @@ $targets = [
             'card style marker' => 'rounded-2xl eb-bg-card ring-1 ring-white/10',
         ],
     ],
-    'clients.tpl' => [
-        'path' => $root . '/templates/whitelabel/clients.tpl',
-        'markers' => [
-            'ui token include' => "{include file=\"modules/addons/eazybackup/templates/partials/_ui-tokens.tpl\"}",
-            'page shell marker' => 'min-h-screen eb-bg-page',
-            'card style marker' => 'rounded-2xl eb-bg-card',
-        ],
-    ],
     'client-view.tpl' => [
         'path' => $root . '/templates/whitelabel/client-view.tpl',
         'markers' => [

@@ -34,6 +34,8 @@ try {
 }
 
 $clientId = $ca->getUserID();
+$tenantTable = MspController::getTenantTableName();
+$tenantUsersTable = MspController::getTenantUsersTableName();
 
 // Check MSP access
 if (!MspController::isMspClient($clientId)) {
@@ -55,19 +57,20 @@ if (strlen($password) < 8) {
 }
 
 // Verify ownership via tenant
-$user = Capsule::table('s3_backup_tenant_users as u')
-    ->join('s3_backup_tenants as t', 'u.tenant_id', '=', 't.id')
+$userQuery = Capsule::table($tenantUsersTable . ' as u')
+    ->join($tenantTable . ' as t', 'u.tenant_id', '=', 't.id')
     ->where('u.id', $userId)
-    ->where('t.client_id', $clientId)
     ->where('t.status', '!=', 'deleted')
-    ->first(['u.id']);
+    ->select(['u.id']);
+MspController::scopeTenantOwnership($userQuery, 't', (int)$clientId);
+$user = $userQuery->first();
 
 if (!$user) {
     (new JsonResponse(['status' => 'fail', 'message' => 'User not found'], 404))->send();
     exit;
 }
 
-Capsule::table('s3_backup_tenant_users')
+Capsule::table($tenantUsersTable)
     ->where('id', $userId)
     ->update([
         'password_hash' => password_hash($password, PASSWORD_DEFAULT),

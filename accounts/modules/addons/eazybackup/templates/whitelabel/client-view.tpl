@@ -4,7 +4,7 @@
   <div class="mx-auto max-w-5xl px-6 py-8">
     <div class="flex items-center justify-between">
       <h1 class="text-2xl font-semibold tracking-tight">{$customer.name|escape}</h1>
-      <a class="btn btn-secondary" href="{$modulelink}&a=ph-clients">Back</a>
+      <a class="btn btn-secondary" href="{$modulelink}&a=ph-tenants-manage">Back</a>
     </div>
 
     <section class="mt-6 rounded-2xl eb-bg-card shadow-xl shadow-black/20 ring-1 ring-white/10 overflow-hidden">

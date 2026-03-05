@@ -9,7 +9,7 @@ function eb_ph_catalog_plans_index(array $vars)
     if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { header('Location: clientarea.php'); exit; }
     $clientId = (int)$_SESSION['uid'];
     $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
-    if (!$msp) { header('Location: '.$vars['modulelink'].'&a=ph-clients'); exit; }
+    if (!$msp) { header('Location: '.$vars['modulelink'].'&a=ph-tenants-manage'); exit; }
 
     // Ensure schema exists for plan tables
     try {
@@ -138,7 +138,7 @@ function eb_ph_plan_assign(array $vars): void
 
     try { if (!Capsule::schema()->hasTable('eb_plan_instances') && function_exists('eazybackup_migrate_schema')) { @eazybackup_migrate_schema(); } } catch (\Throwable $__) {}
 
-    $tenantId = (int)($_POST['tenant_id'] ?? $_POST['customer_id'] ?? 0);
+    $tenantId = (int)($_POST['tenant_id'] ?? 0);
     $cometUserId = (string)($_POST['comet_user_id'] ?? '');
     $planId = (int)($_POST['plan_id'] ?? 0);
     $feePercent = isset($_POST['application_fee_percent']) && $_POST['application_fee_percent'] !== '' ? (float)$_POST['application_fee_percent'] : null;
@@ -178,7 +178,7 @@ function eb_ph_plan_assign(array $vars): void
 
         $instanceId = Capsule::table('eb_plan_instances')->insertGetId([
             'msp_id' => (int)$msp->id,
-            'customer_id' => $tenantId,
+            'tenant_id' => $tenantId,
             'comet_user_id' => $cometUserId,
             'plan_id' => (int)$plan->id,
             'plan_version' => (int)$plan->version,
