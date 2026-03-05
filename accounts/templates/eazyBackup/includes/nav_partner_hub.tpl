@@ -11,11 +11,8 @@
   </button>
   <div x-show="open" x-cloak @click.away="open=false" class="mt-1 space-y-1 pl-8">
     {if !isset($eb_ph_show_overview) || $eb_ph_show_overview}
-    <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=ph-clients" class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]">Overview</a>
-    {/if}
-    {if !isset($eb_ph_show_clients) || $eb_ph_show_clients}
-    <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=ph-clients" class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]">Clients</a>
-    {/if}
+    <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=ph-overview" class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]">Overview</a>
+    {/if}    
     <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=whitelabel-branding" class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]">White-Label Tenants</a>
     <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=ph-tenants-manage" class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]">Tenant Management</a>
     <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=ph-signup-approvals" class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]">Signup Approvals</a>
