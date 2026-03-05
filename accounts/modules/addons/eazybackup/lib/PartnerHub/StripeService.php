@@ -236,6 +236,18 @@ class StripeService
         return $this->request('GET','/v1/charges', $params, null, $stripeAccount);
     }
 
+    public function listInvoicesForAccount(string $stripeAccount, array $params = []): array
+    {
+        if (!isset($params['limit'])) { $params['limit'] = 100; }
+        return $this->request('GET', '/v1/invoices', $params, null, $stripeAccount);
+    }
+
+    public function listChargesForAccount(string $stripeAccount, array $params = []): array
+    {
+        if (!isset($params['limit'])) { $params['limit'] = 100; }
+        return $this->request('GET', '/v1/charges', $params, null, $stripeAccount);
+    }
+
     public function retrieveSubscription(string $subscriptionId, ?string $stripeAccount = null): array
     {
         return $this->request('GET','/v1/subscriptions/'.$subscriptionId, [], null, $stripeAccount);
