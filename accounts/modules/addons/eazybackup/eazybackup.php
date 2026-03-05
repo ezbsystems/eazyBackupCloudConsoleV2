@@ -1583,6 +1583,7 @@ function eazybackup_migrate_schema(): void {
         $schema->create('eb_catalog_products', function (Blueprint $t) {
             $t->bigIncrements('id');
             $t->bigInteger('msp_id')->index();
+            $t->integer('whmcs_product_id')->nullable();
             $t->string('name', 160);
             $t->text('description')->nullable();
             $t->enum('category', ['Backup','Services','Other'])->default('Backup');
@@ -1597,6 +1598,7 @@ function eazybackup_migrate_schema(): void {
             $t->timestamp('created_at')->nullable()->useCurrent();
             $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
             $t->index('active');
+            $t->index('whmcs_product_id', 'idx_catalog_whmcs_pid');
         });
     } else {
         eb_add_column_if_missing('eb_catalog_products','whmcs_product_id', fn(Blueprint $t)=>$t->integer('whmcs_product_id')->nullable());
@@ -1744,7 +1746,7 @@ function eazybackup_migrate_schema(): void {
         $schema->create('eb_plan_instances', function (Blueprint $t) {
             $t->bigIncrements('id');
             $t->bigInteger('msp_id')->index();
-            $t->bigInteger('customer_id')->index();
+            $t->bigInteger('tenant_id')->index();
             $t->string('comet_user_id', 128)->index();
             $t->bigInteger('plan_id')->index();
             $t->integer('plan_version');
@@ -1757,6 +1759,18 @@ function eazybackup_migrate_schema(): void {
             $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
             $t->index(['stripe_subscription_id']);
         });
+    } else {
+        eb_add_column_if_missing('eb_plan_instances', 'tenant_id', fn(Blueprint $t)=>$t->bigInteger('tenant_id')->nullable()->index());
+        try {
+            if ($schema->hasColumn('eb_plan_instances', 'customer_id')) {
+                Capsule::statement("
+                    UPDATE eb_plan_instances
+                    SET tenant_id = customer_id
+                    WHERE (tenant_id IS NULL OR tenant_id = 0)
+                      AND customer_id IS NOT NULL
+                ");
+            }
+        } catch (\Throwable $__) {}
     }
 
     // --- Partner Hub Catalog: Plan instance items ---
@@ -4071,9 +4085,12 @@ function eazybackup_clientarea(array $vars)
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'whitelabel-email-template-edit') {
         require_once __DIR__ . '/pages/whitelabel/EmailTemplatesController.php';
         return eazybackup_whitelabel_email_template_edit($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-overview') {
+        require_once __DIR__ . '/pages/partnerhub/OverviewController.php';
+        return eb_ph_overview_index($vars);
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-clients') {
-        require_once __DIR__ . '/pages/partnerhub/ClientsController.php';
-        return eb_ph_clients_index($vars);
+        header('Location: ' . ($vars['modulelink'] ?? 'index.php?m=eazybackup') . '&a=ph-tenants-manage');
+        exit;
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenants-manage') {
         require_once __DIR__ . '/pages/partnerhub/TenantsController.php';
         return eb_ph_tenants_management_entry($vars);
