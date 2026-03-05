@@ -4,6 +4,7 @@ namespace WHMCS\Module\Addon\CloudStorage\Admin;
 
 use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
+use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 
 class CloudBackupAdminController {
 
@@ -28,7 +29,8 @@ class CloudBackupAdminController {
 
     private static function buildAgentsBaseQuery(array $filters = [])
     {
-        $hasTenants = Capsule::schema()->hasTable('s3_backup_tenants');
+        $tenantTable = MspController::getTenantTableName();
+        $hasTenants = Capsule::schema()->hasTable($tenantTable);
         $hasAgentVersion = Capsule::schema()->hasColumn('s3_cloudbackup_agents', 'agent_version');
         $hasAgentOs = Capsule::schema()->hasColumn('s3_cloudbackup_agents', 'agent_os');
         $hasAgentArch = Capsule::schema()->hasColumn('s3_cloudbackup_agents', 'agent_arch');
@@ -68,7 +70,7 @@ class CloudBackupAdminController {
         $query->addSelect($hasMetadataUpdatedAt ? 'a.metadata_updated_at' : Capsule::raw('NULL as metadata_updated_at'));
 
         if ($hasTenants) {
-            $query->leftJoin('s3_backup_tenants as t', 'a.tenant_id', '=', 't.id')
+            $query->leftJoin($tenantTable . ' as t', 'a.tenant_id', '=', 't.id')
                 ->addSelect('t.name as tenant_name');
         } else {
             $query->addSelect(Capsule::raw('NULL as tenant_name'));
@@ -186,10 +188,11 @@ class CloudBackupAdminController {
     public static function countAllAgents(array $filters = []): int
     {
         try {
+            $tenantTable = MspController::getTenantTableName();
             $query = Capsule::table('s3_cloudbackup_agents as a')
                 ->join('tblclients as c', 'a.client_id', '=', 'c.id');
-            if (Capsule::schema()->hasTable('s3_backup_tenants')) {
-                $query->leftJoin('s3_backup_tenants as t', 'a.tenant_id', '=', 't.id');
+            if (Capsule::schema()->hasTable($tenantTable)) {
+                $query->leftJoin($tenantTable . ' as t', 'a.tenant_id', '=', 't.id');
             }
 
             if (!empty($filters['client_id'])) {

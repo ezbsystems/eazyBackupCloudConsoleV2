@@ -20,6 +20,7 @@ if (!$ca->isLoggedIn()) {
 $clientId = $ca->getUserID();
 
 $isMsp = MspController::isMspClient($clientId);
+$tenantTable = MspController::getTenantTableName();
 $tenantFilter = $_GET['tenant_id'] ?? null;
 $agentFilter = isset($_GET['agent_uuid']) ? trim((string) $_GET['agent_uuid']) : null;
 
@@ -58,8 +59,15 @@ try {
         ]);
 
     if ($isMsp) {
-        $query->leftJoin('s3_backup_tenants as t', $tenantColumn, '=', 't.id')
-              ->addSelect('t.name as tenant_name');
+        $query->leftJoin($tenantTable . ' as t', function ($join) use ($tenantColumn, $clientId, $tenantTable) {
+            $join->on($tenantColumn, '=', 't.id');
+            if ($tenantTable === 'eb_tenants') {
+                $mspId = MspController::getMspIdForClient((int)$clientId);
+                $join->where('t.msp_id', '=', (int)($mspId ?? 0));
+            } else {
+                $join->where('t.client_id', '=', (int)$clientId);
+            }
+        })->addSelect('t.name as tenant_name');
 
         if ($tenantFilter !== null) {
             if ($tenantFilter === 'direct') {

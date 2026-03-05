@@ -187,6 +187,8 @@ if (!$ca->isLoggedIn()) {
 
 $clientId = $ca->getUserID();
 $isMsp = MspController::isMspClient($clientId);
+$tenantTable = MspController::getTenantTableName();
+$mspId = MspController::getMspIdForClient($clientId);
 $tenantFilterRaw = $_GET['tenant_id'] ?? null;
 
 $tenantFilter = null;
@@ -217,10 +219,14 @@ if ($tenantFilter !== null) {
 }
 
 $userQuery = Capsule::table('s3_backup_users as u')
-    ->leftJoin('s3_backup_tenants as t', function ($join) use ($clientId) {
+    ->leftJoin($tenantTable . ' as t', function ($join) use ($clientId, $tenantTable, $mspId) {
         $join->on('u.tenant_id', '=', 't.id')
-            ->where('t.client_id', '=', $clientId)
             ->where('t.status', '!=', 'deleted');
+        if ($tenantTable === 'eb_tenants') {
+            $join->where('t.msp_id', '=', (int)($mspId ?? 0));
+        } else {
+            $join->where('t.client_id', '=', (int)$clientId);
+        }
     })
     ->where('u.client_id', $clientId)
     ->select([

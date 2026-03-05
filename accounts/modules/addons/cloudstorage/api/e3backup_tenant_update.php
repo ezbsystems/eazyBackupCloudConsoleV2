@@ -34,6 +34,7 @@ try {
 }
 
 $clientId = $ca->getUserID();
+$tenantTable = MspController::getTenantTableName();
 
 // Check MSP access
 if (!MspController::isMspClient($clientId)) {
@@ -128,7 +129,7 @@ if ($country !== null) {
     $update['country'] = $country ? strtoupper($country) : null;
 }
 
-Capsule::table('s3_backup_tenants')
+Capsule::table($tenantTable)
     ->where('id', $tenantId)
     ->update($update);
 

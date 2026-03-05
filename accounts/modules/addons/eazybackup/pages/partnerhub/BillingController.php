@@ -7,7 +7,7 @@ function eb_ph_billing_subscriptions(array $vars)
     if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { header('Location: clientarea.php'); exit; }
     $clientId = (int)$_SESSION['uid'];
     $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
-    if (!$msp) { header('Location: '.$vars['modulelink'].'&a=ph-clients'); exit; }
+    if (!$msp) { header('Location: '.$vars['modulelink'].'&a=ph-tenants-manage'); exit; }
 
     $q = trim((string)($_GET['q'] ?? ''));
     $page = max(1, (int)($_GET['p'] ?? 1));
@@ -68,7 +68,7 @@ function eb_ph_billing_invoices(array $vars)
     if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { header('Location: clientarea.php'); exit; }
     $clientId = (int)$_SESSION['uid'];
     $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
-    if (!$msp) { header('Location: '.$vars['modulelink'].'&a=ph-clients'); exit; }
+    if (!$msp) { header('Location: '.$vars['modulelink'].'&a=ph-tenants-manage'); exit; }
 
     $q = trim((string)($_GET['q'] ?? ''));
     $page = max(1, (int)($_GET['p'] ?? 1));
@@ -122,7 +122,7 @@ function eb_ph_billing_payments(array $vars)
     if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { header('Location: clientarea.php'); exit; }
     $clientId = (int)$_SESSION['uid'];
     $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
-    if (!$msp) { header('Location: '.$vars['modulelink'].'&a=ph-clients'); exit; }
+    if (!$msp) { header('Location: '.$vars['modulelink'].'&a=ph-tenants-manage'); exit; }
 
     $q = trim((string)($_GET['q'] ?? ''));
     $page = max(1, (int)($_GET['p'] ?? 1));
@@ -176,7 +176,7 @@ function eb_ph_billing_payment_new(array $vars)
     if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { header('Location: clientarea.php'); exit; }
     $clientId = (int)$_SESSION['uid'];
     $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
-    if (!$msp) { header('Location: '.$vars['modulelink'].'&a=ph-clients'); exit; }
+    if (!$msp) { header('Location: '.$vars['modulelink'].'&a=ph-tenants-manage'); exit; }
 
     $tenants = Capsule::table('eb_tenants')->where('msp_id',(int)$msp->id)->orderBy('name','asc')->get(['id','name']);
     $tenantArr = [];
@@ -200,7 +200,7 @@ function eb_ph_billing_create_payment(array $vars): void
         $clientId = (int)$_SESSION['uid'];
         $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
         if (!$msp || (string)($msp->stripe_connect_id ?? '') === '') { echo json_encode(['status'=>'error','message'=>'no_account']); return; }
-        $tenantId = (int)($_POST['tenant_id'] ?? $_POST['customer_id'] ?? 0);
+        $tenantId = (int)($_POST['tenant_id'] ?? 0);
         $amountDec = (string)($_POST['amount'] ?? '0'); // decimal as string
         $feeDec = (string)($_POST['application_fee'] ?? '0');
         $currency = strtoupper(trim((string)($_POST['currency'] ?? 'USD')));
@@ -245,7 +245,7 @@ function eb_ph_money_payouts(array $vars)
     if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { header('Location: clientarea.php'); exit; }
     $clientId = (int)$_SESSION['uid'];
     $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
-    if (!$msp) { header('Location: '.$vars['modulelink'].'&a=ph-clients'); exit; }
+    if (!$msp) { header('Location: '.$vars['modulelink'].'&a=ph-tenants-manage'); exit; }
 
     $q = trim((string)($_GET['q'] ?? ''));
     $page = max(1, (int)($_GET['p'] ?? 1));
@@ -293,7 +293,7 @@ function eb_ph_money_disputes(array $vars)
     if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { header('Location: clientarea.php'); exit; }
     $clientId = (int)$_SESSION['uid'];
     $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
-    if (!$msp) { header('Location: '.$vars['modulelink'].'&a=ph-clients'); exit; }
+    if (!$msp) { header('Location: '.$vars['modulelink'].'&a=ph-tenants-manage'); exit; }
 
     $q = trim((string)($_GET['q'] ?? ''));
     $page = max(1, (int)($_GET['p'] ?? 1));
@@ -341,7 +341,7 @@ function eb_ph_money_balance(array $vars)
     if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { header('Location: clientarea.php'); exit; }
     $clientId = (int)$_SESSION['uid'];
     $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
-    if (!$msp) { header('Location: '.$vars['modulelink'].'&a=ph-clients'); exit; }
+    if (!$msp) { header('Location: '.$vars['modulelink'].'&a=ph-tenants-manage'); exit; }
 
     // Filters
     $from = trim((string)($_GET['from'] ?? ''));

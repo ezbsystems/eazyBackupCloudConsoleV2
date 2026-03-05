@@ -34,6 +34,7 @@ try {
 }
 
 $clientId = $ca->getUserID();
+$tenantUsersTable = MspController::getTenantUsersTableName();
 
 // Check MSP access
 if (!MspController::isMspClient($clientId)) {
@@ -77,7 +78,7 @@ if (strlen($password) < 8) {
 }
 
 // Check email uniqueness within tenant
-$existing = Capsule::table('s3_backup_tenant_users')
+$existing = Capsule::table($tenantUsersTable)
     ->where('tenant_id', $tenantId)
     ->where('email', $email)
     ->first();
@@ -87,7 +88,7 @@ if ($existing) {
     exit;
 }
 
-$userId = Capsule::table('s3_backup_tenant_users')->insertGetId([
+$userId = Capsule::table($tenantUsersTable)->insertGetId([
     'tenant_id' => $tenantId,
     'name' => $name,
     'email' => $email,

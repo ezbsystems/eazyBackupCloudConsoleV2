@@ -20,11 +20,40 @@
         <div class="flex items-center justify-between border-b border-slate-800/60 px-6 py-4">
           <h1 class="text-2xl font-semibold tracking-tight">Customer Tenants</h1>
           <div class="flex items-center gap-2">
+            {if !isset($connect.chargesEnabled) || !$connect.chargesEnabled}
+              <a href="{$modulelink}&a=ph-stripe-onboard" class="rounded-xl px-4 py-2 font-medium text-white bg-amber-600 hover:bg-amber-500">Connect Stripe</a>
+            {/if}
             <button type="button" @click="openCreateModal = true" class="rounded-xl px-4 py-2 font-medium text-white bg-[rgb(var(--accent))] hover:bg-[rgb(var(--accent))]/90">Create New Tenant</button>
-            <a href="{$modulelink}&a=ph-clients" class="rounded-xl px-4 py-2 text-white/80 ring-1 ring-white/10 hover:bg-white/5">Back to Clients</a>
+            <a href="{$modulelink}&a=ph-tenants-manage" class="rounded-xl px-4 py-2 text-white/80 ring-1 ring-white/10 hover:bg-white/5">Back to Tenants</a>
           </div>
         </div>
         <div class="p-6">
+
+    {if !isset($connect.chargesEnabled) || !$connect.chargesEnabled}
+      <div class="mt-3 rounded-xl bg-amber-500/10 ring-1 ring-amber-400/20 px-4 py-3 text-sm text-amber-200">
+        To accept payments, finish Stripe onboarding for this MSP. Click Connect Stripe to get started.
+      </div>
+    {/if}
+    {if isset($connect_due) && $connect_due|@count > 0}
+      <div class="mt-3 rounded-xl bg-amber-500/10 ring-1 ring-amber-400/20 px-4 py-3 text-sm text-amber-200">
+        Stripe requires additional information. <a href="{$modulelink}&a=ph-stripe-connect" class="underline">View details</a> or <a href="{$modulelink}&a=ph-stripe-onboard" class="underline">Resume onboarding</a>.
+      </div>
+    {/if}
+    {if isset($onboardError) && $onboardError}
+      <div class="mt-3 rounded-xl bg-rose-500/10 ring-1 ring-rose-400/20 px-4 py-3 text-sm text-rose-200">
+        We couldn't start Stripe onboarding. Please try again.
+      </div>
+    {/if}
+    {if isset($onboardSuccess) && $onboardSuccess}
+      <div class="mt-3 rounded-xl bg-emerald-500/20 ring-1 ring-emerald-400/20 px-4 py-3 text-sm text-white">
+        Stripe onboarding complete. What’s next: connect status may take a moment to update; you can review <a class="underline" href="{$modulelink}&a=ph-stripe-connect">Connect &amp; Status</a> or proceed to <a class="underline" href="{$modulelink}&a=ph-stripe-manage">Manage Account</a>.
+      </div>
+    {/if}
+    {if isset($onboardRefresh) && $onboardRefresh}
+      <div class="mt-3 rounded-xl bg-white/5 ring-1 ring-white/10 px-4 py-3 text-sm text-white/70">
+        You can resume Stripe onboarding at any time. If setup is complete, continue to <a class="underline" href="{$modulelink}&a=ph-stripe-manage">Manage Account</a>.
+      </div>
+    {/if}
 
     {if $notice neq ''}
       <div class="mt-4 rounded-xl bg-emerald-500/20 ring-1 ring-emerald-400/30 px-4 py-3 text-sm text-white">

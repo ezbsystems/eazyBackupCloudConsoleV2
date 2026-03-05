@@ -9,7 +9,7 @@ function eb_ph_catalog_products_index(array $vars)
     if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { header('Location: clientarea.php'); exit; }
     $clientId = (int)$_SESSION['uid'];
     $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
-    if (!$msp) { header('Location: '.$vars['modulelink'].'&a=ph-clients'); exit; }
+    if (!$msp) { header('Location: '.$vars['modulelink'].'&a=ph-tenants-manage'); exit; }
 
     // Ensure schema exists (defensive) to avoid 500s on first deploy
     try {
@@ -150,7 +150,7 @@ function eb_ph_catalog_products_list(array $vars)
     if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { header('Location: clientarea.php'); exit; }
     $clientId = (int)$_SESSION['uid'];
     $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
-    if (!$msp) { header('Location: '.$vars['modulelink'].'&a=ph-clients'); exit; }
+    if (!$msp) { header('Location: '.$vars['modulelink'].'&a=ph-tenants-manage'); exit; }
 
     // Company name (fallbacks)
     $company = '';

@@ -34,6 +34,8 @@ try {
 }
 
 $clientId = $ca->getUserID();
+$tenantTable = MspController::getTenantTableName();
+$tenantUsersTable = MspController::getTenantUsersTableName();
 
 // Check MSP access
 if (!MspController::isMspClient($clientId)) {
@@ -56,9 +58,9 @@ if (!$tenant) {
 }
 
 // Soft delete: mark as deleted, disable all users, unassign agents
-Capsule::transaction(function () use ($tenantId) {
+Capsule::transaction(function () use ($tenantId, $tenantTable, $tenantUsersTable) {
     // Mark tenant as deleted
-    Capsule::table('s3_backup_tenants')
+    Capsule::table($tenantTable)
         ->where('id', $tenantId)
         ->update([
             'status' => 'deleted',
@@ -66,7 +68,7 @@ Capsule::transaction(function () use ($tenantId) {
         ]);
     
     // Disable all tenant users
-    Capsule::table('s3_backup_tenant_users')
+    Capsule::table($tenantUsersTable)
         ->where('tenant_id', $tenantId)
         ->update([
             'status' => 'disabled',

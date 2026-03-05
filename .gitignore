@@ -69,6 +69,7 @@
 
 # ---------------------- includes/hooks (all ours) ----------------------
 !/accounts/includes/
+!/accounts/includes/**
 !/accounts/includes/hooks/
 !/accounts/includes/hooks/**
 

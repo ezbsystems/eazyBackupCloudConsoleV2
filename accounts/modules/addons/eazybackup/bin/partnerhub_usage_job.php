@@ -38,9 +38,10 @@ try {
                 $idemp = sha1('pi:'.$pi->id.'|item:'.$map['STORAGE_TB'].'|metric:STORAGE_TB|'.$periodStart->format('Y-m-d').'|'.$periodEnd->format('Y-m-d'));
                 $exists = Capsule::table('eb_usage_ledger')->where('idempotency_key',$idemp)->first();
                 if (!$exists && $gb >= 0) {
+                    $tenantId = (int)($pi->tenant_id ?? $pi->customer_id ?? 0);
                     // Record locally and attempt to push
                     Capsule::table('eb_usage_ledger')->insert([
-                        'customer_id' => (int)$pi->customer_id,
+                        'tenant_id' => $tenantId,
                         'metric' => 'STORAGE_TB',
                         'qty' => $gb,
                         'period_start' => $periodStart->format('Y-m-d H:i:s'),

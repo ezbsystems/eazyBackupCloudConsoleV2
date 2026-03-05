@@ -10,7 +10,7 @@ We have created a partial that can be included on any page (templates/partials/_
 
 ## Page structure
 
-Every template must use the same outer and inner containers. If the page has a horizontal navbar, add the content card, navbar, and breadcrumb as below. Every template must include a page heading and description.
+Every template must use the same outer container, inner container, and content card. The page heading and description always go inside the content card. If the page has a horizontal navbar, add the navbar container as the first child of the content card.
 
 Reference: `accounts/templates/eazyBackup/clientareaproducts.tpl`.
 
@@ -30,26 +30,29 @@ Reference: `accounts/templates/eazyBackup/clientareaproducts.tpl`.
 
 ```html
 <div class="container mx-auto max-w-full px-4 pb-8 pt-6">
-  <!-- content card (if navbar) or main content -->
+  <!-- content card (required, see below) -->
 </div>
 ```
 
-When adding or updating a template, always apply both the outer and inner container first; then add navbar (if any), heading block, and content. Do not use `p-6` alone, or `max-w-5xl` / `max-w-6xl` / `px-6 py-8` for the inner container—use the exact classes above.
+When adding or updating a template, always apply outer container, then inner container, then content card. Do not use `p-6` alone, or `max-w-5xl` / `max-w-6xl` / `px-6 py-8` for the inner container—use the exact classes above.
 
-### Content card (when the template has a navbar)
+### Content card (required)
 
-When the page has a horizontal navbar, wrap the navbar and main content in a single card so the navbar sits in the card’s top border area:
+**Every full-page template must wrap all page content in this card.** The heading block and main content go inside this div. It is the direct child of the inner container.
 
 ```html
 <div class="w-full max-w-full min-w-0 overflow-hidden rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
-  <!-- navbar strip (optional, see below) -->
-  <!-- breadcrumb + heading block + main content -->
+  <!-- optional: navbar strip (first child, only when template has a navbar; see below) -->
+  <!-- required: breadcrumb (if navbar) + heading block + main content -->
 </div>
 ```
 
+- **Without a navbar:** content card contains only the heading block and main content.
+- **With a navbar:** content card's first child is the navbar container; then the breadcrumb (if used), heading block, and main content.
+
 ### Horizontal navbar (optional)
 
-Use when the template has multiple sections or tabs (e.g. Backup Services, Billing Report, e3 Object Storage). Place the navbar as the first child of the content card so it visually sits in the card header.
+Use when the template has multiple sections or tabs (e.g. Backup Services, Billing Report, e3 Object Storage). When present, the navbar is the **first child** of the content card so it visually sits in the card's top border area.
 
 **Navbar container:**
 
@@ -662,7 +665,7 @@ Maintain tap targets ≥ 40px tall (py-2.5 or more on touch-heavy actions).
 
 Include tokens partial (_ui-tokens.tpl) near the top.
 
-Use the canonical page structure: outer container (`min-h-screen bg-slate-950 text-gray-100 overflow-x-hidden`), inner container (`container mx-auto max-w-full px-4 pb-8 pt-6`). If the template has a navbar, wrap content in the content card and use the navbar + breadcrumb + heading block (see Page structure).
+Use the canonical page structure: outer container (`min-h-screen bg-slate-950 text-gray-100 overflow-x-hidden`), inner container (`container mx-auto max-w-full px-4 pb-8 pt-6`), then content card (`w-full max-w-full min-w-0 overflow-hidden rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6`) with heading block and main content inside. If the template has a navbar, add the navbar container as the first child of the content card and use the breadcrumb + heading block (see Page structure).
 
 Every template must have a page heading (`<h2 class="text-2xl font-semibold text-white">`) and a page description (`<p class="text-xs text-slate-400 mt-1">`). If there is a navbar, add the breadcrumb above the heading.
 

@@ -47,6 +47,10 @@ try {
 
 $clientId = $ca->getUserID();
 $isMsp = MspController::isMspClient($clientId);
+$tenantTable = MspController::getTenantTableName();
+$mspId = MspController::getMspIdForClient($clientId);
+$tenantOwnerId = ($tenantTable === 'eb_tenants') ? (int)($mspId ?? 0) : (int)$clientId;
+$tenantOwnerSelect = $tenantTable === 'eb_tenants' ? 't.msp_id as tenant_owner_id' : 't.client_id as tenant_owner_id';
 $userId = (int) ($_POST['user_id'] ?? 0);
 
 if ($userId <= 0) {
@@ -54,7 +58,7 @@ if ($userId <= 0) {
 }
 
 $currentUser = Capsule::table('s3_backup_users as u')
-    ->leftJoin('s3_backup_tenants as t', 'u.tenant_id', '=', 't.id')
+    ->leftJoin($tenantTable . ' as t', 'u.tenant_id', '=', 't.id')
     ->where('u.id', $userId)
     ->where('u.client_id', $clientId)
     ->select([
@@ -64,7 +68,7 @@ $currentUser = Capsule::table('s3_backup_users as u')
         'u.username',
         'u.email',
         'u.status',
-        't.client_id as tenant_client_id',
+        Capsule::raw($tenantOwnerSelect),
         't.status as tenant_status',
     ])
     ->first();
@@ -77,9 +81,9 @@ if (!$isMsp && !empty($currentUser->tenant_id)) {
     userUpdateFail('User not found.', 404);
 }
 
-$tenantClientId = (int) ($currentUser->tenant_client_id ?? 0);
+$tenantClientId = (int) ($currentUser->tenant_owner_id ?? 0);
 $tenantStatus = strtolower((string) ($currentUser->tenant_status ?? ''));
-if ($isMsp && !empty($currentUser->tenant_id) && ($tenantClientId !== (int) $clientId || $tenantStatus === 'deleted')) {
+if ($isMsp && !empty($currentUser->tenant_id) && ($tenantClientId !== $tenantOwnerId || $tenantStatus === 'deleted')) {
     userUpdateFail('User not found.', 404);
 }
 

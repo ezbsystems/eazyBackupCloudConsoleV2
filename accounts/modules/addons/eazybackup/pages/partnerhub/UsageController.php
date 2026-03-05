@@ -74,7 +74,7 @@ function eb_ph_usage_push(array $vars): void
         echo json_encode(['status'=>'error','message'=>'msp']);
         return;
     }
-    $tenantId = (int)($_POST['tenant_id'] ?? $_POST['customer_id'] ?? 0);
+    $tenantId = (int)($_POST['tenant_id'] ?? 0);
     $metric = (string)($_POST['metric'] ?? '');
     $qty = (int)($_POST['qty'] ?? 0);
     $periodStart = (int)($_POST['period_start'] ?? 0);

@@ -55,6 +55,10 @@ if (!$ca->isLoggedIn()) {
 
 $clientId = $ca->getUserID();
 $isMsp = MspController::isMspClient($clientId);
+$tenantTable = MspController::getTenantTableName();
+$mspId = MspController::getMspIdForClient($clientId);
+$tenantOwnerId = ($tenantTable === 'eb_tenants') ? (int)($mspId ?? 0) : (int)$clientId;
+$tenantOwnerSelect = $tenantTable === 'eb_tenants' ? 't.msp_id as tenant_owner_id' : 't.client_id as tenant_owner_id';
 $userId = (int) ($_GET['user_id'] ?? 0);
 
 if ($userId <= 0) {
@@ -62,7 +66,7 @@ if ($userId <= 0) {
 }
 
 $user = Capsule::table('s3_backup_users as u')
-    ->leftJoin('s3_backup_tenants as t', 'u.tenant_id', '=', 't.id')
+    ->leftJoin($tenantTable . ' as t', 'u.tenant_id', '=', 't.id')
     ->where('u.id', $userId)
     ->where('u.client_id', $clientId)
     ->select([
@@ -75,7 +79,7 @@ $user = Capsule::table('s3_backup_users as u')
         'u.created_at',
         'u.updated_at',
         't.name as tenant_name',
-        't.client_id as tenant_client_id',
+        Capsule::raw($tenantOwnerSelect),
         't.status as tenant_status',
     ])
     ->first();
@@ -89,9 +93,9 @@ if (!$isMsp && !empty($user->tenant_id)) {
 }
 
 if ($isMsp && !empty($user->tenant_id)) {
-    $tenantClientId = (int) ($user->tenant_client_id ?? 0);
+    $tenantClientId = (int) ($user->tenant_owner_id ?? 0);
     $tenantStatus = strtolower((string) ($user->tenant_status ?? ''));
-    if ($tenantClientId !== (int) $clientId || $tenantStatus === 'deleted') {
+    if ($tenantClientId !== $tenantOwnerId || $tenantStatus === 'deleted') {
         userGetFail('User not found.', 404);
     }
 }

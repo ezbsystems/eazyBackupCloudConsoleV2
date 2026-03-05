@@ -26,7 +26,7 @@ function eb_ph_signup_approvals_context_or_redirect(array $vars): array
     $clientId = (int)$_SESSION['uid'];
     $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id', $clientId)->first();
     if (!$msp) {
-        header('Location: ' . eb_ph_signup_approvals_base_link($vars) . '&a=ph-clients');
+        header('Location: ' . eb_ph_signup_approvals_base_link($vars) . '&a=ph-tenants-manage');
         exit;
     }
 

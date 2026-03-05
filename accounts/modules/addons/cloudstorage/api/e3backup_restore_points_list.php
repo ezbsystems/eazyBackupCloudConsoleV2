@@ -20,6 +20,7 @@ if (!$ca->isLoggedIn()) {
 
 $clientId = $ca->getUserID();
 $isMsp = MspController::isMspClient($clientId);
+$tenantTable = MspController::getTenantTableName();
 
 $tenantFilter = $_GET['tenant_id'] ?? null;
 $agentFilter = isset($_GET['agent_uuid']) ? trim((string) $_GET['agent_uuid']) : null;
@@ -174,9 +175,17 @@ try {
     }
 
     if ($isMsp) {
-        $hasTenantsTable = Capsule::schema()->hasTable('s3_backup_tenants');
+        $hasTenantsTable = Capsule::schema()->hasTable($tenantTable);
         if ($hasTenantsTable) {
-            $query->leftJoin('s3_backup_tenants as t', 'rp.tenant_id', '=', 't.id');
+            $query->leftJoin($tenantTable . ' as t', function ($join) use ($tenantTable, $clientId) {
+                $join->on('rp.tenant_id', '=', 't.id');
+                if ($tenantTable === 'eb_tenants') {
+                    $mspId = MspController::getMspIdForClient((int)$clientId);
+                    $join->where('t.msp_id', '=', (int)($mspId ?? 0));
+                } else {
+                    $join->where('t.client_id', '=', (int)$clientId);
+                }
+            });
             $select[] = 't.name as tenant_name';
         } else {
             $select[] = Capsule::raw('NULL as tenant_name');

@@ -8,9 +8,9 @@ function eb_ph_subscriptions_new(array $vars)
     if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { header('Location: clientarea.php'); exit; }
     $clientId = (int)$_SESSION['uid'];
     $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
-    $tenantId = (int)($_GET['tenant_id'] ?? $_GET['customer_id'] ?? 0);
+    $tenantId = (int)($_GET['tenant_id'] ?? 0);
     $tenant = Capsule::table('eb_tenants')->where('id', $tenantId)->where('msp_id', (int)($msp->id ?? 0))->first();
-    if (!$tenant) { header('Location: '.$vars['modulelink'].'&a=ph-clients'); exit; }
+    if (!$tenant) { header('Location: '.$vars['modulelink'].'&a=ph-tenants-manage'); exit; }
 
     return [
         'pagetitle' => 'New Subscription',
@@ -37,7 +37,7 @@ function eb_ph_stripe_subscribe(array $vars)
     if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { header('Location: clientarea.php'); exit; }
     $clientId = (int)$_SESSION['uid'];
     $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
-    $tenantId = (int)($_POST['tenant_id'] ?? $_POST['customer_id'] ?? 0);
+    $tenantId = (int)($_POST['tenant_id'] ?? 0);
     $priceId = (string)($_POST['stripe_price_id'] ?? '');
     $applicationFeePercent = isset($_POST['application_fee_percent']) ? (float)$_POST['application_fee_percent'] : null;
     $tenant = Capsule::table('eb_tenants')->where('id', $tenantId)->where('msp_id', (int)($msp->id ?? 0))->first();
