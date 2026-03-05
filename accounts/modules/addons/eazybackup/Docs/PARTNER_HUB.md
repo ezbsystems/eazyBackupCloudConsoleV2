@@ -23,6 +23,12 @@ Tenant Portal sections: Billing, Services, Cloud Storage
 
 Tenant v2 rollout keeps Partner Hub aligned with canonical tenant ownership and cloud storage routing contracts.
 
+### 2026-03-05 Restructuring Completion Update
+- Partner Hub canonical route is now `a=ph-tenants-manage`.
+- Legacy `a=ph-clients` now issues a redirect to `a=ph-tenants-manage` for compatibility.
+- Legacy UI artifact removed: `templates/whitelabel/clients.tpl`.
+- Cloudstorage runtime tenant resolution now prefers canonical `eb_tenants` / `eb_tenant_users` through table-selection helpers in `lib/Client/MspController.php`; legacy `s3_backup_*` tables are fallback only when canonical tables are unavailable.
+
 ### Migration Checklist
 - [x] **Canonical table ownership** — `eb_tenants` (eazybackup) is the canonical tenant table; Partner Hub and cloudstorage integrations use it via `eb_whitelabel_tenants.canonical_tenant_id` or `eb_msp_accounts` + `msp_id`. Legacy `s3_backup_tenants` creation is skipped when `eb_tenants` exists.
 - [ ] **TODO: Hidden infra fields** - keep `product_id`, `server_id`, and `servergroup_id` hidden from tenant-facing forms and APIs; only internal provisioning paths may set or update them.
@@ -81,6 +87,33 @@ Tenant v2 rollout keeps Partner Hub aligned with canonical tenant ownership and 
 ### Customer Tenants list and create modal (2026-03-03)
 - Route: `index.php?m=eazybackup&a=ph-tenants` (Partner Hub → Customer Tenants).
 - Template: `templates/whitelabel/tenants.tpl`. List page uses vaults-style table (entries/columns/search/sort/pagination). Create flow is a modal with full-e3 intake (organization, contact, billing address, optional portal admin block). Client-side validation and inline errors for required name/contact email/contact name, country format, and manual admin password length. Backend create path persists contact and address fields to `eb_tenants` (canonical tenant table); portal admin user creation from the modal is deferred (form fields collected only). See `docs/plans/2026-03-03-tenant-list-modal-design.md` for design and implementation notes.
+
+## Partner Hub Overview (Dashboard)
+
+The Overview page is the default Partner Hub landing page, providing MSPs with an at-a-glance view of their account health, onboarding status, and key metrics.
+
+- Route: `index.php?m=eazybackup&a=ph-overview`
+- Controller: `pages/partnerhub/OverviewController.php`
+- Template: `templates/whitelabel/overview.tpl`
+- Sidebar page ID: `overview`
+
+### Page Sections
+
+1. **Setup Wizard** — 5-step onboarding checklist (Connect Stripe, Create Product, Create Plan, Add Tenant, Create Subscription). Collapses into a dismissible "Setup Complete" badge when all steps are done. Dismiss state stored in `localStorage` (`eb_ph_setup_dismissed`).
+
+2. **Stripe Connect Status** — Compact card showing connect account ID (masked), charges/payouts status badges, and action-required alerts.
+
+3. **Key Metrics Grid** — 6 clickable stat cards: Tenants, Active Subscriptions, Products, Plans, Pending Approvals (with amber badge when > 0), White-Label Tenants.
+
+4. **Billing Snapshot** — Live Stripe API data (not cached): revenue this month, invoice count, outstanding invoices, failed payments. Only shown when Stripe charges are enabled. Gracefully degrades if Stripe API is unavailable.
+
+5. **Recent Tenants + Quick Actions** — Last 5 tenants with status badges and creation dates. Quick action buttons for common tasks (Create Tenant, Create Product, Manage Stripe, Signup Approvals).
+
+### Data Sources
+
+- DB counts: `eb_tenants`, `eb_catalog_products`, `eb_plans`, `eb_subscriptions`, `eb_whitelabel_signup_events`, `eb_whitelabel_tenants` — all scoped by `msp_id` or `client_id`.
+- Stripe Connect status: `StripeService::retrieveAccount()` via `eb_msp_accounts.stripe_connect_id`.
+- Billing snapshot: `StripeService::listInvoicesForAccount()` and `StripeService::listChargesForAccount()` (live API calls on the connected account).
 
 ## Partner Hub vertical sidebar
 
