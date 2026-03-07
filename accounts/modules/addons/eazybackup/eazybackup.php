@@ -4279,6 +4279,30 @@ function eazybackup_clientarea(array $vars)
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-plan-assign') {
         require_once __DIR__ . '/pages/partnerhub/CatalogPlansController.php';
         eb_ph_plan_assign($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-plan-template-get') {
+        require_once __DIR__ . '/pages/partnerhub/CatalogPlansController.php';
+        eb_ph_plan_template_get($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-plan-template-update') {
+        require_once __DIR__ . '/pages/partnerhub/CatalogPlansController.php';
+        eb_ph_plan_template_update($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-plan-template-duplicate') {
+        require_once __DIR__ . '/pages/partnerhub/CatalogPlansController.php';
+        eb_ph_plan_template_duplicate($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-plan-template-toggle') {
+        require_once __DIR__ . '/pages/partnerhub/CatalogPlansController.php';
+        eb_ph_plan_template_toggle($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-plan-template-delete') {
+        require_once __DIR__ . '/pages/partnerhub/CatalogPlansController.php';
+        eb_ph_plan_template_delete($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-plan-component-remove') {
+        require_once __DIR__ . '/pages/partnerhub/CatalogPlansController.php';
+        eb_ph_plan_component_remove($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-plan-subscriptions-list') {
+        require_once __DIR__ . '/pages/partnerhub/CatalogPlansController.php';
+        eb_ph_plan_subscriptions_list($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-plan-subscription-cancel') {
+        require_once __DIR__ . '/pages/partnerhub/CatalogPlansController.php';
+        eb_ph_plan_subscription_cancel($vars); exit;
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-stripe-subscribe') {
         require_once __DIR__ . '/pages/partnerhub/SubscriptionsController.php';
         return eb_ph_stripe_subscribe($vars);
