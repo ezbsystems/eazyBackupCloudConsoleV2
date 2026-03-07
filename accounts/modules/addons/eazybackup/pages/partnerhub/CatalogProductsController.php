@@ -420,6 +420,27 @@ function eb_ph_catalog_product_save(array $vars): void
         }
         $kind = $billingType === 'metered' ? 'metered' : ($billingType === 'one_time' ? 'one_time' : 'recurring');
 
+        $pricingScheme = (string)($it['pricingScheme'] ?? 'per_unit');
+        $tiersMode = null;
+        $tiersJson = null;
+        if ($pricingScheme === 'tiered_graduated' || $pricingScheme === 'tiered_volume') {
+            $tiersMode = ($pricingScheme === 'tiered_graduated') ? 'graduated' : 'volume';
+            $pricingScheme = 'tiered';
+            $tiers = (array)($it['tiers'] ?? []);
+            if (!empty($tiers)) {
+                $cleanTiers = [];
+                foreach ($tiers as $tier) {
+                    $cleanTiers[] = [
+                        'up_to' => isset($tier['up_to']) && $tier['up_to'] !== '' && $tier['up_to'] !== null ? (int)$tier['up_to'] : null,
+                        'unit_amount' => (int)(((float)($tier['unit_amount_display'] ?? $tier['unit_amount'] ?? 0)) * 100),
+                        'flat_amount' => (int)(((float)($tier['flat_amount_display'] ?? $tier['flat_amount'] ?? 0)) * 100),
+                    ];
+                }
+                $tiersJson = json_encode($cleanTiers);
+            }
+            $kind = 'recurring';
+        }
+
         if ($rowId > 0) {
             // Update or version price row
             $existing = Capsule::table('eb_catalog_prices')->where('id',$rowId)->first();
@@ -436,6 +457,9 @@ function eb_ph_catalog_product_save(array $vars): void
                         'aggregate_usage' => $billingType === 'metered' ? 'sum' : null,
                         'metric_code' => $metric,
                         'billing_type' => $billingType,
+                        'pricing_scheme' => $pricingScheme,
+                        'tiers_mode' => $tiersMode,
+                        'tiers_json' => $tiersJson,
                         'amount_per_gb_cents' => $amountPerGbCents,
                         'display_per_tb_money' => $displayPerTbMoney,
                         'active' => $active,
@@ -455,6 +479,9 @@ function eb_ph_catalog_product_save(array $vars): void
                         'aggregate_usage' => $billingType === 'metered' ? 'sum' : null,
                         'metric_code' => $metric,
                         'billing_type' => $billingType,
+                        'pricing_scheme' => $pricingScheme,
+                        'tiers_mode' => $tiersMode,
+                        'tiers_json' => $tiersJson,
                         'version' => (int)$existing->version + 1,
                         'supersedes_price_id' => (int)$existing->id,
                         'is_published' => 0,
@@ -482,6 +509,9 @@ function eb_ph_catalog_product_save(array $vars): void
                 'aggregate_usage' => $billingType === 'metered' ? 'sum' : null,
                 'metric_code' => $metric,
                 'billing_type' => $billingType,
+                'pricing_scheme' => $pricingScheme,
+                'tiers_mode' => $tiersMode,
+                'tiers_json' => $tiersJson,
                 'version' => 1,
                 'supersedes_price_id' => null,
                 'is_published' => 0,
@@ -546,9 +576,27 @@ function eb_ph_catalog_product_save(array $vars): void
         $rows = Capsule::table('eb_catalog_prices')->whereIn('id',$persisted)->get();
         $created=0; $total=count($rows);
         foreach ($rows as $row) {
-            $params = [ 'product'=>$stripeProductId, 'currency'=>strtolower($mspCurrency), 'unit_amount'=>(int)$row->unit_amount, 'nickname'=>(string)$row->name ];
-            if ((string)$row->kind === 'recurring') { $params['recurring[interval]'] = (string)$row->interval; $params['billing_scheme']='per_unit'; }
-            elseif ((string)$row->kind === 'metered') { $params['recurring[interval]']=(string)$row->interval; $params['recurring[usage_type]']='metered'; $params['recurring[aggregate_usage]']='sum'; }
+            $params = [ 'product'=>$stripeProductId, 'currency'=>strtolower($mspCurrency), 'nickname'=>(string)$row->name ];
+            if ((string)($row->pricing_scheme ?? 'per_unit') === 'tiered' && $row->tiers_json) {
+                $tiers = json_decode($row->tiers_json, true);
+                $params['billing_scheme'] = 'tiered';
+                $params['tiers_mode'] = (string)($row->tiers_mode ?? 'graduated');
+                $params['recurring[interval]'] = (string)$row->interval;
+                if ((string)$row->kind === 'metered') { $params['recurring[usage_type]']='metered'; $params['recurring[aggregate_usage]']='sum'; }
+                if (is_array($tiers)) {
+                    foreach ($tiers as $ti => $tier) {
+                        $params["tiers[$ti][up_to]"] = ($tier['up_to'] === null) ? 'inf' : (int)$tier['up_to'];
+                        $params["tiers[$ti][unit_amount]"] = (int)($tier['unit_amount'] ?? 0);
+                        if (isset($tier['flat_amount'])) {
+                            $params["tiers[$ti][flat_amount]"] = (int)($tier['flat_amount'] ?? 0);
+                        }
+                    }
+                }
+            } else {
+                $params['unit_amount'] = (int)$row->unit_amount;
+                if ((string)$row->kind === 'recurring') { $params['recurring[interval]'] = (string)$row->interval; $params['billing_scheme']='per_unit'; }
+                elseif ((string)$row->kind === 'metered') { $params['recurring[interval]']=(string)$row->interval; $params['recurring[usage_type]']='metered'; $params['recurring[aggregate_usage]']='sum'; }
+            }
             try {
                 $priceRes = $svc->createPrice($params, $acct, 'price:'.$productId.':v'.$row->version.':'.$row->id);
             } catch (\Throwable $se) {
