@@ -1784,17 +1784,19 @@ function eazybackup_migrate_schema(): void {
     } catch (\Throwable $__) {}
 
     // --- Usage mapping table for plan instance items ---
-    if (!$schema->hasTable('eb_plan_instance_usage_map')) {
-        $schema->create('eb_plan_instance_usage_map', function (Blueprint $t) {
-            $t->bigIncrements('id');
-            $t->bigInteger('plan_instance_item_id')->index();
-            $t->string('metric_code', 50)->index();
-            $t->string('stripe_subscription_item_id', 255);
-            $t->dateTime('last_pushed_at')->nullable();
-            $t->timestamp('created_at')->nullable()->useCurrent();
-            $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
-        });
-    }
+    try {
+        if (!$schema->hasTable('eb_plan_instance_usage_map')) {
+            $schema->create('eb_plan_instance_usage_map', function (Blueprint $t) {
+                $t->bigIncrements('id');
+                $t->bigInteger('plan_instance_item_id')->index();
+                $t->string('metric_code', 50)->index();
+                $t->string('stripe_subscription_item_id', 255);
+                $t->dateTime('last_pushed_at')->nullable();
+                $t->timestamp('created_at')->nullable()->useCurrent();
+                $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
+            });
+        }
+    } catch (\Throwable $__) {}
 
     // Webhook idempotency store (processed Stripe event ids)
     if (!$schema->hasTable('eb_stripe_events')) {
