@@ -17,6 +17,7 @@
         <p class="text-xs text-slate-400 mt-1">Manage plan templates and assign them to customers.</p>
       </div>
       <div class="shrink-0 flex items-center gap-3">
+        <button type="button" class="inline-flex items-center px-4 py-2 rounded-lg text-sm border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20" onclick="window.ebWizard && window.ebWizard.open()">Quick Plan</button>
         <button type="button" class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-semibold text-white bg-sky-600 hover:bg-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 focus:ring-offset-slate-900" @click="openCreate()">New Plan</button>
       </div>
     </div>
@@ -314,5 +315,136 @@
   </div>
 </div>
 
+{* ====== Quick Plan Wizard ====== *}
+<div id="eb-wizard-panel" class="hidden fixed inset-0 z-50" x-data="planWizardFactory({ modulelink: '{$modulelink|escape:'javascript'}', token: '{$token|escape:'javascript'}', currency: '{$msp.default_currency|default:'CAD'|escape:'javascript'}' })" x-init="window.ebWizard = $data">
+  <div class="absolute inset-0 bg-gray-950/70 backdrop-blur-sm" @click="close()"></div>
+  <div class="absolute inset-y-0 right-0 w-full max-w-2xl bg-slate-900 border-l border-slate-800 shadow-2xl flex flex-col">
+    <div class="px-6 py-5 flex items-center justify-between border-b border-slate-800">
+      <h3 class="text-lg font-semibold text-slate-100">Quick Plan Wizard</h3>
+      <div class="flex items-center gap-4">
+        <div class="flex items-center gap-1">
+          <template x-for="s in [1,2,3,4]" :key="s">
+            <div class="w-2.5 h-2.5 rounded-full" :class="step >= s ? 'bg-sky-500' : 'bg-slate-700'"></div>
+          </template>
+        </div>
+        <button type="button" class="text-slate-400 hover:text-white" @click="close()">&#10005;</button>
+      </div>
+    </div>
+    <div class="flex-1 overflow-y-auto px-6 py-6 text-sm">
+
+      {* Step 1: Choose type *}
+      <div x-show="step===1" class="space-y-4">
+        <h4 class="text-base font-medium text-slate-100">What type of plan?</h4>
+        <div class="grid grid-cols-1 gap-3">
+          <button type="button" @click="selectType('cloud_backup')" class="rounded-xl border border-slate-700 bg-slate-800/50 p-5 text-left hover:bg-slate-800 transition">
+            <div class="text-sm font-medium text-slate-100">eazyBackup Cloud Backup</div>
+            <div class="text-xs text-slate-400 mt-1">Storage + devices + optional add-ons (Disk Image, Hyper-V, VMware, M365)</div>
+          </button>
+          <button type="button" @click="selectType('object_storage')" class="rounded-xl border border-slate-700 bg-slate-800/50 p-5 text-left hover:bg-slate-800 transition">
+            <div class="text-sm font-medium text-slate-100">e3 Object Storage</div>
+            <div class="text-xs text-slate-400 mt-1">Metered object storage billing (per GiB)</div>
+          </button>
+          <button type="button" @click="selectType('custom_service')" class="rounded-xl border border-slate-700 bg-slate-800/50 p-5 text-left hover:bg-slate-800 transition">
+            <div class="text-sm font-medium text-slate-100">Custom Service</div>
+            <div class="text-xs text-slate-400 mt-1">IT support, antivirus, consulting, or any recurring service</div>
+          </button>
+        </div>
+      </div>
+
+      {* Step 2: Configure resources *}
+      <div x-show="step===2" class="space-y-4">
+        <h4 class="text-base font-medium text-slate-100" x-text="isCustomService() ? 'Configure your service' : 'Configure included resources'"></h4>
+        <template x-for="(r, ri) in resources" :key="r.key">
+          <div class="rounded-lg border p-4" :class="r.enabled ? 'border-sky-500/40 bg-sky-500/5' : 'border-slate-700 bg-slate-800/30'">
+            <div class="flex items-center justify-between mb-3">
+              <div class="flex items-center gap-3">
+                <input type="checkbox" x-model="r.enabled" :disabled="r.required" class="rounded border-slate-600 bg-slate-800 text-sky-600 focus:ring-sky-600" />
+                <span class="font-medium text-slate-100" x-text="stepLabel(r.key)"></span>
+              </div>
+              <span class="text-xs text-slate-400" x-text="r.billingType === 'metered' ? 'Metered' : 'Per-unit'"></span>
+            </div>
+            <div x-show="r.enabled" class="grid grid-cols-2 gap-3 mt-2">
+              <label class="block"><span class="text-xs text-slate-400" x-text="r.billingType === 'metered' ? 'Included amount' : 'Default quantity'"></span>
+                <input x-model.number="r.qty" type="number" min="0" class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-800 text-xs text-slate-100 border border-slate-700 focus:outline-none focus:ring-1 focus:ring-sky-600" />
+              </label>
+              <div>
+                <span class="text-xs text-slate-400">Unit</span>
+                <div class="mt-1 px-3 py-2 rounded-lg bg-slate-800/60 text-xs text-slate-400 border border-slate-700" x-text="r.unit"></div>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      {* Step 3: Set pricing *}
+      <div x-show="step===3" class="space-y-4">
+        <h4 class="text-base font-medium text-slate-100">Set pricing</h4>
+        <template x-for="(r, ri) in resources" :key="'price-'+r.key">
+          <div x-show="r.enabled" class="rounded-lg border border-slate-700 bg-slate-800/30 p-4">
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-medium text-slate-100" x-text="stepLabel(r.key)"></span>
+              <span class="text-xs text-slate-400" x-text="r.billingType === 'metered' ? 'per ' + r.unit : 'per ' + r.unit"></span>
+            </div>
+            <div class="flex items-stretch rounded-lg overflow-hidden bg-slate-800 border border-slate-700">
+              <span class="shrink-0 px-3 py-2.5 text-slate-400 select-none">$</span>
+              <input x-model.number="r.amount" type="number" step="0.01" min="0" class="flex-1 min-w-0 bg-transparent text-slate-100 focus:outline-none px-3 py-2.5 text-sm" />
+              <span class="shrink-0 px-3 py-2.5 text-slate-400 border-l border-slate-700 text-xs" x-text="'{$msp.default_currency|default:'CAD'}'"></span>
+            </div>
+          </div>
+        </template>
+        <label class="block"><span class="text-sm text-slate-400">Billing interval</span>
+          <select x-model="billingInterval" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 border border-slate-700 focus:outline-none focus:ring-1 focus:ring-sky-600">
+            <option value="month">Monthly</option>
+            <option value="year">Yearly</option>
+          </select>
+        </label>
+      </div>
+
+      {* Step 4: Review *}
+      <div x-show="step===4" class="space-y-4">
+        <h4 class="text-base font-medium text-slate-100">Review &amp; Publish</h4>
+        <div class="space-y-3">
+          <label class="block"><span class="text-sm text-slate-400">Plan name</span>
+            <input x-model="planName" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 border border-slate-700 focus:outline-none focus:ring-1 focus:ring-sky-600" />
+          </label>
+          <label class="block"><span class="text-sm text-slate-400">Description (optional)</span>
+            <textarea x-model="planDescription" rows="2" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 border border-slate-700 focus:outline-none focus:ring-1 focus:ring-sky-600"></textarea>
+          </label>
+          <label class="block"><span class="text-sm text-slate-400">Trial days</span>
+            <input x-model.number="trialDays" type="number" min="0" class="mt-2 w-24 px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 border border-slate-700 focus:outline-none focus:ring-1 focus:ring-sky-600" />
+          </label>
+        </div>
+        <div class="rounded-xl border border-slate-700 bg-slate-800/50 p-4 mt-4">
+          <h5 class="text-sm font-medium text-slate-100 mb-2">Summary</h5>
+          <div class="space-y-1 text-xs">
+            <template x-for="r in enabledResources()" :key="'sum-'+r.key">
+              <div class="flex items-center justify-between text-slate-300">
+                <span x-text="stepLabel(r.key)"></span>
+                <span x-text="'$' + (r.amount || 0).toFixed(2) + ' / ' + r.unit + (r.billingType !== 'metered' && r.qty > 1 ? ' x ' + r.qty : '')"></span>
+              </div>
+            </template>
+            <div class="border-t border-slate-700 pt-2 mt-2 flex items-center justify-between font-medium text-slate-100">
+              <span>Estimated total</span>
+              <span x-text="totalPreview()"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+    {* Wizard footer *}
+    <div class="border-t border-slate-800 px-6 py-5 flex items-center justify-between">
+      <button type="button" x-show="step > 1" @click="prevStep()" class="px-4 py-2.5 rounded-lg border border-slate-700 bg-transparent hover:bg-slate-800 text-slate-200 text-sm">&larr; Back</button>
+      <div x-show="step <= 1"></div>
+      <div class="flex items-center gap-3">
+        <button type="button" class="px-4 py-2.5 rounded-lg border border-slate-700 bg-transparent hover:bg-slate-800 text-slate-200 text-sm" @click="close()">Cancel</button>
+        <button type="button" x-show="step < 4" @click="nextStep()" class="px-5 py-2.5 rounded-lg text-sm font-semibold text-white bg-sky-600 hover:bg-sky-500">Next &rarr;</button>
+        <button type="button" x-show="step===4" @click="publish()" :disabled="isSaving" class="px-5 py-2.5 rounded-lg text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-500" x-text="isSaving ? 'Creating...' : 'Create Plan'"></button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script type="application/json" id="eb-comet-accounts-json">[{foreach from=$comet_accounts item=ca name=ca_loop}{ldelim}"tenant_id":{$ca.tenant_id},"comet_username":"{$ca.comet_username|escape:'javascript'}","tenant_name":"{$ca.tenant_name|escape:'javascript'}"{rdelim}{if !$smarty.foreach.ca_loop.last},{/if}{/foreach}]</script>
+<script src="modules/addons/eazybackup/assets/js/catalog-plans-wizard.js"></script>
 <script src="modules/addons/eazybackup/assets/js/catalog-plans.js"></script>
