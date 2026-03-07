@@ -4177,14 +4177,15 @@ function eazybackup_clientarea(array $vars)
         require_once __DIR__ . '/pages/partnerhub/BillingController.php';
         return eb_ph_money_balance($vars);
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-plans') {
-        require_once __DIR__ . '/pages/partnerhub/PlansController.php';
-        return eb_ph_plans_index($vars);
+        // DEPRECATED: Old Plans system — redirect to Catalog Plans
+        header('Location: ' . ($vars['modulelink'] ?? 'index.php?m=eazybackup') . '&a=ph-catalog-plans');
+        exit;
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-catalog-products') {
         require_once __DIR__ . '/pages/partnerhub/CatalogProductsController.php';
         return eb_ph_catalog_products_list($vars);
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-catalog-product') {
-        require_once __DIR__ . '/pages/partnerhub/CatalogProductsController.php';
-        return eb_ph_catalog_product_show($vars);
+        header('Location: ' . ($vars['modulelink'] ?? 'index.php?m=eazybackup') . '&a=ph-catalog-products');
+        exit;
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-catalog-products-create') {
         require_once __DIR__ . '/pages/partnerhub/CatalogProductsController.php';
         eb_ph_catalog_products_create($vars); exit;
