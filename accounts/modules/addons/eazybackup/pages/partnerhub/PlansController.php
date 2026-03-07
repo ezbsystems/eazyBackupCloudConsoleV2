@@ -1,4 +1,6 @@
 <?php
+// @deprecated — This controller is deprecated. Use CatalogPlansController.php instead.
+// The ph-plans route now redirects to ph-catalog-plans.
 
 use WHMCS\Database\Capsule;
 use PartnerHub\StripeService;
