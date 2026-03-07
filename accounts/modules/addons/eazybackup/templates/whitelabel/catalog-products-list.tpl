@@ -1,6 +1,12 @@
 {* Stripe-style Products list *}
+<script src="modules/addons/eazybackup/assets/js/catalog-products.js"></script>
 <div class="min-h-screen bg-slate-950 text-gray-100 overflow-x-hidden">
-  <div class="container mx-auto max-w-full px-4 pb-8 pt-6" x-data="{ q:'', matches(n){ if(!this.q) return true; try{ return String(n||'').toLowerCase().indexOf(String(this.q).toLowerCase())>=0; }catch(_){ return true; } } }">
+  <div id="toast-container" x-data="catalogToastManager()" x-init="init()" @catalog:toast.window="push($event.detail)" class="fixed top-4 right-4 z-[9999] space-y-2 pointer-events-none">
+    <template x-for="toast in toasts" :key="toast.id">
+      <div x-show="toast.visible" x-transition.opacity.duration.200ms class="pointer-events-auto px-4 py-2 rounded shadow text-sm text-white" :class="toast.type==='success' ? 'bg-green-600' : (toast.type==='error' ? 'bg-red-600' : (toast.type==='warning' ? 'bg-yellow-600' : 'bg-slate-700'))" x-text="toast.message"></div>
+    </template>
+  </div>
+  <div class="container mx-auto max-w-full px-4 pb-8 pt-6" x-data="{ q:'', statusFilter:'all', typeFilter:'all', matches(n, status, type){ if(this.statusFilter!=='all' && status!==this.statusFilter) return false; if(this.typeFilter!=='all' && type!==this.typeFilter) return false; if(!this.q) return true; try{ return String(n||'').toLowerCase().indexOf(String(this.q).toLowerCase())>=0; }catch(_){ return true; } } }">
     <div x-data="{ sidebarCollapsed: localStorage.getItem('eb_ph_sidebar_collapsed') === 'true' || window.innerWidth < 1360, toggleCollapse() { this.sidebarCollapsed = !this.sidebarCollapsed; localStorage.setItem('eb_ph_sidebar_collapsed', this.sidebarCollapsed); }, handleResize() { if (window.innerWidth < 1360 && !this.sidebarCollapsed) this.sidebarCollapsed = true; } }" x-init="window.addEventListener('resize', () => handleResize())" class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)]">
       <div class="flex">
         {include file="modules/addons/eazybackup/templates/whitelabel/partials/sidebar_partner_hub.tpl" ebPhSidebarPage='catalog-products'}
@@ -28,7 +34,7 @@
       <a class="text-xs px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-900/70 text-slate-300 hover:bg-slate-800" href="{$modulelink}&a=ph-catalog-export-products" target="_blank">Export products</a>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-6">
       <div class="rounded-xl border border-slate-700 bg-slate-800/50 px-4 py-3">
         <div class="text-xs text-slate-400">All</div>
         <div class="text-lg font-semibold text-slate-100">{$count_all|default:0}</div>
@@ -38,12 +44,106 @@
         <div class="text-lg font-semibold text-slate-100">{$count_active|default:0}</div>
       </div>
       <div class="rounded-xl border border-slate-700 bg-slate-800/50 px-4 py-3">
+        <div class="text-xs text-slate-400">Draft</div>
+        <div class="text-lg font-semibold text-slate-100">{$count_draft|default:0}</div>
+      </div>
+      <div class="rounded-xl border border-slate-700 bg-slate-800/50 px-4 py-3">
         <div class="text-xs text-slate-400">Archived</div>
         <div class="text-lg font-semibold text-slate-100">{$count_archived|default:0}</div>
       </div>
     </div>
 
+    <div class="mb-4 flex flex-wrap items-center gap-3">
+      <div class="flex items-center rounded-lg border border-slate-700 bg-slate-800/50 p-0.5">
+        <button type="button" @click="statusFilter='all'" :class="statusFilter==='all' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'" class="px-3 py-1.5 text-xs font-medium rounded-md transition">All</button>
+        <button type="button" @click="statusFilter='active'" :class="statusFilter==='active' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'" class="px-3 py-1.5 text-xs font-medium rounded-md transition">Active</button>
+        <button type="button" @click="statusFilter='draft'" :class="statusFilter==='draft' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'" class="px-3 py-1.5 text-xs font-medium rounded-md transition">Draft</button>
+        <button type="button" @click="statusFilter='archived'" :class="statusFilter==='archived' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'" class="px-3 py-1.5 text-xs font-medium rounded-md transition">Archived</button>
+      </div>
+      <select x-model="typeFilter" class="px-3 py-1.5 rounded-lg bg-slate-800 text-xs text-slate-300 border border-slate-700 focus:outline-none focus:ring-1 focus:ring-sky-600">
+        <option value="all">All Types</option>
+        <option value="STORAGE_TB">Storage</option>
+        <option value="DEVICE_COUNT">Device Count</option>
+        <option value="DISK_IMAGE">Disk Image</option>
+        <option value="HYPERV_VM">Hyper-V VM</option>
+        <option value="PROXMOX_VM">Proxmox VM</option>
+        <option value="VMWARE_VM">VMware VM</option>
+        <option value="M365_USER">Microsoft 365 User</option>
+        <option value="GENERIC">Generic</option>
+      </select>
+    </div>
+
+    {if $products|default:[]|@count > 0}
+    <section class="mb-6 rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden">
+      <div class="px-6 py-5 border-b border-slate-800">
+        <h2 class="text-lg font-medium text-slate-100">Products</h2>
+        <p class="text-sm text-slate-400 mt-1">Local catalog products. Publish to Stripe when ready.</p>
+      </div>
+      <div class="px-6 py-6 space-y-6">
+        {foreach from=$products item=p}
+        {assign var=list value=$priceMap[$p.id]|default:[]}
+        <div x-show="matches('{$p.name|escape}', '{if $p.stripe_product_id}active{elseif $p.active}draft{else}archived{/if}', '{$p.base_metric_code|default:'GENERIC'|escape}')" class="rounded-xl border border-slate-700 bg-slate-800/50 p-4">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <div class="h-10 w-10 rounded-lg bg-white/10 flex items-center justify-center text-lg">📦</div>
+              <div>
+                <div class="text-base font-semibold text-slate-100">{$p.name|escape}</div>
+                <div class="text-xs text-slate-400">{if $p.description}{$p.description|escape}{else}No description{/if}</div>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold {if $p.active}bg-emerald-500/15 text-emerald-200{else}bg-slate-700 text-slate-300{/if}"><span class="h-1.5 w-1.5 rounded-full {if $p.active}bg-emerald-400{else}bg-slate-500{/if}"></span>{if $p.active}Active{else}Inactive{/if}</span>
+              {if $p.stripe_product_id}
+                <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-emerald-500/15 text-emerald-200">Published</span>
+              {else}
+                <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-amber-500/15 text-amber-200">Draft</span>
+              {/if}
+              <button type="button" class="text-xs px-3 py-1.5 rounded-lg border border-slate-600 bg-slate-800/80 text-slate-200 hover:bg-slate-700" data-eb-edit-product="{$p.id|escape}">Edit</button>
+            </div>
+          </div>
+          {if $list|@count > 0}
+          <div class="mt-4">
+            <div class="text-sm font-medium text-slate-300 mb-2">Pricing</div>
+            <table class="w-full text-sm divide-y divide-slate-800">
+              <thead class="bg-slate-900/80 text-slate-300">
+                <tr class="text-left">
+                  <th class="px-4 py-3 font-medium">Price</th>
+                  <th class="px-4 py-3 font-medium">Status</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-800">
+                {foreach from=$list item=pr}
+                <tr class="hover:bg-slate-800/50">
+                  <td class="px-4 py-3 text-left text-slate-300">
+                    {$pr.currency|escape} {($pr.unit_amount/100)|string_format:"%.2f"}
+                    {if $pr.unit_label} / {$pr.unit_label|escape}{/if}
+                    {if $pr.kind ne 'one_time'} / {$pr.interval|default:'month'}{else} / one-time{/if}
+                  </td>
+                  <td class="px-4 py-3 text-left">
+                    {if $pr.active}
+                      <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold bg-emerald-500/15 text-emerald-200"><span class="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>Active</span>
+                    {else}
+                      <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-slate-700 text-slate-300">Archived</span>
+                    {/if}
+                  </td>
+                </tr>
+                {/foreach}
+              </tbody>
+            </table>
+          </div>
+          {/if}
+        </div>
+        {/foreach}
+      </div>
+    </section>
+    {/if}
+
+    {if $stripe_products|default:[]|@count > 0}
     <div class="w-full max-w-full min-w-0 rounded-2xl border border-slate-800/80 bg-slate-900/70 p-5 shadow-lg">
+      <div class="px-6 py-1 border-b border-slate-800 mb-4">
+        <h2 class="text-lg font-medium text-slate-100">Stripe — Connected Products</h2>
+        <p class="text-sm text-slate-400 mt-1 mb-4">Products on your connected Stripe account.</p>
+      </div>
       <div class="overflow-x-auto rounded-lg border border-slate-800">
         <table class="min-w-full divide-y divide-slate-800 text-sm">
           <thead class="bg-slate-900/80 text-slate-300">
@@ -57,7 +157,7 @@
           </thead>
           <tbody class="divide-y divide-slate-800">
             {foreach from=$stripe_products item=sp}
-            <tr x-show="matches('{$sp.name|escape}')" class="hover:bg-slate-800/50">
+            <tr x-show="matches('{$sp.name|escape}', '{if $sp.active}active{else}archived{/if}', 'all')" class="hover:bg-slate-800/50">
               <td class="px-4 py-3 text-left"><a class="text-sky-400 hover:underline font-medium text-slate-100" href="{$modulelink}&a=ph-catalog-product&id={$sp.id|escape}">{$sp.name|escape}</a> {if !$sp.active}<span class="ml-2 text-xs px-2 py-0.5 rounded-full bg-slate-700 text-slate-300">Archived</span>{/if}</td>
               <td class="px-4 py-3 text-left text-slate-300">{$sp.pricing_summary|escape}</td>
               <td class="px-4 py-3 text-left text-slate-300">{if $sp.created}{$sp.created|date_format:"%b %e"}{else}—{/if}</td>
@@ -81,6 +181,7 @@
         </table>
       </div>
     </div>
+    {/if}
 
     {* Product slide-over panel *}
     <div id="eb-product-panel" class="hidden fixed inset-0 z-50" x-data="productPanelFactory({ currency: '{$msp.default_currency|default:'CAD'}', ready: {$msp_ready|default:0} })">
@@ -116,17 +217,87 @@
             <template x-if="items.length===0"><div class="text-xs text-slate-400">No prices yet.</div></template>
             <div class="space-y-3">
               <template x-for="(it, i) in items" :key="'pr-'+i">
-                <div class="rounded-lg border border-slate-700 p-3">
-                  <div class="flex items-center justify-between">
-                    <div class="font-medium text-slate-100" x-text="it.label||'Price'"></div>
-                    <button type="button" class="text-xs px-3 py-1.5 rounded bg-slate-700 text-white hover:bg-slate-600" @click="openPrice(i)">Edit</button>
+                <div class="rounded-lg border border-slate-700 bg-slate-950/40 p-4 space-y-4">
+                  <div class="flex items-start justify-between gap-3">
+                    <div>
+                      <div class="font-medium text-slate-100" x-text="it.label || ('Price ' + (i + 1))"></div>
+                      <div class="mt-2 text-xs text-slate-400">
+                        <span x-text="billingLabel(it.billingType)"></span>
+                        · <span x-text="metricLabel(it.metric)"></span>
+                        · <span x-text="it.billingType==='one_time' ? 'one-time' : (it.interval || 'month')"></span>
+                        · <span x-text="currency + ' ' + Number(it.amount || 0).toFixed(2)"></span>
+                      </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <button type="button" class="text-xs px-3 py-1.5 rounded bg-slate-700 text-white hover:bg-slate-600" @click="duplicatePrice(i)">Duplicate</button>
+                      <button type="button" class="text-xs px-3 py-1.5 rounded bg-rose-500/15 text-rose-200 hover:bg-rose-500/25" @click="removeItem(i)">Remove</button>
+                    </div>
                   </div>
-                  <div class="mt-2 text-xs text-slate-400">
-                    <span x-text="billingLabel(it.billingType)"></span>
-                    · <span x-text="metricLabel(it.metric)"></span>
-                    · <span x-text="(it.billingType==='one_time' ? 'one-time' : (it.interval||'month'))"></span>
-                    · <span x-text="currency + ' ' + Number(it.amount||0).toFixed(2)"></span>
+
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <label class="block">
+                      <span class="text-sm text-slate-400">Label</span>
+                      <input x-model="it.label" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 placeholder:text-gray-400 outline-1 -outline-offset-1 outline-white/10 focus:outline-2 focus:-outline-offset-2 focus:outline-sky-700 transition" />
+                    </label>
+                    <label class="block">
+                      <span class="text-sm text-slate-400">Amount</span>
+                      <div class="mt-2 flex items-stretch rounded-lg overflow-hidden bg-slate-800 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700">
+                        <span class="shrink-0 px-3 py-2.5 text-slate-400 select-none">$</span>
+                        <input x-model.number="it.amount" type="text" inputmode="decimal" @blur="normalizePriceRow(i)" class="flex-1 min-w-0 text-left bg-transparent text-slate-100 placeholder-gray-400 focus:outline-none px-3 py-2.5" />
+                        <span class="shrink-0 px-3 py-2.5 bg-slate-800 text-slate-400 border-l border-slate-700 select-none" x-text="currency"></span>
+                      </div>
+                    </label>
                   </div>
+
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <label class="block">
+                      <span class="text-sm text-slate-400">Interval</span>
+                      <select x-model="it.interval" :disabled="it.billingType==='one_time'" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 outline-1 -outline-offset-1 outline-white/10 focus:outline-2 focus:-outline-offset-2 focus:outline-sky-700 disabled:bg-slate-800/60 disabled:text-slate-500">
+                        <option value="month">Month</option>
+                        <option value="year">Year</option>
+                        <option value="none">None</option>
+                      </select>
+                    </label>
+
+                    <template x-if="baseMetric==='GENERIC'">
+                      <label class="block">
+                        <span class="text-sm text-slate-400">Billing type</span>
+                        <select x-model="it.billingType" @change="onInlineBillingTypeChange(i)" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 outline-1 -outline-offset-1 outline-white/10 focus:outline-2 focus:-outline-offset-2 focus:outline-sky-700">
+                          <option value="per_unit">Per-unit</option>
+                          <option value="one_time">One-time</option>
+                        </select>
+                      </label>
+                    </template>
+
+                    <template x-if="baseMetric!=='GENERIC'">
+                      <label class="block">
+                        <span class="text-sm text-slate-400">Billing type</span>
+                        <input :value="billingLabel(it.billingType)" disabled class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800/70 text-sm text-slate-500" />
+                      </label>
+                    </template>
+                  </div>
+
+                  <template x-if="baseMetric==='STORAGE_TB'">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <label class="block">
+                        <span class="text-sm text-slate-400">Unit</span>
+                        <select x-model="it.unitLabel" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 outline-1 -outline-offset-1 outline-white/10 focus:outline-2 focus:-outline-offset-2 focus:outline-sky-700">
+                          <option value="GiB">GiB</option>
+                          <option value="TiB">TiB</option>
+                        </select>
+                      </label>
+                      <div class="rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2.5 text-xs text-slate-400 self-end">
+                        <span x-text="it.unitLabel==='GiB' ? ('≈ ' + (Number(it.amount || 0) * 1024).toFixed(2) + ' per TiB') : ('≈ ' + (Number(it.amount || 0) / 1024).toFixed(4) + ' per GiB')"></span>
+                      </div>
+                    </div>
+                  </template>
+
+                  <template x-if="baseMetric!=='STORAGE_TB'">
+                    <label class="block">
+                      <span class="text-sm text-slate-400">Unit label</span>
+                      <input x-model="it.unitLabel" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 outline-1 -outline-offset-1 outline-white/10 focus:outline-2 focus:-outline-offset-2 focus:outline-sky-700 transition" />
+                    </label>
+                  </template>
                 </div>
               </template>
             </div>
@@ -144,4 +315,6 @@
     </div>
   </div>
 </div>
+
+<script src="modules/addons/eazybackup/templates/assets/js/ui.js"></script>
 
