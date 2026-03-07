@@ -562,6 +562,19 @@ if (!window.catalogToastManager) {
         var it = this.items[i]; if(!it || !it.tiers || it.tiers.length <= 2) return;
         it.tiers.splice(ti, 1);
       },
+      async togglePriceActive(i){
+        var it = this.items[i]; if(!it) return;
+        if (it.active && it.id) {
+          try {
+            var res = await fetch(`${this.modulelink}&a=ph-catalog-price-sub-count&price_id=${encodeURIComponent(it.id)}`, { method:'GET', credentials:'include' });
+            var out = await res.json();
+            if (out && out.active_subscriptions > 0) {
+              if (!confirm('This price has ' + out.active_subscriptions + ' active subscription(s). Deactivating it may affect billing for those subscribers. Continue?')) return;
+            }
+          } catch(_) {}
+        }
+        it.active = !it.active;
+      },
       validateBeforeSave(){ if (!this.product || !String(this.product.name||'').trim()) return 'Enter a product name'; if (!this.baseMetric) return 'Select a product type'; if (!Array.isArray(this.items) || this.items.length===0) return 'Add at least one price'; for (var i=0;i<this.items.length;i++){ this.normalizePriceRow(i); var it=this.items[i]||{}; if (!String(it.label||'').trim()) return 'Each price needs a label'; if (!(Number(it.amount||0) > 0)) return 'Each price needs an amount greater than 0'; if (String(it.metric||'') !== String(this.baseMetric||'')) return 'Each price must match the selected product type'; if (it.metric === 'STORAGE_TB' && it.unitLabel !== 'GiB' && it.unitLabel !== 'TiB') return 'Storage prices must use GiB or TiB'; } return ''; },
       async save(mode){ try{
         var validationError = this.validateBeforeSave();

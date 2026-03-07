@@ -392,6 +392,9 @@ function eb_ph_catalog_product_save(array $vars): void
         $amount = (float)($it['amount'] ?? 0);
         $interval = (string)($it['interval'] ?? 'month');
         $active = (int)((bool)($it['active'] ?? true)) ? 1 : 0;
+        $priceCurrency = trim((string)($it['currency'] ?? ''));
+        if ($priceCurrency === '' || !preg_match('/^[A-Z]{3}$/', strtoupper($priceCurrency))) { $priceCurrency = $mspCurrency; }
+        $priceCurrency = strtoupper($priceCurrency);
         $rowId = (int)($it['id'] ?? 0);
         if ($label === '' || $amount < 0.01) { continue; }
         // Enforce product base metric when present
@@ -450,7 +453,7 @@ function eb_ph_catalog_product_save(array $vars): void
                     Capsule::table('eb_catalog_prices')->where('id',$rowId)->update([
                         'name' => $label,
                         'kind' => $kind,
-                        'currency' => $mspCurrency,
+                        'currency' => $priceCurrency,
                         'unit_label' => $unitLabel,
                         'unit_amount' => $amountCents,
                         'interval' => $interval,
@@ -472,7 +475,7 @@ function eb_ph_catalog_product_save(array $vars): void
                         'product_id' => (int)$productId,
                         'name' => $label,
                         'kind' => $kind,
-                        'currency' => $mspCurrency,
+                        'currency' => $priceCurrency,
                         'unit_label' => $unitLabel,
                         'unit_amount' => $amountCents,
                         'interval' => $interval,
@@ -502,7 +505,7 @@ function eb_ph_catalog_product_save(array $vars): void
                 'product_id' => (int)$productId,
                 'name' => $label,
                 'kind' => $kind,
-                'currency' => $mspCurrency,
+                'currency' => $priceCurrency,
                 'unit_label' => $unitLabel,
                 'unit_amount' => $amountCents,
                 'interval' => $interval,
@@ -576,7 +579,8 @@ function eb_ph_catalog_product_save(array $vars): void
         $rows = Capsule::table('eb_catalog_prices')->whereIn('id',$persisted)->get();
         $created=0; $total=count($rows);
         foreach ($rows as $row) {
-            $params = [ 'product'=>$stripeProductId, 'currency'=>strtolower($mspCurrency), 'nickname'=>(string)$row->name ];
+            $rowCurrency = strtolower((string)($row->currency ?? $mspCurrency));
+            $params = [ 'product'=>$stripeProductId, 'currency'=>$rowCurrency, 'nickname'=>(string)$row->name ];
             if ((string)($row->pricing_scheme ?? 'per_unit') === 'tiered' && $row->tiers_json) {
                 $tiers = json_decode($row->tiers_json, true);
                 $params['billing_scheme'] = 'tiered';
@@ -1194,5 +1198,26 @@ function eb_ph_catalog_product_delete_draft(array $vars): void
         echo json_encode(['status'=>'success']);
     } catch (\Throwable $e) {
         echo json_encode(['status'=>'error','message'=>'delete_fail']);
+    }
+}
+
+function eb_ph_catalog_price_sub_count(array $vars): void
+{
+    header('Content-Type: application/json');
+    if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { echo json_encode(['status'=>'error','message'=>'auth']); return; }
+    $clientId = (int)$_SESSION['uid'];
+    $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
+    if (!$msp) { echo json_encode(['status'=>'error','message'=>'msp']); return; }
+    $priceId = (int)($_GET['price_id'] ?? 0);
+    if ($priceId <= 0) { echo json_encode(['status'=>'error','message'=>'id']); return; }
+    try {
+        $count = Capsule::table('eb_plan_components as pc')
+            ->join('eb_plan_instances as pi', 'pi.plan_id', '=', 'pc.plan_id')
+            ->where('pc.price_id', $priceId)
+            ->where('pi.status', 'active')
+            ->count();
+        echo json_encode(['status'=>'success','active_subscriptions'=>$count]);
+    } catch (\Throwable $e) {
+        echo json_encode(['status'=>'success','active_subscriptions'=>0]);
     }
 }
