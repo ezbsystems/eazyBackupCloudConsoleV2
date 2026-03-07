@@ -1108,13 +1108,24 @@ function eazybackup_migrate_schema(): void {
         eb_add_index_if_missing('eb_billing_grace', "CREATE INDEX IF NOT EXISTS idx_user_cat ON eb_billing_grace (username, category)");
     }
 
+    // --- eb_billing_flags ---
+    if (!$schema->hasTable('eb_billing_flags')) {
+        $schema->create('eb_billing_flags', function (Blueprint $t) {
+            $t->unsignedInteger('service_id')->primary();
+            $t->tinyInteger('storage_exempt')->default(0);
+            $t->tinyInteger('devices_exempt')->default(0);
+            $t->text('notes')->nullable();
+            $t->timestamp('created_at')->useCurrent();
+            $t->timestamp('updated_at')->useCurrent()->useCurrentOnUpdate();
+        });
+    }
+
     // --- eb_whitelabel_tenants ---
     if (!$schema->hasTable('eb_whitelabel_tenants')) {
         $schema->create('eb_whitelabel_tenants', function (Blueprint $t) {
             $t->bigIncrements('id');
             $t->integer('client_id');
             $t->enum('status', ['queued','building','active','failed','suspended','removing'])->default('queued');
-            $t->bigInteger('canonical_tenant_id')->nullable();
             $t->string('org_id',191)->nullable();
             $t->string('subdomain',191);
             $t->string('fqdn',255);
@@ -1138,27 +1149,12 @@ function eazybackup_migrate_schema(): void {
         });
     } else {
         // Ensure columns exist on upgrade
-        eb_add_column_if_missing('eb_whitelabel_tenants','canonical_tenant_id', fn(Blueprint $t)=>$t->bigInteger('canonical_tenant_id')->nullable());
         eb_add_column_if_missing('eb_whitelabel_tenants','custom_domain', fn(Blueprint $t)=>$t->string('custom_domain',255)->nullable());
         eb_add_column_if_missing('eb_whitelabel_tenants','custom_domain_status', fn(Blueprint $t)=>$t->string('custom_domain_status',32)->nullable());
         // Public ULID used for customer-facing URLs
         eb_add_column_if_missing('eb_whitelabel_tenants','public_id', fn(Blueprint $t)=>$t->char('public_id',26)->nullable());
         eb_add_index_if_missing('eb_whitelabel_tenants', "CREATE UNIQUE INDEX IF NOT EXISTS idx_eb_wl_tenants_public_id ON eb_whitelabel_tenants (public_id)");
     }
-    eb_require_index(
-        'eb_whitelabel_tenants',
-        'idx_canonical_tenant_id',
-        'CREATE INDEX idx_canonical_tenant_id ON eb_whitelabel_tenants (canonical_tenant_id)',
-        ['canonical_tenant_id'],
-        false
-    );
-    eb_require_index(
-        'eb_whitelabel_tenants',
-        'uniq_canonical_tenant',
-        'CREATE UNIQUE INDEX uniq_canonical_tenant ON eb_whitelabel_tenants (canonical_tenant_id)',
-        ['canonical_tenant_id'],
-        true
-    );
 
     // --- eb_whitelabel_builds ---
     if (!$schema->hasTable('eb_whitelabel_builds')) {
@@ -1269,8 +1265,32 @@ function eazybackup_migrate_schema(): void {
         });
     }
 
-    // Approval metadata for signup events is additive-only for safe upgrades.
-    if ($schema->hasTable('eb_whitelabel_signup_events')) {
+    // --- eb_whitelabel_signup_events ---
+    if (!$schema->hasTable('eb_whitelabel_signup_events')) {
+        $schema->create('eb_whitelabel_signup_events', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->unsignedBigInteger('tenant_id');
+            $t->string('host_header', 255);
+            $t->string('email', 255);
+            $t->integer('whmcs_client_id')->nullable();
+            $t->integer('whmcs_order_id')->nullable();
+            $t->string('comet_username', 255)->nullable();
+            $t->enum('status', ['received','validated','ordered','pending_approval','approving','rejecting','approved','rejected','accepted','provisioned','emailed','completed','failed'])->default('received');
+            $t->text('error')->nullable();
+            $t->string('ip', 64)->nullable();
+            $t->text('user_agent')->nullable();
+            $t->integer('approved_by_admin_id')->nullable();
+            $t->timestamp('approved_at')->nullable();
+            $t->text('approval_notes')->nullable();
+            $t->timestamp('created_at')->useCurrent();
+            $t->timestamp('updated_at')->useCurrent()->useCurrentOnUpdate();
+            $t->unique(['tenant_id', 'email'], 'uniq_tenant_email');
+            $t->index(['tenant_id'], 'idx_tenant');
+            $t->index(['status'], 'idx_status');
+            $t->index(['approved_by_admin_id'], 'idx_wlse_approved_by');
+            $t->index(['approved_at'], 'idx_wlse_approved_at');
+        });
+    } else {
         eb_add_column_if_missing('eb_whitelabel_signup_events','approved_by_admin_id', fn(Blueprint $t)=>$t->integer('approved_by_admin_id')->nullable());
         eb_add_column_if_missing('eb_whitelabel_signup_events','approved_at', fn(Blueprint $t)=>$t->timestamp('approved_at')->nullable());
         eb_add_column_if_missing('eb_whitelabel_signup_events','approval_notes', fn(Blueprint $t)=>$t->text('approval_notes')->nullable());
@@ -1323,83 +1343,49 @@ function eazybackup_migrate_schema(): void {
         eb_add_column_if_missing('eb_msp_accounts','default_fee_percent', fn(Blueprint $t)=>$t->decimal('default_fee_percent',5,2)->nullable());
     }
 
-    // ========= Canonical Tenants (replaces eb_customers + s3_backup_tenants) =========
-    if (!$schema->hasTable('eb_tenants')) {
-        $schema->create('eb_tenants', function (Blueprint $t) {
+    // eb_customers
+    if (!$schema->hasTable('eb_customers')) {
+        $schema->create('eb_customers', function (Blueprint $t) {
             $t->bigIncrements('id');
-            $t->bigInteger('msp_id');
-            $t->string('name', 255);
-            $t->string('slug', 100);
-            $t->string('contact_email', 255)->nullable();
-            $t->string('contact_name', 255)->nullable();
-            $t->string('contact_phone', 50)->nullable();
-            $t->string('address_line1', 255)->nullable();
-            $t->string('address_line2', 255)->nullable();
-            $t->string('city', 100)->nullable();
-            $t->string('state', 100)->nullable();
-            $t->string('postal_code', 20)->nullable();
-            $t->char('country', 2)->nullable();
-            $t->string('stripe_customer_id', 255)->nullable();
+            $t->bigInteger('msp_id')->index();
+            $t->bigInteger('tenant_id')->nullable()->unique('uq_eb_customers_tenant_id');
+            $t->integer('whmcs_client_id')->unique();
+            $t->string('name', 191)->default('');
             $t->string('external_ref', 191)->nullable();
-            $t->enum('status', ['active','suspended','deleted'])->default('active');
+            $t->enum('status', ['active','inactive'])->default('active');
             $t->text('notes')->nullable();
-            $t->text('branding_json')->nullable();
+            $t->string('stripe_customer_id', 255)->nullable()->index();
             $t->timestamp('created_at')->nullable()->useCurrent();
             $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
-            $t->unique(['msp_id','slug'], 'uq_tenant_msp_slug');
-            $t->index('msp_id', 'idx_tenant_msp_id');
-            $t->index('status', 'idx_tenant_status');
-            $t->index('stripe_customer_id', 'idx_tenant_stripe_customer');
+            $t->index(['msp_id','status'], 'idx_customer_msp_status');
+        });
+    } else {
+        eb_add_column_if_missing('eb_customers','tenant_id', fn(Blueprint $t)=>$t->bigInteger('tenant_id')->nullable());
+    }
+    eb_require_index('eb_customers', 'uq_eb_customers_tenant_id', "CREATE UNIQUE INDEX uq_eb_customers_tenant_id ON eb_customers (tenant_id)", ['tenant_id'], true);
+
+    // eb_customer_user_links
+    if (!$schema->hasTable('eb_customer_user_links')) {
+        $schema->create('eb_customer_user_links', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->bigInteger('customer_id');
+            $t->integer('whmcs_user_id');
+            $t->enum('role', ['Owner','Viewer'])->default('Owner');
+            $t->unique(['customer_id','whmcs_user_id'], 'uq_customer_user');
+            $t->index('customer_id', 'idx_cul_customer');
+            $t->index('whmcs_user_id', 'idx_cul_user');
         });
     }
 
-    if (!$schema->hasTable('eb_tenant_users')) {
-        $schema->create('eb_tenant_users', function (Blueprint $t) {
+    // eb_customer_comet_accounts (pivot)
+    if (!$schema->hasTable('eb_customer_comet_accounts')) {
+        $schema->create('eb_customer_comet_accounts', function (Blueprint $t) {
             $t->bigIncrements('id');
-            $t->bigInteger('tenant_id');
-            $t->string('email', 255);
-            $t->string('password_hash', 255);
-            $t->string('name', 255);
-            $t->enum('role', ['admin','user'])->default('user');
-            $t->enum('status', ['active','disabled'])->default('active');
-            $t->string('password_reset_token', 64)->nullable();
-            $t->dateTime('password_reset_expires')->nullable();
-            $t->dateTime('last_login_at')->nullable();
-            $t->timestamp('created_at')->nullable()->useCurrent();
-            $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
-            $t->unique(['tenant_id','email'], 'uq_tenant_user_email');
-            $t->index('tenant_id', 'idx_tenant_user_tenant');
-            $t->index('email', 'idx_tenant_user_email_lookup');
-        });
-    }
-
-    if (!$schema->hasTable('eb_tenant_services')) {
-        $schema->create('eb_tenant_services', function (Blueprint $t) {
-            $t->bigIncrements('id');
-            $t->bigInteger('tenant_id');
-            $t->bigInteger('msp_id');
-            $t->integer('hosting_id')->nullable();
-            $t->bigInteger('catalog_product_id')->nullable();
-            $t->enum('status', ['active','suspended','cancelled','pending'])->default('pending');
-            $t->timestamp('provisioned_at')->nullable();
-            $t->timestamp('created_at')->nullable()->useCurrent();
-            $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
-            $t->unique('hosting_id', 'uq_tenant_hosting');
-            $t->index('tenant_id', 'idx_ts_tenant');
-            $t->index('msp_id', 'idx_ts_msp');
-            $t->index('catalog_product_id', 'idx_ts_catalog');
-        });
-    }
-
-    // eb_tenant_comet_accounts (pivot)
-    if (!$schema->hasTable('eb_tenant_comet_accounts')) {
-        $schema->create('eb_tenant_comet_accounts', function (Blueprint $t) {
-            $t->bigIncrements('id');
-            $t->bigInteger('tenant_id');
+            $t->bigInteger('customer_id');
             $t->string('comet_user_id', 191);
-            $t->unique(['tenant_id','comet_user_id'], 'uq_tenant_comet');
-            $t->index('tenant_id', 'idx_tca_tenant');
-            $t->index('comet_user_id', 'idx_tca_comet');
+            $t->unique(['customer_id','comet_user_id'], 'uq_customer_comet');
+            $t->index('customer_id', 'idx_cca_customer');
+            $t->index('comet_user_id', 'idx_cca_comet');
         });
     }
 
@@ -1409,10 +1395,10 @@ function eazybackup_migrate_schema(): void {
             $t->bigIncrements('id');
             $t->integer('whmcs_service_id');
             $t->bigInteger('msp_id')->nullable();
-            $t->bigInteger('tenant_id')->nullable();
+            $t->bigInteger('customer_id')->nullable();
             $t->string('comet_user_id', 191)->nullable();
             $t->unique('whmcs_service_id', 'uq_service');
-            $t->index(['msp_id','tenant_id'], 'idx_service_msp_tenant');
+            $t->index(['msp_id','customer_id'], 'idx_service_msp_customer');
         });
     }
 
@@ -1436,11 +1422,11 @@ function eazybackup_migrate_schema(): void {
         eb_require_index('eb_tenant_storage_links', 'idx_tenant_storage_link_tenant', "CREATE INDEX idx_tenant_storage_link_tenant ON eb_tenant_storage_links (tenant_id)", ['tenant_id'], false);
     }
 
-    // Add nullable MSP/Tenant scoping columns to Comet mirrors if present
+    // Add nullable MSP/Customer scoping columns to Comet mirrors if present
     foreach (['comet_users','comet_devices','comet_items','comet_jobs'] as $mirror) {
         if ($schema->hasTable($mirror)) {
             eb_add_column_if_missing($mirror, 'msp_id', fn(Blueprint $t)=>$t->bigInteger('msp_id')->nullable()->index());
-            eb_add_column_if_missing($mirror, 'tenant_id', fn(Blueprint $t)=>$t->bigInteger('tenant_id')->nullable()->index());
+            eb_add_column_if_missing($mirror, 'customer_id', fn(Blueprint $t)=>$t->bigInteger('customer_id')->nullable()->index());
         }
     }
 
@@ -1480,7 +1466,7 @@ function eazybackup_migrate_schema(): void {
         $schema->create('eb_subscriptions', function (Blueprint $t) {
             $t->bigIncrements('id');
             $t->bigInteger('msp_id')->index();
-            $t->bigInteger('tenant_id')->index();
+            $t->bigInteger('customer_id')->index();
             $t->bigInteger('plan_id')->nullable()->index();
             $t->string('stripe_subscription_id', 255)->nullable()->unique();
             $t->string('stripe_status', 32)->default('active');
@@ -1490,28 +1476,15 @@ function eazybackup_migrate_schema(): void {
             $t->tinyInteger('cancel_at_period_end')->default(0);
             $t->timestamp('created_at')->nullable()->useCurrent();
             $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
-            $t->index(['tenant_id','stripe_status'], 'idx_sub_tenant_status');
+            $t->index(['customer_id','stripe_status'], 'idx_sub_customer_status');
         });
-    } else {
-        eb_add_column_if_missing('eb_subscriptions', 'tenant_id', fn(Blueprint $t)=>$t->bigInteger('tenant_id')->nullable()->index());
-        eb_require_index('eb_subscriptions', 'idx_sub_tenant_status', "CREATE INDEX idx_sub_tenant_status ON eb_subscriptions (tenant_id, stripe_status)", ['tenant_id', 'stripe_status'], false);
-        try {
-            if ($schema->hasTable('eb_customers') && $schema->hasColumn('eb_subscriptions', 'customer_id')) {
-                Capsule::statement("
-                    UPDATE eb_subscriptions s
-                    JOIN eb_customers c ON c.id = s.customer_id
-                    SET s.tenant_id = c.tenant_id
-                    WHERE (s.tenant_id IS NULL OR s.tenant_id = 0)
-                      AND c.tenant_id IS NOT NULL
-                ");
-            }
-        } catch (\Throwable $__) {}
     }
 
     if (!$schema->hasTable('eb_usage_ledger')) {
         $schema->create('eb_usage_ledger', function (Blueprint $t) {
             $t->bigIncrements('id');
-            $t->bigInteger('tenant_id')->index();
+            $t->bigInteger('tenant_id')->nullable();
+            $t->bigInteger('customer_id')->index();
             $t->string('metric', 64);
             $t->bigInteger('qty')->default(0);
             $t->timestamp('period_start');
@@ -1521,13 +1494,15 @@ function eazybackup_migrate_schema(): void {
             $t->timestamp('pushed_to_stripe_at')->nullable();
             $t->timestamp('created_at')->nullable()->useCurrent();
         });
+    } else {
+        eb_add_column_if_missing('eb_usage_ledger','tenant_id', fn(Blueprint $t)=>$t->bigInteger('tenant_id')->nullable());
     }
     eb_require_index('eb_usage_ledger', 'idx_usage_ledger_tenant_id', "CREATE INDEX idx_usage_ledger_tenant_id ON eb_usage_ledger (tenant_id)", ['tenant_id'], false);
 
     if (!$schema->hasTable('eb_invoice_cache')) {
         $schema->create('eb_invoice_cache', function (Blueprint $t) {
             $t->bigIncrements('id');
-            $t->bigInteger('tenant_id')->index();
+            $t->bigInteger('customer_id')->index();
             $t->string('stripe_invoice_id', 255)->unique();
             $t->bigInteger('amount_total')->default(0);
             $t->bigInteger('amount_tax')->default(0);
@@ -1537,25 +1512,12 @@ function eazybackup_migrate_schema(): void {
             $t->string('currency', 8)->default('USD');
             $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
         });
-    } else {
-        eb_add_column_if_missing('eb_invoice_cache', 'tenant_id', fn(Blueprint $t)=>$t->bigInteger('tenant_id')->nullable()->index());
-        try {
-            if ($schema->hasTable('eb_customers') && $schema->hasColumn('eb_invoice_cache', 'customer_id')) {
-                Capsule::statement("
-                    UPDATE eb_invoice_cache i
-                    JOIN eb_customers c ON c.id = i.customer_id
-                    SET i.tenant_id = c.tenant_id
-                    WHERE (i.tenant_id IS NULL OR i.tenant_id = 0)
-                      AND c.tenant_id IS NOT NULL
-                ");
-            }
-        } catch (\Throwable $__) {}
     }
 
     if (!$schema->hasTable('eb_payment_cache')) {
         $schema->create('eb_payment_cache', function (Blueprint $t) {
             $t->bigIncrements('id');
-            $t->bigInteger('tenant_id')->index();
+            $t->bigInteger('customer_id')->index();
             $t->string('stripe_payment_intent_id', 255)->unique();
             $t->bigInteger('amount')->default(0);
             $t->string('currency', 8)->default('USD');
@@ -1563,19 +1525,6 @@ function eazybackup_migrate_schema(): void {
             $t->unsignedInteger('created')->default(0); // epoch seconds
             $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
         });
-    } else {
-        eb_add_column_if_missing('eb_payment_cache', 'tenant_id', fn(Blueprint $t)=>$t->bigInteger('tenant_id')->nullable()->index());
-        try {
-            if ($schema->hasTable('eb_customers') && $schema->hasColumn('eb_payment_cache', 'customer_id')) {
-                Capsule::statement("
-                    UPDATE eb_payment_cache p
-                    JOIN eb_customers c ON c.id = p.customer_id
-                    SET p.tenant_id = c.tenant_id
-                    WHERE (p.tenant_id IS NULL OR p.tenant_id = 0)
-                      AND c.tenant_id IS NOT NULL
-                ");
-            }
-        } catch (\Throwable $__) {}
     }
 
     // --- Partner Hub Catalog: Products ---
@@ -1583,7 +1532,6 @@ function eazybackup_migrate_schema(): void {
         $schema->create('eb_catalog_products', function (Blueprint $t) {
             $t->bigIncrements('id');
             $t->bigInteger('msp_id')->index();
-            $t->integer('whmcs_product_id')->nullable();
             $t->string('name', 160);
             $t->text('description')->nullable();
             $t->enum('category', ['Backup','Services','Other'])->default('Backup');
@@ -1598,10 +1546,8 @@ function eazybackup_migrate_schema(): void {
             $t->timestamp('created_at')->nullable()->useCurrent();
             $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
             $t->index('active');
-            $t->index('whmcs_product_id', 'idx_catalog_whmcs_pid');
         });
     } else {
-        eb_add_column_if_missing('eb_catalog_products','whmcs_product_id', fn(Blueprint $t)=>$t->integer('whmcs_product_id')->nullable());
         eb_add_column_if_missing('eb_catalog_products','is_published', fn(Blueprint $t)=>$t->tinyInteger('is_published')->default(0));
         eb_add_column_if_missing('eb_catalog_products','published_at', fn(Blueprint $t)=>$t->dateTime('published_at')->nullable());
         eb_add_column_if_missing('eb_catalog_products','default_currency', fn(Blueprint $t)=>$t->char('default_currency',3)->nullable());
@@ -1609,7 +1555,6 @@ function eazybackup_migrate_schema(): void {
         eb_add_column_if_missing('eb_catalog_products','updated_by', fn(Blueprint $t)=>$t->bigInteger('updated_by')->nullable());
         eb_add_column_if_missing('eb_catalog_products','base_metric_code', fn(Blueprint $t)=>$t->enum('base_metric_code',[ 'STORAGE_TB','DEVICE_COUNT','DISK_IMAGE','HYPERV_VM','PROXMOX_VM','VMWARE_VM','M365_USER','GENERIC' ])->nullable());
         eb_add_column_if_missing('eb_catalog_products','features_json', fn(Blueprint $t)=>$t->text('features_json')->nullable());
-        eb_require_index('eb_catalog_products', 'idx_catalog_whmcs_pid', "CREATE INDEX idx_catalog_whmcs_pid ON eb_catalog_products (whmcs_product_id)", ['whmcs_product_id'], false);
     }
     // --- Partner Hub Catalog: Prices ---
     if (!$schema->hasTable('eb_catalog_prices')) {
@@ -1746,7 +1691,7 @@ function eazybackup_migrate_schema(): void {
         $schema->create('eb_plan_instances', function (Blueprint $t) {
             $t->bigIncrements('id');
             $t->bigInteger('msp_id')->index();
-            $t->bigInteger('tenant_id')->index();
+            $t->bigInteger('customer_id')->index();
             $t->string('comet_user_id', 128)->index();
             $t->bigInteger('plan_id')->index();
             $t->integer('plan_version');
@@ -1759,18 +1704,6 @@ function eazybackup_migrate_schema(): void {
             $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
             $t->index(['stripe_subscription_id']);
         });
-    } else {
-        eb_add_column_if_missing('eb_plan_instances', 'tenant_id', fn(Blueprint $t)=>$t->bigInteger('tenant_id')->nullable()->index());
-        try {
-            if ($schema->hasColumn('eb_plan_instances', 'customer_id')) {
-                Capsule::statement("
-                    UPDATE eb_plan_instances
-                    SET tenant_id = customer_id
-                    WHERE (tenant_id IS NULL OR tenant_id = 0)
-                      AND customer_id IS NOT NULL
-                ");
-            }
-        } catch (\Throwable $__) {}
     }
 
     // --- Partner Hub Catalog: Plan instance items ---
@@ -1785,6 +1718,81 @@ function eazybackup_migrate_schema(): void {
             $t->timestamp('created_at')->nullable()->useCurrent();
             $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
             $t->index(['metric_code']);
+        });
+    }
+
+    // --- Tiered pricing columns on eb_catalog_prices ---
+    try {
+        if ($schema->hasTable('eb_catalog_prices')) {
+            if (!$schema->hasColumn('eb_catalog_prices', 'pricing_scheme')) {
+                $schema->table('eb_catalog_prices', function (Blueprint $t) {
+                    $t->string('pricing_scheme', 20)->default('per_unit')->after('billing_type');
+                    $t->string('tiers_mode', 20)->nullable()->after('pricing_scheme');
+                    $t->text('tiers_json')->nullable()->after('tiers_mode');
+                });
+            }
+        }
+    } catch (\Throwable $__) {}
+
+    // --- Product template column on eb_catalog_products ---
+    try {
+        if ($schema->hasTable('eb_catalog_products') && !$schema->hasColumn('eb_catalog_products', 'product_template')) {
+            $schema->table('eb_catalog_products', function (Blueprint $t) {
+                $t->string('product_template', 50)->nullable()->after('base_metric_code');
+            });
+        }
+    } catch (\Throwable $__) {}
+
+    // --- Product attributes column on eb_catalog_products ---
+    try {
+        if ($schema->hasTable('eb_catalog_products') && !$schema->hasColumn('eb_catalog_products', 'attributes_json')) {
+            $schema->table('eb_catalog_products', function (Blueprint $t) {
+                $t->text('attributes_json')->nullable()->after('features_json');
+            });
+        }
+    } catch (\Throwable $__) {}
+
+    // --- Plan metadata columns on eb_plan_templates ---
+    try {
+        if ($schema->hasTable('eb_plan_templates')) {
+            if (!$schema->hasColumn('eb_plan_templates', 'billing_interval')) {
+                $schema->table('eb_plan_templates', function (Blueprint $t) {
+                    $t->string('billing_interval', 10)->default('month')->after('trial_days');
+                    $t->string('currency', 3)->default('CAD')->after('billing_interval');
+                    $t->string('status', 20)->default('active')->after('active');
+                    $t->text('metadata_json')->nullable()->after('status');
+                });
+            }
+        }
+    } catch (\Throwable $__) {}
+
+    // --- Cancellation tracking columns on eb_plan_instances ---
+    try {
+        if ($schema->hasTable('eb_plan_instances')) {
+            if (!$schema->hasColumn('eb_plan_instances', 'cancelled_at')) {
+                $schema->table('eb_plan_instances', function (Blueprint $t) {
+                    $t->dateTime('cancelled_at')->nullable()->after('status');
+                    $t->string('cancel_reason', 255)->nullable()->after('cancelled_at');
+                });
+            }
+            if (!$schema->hasColumn('eb_plan_instances', 'tenant_id')) {
+                $schema->table('eb_plan_instances', function (Blueprint $t) {
+                    $t->bigInteger('tenant_id')->nullable()->index()->after('customer_id');
+                });
+            }
+        }
+    } catch (\Throwable $__) {}
+
+    // --- Usage mapping table for plan instance items ---
+    if (!$schema->hasTable('eb_plan_instance_usage_map')) {
+        $schema->create('eb_plan_instance_usage_map', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->bigInteger('plan_instance_item_id')->index();
+            $t->string('metric_code', 50)->index();
+            $t->string('stripe_subscription_item_id', 255);
+            $t->dateTime('last_pushed_at')->nullable();
+            $t->timestamp('created_at')->nullable()->useCurrent();
+            $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
         });
     }
 
@@ -4089,8 +4097,8 @@ function eazybackup_clientarea(array $vars)
         require_once __DIR__ . '/pages/partnerhub/OverviewController.php';
         return eb_ph_overview_index($vars);
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-clients') {
-        header('Location: ' . ($vars['modulelink'] ?? 'index.php?m=eazybackup') . '&a=ph-tenants-manage');
-        exit;
+        require_once __DIR__ . '/pages/partnerhub/ClientsController.php';
+        return eb_ph_clients_index($vars);
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenants-manage') {
         require_once __DIR__ . '/pages/partnerhub/TenantsController.php';
         return eb_ph_tenants_management_entry($vars);
@@ -4100,21 +4108,6 @@ function eazybackup_clientarea(array $vars)
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenant') {
         require_once __DIR__ . '/pages/partnerhub/TenantsController.php';
         return eb_ph_tenant_detail($vars);
-    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenant-members') {
-        require_once __DIR__ . '/pages/partnerhub/TenantMembersController.php';
-        return eb_ph_tenant_members($vars);
-    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenant-storage-users') {
-        require_once __DIR__ . '/pages/partnerhub/TenantsController.php';
-        return eb_ph_tenant_storage_users($vars);
-    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenant-billing') {
-        require_once __DIR__ . '/pages/partnerhub/TenantBillingController.php';
-        return eb_ph_tenant_billing($vars);
-    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenant-whitelabel') {
-        require_once __DIR__ . '/pages/partnerhub/TenantWhiteLabelController.php';
-        return eb_ph_tenant_whitelabel($vars);
-    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenant-whitelabel-enable') {
-        require_once __DIR__ . '/pages/partnerhub/TenantWhiteLabelController.php';
-        eb_ph_tenant_whitelabel_enable($vars); exit;
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenant-storage-links') {
         require_once __DIR__ . '/pages/partnerhub/TenantStorageLinksController.php';
         eb_ph_tenant_storage_links_list($vars); exit;
@@ -5049,7 +5042,6 @@ function eazybackup_output($vars)
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=devices">Devices</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=items">Protected Items</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=billing">Billing</a></li>'
-                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=income-forecast">Income Forecast</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=nfr">NFR</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=terms">Terms</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=privacy">Privacy</a></li>'
@@ -5121,24 +5113,43 @@ function eazybackup_output($vars)
                       . '</tr></thead><tbody>';
                 if (!empty($rows)) {
                                         foreach ($rows as $r) {
-                        // Compute expected billed units using TiB (2^40) thresholds, min 1
+                        $storageExempt = !empty($r['storage_exempt']);
                         $tbDivisor = pow(1024, 4); // 1 TiB
-                        $computedUnits = max(1, (int)ceil(((float)$r['total_bytes']) / $tbDivisor));
+                        $ratio = ((float)$r['total_bytes']) / $tbDivisor;
                         $billedUnits = (int)$r['billed_units'];
-                        $labelStart = '';
-                        $labelEnd = '';
-                        if ($computedUnits > $billedUnits) { $labelStart = '<span class="label label-danger" style="display:inline-block;padding:4px 6px">'; $labelEnd = '</span>'; }
-                        else if ($computedUnits < $billedUnits) { $labelStart = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">'; $labelEnd = '</span>'; }
-                        $delta = $computedUnits - $billedUnits;
-                        $deltaText = '-';
-                        if ($delta > 0) { $deltaText = 'Increase +' . $delta . ' TB'; }
-                        else if ($delta < 0) { $deltaText = 'Decrease ' . abs($delta) . ' TB'; }
+                        if ($storageExempt) {
+                            $computedUnits = $billedUnits;
+                            $labelStart = '';
+                            $labelEnd = '';
+                            $delta = 0;
+                            $deltaText = '-';
+                            $exemptLabel = ' <span class="text-muted">(exempt)</span>';
+                        } else {
+                            // Compute expected billed units using TiB (2^40) thresholds with
+                            // ±0.05 TiB tolerance around each milestone to avoid badge churn.
+                            if ($ratio > $billedUnits + 0.05) {
+                                $computedUnits = max(1, (int)ceil($ratio - 0.05));
+                            } elseif ($billedUnits > 1 && $ratio < $billedUnits - 0.05) {
+                                $computedUnits = max(1, (int)floor($ratio + 0.05));
+                            } else {
+                                $computedUnits = $billedUnits;
+                            }
+                            $labelStart = '';
+                            $labelEnd = '';
+                            if ($computedUnits > $billedUnits) { $labelStart = '<span class="label label-danger" style="display:inline-block;padding:4px 6px">'; $labelEnd = '</span>'; }
+                            else if ($computedUnits < $billedUnits) { $labelStart = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">'; $labelEnd = '</span>'; }
+                            $delta = $computedUnits - $billedUnits;
+                            $deltaText = '-';
+                            if ($delta > 0) { $deltaText = 'Increase +' . $delta . ' TB'; }
+                            else if ($delta < 0) { $deltaText = 'Decrease ' . abs($delta) . ' TB'; }
+                            $exemptLabel = '';
+                        }
                         $serviceLink = 'clientsservices.php?userid=' . (int)$r['user_id'] . '&id=' . (int)$r['service_id'];
                         $html .= '<tr>'
                               . '<td><a href="' . $e($serviceLink) . '">' . $e($r['username']) . '</a></td>'
                               . '<td>' . $e($r['comet_server_url']) . '</td>'
                               . '<td class="text-right">' . $e($r['total_bytes_hr']) . '<div class="text-muted small">' . $e($r['total_bytes']) . ' bytes</div></td>'
-                              . '<td class="text-right">' . ($labelStart ?: '') . $billedUnits . ($labelEnd ?: '') . '</td>'
+                              . '<td class="text-right">' . ($labelStart ?: '') . $billedUnits . ($labelEnd ?: '') . $exemptLabel . '</td>'
                               . '<td class="text-right">' . ($delta !== 0 ? ($labelStart ?: '') . $deltaText . ($labelEnd ?: '') : '-') . '</td>'
                               . '</tr>';
                     }
@@ -5205,7 +5216,6 @@ function eazybackup_output($vars)
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=devices">Devices</a></li>'
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=items">Protected Items</a></li>'
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=billing">Billing</a></li>'
-                   . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=income-forecast">Income Forecast</a></li>'
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=nfr">NFR</a></li>'
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=terms">Terms</a></li>'
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=privacy">Privacy</a></li>'
@@ -5262,7 +5272,6 @@ function eazybackup_output($vars)
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=devices">Devices</a></li>'
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=items">Protected Items</a></li>'
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=billing">Billing</a></li>'
-                   . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=income-forecast">Income Forecast</a></li>'
                    . '<li class="nav-item"><a class="nav-link active" href="#">NFR</a></li>'
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=terms">Terms</a></li>'
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=privacy">Privacy</a></li>'
@@ -5399,7 +5408,6 @@ function eazybackup_output($vars)
                       . '<li class="nav-item"><a class="nav-link active" href="#">Devices</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=items">Protected Items</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=billing">Billing</a></li>'
-                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=income-forecast">Income Forecast</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=nfr">NFR</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=terms">Terms</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=privacy">Privacy</a></li>'
@@ -5457,18 +5465,38 @@ function eazybackup_output($vars)
                         $devices = (int)$r['device_count'];
                         $billed  = (int)$r['billed_units'];
                         $productId = (int)$r['product_id'];
-                        
-                        // Special handling for Microsoft 365 products (52, 57)
-                        // For these packages, a billed value of 0 is expected and should NOT be flagged
-                        if ($productId === 52 || $productId === 57) {
-                            if ($billed === 0) {
-                                // Do not show badge even if devices > 0
-                                $labelStart = '';
-                                $labelEnd = '';
-                                $delta = 0;
-                                $deltaText = '-';
+                        $devicesExempt = !empty($r['devices_exempt']);
+
+                        if ($devicesExempt) {
+                            $labelStart = '';
+                            $labelEnd = '';
+                            $delta = 0;
+                            $deltaText = '-';
+                            $deviceExemptLabel = ' <span class="text-muted">(exempt)</span>';
+                            $deviceBillingDisplay = (int)$billed . $deviceExemptLabel;
+                        } else {
+                            // Special handling for Microsoft 365 products (52, 57)
+                            // For these packages, a billed value of 0 is expected and should NOT be flagged
+                            if ($productId === 52 || $productId === 57) {
+                                if ($billed === 0) {
+                                    // Do not show badge even if devices > 0
+                                    $labelStart = '';
+                                    $labelEnd = '';
+                                    $delta = 0;
+                                    $deltaText = '-';
+                                } else {
+                                    // If somehow billed units present, fall back to standard comparison against devices
+                                    $labelStart = '';
+                                    $labelEnd = '';
+                                    if ($devices > $billed) { $labelStart = '<span class="label label-danger" style="display:inline-block;padding:4px 6px">'; $labelEnd = '</span>'; }
+                                    else if ($devices < $billed) { $labelStart = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">'; $labelEnd = '</span>'; }
+                                    $delta = $devices - $billed;
+                                    $deltaText = '-';
+                                    if ($delta > 0) { $deltaText = 'Increase +' . $delta . ' devices'; }
+                                    else if ($delta < 0) { $deltaText = 'Decrease ' . abs($delta) . ' devices'; }
+                                }
                             } else {
-                                // If somehow billed units present, fall back to standard comparison against devices
+                                // Standard logic for other products
                                 $labelStart = '';
                                 $labelEnd = '';
                                 if ($devices > $billed) { $labelStart = '<span class="label label-danger" style="display:inline-block;padding:4px 6px">'; $labelEnd = '</span>'; }
@@ -5478,50 +5506,36 @@ function eazybackup_output($vars)
                                 if ($delta > 0) { $deltaText = 'Increase +' . $delta . ' devices'; }
                                 else if ($delta < 0) { $deltaText = 'Decrease ' . abs($delta) . ' devices'; }
                             }
-                        } else {
-                            // Standard logic for other products
-                            $labelStart = '';
-                            $labelEnd = '';
-                            if ($devices > $billed) { $labelStart = '<span class="label label-danger" style="display:inline-block;padding:4px 6px">'; $labelEnd = '</span>'; }
-                            else if ($devices < $billed) { $labelStart = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">'; $labelEnd = '</span>'; }
-                            $delta = $devices - $billed;
-                            $deltaText = '-';
-                            if ($delta > 0) { $deltaText = 'Increase +' . $delta . ' devices'; }
-                            else if ($delta < 0) { $deltaText = 'Decrease ' . abs($delta) . ' devices'; }
-                        }
-                        // Defensive override: ensure no badge for M365 with 0 devices
-                        if (($productId === 52 || $productId === 57) && $devices === 0) {
-                            $labelStart = '';
-                            $labelEnd = '';
-                            $delta = 0;
-                            $deltaText = '-';
+                            // Defensive override: ensure no badge for M365 with 0 devices
+                            if (($productId === 52 || $productId === 57) && $devices === 0) {
+                                $labelStart = '';
+                                $labelEnd = '';
+                                $delta = 0;
+                                $deltaText = '-';
+                            }
+                            // Device Billing display rules per product
+                            $deviceBillingDisplay = $billed;
+                            if ($productId === 52 || $productId === 57) {
+                                // 52/57: devices are not billable
+                                if ($billed > 0) {
+                                    $deviceBillingDisplay = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">' . (int)$billed . '</span>';
+                                } else if ($devices > 0) {
+                                    $deviceBillingDisplay = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">0</span>';
+                                } else {
+                                    $deviceBillingDisplay = 0;
+                                }
+                            } else if ($productId === 53 || $productId === 54) {
+                                if ($billed === 0) {
+                                    $deviceBillingDisplay = 0;
+                                } else {
+                                    $deviceBillingDisplay = ($labelStart ?: '') . (int)$billed . ($labelEnd ?: '');
+                                }
+                            } else {
+                                $deviceBillingDisplay = ($labelStart ?: '') . (int)$billed . ($labelEnd ?: '');
+                            }
+                            $deviceExemptLabel = '';
                         }
                         $serviceLink = 'clientsservices.php?userid=' . (int)$r['user_id'] . '&id=' . (int)$r['service_id'];
-                        // Device Billing display rules per product
-                        $deviceBillingDisplay = $billed;
-                        if ($productId === 52 || $productId === 57) {
-                            // 52/57: devices are not billable
-                            if ($billed > 0) {
-                                // units present → show yellow to reduce to 0
-                                $deviceBillingDisplay = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">' . (int)$billed . '</span>';
-                            } else if ($devices > 0) {
-                                // no units but devices exist → show yellow 0 to reduce
-                                $deviceBillingDisplay = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">0</span>';
-                            } else {
-                                // neither units nor devices → plain 0
-                                $deviceBillingDisplay = 0;
-                            }
-                        } else if ($productId === 53 || $productId === 54) {
-                            // Unique products where devices are not charged
-                            if ($deviceUnits === 0) {
-                                $deviceBillingDisplay = 0; // <-- plain zero, no label
-                            } else {
-                                // If units present, fall back to standard label logic
-                                $deviceBillingDisplay = ($dLabelStart ?: '') . (int)$deviceUnits . ($dLabelEnd ?: '');
-                            }
-                        } else {
-                            $deviceBillingDisplay = ($dLabelStart ?: '') . (int)$deviceUnits . ($dLabelEnd ?: '');
-                        }
                         
                         $html .= '<tr>'
                               . '<td>' . $e($r['product_name']) . '</td>'
@@ -5567,7 +5581,6 @@ function eazybackup_output($vars)
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=devices">Devices</a></li>'
                       . '<li class="nav-item"><a class="nav-link active" href="#">Protected Items</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=billing">Billing</a></li>'
-                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=income-forecast">Income Forecast</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=nfr">NFR</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=terms">Terms</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=privacy">Privacy</a></li>'
@@ -5677,7 +5690,6 @@ function eazybackup_output($vars)
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=devices">Devices</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=items">Protected Items</a></li>'
                       . '<li class="nav-item"><a class="nav-link active" href="#">Billing</a></li>'
-                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=income-forecast">Income Forecast</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=nfr">NFR</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=terms">Terms</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=privacy">Privacy</a></li>'
@@ -5746,23 +5758,38 @@ function eazybackup_output($vars)
                     foreach ($rows as $r) {
                         $serviceLink = 'clientsservices.php?userid=' . (int)$r['user_id'] . '&id=' . (int)$r['service_id'];
 
-                        // Storage: compute units by TiB
+                        // Storage: compute units by TiB with ±0.05 TiB tolerance (or exempt)
+                        $storageExempt = !empty($r['storage_exempt']);
+                        $devicesExempt = !empty($r['devices_exempt']);
                         $tbDivisor = pow(1024, 4);
-                        $computedStorageUnits = max(1, (int)ceil(((float)$r['total_bytes']) / $tbDivisor));
+                        $sRatio = ((float)$r['total_bytes']) / $tbDivisor;
                         $storageUnits = (int)$r['storage_units'];
-                        $sLabelStart = '';
-                        $sLabelEnd = '';
-                        if ($computedStorageUnits > $storageUnits) { $sLabelStart = '<span class="label label-danger" style="display:inline-block;padding:4px 6px">'; $sLabelEnd = '</span>'; }
-                        else if ($computedStorageUnits < $storageUnits) { $sLabelStart = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">'; $sLabelEnd = '</span>'; }
-                        $sDelta = $computedStorageUnits - $storageUnits;
-                        $sDeltaText = ($sDelta > 0) ? ('Increase +' . $sDelta . ' TB') : (($sDelta < 0) ? ('Decrease ' . abs($sDelta) . ' TB') : '-');
-
-                        // Devices
-                        $devices = (int)$r['device_count'];
-                        $deviceUnits = (int)$r['device_units'];
+                        if ($storageExempt) {
+                            $computedStorageUnits = $storageUnits;
+                            $sLabelStart = '';
+                            $sLabelEnd = '';
+                            $sDelta = 0;
+                            $sDeltaText = '-';
+                            $storageExemptLabel = ' <span class="text-muted">(exempt)</span>';
+                        } else {
+                            if ($sRatio > $storageUnits + 0.05) {
+                                $computedStorageUnits = max(1, (int)ceil($sRatio - 0.05));
+                            } elseif ($storageUnits > 1 && $sRatio < $storageUnits - 0.05) {
+                                $computedStorageUnits = max(1, (int)floor($sRatio + 0.05));
+                            } else {
+                                $computedStorageUnits = $storageUnits;
+                            }
+                            $sLabelStart = '';
+                            $sLabelEnd = '';
+                            if ($computedStorageUnits > $storageUnits) { $sLabelStart = '<span class="label label-danger" style="display:inline-block;padding:4px 6px">'; $sLabelEnd = '</span>'; }
+                            else if ($computedStorageUnits < $storageUnits) { $sLabelStart = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">'; $sLabelEnd = '</span>'; }
+                            $sDelta = $computedStorageUnits - $storageUnits;
+                            $sDeltaText = ($sDelta > 0) ? ('Increase +' . $sDelta . ' TB') : (($sDelta < 0) ? ('Decrease ' . abs($sDelta) . ' TB') : '-');
+                            $storageExemptLabel = '';
+                        }
                         $productId = (int)$r['product_id'];
                         // For products 52 and 57, 0 storage units is correct — do NOT flag
-                        if ($productId === 52 || $productId === 57) {
+                        if (!$storageExempt && ($productId === 52 || $productId === 57)) {
                             if ($storageUnits === 0) {
                                 $sLabelStart = '';
                                 $sLabelEnd   = '';
@@ -5770,35 +5797,51 @@ function eazybackup_output($vars)
                                 $sDeltaText  = '-';
                             }
                         }
+
+                        // Devices
+                        $devices = (int)$r['device_count'];
+                        $deviceUnits = (int)$r['device_units'];
                         
-                        // Special handling for Microsoft 365 products (52, 57)
-                        if ($productId === 52 || $productId === 57) {
-                            // For M365 products, 0 devices is correct, any devices should show warning
-                            if ($devices > 0) {
-                                $dLabelStart = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">';
-                                $dLabelEnd = '</span>';
-                                $dDelta = $devices;
-                                $dDeltaText = 'Decrease ' . $devices;
-                            } else {
-                                // 0 devices is correct for M365 products - no badge needed
-                                $dLabelStart = '';
-                                $dLabelEnd = '';
-                                $dDelta = 0;
-                                $dDeltaText = '-';
-                            }
-                        } else {
-                            // Standard logic for other products
+                        // Per-service device billing exempt
+                        if ($devicesExempt) {
                             $dLabelStart = '';
                             $dLabelEnd = '';
-                            if ($devices > $deviceUnits) { $dLabelStart = '<span class="label label-danger" style="display:inline-block;padding:4px 6px">'; $dLabelEnd = '</span>'; }
-                            else if ($devices < $deviceUnits) { $dLabelStart = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">'; $dLabelEnd = '</span>'; }
-                            $dDelta = $devices - $deviceUnits;
-                            $dDeltaText = ($dDelta > 0) ? ('Increase +' . $dDelta) : (($dDelta < 0) ? ('Decrease ' . abs($dDelta)) : '-');
+                            $dDelta = 0;
+                            $dDeltaText = '-';
+                            $deviceExemptLabel = ' <span class="text-muted">(exempt)</span>';
+                        } else {
+                            $deviceExemptLabel = '';
+                            // Special handling for Microsoft 365 products (52, 57)
+                            if ($productId === 52 || $productId === 57) {
+                                // For M365 products, 0 devices is correct, any devices should show warning
+                                if ($devices > 0) {
+                                    $dLabelStart = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">';
+                                    $dLabelEnd = '</span>';
+                                    $dDelta = $devices;
+                                    $dDeltaText = 'Decrease ' . $devices;
+                                } else {
+                                    // 0 devices is correct for M365 products - no badge needed
+                                    $dLabelStart = '';
+                                    $dLabelEnd = '';
+                                    $dDelta = 0;
+                                    $dDeltaText = '-';
+                                }
+                            } else {
+                                // Standard logic for other products
+                                $dLabelStart = '';
+                                $dLabelEnd = '';
+                                if ($devices > $deviceUnits) { $dLabelStart = '<span class="label label-danger" style="display:inline-block;padding:4px 6px">'; $dLabelEnd = '</span>'; }
+                                else if ($devices < $deviceUnits) { $dLabelStart = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">'; $dLabelEnd = '</span>'; }
+                                $dDelta = $devices - $deviceUnits;
+                                $dDeltaText = ($dDelta > 0) ? ('Increase +' . $dDelta) : (($dDelta < 0) ? ('Decrease ' . abs($dDelta)) : '-');
+                            }
                         }
 
                         // Compute Device Billing cell display once to avoid conflicting logic
                         $deviceBillingDisplay = (int)$deviceUnits;
-                        if ($productId === 52 || $productId === 57) {
+                        if ($devicesExempt) {
+                            $deviceBillingDisplay = (int)$deviceUnits . $deviceExemptLabel;
+                        } else if ($productId === 52 || $productId === 57) {
                             if ($deviceUnits > 0) {
                                 // >0 still flagged
                                 $deviceBillingDisplay = '<span class="label label-warning" style="display:inline-block;padding:4px 6px">' . (int)$deviceUnits . '</span>';
@@ -5808,10 +5851,10 @@ function eazybackup_output($vars)
                             }                        
                         } else if ($productId === 53 || $productId === 54) {
                             // 53/54: do not charge devices; render plain 0 with no badge when billed is 0
-                            if ($billed === 0) {
+                            if ($deviceUnits === 0) {
                                 $deviceBillingDisplay = 0; // <-- plain zero, no label
                             } else {
-                                $deviceBillingDisplay = ($labelStart ?: '') . (int)$billed . ($labelEnd ?: '');
+                                $deviceBillingDisplay = ($dLabelStart ?: '') . (int)$deviceUnits . ($dLabelEnd ?: '');
                             }
                         } else {
                             // Standard products → apply label wrappers from the comparison above
@@ -5861,13 +5904,14 @@ function eazybackup_output($vars)
                             return '';
                         };
 
+                        $devBadge = $devicesExempt ? '' : $badge(($r['devices_due_now'] ?? 0), ($r['devices_grace'] ?? 0), ($r['devices_grace_days'] ?? 0));
                         $html .= '<tr>'
                               . '<td>' . $e($r['product_name']) . '</td>'
                               . '<td><a href="' . $e($serviceLink) . '">' . $e($r['username']) . '</a></td>'
                               . '<td class="text-right">' . $e($r['total_bytes_hr'] ?? '') . '<div class="text-muted small">' . (int)$r['total_bytes'] . ' bytes</div></td>'
-                              . '<td class="text-right">' . ($sLabelStart ?: '') . $storageUnits . ($sLabelEnd ?: '') . '</td>'
+                              . '<td class="text-right">' . ($sLabelStart ?: '') . $storageUnits . ($sLabelEnd ?: '') . $storageExemptLabel . '</td>'
                               . '<td class="text-right">' . $devices . '</td>'
-                              . '<td class="text-right">' . $deviceBillingDisplay . $badge(($r['devices_due_now'] ?? 0), ($r['devices_grace'] ?? 0), ($r['devices_grace_days'] ?? 0)) . '</td>'
+                              . '<td class="text-right">' . $deviceBillingDisplay . $devBadge . '</td>'
                               . '<td class="text-right">' . (int)$r['hv_count'] . '</td>'
                               . '<td class="text-right">' . ($hvLabelStart ?: '') . (int)$r['hv_units'] . ($hvLabelEnd ?: '') . $badge(($r['hv_due_now'] ?? 0), ($r['hv_grace'] ?? 0), ($r['hv_grace_days'] ?? 0)) . '</td>'
                               . '<td class="text-right">' . (int)$r['di_count'] . '</td>'
@@ -5884,128 +5928,6 @@ function eazybackup_output($vars)
                 } else {
                     $html .= '<tr><td colspan="17" class="text-center text-muted">No results</td></tr>';
                 }
-                $html .= '</tbody></table></div>';
-                $html .= '<div class="mt-2">' . $pagination . '</div>';
-                $html .= '</div>';
-                echo $html;
-                return;
-            }
-            case 'income-forecast': {
-                $controller = __DIR__ . '/pages/admin/powerpanel/income_forecast.php';
-                if (!is_file($controller)) {
-                    echo '<div class="alert alert-danger">Controller not found.</div>';
-                    return;
-                }
-
-                $data = require $controller;
-                $e = function ($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); };
-                $year = (int)($data['year'] ?? (int)date('Y'));
-                $month = (int)($data['month'] ?? (int)date('n'));
-                $page = (int)($data['page'] ?? 1);
-                $perPage = (int)($data['perPage'] ?? 50);
-                $rows = $data['rows'] ?? [];
-                $totalRows = (int)($data['totalRows'] ?? count($rows));
-                $pagination = (string)($data['pagination'] ?? '');
-                $sort = (string)($data['sort'] ?? 'renewal_date');
-                $dir = (string)($data['dir'] ?? 'asc');
-                $sortLinks = $data['sortLinks'] ?? [];
-                $totals = $data['totals'] ?? [
-                    'renewal_amount' => 0.0,
-                    'tax_amount' => 0.0,
-                    'grand_total' => 0.0,
-                ];
-
-                $monthName = date('F', strtotime(sprintf('%04d-%02d-01', $year, $month)));
-                $html = '';
-                $html .= '<div class="container-fluid">';
-                $html .= '<ul class="nav nav-tabs mb-3">'
-                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=storage">Storage</a></li>'
-                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=devices">Devices</a></li>'
-                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=items">Protected Items</a></li>'
-                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=billing">Billing</a></li>'
-                      . '<li class="nav-item"><a class="nav-link active" href="#">Income Forecast</a></li>'
-                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=nfr">NFR</a></li>'
-                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=terms">Terms</a></li>'
-                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=privacy">Privacy</a></li>'
-                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=whitelabel">White-Label</a></li>'
-                      . '</ul>';
-
-                $html .= '<form method="get" class="mb-3 form-inline" style="margin-bottom:15px">'
-                      . '<input type="hidden" name="module" value="eazybackup"/>'
-                      . '<input type="hidden" name="action" value="powerpanel"/>'
-                      . '<input type="hidden" name="view" value="income-forecast"/>'
-                      . '<input type="hidden" name="sort" value="' . $e($sort) . '"/>'
-                      . '<input type="hidden" name="dir" value="' . $e($dir) . '"/>'
-                      . '<div class="form-group" style="margin-right:15px;margin-bottom:10px">'
-                      . '<label for="forecast-year" class="mr-2">Year</label>'
-                      . '<select id="forecast-year" class="form-control" name="year">';
-                for ($y = ((int)date('Y') - 3); $y <= ((int)date('Y') + 5); $y++) {
-                    $sel = ($year === $y) ? ' selected' : '';
-                    $html .= '<option value="' . (int)$y . '"' . $sel . '>' . (int)$y . '</option>';
-                }
-                $html .= '</select>'
-                      . '</div>'
-                      . '<div class="form-group" style="margin-right:15px;margin-bottom:10px">'
-                      . '<label for="forecast-month" class="mr-2">Month</label>'
-                      . '<select id="forecast-month" class="form-control" name="month">';
-                for ($m = 1; $m <= 12; $m++) {
-                    $sel = ($month === $m) ? ' selected' : '';
-                    $html .= '<option value="' . $m . '"' . $sel . '>' . $e(date('F', strtotime('2000-' . str_pad((string)$m, 2, '0', STR_PAD_LEFT) . '-01'))) . '</option>';
-                }
-                $html .= '</select>'
-                      . '</div>'
-                      . '<div class="form-group" style="margin-right:15px;margin-bottom:10px">'
-                      . '<label for="forecast-per-page" class="mr-2">Per Page</label>'
-                      . '<select id="forecast-per-page" class="form-control" name="perPage">';
-                foreach ([25, 50, 100, 250, 500, 2000] as $pp) {
-                    $sel = ($perPage === $pp) ? ' selected' : '';
-                    $html .= '<option value="' . $pp . '"' . $sel . '>' . $pp . '</option>';
-                }
-                $html .= '</select>'
-                      . '</div>'
-                      . '<button type="submit" class="btn btn-primary mb-2 mr-2">Filter</button>'
-                      . '<a href="addonmodules.php?module=eazybackup&action=powerpanel&view=income-forecast" class="btn btn-default mb-2">Reset</a>'
-                      . '</form>';
-
-                $html .= '<div class="clearfix" style="margin:10px 0 15px 0">'
-                      .   '<div class="pull-left" style="padding-top:7px; font-weight:600;">Total Services: ' . (int)$totalRows . '</div>'
-                      .   '<div class="pull-right">' . $pagination . '</div>'
-                      . '</div>';
-
-                $html .= '<div class="panel panel-default" style="margin-bottom:15px">'
-                      . '<div class="panel-heading"><strong>Renewal Totals for ' . $e($monthName . ' ' . $year) . '</strong></div>'
-                      . '<div class="panel-body">'
-                      . '<div><strong>Total Renewal Amount:</strong> $' . number_format((float)($totals['renewal_amount'] ?? 0), 2) . '</div>'
-                      . '<div><strong>Total Tax Amount:</strong> $' . number_format((float)($totals['tax_amount'] ?? 0), 2) . '</div>'
-                      . '<div><strong>Total Including Tax:</strong> $' . number_format((float)($totals['grand_total'] ?? 0), 2) . '</div>'
-                      . '</div>'
-                      . '</div>';
-
-                $html .= '<div class="table-responsive">'
-                      . '<table class="table table-striped table-condensed">'
-                      . '<thead><tr>'
-                      . '<th><a href="' . $e($sortLinks['username'] ?? '#') . '">Service Username' . ($sort === 'username' ? ' <span class="text-muted">(' . strtoupper($e($dir)) . ')</span>' : '') . '</a></th>'
-                      . '<th><a href="' . $e($sortLinks['billingcycle'] ?? '#') . '">Billing Cycle' . ($sort === 'billingcycle' ? ' <span class="text-muted">(' . strtoupper($e($dir)) . ')</span>' : '') . '</a></th>'
-                      . '<th class="text-right"><a href="' . $e($sortLinks['amount'] ?? '#') . '">Amount' . ($sort === 'amount' ? ' <span class="text-muted">(' . strtoupper($e($dir)) . ')</span>' : '') . '</a></th>'
-                      . '<th class="text-right">Tax</th>'
-                      . '<th>Renewal Date</th>'
-                      . '</tr></thead><tbody>';
-
-                if (!empty($rows)) {
-                    foreach ($rows as $r) {
-                        $serviceLink = 'clientsservices.php?userid=' . (int)$r['user_id'] . '&id=' . (int)$r['service_id'];
-                        $html .= '<tr>'
-                              . '<td><a href="' . $e($serviceLink) . '">' . $e((string)($r['username'] ?? '')) . '</a></td>'
-                              . '<td>' . $e((string)($r['billingcycle'] ?? '')) . '</td>'
-                              . '<td class="text-right">$' . number_format((float)($r['amount'] ?? 0), 2) . '</td>'
-                              . '<td class="text-right">$' . number_format((float)($r['tax_amount'] ?? 0), 2) . '</td>'
-                              . '<td>' . $e((string)($r['renewal_date'] ?? $r['nextduedate'] ?? '')) . '</td>'
-                              . '</tr>';
-                    }
-                } else {
-                    $html .= '<tr><td colspan="5" class="text-center text-muted">No active service renewals found for the selected month.</td></tr>';
-                }
-
                 $html .= '</tbody></table></div>';
                 $html .= '<div class="mt-2">' . $pagination . '</div>';
                 $html .= '</div>';
@@ -6043,13 +5965,11 @@ function eazybackup_output($vars)
     $linkDevices = 'addonmodules.php?module=eazybackup&action=powerpanel&view=devices';
     $linkItems   = 'addonmodules.php?module=eazybackup&action=powerpanel&view=items';
     $linkBilling = 'addonmodules.php?module=eazybackup&action=powerpanel&view=billing';
-    $linkIncomeForecast = 'addonmodules.php?module=eazybackup&action=powerpanel&view=income-forecast';
     echo '<div class="alert alert-info">eazyBackup Power Panel: '
         . '<a class="btn btn-primary" href="' . $linkStorage . '">Open Storage</a> '
         . '<a class="btn btn-default" href="' . $linkDevices . '">Open Devices</a> '
         . '<a class="btn btn-default" href="' . $linkItems   . '">Open Protected Items</a> '
-        . '<a class="btn btn-default" href="' . $linkBilling . '">Open Billing</a> '
-        . '<a class="btn btn-default" href="' . $linkIncomeForecast . '">Open Income Forecast</a>'
+        . '<a class="btn btn-default" href="' . $linkBilling . '">Open Billing</a>'
         . '</div>';
 }
 
@@ -6063,7 +5983,6 @@ function eazybackup_sidebar($vars)
         . '<a href="' . $base . '&action=powerpanel&view=devices" class="list-group-item"><i class="fa fa-hdd"></i> Power Panel: Devices</a>'
         . '<a href="' . $base . '&action=powerpanel&view=items" class="list-group-item"><i class="fa fa-shield-alt"></i> Power Panel: Protected Items</a>'
         . '<a href="' . $base . '&action=powerpanel&view=billing" class="list-group-item"><i class="fa fa-balance-scale"></i> Power Panel: Billing</a>'
-        . '<a href="' . $base . '&action=powerpanel&view=income-forecast" class="list-group-item"><i class="fa fa-line-chart"></i> Power Panel: Income Forecast</a>'
         . '<a href="' . $base . '&action=powerpanel&view=terms" class="list-group-item"><i class="fa fa-file-text-o"></i> Power Panel: Terms</a>'
         . '<a href="' . $base . '&action=powerpanel&view=privacy" class="list-group-item"><i class="fa fa-user-secret"></i> Power Panel: Privacy</a>'
         . '</div>';
