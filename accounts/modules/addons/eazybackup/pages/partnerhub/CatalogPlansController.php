@@ -228,7 +228,7 @@ function eb_ph_plan_assign(array $vars): void
             $match = null;
             foreach ($itemsData as $sid) { if ((string)($sid['price']['id'] ?? '') === (string)$pr->stripe_price_id) { $match = $sid; break; } }
             if ($match) {
-                Capsule::table('eb_plan_instance_items')->insert([
+                $instanceItemId = Capsule::table('eb_plan_instance_items')->insertGetId([
                     'plan_instance_id' => $instanceId,
                     'plan_component_id' => (int)$c->id,
                     'stripe_subscription_item_id' => (string)($match['id'] ?? ''),
@@ -237,6 +237,17 @@ function eb_ph_plan_assign(array $vars): void
                     'created_at' => date('Y-m-d H:i:s'),
                     'updated_at' => date('Y-m-d H:i:s'),
                 ]);
+                if ((string)$pr->kind === 'metered' && $instanceItemId) {
+                    try {
+                        Capsule::table('eb_plan_instance_usage_map')->insert([
+                            'plan_instance_item_id' => $instanceItemId,
+                            'metric_code' => (string)$pr->metric_code,
+                            'stripe_subscription_item_id' => (string)($match['id'] ?? ''),
+                            'created_at' => date('Y-m-d H:i:s'),
+                            'updated_at' => date('Y-m-d H:i:s'),
+                        ]);
+                    } catch (\Throwable $__) {}
+                }
             }
         }
         try { if (function_exists('logModuleCall')) { @logModuleCall('eazybackup','ph-plan-assign',[ 'tenant_id'=>$tenantId,'plan_id'=>$planId,'items'=>count($items) ],[ 'subscription_id'=>$subId,'plan_instance_id'=>$instanceId ]); } } catch (\Throwable $__) {}
@@ -455,4 +466,49 @@ function eb_ph_plan_subscription_cancel(array $vars): void
         'status' => 'canceled', 'cancelled_at' => date('Y-m-d H:i:s'), 'cancel_reason' => $reason !== '' ? $reason : null, 'updated_at' => date('Y-m-d H:i:s'),
     ]);
     echo json_encode(['status'=>'success']);
+}
+
+function eb_ph_plan_export(array $vars): void
+{
+    if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { header('HTTP/1.1 401 Unauthorized'); exit; }
+    $clientId = (int)$_SESSION['uid'];
+    $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
+    if (!$msp) { header('HTTP/1.1 403 Forbidden'); exit; }
+    $format = (string)($_GET['format'] ?? 'json');
+    $plans = Capsule::table('eb_plan_templates')->where('msp_id',(int)$msp->id)->orderBy('id','asc')->get();
+    $allComponents = Capsule::table('eb_plan_components as pc')
+        ->join('eb_catalog_prices as pr','pr.id','=','pc.price_id')
+        ->join('eb_plan_templates as pt','pt.id','=','pc.plan_id')
+        ->where('pt.msp_id',(int)$msp->id)
+        ->get(['pc.*','pr.name as price_name','pr.metric_code as price_metric','pr.unit_amount as price_amount','pr.currency as price_currency']);
+
+    if ($format === 'csv') {
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="plans-export.csv"');
+        $out = fopen('php://output','w');
+        fprintf($out, "\xEF\xBB\xBF");
+        fputcsv($out, ['plan_id','plan_name','description','trial_days','billing_interval','currency','status','component_price','component_metric','component_qty','component_overage']);
+        foreach ($plans as $p) {
+            $hasComps = false;
+            foreach ($allComponents as $c) {
+                if ((int)$c->plan_id === (int)$p->id) {
+                    fputcsv($out, [$p->id, $p->name, $p->description, $p->trial_days, $p->billing_interval ?? 'month', $p->currency ?? 'CAD', $p->status ?? 'active', $c->price_name, $c->price_metric, $c->default_qty, $c->overage_mode]);
+                    $hasComps = true;
+                }
+            }
+            if (!$hasComps) { fputcsv($out, [$p->id, $p->name, $p->description, $p->trial_days, $p->billing_interval ?? 'month', $p->currency ?? 'CAD', $p->status ?? 'active', '', '', '', '']); }
+        }
+        fclose($out); exit;
+    }
+
+    header('Content-Type: application/json');
+    header('Content-Disposition: attachment; filename="plans-export.json"');
+    $result = [];
+    foreach ($plans as $p) {
+        $comps = [];
+        foreach ($allComponents as $c) { if ((int)$c->plan_id === (int)$p->id) { $comps[] = (array)$c; } }
+        $result[] = ['plan' => (array)$p, 'components' => $comps];
+    }
+    echo json_encode($result, JSON_PRETTY_PRINT);
+    exit;
 }

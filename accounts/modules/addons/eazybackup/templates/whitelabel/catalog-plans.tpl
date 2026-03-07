@@ -17,6 +17,8 @@
         <p class="text-xs text-slate-400 mt-1">Manage plan templates and assign them to customers.</p>
       </div>
       <div class="shrink-0 flex items-center gap-3">
+        <a href="{$modulelink}&a=ph-plan-export&format=csv" class="inline-flex items-center px-3 py-2 rounded-lg text-xs border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700">Export CSV</a>
+        <a href="{$modulelink}&a=ph-plan-export&format=json" class="inline-flex items-center px-3 py-2 rounded-lg text-xs border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700">Export JSON</a>
         <button type="button" class="inline-flex items-center px-4 py-2 rounded-lg text-sm border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20" onclick="window.ebWizard && window.ebWizard.open()">Quick Plan</button>
         <button type="button" class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-semibold text-white bg-sky-600 hover:bg-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 focus:ring-offset-slate-900" @click="openCreate()">New Plan</button>
       </div>
@@ -109,6 +111,7 @@
                     <button type="button" class="w-full text-left px-4 py-2 text-sm text-slate-200 hover:bg-slate-800/60 rounded-lg" @click="o=false; openEdit({$pl.id})">Edit</button>
                     <button type="button" class="w-full text-left px-4 py-2 text-sm text-slate-200 hover:bg-slate-800/60 rounded-lg" @click="o=false; duplicatePlan({$pl.id})">Duplicate</button>
                     <button type="button" class="w-full text-left px-4 py-2 text-sm text-slate-200 hover:bg-slate-800/60 rounded-lg" @click="o=false; openAssign({$pl.id}, '{$pl.name|escape:'javascript'}')">Assign to Customer</button>
+                    <button type="button" class="w-full text-left px-4 py-2 text-sm text-slate-200 hover:bg-slate-800/60 rounded-lg" @click="o=false; openSubs({$pl.id})">View Subscriptions</button>
                     {if $pl.status == 'active' || (!$pl.status && $pl.active)}
                     <button type="button" class="w-full text-left px-4 py-2 text-sm text-amber-300 hover:bg-slate-800/60 rounded-lg" @click="o=false; toggleStatus({$pl.id}, 'archived')">Archive</button>
                     {else}

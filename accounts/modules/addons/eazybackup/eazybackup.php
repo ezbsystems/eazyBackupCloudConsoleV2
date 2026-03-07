@@ -4303,6 +4303,9 @@ function eazybackup_clientarea(array $vars)
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-plan-subscription-cancel') {
         require_once __DIR__ . '/pages/partnerhub/CatalogPlansController.php';
         eb_ph_plan_subscription_cancel($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-plan-export') {
+        require_once __DIR__ . '/pages/partnerhub/CatalogPlansController.php';
+        eb_ph_plan_export($vars); exit;
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-stripe-subscribe') {
         require_once __DIR__ . '/pages/partnerhub/SubscriptionsController.php';
         return eb_ph_stripe_subscribe($vars);
