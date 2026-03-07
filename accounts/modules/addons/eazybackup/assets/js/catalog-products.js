@@ -575,7 +575,32 @@ if (!window.catalogToastManager) {
         }
         it.active = !it.active;
       },
-      validateBeforeSave(){ if (!this.product || !String(this.product.name||'').trim()) return 'Enter a product name'; if (!this.baseMetric) return 'Select a product type'; if (!Array.isArray(this.items) || this.items.length===0) return 'Add at least one price'; for (var i=0;i<this.items.length;i++){ this.normalizePriceRow(i); var it=this.items[i]||{}; if (!String(it.label||'').trim()) return 'Each price needs a label'; if (!(Number(it.amount||0) > 0)) return 'Each price needs an amount greater than 0'; if (String(it.metric||'') !== String(this.baseMetric||'')) return 'Each price must match the selected product type'; if (it.metric === 'STORAGE_TB' && it.unitLabel !== 'GiB' && it.unitLabel !== 'TiB') return 'Storage prices must use GiB or TiB'; } return ''; },
+      validateBeforeSave(){
+        if (!this.product || !String(this.product.name||'').trim()) return 'Enter a product name';
+        if (!this.baseMetric) return 'Select a product type';
+        if (!Array.isArray(this.items) || this.items.length===0) return 'Add at least one price';
+        for (var i=0;i<this.items.length;i++){
+          this.normalizePriceRow(i);
+          var it=this.items[i]||{};
+          if (!String(it.label||'').trim()) return 'Each price needs a label';
+          var scheme = it.pricingScheme || 'per_unit';
+          if (!scheme.startsWith('tiered')) {
+            if (!(Number(it.amount||0) > 0)) return 'Each price needs an amount greater than 0';
+            var cents = Math.round(Number(it.amount||0) * 100);
+            if (cents < 50) return 'Stripe requires a minimum amount of $0.50 for price "' + (it.label||'') + '"';
+          } else {
+            if (!it.tiers || it.tiers.length < 2) return 'Tiered pricing requires at least 2 tiers';
+            for (var ti=0; ti<it.tiers.length; ti++){
+              var tier = it.tiers[ti];
+              if (ti < it.tiers.length - 1 && (!tier.up_to || tier.up_to <= 0)) return 'Each tier except the last needs an upper bound';
+              if (Number(tier.unit_amount_display||0) < 0) return 'Tier per-unit amount cannot be negative';
+            }
+          }
+          if (String(it.metric||'') !== String(this.baseMetric||'')) return 'Each price must match the selected product type';
+          if (it.metric === 'STORAGE_TB' && it.unitLabel !== 'GiB' && it.unitLabel !== 'TiB') return 'Storage prices must use GiB or TiB';
+        }
+        return '';
+      },
       async save(mode){ try{
         var validationError = this.validateBeforeSave();
         if (validationError) { safeToast(validationError,'warning'); return; }
