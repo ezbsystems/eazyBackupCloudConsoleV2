@@ -644,8 +644,13 @@ Router (`eazybackup.php`) maps all routes above, plus the CSV exports.
 
 ### Data Model
 
-- `eb_catalog_products`: `id,msp_id,name,description,category,stripe_product_id,active,is_published,published_at,default_currency,created_by,updated_by,base_metric_code,features_json,created_at,updated_at`
-- `eb_catalog_prices`: `id,product_id,name,kind,currency,unit_label,unit_amount,interval,aggregate_usage,metric_code,stripe_price_id,active,billing_type,version,supersedes_price_id,is_published,published_at,last_publish_request_id,amount_per_gb_cents,display_per_tb_money,created_at,updated_at`
+- `eb_catalog_products`: `id,msp_id,name,description,category,stripe_product_id,active,is_published,published_at,default_currency,created_by,updated_by,base_metric_code,features_json,product_template,attributes_json,created_at,updated_at`
+  - `product_template` VARCHAR(50) nullable — template identifier for pre-defined product archetypes (e.g., `storage`, `device`, `m365`)
+  - `attributes_json` TEXT nullable — arbitrary product attributes stored as JSON (feature flags, UI hints, limits)
+- `eb_catalog_prices`: `id,product_id,name,kind,currency,unit_label,unit_amount,interval,aggregate_usage,metric_code,stripe_price_id,active,billing_type,version,supersedes_price_id,is_published,published_at,last_publish_request_id,amount_per_gb_cents,display_per_tb_money,pricing_scheme,tiers_mode,tiers_json,created_at,updated_at`
+  - `pricing_scheme` VARCHAR(20) nullable — `per_unit` (default) or `tiered`
+  - `tiers_mode` VARCHAR(20) nullable — `graduated` or `volume` (only when `pricing_scheme=tiered`)
+  - `tiers_json` TEXT nullable — JSON array of tier definitions `[{up_to, unit_amount, flat_amount}, ...]`; `up_to=null` for the final open-ended tier
 
 Storage units:
 
@@ -664,6 +669,112 @@ Storage units:
 - Click a product name to open the detail editor
 - 302/redirects: ensure token + cookies; JS falls back to full‑page redirect when non‑JSON is detected
 - Default Stripe list limit is 100; add pagination if needed later
+
+## Database Schema — Plan Templates, Components, Instances & Usage
+
+All tables InnoDB + utf8mb4. Created/extended by `eazybackup_migrate_schema()`.
+
+These tables replace the earlier `eb_plans` / `eb_plan_prices` model with a component-based plan system that supports multi-resource subscriptions (e.g., Storage + Devices + VMs in a single plan). Each plan template is composed of components that reference catalog prices; plan instances tie a tenant to a Stripe subscription with per-item tracking and metered usage push.
+
+### `eb_plan_templates`
+
+Defines reusable plan blueprints owned by an MSP.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | bigint (PK, auto) | |
+| msp_id | bigint (indexed) | FK to `eb_msp_accounts` |
+| name | varchar(160) | Display name |
+| description | text, nullable | Optional plan description |
+| trial_days | int, default 0 | Free trial period in days |
+| billing_interval | varchar(10), default `'month'` | `'month'` or `'year'` |
+| currency | varchar(3), default `'CAD'` | ISO 4217 currency code |
+| version | int, default 1 | Increments on each edit |
+| active | tinyint, default 1 | Soft-active flag |
+| status | varchar(20), default `'active'` | `'active'`, `'archived'`, `'draft'` |
+| metadata_json | text, nullable | Arbitrary JSON metadata |
+| created_at | timestamp | |
+| updated_at | timestamp | |
+
+### `eb_plan_components`
+
+Line items within a plan template; each references a catalog price.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | bigint (PK, auto) | |
+| plan_id | bigint (indexed) | FK to `eb_plan_templates` |
+| price_id | bigint (indexed) | FK to `eb_catalog_prices` |
+| metric_code | enum | `STORAGE_TB`, `DEVICE_COUNT`, `DISK_IMAGE`, `HYPERV_VM`, `PROXMOX_VM`, `VMWARE_VM`, `M365_USER`, `GENERIC` |
+| default_qty | int, default 0 | Included/base quantity |
+| overage_mode | enum, default `'bill_all'` | `'bill_all'` (charge from zero) or `'cap_at_default'` (no overage) |
+| created_at | timestamp | |
+| updated_at | timestamp | |
+
+### `eb_plan_instances`
+
+A tenant's active subscription to a plan template — the runtime record tying a tenant to Stripe.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | bigint (PK, auto) | |
+| msp_id | bigint (indexed) | FK to `eb_msp_accounts` |
+| customer_id | bigint (indexed) | Legacy tenant reference |
+| tenant_id | bigint, nullable (indexed) | FK to `eb_tenants` |
+| comet_user_id | varchar(128) (indexed) | eazyBackup username |
+| plan_id | bigint (indexed) | FK to `eb_plan_templates` |
+| plan_version | int | Template version at time of assignment |
+| stripe_account_id | varchar(64) | Connected Stripe account |
+| stripe_customer_id | varchar(64) | Stripe customer on connected account |
+| stripe_subscription_id | varchar(64) (indexed) | Stripe subscription ID |
+| anchor_date | date | Billing cycle anchor |
+| status | enum | `active`, `trialing`, `past_due`, `canceled`, `paused` |
+| cancelled_at | datetime, nullable | When subscription was cancelled |
+| cancel_reason | varchar(255), nullable | Cancellation reason |
+| created_at | timestamp | |
+| updated_at | timestamp | |
+
+### `eb_plan_instance_items`
+
+Per-component line items within a plan instance; maps to Stripe subscription items.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | bigint (PK, auto) | |
+| plan_instance_id | bigint (indexed) | FK to `eb_plan_instances` |
+| plan_component_id | bigint (indexed) | FK to `eb_plan_components` |
+| stripe_subscription_item_id | varchar(64) | Stripe subscription item ID |
+| metric_code | enum | Same values as `eb_plan_components` |
+| last_qty | int, nullable | Last known reported quantity |
+| created_at | timestamp | |
+| updated_at | timestamp | |
+
+### `eb_plan_instance_usage_map`
+
+Tracks metered usage push state per subscription item; drives the cron-based usage reporter.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | bigint (PK, auto) | |
+| plan_instance_item_id | bigint (indexed) | FK to `eb_plan_instance_items` |
+| metric_code | varchar(50) (indexed) | Resource metric code |
+| stripe_subscription_item_id | varchar(255) | Stripe subscription item for usage push |
+| last_pushed_at | datetime, nullable | Last usage push timestamp |
+| created_at | timestamp | |
+| updated_at | timestamp | |
+
+### Relationships
+
+```
+eb_plan_templates
+  └─ eb_plan_components (plan_id → eb_plan_templates.id)
+       └─ links to eb_catalog_prices (price_id)
+       └─ eb_plan_instance_items (plan_component_id → eb_plan_components.id)
+            └─ eb_plan_instance_usage_map (plan_instance_item_id → eb_plan_instance_items.id)
+
+eb_plan_instances (plan_id → eb_plan_templates.id, tenant_id → eb_tenants.id)
+  └─ eb_plan_instance_items (plan_instance_id → eb_plan_instances.id)
+```
 
 ## Settings — Tax & Invoicing (Nov 2025)
 
