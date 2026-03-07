@@ -99,6 +99,9 @@
                 <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-amber-500/15 text-amber-200">Draft</span>
               {/if}
               <button type="button" class="text-xs px-3 py-1.5 rounded-lg border border-slate-600 bg-slate-800/80 text-slate-200 hover:bg-slate-700" data-eb-edit-product="{$p.id|escape}">Edit</button>
+              {if !$p.stripe_product_id}
+              <button type="button" class="text-xs px-3 py-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-300 hover:bg-rose-500/20" onclick="window.ebStripeActions && window.ebStripeActions.deleteDraft && window.ebStripeActions.deleteDraft({$p.id})">Delete</button>
+              {/if}
             </div>
           </div>
           {if $list|@count > 0}
@@ -208,6 +211,9 @@
                 <button type="button" @click="selectProductType(opt)" :class="baseMetric===opt ? 'bg-sky-600 text-white ring-1 ring-sky-400/50' : 'bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700'" class="px-4 py-2 text-xs font-medium rounded-lg transition" x-text="metricLabel(opt)"></button>
               </template>
             </div>
+            <template x-if="baseMetric">
+              <p class="mt-3 text-xs text-slate-400 bg-slate-900/50 rounded-lg px-3 py-2" x-text="metricDescription(baseMetric)"></p>
+            </template>
           </div>
           <div class="rounded-xl border border-slate-700 bg-slate-800/50 p-4">
             <div class="mb-2 flex items-center justify-between">
@@ -305,7 +311,15 @@
         </div>
         <div class="border-t border-slate-800 px-6 py-5 flex items-center justify-end gap-3">
           <button type="button" class="px-4 py-2.5 rounded-lg border border-slate-700 bg-transparent hover:bg-slate-800 text-slate-200 text-sm" @click="close()">Cancel</button>
-          <button type="button" class="px-5 py-2.5 rounded-lg text-sm font-semibold text-white bg-sky-600 hover:bg-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 focus:ring-offset-slate-900" @click="save()">Save</button>
+          <template x-if="mode==='create' || mode==='edit'">
+            <div class="flex items-center gap-3">
+              <button type="button" class="px-4 py-2.5 rounded-lg border border-slate-600 bg-slate-800/80 text-slate-200 text-sm hover:bg-slate-700" @click="save('draft')" :disabled="isSaving">Save Draft</button>
+              <button type="button" class="px-5 py-2.5 rounded-lg text-sm font-semibold text-white bg-sky-600 hover:bg-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 focus:ring-offset-slate-900" @click="save('publish')" :disabled="isSaving">Publish to Stripe</button>
+            </div>
+          </template>
+          <template x-if="mode==='editStripe'">
+            <button type="button" class="px-5 py-2.5 rounded-lg text-sm font-semibold text-white bg-sky-600 hover:bg-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 focus:ring-offset-slate-900" @click="save()" :disabled="isSaving">Save</button>
+          </template>
         </div>
       </div>
     </div>

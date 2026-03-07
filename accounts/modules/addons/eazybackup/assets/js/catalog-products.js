@@ -1,179 +1,198 @@
 (function(){
-  const $ = (s,ctx)=> (ctx||document).querySelector(s);
-  const $$ = (s,ctx)=> Array.from((ctx||document).querySelectorAll(s));
-  const open = el => el.classList.remove('hidden');
-  const close = el => el.classList.add('hidden');
+  function initCatalogProductsPage(){
+    const $ = (s,ctx)=> (ctx||document).querySelector(s);
+    const $$ = (s,ctx)=> Array.from((ctx||document).querySelectorAll(s));
+    const open = el => el && el.classList.remove('hidden');
+    const close = el => el && el.classList.add('hidden');
 
-  const createModal = $('#eb-create-product-modal');
-  const addPriceModal = $('#eb-add-price-modal');
-  let currentProductId = null;
+    const createModal = $('#eb-create-product-modal');
+    const addPriceModal = $('#eb-add-price-modal');
+    let currentProductId = null;
 
-  const openCreate = $('#eb-open-create-product');
-  if (openCreate) openCreate.addEventListener('click', ()=> {
-    if (window.ebProductPanel && typeof window.ebProductPanel.openCreate === 'function') {
-      window.ebProductPanel.openCreate();
-      return;
-    }
-    if (window.ebProductWizard && typeof window.ebProductWizard.openCreate === 'function') {
-      window.ebProductWizard.openCreate();
-    } else {
-      open(createModal);
-    }
-  });
-  $$('#eb-create-product-modal [data-eb-close]').forEach(b=>b.addEventListener('click', ()=> close(createModal)));
-
-  $$('#eb-add-price-modal [data-eb-close]').forEach(b=>b.addEventListener('click', ()=> close(addPriceModal)));
-  $$('[data-eb-open-add-price]').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      const id = btn.getAttribute('data-eb-open-add-price');
-      if (window.ebProductWizard && typeof window.ebProductWizard.openAddPrice === 'function') {
-        window.ebProductWizard.openAddPrice(id);
+    const openCreate = $('#eb-open-create-product');
+    if (openCreate) openCreate.addEventListener('click', ()=> {
+      if (window.ebProductPanel && typeof window.ebProductPanel.openCreate === 'function') {
+        window.ebProductPanel.openCreate();
         return;
       }
-      // Fallback to legacy modal
-      currentProductId = id || null;
-      const hidden = $('#eb-price-product-id');
-      if (hidden) hidden.value = id || '';
-      open(addPriceModal);
-    });
-  });
-
-  $$('[data-eb-edit-product]').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      const id = btn.getAttribute('data-eb-edit-product');
-      if (window.ebProductPanel && typeof window.ebProductPanel.openEdit === 'function') {
-        window.ebProductPanel.openEdit(id);
-      } else if (window.ebProductWizard && typeof window.ebProductWizard.openEdit === 'function') {
-        window.ebProductWizard.openEdit(id);
+      if (window.ebProductWizard && typeof window.ebProductWizard.openCreate === 'function') {
+        window.ebProductWizard.openCreate();
       } else {
         open(createModal);
       }
     });
-  });
+    $$('#eb-create-product-modal [data-eb-close]').forEach(b=>b.addEventListener('click', ()=> close(createModal)));
 
-  // Open Stripe-connected product editor from table row
-  $$('[data-eb-open-edit-stripe]').forEach(row=>{
-    row.addEventListener('click', ()=>{
-      const spid = row.getAttribute('data-eb-open-edit-stripe');
-      if (window.ebProductPanel && typeof window.ebProductPanel.openEditStripe === 'function') {
-        window.ebProductPanel.openEditStripe(spid);
-      } else if (window.ebProductWizard && typeof window.ebProductWizard.openEditStripe === 'function') {
-        window.ebProductWizard.openEditStripe(spid);
-      }
+    $$('#eb-add-price-modal [data-eb-close]').forEach(b=>b.addEventListener('click', ()=> close(addPriceModal)));
+    $$('[data-eb-open-add-price]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const id = btn.getAttribute('data-eb-open-add-price');
+        if (window.ebProductWizard && typeof window.ebProductWizard.openAddPrice === 'function') {
+          window.ebProductWizard.openAddPrice(id);
+          return;
+        }
+        // Fallback to legacy modal
+        currentProductId = id || null;
+        const hidden = $('#eb-price-product-id');
+        if (hidden) hidden.value = id || '';
+        open(addPriceModal);
+      });
     });
-  });
 
-  const modulelink = (function(){
-    const a = document.querySelector('a[href*="index.php?m=eazybackup"]');
-    // fallback to current
-    return a ? a.href.split('&a=')[0] : 'index.php?m=eazybackup';
-  })();
+    $$('[data-eb-edit-product]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const id = btn.getAttribute('data-eb-edit-product');
+        if (window.ebProductPanel && typeof window.ebProductPanel.openEdit === 'function') {
+          window.ebProductPanel.openEdit(id);
+        } else if (window.ebProductWizard && typeof window.ebProductWizard.openEdit === 'function') {
+          window.ebProductWizard.openEdit(id);
+        } else {
+          open(createModal);
+        }
+      });
+    });
 
-  // Stripe product actions (archive/delete)
-  if (!window.ebStripeActions) {
-    window.ebStripeActions = {
-      async archiveProduct(id){
-        try{
-          const token = (document.getElementById('eb-token')||{}).value || '';
-          const body = new URLSearchParams({ token, id });
-          const res = await fetch(`${modulelink}&a=ph-catalog-product-archive-stripe`, { method:'POST', credentials:'include', headers:{ 'Content-Type':'application/x-www-form-urlencoded','Accept':'application/json' }, body });
+    // Open Stripe-connected product editor from table row
+    $$('[data-eb-open-edit-stripe]').forEach(row=>{
+      row.addEventListener('click', ()=>{
+        const spid = row.getAttribute('data-eb-open-edit-stripe');
+        if (window.ebProductPanel && typeof window.ebProductPanel.openEditStripe === 'function') {
+          window.ebProductPanel.openEditStripe(spid);
+        } else if (window.ebProductWizard && typeof window.ebProductWizard.openEditStripe === 'function') {
+          window.ebProductWizard.openEditStripe(spid);
+        }
+      });
+    });
+
+    const modulelink = (function(){
+      const a = document.querySelector('a[href*="index.php?m=eazybackup"]');
+      // fallback to current
+      return a ? a.href.split('&a=')[0] : 'index.php?m=eazybackup';
+    })();
+
+    // Stripe product actions (archive/delete)
+    if (!window.ebStripeActions) {
+      window.ebStripeActions = {
+        async archiveProduct(id){
+          try{
+            const token = (document.getElementById('eb-token')||{}).value || '';
+            const body = new URLSearchParams({ token, id });
+            const res = await fetch(`${modulelink}&a=ph-catalog-product-archive-stripe`, { method:'POST', credentials:'include', headers:{ 'Content-Type':'application/x-www-form-urlencoded','Accept':'application/json' }, body });
+            const out = await res.json();
+            if (out && out.status==='success'){ try{ window.showToast && window.showToast('Product archived','success'); }catch(_){} setTimeout(()=>location.reload(),500); }
+            else { alert('Archive failed'); }
+          } catch(e){ console.error(e); alert('Network error'); }
+        },
+        async deleteProduct(id){
+          try{
+            if (!confirm('Delete this product on Stripe? This cannot be undone.')) return;
+            const token = (document.getElementById('eb-token')||{}).value || '';
+            const body = new URLSearchParams({ token, id });
+            const res = await fetch(`${modulelink}&a=ph-catalog-product-delete-stripe`, { method:'POST', credentials:'include', headers:{ 'Content-Type':'application/x-www-form-urlencoded','Accept':'application/json' }, body });
+            const out = await res.json();
+            if (out && out.status==='success'){ try{ window.showToast && window.showToast('Product deleted','success'); }catch(_){} setTimeout(()=>location.reload(),600); }
+            else { alert('Delete failed'+(out && out.detail? ': '+out.detail : '')); }
+          } catch(e){ console.error(e); alert('Network error'); }
+        },
+        async unarchiveProduct(id){
+          try{
+            const token = (document.getElementById('eb-token')||{}).value || '';
+            const body = new URLSearchParams({ token, id });
+            const res = await fetch(`${modulelink}&a=ph-catalog-product-unarchive-stripe`, { method:'POST', credentials:'include', headers:{ 'Content-Type':'application/x-www-form-urlencoded','Accept':'application/json' }, body });
+            const out = await res.json();
+            if (out && out.status==='success'){ try{ window.showToast && window.showToast('Product unarchived','success'); }catch(_){} setTimeout(()=>location.reload(),500); }
+            else { alert('Unarchive failed'); }
+          } catch(e){ console.error(e); alert('Network error'); }
+        },
+        async deleteDraft(id){
+          if (!confirm('Delete this draft product and all its prices? This cannot be undone.')) return;
+          try {
+            const token = (document.getElementById('eb-token')||{}).value || '';
+            const body = new URLSearchParams({ token, id: String(id) });
+            const res = await fetch(`${modulelink}&a=ph-catalog-product-delete-draft`, { method:'POST', credentials:'include', headers:{ 'Content-Type':'application/x-www-form-urlencoded','Accept':'application/json' }, body });
+            const out = await res.json();
+            if (out && out.status==='success'){ try{ window.showToast && window.showToast('Draft deleted','success'); }catch(_){} setTimeout(()=>location.reload(),500); }
+            else { alert('Delete failed'+(out && out.message ? ': '+out.message : '')); }
+          } catch(e){ console.error(e); alert('Network error'); }
+        }
+      };
+    }
+
+    // Expose a small helper to split mixed products without embedding object literals in templates (avoids Smarty conflicts)
+    if (!window.ebSplitProduct) {
+      window.ebSplitProduct = async function(productId, metric){
+        try {
+          const body = new URLSearchParams({ product_id: String(productId||0), metric_code: String(metric||'') });
+          const res = await fetch(`${modulelink}&a=ph-catalog-product-split`, { method:'POST', headers:{ 'Content-Type':'application/x-www-form-urlencoded' }, body });
           const out = await res.json();
-          if (out && out.status==='success'){ try{ window.showToast && window.showToast('Product archived','success'); }catch(_){} setTimeout(()=>location.reload(),500); }
-          else { alert('Archive failed'); }
-        } catch(e){ console.error(e); alert('Network error'); }
-      },
-      async deleteProduct(id){
-        try{
-          if (!confirm('Delete this product on Stripe? This cannot be undone.')) return;
-          const token = (document.getElementById('eb-token')||{}).value || '';
-          const body = new URLSearchParams({ token, id });
-          const res = await fetch(`${modulelink}&a=ph-catalog-product-delete-stripe`, { method:'POST', credentials:'include', headers:{ 'Content-Type':'application/x-www-form-urlencoded','Accept':'application/json' }, body });
-          const out = await res.json();
-          if (out && out.status==='success'){ try{ window.showToast && window.showToast('Product deleted','success'); }catch(_){} setTimeout(()=>location.reload(),600); }
-          else { alert('Delete failed'+(out && out.detail? ': '+out.detail : '')); }
-        } catch(e){ console.error(e); alert('Network error'); }
-      },
-      async unarchiveProduct(id){
-        try{
-          const token = (document.getElementById('eb-token')||{}).value || '';
-          const body = new URLSearchParams({ token, id });
-          const res = await fetch(`${modulelink}&a=ph-catalog-product-unarchive-stripe`, { method:'POST', credentials:'include', headers:{ 'Content-Type':'application/x-www-form-urlencoded','Accept':'application/json' }, body });
-          const out = await res.json();
-          if (out && out.status==='success'){ try{ window.showToast && window.showToast('Product unarchived','success'); }catch(_){} setTimeout(()=>location.reload(),500); }
-          else { alert('Unarchive failed'); }
-        } catch(e){ console.error(e); alert('Network error'); }
-      }
+          if (out && out.status === 'success') { window.location.reload(); }
+          else { alert('Split failed'); }
+        } catch (e) { console.error(e); alert('Split failed'); }
+      };
+    }
+
+    const post = async (action, form) => {
+      const body = new FormData(form);
+      const res = await fetch(`${modulelink}&a=${action}`, { method:'POST', body });
+      return await res.json();
     };
-  }
 
-  // Expose a small helper to split mixed products without embedding object literals in templates (avoids Smarty conflicts)
-  if (!window.ebSplitProduct) {
-    window.ebSplitProduct = async function(productId, metric){
+    const createForm = $('#eb-create-product-form');
+    if (createForm) createForm.addEventListener('submit', async (e)=>{
+      e.preventDefault();
       try {
-        const body = new URLSearchParams({ product_id: String(productId||0), metric_code: String(metric||'') });
-        const res = await fetch(`${modulelink}&a=ph-catalog-product-split`, { method:'POST', headers:{ 'Content-Type':'application/x-www-form-urlencoded' }, body });
-        const out = await res.json();
-        if (out && out.status === 'success') { window.location.reload(); }
-        else { alert('Split failed'); }
-      } catch (e) { console.error(e); alert('Split failed'); }
-    };
+        const out = await post('ph-catalog-products-create', createForm);
+        if (out.status === 'success') {
+          try { window.showToast && window.showToast('Product created','success'); } catch(e){}
+          setTimeout(()=>{ window.location.reload(); }, 600);
+        } else { console.warn('[eb.catalog] create product error', out); alert('Failed to create product'); }
+      } catch (e) { console.error(e); alert('Network error'); }
+    });
+
+    const priceForm = $('#eb-add-price-form');
+    if (priceForm) priceForm.addEventListener('submit', async (e)=>{
+      e.preventDefault();
+      try {
+        // Ensure product_id is present even if hidden input missed population
+        const pidEl = $('#eb-price-product-id');
+        if (pidEl && (!pidEl.value || pidEl.value === '') && currentProductId) {
+          pidEl.value = currentProductId;
+        }
+        if (!pidEl || !pidEl.value) {
+          alert('Please click “Add Price” from a specific product first.');
+          return;
+        }
+        const out = await post('ph-catalog-price-create', priceForm);
+        if (out.status === 'success') { window.location.reload(); } else { console.warn('[eb.catalog] add price error', out); alert('Failed to add price'); }
+      } catch (e) { console.error(e); alert('Network error'); }
+    });
+
+    $$('[data-eb-toggle-product]').forEach(chk=>{
+      chk.addEventListener('change', async ()=>{
+        const body = new FormData();
+        body.append('token', ($('input[name=token]')||{}).value || '');
+        body.append('id', chk.getAttribute('data-eb-toggle-product'));
+        body.append('active', chk.checked ? '1':'0');
+        try { await fetch(`${modulelink}&a=ph-catalog-product-toggle`, { method:'POST', body }); } catch(e){}
+      });
+    });
+
+    $$('[data-eb-toggle-price]').forEach(chk=>{
+      chk.addEventListener('change', async ()=>{
+        const body = new FormData();
+        body.append('token', ($('input[name=token]')||{}).value || '');
+        body.append('id', chk.getAttribute('data-eb-toggle-price'));
+        body.append('active', chk.checked ? '1':'0');
+        try { await fetch(`${modulelink}&a=ph-catalog-price-toggle`, { method:'POST', body }); } catch(e){}
+      });
+    });
   }
 
-  const post = async (action, form) => {
-    const body = new FormData(form);
-    const res = await fetch(`${modulelink}&a=${action}`, { method:'POST', body });
-    return await res.json();
-  };
-
-  const createForm = $('#eb-create-product-form');
-  if (createForm) createForm.addEventListener('submit', async (e)=>{
-    e.preventDefault();
-    try {
-      const out = await post('ph-catalog-products-create', createForm);
-      if (out.status === 'success') {
-        try { window.showToast && window.showToast('Product created','success'); } catch(e){}
-        setTimeout(()=>{ window.location.reload(); }, 600);
-      } else { console.warn('[eb.catalog] create product error', out); alert('Failed to create product'); }
-    } catch (e) { console.error(e); alert('Network error'); }
-  });
-
-  const priceForm = $('#eb-add-price-form');
-  if (priceForm) priceForm.addEventListener('submit', async (e)=>{
-    e.preventDefault();
-    try {
-      // Ensure product_id is present even if hidden input missed population
-      const pidEl = $('#eb-price-product-id');
-      if (pidEl && (!pidEl.value || pidEl.value === '') && currentProductId) {
-        pidEl.value = currentProductId;
-      }
-      if (!pidEl || !pidEl.value) {
-        alert('Please click “Add Price” from a specific product first.');
-        return;
-      }
-      const out = await post('ph-catalog-price-create', priceForm);
-      if (out.status === 'success') { window.location.reload(); } else { console.warn('[eb.catalog] add price error', out); alert('Failed to add price'); }
-    } catch (e) { console.error(e); alert('Network error'); }
-  });
-
-  $$('[data-eb-toggle-product]').forEach(chk=>{
-    chk.addEventListener('change', async ()=>{
-      const body = new FormData();
-      body.append('token', ($('input[name=token]')||{}).value || '');
-      body.append('id', chk.getAttribute('data-eb-toggle-product'));
-      body.append('active', chk.checked ? '1':'0');
-      try { await fetch(`${modulelink}&a=ph-catalog-product-toggle`, { method:'POST', body }); } catch(e){}
-    });
-  });
-
-  $$('[data-eb-toggle-price]').forEach(chk=>{
-    chk.addEventListener('change', async ()=>{
-      const body = new FormData();
-      body.append('token', ($('input[name=token]')||{}).value || '');
-      body.append('id', chk.getAttribute('data-eb-toggle-price'));
-      body.append('active', chk.checked ? '1':'0');
-      try { await fetch(`${modulelink}&a=ph-catalog-price-toggle`, { method:'POST', body }); } catch(e){}
-    });
-  });
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initCatalogProductsPage, { once: true });
+  } else {
+    initCatalogProductsPage();
+  }
 })();
 
 // Alpine wizard for New Product
@@ -391,13 +410,74 @@ if (!window.ebPriceStepper) {
   };
 }
 
+if (!window.catalogToastManager) {
+  window.catalogToastManager = function(){
+    return {
+      toasts: [],
+      init(){
+        try {
+          var self = this;
+          window.__catalogToastMounted = true;
+          window.__catalogToastPush = function(detail){ self.push(detail); };
+        } catch(_){}
+      },
+      push(detail){
+        var toast = {
+          id: Date.now() + Math.random(),
+          message: String((detail && detail.message) || ''),
+          type: String((detail && detail.type) || 'info'),
+          visible: true
+        };
+        this.toasts.push(toast);
+        setTimeout(() => { toast.visible = false; }, 2200);
+        setTimeout(() => {
+          this.toasts = this.toasts.filter(function(item){ return item.id !== toast.id; });
+        }, 3000);
+      }
+    };
+  };
+}
+
 
 
 // Slide-over panels: Product and Price editors
 (function(){
   function showEl(id){ var el=document.getElementById(id); if(el) el.classList.remove('hidden'); }
   function hideEl(id){ var el=document.getElementById(id); if(el) el.classList.add('hidden'); }
-  function safeToast(msg, kind){ try{ window.showToast && window.showToast(msg, kind||'info'); }catch(_){}}
+  function safeToast(msg, kind){
+    var detail = { message: String(msg || ''), type: String(kind || 'info') };
+    try {
+      if (typeof window.__catalogToastPush === 'function') {
+        window.__catalogToastPush(detail);
+        return;
+      }
+      if (typeof window.showToast === 'function') {
+        window.showToast(detail.message, detail.type);
+        return;
+      }
+    } catch(_) {
+      try{ window.showToast && window.showToast(detail.message, detail.type); }catch(__){}
+    }
+  }
+  function defaultUnitLabel(metric){
+    var map = { DEVICE_COUNT:'device', DISK_IMAGE:'machine', HYPERV_VM:'VM', PROXMOX_VM:'VM', VMWARE_VM:'VM', M365_USER:'user', GENERIC:'unit' };
+    return map[String(metric || 'GENERIC')] || 'unit';
+  }
+  function coerceMoney(value){
+    var num = Number(value || 0);
+    if (!isFinite(num) || num < 0) num = 0;
+    return Number(num.toFixed(2));
+  }
+  function describeSaveError(out){
+    if (!out) return 'Save failed';
+    if (out.message === 'mismatched_metric') return 'One or more prices use a different product type. Update the price rows to match the selected product type.';
+    if (out.message === 'stripe_name_exists') return 'A Stripe product with this name already exists. Choose a different name.';
+    if (out.message === 'stripe_product_fail') return out.detail ? ('Stripe product error: ' + out.detail) : 'Stripe product creation failed.';
+    if (out.message === 'stripe_price_fail') return out.detail ? ('Stripe price creation failed: ' + out.detail) : 'Stripe price creation failed.';
+    if (out.message === 'stripe_not_ready') return 'Stripe account not ready. Finish onboarding before saving Stripe products.';
+    if (out.message) return String(out.message);
+    return 'Save failed';
+  }
 
   window.productPanelFactory = function(opts){
     var currency = (opts && opts.currency) || 'CAD';
@@ -414,55 +494,60 @@ if (!window.ebPriceStepper) {
       features: [],
       lastSeededMetric: null,
       showInactive: false,
+      isSaving: false,
+      _dirty: false,
       init(){ try{ window.ebProductPanel = this; }catch(_){ } },
       open(){ this.isOpen=true; showEl('eb-product-panel'); },
-      close(){ this.isOpen=false; hideEl('eb-product-panel'); },
-      reset(){ this.mode='create'; this.product={ name:'', description:'' }; this.baseMetric=null; this.items=[]; this.features=[]; this.lastSeededMetric=null; },
+      close(){ this.isOpen=false; hideEl('eb-product-panel'); if (this._dirty) { window.location.reload(); } },
+      reset(){ this.mode='create'; this.productId=null; this.stripeProductId=null; this.product={ name:'', description:'' }; this.baseMetric=null; this.items=[]; this.features=[]; this.lastSeededMetric=null; this.showInactive=false; this.isSaving=false; this._dirty=false; },
       openCreate(){ this.reset(); this.mode='create'; this.open(); },
-      async openEdit(id){ try{ this.reset(); this.mode='edit'; const res = await fetch(`${this.modulelink}&a=ph-catalog-product-get&id=${encodeURIComponent(id)}`, { method:'GET' }); const out = await res.json(); if(out.status!=='success') throw new Error('bad'); var p=out.product||{}; this.product={ name:p.name||'', description:p.description||'' }; this.baseMetric = p.base_metric_code || null; this.items=(out.prices||[]).map(pr=>({ id: pr.id, label: pr.name||'', billingType:(pr.kind==='metered'?'metered':(pr.kind==='one_time'?'one_time':'per_unit')), metric: pr.metric_code||this.baseMetric||'GENERIC', unitLabel: pr.unit_label||'unit', amount:Number(pr.unit_amount||0)/100, interval:(pr.kind==='one_time'?'none':(pr.interval||'month')), active:!!pr.active })); this.features=Array.isArray(p.features)?p.features:[]; this.open(); }catch(e){ console.error('[eb.catalog] openEdit(panel) failed',e); safeToast('Failed to load product','error'); } },
+      async openEdit(id){ try{ this.reset(); this.mode='edit'; const res = await fetch(`${this.modulelink}&a=ph-catalog-product-get&id=${encodeURIComponent(id)}`, { method:'GET' }); const out = await res.json(); if(out.status!=='success') throw new Error('bad'); var p=out.product||{}; this.productId = p.id || id || null; this.product={ name:p.name||'', description:p.description||'' }; this.baseMetric = p.base_metric_code || null; this.items=(out.prices||[]).map(pr=>({ id: pr.id, label: pr.name||'', billingType:(pr.kind==='metered'?'metered':(pr.kind==='one_time'?'one_time':'per_unit')), metric: pr.metric_code||this.baseMetric||'GENERIC', unitLabel: pr.unit_label||(String(pr.metric_code||this.baseMetric||'GENERIC')==='STORAGE_TB'?'GiB':defaultUnitLabel(pr.metric_code||this.baseMetric||'GENERIC')), amount:Number(pr.unit_amount||0)/100, interval:(pr.kind==='one_time'?'none':(pr.interval||'month')), active:!!pr.active, currency:this.currency })); this.features=Array.isArray(p.features)?p.features:[]; this.items.forEach((_, idx)=>this.normalizePriceRow(idx)); this.open(); }catch(e){ console.error('[eb.catalog] openEdit(panel) failed',e); safeToast('Failed to load product','error'); } },
       async openEditStripe(spid){ try{ this.reset(); this.mode='editStripe'; this.stripeProductId = spid; this.showInactive = false; await this.refreshStripePrices(); } catch(e){ console.error('[eb.catalog] openEditStripe(panel) failed',e); safeToast('Failed to load Stripe product','error'); } },
-      async refreshStripePrices(){ try{ const token=(document.getElementById('eb-token')||{}).value||''; const activeParam=this.showInactive?'all':'1'; const res=await fetch(`${this.modulelink}&a=ph-catalog-product-get-stripe&id=${encodeURIComponent(this.stripeProductId)}&active=${encodeURIComponent(activeParam)}&token=${encodeURIComponent(token)}`, { method:'GET', credentials:'include' }); const out=await res.json(); if(out.status!=='success') throw new Error('bad'); var p=out.product||{}; this.product={ name:p.name||'', description:p.description||'' }; var bm = p.base_metric_code || ((out.prices||[]).some(pr => (pr.billingType==='metered')) ? 'STORAGE_TB' : 'GENERIC'); this.baseMetric=bm; this.items=(out.prices||[]).map(pr=>({ id: pr.id, label: pr.label||pr.nickname||'', billingType: pr.billingType || 'per_unit', metric: bm, unitLabel: pr.unitLabel || (bm==='STORAGE_TB'?'GiB':'unit'), amount: Number(pr.amount||0), interval: pr.interval || 'month', active: !!pr.active, currency: pr.currency||this.currency })); this.features=Array.isArray(p.features)?p.features:[]; this.open(); } catch(e){ console.error('[eb.catalog] refreshStripePrices failed', e); safeToast('Failed to load Stripe prices','error'); } },
+      async refreshStripePrices(){ try{ const token=(document.getElementById('eb-token')||{}).value||''; const activeParam=this.showInactive?'all':'1'; const res=await fetch(`${this.modulelink}&a=ph-catalog-product-get-stripe&id=${encodeURIComponent(this.stripeProductId)}&active=${encodeURIComponent(activeParam)}&token=${encodeURIComponent(token)}`, { method:'GET', credentials:'include' }); const out=await res.json(); if(out.status!=='success') throw new Error('bad'); var p=out.product||{}; this.product={ name:p.name||'', description:p.description||'' }; var bm = p.base_metric_code || ((out.prices||[]).some(pr => (pr.billingType==='metered')) ? 'STORAGE_TB' : 'GENERIC'); this.baseMetric=bm; this.items=(out.prices||[]).map(pr=>({ id: pr.id, label: pr.label||pr.nickname||'', billingType: pr.billingType || 'per_unit', metric: bm, unitLabel: pr.unitLabel || (bm==='STORAGE_TB'?'GiB':defaultUnitLabel(bm)), amount: Number(pr.amount||0), interval: pr.interval || 'month', active: !!pr.active, currency: pr.currency||this.currency })); this.features=Array.isArray(p.features)?p.features:[]; this.items.forEach((_, idx)=>this.normalizePriceRow(idx)); this.open(); } catch(e){ console.error('[eb.catalog] refreshStripePrices failed', e); safeToast('Failed to load Stripe prices','error'); } },
       metricLabel(v){ switch(String(v||'')){ case 'STORAGE_TB': return 'Storage'; case 'DEVICE_COUNT': return 'Device Count'; case 'DISK_IMAGE': return 'Disk Image'; case 'HYPERV_VM': return 'Hyper-V VM'; case 'PROXMOX_VM': return 'Proxmox VM'; case 'VMWARE_VM': return 'VMware VM'; case 'M365_USER': return 'Microsoft 365 User'; case 'GENERIC': return 'Generic'; default: return v; } },
+      metricDescription(v){
+        switch(String(v||'')){
+          case 'STORAGE_TB': return 'Metered billing based on the customer\'s storage consumption. Priced per GiB or TiB.';
+          case 'DEVICE_COUNT': return 'Per-unit billing for each backup endpoint (workstation or server) registered in the customer\'s account.';
+          case 'DISK_IMAGE': return 'Per-unit billing for each machine protected with disk image backups.';
+          case 'HYPERV_VM': return 'Per-unit billing for each Microsoft Hyper-V virtual machine being backed up.';
+          case 'PROXMOX_VM': return 'Per-unit billing for each Proxmox virtual machine being backed up.';
+          case 'VMWARE_VM': return 'Per-unit billing for each VMware virtual machine being backed up.';
+          case 'M365_USER': return 'Per-unit billing for each Microsoft 365 user account protected.';
+          case 'GENERIC': return 'Flexible billing for any service you provide \u2014 IT support, antivirus, consulting, or any recurring/one-time charge.';
+          default: return '';
+        }
+      },
       billingLabel(v){ return v==='per_unit'?'Per-unit':(v==='metered'?'Metered':'One-time'); },
-      selectProductType(code){ this.baseMetric=code; if (this.lastSeededMetric!==code) { this.items=[]; this.lastSeededMetric=null; } if (code==='STORAGE_TB' && this.items.length===0){ this.items.push({ label:'Storage', billingType:'metered', metric:'STORAGE_TB', unitLabel:'', amount:0, interval:'month', active:true }); this.lastSeededMetric='STORAGE_TB'; } else if (this.items.length===0) { const map={ DEVICE_COUNT:['Workstation Seat','device'], DISK_IMAGE:['Disk Image','machine'], HYPERV_VM:['Hyper-V VM','VM'], PROXMOX_VM:['Proxmox VM','VM'], VMWARE_VM:['VMware VM','VM'], M365_USER:['Microsoft 365 User','user'], GENERIC:['Generic','unit'] }; var d=map[code]||['Generic','unit']; this.items.push({ label:d[0], billingType:'per_unit', metric:code, unitLabel:d[1], amount:0, interval:'month', active:true }); this.lastSeededMetric=code; } },
-      addEmptyItem(){ const m=this.baseMetric||'GENERIC'; const bt=(m==='STORAGE_TB')?'metered':'per_unit'; const unit=(m==='STORAGE_TB')?'':'unit'; this.items.push({ label:'', billingType:bt, metric:m, unitLabel:unit, amount:0, interval:'month', active:true }); },
+      selectProductType(code){ this.baseMetric=code; if (this.lastSeededMetric!==code) { this.items=[]; this.lastSeededMetric=null; } if (code==='STORAGE_TB' && this.items.length===0){ this.items.push({ label:'Storage', billingType:'metered', metric:'STORAGE_TB', unitLabel:'GiB', amount:0, interval:'month', active:true, currency:this.currency }); this.lastSeededMetric='STORAGE_TB'; } else if (this.items.length===0) { var d=[this.metricLabel(code)||'Generic', defaultUnitLabel(code)]; this.items.push({ label:d[0], billingType:'per_unit', metric:code, unitLabel:d[1], amount:0, interval:'month', active:true, currency:this.currency }); this.lastSeededMetric=code; } },
+      addEmptyItem(){ const m=this.baseMetric||'GENERIC'; const bt=(m==='STORAGE_TB')?'metered':'per_unit'; const unit=(m==='STORAGE_TB')?'GiB':defaultUnitLabel(m); this.items.push({ label:'', billingType:bt, metric:m, unitLabel:unit, amount:0, interval:'month', active:true, currency:this.currency }); },
+      removeItem(i){ try{ if(Array.isArray(this.items) && i>=0 && i<this.items.length){ this.items.splice(i,1); } }catch(_){ } },
       duplicatePrice(i){ try{ const it=this.items[i]; if(!it) return; const cp=JSON.parse(JSON.stringify(it)); delete cp.id; this.items.splice(i+1,0,cp); }catch(_){ } },
-      openPrice(i){ try{ if (!window.ebPricePanel || typeof window.ebPricePanel.open!=='function') return; window.ebPricePanel.open(this, i); }catch(_){ } },
-      async save(){ try{
-        if (!this.product || !this.product.name || String(this.product.name).trim()===''){ safeToast('Enter a product name','warning'); return; }
+      normalizePriceRow(i){ try{ var it=this.items[i]; if(!it) return; it.amount = coerceMoney(it.amount); it.metric = this.baseMetric || it.metric || 'GENERIC'; if (it.metric === 'STORAGE_TB') { it.billingType = 'metered'; if (it.unitLabel !== 'GiB' && it.unitLabel !== 'TiB') it.unitLabel = 'GiB'; if (it.interval === 'none' || !it.interval) it.interval = 'month'; } else if (it.metric === 'GENERIC') { if (it.billingType !== 'one_time' && it.billingType !== 'per_unit') it.billingType = 'per_unit'; if (it.billingType === 'one_time') it.interval = 'none'; else if (it.interval === 'none' || !it.interval) it.interval = 'month'; if (!it.unitLabel) it.unitLabel = defaultUnitLabel(it.metric); } else { it.billingType = 'per_unit'; if (it.interval === 'none' || !it.interval) it.interval = 'month'; if (!it.unitLabel) it.unitLabel = defaultUnitLabel(it.metric); } }catch(_){ } },
+      onInlineBillingTypeChange(i){ this.normalizePriceRow(i); },
+      validateBeforeSave(){ if (!this.product || !String(this.product.name||'').trim()) return 'Enter a product name'; if (!this.baseMetric) return 'Select a product type'; if (!Array.isArray(this.items) || this.items.length===0) return 'Add at least one price'; for (var i=0;i<this.items.length;i++){ this.normalizePriceRow(i); var it=this.items[i]||{}; if (!String(it.label||'').trim()) return 'Each price needs a label'; if (!(Number(it.amount||0) > 0)) return 'Each price needs an amount greater than 0'; if (String(it.metric||'') !== String(this.baseMetric||'')) return 'Each price must match the selected product type'; if (it.metric === 'STORAGE_TB' && it.unitLabel !== 'GiB' && it.unitLabel !== 'TiB') return 'Storage prices must use GiB or TiB'; } return ''; },
+      async save(mode){ try{
+        var validationError = this.validateBeforeSave();
+        if (validationError) { safeToast(validationError,'warning'); return; }
+        var wasCreate = this.mode === 'create';
+        this.isSaving = true;
         if (this.mode==='editStripe') {
           const token=(document.getElementById('eb-token')||{}).value||'';
           const payload={ token, payload: JSON.stringify({ stripe_product_id: this.stripeProductId, product:{ name:this.product.name, description:this.product.description }, items:this.items, currency:this.currency, features:this.features }) };
           const res=await fetch(`${this.modulelink}&a=ph-catalog-product-save-stripe&token=${encodeURIComponent(token)}`, { method:'POST', credentials:'include', headers:{ 'Content-Type':'application/x-www-form-urlencoded','Accept':'application/json' }, body: new URLSearchParams(payload) });
-          const out=await res.json(); if(out && out.status==='success'){ safeToast('Product updated','success'); setTimeout(()=>location.reload(),600); } else { safeToast('Save failed','error'); }
+          const out=await res.json(); if(out && out.status==='success'){ this._dirty=true; await this.refreshStripePrices(); safeToast('Product updated','success'); } else { safeToast(describeSaveError(out),'error'); }
           return;
         }
         // Local create/edit
-        const body={ mode:'draft', product_id:(this.mode==='edit'? (this.productId||0):0), product:{ name:this.product.name }, base_metric_code:this.baseMetric||null, items:this.items, features:this.features };
+        const body={ mode: mode || 'draft', product_id:(this.mode==='edit'? (this.productId||0):0), product:{ name:this.product.name, description:this.product.description }, base_metric_code:this.baseMetric||null, items:this.items, features:this.features };
         const res=await fetch(`${this.modulelink}&a=ph-catalog-product-save`, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) });
         let out=await res.json();
         if (out && out.status==='error' && (out.message==='bad_json' || out.message==='empty')) {
           const res2=await fetch(`${this.modulelink}&a=ph-catalog-product-save`, { method:'POST', headers:{ 'Content-Type':'application/x-www-form-urlencoded' }, body: new URLSearchParams({ payload: JSON.stringify(body) }) });
           out=await res2.json();
         }
-        if (out && out.status==='success'){ safeToast(this.mode==='create'?'Product saved':'Product updated','success'); setTimeout(()=>location.reload(),600); } else { safeToast('Save failed','error'); }
-      }catch(e){ console.error(e); safeToast('Network error','error'); } }
-    };
-  };
-
-  window.pricePanelFactory = function(){
-    return {
-      owner: null,
-      index: -1,
-      row: { label:'', amount:0, interval:'month', unitLabel:'', billingType:'per_unit', currency:'' },
-      qty: 1,
-      init(){ try{ window.ebPricePanel = this; }catch(_){ } },
-      open(owner, index){ this.owner=owner; this.index=index; this.row=JSON.parse(JSON.stringify(owner.items[index]||{ label:'', amount:0, interval:'month' })); showEl('eb-price-panel'); },
-      close(){ hideEl('eb-price-panel'); },
-      unitLabelDisplay(){ try{ if (!this.owner) return (this.row.unitLabel||'unit'); var bm=this.owner.baseMetric||'GENERIC'; if (bm==='STORAGE_TB') return this.row.unitLabel||'GiB'; var map={ DEVICE_COUNT:'device', DISK_IMAGE:'machine', HYPERV_VM:'VM', PROXMOX_VM:'VM', VMWARE_VM:'VM', M365_USER:'user', GENERIC:'unit' }; return this.row.unitLabel || map[bm] || 'unit'; }catch(_){ return this.row.unitLabel||'unit'; } },
-      calcSubtotal(){ var a=parseFloat(this.row.amount||0); var q=parseFloat(this.qty||0); if(!isFinite(a)) a=0; if(!isFinite(q)) q=0; return a*q; },
-      fmtMoney(n){ var v=Number(n||0); if(!isFinite(v)) v=0; return '$' + v.toFixed(2); },
-      save(){ try{ if (!this.owner || this.index<0) return; this.owner.items[this.index]=JSON.parse(JSON.stringify(this.row)); this.close(); }catch(_){ } }
+        if (out && out.status==='success'){ this._dirty=true; this.mode='edit'; this.productId = out.product_id || this.productId; if (Array.isArray(out.prices)) { for (var pi=0; pi<out.prices.length; pi++) { if (this.items[pi]) this.items[pi].id = out.prices[pi]; } } safeToast(mode==='publish' ? 'Product published to Stripe' : 'Draft saved','success'); } else { safeToast(describeSaveError(out),'error'); }
+      }catch(e){ console.error(e); safeToast('Network error','error'); } finally { this.isSaving = false; } }
     };
   };
 })();

@@ -1126,3 +1126,25 @@ function eb_ph_catalog_export_prices(array $vars): void
     }
     fclose($out); exit;
 }
+
+function eb_ph_catalog_product_delete_draft(array $vars): void
+{
+    header('Content-Type: application/json');
+    if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { echo json_encode(['status'=>'error','message'=>'auth']); return; }
+    if (function_exists('check_token')) { try { check_token('WHMCS.default'); } catch (\Throwable $__) { echo json_encode(['status'=>'error','message'=>'csrf']); return; } }
+    $clientId = (int)$_SESSION['uid'];
+    $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
+    if (!$msp) { echo json_encode(['status'=>'error','message'=>'msp']); return; }
+    $id = (int)($_POST['id'] ?? 0);
+    if ($id <= 0) { echo json_encode(['status'=>'error','message'=>'id']); return; }
+    $prod = Capsule::table('eb_catalog_products')->where('id',$id)->first();
+    if (!$prod || (int)$prod->msp_id !== (int)$msp->id) { echo json_encode(['status'=>'error','message'=>'scope']); return; }
+    if (!empty($prod->stripe_product_id)) { echo json_encode(['status'=>'error','message'=>'published_cannot_delete']); return; }
+    try {
+        Capsule::table('eb_catalog_prices')->where('product_id',$id)->delete();
+        Capsule::table('eb_catalog_products')->where('id',$id)->delete();
+        echo json_encode(['status'=>'success']);
+    } catch (\Throwable $e) {
+        echo json_encode(['status'=>'error','message'=>'delete_fail']);
+    }
+}
