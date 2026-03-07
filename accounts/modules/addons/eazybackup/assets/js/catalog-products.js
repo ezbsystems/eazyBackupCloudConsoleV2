@@ -499,9 +499,10 @@ if (!window.catalogToastManager) {
       init(){ try{ window.ebProductPanel = this; }catch(_){ } },
       open(){ this.isOpen=true; showEl('eb-product-panel'); },
       close(){ this.isOpen=false; hideEl('eb-product-panel'); if (this._dirty) { window.location.reload(); } },
-      reset(){ this.mode='create'; this.productId=null; this.stripeProductId=null; this.product={ name:'', description:'' }; this.baseMetric=null; this.items=[]; this.features=[]; this.lastSeededMetric=null; this.showInactive=false; this.isSaving=false; this._dirty=false; },
+      preset: null,
+      reset(){ this.mode='create'; this.productId=null; this.stripeProductId=null; this.product={ name:'', description:'' }; this.baseMetric=null; this.items=[]; this.features=[]; this.lastSeededMetric=null; this.showInactive=false; this.isSaving=false; this._dirty=false; this.preset=null; },
       openCreate(){ this.reset(); this.mode='create'; this.open(); },
-      async openEdit(id){ try{ this.reset(); this.mode='edit'; const res = await fetch(`${this.modulelink}&a=ph-catalog-product-get&id=${encodeURIComponent(id)}`, { method:'GET' }); const out = await res.json(); if(out.status!=='success') throw new Error('bad'); var p=out.product||{}; this.productId = p.id || id || null; this.product={ name:p.name||'', description:p.description||'' }; this.baseMetric = p.base_metric_code || null; this.items=(out.prices||[]).map(pr=>({ id: pr.id, label: pr.name||'', billingType:(pr.kind==='metered'?'metered':(pr.kind==='one_time'?'one_time':'per_unit')), metric: pr.metric_code||this.baseMetric||'GENERIC', unitLabel: pr.unit_label||(String(pr.metric_code||this.baseMetric||'GENERIC')==='STORAGE_TB'?'GiB':defaultUnitLabel(pr.metric_code||this.baseMetric||'GENERIC')), amount:Number(pr.unit_amount||0)/100, interval:(pr.kind==='one_time'?'none':(pr.interval||'month')), active:!!pr.active, currency:this.currency })); this.features=Array.isArray(p.features)?p.features:[]; this.items.forEach((_, idx)=>this.normalizePriceRow(idx)); this.open(); }catch(e){ console.error('[eb.catalog] openEdit(panel) failed',e); safeToast('Failed to load product','error'); } },
+      async openEdit(id){ try{ this.reset(); this.mode='edit'; const res = await fetch(`${this.modulelink}&a=ph-catalog-product-get&id=${encodeURIComponent(id)}`, { method:'GET' }); const out = await res.json(); if(out.status!=='success') throw new Error('bad'); var p=out.product||{}; this.productId = p.id || id || null; this.product={ name:p.name||'', description:p.description||'' }; this.baseMetric = p.base_metric_code || null; this.items=(out.prices||[]).map(pr=>({ id: pr.id, label: pr.name||'', billingType:(pr.kind==='metered'?'metered':(pr.kind==='one_time'?'one_time':'per_unit')), metric: pr.metric_code||this.baseMetric||'GENERIC', unitLabel: pr.unit_label||(String(pr.metric_code||this.baseMetric||'GENERIC')==='STORAGE_TB'?'GiB':defaultUnitLabel(pr.metric_code||this.baseMetric||'GENERIC')), amount:Number(pr.unit_amount||0)/100, interval:(pr.kind==='one_time'?'none':(pr.interval||'month')), active:!!pr.active, currency:this.currency, pricingScheme: pr.pricing_scheme||'per_unit', tiers: pr.tiers_json ? (function(){ try{ var t=JSON.parse(pr.tiers_json); return t.map(function(r){ return { up_to:r.up_to, unit_amount:r.unit_amount||0, unit_amount_display:Number(r.unit_amount||0)/100, flat_amount:r.flat_amount||0, flat_amount_display:Number(r.flat_amount||0)/100 }; }); }catch(_){ return []; } })() : [] })); this.features=Array.isArray(p.features)?p.features:[]; this.items.forEach((_, idx)=>this.normalizePriceRow(idx)); this.open(); }catch(e){ console.error('[eb.catalog] openEdit(panel) failed',e); safeToast('Failed to load product','error'); } },
       async openEditStripe(spid){ try{ this.reset(); this.mode='editStripe'; this.stripeProductId = spid; this.showInactive = false; await this.refreshStripePrices(); } catch(e){ console.error('[eb.catalog] openEditStripe(panel) failed',e); safeToast('Failed to load Stripe product','error'); } },
       async refreshStripePrices(){ try{ const token=(document.getElementById('eb-token')||{}).value||''; const activeParam=this.showInactive?'all':'1'; const res=await fetch(`${this.modulelink}&a=ph-catalog-product-get-stripe&id=${encodeURIComponent(this.stripeProductId)}&active=${encodeURIComponent(activeParam)}&token=${encodeURIComponent(token)}`, { method:'GET', credentials:'include' }); const out=await res.json(); if(out.status!=='success') throw new Error('bad'); var p=out.product||{}; this.product={ name:p.name||'', description:p.description||'' }; var bm = p.base_metric_code || ((out.prices||[]).some(pr => (pr.billingType==='metered')) ? 'STORAGE_TB' : 'GENERIC'); this.baseMetric=bm; this.items=(out.prices||[]).map(pr=>({ id: pr.id, label: pr.label||pr.nickname||'', billingType: pr.billingType || 'per_unit', metric: bm, unitLabel: pr.unitLabel || (bm==='STORAGE_TB'?'GiB':defaultUnitLabel(bm)), amount: Number(pr.amount||0), interval: pr.interval || 'month', active: !!pr.active, currency: pr.currency||this.currency })); this.features=Array.isArray(p.features)?p.features:[]; this.items.forEach((_, idx)=>this.normalizePriceRow(idx)); this.open(); } catch(e){ console.error('[eb.catalog] refreshStripePrices failed', e); safeToast('Failed to load Stripe prices','error'); } },
       metricLabel(v){ switch(String(v||'')){ case 'STORAGE_TB': return 'Storage'; case 'DEVICE_COUNT': return 'Device Count'; case 'DISK_IMAGE': return 'Disk Image'; case 'HYPERV_VM': return 'Hyper-V VM'; case 'PROXMOX_VM': return 'Proxmox VM'; case 'VMWARE_VM': return 'VMware VM'; case 'M365_USER': return 'Microsoft 365 User'; case 'GENERIC': return 'Generic'; default: return v; } },
@@ -519,12 +520,48 @@ if (!window.catalogToastManager) {
         }
       },
       billingLabel(v){ return v==='per_unit'?'Per-unit':(v==='metered'?'Metered':'One-time'); },
-      selectProductType(code){ this.baseMetric=code; if (this.lastSeededMetric!==code) { this.items=[]; this.lastSeededMetric=null; } if (code==='STORAGE_TB' && this.items.length===0){ this.items.push({ label:'Storage', billingType:'metered', metric:'STORAGE_TB', unitLabel:'GiB', amount:0, interval:'month', active:true, currency:this.currency }); this.lastSeededMetric='STORAGE_TB'; } else if (this.items.length===0) { var d=[this.metricLabel(code)||'Generic', defaultUnitLabel(code)]; this.items.push({ label:d[0], billingType:'per_unit', metric:code, unitLabel:d[1], amount:0, interval:'month', active:true, currency:this.currency }); this.lastSeededMetric=code; } },
-      addEmptyItem(){ const m=this.baseMetric||'GENERIC'; const bt=(m==='STORAGE_TB')?'metered':'per_unit'; const unit=(m==='STORAGE_TB')?'GiB':defaultUnitLabel(m); this.items.push({ label:'', billingType:bt, metric:m, unitLabel:unit, amount:0, interval:'month', active:true, currency:this.currency }); },
+      selectProductType(code){ this.baseMetric=code; if (this.lastSeededMetric!==code) { this.items=[]; this.lastSeededMetric=null; } if (code==='STORAGE_TB' && this.items.length===0){ this.items.push({ label:'Storage', billingType:'metered', metric:'STORAGE_TB', unitLabel:'GiB', amount:0, interval:'month', active:true, currency:this.currency, pricingScheme:'per_unit' }); this.lastSeededMetric='STORAGE_TB'; } else if (this.items.length===0) { var d=[this.metricLabel(code)||'Generic', defaultUnitLabel(code)]; this.items.push({ label:d[0], billingType:'per_unit', metric:code, unitLabel:d[1], amount:0, interval:'month', active:true, currency:this.currency, pricingScheme:'per_unit' }); this.lastSeededMetric=code; } },
+      applyPreset(key){
+        this.preset = key;
+        var presets = {
+          eazybackup_cloud_backup: { name:'eazyBackup Cloud Backup', metric:'STORAGE_TB', items:[{ label:'Storage', billingType:'metered', metric:'STORAGE_TB', unitLabel:'GiB', amount:0, interval:'month', active:true, pricingScheme:'per_unit' }] },
+          e3_object_storage: { name:'e3 Object Storage', metric:'STORAGE_TB', items:[{ label:'Object Storage', billingType:'metered', metric:'STORAGE_TB', unitLabel:'GiB', amount:0, interval:'month', active:true, pricingScheme:'per_unit' }] },
+          workstation_seat: { name:'Workstation Backup Seat', metric:'DEVICE_COUNT', items:[{ label:'Workstation Seat', billingType:'per_unit', metric:'DEVICE_COUNT', unitLabel:'device', amount:0, interval:'month', active:true, pricingScheme:'per_unit' }] },
+          custom_service: { name:'Custom Service', metric:'GENERIC', items:[{ label:'Service', billingType:'per_unit', metric:'GENERIC', unitLabel:'unit', amount:0, interval:'month', active:true, pricingScheme:'per_unit' }] },
+        };
+        var p = presets[key]; if(!p) return;
+        this.product.name = p.name;
+        this.baseMetric = p.metric;
+        this.items = JSON.parse(JSON.stringify(p.items));
+        this.lastSeededMetric = p.metric;
+      },
+      clearPreset(){ this.preset=null; },
+      addEmptyItem(){ const m=this.baseMetric||'GENERIC'; const bt=(m==='STORAGE_TB')?'metered':'per_unit'; const unit=(m==='STORAGE_TB')?'GiB':defaultUnitLabel(m); this.items.push({ label:'', billingType:bt, metric:m, unitLabel:unit, amount:0, interval:'month', active:true, currency:this.currency, pricingScheme:'per_unit' }); },
       removeItem(i){ try{ if(Array.isArray(this.items) && i>=0 && i<this.items.length){ this.items.splice(i,1); } }catch(_){ } },
       duplicatePrice(i){ try{ const it=this.items[i]; if(!it) return; const cp=JSON.parse(JSON.stringify(it)); delete cp.id; this.items.splice(i+1,0,cp); }catch(_){ } },
       normalizePriceRow(i){ try{ var it=this.items[i]; if(!it) return; it.amount = coerceMoney(it.amount); it.metric = this.baseMetric || it.metric || 'GENERIC'; if (it.metric === 'STORAGE_TB') { it.billingType = 'metered'; if (it.unitLabel !== 'GiB' && it.unitLabel !== 'TiB') it.unitLabel = 'GiB'; if (it.interval === 'none' || !it.interval) it.interval = 'month'; } else if (it.metric === 'GENERIC') { if (it.billingType !== 'one_time' && it.billingType !== 'per_unit') it.billingType = 'per_unit'; if (it.billingType === 'one_time') it.interval = 'none'; else if (it.interval === 'none' || !it.interval) it.interval = 'month'; if (!it.unitLabel) it.unitLabel = defaultUnitLabel(it.metric); } else { it.billingType = 'per_unit'; if (it.interval === 'none' || !it.interval) it.interval = 'month'; if (!it.unitLabel) it.unitLabel = defaultUnitLabel(it.metric); } }catch(_){ } },
       onInlineBillingTypeChange(i){ this.normalizePriceRow(i); },
+      onPricingSchemeChange(i){
+        var it = this.items[i]; if(!it) return;
+        if (!it.pricingScheme) it.pricingScheme = 'per_unit';
+        if (it.pricingScheme.startsWith('tiered')) {
+          if (!it.tiers || it.tiers.length === 0) {
+            it.tiers = [
+              { up_to: 1024, unit_amount: 0, unit_amount_display: 0, flat_amount: 0, flat_amount_display: 0 },
+              { up_to: null, unit_amount: 0, unit_amount_display: 0, flat_amount: 0, flat_amount_display: 0 },
+            ];
+          }
+        }
+      },
+      addTier(i){
+        var it = this.items[i]; if(!it) return;
+        if (!it.tiers) it.tiers = [];
+        it.tiers.push({ up_to: null, unit_amount: 0, unit_amount_display: 0, flat_amount: 0, flat_amount_display: 0 });
+      },
+      removeTier(i, ti){
+        var it = this.items[i]; if(!it || !it.tiers || it.tiers.length <= 2) return;
+        it.tiers.splice(ti, 1);
+      },
       validateBeforeSave(){ if (!this.product || !String(this.product.name||'').trim()) return 'Enter a product name'; if (!this.baseMetric) return 'Select a product type'; if (!Array.isArray(this.items) || this.items.length===0) return 'Add at least one price'; for (var i=0;i<this.items.length;i++){ this.normalizePriceRow(i); var it=this.items[i]||{}; if (!String(it.label||'').trim()) return 'Each price needs a label'; if (!(Number(it.amount||0) > 0)) return 'Each price needs an amount greater than 0'; if (String(it.metric||'') !== String(this.baseMetric||'')) return 'Each price must match the selected product type'; if (it.metric === 'STORAGE_TB' && it.unitLabel !== 'GiB' && it.unitLabel !== 'TiB') return 'Storage prices must use GiB or TiB'; } return ''; },
       async save(mode){ try{
         var validationError = this.validateBeforeSave();

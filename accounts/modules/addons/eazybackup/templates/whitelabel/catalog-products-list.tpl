@@ -195,6 +195,33 @@
           <button type="button" class="text-slate-400 hover:text-white" @click="close()">✕</button>
         </div>
         <div class="flex-1 overflow-y-auto px-6 py-6 space-y-6 text-sm">
+          <div x-show="mode==='create'" class="rounded-xl border border-slate-700 bg-slate-800/50 p-4">
+            <h4 class="text-sm font-medium text-slate-100 mb-3">Start from template</h4>
+            <div class="grid grid-cols-2 gap-2">
+              <button type="button" @click="applyPreset('eazybackup_cloud_backup')" :class="preset==='eazybackup_cloud_backup' ? 'ring-2 ring-sky-500' : ''" class="rounded-lg border border-slate-700 bg-slate-900/60 p-3 text-left hover:bg-slate-800 transition">
+                <div class="text-sm font-medium text-slate-100">eazyBackup Cloud Backup</div>
+                <div class="text-xs text-slate-400 mt-1">Storage (metered, GiB, monthly)</div>
+              </button>
+              <button type="button" @click="applyPreset('e3_object_storage')" :class="preset==='e3_object_storage' ? 'ring-2 ring-sky-500' : ''" class="rounded-lg border border-slate-700 bg-slate-900/60 p-3 text-left hover:bg-slate-800 transition">
+                <div class="text-sm font-medium text-slate-100">e3 Object Storage</div>
+                <div class="text-xs text-slate-400 mt-1">Storage (metered, GiB, 1 TiB min)</div>
+              </button>
+              <button type="button" @click="applyPreset('workstation_seat')" :class="preset==='workstation_seat' ? 'ring-2 ring-sky-500' : ''" class="rounded-lg border border-slate-700 bg-slate-900/60 p-3 text-left hover:bg-slate-800 transition">
+                <div class="text-sm font-medium text-slate-100">Workstation Backup Seat</div>
+                <div class="text-xs text-slate-400 mt-1">Device count (per-unit, monthly)</div>
+              </button>
+              <button type="button" @click="applyPreset('custom_service')" :class="preset==='custom_service' ? 'ring-2 ring-sky-500' : ''" class="rounded-lg border border-slate-700 bg-slate-900/60 p-3 text-left hover:bg-slate-800 transition">
+                <div class="text-sm font-medium text-slate-100">Custom Service</div>
+                <div class="text-xs text-slate-400 mt-1">Generic (per-unit, monthly)</div>
+              </button>
+            </div>
+            <template x-if="preset">
+              <div class="mt-2 flex items-center gap-2">
+                <span class="text-xs text-sky-400">Using template: <span x-text="preset.replace(/_/g, ' ')"></span></span>
+                <button type="button" @click="clearPreset()" class="text-xs text-slate-500 hover:text-white underline">Clear</button>
+              </div>
+            </template>
+          </div>
           <div>
             <label class="block"><span class="text-sm text-slate-400">Name (required)</span><input x-model="product.name" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 placeholder:text-gray-400 text-white outline-1 -outline-offset-1 outline-white/10 focus:outline-2 focus:-outline-offset-2 focus:outline-sky-700 transition" /></label>
           </div>
@@ -282,6 +309,37 @@
                       </label>
                     </template>
                   </div>
+
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <label class="block">
+                      <span class="text-sm text-slate-400">Pricing model</span>
+                      <select x-model="it.pricingScheme" @change="onPricingSchemeChange(i)" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 outline-1 -outline-offset-1 outline-white/10 focus:outline-2 focus:-outline-offset-2 focus:outline-sky-700">
+                        <option value="per_unit">Flat rate</option>
+                        <option value="tiered_graduated">Graduated tiers</option>
+                        <option value="tiered_volume">Volume tiers</option>
+                      </select>
+                    </label>
+                  </div>
+                  <template x-if="it.pricingScheme && it.pricingScheme.startsWith('tiered')">
+                    <div class="col-span-full mt-1 rounded-lg border border-slate-700 bg-slate-950/40 p-3">
+                      <div class="text-xs text-slate-400 mb-2" x-text="it.pricingScheme==='tiered_graduated' ? 'Each tier is billed independently (graduated pricing)' : 'All units use the price of the tier that matches total quantity (volume pricing)'"></div>
+                      <table class="w-full text-xs">
+                        <thead><tr class="text-slate-400"><th class="px-2 py-1 text-left">First unit</th><th class="px-2 py-1 text-left">Last unit</th><th class="px-2 py-1 text-left">Per unit ($)</th><th class="px-2 py-1 text-left">Flat fee ($)</th><th class="px-2 py-1 w-8"></th></tr></thead>
+                        <tbody>
+                          <template x-for="(tier, ti) in (it.tiers || [])" :key="'tier-'+i+'-'+ti">
+                            <tr>
+                              <td class="px-2 py-1 text-slate-300" x-text="ti===0 ? '1' : String(Number(it.tiers[ti-1]?.up_to||0)+1)"></td>
+                              <td class="px-2 py-1"><input x-model.number="tier.up_to" type="number" min="1" :placeholder="ti===(it.tiers||[]).length-1 ? '\u221e' : ''" class="w-20 px-2 py-1 rounded bg-slate-800 text-slate-100 border border-slate-700 outline-none focus:border-sky-600 text-xs" /></td>
+                              <td class="px-2 py-1"><input x-model.number="tier.unit_amount_display" type="number" step="0.01" min="0" class="w-20 px-2 py-1 rounded bg-slate-800 text-slate-100 border border-slate-700 outline-none focus:border-sky-600 text-xs" /></td>
+                              <td class="px-2 py-1"><input x-model.number="tier.flat_amount_display" type="number" step="0.01" min="0" class="w-20 px-2 py-1 rounded bg-slate-800 text-slate-100 border border-slate-700 outline-none focus:border-sky-600 text-xs" /></td>
+                              <td class="px-2 py-1"><button type="button" @click="removeTier(i, ti)" class="text-rose-400 hover:text-rose-300 text-xs" x-show="(it.tiers||[]).length > 2">&times;</button></td>
+                            </tr>
+                          </template>
+                        </tbody>
+                      </table>
+                      <button type="button" @click="addTier(i)" class="mt-2 text-xs text-sky-400 hover:text-sky-300">+ Add tier</button>
+                    </div>
+                  </template>
 
                   <template x-if="baseMetric==='STORAGE_TB'">
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
