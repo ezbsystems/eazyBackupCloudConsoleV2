@@ -670,6 +670,54 @@ Storage units:
 - 302/redirects: ensure token + cookies; JS falls back to full‑page redirect when non‑JSON is detected
 - Default Stripe list limit is 100; add pagination if needed later
 
+## API Routes — Catalog Plans
+
+| Route | Method | Description |
+|-------|--------|-------------|
+| `ph-catalog-plans` | GET | Plans index page |
+| `ph-plan-template-create` | POST | Create plan template. Params: `name`, `description`, `trial_days` |
+| `ph-plan-template-get` | GET | Get plan details. Params: `id` |
+| `ph-plan-template-update` | POST | Update plan template. JSON body: `plan_id`, `name`, `description`, `trial_days`, `billing_interval`, `currency`, `components[]` |
+| `ph-plan-template-duplicate` | POST | Duplicate plan. Params: `plan_id` |
+| `ph-plan-template-toggle` | POST | Toggle status. Params: `plan_id`, `status` (`active` \| `archived` \| `draft`) |
+| `ph-plan-template-delete` | POST | Delete plan. Params: `plan_id`. Blocked if active subscriptions exist |
+| `ph-plan-component-add` | POST | Add component. Params: `plan_id`, `price_id`, `default_qty`, `overage_mode` |
+| `ph-plan-component-remove` | POST | Remove component. Params: `component_id` |
+| `ph-plan-assign` | POST | Assign plan to customer. Params: `plan_id`, `tenant_id`, `comet_user_id`, `application_fee_percent` |
+| `ph-plan-subscriptions-list` | GET | List subscriptions. Params: `plan_id` (optional) |
+| `ph-plan-subscription-cancel` | POST | Cancel subscription. Params: `instance_id`, `reason` (optional) |
+| `ph-plan-export` | GET | Export plans. Params: `format` (`csv` \| `json`) |
+
+### Product routes (Catalog)
+
+| Route | Method | Description |
+|-------|--------|-------------|
+| `ph-catalog-product-delete-draft` | POST | Delete draft product. Params: `id` |
+| `ph-catalog-price-sub-count` | GET | Get active subscription count for price. Params: `price_id` |
+
+## UI Features — Catalog
+
+### Products page
+
+- **Filter tabs** — All, Active, Draft, Archived
+- **Type dropdown** — Filter by product type/resource
+- **Presets** — Product template presets for quick creation (e.g., storage, device, M365)
+- **Tiered pricing** — Support for graduated and volume tiered pricing schemes
+- **Multi-currency** — Prices in multiple currencies per product
+- **Draft delete** — Delete draft products via `ph-catalog-product-delete-draft`
+- **Publish flow** — Draft → Publish workflow to create Stripe Product/Prices
+
+### Plans page
+
+- **Table layout with filters** — Plans list with search and status filters
+- **Slide-over editor** — Inline plan editing in a slide-over panel
+- **CRUD** — Create, read, update, duplicate, delete plan templates
+- **Pricing preview** — Live preview of plan pricing based on components
+- **Assignment modal** — Assign plan to customer with tenant picker and Comet user picker
+- **Subscription management** — List, view, and cancel subscriptions per plan
+- **Quick Plan wizard** — Guided flow to create a plan from scratch
+- **CSV/JSON export** — Export plans via `ph-plan-export` (`format=csv` or `format=json`)
+
 ## Database Schema — Plan Templates, Components, Instances & Usage
 
 All tables InnoDB + utf8mb4. Created/extended by `eazybackup_migrate_schema()`.
