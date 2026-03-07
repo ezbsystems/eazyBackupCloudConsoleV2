@@ -36,7 +36,7 @@ function eb_ph_catalog_products_index(array $vars)
 
     // Normalize to arrays for Smarty (avoid stdClass access errors)
     $productsArr = [];
-    foreach ((array)$products as $r) {
+    foreach ($products as $r) {
         $row = (array)$r;
         // Decode features_json for template convenience
         try {
@@ -51,7 +51,7 @@ function eb_ph_catalog_products_index(array $vars)
 
     // Map product_id => prices (arrays)
     $priceMapArr = [];
-    foreach ((array)$prices as $row) {
+    foreach ($prices as $row) {
         $pid = (string)$row->product_id;
         if (!isset($priceMapArr[$pid])) { $priceMapArr[$pid] = []; }
         $priceMapArr[$pid][] = (array)$row;
@@ -228,6 +228,33 @@ function eb_ph_catalog_products_list(array $vars)
         }
     } catch (\Throwable $__) {}
 
+    // Local/draft products
+    $localProducts = [];
+    $localPriceMap = [];
+    $countDraft = 0;
+    try {
+        $lp = Capsule::table('eb_catalog_products')->where('msp_id', (int)$msp->id)->orderBy('updated_at', 'desc')->get();
+        foreach ($lp as $r) {
+            $row = (array)$r;
+            if (empty($row['stripe_product_id']) && (int)($row['active'] ?? 1) === 1) { $countDraft++; }
+            try {
+                $fx = isset($row['features_json']) ? (string)$row['features_json'] : '';
+                if ($fx !== '') { $arr = json_decode($fx, true); if (is_array($arr)) { $row['features'] = array_values(array_filter($arr, 'strlen')); } }
+            } catch (\Throwable $___) {}
+            $localProducts[] = $row;
+        }
+        $lpr = Capsule::table('eb_catalog_prices as pr')
+            ->join('eb_catalog_products as p', 'p.id', '=', 'pr.product_id')
+            ->where('p.msp_id', (int)$msp->id)
+            ->orderBy('pr.updated_at', 'desc')
+            ->get(['pr.*']);
+        foreach ($lpr as $row) {
+            $pid = (string)$row->product_id;
+            if (!isset($localPriceMap[$pid])) { $localPriceMap[$pid] = []; }
+            $localPriceMap[$pid][] = (array)$row;
+        }
+    } catch (\Throwable $__) {}
+
     return [
         'pagetitle' => 'Catalog — Products',
         'templatefile' => 'whitelabel/catalog-products-list',
@@ -238,11 +265,15 @@ function eb_ph_catalog_products_list(array $vars)
             'msp' => (array)$msp,
             'company' => $company,
             'msp_ready' => ($acctInfo['charges_enabled'] && $acctInfo['payouts_enabled']) ? 1 : 0,
+            'msp_currency' => (string)($msp->default_currency ?? 'CAD'),
             'acct_info' => $acctInfo,
             'stripe_products' => $stripeProducts,
-            'count_all' => $countAll,
+            'products' => $localProducts,
+            'priceMap' => $localPriceMap,
+            'count_all' => $countAll + count($localProducts),
             'count_active' => $countActive,
             'count_archived' => $countArchived,
+            'count_draft' => $countDraft,
             'modulelink' => $vars['modulelink'] ?? ('index.php?m=eazybackup'),
             'token' => function_exists('generate_token') ? generate_token('plain') : '',
         ],
@@ -556,7 +587,7 @@ function eb_ph_catalog_product_get(array $vars): void
         $prices = Capsule::table('eb_catalog_prices')->where('product_id',$id)->orderBy('updated_at','desc')->get();
         $pricesArr = [];
         $metricsSet = [];
-        foreach ((array)$prices as $r) { $pricesArr[] = (array)$r; $metricsSet[(string)$r->metric_code] = true; }
+        foreach ($prices as $r) { $pricesArr[] = (array)$r; $metricsSet[(string)$r->metric_code] = true; }
         $mixed = (count(array_keys($metricsSet)) > 1);
         $features = [];
         try { $rawf = (string)($prod->features_json ?? ''); if ($rawf !== '') { $arr = json_decode($rawf, true); if (is_array($arr)) { $features = array_values(array_filter($arr, 'strlen')); } } } catch (\Throwable $__) {}
