@@ -262,6 +262,7 @@
                       </div>
                     </div>
                     <div class="flex items-center gap-2">
+                      <button type="button" class="text-xs px-3 py-1.5 rounded" :class="it.active ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'" @click="togglePriceActive(i)" x-text="it.active ? 'Active' : 'Inactive'"></button>
                       <button type="button" class="text-xs px-3 py-1.5 rounded bg-slate-700 text-white hover:bg-slate-600" @click="duplicatePrice(i)">Duplicate</button>
                       <button type="button" class="text-xs px-3 py-1.5 rounded bg-rose-500/15 text-rose-200 hover:bg-rose-500/25" @click="removeItem(i)">Remove</button>
                     </div>
@@ -277,7 +278,13 @@
                       <div class="mt-2 flex items-stretch rounded-lg overflow-hidden bg-slate-800 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700">
                         <span class="shrink-0 px-3 py-2.5 text-slate-400 select-none">$</span>
                         <input x-model.number="it.amount" type="text" inputmode="decimal" @blur="normalizePriceRow(i)" class="flex-1 min-w-0 text-left bg-transparent text-slate-100 placeholder-gray-400 focus:outline-none px-3 py-2.5" />
-                        <span class="shrink-0 px-3 py-2.5 bg-slate-800 text-slate-400 border-l border-slate-700 select-none" x-text="currency"></span>
+                        <select x-model="it.currency" class="shrink-0 px-2 py-2.5 bg-slate-800 text-slate-400 border-l border-slate-700 text-xs focus:outline-none cursor-pointer">
+                          <option value="CAD">CAD</option>
+                          <option value="USD">USD</option>
+                          <option value="EUR">EUR</option>
+                          <option value="GBP">GBP</option>
+                          <option value="AUD">AUD</option>
+                        </select>
                       </div>
                     </label>
                   </div>
