@@ -26,7 +26,7 @@
           <div class="p-6">
     <input type="hidden" id="eb-token" value="{$token}" />
 
-    <section class="mt-6 rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden">
+    <section class="rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden">
       <div class="px-6 py-5 border-b border-slate-800">
         <h2 class="text-lg font-medium text-slate-100">Products</h2>
       </div>
