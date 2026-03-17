@@ -3,6 +3,8 @@
 use WHMCS\Database\Capsule;
 use PartnerHub\StripeService;
 
+require_once __DIR__ . '/TenantsController.php';
+
 function eb_ph_stripe_onboard(array $vars)
 {
     if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { header('Location: clientarea.php'); exit; }
@@ -63,13 +65,18 @@ function eb_ph_stripe_onboard(array $vars)
 function eb_ph_stripe_setup_intent(array $vars): void
 {
     header('Content-Type: application/json');
+    if (!eb_ph_tenants_require_csrf_or_json_error((string)($_POST['token'] ?? ''))) { return; }
     try {
-        $tenantId = (int)($_POST['tenant_id'] ?? 0);
         $clientId = (int)($_SESSION['uid'] ?? 0);
         $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
+        $tenantPublicId = trim((string)($_POST['tenant_id'] ?? $_POST['customer_id'] ?? ''));
+        $tenant = eb_ph_tenants_find_owned_tenant_by_public_id((int)($msp->id ?? 0), $tenantPublicId);
+        if (!$tenant) {
+            throw new \RuntimeException('tenant');
+        }
         $svc = new StripeService();
         $acct = (string)($msp->stripe_connect_id ?? '');
-        $scus = $svc->ensureStripeCustomerFor($tenantId, $acct ?: null);
+        $scus = $svc->ensureStripeCustomerFor((int)$tenant->id, $acct ?: null);
         $si = $svc->createSetupIntent($scus, $acct ?: null);
         echo json_encode(['status'=>'success','client_secret'=>$si['client_secret'] ?? null,'publishable'=>$svc->getPublishable()]);
         return;
@@ -87,7 +94,19 @@ function eb_ph_stripe_connect_status(array $vars)
     if (!$msp) { header('Location: '.$vars['modulelink'].'&a=ph-tenants-manage'); exit; }
 
     $acctId = (string)($msp->stripe_connect_id ?? '');
-    $status = [ 'hasAccount' => false, 'chargesEnabled' => false, 'payoutsEnabled' => false, 'currentlyDue' => [] ];
+    $status = [
+        'hasAccount' => false,
+        'chargesEnabled' => false,
+        'payoutsEnabled' => false,
+        'detailsSubmitted' => false,
+        'currentlyDue' => [],
+        'pastDue' => [],
+        'pendingVerification' => [],
+        'eventuallyDue' => [],
+        'disabledReason' => '',
+        'actionRequired' => false,
+        'underReview' => false,
+    ];
     if ($acctId !== '') {
         $svc = new StripeService();
         try {
@@ -96,10 +115,40 @@ function eb_ph_stripe_connect_status(array $vars)
             $status['chargesEnabled'] = (bool)($acct['charges_enabled'] ?? false);
             // Stripe Accounts API may omit payouts_enabled; fall back to transfers_enabled
             $status['payoutsEnabled'] = (bool)($acct['payouts_enabled'] ?? ($acct['transfers_enabled'] ?? false));
+            $status['detailsSubmitted'] = (bool)($acct['details_submitted'] ?? false);
             $reqs = $acct['requirements'] ?? [];
             if (is_array($reqs) && isset($reqs['currently_due']) && is_array($reqs['currently_due'])) {
                 $status['currentlyDue'] = $reqs['currently_due'];
             }
+            if (is_array($reqs) && isset($reqs['past_due']) && is_array($reqs['past_due'])) {
+                $status['pastDue'] = $reqs['past_due'];
+            }
+            if (is_array($reqs) && isset($reqs['pending_verification']) && is_array($reqs['pending_verification'])) {
+                $status['pendingVerification'] = $reqs['pending_verification'];
+            }
+            if (is_array($reqs) && isset($reqs['eventually_due']) && is_array($reqs['eventually_due'])) {
+                $status['eventuallyDue'] = $reqs['eventually_due'];
+            }
+            if (is_array($reqs)) {
+                $status['disabledReason'] = (string)($reqs['disabled_reason'] ?? '');
+            }
+
+            // Use explicit requirement buckets to decide whether user action is needed now.
+            $status['actionRequired'] = (count($status['currentlyDue']) > 0) || (count($status['pastDue']) > 0);
+            // If no actionable requirement is currently due but capabilities are not fully enabled,
+            // Stripe may still be reviewing the account or payouts setup.
+            $status['underReview'] = !$status['actionRequired'] && (!$status['chargesEnabled'] || !$status['payoutsEnabled']);
+
+            // Persist last successful Stripe status sync so the UI "Last checked" is current on refresh.
+            try {
+                $checkedAt = date('Y-m-d H:i:s');
+                if (Capsule::schema()->hasColumn('eb_msp_accounts', 'last_verification_check')) {
+                    Capsule::table('eb_msp_accounts')
+                        ->where('id', (int)$msp->id)
+                        ->update(['last_verification_check' => $checkedAt]);
+                    $msp->last_verification_check = $checkedAt;
+                }
+            } catch (\Throwable $___) { /* ignore */ }
         } catch (\Throwable $__) { /* ignore */ }
     }
 

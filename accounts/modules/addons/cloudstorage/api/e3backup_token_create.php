@@ -23,6 +23,21 @@ if (!$ca->isLoggedIn()) {
 }
 $clientId = $ca->getUserID();
 
+$csrfToken = (string) ($_POST['token'] ?? '');
+if ($csrfToken === '' || !function_exists('check_token')) {
+    (new JsonResponse(['status' => 'fail', 'message' => 'CSRF validation failed.'], 400))->send();
+    exit;
+}
+try {
+    if (!check_token('plain', $csrfToken)) {
+        (new JsonResponse(['status' => 'fail', 'message' => 'CSRF validation failed.'], 400))->send();
+        exit;
+    }
+} catch (\Throwable $e) {
+    (new JsonResponse(['status' => 'fail', 'message' => 'CSRF validation failed.'], 400))->send();
+    exit;
+}
+
 $isMsp = MspController::isMspClient($clientId);
 
 // Ensure Cloud Storage product is active before allowing token creation.
@@ -40,22 +55,25 @@ if (($ensureProduct['status'] ?? 'fail') !== 'success') {
 }
 
 $description = trim($_POST['description'] ?? '');
-$tenantId = isset($_POST['tenant_id']) && $_POST['tenant_id'] !== '' ? (int)$_POST['tenant_id'] : null;
+$tenantPublicId = trim((string) ($_POST['tenant_id'] ?? ''));
+$tenantId = null;
 $maxUses = (int)($_POST['max_uses'] ?? 0);
 $expiresIn = $_POST['expires_in'] ?? '';
 
 // Validate tenant ownership if specified
-if ($tenantId !== null && $tenantId > 0) {
+if ($tenantPublicId !== '' && $tenantPublicId !== 'direct') {
     if (!$isMsp) {
         (new JsonResponse(['status' => 'fail', 'message' => 'Only MSPs can scope tokens to tenants'], 403))->send();
         exit;
     }
-    
-    $tenant = MspController::getTenant($tenantId, $clientId);
+
+    $tenant = MspController::getTenantByPublicId($tenantPublicId, $clientId);
     if (!$tenant) {
         (new JsonResponse(['status' => 'fail', 'message' => 'Tenant not found'], 404))->send();
         exit;
     }
+
+    $tenantId = (int) $tenant->id;
 }
 
 $bootstrapOwner = CloudBackupBootstrapService::ensureBackupOwnerUser((int) $clientId);

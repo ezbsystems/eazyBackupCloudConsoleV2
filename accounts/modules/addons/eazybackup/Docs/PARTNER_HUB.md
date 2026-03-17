@@ -23,9 +23,19 @@ Tenant Portal sections: Billing, Services, Cloud Storage
 
 Tenant v2 rollout keeps Partner Hub aligned with canonical tenant ownership and cloud storage routing contracts.
 
+### Tenant Public ID Contract
+- Canonical tenants now expose `public_id` to the browser and legacy cloudstorage/e3 surfaces during the rollout.
+- `public_id` is the only tenant identifier exposed in client-visible routes, forms, and JSON payloads.
+- `eb_tenants.id` remains internal-only for joins, persistence, and server-side resolution.
+- Legacy `a=ph-client` and `a=ph-subscriptions` entry points are compatibility redirects only: they may accept an old numeric tenant reference inbound, but they must immediately canonicalize to `a=ph-tenant&id=<public_id>` before rendering a page.
+- Release verification for this cutover must include:
+  - `php accounts/modules/addons/eazybackup/bin/dev/partnerhub_tenant_public_id_contract_test.php`
+  - `php accounts/modules/addons/eazybackup/bin/dev/partnerhub_tenant_detail_tab_routes_contract_test.php`
+  - `php accounts/modules/addons/eazybackup/bin/dev/partnerhub_billing_payment_new_client_picker_contract_test.php`
+
 ### 2026-03-05 Restructuring Completion Update
 - Partner Hub canonical route is now `a=ph-tenants-manage`.
-- Legacy `a=ph-clients` now issues a redirect to `a=ph-tenants-manage` for compatibility.
+- Legacy `a=ph-clients` is a compatibility-only entry point that immediately redirects to `a=ph-tenants-manage`, preserving supported query flags like onboarding return markers.
 - Legacy UI artifact removed: `templates/whitelabel/clients.tpl`.
 - Cloudstorage runtime tenant resolution now prefers canonical `eb_tenants` / `eb_tenant_users` through table-selection helpers in `lib/Client/MspController.php`; legacy `s3_backup_*` tables are fallback only when canonical tables are unavailable.
 
@@ -85,7 +95,7 @@ Tenant v2 rollout keeps Partner Hub aligned with canonical tenant ownership and 
 - Interpretation: environment readiness blocker (schema prereq missing); do not run `--apply` until schema migration is complete in target environment.
 
 ### Customer Tenants list and create modal (2026-03-03)
-- Route: `index.php?m=eazybackup&a=ph-tenants` (Partner Hub → Customer Tenants).
+- Route: `index.php?m=eazybackup&a=ph-tenants-manage` (Partner Hub → Customer Tenants).
 - Template: `templates/whitelabel/tenants.tpl`. List page uses vaults-style table (entries/columns/search/sort/pagination). Create flow is a modal with full-e3 intake (organization, contact, billing address, optional portal admin block). Client-side validation and inline errors for required name/contact email/contact name, country format, and manual admin password length. Backend create path persists contact and address fields to `eb_tenants` (canonical tenant table); portal admin user creation from the modal is deferred (form fields collected only). See `docs/plans/2026-03-03-tenant-list-modal-design.md` for design and implementation notes.
 
 ## Partner Hub Overview (Dashboard)
@@ -359,7 +369,9 @@ Note: Email template tables are also created/maintained automatically by `eazyba
 ### Routing (new)
 
 - Client area (Partner Hub):
-  - `a=ph-clients`, `a=ph-client`, `a=ph-plans`, `a=ph-subscriptions`.
+  - Canonical list route: `a=ph-tenants-manage`
+  - Legacy compatibility redirects: `a=ph-clients`, `a=ph-client`, `a=ph-subscriptions`
+  - Additional routes: `a=ph-plans`
   - `a=ph-stripe-onboard`, `a=ph-stripe-setupintent`, `a=ph-stripe-subscribe`, `a=ph-stripe-webhook` (POST).
   - `a=ph-invoices-refresh` (per-tenant JSON refresh), `a=ph-services-link` (service ↔ Comet user, tenant_id), `a=ph-usage-push` (usage ledger by tenant_id + usage record).
   - `a=ph-client-profile-update` (tenant profile save: updates `eb_tenants` contact/address fields).
@@ -525,7 +537,7 @@ Reference: Get started with Connect embedded components — `https://docs.stripe
 - Route: `a=ph-stripe-onboard` builds an Account Link (Express onboarding/resume).
 - URL safety
   - We normalize the return/refresh base URL to an absolute `https` origin using `systemsslurl` → `systemurl` → request host; logs the chosen base to Activity Log for diagnostics.
-  - Return URL: `...&a=ph-clients&onboard_success=1`; Refresh URL: `...&a=ph-clients&onboard_refresh=1`.
+  - Return URL: `...&a=ph-tenants-manage&onboard_success=1`; Refresh URL: `...&a=ph-tenants-manage&onboard_refresh=1`.
 - Post‑return client area callouts (Clients page)
   - Success (green): onboarding complete, with links to Connect & Status and Manage Account.
   - Refresh (neutral): user can resume onboarding or go to Manage.

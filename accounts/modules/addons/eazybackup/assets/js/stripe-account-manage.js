@@ -95,8 +95,37 @@
         return;
       }
 
-      // Prefer Connect.js embedded component per Stripe docs
+      // Prefer Connect.js embedded component per Stripe docs (dark theme for client area)
       var embeddedMounted = false;
+      var darkAppearance = {
+        variables: {
+          colorPrimary: '#0ea5e9',
+          colorText: '#e2e8f0',
+          colorBackground: '#0f172a',
+          buttonSecondaryColorBackground: '#1e293b',
+          buttonSecondaryColorText: '#e2e8f0',
+          colorSecondaryText: '#94a3b8',
+          actionSecondaryColorText: '#e2e8f0',
+          actionSecondaryTextDecorationColor: '#e2e8f0',
+          colorBorder: '#334155',
+          colorDanger: '#f43f5e',
+          badgeNeutralColorBackground: '#1e293b',
+          badgeNeutralColorBorder: '#334155',
+          badgeNeutralColorText: '#94a3b8',
+          badgeSuccessColorBackground: '#14532d',
+          badgeSuccessColorBorder: '#166534',
+          badgeSuccessColorText: '#4ade80',
+          badgeWarningColorBackground: '#431407',
+          badgeWarningColorBorder: '#7c2d12',
+          badgeWarningColorText: '#fb923c',
+          badgeDangerColorBackground: '#450a0a',
+          badgeDangerColorBorder: '#991b1b',
+          badgeDangerColorText: '#f87171',
+          offsetBackgroundColor: '#1e293b',
+          formBackgroundColor: '#0f172a',
+          overlayBackdropColor: 'rgba(0,0,0,0.6)',
+        },
+      };
       try {
         await ensureConnectJs();
         if (window.StripeConnect && typeof window.StripeConnect.init === 'function') {
@@ -110,6 +139,7 @@
               } catch(_) {}
               throw new Error('Failed to refresh account session');
             },
+            appearance: darkAppearance,
           });
           // Try likely component names
           var comp = null;

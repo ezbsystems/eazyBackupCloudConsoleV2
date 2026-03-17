@@ -53,17 +53,21 @@ $email = strtolower(trim((string) ($_POST['email'] ?? '')));
 $password = (string) ($_POST['password'] ?? '');
 $passwordConfirm = (string) ($_POST['password_confirm'] ?? '');
 $status = strtolower(trim((string) ($_POST['status'] ?? 'active')));
-$tenantIdRaw = $_POST['tenant_id'] ?? '';
+$tenantIdRaw = trim((string) ($_POST['tenant_id'] ?? ''));
 $tenantId = null;
+$errors = [];
 $canonicalTenantProvided = array_key_exists('canonical_tenant_id', $_POST);
-$canonicalTenantIdRaw = $_POST['canonical_tenant_id'] ?? null;
+$canonicalTenantIdRaw = trim((string) ($_POST['canonical_tenant_id'] ?? ''));
 $canonicalTenantId = null;
 
-if ($tenantIdRaw !== null && $tenantIdRaw !== '' && (int) $tenantIdRaw > 0) {
-    $tenantId = (int) $tenantIdRaw;
+if ($tenantIdRaw !== '' && $tenantIdRaw !== 'direct') {
+    $tenant = MspController::getTenantByPublicId($tenantIdRaw, $clientId);
+    if ($tenant) {
+        $tenantId = (int) $tenant->id;
+    } else {
+        $errors['tenant_id'] = 'Invalid tenant selection.';
+    }
 }
-
-$errors = [];
 
 if ($canonicalTenantProvided) {
     if ($canonicalTenantIdRaw === '' || $canonicalTenantIdRaw === 'direct') {
@@ -71,10 +75,13 @@ if ($canonicalTenantProvided) {
         if ($isMsp) {
             $tenantId = null;
         }
-    } elseif ((int) $canonicalTenantIdRaw > 0) {
-        $canonicalTenantId = (int) $canonicalTenantIdRaw;
     } else {
-        $errors['canonical_tenant_id'] = 'Invalid canonical tenant selection.';
+        $canonicalTenant = eb_tenant_storage_links_resolve_tenant_for_client_by_public_id((int) $clientId, $canonicalTenantIdRaw);
+        if ($canonicalTenant) {
+            $canonicalTenantId = (int) $canonicalTenant->id;
+        } else {
+            $errors['canonical_tenant_id'] = 'Invalid canonical tenant selection.';
+        }
     }
 }
 

@@ -101,11 +101,11 @@
                                         @click="form.tenant_id=''; isOpen=false;">
                                     Direct (No Tenant)
                                 </button>
-                                <template x-for="tenant in filteredAssignTenants" :key="'assign-' + tenant.id">
+                                <template x-for="tenant in filteredAssignTenants" :key="'assign-' + (tenant.public_id || tenant.id)">
                                     <button type="button"
                                             class="w-full px-4 py-2 text-left text-sm transition"
-                                            :class="String(form.tenant_id) === String(tenant.id) ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
-                                            @click="form.tenant_id = String(tenant.id); isOpen=false;">
+                                            :class="String(form.tenant_id) === String(tenant.public_id || tenant.id) ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
+                                            @click="form.tenant_id = String(tenant.public_id || tenant.id); isOpen=false;">
                                         <span x-text="tenant.name"></span>
                                     </button>
                                 </template>

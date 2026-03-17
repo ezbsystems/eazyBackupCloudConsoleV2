@@ -76,11 +76,11 @@ return (function () {
 			GROUP BY BINARY username
 		) v ON BINARY v.username = u.username
 		LEFT JOIN (
-			SELECT username, COUNT(*) AS device_count
+			SELECT username, client_id, COUNT(*) AS device_count
 			FROM comet_devices
 			WHERE revoked_at IS NULL AND username IS NOT NULL AND username<>''
-			GROUP BY BINARY username
-		) d ON BINARY d.username = u.username
+			GROUP BY BINARY username, client_id
+		) d ON BINARY d.username = u.username AND d.client_id = h.userid
 		LEFT JOIN (
 			SELECT username,
 			       -- Disk Image is billed per device (not per protected item). Count distinct devices that have >=1 windisk item.
@@ -212,6 +212,7 @@ return (function () {
 			FROM tblhostingconfigoptions hco
 			GROUP BY hco.relid
 		) b ON b.service_id = h.id
+		LEFT JOIN eb_billing_flags bf ON bf.service_id = h.id
 	";
 
 $where = [];
@@ -278,6 +279,7 @@ $where[] = 'p.id <> 48';
 		. 'COALESCE(gr.vmw_grace_active,0) AS vmw_grace_active, gr.vmw_grace_earliest, '
 		. 'COALESCE(gr.pmx_grace_active,0) AS pmx_grace_active, gr.pmx_grace_earliest, '
 		. 'COALESCE(gr.m365_grace_active,0) AS m365_grace_active, gr.m365_grace_earliest, '
+		. 'COALESCE(bf.storage_exempt,0) AS storage_exempt, COALESCE(bf.devices_exempt,0) AS devices_exempt, '
 		. 'h.id AS service_id, h.userid AS user_id '
 		. $sqlBase . ' '
 		. $whereSql . ' '
@@ -309,6 +311,9 @@ $productRows = DB::select($productsSql, $baseParams);
 			return $delta > 0 ? (int)ceil($delta / 86400) : 0;
 		};
 
+		$storageExempt = (int)($r->storage_exempt ?? 0);
+		$devicesExempt = (int)($r->devices_exempt ?? 0);
+
 		$devUsed = (int)$r->device_count;
 		$devBilled = (int)$r->device_units;
 		$productId = (int)$r->product_id;
@@ -325,6 +330,13 @@ $productRows = DB::select($productsSql, $baseParams);
 		$devGraceDaysLeft = $devGraceCovered > 0 ? $daysLeft($r->device_grace_earliest ?? null) : 0;
 		// Never flag device upgrades for these product IDs
 		if ($productId === 52 || $productId === 57 || $productId === 53 || $productId === 54) {
+			$devDelta = 0;
+			$devGraceCovered = 0;
+			$devDueNow = 0;
+			$devGraceDaysLeft = 0;
+		}
+		// Per-service billing flag: device billing exempt
+		if ($devicesExempt) {
 			$devDelta = 0;
 			$devGraceCovered = 0;
 			$devDueNow = 0;
@@ -373,20 +385,22 @@ $productRows = DB::select($productsSql, $baseParams);
 		$m365DueNow = max(0, $m365Delta - $m365GraceCovered);
 		$m365GraceDaysLeft = $m365GraceCovered > 0 ? $daysLeft($r->m365_grace_earliest ?? null) : 0;
 		$rowsOut[] = [
-			'product_id'     => (int)$r->product_id,
-			'product_name'   => (string)$r->product_name,
-			'username'       => (string)$r->username,
-			'total_bytes'    => (int)$r->total_bytes,
-			'total_bytes_hr' => $humanBytes($r->total_bytes),
-			'device_count'   => (int)$r->device_count,
-			'hv_count'       => (int)$r->hv_count,
+			'product_id'       => (int)$r->product_id,
+			'product_name'     => (string)$r->product_name,
+			'username'         => (string)$r->username,
+			'total_bytes'      => (int)$r->total_bytes,
+			'total_bytes_hr'   => $humanBytes($r->total_bytes),
+			'device_count'     => (int)$r->device_count,
+			'hv_count'         => (int)$r->hv_count,
 			// Expose the billing-relevant Disk Image usage (capped by device count) so UI badges don't mislead.
-			'di_count'       => (int)$diUsed,
-			'm365_count'     => (int)$r->m365_count,
-			'vmw_count'      => (int)$r->vmw_count,
-			'pmx_count'      => (int)($r->pmx_count ?? 0),
-			'storage_units'  => (int)$r->storage_units,
-			'device_units'   => (int)$r->device_units,
+			'di_count'         => (int)$diUsed,
+			'm365_count'       => (int)$r->m365_count,
+			'vmw_count'        => (int)$r->vmw_count,
+			'pmx_count'        => (int)($r->pmx_count ?? 0),
+			'storage_units'    => (int)$r->storage_units,
+			'device_units'     => (int)$r->device_units,
+			'storage_exempt'   => $storageExempt,
+			'devices_exempt'   => $devicesExempt,
 			'hv_units'       => (int)$r->hv_units,
 			'di_units'       => (int)$r->di_units,
 			'm365_units'     => (int)$r->m365_units,

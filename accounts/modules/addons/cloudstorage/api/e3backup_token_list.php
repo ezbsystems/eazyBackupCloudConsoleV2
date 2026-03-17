@@ -29,7 +29,7 @@ $query = Capsule::table('s3_agent_enrollment_tokens as t')
         't.id',
         't.token',
         't.description',
-        't.tenant_id',
+        't.tenant_id as storage_tenant_id',
         't.max_uses',
         't.use_count',
         't.expires_at',
@@ -47,6 +47,10 @@ if ($isMsp) {
             $join->where('tn.client_id', '=', (int)$clientId);
         }
     })->addSelect('tn.name as tenant_name');
+
+    if ($tenantTable === 'eb_tenants' && MspController::hasTenantPublicIds()) {
+        $query->addSelect(Capsule::raw('tn.public_id as tenant_id'));
+    }
 }
 
 $tokens = $query->orderByDesc('t.created_at')->get();
@@ -57,6 +61,7 @@ foreach ($tokens as $token) {
     $expired = $token->expires_at && new DateTime($token->expires_at) < $now;
     $maxedOut = $token->max_uses > 0 && $token->use_count >= $token->max_uses;
     $token->is_valid = !$token->revoked_at && !$expired && !$maxedOut;
+    unset($token->storage_tenant_id);
 }
 
 (new JsonResponse(['status' => 'success', 'tokens' => $tokens], 200))->send();

@@ -98,7 +98,7 @@
                             <tr><td :colspan="visibleColumnCount()" class="px-4 py-8 text-center text-slate-400">No tenants found.</td></tr>
                         </template>
                         <template x-for="tenant in pagedTenants()" :key="'tenant-row-' + tenant.id">
-                            <tr class="hover:bg-slate-800/50 cursor-pointer" @click="goToDetail(tenant.id)">
+                            <tr class="hover:bg-slate-800/50 cursor-pointer" @click="goToDetail(tenant.public_id || tenant.id)">
                                 <td class="px-4 py-3">
                                     <div class="font-medium text-slate-100" x-text="tenant.name"></div>
                                     <div class="text-xs text-slate-500 font-mono" x-text="tenant.slug"></div>

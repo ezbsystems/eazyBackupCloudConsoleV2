@@ -83,20 +83,38 @@ class Comet {
                 );
             }
 
-            // NEW REVOCATION LOGIC:
-            // Find any local device records that were NOT in the full list from Comet,
+            // Revoke any local device records that were NOT in the full list from Comet,
             // and mark them as revoked with the current timestamp.
             if (!empty($allUpstreamDeviceHashes)) {
                 Capsule::table('comet_devices')
                     ->where('client_id', $clientId)
                     ->where('username', $canonicalUsername)
                     ->whereNotIn('hash', $allUpstreamDeviceHashes)
-                    ->whereNull('revoked_at') // Only update devices that are not already revoked
+                    ->whereNull('revoked_at')
                     ->update([
-                        'is_active' => 0, // A revoked device cannot be active
+                        'is_active' => 0,
                         'revoked_at' => date('Y-m-d H:i:s')
                     ]);
             }
+
+            // Revoke orphaned device records: same username but a different client_id
+            // whose hosting is no longer active. This handles cases where a service was
+            // transferred between WHMCS clients or a hosting was cancelled/deleted.
+            Capsule::table('comet_devices')
+                ->where('username', $canonicalUsername)
+                ->where('client_id', '<>', $clientId)
+                ->whereNull('revoked_at')
+                ->whereNotExists(function ($q) use ($canonicalUsername) {
+                    $q->select(Capsule::raw(1))
+                      ->from('tblhosting')
+                      ->whereRaw('tblhosting.userid = comet_devices.client_id')
+                      ->whereRaw("BINARY tblhosting.username = ?", [$canonicalUsername])
+                      ->where('tblhosting.domainstatus', 'Active');
+                })
+                ->update([
+                    'is_active' => 0,
+                    'revoked_at' => date('Y-m-d H:i:s'),
+                ]);
 
         } catch (\Exception $e) {
             // Error logging can be re-enabled here if needed.

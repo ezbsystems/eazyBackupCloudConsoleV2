@@ -25,9 +25,9 @@ if (!$isMspClient) {
     header('Location: index.php?m=cloudstorage&page=e3backup');
     exit;
 }
-$tenantId = isset($_GET['tenant_id']) ? (int)$_GET['tenant_id'] : 0;
-if ($tenantId > 0) {
-    header('Location: index.php?m=eazybackup&a=ph-tenant-members&id=' . $tenantId . '&legacy=e3-tenant-members');
+$tenantPublicId = MspController::resolveTenantPublicIdForClient((string) ($_GET['tenant_id'] ?? ''), $loggedInUserId) ?? '';
+if ($tenantPublicId !== '') {
+    header('Location: index.php?m=eazybackup&a=ph-tenant-members&id=' . rawurlencode($tenantPublicId) . '&legacy=e3-tenant-members');
     exit;
 }
 

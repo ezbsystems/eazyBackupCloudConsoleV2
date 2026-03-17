@@ -215,8 +215,8 @@
       closeAssign(){ hideEl('eb-assign-plan-modal'); if(this._dirty) location.reload(); },
 
       onTenantChange(){
-        var tid = parseInt(this.assignData.tenant_id) || 0;
-        this.filteredCometAccounts = cometAccounts.filter(function(a){ return parseInt(a.tenant_id) === tid; });
+        var tenantPublicId = String(this.assignData.tenant_id || '');
+        this.filteredCometAccounts = cometAccounts.filter(function(a){ return String(a.tenant_public_id || '') === tenantPublicId; });
         this.assignData.comet_user_id = this.filteredCometAccounts.length === 1 ? this.filteredCometAccounts[0].comet_username : '';
       },
 

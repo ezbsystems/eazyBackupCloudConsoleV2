@@ -30,9 +30,6 @@
 {/literal}
 
 <div class="min-h-screen bg-slate-950 text-gray-100 overflow-x-hidden">
-    <!-- Global nebula background -->
-    {* <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div> *}
-
     <div class="container mx-auto max-w-full px-4 pb-8 pt-6">
         <!-- App Shell with Sidebar -->
         <div x-data="{ 

@@ -42,7 +42,8 @@ if (!MspController::isMspClient($clientId)) {
     exit;
 }
 
-$tenantId = (int)($_POST['tenant_id'] ?? 0);
+$tenantPublicId = trim((string) ($_POST['tenant_id'] ?? ''));
+$tenantId = 0;
 
 // Basic tenant info
 $name = trim($_POST['name'] ?? '');
@@ -59,17 +60,18 @@ $state = isset($_POST['state']) ? trim($_POST['state']) : null;
 $postalCode = isset($_POST['postal_code']) ? trim($_POST['postal_code']) : null;
 $country = isset($_POST['country']) ? trim($_POST['country']) : null;
 
-if ($tenantId <= 0) {
+if ($tenantPublicId === '') {
     (new JsonResponse(['status' => 'fail', 'message' => 'Invalid tenant ID'], 400))->send();
     exit;
 }
 
-// Verify ownership
-$tenant = MspController::getTenant($tenantId, $clientId);
+// Resolve browser-facing tenant public ID at the boundary.
+$tenant = MspController::getTenantByPublicId($tenantPublicId, $clientId);
 if (!$tenant) {
     (new JsonResponse(['status' => 'fail', 'message' => 'Tenant not found'], 404))->send();
     exit;
 }
+$tenantId = (int) $tenant->id;
 
 $update = ['updated_at' => Capsule::raw('NOW()')];
 

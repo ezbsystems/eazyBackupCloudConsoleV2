@@ -482,6 +482,70 @@ function eb_require_index(
     throw new \RuntimeException("Required index {$indexName} on {$table} is still missing after creation attempt.");
 }
 
+function eb_backfill_missing_canonical_tenant_public_ids(): void
+{
+    $schema = Capsule::schema();
+    if (!$schema->hasTable('eb_tenants') || !$schema->hasColumn('eb_tenants', 'public_id')) {
+        return;
+    }
+
+    $rows = Capsule::table('eb_tenants')
+        ->whereNull('public_id')
+        ->orWhere('public_id', '')
+        ->orderBy('id', 'asc')
+        ->get(['id']);
+
+    foreach ($rows as $row) {
+        $tenantId = (int)($row->id ?? 0);
+        if ($tenantId <= 0) {
+            continue;
+        }
+
+        for ($attempt = 0; $attempt < 5; $attempt++) {
+            $publicId = eazybackup_generate_ulid();
+
+            try {
+                $updated = Capsule::table('eb_tenants')
+                    ->where('id', $tenantId)
+                    ->where(function ($query) {
+                        $query->whereNull('public_id')
+                            ->orWhere('public_id', '');
+                    })
+                    ->update(['public_id' => $publicId]);
+                if ((int)$updated > 0) {
+                    break;
+                }
+            } catch (\Throwable $__) {
+                // Retry on unique collisions or concurrent writes.
+            }
+        }
+    }
+
+    $remainingRows = Capsule::table('eb_tenants')
+        ->where(function ($query) {
+            $query->whereNull('public_id')
+                ->orWhere('public_id', '');
+        })
+        ->orderBy('id', 'asc')
+        ->limit(10)
+        ->get(['id']);
+
+    if (!$remainingRows->isEmpty()) {
+        $remainingIds = [];
+        foreach ($remainingRows as $row) {
+            $tenantId = (int)($row->id ?? 0);
+            if ($tenantId > 0) {
+                $remainingIds[] = (string)$tenantId;
+            }
+        }
+
+        throw new \RuntimeException(
+            'Canonical tenant public_id backfill incomplete'
+            . ($remainingIds !== [] ? ' for tenant IDs: ' . implode(', ', $remainingIds) : '')
+        );
+    }
+}
+
 function eb_dedupe_tenant_storage_links_by_storage_identifier(): void {
     $schema = Capsule::schema();
     if (!$schema->hasTable('eb_tenant_storage_links')) {
@@ -1154,6 +1218,18 @@ function eazybackup_migrate_schema(): void {
         // Public ULID used for customer-facing URLs
         eb_add_column_if_missing('eb_whitelabel_tenants','public_id', fn(Blueprint $t)=>$t->char('public_id',26)->nullable());
         eb_add_index_if_missing('eb_whitelabel_tenants', "CREATE UNIQUE INDEX IF NOT EXISTS idx_eb_wl_tenants_public_id ON eb_whitelabel_tenants (public_id)");
+    }
+
+    if ($schema->hasTable('eb_tenants')) {
+        eb_add_column_if_missing('eb_tenants','public_id', fn(Blueprint $t)=>$t->char('public_id',26)->nullable());
+        eb_require_index(
+            'eb_tenants',
+            'idx_eb_tenants_public_id',
+            'CREATE UNIQUE INDEX idx_eb_tenants_public_id ON eb_tenants (public_id)',
+            ['public_id'],
+            true
+        );
+        eb_backfill_missing_canonical_tenant_public_ids();
     }
 
     // --- eb_whitelabel_builds ---
@@ -4099,17 +4175,32 @@ function eazybackup_clientarea(array $vars)
         require_once __DIR__ . '/pages/partnerhub/OverviewController.php';
         return eb_ph_overview_index($vars);
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-clients') {
-        require_once __DIR__ . '/pages/partnerhub/ClientsController.php';
-        return eb_ph_clients_index($vars);
+        require_once __DIR__ . '/pages/partnerhub/TenantsController.php';
+        return eb_ph_tenants_legacy_clients_redirect($vars);
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenants-manage') {
         require_once __DIR__ . '/pages/partnerhub/TenantsController.php';
         return eb_ph_tenants_management_entry($vars);
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenants') {
         require_once __DIR__ . '/pages/partnerhub/TenantsController.php';
-        return eb_ph_tenants_index($vars);
+        return eb_ph_tenants_redirect($vars);
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenant') {
         require_once __DIR__ . '/pages/partnerhub/TenantsController.php';
         return eb_ph_tenant_detail($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenant-members') {
+        require_once __DIR__ . '/pages/partnerhub/TenantMembersController.php';
+        return eb_ph_tenant_members($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenant-storage-users') {
+        require_once __DIR__ . '/pages/partnerhub/TenantsController.php';
+        return eb_ph_tenant_storage_users($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenant-billing') {
+        require_once __DIR__ . '/pages/partnerhub/TenantBillingController.php';
+        return eb_ph_tenant_billing($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenant-whitelabel') {
+        require_once __DIR__ . '/pages/partnerhub/TenantWhiteLabelController.php';
+        return eb_ph_tenant_whitelabel($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenant-whitelabel-enable') {
+        require_once __DIR__ . '/pages/partnerhub/TenantWhiteLabelController.php';
+        eb_ph_tenant_whitelabel_enable($vars); exit;
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenant-storage-links') {
         require_once __DIR__ . '/pages/partnerhub/TenantStorageLinksController.php';
         eb_ph_tenant_storage_links_list($vars); exit;
@@ -4167,6 +4258,9 @@ function eazybackup_clientarea(array $vars)
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-billing-create-payment') {
         require_once __DIR__ . '/pages/partnerhub/BillingController.php';
         eb_ph_billing_create_payment($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-billing-payment-methods') {
+        require_once __DIR__ . '/pages/partnerhub/BillingController.php';
+        eb_ph_billing_payment_methods($vars); exit;
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-money-payouts') {
         require_once __DIR__ . '/pages/partnerhub/BillingController.php';
         return eb_ph_money_payouts($vars);

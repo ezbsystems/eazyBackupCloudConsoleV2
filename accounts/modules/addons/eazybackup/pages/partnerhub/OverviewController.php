@@ -169,7 +169,7 @@ function eb_ph_overview_index(array $vars)
                 ->where('status', '!=', 'deleted')
                 ->orderBy('created_at', 'desc')
                 ->limit(5)
-                ->get(['id', 'name', 'slug', 'contact_email', 'status', 'created_at']);
+                ->get(['id', 'public_id', 'name', 'slug', 'contact_email', 'status', 'created_at']);
             foreach ($rows as $row) {
                 $recentTenants[] = (array)$row;
             }

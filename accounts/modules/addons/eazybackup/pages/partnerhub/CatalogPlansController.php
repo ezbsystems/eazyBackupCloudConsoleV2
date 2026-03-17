@@ -33,7 +33,7 @@ function eb_ph_catalog_plans_index(array $vars)
         ->orderBy('p.name','asc')
         ->get(['p.*']);
 
-    $tenants = Capsule::table('eb_tenants')->where('msp_id',(int)$msp->id)->orderBy('id','desc')->limit(200)->get();
+    $tenants = Capsule::table('eb_tenants')->where('msp_id',(int)$msp->id)->where('status', '!=', 'deleted')->orderBy('id','desc')->limit(200)->get(['public_id', 'name']);
 
     // Subscription counts per plan
     $subCounts = [];
@@ -53,7 +53,8 @@ function eb_ph_catalog_plans_index(array $vars)
         $ca = Capsule::table('eb_tenant_comet_accounts as tca')
             ->join('eb_tenants as t','t.id','=','tca.tenant_id')
             ->where('t.msp_id',(int)$msp->id)
-            ->get(['tca.tenant_id','tca.comet_username','tca.comet_server','t.name as tenant_name']);
+            ->where('t.status','!=','deleted')
+            ->get(['t.public_id as tenant_public_id', 'tca.comet_username', 'tca.comet_server', 't.name as tenant_name']);
         foreach ($ca as $r) { $cometAccounts[] = (array)$r; }
     } catch (\Throwable $__) {}
 
@@ -86,6 +87,20 @@ function eb_ph_catalog_plans_index(array $vars)
             'token' => function_exists('generate_token') ? generate_token('plain') : '',
         ],
     ];
+}
+
+function eb_ph_catalog_plans_resolve_tenant_for_msp(int $mspId, string $tenantPublicId)
+{
+    $tenantPublicId = trim($tenantPublicId);
+    if ($tenantPublicId === '') {
+        return null;
+    }
+
+    return Capsule::table('eb_tenants')
+        ->where('public_id', $tenantPublicId)
+        ->where('msp_id', $mspId)
+        ->where('status', '!=', 'deleted')
+        ->first(['id', 'public_id', 'name']);
 }
 
 function eb_ph_plan_template_create(array $vars): void
@@ -166,15 +181,29 @@ function eb_ph_plan_assign(array $vars): void
 
     try { if (!Capsule::schema()->hasTable('eb_plan_instances') && function_exists('eazybackup_migrate_schema')) { @eazybackup_migrate_schema(); } } catch (\Throwable $__) {}
 
-    $tenantId = (int)($_POST['tenant_id'] ?? 0);
+    $tenantPublicId = trim((string)($_POST['tenant_id'] ?? ''));
     $cometUserId = (string)($_POST['comet_user_id'] ?? '');
     $planId = (int)($_POST['plan_id'] ?? 0);
     $feePercent = isset($_POST['application_fee_percent']) && $_POST['application_fee_percent'] !== '' ? (float)$_POST['application_fee_percent'] : null;
 
-    if ($tenantId <= 0 || $planId <= 0 || $cometUserId === '') { echo json_encode(['status'=>'error','message'=>'invalid']); return; }
+    if ($tenantPublicId === '' || $planId <= 0 || $cometUserId === '') { echo json_encode(['status'=>'error','message'=>'invalid']); return; }
 
     $plan = Capsule::table('eb_plan_templates')->where('id',$planId)->first();
     if (!$plan || (int)$plan->msp_id !== (int)$msp->id) { echo json_encode(['status'=>'error','message'=>'scope']); return; }
+    $tenant = eb_ph_catalog_plans_resolve_tenant_for_msp((int)$msp->id, $tenantPublicId);
+    if (!$tenant) { echo json_encode(['status'=>'error','message'=>'tenant_not_found']); return; }
+    $tenantId = (int)$tenant->id;
+    $ownedCometAccount = Capsule::table('eb_tenant_comet_accounts as tca')
+        ->join('eb_tenants as t', 't.id', '=', 'tca.tenant_id')
+        ->where('t.id', $tenantId)
+        ->where('t.msp_id', (int)$msp->id)
+        ->where('t.status', '!=', 'deleted')
+        ->where(function ($query) use ($cometUserId) {
+            $query->where('tca.comet_user_id', $cometUserId)
+                ->orWhere('tca.comet_username', $cometUserId);
+        })
+        ->first(['tca.id']);
+    if (!$ownedCometAccount) { echo json_encode(['status'=>'error','message'=>'comet_user_not_found']); return; }
     $components = Capsule::table('eb_plan_components')->where('plan_id',$planId)->get();
     if (count($components) === 0) { echo json_encode(['status'=>'error','message'=>'no_components']); return; }
 
@@ -250,11 +279,11 @@ function eb_ph_plan_assign(array $vars): void
                 }
             }
         }
-        try { if (function_exists('logModuleCall')) { @logModuleCall('eazybackup','ph-plan-assign',[ 'tenant_id'=>$tenantId,'plan_id'=>$planId,'items'=>count($items) ],[ 'subscription_id'=>$subId,'plan_instance_id'=>$instanceId ]); } } catch (\Throwable $__) {}
+        try { if (function_exists('logModuleCall')) { @logModuleCall('eazybackup','ph-plan-assign',[ 'tenant_public_id'=>$tenantPublicId,'plan_id'=>$planId,'items'=>count($items) ],[ 'subscription_id'=>$subId,'plan_instance_id'=>$instanceId ]); } } catch (\Throwable $__) {}
         echo json_encode(['status'=>'success','subscription_id'=>$subId,'plan_instance_id'=>$instanceId]);
         return;
     } catch (\Throwable $e) {
-        try { if (function_exists('logModuleCall')) { @logModuleCall('eazybackup','ph-plan-assign-error',[ 'tenant_id'=>$tenantId,'plan_id'=>$planId ], $e->getMessage()); } } catch (\Throwable $__) {}
+        try { if (function_exists('logModuleCall')) { @logModuleCall('eazybackup','ph-plan-assign-error',[ 'tenant_public_id'=>$tenantPublicId,'plan_id'=>$planId ], $e->getMessage()); } } catch (\Throwable $__) {}
         echo json_encode(['status'=>'error','message'=>$e->getMessage()]);
         return;
     }
@@ -435,7 +464,7 @@ function eb_ph_plan_subscriptions_list(array $vars): void
         ->when($planId > 0, function($q) use ($planId){ $q->where('pi.plan_id',$planId); })
         ->orderBy('pi.created_at','desc')
         ->limit(200)
-        ->get(['pi.*','t.name as tenant_name','t.company as tenant_company']);
+        ->get(['pi.id', 'pi.comet_user_id', 'pi.status', 'pi.created_at', 't.name as tenant_name', 't.public_id as tenant_public_id']);
     $arr = [];
     foreach ($instances as $r) { $arr[] = (array)$r; }
     echo json_encode(['status'=>'success','subscriptions'=>$arr]);

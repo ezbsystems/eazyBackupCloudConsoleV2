@@ -22,19 +22,19 @@
       <div class="flex">
         {include file="modules/addons/eazybackup/templates/whitelabel/partials/sidebar_partner_hub.tpl" ebPhSidebarPage='overview'}
         <main class="flex-1 min-w-0 overflow-x-auto">
-          <div class="border-b border-slate-800/60 px-6 py-4">
+          <div class="border-b border-white/10 px-6 py-4">
             <h1 class="text-2xl font-semibold tracking-tight">Partner Hub</h1>
           </div>
           <div class="p-6 space-y-6">
 
             {* --- 1. Setup Wizard --- *}
             {if !isset($setup.all_complete) || !$setup.all_complete}
-            <section class="rounded-2xl bg-[rgb(var(--bg-card))] shadow-xl ring-1 ring-white/10 overflow-hidden">
-              <div class="px-6 py-4 border-b border-slate-800/60">
-                <h2 class="text-lg font-medium">Get started</h2>
-                <p class="text-sm text-white/70 mt-1">Complete these steps to set up your Partner Hub.</p>
+            <section class="rounded-2xl bg-slate-900 shadow-xl ring-1 ring-white/10 overflow-hidden">
+              <div class="px-6 py-4 border-b border-white/10">
+                <h2 class="text-white text-lg font-medium">Get started</h2>
+                <p class="text-sm text-white/80 mt-1">Complete these steps to set up your Partner Hub.</p>
               </div>
-              <ul class="divide-y divide-slate-800/60">
+              <ul class="divide-y divide-white/10">
                 <li class="flex items-center gap-4 px-6 py-4">
                   {if isset($setup.stripe_connected) && $setup.stripe_connected}
                     <span class="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-400"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg></span>
@@ -86,7 +86,7 @@
                       <span class="font-medium">Add a Tenant</span>
                       <p class="text-sm text-white/70">Create your first customer tenant.</p>
                     </div>
-                    <a href="{$modulelink}&a=ph-tenants" class="rounded-xl px-4 py-2 text-sm font-medium ring-1 ring-white/20 text-white hover:bg-white/5">Add Tenant</a>
+                    <a href="{$modulelink}&a=ph-tenants-manage" class="rounded-xl px-4 py-2 text-sm font-medium ring-1 ring-white/20 text-white hover:bg-white/5">Add Tenant</a>
                   {/if}
                 </li>
                 <li class="flex items-center gap-4 px-6 py-4">
@@ -142,7 +142,7 @@
             {/if}
 
             {* --- 2. Stripe Connect Status --- *}
-            <section class="rounded-2xl bg-[rgb(var(--bg-card))] shadow-xl ring-1 ring-white/10 px-6 py-4 flex flex-wrap items-center justify-between gap-4">
+            <section class="rounded-2xl bg-slate-900 shadow-xl ring-1 ring-white/10 px-6 py-4 flex flex-wrap items-center justify-between gap-4">
               <div class="flex items-center gap-3">
                 <span class="font-medium">Stripe Connect</span>
                 {if isset($connect_id_masked) && $connect_id_masked neq ''}
@@ -165,30 +165,30 @@
                   {if isset($connect_due) && $connect_due|@count > 0}
                     <a href="{$modulelink}&a=ph-stripe-connect" class="rounded-lg px-3 py-1 text-sm font-medium bg-amber-500/20 text-amber-200 ring-1 ring-amber-400/30">Action Required</a>
                   {/if}
-                  <a href="{$modulelink}&a=ph-stripe-connect" class="text-sm text-white/70 hover:text-white">Connect &amp; Status</a>
+                  <a href="{$modulelink}&a=ph-stripe-connect" class="rounded-xl px-4 py-2 text-sm font-medium ring-1 ring-white/20 text-white hover:bg-white/5">Connect &amp; Status</a>
                 {/if}
               </div>
             </section>
 
             {* --- 3. Key Metrics Grid --- *}
             <section class="grid grid-cols-2 md:grid-cols-3 gap-4">
-              <a href="{$modulelink}&a=ph-tenants-manage" class="rounded-2xl bg-[rgb(var(--bg-card))] shadow-xl ring-1 ring-white/10 p-6 hover:ring-white/20 transition-shadow">
+              <a href="{$modulelink}&a=ph-tenants-manage" class="rounded-2xl bg-slate-900 shadow-xl ring-1 ring-white/10 p-6 hover:ring-white/20 transition-shadow">
                 <div class="text-3xl font-semibold tabular-nums">{$counts.tenants|default:0}</div>
                 <div class="text-sm text-white/70 mt-1">Tenants</div>
               </a>
-              <a href="{$modulelink}&a=ph-billing-subscriptions" class="rounded-2xl bg-[rgb(var(--bg-card))] shadow-xl ring-1 ring-white/10 p-6 hover:ring-white/20 transition-shadow">
+              <a href="{$modulelink}&a=ph-billing-subscriptions" class="rounded-2xl bg-slate-900 shadow-xl ring-1 ring-white/10 p-6 hover:ring-white/20 transition-shadow">
                 <div class="text-3xl font-semibold tabular-nums">{$counts.active_subscriptions|default:0}</div>
                 <div class="text-sm text-white/70 mt-1">Active Subscriptions</div>
               </a>
-              <a href="{$modulelink}&a=ph-catalog-products" class="rounded-2xl bg-[rgb(var(--bg-card))] shadow-xl ring-1 ring-white/10 p-6 hover:ring-white/20 transition-shadow">
+              <a href="{$modulelink}&a=ph-catalog-products" class="rounded-2xl bg-slate-900 shadow-xl ring-1 ring-white/10 p-6 hover:ring-white/20 transition-shadow">
                 <div class="text-3xl font-semibold tabular-nums">{$counts.products|default:0}</div>
                 <div class="text-sm text-white/70 mt-1">Products</div>
               </a>
-              <a href="{$modulelink}&a=ph-catalog-plans" class="rounded-2xl bg-[rgb(var(--bg-card))] shadow-xl ring-1 ring-white/10 p-6 hover:ring-white/20 transition-shadow">
+              <a href="{$modulelink}&a=ph-catalog-plans" class="rounded-2xl bg-slate-900 shadow-xl ring-1 ring-white/10 p-6 hover:ring-white/20 transition-shadow">
                 <div class="text-3xl font-semibold tabular-nums">{$counts.plans|default:0}</div>
                 <div class="text-sm text-white/70 mt-1">Plans</div>
               </a>
-              <a href="{$modulelink}&a=ph-signup-approvals" class="rounded-2xl bg-[rgb(var(--bg-card))] shadow-xl ring-1 ring-white/10 p-6 hover:ring-white/20 transition-shadow {if isset($counts.pending_approvals) && $counts.pending_approvals > 0}ring-2 ring-amber-400/50{/if}">
+              <a href="{$modulelink}&a=ph-signup-approvals" class="rounded-2xl bg-slate-900 shadow-xl ring-1 ring-white/10 p-6 hover:ring-white/20 transition-shadow {if isset($counts.pending_approvals) && $counts.pending_approvals > 0}ring-2 ring-amber-400/50{/if}">
                 <div class="text-3xl font-semibold tabular-nums flex items-center gap-2">
                   {$counts.pending_approvals|default:0}
                   {if isset($counts.pending_approvals) && $counts.pending_approvals > 0}
@@ -197,7 +197,7 @@
                 </div>
                 <div class="text-sm text-white/70 mt-1">Pending Approvals</div>
               </a>
-              <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=whitelabel-branding" class="rounded-2xl bg-[rgb(var(--bg-card))] shadow-xl ring-1 ring-white/10 p-6 hover:ring-white/20 transition-shadow">
+              <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=whitelabel-branding" class="rounded-2xl bg-slate-900 shadow-xl ring-1 ring-white/10 p-6 hover:ring-white/20 transition-shadow">
                 <div class="text-3xl font-semibold tabular-nums">{$counts.whitelabel_tenants|default:0}</div>
                 <div class="text-sm text-white/70 mt-1">White-Label Tenants</div>
               </a>
@@ -205,8 +205,8 @@
 
             {* --- 4. Billing Snapshot --- *}
             {if isset($billing) && $billing !== null}
-            <section class="rounded-2xl bg-[rgb(var(--bg-card))] shadow-xl ring-1 ring-white/10 overflow-hidden">
-              <div class="px-6 py-4 border-b border-slate-800/60 flex items-center justify-between">
+            <section class="rounded-2xl bg-slate-900 shadow-xl ring-1 ring-white/10 overflow-hidden">
+              <div class="px-6 py-4 border-b border-white/10 flex items-center justify-between">
                 <h2 class="text-lg font-medium">Billing</h2>
                 <a href="{$modulelink}&a=ph-billing-invoices" class="text-sm text-white/70 hover:text-white">View All</a>
               </div>
@@ -232,15 +232,15 @@
               </div>
             </section>
             {elseif isset($billing_unavailable) && $billing_unavailable}
-            <section class="rounded-2xl bg-[rgb(var(--bg-card))] shadow-xl ring-1 ring-white/10 px-6 py-4">
+            <section class="rounded-2xl bg-slate-900 shadow-xl ring-1 ring-white/10 px-6 py-4">
               <p class="text-sm text-white/70">Billing data temporarily unavailable.</p>
             </section>
             {/if}
 
             {* --- 5. Recent Tenants + Quick Actions --- *}
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <section class="rounded-2xl bg-[rgb(var(--bg-card))] shadow-xl ring-1 ring-white/10 overflow-hidden">
-                <div class="px-6 py-4 border-b border-slate-800/60 flex items-center justify-between">
+              <section class="rounded-2xl bg-slate-900 shadow-xl ring-1 ring-white/10 overflow-hidden">
+                <div class="px-6 py-4 border-b border-white/10 flex items-center justify-between">
                   <h2 class="text-lg font-medium">Recent Tenants</h2>
                   <a href="{$modulelink}&a=ph-tenants-manage" class="text-sm text-white/70 hover:text-white">View All</a>
                 </div>
@@ -249,7 +249,7 @@
                     <ul class="divide-y divide-slate-800/60">
                       {foreach $recent_tenants as $tenant}
                         <li class="py-3 flex items-center justify-between gap-4">
-                          <a href="{$modulelink}&a=ph-tenant&id={$tenant.id}" class="font-medium text-white hover:underline">{$tenant.name|default:'—'|escape}</a>
+                          <a href="{$modulelink}&a=ph-tenant&id={$tenant.public_id|escape:'url'}" class="font-medium text-white hover:underline">{$tenant.name|default:'—'|escape}</a>
                           <span class="flex items-center gap-2">
                             {if isset($tenant.status) && $tenant.status eq 'active'}
                               <span class="rounded px-2 py-0.5 text-xs font-medium bg-emerald-500/20 text-emerald-200">active</span>
@@ -262,16 +262,16 @@
                       {/foreach}
                     </ul>
                   {else}
-                    <p class="text-sm text-white/70 py-4">No tenants yet. <a href="{$modulelink}&a=ph-tenants" class="text-white underline">Create your first tenant</a>.</p>
+                    <p class="text-sm text-white/70 py-4">No tenants yet. <a href="{$modulelink}&a=ph-tenants-manage" class="text-white underline">Create your first tenant</a>.</p>
                   {/if}
                 </div>
               </section>
-              <section class="rounded-2xl bg-[rgb(var(--bg-card))] shadow-xl ring-1 ring-white/10 overflow-hidden">
-                <div class="px-6 py-4 border-b border-slate-800/60">
+              <section class="rounded-2xl bg-slate-900 shadow-xl ring-1 ring-white/10 overflow-hidden">
+                <div class="px-6 py-4 border-b border-white/10">
                   <h2 class="text-lg font-medium">Quick Actions</h2>
                 </div>
                 <div class="p-4 flex flex-col gap-2">
-                  <a href="{$modulelink}&a=ph-tenants" class="rounded-xl px-4 py-3 font-medium text-white bg-[rgb(var(--accent))] hover:bg-[rgb(var(--accent))]/90 text-center">Create New Tenant</a>
+                  <a href="{$modulelink}&a=ph-tenants-manage" class="rounded-xl px-4 py-3 font-medium text-white bg-[rgb(var(--accent))] hover:bg-[rgb(var(--accent))]/90 text-center">Create New Tenant</a>
                   <a href="{$modulelink}&a=ph-catalog-products" class="rounded-xl px-4 py-3 font-medium text-white/80 ring-1 ring-white/20 hover:bg-white/5 text-center">Create Product</a>
                   <a href="{$modulelink}&a=ph-stripe-manage" class="rounded-xl px-4 py-3 font-medium text-white/80 ring-1 ring-white/20 hover:bg-white/5 text-center">Manage Stripe</a>
                   <a href="{$modulelink}&a=ph-signup-approvals" class="rounded-xl px-4 py-3 font-medium text-white/80 ring-1 ring-white/20 hover:bg-white/5 text-center flex items-center justify-center gap-2">

@@ -22,7 +22,8 @@ $clientId = $ca->getUserID();
 $isMsp = MspController::isMspClient($clientId);
 $tenantTable = MspController::getTenantTableName();
 
-$tenantFilter = $_GET['tenant_id'] ?? null;
+$tenantFilterRaw = isset($_GET['tenant_id']) ? trim((string) $_GET['tenant_id']) : null;
+$tenantFilter = null;
 $agentFilter = isset($_GET['agent_uuid']) ? trim((string) $_GET['agent_uuid']) : null;
 $engineFilter = $_GET['engine'] ?? null;
 $search = trim((string) ($_GET['search'] ?? ''));
@@ -35,6 +36,15 @@ if ($limit <= 0 || $limit > 500) {
 $offset = isset($_GET['offset']) ? (int) $_GET['offset'] : 0;
 if ($offset < 0) {
     $offset = 0;
+}
+
+if ($tenantFilterRaw !== null && $tenantFilterRaw !== '' && $tenantFilterRaw !== 'direct') {
+    $tenant = MspController::getTenantByPublicId($tenantFilterRaw, $clientId);
+    if (!$tenant) {
+        (new JsonResponse(['status' => 'fail', 'message' => 'Tenant not found'], 404))->send();
+        exit;
+    }
+    $tenantFilter = (int) $tenant->id;
 }
 
 function parseDateBound(string $raw, bool $endOfDay): ?string
@@ -145,6 +155,10 @@ try {
 
     $select = [];
     foreach ($restorePointColumns as $col) {
+        if ($col === 'tenant_id') {
+            $select[] = 'rp.tenant_id as storage_tenant_id';
+            continue;
+        }
         $exists = $hasColumnMap
             ? isset($restorePointColumnMap[$col])
             : Capsule::schema()->hasColumn('s3_cloudbackup_restore_points', $col);
@@ -153,6 +167,7 @@ try {
 
     $query = Capsule::table('s3_cloudbackup_restore_points as rp')
         ->where('rp.client_id', $clientId);
+    $tenantDeletedSelect = Capsule::raw('0 as tenant_deleted');
 
     $hasAgentsTable = Capsule::schema()->hasTable('s3_cloudbackup_agents');
     if ($hasAgentsTable) {
@@ -187,17 +202,27 @@ try {
                 }
             });
             $select[] = 't.name as tenant_name';
+            if ($tenantTable === 'eb_tenants' && MspController::hasTenantPublicIds()) {
+                $select[] = Capsule::raw('CASE WHEN t.id IS NULL THEN NULL ELSE t.public_id END as tenant_id');
+                $tenantDeletedSelect = Capsule::raw('CASE WHEN rp.tenant_id IS NOT NULL AND t.id IS NULL THEN 1 ELSE 0 END as tenant_deleted');
+            } else {
+                $select[] = 'rp.tenant_id';
+            }
         } else {
             $select[] = Capsule::raw('NULL as tenant_name');
+            $select[] = 'rp.tenant_id';
         }
-        if ($tenantFilter !== null) {
-            if ($tenantFilter === 'direct') {
+        if ($tenantFilterRaw !== null) {
+            if ($tenantFilterRaw === 'direct') {
                 $query->whereNull('rp.tenant_id');
-            } elseif ((int) $tenantFilter > 0) {
-                $query->where('rp.tenant_id', (int) $tenantFilter);
+            } elseif ($tenantFilter !== null) {
+                $query->where('rp.tenant_id', $tenantFilter);
             }
         }
+    } else {
+        $select[] = 'rp.tenant_id';
     }
+    $select[] = $tenantDeletedSelect;
 
     $query->select($select);
 
@@ -244,6 +269,11 @@ try {
         $classification = classifyRestorePointRestorable($point);
         $point->is_restorable = (bool) $classification['is_restorable'];
         $point->non_restorable_reason = (string) $classification['reason'];
+        $point->tenant_deleted = (bool) ($point->tenant_deleted ?? false);
+        if ($point->tenant_deleted && (!isset($point->tenant_name) || trim((string) $point->tenant_name) === '')) {
+            $point->tenant_name = 'Deleted tenant';
+        }
+        unset($point->storage_tenant_id, $point->agent_tenant_id);
     }
 
     (new JsonResponse([
@@ -256,6 +286,7 @@ try {
     logModuleCall('cloudstorage', 'e3backup_restore_points_list', [
         'client_id' => $clientId,
         'tenant_filter' => $tenantFilter,
+        'tenant_filter_raw' => $tenantFilterRaw,
         'agent_filter' => $agentFilter,
         'engine_filter' => $engineFilter,
         'from_date' => $fromDateRaw,

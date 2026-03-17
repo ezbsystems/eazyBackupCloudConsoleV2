@@ -33,18 +33,20 @@ $sortMap = [
 ];
 $orderByExpr = $sortMap[$sort] ?? $sortMap['username'];
 
-// Base SQL: roll up devices by username (active, not revoked), map to WHMCS service and product
+// Base SQL: roll up devices by (username, client_id) (active, not revoked),
+// then join to tblhosting on BOTH username AND userid to avoid counting
+// orphaned device records left behind by transferred/cancelled services.
 $sqlBase = "
 	FROM (
-		SELECT BINARY username AS username,
+		SELECT BINARY username AS username, client_id,
 		       COUNT(*) AS device_count
 			FROM comet_devices
 			WHERE revoked_at IS NULL
 			  AND username IS NOT NULL AND username <> ''
-		GROUP BY BINARY username
+		GROUP BY BINARY username, client_id
 	) v
 		JOIN tblhosting h
-		  ON BINARY h.username = v.username AND h.domainstatus = 'Active'
+		  ON BINARY h.username = v.username AND h.userid = v.client_id AND h.domainstatus = 'Active'
 	JOIN tblproducts p
 	  ON p.id = h.packageid
 	LEFT JOIN (
@@ -54,6 +56,7 @@ $sqlBase = "
 		GROUP BY hco.relid
 	) b
 	  ON b.service_id = h.id
+	LEFT JOIN eb_billing_flags bf ON bf.service_id = h.id
 ";
 
 $where = [];
@@ -79,7 +82,7 @@ $totalRows = (int) (DB::selectOne($countSql, $params)->c ?? 0);
 $offset = ($page - 1) * $perPage;
 
 // Main data query
-$selectSql = 'SELECT p.id AS product_id, p.name AS product_name, v.username, v.device_count, COALESCE(b.billed_units,0) AS billed_units, h.id AS service_id, h.userid AS user_id '
+$selectSql = 'SELECT p.id AS product_id, p.name AS product_name, v.username, v.device_count, COALESCE(b.billed_units,0) AS billed_units, h.id AS service_id, h.userid AS user_id, COALESCE(bf.devices_exempt,0) AS devices_exempt '
 	. $sqlBase . ' '
 	. $whereSql . ' '
 	. 'ORDER BY ' . $orderByExpr . ' ' . $dir . ' '
@@ -95,13 +98,14 @@ $products = array_map(function ($r) { return ['id' => (int)$r->product_id, 'name
 $rowsOut = [];
 foreach ($rows as $r) {
 	$rowsOut[] = [
-		'product_id'    => (int)$r->product_id,
-		'product_name'  => (string)$r->product_name,
-		'username'      => (string)$r->username,
-		'device_count'  => (int)$r->device_count,
-		'billed_units'  => (int)$r->billed_units,
-		'service_id'    => (int)$r->service_id,
-		'user_id'       => (int)$r->user_id,
+		'product_id'     => (int)$r->product_id,
+		'product_name'   => (string)$r->product_name,
+		'username'       => (string)$r->username,
+		'device_count'   => (int)$r->device_count,
+		'billed_units'   => (int)$r->billed_units,
+		'service_id'     => (int)$r->service_id,
+		'user_id'        => (int)$r->user_id,
+		'devices_exempt' => (int)($r->devices_exempt ?? 0),
 	];
 }
 

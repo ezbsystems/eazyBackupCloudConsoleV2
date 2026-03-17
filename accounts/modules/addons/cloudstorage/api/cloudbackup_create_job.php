@@ -125,6 +125,18 @@ if (!$ca->isLoggedIn()) {
     respondJson(['status' => 'fail', 'message' => 'Session timeout.'], 200);
 }
 
+$csrfToken = (string) ($_POST['token'] ?? '');
+if ($csrfToken === '' || !function_exists('check_token')) {
+    respondJson(['status' => 'fail', 'message' => 'CSRF validation failed.'], 400);
+}
+try {
+    if (!check_token('plain', $csrfToken)) {
+        respondJson(['status' => 'fail', 'message' => 'CSRF validation failed.'], 400);
+    }
+} catch (\Throwable $e) {
+    respondJson(['status' => 'fail', 'message' => 'CSRF validation failed.'], 400);
+}
+
 $packageId = ProductConfig::$E3_PRODUCT_ID;
 $loggedInUserId = $ca->getUserID();
 
@@ -151,7 +163,16 @@ if (empty($encryptionKey)) {
 $sourceType = $_POST['source_type'] ?? '';
 $name = trim($_POST['name'] ?? '');
 $sourceDisplayName = trim($_POST['source_display_name'] ?? '');
-$tenantId = isset($_POST['tenant_id']) ? (int) $_POST['tenant_id'] : 0;
+$tenantIdRaw = trim((string) ($_POST['tenant_id'] ?? ''));
+$tenantId = 0;
+
+if ($tenantIdRaw !== '' && $tenantIdRaw !== 'direct') {
+    $tenant = MspController::getTenantByPublicId($tenantIdRaw, $loggedInUserId);
+    if (!$tenant) {
+        respondJson(['status' => 'fail', 'message' => 'Tenant not found.'], 200);
+    }
+    $tenantId = (int) $tenant->id;
+}
 
 if ($name === '') {
     respondJson(['status' => 'fail', 'message' => 'Job name is required.'], 200);

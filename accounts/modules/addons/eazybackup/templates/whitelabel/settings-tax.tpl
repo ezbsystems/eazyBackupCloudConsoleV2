@@ -7,21 +7,21 @@
       <div class="flex">
         {include file="modules/addons/eazybackup/templates/whitelabel/partials/sidebar_partner_hub.tpl" ebPhSidebarPage='settings-tax'}
         <main class="flex-1 min-w-0 overflow-x-auto">
-    <div class="w-full max-w-full min-w-0 overflow-hidden rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
-    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-3">
-      <div>
-        <h2 class="text-2xl font-semibold text-white">Settings — Tax &amp; Invoicing</h2>
-        <p class="text-xs text-slate-400 mt-1">Tax mode, registrations, and invoice presentation.</p>
-      </div>
-      <div class="flex items-center gap-3 text-sm shrink-0">
-        <button type="button" id="tax-btn-preview" class="inline-flex items-center px-4 py-2 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-800">Preview sample invoice</button>
-        <button type="button" id="tax-btn-save" class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-semibold text-white bg-sky-600 hover:bg-sky-500 disabled:opacity-50" disabled>Save</button>
-      </div>
-    </div>
+          <div class="flex items-center justify-between border-b border-slate-800/60 px-6 py-4">
+            <div>
+              <h1 class="text-2xl font-semibold tracking-tight">Settings - Tax &amp; Invoicing</h1>
+              <p class="mt-1 text-sm text-slate-400">Tax mode, registrations, and invoice presentation.</p>
+            </div>
+            <div class="flex items-center gap-3 text-sm shrink-0">
+              <button type="button" id="tax-btn-preview" class="inline-flex items-center rounded-xl px-4 py-2 text-slate-300 ring-1 ring-white/10 hover:bg-white/5">Preview sample invoice</button>
+              <button type="button" id="tax-btn-save" class="inline-flex items-center rounded-xl px-4 py-2 text-sm font-semibold text-white bg-[rgb(var(--accent))] hover:bg-[rgb(var(--accent))]/90 disabled:opacity-50" disabled>Save</button>
+            </div>
+          </div>
+          <div class="p-6">
 
     <input type="hidden" id="eb-token" value="{$token}" />
 
-    <section class="mt-6 rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden">
+    <section class="rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden">
       <div class="px-6 py-5 border-b border-slate-800"><h2 class="text-lg font-medium text-slate-100">Tax Mode</h2></div>
       <div class="px-6 py-6 space-y-4">
         <label class="flex items-center gap-3 text-sm text-slate-300"><input id="tx-stripe-tax" type="checkbox" class="rounded border-slate-600 bg-slate-800 text-sky-600 focus:ring-sky-500" {if $settings.tax_mode.stripe_tax_enabled}checked{/if}> Enable Stripe Tax</label>
@@ -138,7 +138,7 @@
         <div class="px-6 pb-6 flex justify-end"><button type="button" class="rounded-lg px-4 py-2 border border-slate-600 text-slate-300 hover:bg-slate-800" data-tx-prev-close>Close</button></div>
       </div>
     </div>
-    </div>
+          </div>
         </main>
       </div>
     </div>

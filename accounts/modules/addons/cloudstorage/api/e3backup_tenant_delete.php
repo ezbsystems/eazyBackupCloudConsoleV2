@@ -43,22 +43,24 @@ if (!MspController::isMspClient($clientId)) {
     exit;
 }
 
-$tenantId = (int)($_POST['tenant_id'] ?? 0);
+$tenantPublicId = trim((string) ($_POST['tenant_id'] ?? ''));
+$tenantId = 0;
 
-if ($tenantId <= 0) {
+if ($tenantPublicId === '') {
     (new JsonResponse(['status' => 'fail', 'message' => 'Invalid tenant ID'], 400))->send();
     exit;
 }
 
-// Verify ownership
-$tenant = MspController::getTenant($tenantId, $clientId);
+// Resolve browser-facing tenant public ID at the boundary.
+$tenant = MspController::getTenantByPublicId($tenantPublicId, $clientId);
 if (!$tenant) {
     (new JsonResponse(['status' => 'fail', 'message' => 'Tenant not found'], 404))->send();
     exit;
 }
+$tenantId = (int) $tenant->id;
 
 // Soft delete: mark as deleted, disable all users, unassign agents
-Capsule::transaction(function () use ($tenantId, $tenantTable, $tenantUsersTable) {
+Capsule::transaction(function () use ($clientId, $tenantId, $tenantTable, $tenantUsersTable) {
     // Mark tenant as deleted
     Capsule::table($tenantTable)
         ->where('id', $tenantId)
@@ -74,6 +76,17 @@ Capsule::transaction(function () use ($tenantId, $tenantTable, $tenantUsersTable
             'status' => 'disabled',
             'updated_at' => Capsule::raw('NOW()'),
         ]);
+
+    // Disable backup-user login accounts scoped to this tenant as well.
+    if (Capsule::schema()->hasTable('s3_backup_users')) {
+        Capsule::table('s3_backup_users')
+            ->where('tenant_id', $tenantId)
+            ->where('client_id', $clientId)
+            ->update([
+                'status' => 'disabled',
+                'updated_at' => Capsule::raw('NOW()'),
+            ]);
+    }
     
     // Unassign agents from tenant (set tenant_id to NULL)
     Capsule::table('s3_cloudbackup_agents')

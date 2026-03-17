@@ -27,14 +27,29 @@ if (!MspController::isMspClient($clientId)) {
     exit;
 }
 
-$tenantId = isset($_GET['tenant_id']) ? (int)$_GET['tenant_id'] : null;
+$tenantIdRaw = isset($_GET['tenant_id']) ? trim((string) $_GET['tenant_id']) : null;
+$tenantId = null;
+if ($tenantIdRaw !== null && $tenantIdRaw !== '' && $tenantIdRaw !== 'direct') {
+    $tenant = MspController::getTenantByPublicId($tenantIdRaw, $clientId);
+    if (!$tenant) {
+        (new JsonResponse(['status' => 'fail', 'message' => 'Tenant not found'], 404))->send();
+        exit;
+    }
+    $tenantId = (int) $tenant->id;
+}
+
+$tenantSelect = 'u.tenant_id';
+if ($tenantTable === 'eb_tenants' && MspController::hasTenantPublicIds()) {
+    $tenantSelect = Capsule::raw('t.public_id as tenant_id');
+}
 
 $query = Capsule::table($tenantUsersTable . ' as u')
     ->join($tenantTable . ' as t', 'u.tenant_id', '=', 't.id')
     ->where('t.status', '!=', 'deleted')
     ->select([
         'u.id',
-        'u.tenant_id',
+        'u.tenant_id as storage_tenant_id',
+        $tenantSelect,
         'u.name',
         'u.email',
         'u.role',
@@ -50,6 +65,10 @@ if ($tenantId !== null && $tenantId > 0) {
 }
 
 $users = $query->orderBy('t.name')->orderBy('u.name')->get();
+
+foreach ($users as $user) {
+    unset($user->storage_tenant_id);
+}
 
 (new JsonResponse(['status' => 'success', 'users' => $users], 200))->send();
 exit;

@@ -136,11 +136,11 @@
                                                         @click="updateForm.tenant_id=''; isOpen=false;">
                                                     Direct (No Tenant)
                                                 </button>
-                                                <template x-for="tenant in filteredTenants" :key="'detail-tenant-' + tenant.id">
+                                                <template x-for="tenant in filteredTenants" :key="'detail-tenant-' + (tenant.public_id || tenant.id)">
                                                     <button type="button"
                                                             class="w-full px-4 py-2 text-left text-sm transition"
-                                                            :class="String(updateForm.tenant_id) === String(tenant.id) ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
-                                                            @click="updateForm.tenant_id = String(tenant.id); isOpen=false;">
+                                                            :class="String(updateForm.tenant_id) === String(tenant.public_id || tenant.id) ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
+                                                            @click="updateForm.tenant_id = String(tenant.public_id || tenant.id); isOpen=false;">
                                                         <span x-text="tenant.name"></span>
                                                     </button>
                                                 </template>
@@ -264,7 +264,8 @@ function backupUserDetailApp() {
             id: {/literal}{$user->id|intval}{literal},
             username: {/literal}{$user->username|@json_encode nofilter}{literal},
             email: {/literal}{$user->email|@json_encode nofilter}{literal},
-            tenant_id: {/literal}{$user->tenant_id|@json_encode nofilter}{literal},
+            tenant_id: {/literal}{$user->tenant_public_id|@json_encode nofilter}{literal},
+            tenant_public_id: {/literal}{$user->tenant_public_id|@json_encode nofilter}{literal},
             tenant_name: {/literal}{$user->tenant_name|@json_encode nofilter}{literal},
             canonical_tenant_id: null,
             canonical_tenant_name: null,
@@ -301,7 +302,7 @@ function backupUserDetailApp() {
 
         updateTenantLabel() {
             if (!this.updateForm.tenant_id) return 'Direct (No Tenant)';
-            const tenant = this.canonicalTenants.find((item) => String(item.id) === String(this.updateForm.tenant_id));
+            const tenant = this.canonicalTenants.find((item) => String(item.public_id || item.id) === String(this.updateForm.tenant_id));
             return tenant ? tenant.name : 'Select tenant';
         },
 

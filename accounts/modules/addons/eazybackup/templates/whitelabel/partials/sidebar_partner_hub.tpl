@@ -1,6 +1,11 @@
 {assign var=ebPhSidebarPage value=$ebPhSidebarPage|default:''}
+{assign var=catalogGroupActive value=$ebPhSidebarPage eq 'catalog-products' || $ebPhSidebarPage eq 'catalog-plans'}
+{assign var=billingGroupActive value=$ebPhSidebarPage eq 'billing-subscriptions' || $ebPhSidebarPage eq 'billing-invoices' || $ebPhSidebarPage eq 'billing-payments'}
+{assign var=moneyGroupActive value=$ebPhSidebarPage eq 'money-payouts' || $ebPhSidebarPage eq 'money-disputes' || $ebPhSidebarPage eq 'money-balance'}
+{assign var=stripeGroupActive value=$ebPhSidebarPage eq 'stripe-connect' || $ebPhSidebarPage eq 'stripe-manage'}
+{assign var=settingsGroupActive value=$ebPhSidebarPage eq 'settings-checkout' || $ebPhSidebarPage eq 'settings-tax' || $ebPhSidebarPage eq 'settings-email'}
 
-<aside :class="sidebarCollapsed ? 'w-20' : 'w-48'" class="relative flex-shrink-0 border-r border-slate-800/80 bg-slate-900/50 rounded-tl-3xl rounded-bl-3xl transition-all duration-300 ease-in-out">
+<aside :class="sidebarCollapsed ? 'w-20' : 'w-56'" class="relative flex-shrink-0 border-r border-slate-800/80 bg-slate-900/50 rounded-tl-3xl rounded-bl-3xl transition-all duration-300 ease-in-out">
     <div class="rounded-tl-3xl flex flex-col h-full">
         <div class="rounded-tl-3xl p-4 border-b border-slate-800/60">
             <div class="flex items-center gap-3" :class="sidebarCollapsed && 'justify-center'">
@@ -51,15 +56,15 @@
             </a>
 
             {if !isset($eb_ph_show_catalog) || $eb_ph_show_catalog}
-            <div x-data="{ catalogOpen: false }" class="space-y-0">
-                <button type="button" @click="catalogOpen = !catalogOpen" class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 w-full text-left {if $ebPhSidebarPage eq 'catalog-products' || $ebPhSidebarPage eq 'catalog-plans'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}" :class="sidebarCollapsed && 'justify-center'" :title="sidebarCollapsed ? 'Catalog' : ''">
+            <div x-data="{ catalogOpen: {if $catalogGroupActive}true{else}false{/if} }" class="space-y-0">
+                <button type="button" @click="catalogOpen = !catalogOpen" class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 w-full text-left text-slate-400 hover:text-white hover:bg-white/5" :class="sidebarCollapsed && 'justify-center'" :title="sidebarCollapsed ? 'Catalog' : ''">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
                         <path stroke-linecap="round" stroke-linejoin="round" d="m21 7.5-9-5.25L3 7.5m18 0-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" />
                     </svg>
                     <span x-show="!sidebarCollapsed" x-transition.opacity class="text-sm font-medium flex-1">Catalog</span>
                     <svg x-show="!sidebarCollapsed" x-transition.opacity class="w-4 h-4 flex-shrink-0 transition-transform duration-200" :class="catalogOpen && 'rotate-180'" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                 </button>
-                <div x-show="catalogOpen" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 -translate-y-1" x-transition:enter-end="opacity-100 translate-y-0" x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100 translate-y-0" x-transition:leave-end="opacity-0 -translate-y-1" class="transition-all duration-300" :class="sidebarCollapsed ? 'px-0' : 'ml-4 pl-4 border-l border-slate-700/50'">
+                <div x-show="catalogOpen" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 -translate-y-1" x-transition:enter-end="opacity-100 translate-y-0" x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100 translate-y-0" x-transition:leave-end="opacity-0 -translate-y-1" class="mt-2 space-y-1 transition-all duration-300" :class="sidebarCollapsed ? 'px-0' : 'ml-4 pl-4 border-l border-slate-700/50'">
                     <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=ph-catalog-products" class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $ebPhSidebarPage eq 'catalog-products'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}" :class="sidebarCollapsed && 'justify-center'" :title="sidebarCollapsed ? 'Products' : ''">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
                             <path stroke-linecap="round" stroke-linejoin="round" d="m21 7.5-9-5.25L3 7.5m18 0-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" />
@@ -77,19 +82,21 @@
             {/if}
 
             {if !isset($eb_ph_show_billing) || $eb_ph_show_billing}
-            <div x-data="{ billingOpen: false }" class="space-y-0">
-                <button type="button" @click="billingOpen = !billingOpen" class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 w-full text-left {if $ebPhSidebarPage eq 'billing-subscriptions' || $ebPhSidebarPage eq 'billing-invoices' || $ebPhSidebarPage eq 'billing-payments'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}" :class="sidebarCollapsed && 'justify-center'" :title="sidebarCollapsed ? 'Billing' : ''">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 6.878V6a2.25 2.25 0 0 1 2.25-2.25h7.5A2.25 2.25 0 0 1 18 6v.878m-12 0c.235-.083.487-.128.75-.128h10.5c.263 0 .515.045.75.128m-12 0A2.25 2.25 0 0 0 4.5 9v.878m13.5-3A2.25 2.25 0 0 1 19.5 9v.878m0 0a2.25 2.25 0 0 1-1.5 2.122v5.256a2.25 2.25 0 0 1-1.5 2.122c-.17.056-.344.18-.443.398L12 21v-3.25" />
+            <div x-data="{ billingOpen: {if $billingGroupActive}true{else}false{/if} }" class="space-y-0">
+                <button type="button" @click="billingOpen = !billingOpen" class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 w-full text-left text-slate-400 hover:text-white hover:bg-white/5" :class="sidebarCollapsed && 'justify-center'" :title="sidebarCollapsed ? 'Billing' : ''">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z" />
                     </svg>
+
                     <span x-show="!sidebarCollapsed" x-transition.opacity class="text-sm font-medium flex-1">Billing</span>
                     <svg x-show="!sidebarCollapsed" x-transition.opacity class="w-4 h-4 flex-shrink-0 transition-transform duration-200" :class="billingOpen && 'rotate-180'" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                 </button>
-                <div x-show="billingOpen" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 -translate-y-1" x-transition:enter-end="opacity-100 translate-y-0" x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100 translate-y-0" x-transition:leave-end="opacity-0 -translate-y-1" class="transition-all duration-300" :class="sidebarCollapsed ? 'px-0' : 'ml-4 pl-4 border-l border-slate-700/50'">
+                <div x-show="billingOpen" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 -translate-y-1" x-transition:enter-end="opacity-100 translate-y-0" x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100 translate-y-0" x-transition:leave-end="opacity-0 -translate-y-1" class="mt-2 space-y-1 transition-all duration-300" :class="sidebarCollapsed ? 'px-0' : 'ml-4 pl-4 border-l border-slate-700/50'">
                     <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=ph-billing-subscriptions" class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $ebPhSidebarPage eq 'billing-subscriptions'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}" :class="sidebarCollapsed && 'justify-center'" :title="sidebarCollapsed ? 'Subscriptions' : ''">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 6.878V6a2.25 2.25 0 0 1 2.25-2.25h7.5A2.25 2.25 0 0 1 18 6v.878m-12 0c.235-.083.487-.128.75-.128h10.5c.263 0 .515.045.75.128m-12 0A2.25 2.25 0 0 0 4.5 9v.878m13.5-3A2.25 2.25 0 0 1 19.5 9v.878m0 0a2.25 2.25 0 0 1-1.5 2.122v5.256a2.25 2.25 0 0 1-1.5 2.122c-.17.056-.344.18-.443.398L12 21v-3.25" />
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
                         </svg>
+                      
                         <span x-show="!sidebarCollapsed" x-transition.opacity class="text-sm font-medium">Subscriptions</span>
                     </a>
                     <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=ph-billing-invoices" class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $ebPhSidebarPage eq 'billing-invoices'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}" :class="sidebarCollapsed && 'justify-center'" :title="sidebarCollapsed ? 'Invoices' : ''">
@@ -109,25 +116,27 @@
             {/if}
 
             {if !isset($eb_ph_show_money) || $eb_ph_show_money}
-            <div x-data="{ moneyOpen: false }" class="space-y-0">
-                <button type="button" @click="moneyOpen = !moneyOpen" class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 w-full text-left {if $ebPhSidebarPage eq 'money-payouts' || $ebPhSidebarPage eq 'money-disputes' || $ebPhSidebarPage eq 'money-balance'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}" :class="sidebarCollapsed && 'justify-center'" :title="sidebarCollapsed ? 'Money' : ''">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818.879.659 1.828 1.24 2.293 1.708.406.292.921.292 1.327 0L12 17.25l8.871-6.515.406-.292.292-.406.292-.921-.292-1.327L12 6Z" />
+            <div x-data="{ moneyOpen: {if $moneyGroupActive}true{else}false{/if} }" class="space-y-0">
+                <button type="button" @click="moneyOpen = !moneyOpen" class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 w-full text-left text-slate-400 hover:text-white hover:bg-white/5" :class="sidebarCollapsed && 'justify-center'" :title="sidebarCollapsed ? 'Money' : ''">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0 0 12 9.75c-2.551 0-5.056.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75Z" />
                     </svg>
                     <span x-show="!sidebarCollapsed" x-transition.opacity class="text-sm font-medium flex-1">Money</span>
                     <svg x-show="!sidebarCollapsed" x-transition.opacity class="w-4 h-4 flex-shrink-0 transition-transform duration-200" :class="moneyOpen && 'rotate-180'" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                 </button>
-                <div x-show="moneyOpen" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 -translate-y-1" x-transition:enter-end="opacity-100 translate-y-0" x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100 translate-y-0" x-transition:leave-end="opacity-0 -translate-y-1" class="transition-all duration-300" :class="sidebarCollapsed ? 'px-0' : 'ml-4 pl-4 border-l border-slate-700/50'">
+                <div x-show="moneyOpen" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 -translate-y-1" x-transition:enter-end="opacity-100 translate-y-0" x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100 translate-y-0" x-transition:leave-end="opacity-0 -translate-y-1" class="mt-2 space-y-1 transition-all duration-300" :class="sidebarCollapsed ? 'px-0' : 'ml-4 pl-4 border-l border-slate-700/50'">
                     <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=ph-money-payouts" class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $ebPhSidebarPage eq 'money-payouts'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}" :class="sidebarCollapsed && 'justify-center'" :title="sidebarCollapsed ? 'Payouts' : ''">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818.879.659 1.828 1.24 2.293 1.708.406.292.921.292 1.327 0L12 17.25l8.871-6.515.406-.292.292-.406.292-.921-.292-1.327L12 6Z" />
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
                         </svg>
+                      
                         <span x-show="!sidebarCollapsed" x-transition.opacity class="text-sm font-medium">Payouts</span>
                     </a>
                     <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=ph-money-disputes" class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $ebPhSidebarPage eq 'money-disputes'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}" :class="sidebarCollapsed && 'justify-center'" :title="sidebarCollapsed ? 'Disputes' : ''">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
                         </svg>
+
                         <span x-show="!sidebarCollapsed" x-transition.opacity class="text-sm font-medium">Disputes</span>
                     </a>
                     <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=ph-money-balance" class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $ebPhSidebarPage eq 'money-balance'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}" :class="sidebarCollapsed && 'justify-center'" :title="sidebarCollapsed ? 'Balance & Reports' : ''">
@@ -141,15 +150,15 @@
             {/if}
 
             {if !isset($eb_ph_show_stripe) || $eb_ph_show_stripe}
-            <div x-data="{ stripeOpen: false }" class="space-y-0">
-                <button type="button" @click="stripeOpen = !stripeOpen" class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 w-full text-left {if $ebPhSidebarPage eq 'stripe-connect' || $ebPhSidebarPage eq 'stripe-manage'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}" :class="sidebarCollapsed && 'justify-center'" :title="sidebarCollapsed ? 'Stripe Account' : ''">
+            <div x-data="{ stripeOpen: {if $stripeGroupActive}true{else}false{/if} }" class="space-y-0">
+                <button type="button" @click="stripeOpen = !stripeOpen" class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 w-full text-left text-slate-400 hover:text-white hover:bg-white/5" :class="sidebarCollapsed && 'justify-center'" :title="sidebarCollapsed ? 'Stripe Account' : ''">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" />
                     </svg>
                     <span x-show="!sidebarCollapsed" x-transition.opacity class="text-sm font-medium flex-1">Stripe Account</span>
                     <svg x-show="!sidebarCollapsed" x-transition.opacity class="w-4 h-4 flex-shrink-0 transition-transform duration-200" :class="stripeOpen && 'rotate-180'" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                 </button>
-                <div x-show="stripeOpen" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 -translate-y-1" x-transition:enter-end="opacity-100 translate-y-0" x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100 translate-y-0" x-transition:leave-end="opacity-0 -translate-y-1" class="transition-all duration-300" :class="sidebarCollapsed ? 'px-0' : 'ml-4 pl-4 border-l border-slate-700/50'">
+                <div x-show="stripeOpen" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 -translate-y-1" x-transition:enter-end="opacity-100 translate-y-0" x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100 translate-y-0" x-transition:leave-end="opacity-0 -translate-y-1" class="mt-2 space-y-1 transition-all duration-300" :class="sidebarCollapsed ? 'px-0' : 'ml-4 pl-4 border-l border-slate-700/50'">
                     <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=ph-stripe-connect" class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $ebPhSidebarPage eq 'stripe-connect'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}" :class="sidebarCollapsed && 'justify-center'" :title="sidebarCollapsed ? 'Connect & Status' : ''">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" />
@@ -167,15 +176,15 @@
             {/if}
 
             {if !isset($eb_ph_show_settings) || $eb_ph_show_settings}
-            <div x-data="{ settingsOpen: false }" class="space-y-0">
-                <button type="button" @click="settingsOpen = !settingsOpen" class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 w-full text-left {if $ebPhSidebarPage eq 'settings-checkout' || $ebPhSidebarPage eq 'settings-tax' || $ebPhSidebarPage eq 'settings-email'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}" :class="sidebarCollapsed && 'justify-center'" :title="sidebarCollapsed ? 'Settings' : ''">
+            <div x-data="{ settingsOpen: {if $settingsGroupActive}true{else}false{/if} }" class="space-y-0">
+                <button type="button" @click="settingsOpen = !settingsOpen" class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 w-full text-left text-slate-400 hover:text-white hover:bg-white/5" :class="sidebarCollapsed && 'justify-center'" :title="sidebarCollapsed ? 'Settings' : ''">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 0 0-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 0 0-16.536-1.84M7.5 14.25 5 10.5h14.25" />
                     </svg>
                     <span x-show="!sidebarCollapsed" x-transition.opacity class="text-sm font-medium flex-1">Settings</span>
                     <svg x-show="!sidebarCollapsed" x-transition.opacity class="w-4 h-4 flex-shrink-0 transition-transform duration-200" :class="settingsOpen && 'rotate-180'" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                 </button>
-                <div x-show="settingsOpen" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 -translate-y-1" x-transition:enter-end="opacity-100 translate-y-0" x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100 translate-y-0" x-transition:leave-end="opacity-0 -translate-y-1" class="transition-all duration-300" :class="sidebarCollapsed ? 'px-0' : 'ml-4 pl-4 border-l border-slate-700/50'">
+                <div x-show="settingsOpen" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 -translate-y-1" x-transition:enter-end="opacity-100 translate-y-0" x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100 translate-y-0" x-transition:leave-end="opacity-0 -translate-y-1" class="mt-2 space-y-1 transition-all duration-300" :class="sidebarCollapsed ? 'px-0' : 'ml-4 pl-4 border-l border-slate-700/50'">
                     <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=ph-settings-checkout" class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $ebPhSidebarPage eq 'settings-checkout'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}" :class="sidebarCollapsed && 'justify-center'" :title="sidebarCollapsed ? 'Checkout & Dunning' : ''">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 0 0-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 0 0-16.536-1.84M7.5 14.25 5 10.5h14.25" />

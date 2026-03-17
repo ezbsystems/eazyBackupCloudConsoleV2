@@ -356,6 +356,30 @@ foreach ($hostingsArray as $hosting) {
     }
 }
 
+// Revoke orphaned device records: devices whose client_id has no active hosting
+// for the associated username. This catches stale records left behind when
+// services are transferred between clients or cancelled/deleted.
+try {
+    $orphanRevoked = Capsule::table('comet_devices')
+        ->whereNull('revoked_at')
+        ->whereNotExists(function ($q) {
+            $q->select(Capsule::raw(1))
+              ->from('tblhosting')
+              ->whereRaw('tblhosting.userid = comet_devices.client_id')
+              ->whereRaw('BINARY tblhosting.username = comet_devices.username')
+              ->where('tblhosting.domainstatus', 'Active');
+        })
+        ->update([
+            'is_active' => 0,
+            'revoked_at' => Capsule::raw('NOW()'),
+        ]);
+    if ($orphanRevoked > 0) {
+        logModuleCall('eazybackup', 'cron OrphanDeviceCleanup', ['revoked' => $orphanRevoked], 'Revoked orphaned device records');
+    }
+} catch (\Throwable $e) {
+    logModuleCall('eazybackup', 'cron OrphanDeviceCleanup error', ['trace' => $e->getTraceAsString()], $e->getMessage());
+}
+
 // 2) Log end time and duration
 $endTime  = time();
 $duration = $endTime - $startTime;
