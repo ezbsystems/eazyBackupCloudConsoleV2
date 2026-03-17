@@ -7,23 +7,22 @@
       <div class="flex">
         {include file="modules/addons/eazybackup/templates/whitelabel/partials/sidebar_partner_hub.tpl" ebPhSidebarPage='settings-checkout'}
         <main class="flex-1 min-w-0 overflow-x-auto">
-    <div class="w-full max-w-full min-w-0 overflow-hidden rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
-    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-3">
-      <div>
-        <h2 class="text-2xl font-semibold text-white">Settings — Checkout &amp; Dunning</h2>
-        <p class="text-xs text-slate-400 mt-1">Configure checkout experience, payment methods, trials, and dunning.</p>
-      </div>
-      <div class="flex items-center gap-3 text-sm shrink-0">
-        <a href="{$modulelink}&a=ph-stripe-manage" class="inline-flex items-center px-4 py-2 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-800">Manage Stripe Account</a>
-        <button type="button" id="sc-btn-save" class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-semibold text-white bg-sky-600 hover:bg-sky-500 disabled:opacity-50" disabled>Save</button>
-      </div>
-    </div>
-
+          <div class="flex items-center justify-between border-b border-slate-800/60 px-6 py-4">
+            <div>
+              <h1 class="text-2xl font-semibold tracking-tight">Settings - Checkout &amp; Dunning</h1>
+              <p class="mt-1 text-sm text-slate-400">Configure checkout experience, payment methods, trials, and dunning.</p>
+            </div>
+            <div class="flex items-center gap-3 text-sm shrink-0">
+              <a href="{$modulelink}&a=ph-stripe-manage" class="inline-flex items-center rounded-xl px-4 py-2 text-slate-300 ring-1 ring-white/10 hover:bg-white/5">Manage Stripe Account</a>
+              <button type="button" id="sc-btn-save" class="inline-flex items-center rounded-xl px-4 py-2 text-sm font-semibold text-white bg-[rgb(var(--accent))] hover:bg-[rgb(var(--accent))]/90 disabled:opacity-50" disabled>Save</button>
+            </div>
+          </div>
+          <div class="p-6">
     {assign var=capCards value=$capabilities.cards|default:1}
     {assign var=capBank value=$capabilities.bank_debits|default:0}
     <input type="hidden" id="eb-token" value="{$token}" />
 
-    <section class="mt-6 rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden">
+    <section class="rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden">
       <div class="px-6 py-5 border-b border-slate-800"><h2 class="text-lg font-medium text-slate-100">Checkout Experience</h2></div>
       <div class="px-6 py-6 space-y-4">
         <label class="block"><span class="text-sm text-slate-400">Require billing address</span>
@@ -138,8 +137,7 @@
       </div>
     </div>
 
-    </div>
-    </div>
+          </div>
         </main>
       </div>
     </div>

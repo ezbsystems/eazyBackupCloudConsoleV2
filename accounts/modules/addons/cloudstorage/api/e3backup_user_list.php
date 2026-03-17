@@ -189,7 +189,7 @@ $clientId = $ca->getUserID();
 $isMsp = MspController::isMspClient($clientId);
 $tenantTable = MspController::getTenantTableName();
 $mspId = MspController::getMspIdForClient($clientId);
-$tenantFilterRaw = $_GET['tenant_id'] ?? null;
+$tenantFilterRaw = isset($_GET['tenant_id']) ? trim((string) $_GET['tenant_id']) : null;
 
 $tenantFilter = null;
 $directOnly = false;
@@ -197,10 +197,12 @@ $directOnly = false;
 if ($tenantFilterRaw !== null && $tenantFilterRaw !== '') {
     if ($tenantFilterRaw === 'direct') {
         $directOnly = true;
-    } elseif ((int) $tenantFilterRaw > 0) {
-        $tenantFilter = (int) $tenantFilterRaw;
     } else {
-        userListFail('Invalid tenant filter', 400, ['tenant_id' => 'Invalid tenant selection']);
+        $tenant = MspController::getTenantByPublicId($tenantFilterRaw, $clientId);
+        if (!$tenant) {
+            userListFail('Tenant not found', 404, ['tenant_id' => 'Tenant not found for this account']);
+        }
+        $tenantFilter = (int) $tenant->id;
     }
 }
 
@@ -218,6 +220,11 @@ if ($tenantFilter !== null) {
     }
 }
 
+$tenantSelect = 'u.tenant_id';
+if ($tenantTable === 'eb_tenants' && MspController::hasTenantPublicIds()) {
+    $tenantSelect = Capsule::raw('t.public_id as tenant_id');
+}
+
 $userQuery = Capsule::table('s3_backup_users as u')
     ->leftJoin($tenantTable . ' as t', function ($join) use ($clientId, $tenantTable, $mspId) {
         $join->on('u.tenant_id', '=', 't.id')
@@ -232,7 +239,8 @@ $userQuery = Capsule::table('s3_backup_users as u')
     ->select([
         'u.id',
         'u.client_id',
-        'u.tenant_id',
+        'u.tenant_id as storage_tenant_id',
+        $tenantSelect,
         'u.username',
         'u.email',
         'u.status',
@@ -256,7 +264,7 @@ $metricsByScope = getScopedMetrics($clientId, $isMsp, $tenantFilter, $directOnly
 
 $normalizedUsers = [];
 foreach ($users as $user) {
-    $scopeKey = scopeKeyFromTenant($user->tenant_id ?? null);
+    $scopeKey = scopeKeyFromTenant($user->storage_tenant_id ?? null);
     $scopeMetrics = $metricsByScope[$scopeKey] ?? [
         'vaults_count' => 0,
         'jobs_count' => 0,
@@ -268,7 +276,7 @@ foreach ($users as $user) {
     $normalizedUsers[] = [
         'id' => (int) $user->id,
         'client_id' => (int) $user->client_id,
-        'tenant_id' => $user->tenant_id !== null ? (int) $user->tenant_id : null,
+        'tenant_id' => $user->tenant_id !== null ? (string) $user->tenant_id : null,
         'username' => (string) $user->username,
         'email' => (string) $user->email,
         'status' => (string) $user->status,

@@ -23,9 +23,9 @@ $checks = [
             "billing invoices route" => "=== 'ph-billing-invoices'",
             "canonical storage links table" => "hasTable('eb_tenant_storage_links')",
             "usage ledger tenant column" => "eb_add_column_if_missing('eb_usage_ledger','tenant_id'",
-            "canonical tenant marker column" => "eb_add_column_if_missing('eb_whitelabel_tenants','canonical_tenant_id'",
-            "canonical tenant marker index" => "'idx_canonical_tenant_id',",
-            "canonical tenant marker unique" => "'uniq_canonical_tenant',",
+            "whitelabel tenant public_id column" => "eb_add_column_if_missing('eb_whitelabel_tenants','public_id'",
+            "whitelabel tenant public_id index" => "idx_eb_wl_tenants_public_id",
+            "canonical tenant public_id column" => "eb_add_column_if_missing('eb_tenants','public_id'",
             "signup approval status enum" => "pending_approval",
         ],
     ],
@@ -68,6 +68,21 @@ $checks = [
     ],
 ];
 
+$contractChecks = [
+    'tenant public id contract' => [
+        'path' => $repoRoot . '/accounts/modules/addons/eazybackup/bin/dev/partnerhub_tenant_public_id_contract_test.php',
+        'expected' => 'partnerhub-tenant-public-id-contract-ok',
+    ],
+    'tenant detail tab routes contract' => [
+        'path' => $repoRoot . '/accounts/modules/addons/eazybackup/bin/dev/partnerhub_tenant_detail_tab_routes_contract_test.php',
+        'expected' => 'partnerhub-tenant-detail-tab-routes-contract-ok',
+    ],
+    'billing payment new client picker contract' => [
+        'path' => $repoRoot . '/accounts/modules/addons/eazybackup/bin/dev/partnerhub_billing_payment_new_client_picker_contract_test.php',
+        'expected' => 'partnerhub-billing-payment-new-client-picker-contract-ok',
+    ],
+];
+
 $failures = [];
 foreach ($checks as $checkName => $check) {
     $source = @file_get_contents($check['path']);
@@ -79,6 +94,26 @@ foreach ($checks as $checkName => $check) {
         if (strpos($source, $needle) === false) {
             $failures[] = "FAIL: {$checkName} missing {$label}";
         }
+    }
+}
+
+foreach ($contractChecks as $checkName => $check) {
+    $phpBinary = PHP_BINARY !== '' ? PHP_BINARY : 'php';
+    $command = escapeshellarg($phpBinary) . ' ' . escapeshellarg($check['path']) . ' 2>&1';
+    $output = [];
+    $exitCode = 0;
+    exec($command, $output, $exitCode);
+
+    $joinedOutput = trim(implode(PHP_EOL, $output));
+    if ($exitCode !== 0) {
+        $detail = $joinedOutput !== '' ? $joinedOutput : 'no output';
+        $failures[] = "FAIL: {$checkName} command failed (exit {$exitCode}): {$detail}";
+        continue;
+    }
+
+    if (strpos($joinedOutput, $check['expected']) === false) {
+        $detail = $joinedOutput !== '' ? $joinedOutput : 'no output';
+        $failures[] = "FAIL: {$checkName} command missing success marker {$check['expected']}: {$detail}";
     }
 }
 

@@ -526,8 +526,8 @@ function tenantDetailApp() {
 
         init() {
             const params = new URLSearchParams(window.location.search);
-            const tenantIdRaw = parseInt(params.get('tenant_id') || '', 10);
-            this.tenantId = Number.isFinite(tenantIdRaw) && tenantIdRaw > 0 ? tenantIdRaw : null;
+            const tenantIdRaw = (params.get('tenant_id') || '').trim();
+            this.tenantId = tenantIdRaw !== '' ? tenantIdRaw : null;
             this.isCreateMode = (params.get('mode') || '').toLowerCase() === 'create';
 
             this.$watch('profileForm.name', (value) => {
@@ -612,14 +612,18 @@ function tenantDetailApp() {
                 }
 
                 const tenants = Array.isArray(data.tenants) ? data.tenants : [];
-                const tenant = tenants.find((item) => Number(item.id) === Number(this.tenantId));
+                const tenant = tenants.find((item) => String(item.public_id || item.id) === String(this.tenantId));
                 if (!tenant) {
                     this.tenantNotFound = true;
                     return;
                 }
 
                 this.populateFormFromTenant(tenant);
-                this.tenants = [{ id: String(tenant.id), name: tenant.name || ('Tenant #' + tenant.id) }];
+                this.tenants = [{
+                    id: String(tenant.public_id || tenant.id),
+                    public_id: String(tenant.public_id || tenant.id),
+                    name: tenant.name || ('Tenant #' + (tenant.public_id || tenant.id))
+                }];
             } catch (error) {
                 this.tenantNotFound = true;
             } finally {

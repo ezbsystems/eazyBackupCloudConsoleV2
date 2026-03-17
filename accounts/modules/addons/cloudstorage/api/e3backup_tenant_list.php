@@ -34,29 +34,38 @@ if (Capsule::schema()->hasTable('eb_tenants')) {
         $userCountSub = Capsule::schema()->hasTable('eb_tenant_users')
             ? '(SELECT COUNT(*) FROM eb_tenant_users WHERE tenant_id = t.id AND status = "active")'
             : '0';
+        $tenantSelect = [
+            Capsule::raw('t.public_id as id'),
+            't.public_id',
+            't.name',
+            't.slug',
+            't.status',
+            Capsule::raw('NULL as ceph_uid'),
+            't.contact_email',
+            't.contact_name',
+            't.contact_phone',
+            't.address_line1',
+            't.address_line2',
+            't.city',
+            't.state',
+            't.postal_code',
+            't.country',
+            't.created_at',
+            't.updated_at',
+            Capsule::raw($userCountSub . ' as user_count'),
+            Capsule::raw('(SELECT COUNT(*) FROM s3_cloudbackup_agents WHERE tenant_id = t.id AND status = "active") as agent_count'),
+        ];
+
+        if (!MspController::hasTenantPublicIds()) {
+            $tenantSelect[0] = 't.id';
+            unset($tenantSelect[1]);
+            $tenantSelect = array_values($tenantSelect);
+        }
+
         $tenants = Capsule::table('eb_tenants as t')
             ->where('t.msp_id', $mspId)
             ->where('t.status', '!=', 'deleted')
-            ->select([
-                't.id',
-                't.name',
-                't.slug',
-                't.status',
-                Capsule::raw('NULL as ceph_uid'),
-                't.contact_email',
-                't.contact_name',
-                't.contact_phone',
-                't.address_line1',
-                't.address_line2',
-                't.city',
-                't.state',
-                't.postal_code',
-                't.country',
-                't.created_at',
-                't.updated_at',
-                Capsule::raw($userCountSub . ' as user_count'),
-                Capsule::raw('(SELECT COUNT(*) FROM s3_cloudbackup_agents WHERE tenant_id = t.id AND status = "active") as agent_count'),
-            ])
+            ->select($tenantSelect)
             ->orderBy('t.name')
             ->get();
     }

@@ -20,6 +20,8 @@ if (is_null($product) || is_null($product->username)) {
     exit;
 }
 
+$csrfToken = function_exists('generate_token') ? generate_token('plain') : '';
+
 $isMspClient = MspController::isMspClient($loggedInUserId);
 
 // Get tenants for dropdown (MSP only)
@@ -31,5 +33,6 @@ if ($isMspClient) {
 return [
     'isMspClient' => $isMspClient,
     'tenants' => $tenants,
+    'token' => $csrfToken,
 ];
 

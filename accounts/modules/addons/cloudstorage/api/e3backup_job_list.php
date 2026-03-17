@@ -21,13 +21,29 @@ $clientId = $ca->getUserID();
 
 $isMsp = MspController::isMspClient($clientId);
 $tenantTable = MspController::getTenantTableName();
-$tenantFilter = $_GET['tenant_id'] ?? null;
+$tenantFilterRaw = isset($_GET['tenant_id']) ? trim((string) $_GET['tenant_id']) : null;
+$tenantFilter = null;
 $agentFilter = isset($_GET['agent_uuid']) ? trim((string) $_GET['agent_uuid']) : null;
+
+if ($tenantFilterRaw !== null && $tenantFilterRaw !== '' && $tenantFilterRaw !== 'direct') {
+    $tenant = MspController::getTenantByPublicId($tenantFilterRaw, $clientId);
+    if (!$tenant) {
+        (new JsonResponse(['status' => 'fail', 'message' => 'Tenant not found'], 404))->send();
+        exit;
+    }
+    $tenantFilter = (int) $tenant->id;
+}
 
 try {
     $hasJobTenantCol = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'tenant_id');
     $hasJobRepositoryCol = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'repository_id');
     $tenantColumn = $hasJobTenantCol ? 'j.tenant_id' : 'a.tenant_id';
+    $tenantSelect = Capsule::raw($tenantColumn . ' as tenant_id');
+    $tenantDeletedSelect = Capsule::raw('0 as tenant_deleted');
+    if ($isMsp && $tenantTable === 'eb_tenants' && MspController::hasTenantPublicIds()) {
+        $tenantSelect = Capsule::raw('CASE WHEN t.id IS NULL THEN NULL ELSE t.public_id END as tenant_id');
+        $tenantDeletedSelect = Capsule::raw('CASE WHEN ' . $tenantColumn . ' IS NOT NULL AND t.id IS NULL THEN 1 ELSE 0 END as tenant_deleted');
+    }
 
     $query = Capsule::table('s3_cloudbackup_jobs as j')
         ->leftJoin('s3_cloudbackup_agents as a', 'j.agent_uuid', '=', 'a.agent_uuid')
@@ -54,7 +70,9 @@ try {
             $hasJobRepositoryCol ? 'j.repository_id' : Capsule::raw('NULL as repository_id'),
             'a.agent_uuid',
             'a.hostname as agent_hostname',
-            Capsule::raw($tenantColumn . ' as tenant_id'),
+            Capsule::raw($tenantColumn . ' as storage_tenant_id'),
+            $tenantSelect,
+            $tenantDeletedSelect,
             'a.tenant_id as agent_tenant_id',
         ]);
 
@@ -69,11 +87,11 @@ try {
             }
         })->addSelect('t.name as tenant_name');
 
-        if ($tenantFilter !== null) {
-            if ($tenantFilter === 'direct') {
+        if ($tenantFilterRaw !== null) {
+            if ($tenantFilterRaw === 'direct') {
                 $query->whereNull($tenantColumn);
-            } elseif ((int)$tenantFilter > 0) {
-                $query->where($tenantColumn, (int)$tenantFilter);
+            } elseif ($tenantFilter !== null) {
+                $query->where($tenantColumn, $tenantFilter);
             }
         }
     }
@@ -125,6 +143,11 @@ try {
         }
         $jobId = (int) $job->id;
         $job->last_run = $lastRunByJob[$jobId] ?? null;
+        $job->tenant_deleted = (bool) ($job->tenant_deleted ?? false);
+        if ($job->tenant_deleted && (!isset($job->tenant_name) || trim((string) $job->tenant_name) === '')) {
+            $job->tenant_name = 'Deleted tenant';
+        }
+        unset($job->storage_tenant_id, $job->agent_tenant_id);
     }
 
     (new JsonResponse(['status' => 'success', 'jobs' => $jobs], 200))->send();

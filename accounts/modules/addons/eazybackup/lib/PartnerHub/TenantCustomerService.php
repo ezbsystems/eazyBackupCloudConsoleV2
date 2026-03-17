@@ -56,6 +56,7 @@ class TenantCustomerService
         }
 
         return Capsule::connection()->transaction(function () use ($whitelabelTenantId): array {
+            $schema = Capsule::schema();
             $wlTenant = Capsule::table('eb_whitelabel_tenants')
                 ->where('id', $whitelabelTenantId)
                 ->lockForUpdate()
@@ -73,6 +74,34 @@ class TenantCustomerService
             if ($canonicalId > 0) {
                 $existing = Capsule::table('eb_tenants')->where('id', $canonicalId)->first();
                 if ($existing) {
+                    if (
+                        $schema->hasTable('eb_tenants')
+                        && $schema->hasColumn('eb_tenants', 'public_id')
+                        && (string)($existing->public_id ?? '') === ''
+                    ) {
+                        try {
+                            $publicId = eazybackup_generate_ulid();
+                            $updated = Capsule::table('eb_tenants')
+                                ->where('id', $canonicalId)
+                                ->where(function ($query) {
+                                    $query->whereNull('public_id')
+                                        ->orWhere('public_id', '');
+                                })
+                                ->update(['public_id' => $publicId]);
+                            if ((int)$updated > 0) {
+                                $existing->public_id = $publicId;
+                            } else {
+                                $currentPublicId = (string)(Capsule::table('eb_tenants')
+                                    ->where('id', $canonicalId)
+                                    ->value('public_id') ?? '');
+                                if ($currentPublicId !== '') {
+                                    $existing->public_id = $currentPublicId;
+                                }
+                            }
+                        } catch (\Throwable $__) {
+                            // Keep serving the canonical row; module upgrade handles bulk backfill.
+                        }
+                    }
                     return (array)$existing;
                 }
             }
@@ -81,16 +110,20 @@ class TenantCustomerService
             $name = $this->resolveClientDisplayName($ownerClientId);
             $slug = 'wl-' . $whitelabelTenantId;
             $now = date('Y-m-d H:i:s');
+            $insert = [
+                'msp_id' => $mspId,
+                'name' => $name !== '' ? $name : 'Tenant ' . $whitelabelTenantId,
+                'slug' => $slug,
+                'status' => 'active',
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+            if ($schema->hasTable('eb_tenants') && $schema->hasColumn('eb_tenants', 'public_id')) {
+                $insert['public_id'] = eazybackup_generate_ulid();
+            }
 
             try {
-                $newId = (int)Capsule::table('eb_tenants')->insertGetId([
-                    'msp_id' => $mspId,
-                    'name' => $name !== '' ? $name : 'Tenant ' . $whitelabelTenantId,
-                    'slug' => $slug,
-                    'status' => 'active',
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                ]);
+                $newId = (int)Capsule::table('eb_tenants')->insertGetId($insert);
             } catch (\Throwable $e) {
                 $raced = Capsule::table('eb_whitelabel_tenants')
                     ->where('id', $whitelabelTenantId)

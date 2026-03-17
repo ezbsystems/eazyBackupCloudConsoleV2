@@ -33,6 +33,9 @@ $tenantTable = MspController::getTenantTableName();
 $mspId = MspController::getMspIdForClient($loggedInUserId);
 $tenantOwnerId = ($tenantTable === 'eb_tenants') ? (int)($mspId ?? 0) : (int)$loggedInUserId;
 $tenantOwnerSelect = $tenantTable === 'eb_tenants' ? 't.msp_id as tenant_owner_id' : 't.client_id as tenant_owner_id';
+$tenantPublicIdSelect = ($tenantTable === 'eb_tenants' && MspController::hasTenantPublicIds())
+    ? Capsule::raw('t.public_id as tenant_public_id')
+    : Capsule::raw('u.tenant_id as tenant_public_id');
 
 $user = Capsule::table('s3_backup_users as u')
     ->leftJoin($tenantTable . ' as t', 'u.tenant_id', '=', 't.id')
@@ -41,7 +44,8 @@ $user = Capsule::table('s3_backup_users as u')
     ->select([
         'u.id',
         'u.client_id',
-        'u.tenant_id',
+        'u.tenant_id as storage_tenant_id',
+        $tenantPublicIdSelect,
         'u.username',
         'u.email',
         'u.status',
@@ -58,12 +62,12 @@ if (!$user) {
     exit;
 }
 
-if (!$isMspClient && !empty($user->tenant_id)) {
+if (!$isMspClient && !empty($user->storage_tenant_id)) {
     header('Location: index.php?m=cloudstorage&page=e3backup&view=users');
     exit;
 }
 
-if ($isMspClient && !empty($user->tenant_id)) {
+if ($isMspClient && !empty($user->storage_tenant_id)) {
     $tenantClientId = (int) ($user->tenant_owner_id ?? 0);
     $tenantStatus = strtolower((string) ($user->tenant_status ?? ''));
     if ($tenantClientId !== $tenantOwnerId || $tenantStatus === 'deleted') {
@@ -81,6 +85,7 @@ if ($isMspClient) {
         ->orderBy('id', 'asc')
         ->get([
             'id',
+            'public_id',
             'subdomain',
             'fqdn',
             'status',
@@ -94,10 +99,15 @@ if ($isMspClient) {
             $name = trim((string) ($row->fqdn ?? ''));
         }
         if ($name === '') {
-            $name = 'Tenant #' . (int) $row->id;
+            $name = 'Tenant';
+        }
+        $publicId = trim((string) ($row->public_id ?? ''));
+        if ($publicId === '') {
+            continue;
         }
         $canonicalTenants[] = [
-            'id' => (int) $row->id,
+            'id' => $publicId,
+            'public_id' => $publicId,
             'name' => $name,
             'subdomain' => (string) ($row->subdomain ?? ''),
             'fqdn' => (string) ($row->fqdn ?? ''),

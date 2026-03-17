@@ -45,7 +45,7 @@
                 <select x-model="tenantFilter" @change="syncTenantFilterToUrl(); loadUsers()" class="w-full max-w-xs px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 placeholder:text-gray-400 text-white outline-1 -outline-offset-1 outline-white/10 focus:outline-2 focus:-outline-offset-2 focus:outline-sky-700 transition">
                     <option value="">All Tenants</option>
                     {foreach from=$tenants item=tenant}
-                    <option value="{$tenant->id}">{$tenant->name|escape}</option>
+                    <option value="{$tenant->public_id|escape}">{$tenant->name|escape}</option>
                     {/foreach}
                 </select>
             </div>
@@ -126,7 +126,7 @@
                     <select x-model="form.tenant_id" required :disabled="editingUser" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 placeholder:text-gray-400 text-white outline-1 -outline-offset-1 outline-white/10 focus:outline-2 focus:-outline-offset-2 focus:outline-sky-700 transition disabled:opacity-50 disabled:cursor-not-allowed">
                         <option value="">Select Tenant</option>
                         {foreach from=$tenants item=tenant}
-                        <option value="{$tenant->id}">{$tenant->name|escape}</option>
+                        <option value="{$tenant->public_id|escape}">{$tenant->name|escape}</option>
                         {/foreach}
                     </select>
                 </div>

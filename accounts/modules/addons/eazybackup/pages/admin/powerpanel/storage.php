@@ -67,6 +67,7 @@ return (function (): array {
 			GROUP BY hco.relid
 		) b
 		  ON b.service_id = h.id
+		LEFT JOIN eb_billing_flags bf ON bf.service_id = h.id
 	";
 
 	$where = [];
@@ -99,7 +100,7 @@ $where[] = 'h.packageid <> 48';
 			 GROUP BY username";
 
     // Main data query
-    $selectSql = 'SELECT v.username, su.comet_server_url, v.total_bytes, COALESCE(b.billed_units,0) AS billed_units, h.id AS service_id, h.userid AS user_id, f.last_success_at, f.last_error '
+    $selectSql = 'SELECT v.username, su.comet_server_url, v.total_bytes, COALESCE(b.billed_units,0) AS billed_units, h.id AS service_id, h.userid AS user_id, COALESCE(bf.storage_exempt,0) AS storage_exempt, f.last_success_at, f.last_error '
         . $sqlBase . ' '
         . 'LEFT JOIN (' . $freshSql . ') f ON f.username = v.username '
         . $whereSql . ' '
@@ -132,6 +133,7 @@ $where[] = 'h.packageid <> 48';
 			'billed_units'     => (int)$r->billed_units,
 			'service_id'       => (int)$r->service_id,
 			'user_id'          => (int)$r->user_id,
+			'storage_exempt'   => (int)($r->storage_exempt ?? 0),
             'last_success_at'  => isset($r->last_success_at) ? (string)$r->last_success_at : null,
             'last_error'       => isset($r->last_error) ? (string)$r->last_error : null,
 		];

@@ -10,7 +10,7 @@ function eb_ph_tenants_base_link(array $vars): string
 
 function eb_ph_tenants_redirect(array $vars, string $query = ''): void
 {
-    $url = eb_ph_tenants_base_link($vars) . '&a=ph-tenants';
+    $url = eb_ph_tenants_base_link($vars) . '&a=ph-tenants-manage';
     if ($query !== '') {
         $url .= '&' . $query;
     }
@@ -18,9 +18,16 @@ function eb_ph_tenants_redirect(array $vars, string $query = ''): void
     exit;
 }
 
-function eb_ph_tenant_redirect(array $vars, int $tenantId, string $query = ''): void
+function eb_ph_tenants_legacy_clients_redirect(array $vars): void
 {
-    $url = eb_ph_tenants_base_link($vars) . '&a=ph-tenant&id=' . $tenantId;
+    $query = $_GET;
+    unset($query['m'], $query['a']);
+    eb_ph_tenants_redirect($vars, http_build_query($query));
+}
+
+function eb_ph_tenant_redirect(array $vars, string $tenantPublicId, string $query = ''): void
+{
+    $url = eb_ph_tenants_base_link($vars) . '&a=ph-tenant&id=' . rawurlencode($tenantPublicId);
     if ($query !== '') {
         $url .= '&' . $query;
     }
@@ -175,11 +182,47 @@ function eb_ph_tenants_require_context(array $vars): array
     return [$clientId, $msp];
 }
 
-function eb_ph_tenants_require_csrf_or_redirect(array $vars, string $token, ?int $tenantId = null): void
+function eb_ph_tenants_find_owned_tenant_by_reference(int $mspId, string $tenantReference): ?object
 {
-    $reject = function () use ($vars, $tenantId): void {
-        if ($tenantId !== null && $tenantId > 0) {
-            eb_ph_tenant_redirect($vars, $tenantId, 'error=csrf');
+    $tenantReference = trim($tenantReference);
+    if ($mspId <= 0 || $tenantReference === '') {
+        return null;
+    }
+
+    $query = Capsule::table('eb_tenants')
+        ->where('msp_id', $mspId)
+        ->where('status', '!=', 'deleted');
+
+    if (preg_match('/^\d+$/', $tenantReference)) {
+        return $query->where('id', (int)$tenantReference)->first();
+    }
+
+    return $query->where('public_id', $tenantReference)->first();
+}
+
+function eb_ph_tenants_find_owned_tenant_by_public_id(int $mspId, string $tenantPublicId): ?object
+{
+    $tenantPublicId = trim($tenantPublicId);
+    if ($mspId <= 0 || $tenantPublicId === '') {
+        return null;
+    }
+
+    if (preg_match('/^\d+$/', $tenantPublicId)) {
+        return null;
+    }
+
+    return Capsule::table('eb_tenants')
+        ->where('msp_id', $mspId)
+        ->where('status', '!=', 'deleted')
+        ->where('public_id', $tenantPublicId)
+        ->first();
+}
+
+function eb_ph_tenants_require_csrf_or_redirect(array $vars, string $token, ?string $tenantPublicId = null): void
+{
+    $reject = function () use ($vars, $tenantPublicId): void {
+        if ($tenantPublicId !== null && $tenantPublicId !== '') {
+            eb_ph_tenant_redirect($vars, $tenantPublicId, 'error=csrf');
         }
         eb_ph_tenants_redirect($vars, 'error=csrf');
     };
@@ -199,33 +242,57 @@ function eb_ph_tenants_require_csrf_or_redirect(array $vars, string $token, ?int
     }
 }
 
+function eb_ph_tenants_require_csrf_or_json_error(string $token): bool
+{
+    if ($token === '' || !function_exists('check_token')) {
+        echo json_encode(['status' => 'error', 'message' => 'csrf']);
+        return false;
+    }
+
+    try {
+        $valid = (bool)check_token('plain', $token);
+    } catch (\Throwable $__) {
+        echo json_encode(['status' => 'error', 'message' => 'csrf']);
+        return false;
+    }
+
+    if (!$valid) {
+        echo json_encode(['status' => 'error', 'message' => 'csrf']);
+        return false;
+    }
+
+    return true;
+}
+
 function eb_ph_tenants_management_entry(array $vars)
 {
     return eb_ph_tenants_index($vars);
 }
 
-function eb_ph_tenant_tab_links(array $vars, int $tenantId): array
+function eb_ph_tenant_tab_links(array $vars, string $tenantPublicId): array
 {
     $base = eb_ph_tenants_base_link($vars);
+    $tenantPublicId = rawurlencode($tenantPublicId);
     return [
-        'profile' => $base . '&a=ph-tenant&id=' . $tenantId,
-        'members' => $base . '&a=ph-tenant-members&id=' . $tenantId,
-        'storage_users' => $base . '&a=ph-tenant-storage-users&id=' . $tenantId,
-        'billing' => $base . '&a=ph-tenant-billing&id=' . $tenantId,
-        'white_label' => $base . '&a=ph-tenant-whitelabel&id=' . $tenantId,
+        'profile' => $base . '&a=ph-tenant&id=' . $tenantPublicId,
+        'members' => $base . '&a=ph-tenant-members&id=' . $tenantPublicId,
+        'storage_users' => $base . '&a=ph-tenant-storage-users&id=' . $tenantPublicId,
+        'billing' => $base . '&a=ph-tenant-billing&id=' . $tenantPublicId,
+        'white_label' => $base . '&a=ph-tenant-whitelabel&id=' . $tenantPublicId,
     ];
 }
 
 function eb_ph_tenant_require_owned(array $vars): array
 {
     [$clientId, $msp] = eb_ph_tenants_require_context($vars);
-    $tenantId = (int)($_GET['id'] ?? $_POST['tenant_id'] ?? 0);
-    if ($tenantId <= 0) {
+    $tenantPublicId = (string)($_GET['id'] ?? $_POST['tenant_id'] ?? '');
+    $tenantPublicId = trim($tenantPublicId);
+    if ($tenantPublicId === '') {
         eb_ph_tenants_redirect($vars, 'error=not_found');
     }
 
     $tenant = Capsule::table('eb_tenants')
-        ->where('id', $tenantId)
+        ->where('public_id', $tenantPublicId)
         ->where('msp_id', (int)$msp->id)
         ->where('status', '!=', 'deleted')
         ->first();
@@ -233,13 +300,64 @@ function eb_ph_tenant_require_owned(array $vars): array
         eb_ph_tenants_redirect($vars, 'error=not_found');
     }
 
+    $tenantId = (int)($tenant->id ?? 0);
+
     return [$clientId, $msp, $tenantId, $tenant];
+}
+
+function eb_ph_tenant_primary_admin(int $tenantId): array
+{
+    $empty = [
+        'available' => false,
+        'exists' => false,
+        'id' => 0,
+        'email' => '',
+        'name' => '',
+        'status' => 'active',
+        'last_login_at' => '',
+        'updated_at' => '',
+    ];
+    if ($tenantId <= 0 || !Capsule::schema()->hasTable('eb_tenant_users')) {
+        return $empty;
+    }
+
+    try {
+        $row = Capsule::table('eb_tenant_users')
+            ->where('tenant_id', $tenantId)
+            ->where('role', 'admin')
+            ->orderBy('id', 'asc')
+            ->first([
+                'id',
+                'email',
+                'name',
+                'status',
+                'last_login_at',
+                'updated_at',
+            ]);
+        if (!$row) {
+            $empty['available'] = true;
+            return $empty;
+        }
+
+        return [
+            'available' => true,
+            'exists' => true,
+            'id' => (int)($row->id ?? 0),
+            'email' => (string)($row->email ?? ''),
+            'name' => (string)($row->name ?? ''),
+            'status' => (string)($row->status ?? 'active'),
+            'last_login_at' => (string)($row->last_login_at ?? ''),
+            'updated_at' => (string)($row->updated_at ?? ''),
+        ];
+    } catch (\Throwable $__) {
+        return $empty;
+    }
 }
 
 function eb_ph_tenant_shell_response(array $vars, array $msp, array $tenant, string $activeTab, array $tabVars = []): array
 {
-    $tenantId = (int)($tenant['id'] ?? 0);
-    $tabVars['tab_links'] = eb_ph_tenant_tab_links($vars, $tenantId);
+    $tenantPublicId = trim((string)($tenant['public_id'] ?? ''));
+    $tabVars['tab_links'] = eb_ph_tenant_tab_links($vars, $tenantPublicId);
     $tabVars['active_tab'] = $activeTab;
 
     return [
@@ -321,6 +439,9 @@ function eb_ph_tenants_index(array $vars)
             'updated_at' => Capsule::raw('NOW()'),
         ];
         $schema = Capsule::schema();
+        if ($schema->hasTable('eb_tenants') && $schema->hasColumn('eb_tenants', 'public_id')) {
+            $insert['public_id'] = eazybackup_generate_ulid();
+        }
         if ($schema->hasTable('eb_tenants') && $schema->hasColumn('eb_tenants', 'contact_name')) {
             $insert['contact_name'] = $contactName !== '' ? $contactName : null;
         }
@@ -348,8 +469,15 @@ function eb_ph_tenants_index(array $vars)
 
         try {
             $tenantId = (int)Capsule::table('eb_tenants')->insertGetId($insert);
-            header('Location: ' . eb_ph_tenants_base_link($vars) . '&a=ph-tenant&id=' . $tenantId . '&notice=created');
-            exit;
+            $tenantPublicId = trim((string)($insert['public_id'] ?? ''));
+            if ($tenantPublicId === '') {
+                $tenantPublicId = (string)(Capsule::table('eb_tenants')->where('id', $tenantId)->value('public_id') ?? '');
+                $tenantPublicId = trim($tenantPublicId);
+            }
+            if ($tenantPublicId !== '') {
+                eb_ph_tenant_redirect($vars, $tenantPublicId, 'notice=created');
+            }
+            eb_ph_tenants_redirect($vars, 'notice=created');
         } catch (\Throwable $__) {
             eb_ph_tenants_redirect($vars, 'error=create_failed');
         }
@@ -415,30 +543,84 @@ function eb_ph_tenants_index(array $vars)
 function eb_ph_tenant_detail(array $vars)
 {
     [$clientId, $msp, $tenantId, $tenant] = eb_ph_tenant_require_owned($vars);
+    $tenantPublicId = trim((string)($tenant->public_id ?? ''));
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['eb_save_tenant'])) {
         $post = eb_ph_tenants_strip_infra_fields((array)$_POST);
         $token = (string)($_POST['token'] ?? '');
-        eb_ph_tenants_require_csrf_or_redirect($vars, $token, $tenantId);
+        eb_ph_tenants_require_csrf_or_redirect($vars, $token, $tenantPublicId);
 
         $name = trim((string)($post['name'] ?? ''));
         $slug = eb_ph_tenants_slugify((string)($post['slug'] ?? ''));
         $contactEmail = strtolower(trim((string)($post['contact_email'] ?? '')));
+        $contactName = trim((string)($post['contact_name'] ?? ''));
+        $contactPhone = trim((string)($post['contact_phone'] ?? ''));
+        $addressLine1 = trim((string)($post['address_line1'] ?? ''));
+        $addressLine2 = trim((string)($post['address_line2'] ?? ''));
+        $city = trim((string)($post['city'] ?? ''));
+        $state = trim((string)($post['state'] ?? ''));
+        $postalCode = trim((string)($post['postal_code'] ?? ''));
+        $countryRaw = (string)($post['country'] ?? '');
+        $countryRaw = preg_replace('/[\x{200B}-\x{200D}\x{FEFF}]/u', '', $countryRaw) ?? $countryRaw;
+        if (function_exists('mb_convert_kana')) {
+            $countryRaw = mb_convert_kana($countryRaw, 'as', 'UTF-8');
+        }
+        $countryRaw = preg_replace('/\s+/u', '', trim($countryRaw)) ?? trim($countryRaw);
+        $countryRaw = preg_replace('/[^A-Za-z]/', '', $countryRaw) ?? $countryRaw;
+        $country = $countryRaw !== '' ? strtoupper($countryRaw) : null;
+        $portalAdmin = eb_ph_tenant_primary_admin($tenantId);
+        $portalAdminEmail = strtolower(trim((string)($post['portal_admin_email'] ?? '')));
+        $portalAdminName = trim((string)($post['portal_admin_name'] ?? ''));
+        $portalAdminStatus = strtolower(trim((string)($post['portal_admin_status'] ?? 'active')));
+        $portalAdminPasswordMode = trim((string)($post['portal_admin_password_mode'] ?? 'keep'));
+        $portalAdminPassword = (string)($post['portal_admin_password'] ?? '');
+        $portalAdminRequested = $portalAdminEmail !== ''
+            || $portalAdminName !== ''
+            || $portalAdminPassword !== ''
+            || isset($post['portal_admin_status'])
+            || isset($post['portal_admin_password_mode']);
         if ($name === '' || $slug === '') {
-            header('Location: ' . eb_ph_tenants_base_link($vars) . '&a=ph-tenant&id=' . $tenantId . '&error=missing_fields');
-            exit;
+            eb_ph_tenant_redirect($vars, $tenantPublicId, 'error=missing_fields');
         }
         if (!eb_ph_tenants_is_valid_slug($slug)) {
-            header('Location: ' . eb_ph_tenants_base_link($vars) . '&a=ph-tenant&id=' . $tenantId . '&error=invalid_slug');
-            exit;
+            eb_ph_tenant_redirect($vars, $tenantPublicId, 'error=invalid_slug');
         }
         if ($contactEmail !== '' && !filter_var($contactEmail, FILTER_VALIDATE_EMAIL)) {
-            header('Location: ' . eb_ph_tenants_base_link($vars) . '&a=ph-tenant&id=' . $tenantId . '&error=invalid_email');
-            exit;
+            eb_ph_tenant_redirect($vars, $tenantPublicId, 'error=invalid_email');
+        }
+        if ($country !== null && $country !== '' && !preg_match('/^[A-Z]{2}$/', $country)) {
+            eb_ph_tenant_redirect($vars, $tenantPublicId, 'error=invalid_country');
         }
         if (eb_ph_tenants_existing_slug_owner((int)$msp->id, $slug, $tenantId) !== null) {
-            header('Location: ' . eb_ph_tenants_base_link($vars) . '&a=ph-tenant&id=' . $tenantId . '&error=slug_taken');
-            exit;
+            eb_ph_tenant_redirect($vars, $tenantPublicId, 'error=slug_taken');
+        }
+        if ($portalAdminEmail !== '' && !filter_var($portalAdminEmail, FILTER_VALIDATE_EMAIL)) {
+            eb_ph_tenant_redirect($vars, $tenantPublicId, 'error=invalid_portal_admin_email');
+        }
+        if (!in_array($portalAdminStatus, ['active', 'disabled'], true)) {
+            $portalAdminStatus = 'active';
+        }
+        if (!in_array($portalAdminPasswordMode, ['keep', 'manual'], true)) {
+            $portalAdminPasswordMode = $portalAdmin['exists'] ? 'keep' : 'manual';
+        }
+
+        $savePortalAdmin = $portalAdmin['available'] && (
+            $portalAdmin['exists']
+            || $portalAdminEmail !== ''
+            || $portalAdminName !== ''
+            || $portalAdminPassword !== ''
+        );
+        if (!$portalAdmin['available'] && $portalAdminRequested) {
+            eb_ph_tenant_redirect($vars, $tenantPublicId, 'error=portal_admin_unavailable');
+        }
+        if ($savePortalAdmin && ($portalAdminEmail === '' || $portalAdminName === '')) {
+            eb_ph_tenant_redirect($vars, $tenantPublicId, 'error=portal_admin_missing_fields');
+        }
+        if ($savePortalAdmin && !$portalAdmin['exists'] && $portalAdminPasswordMode !== 'manual') {
+            eb_ph_tenant_redirect($vars, $tenantPublicId, 'error=portal_admin_password_required');
+        }
+        if ($portalAdminPasswordMode === 'manual' && strlen($portalAdminPassword) < 8) {
+            eb_ph_tenant_redirect($vars, $tenantPublicId, 'error=portal_admin_password_short');
         }
 
         try {
@@ -446,32 +628,87 @@ function eb_ph_tenant_detail(array $vars)
             if ($status === 'deleted') {
                 $status = 'active';
             }
-            Capsule::table('eb_tenants')->where('id', $tenantId)->where('msp_id', (int)$msp->id)->update([
+            $update = [
                 'name' => $name,
                 'slug' => $slug,
                 'contact_email' => $contactEmail !== '' ? $contactEmail : null,
                 'status' => $status,
                 'updated_at' => Capsule::raw('NOW()'),
-            ]);
-            header('Location: ' . eb_ph_tenants_base_link($vars) . '&a=ph-tenant&id=' . $tenantId . '&notice=saved');
-            exit;
+            ];
+            $schema = Capsule::schema();
+            if ($schema->hasTable('eb_tenants') && $schema->hasColumn('eb_tenants', 'contact_name')) {
+                $update['contact_name'] = $contactName !== '' ? $contactName : null;
+            }
+            if ($schema->hasTable('eb_tenants') && $schema->hasColumn('eb_tenants', 'contact_phone')) {
+                $update['contact_phone'] = $contactPhone !== '' ? $contactPhone : null;
+            }
+            if ($schema->hasTable('eb_tenants') && $schema->hasColumn('eb_tenants', 'address_line1')) {
+                $update['address_line1'] = $addressLine1 !== '' ? $addressLine1 : null;
+            }
+            if ($schema->hasTable('eb_tenants') && $schema->hasColumn('eb_tenants', 'address_line2')) {
+                $update['address_line2'] = $addressLine2 !== '' ? $addressLine2 : null;
+            }
+            if ($schema->hasTable('eb_tenants') && $schema->hasColumn('eb_tenants', 'city')) {
+                $update['city'] = $city !== '' ? $city : null;
+            }
+            if ($schema->hasTable('eb_tenants') && $schema->hasColumn('eb_tenants', 'state')) {
+                $update['state'] = $state !== '' ? $state : null;
+            }
+            if ($schema->hasTable('eb_tenants') && $schema->hasColumn('eb_tenants', 'postal_code')) {
+                $update['postal_code'] = $postalCode !== '' ? $postalCode : null;
+            }
+            if ($schema->hasTable('eb_tenants') && $schema->hasColumn('eb_tenants', 'country')) {
+                $update['country'] = $country;
+            }
+            Capsule::table('eb_tenants')->where('id', $tenantId)->where('msp_id', (int)$msp->id)->update($update);
+
+            if ($savePortalAdmin) {
+                $portalAdminPayload = [
+                    'email' => $portalAdminEmail,
+                    'name' => $portalAdminName,
+                    'status' => $portalAdminStatus,
+                    'updated_at' => Capsule::raw('NOW()'),
+                ];
+                if ($portalAdminPasswordMode === 'manual') {
+                    $portalAdminPayload['password_hash'] = password_hash($portalAdminPassword, PASSWORD_DEFAULT);
+                }
+
+                if ($portalAdmin['exists']) {
+                    Capsule::table('eb_tenant_users')
+                        ->where('id', (int)$portalAdmin['id'])
+                        ->where('tenant_id', $tenantId)
+                        ->update($portalAdminPayload);
+                } else {
+                    Capsule::table('eb_tenant_users')->insertGetId([
+                        'tenant_id' => $tenantId,
+                        'email' => $portalAdminEmail,
+                        'password_hash' => password_hash($portalAdminPassword, PASSWORD_DEFAULT),
+                        'name' => $portalAdminName,
+                        'role' => 'admin',
+                        'status' => $portalAdminStatus,
+                        'created_at' => Capsule::raw('NOW()'),
+                        'updated_at' => Capsule::raw('NOW()'),
+                    ]);
+                }
+            }
+
+            eb_ph_tenant_redirect($vars, $tenantPublicId, 'notice=saved');
         } catch (\Throwable $__) {
-            header('Location: ' . eb_ph_tenants_base_link($vars) . '&a=ph-tenant&id=' . $tenantId . '&error=save_failed');
-            exit;
+            eb_ph_tenant_redirect($vars, $tenantPublicId, 'error=save_failed');
         }
     }
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['eb_delete_tenant'])) {
         $token = (string)($_POST['token'] ?? '');
-        eb_ph_tenants_require_csrf_or_redirect($vars, $token, $tenantId);
+        eb_ph_tenants_require_csrf_or_redirect($vars, $token, $tenantPublicId);
 
         try {
             $blockers = eb_ph_tenants_delete_blockers($tenantId);
         } catch (\Throwable $__) {
-            eb_ph_tenant_redirect($vars, $tenantId, 'error=tenant_ref_check_failed');
+            eb_ph_tenant_redirect($vars, $tenantPublicId, 'error=tenant_ref_check_failed');
         }
         if (!empty($blockers)) {
-            eb_ph_tenant_redirect($vars, $tenantId, 'error=tenant_in_use');
+            eb_ph_tenant_redirect($vars, $tenantPublicId, 'error=tenant_in_use');
         }
 
         try {
@@ -481,8 +718,7 @@ function eb_ph_tenant_detail(array $vars)
             ]);
             eb_ph_tenants_redirect($vars, 'notice=deleted');
         } catch (\Throwable $__) {
-            header('Location: ' . eb_ph_tenants_base_link($vars) . '&a=ph-tenant&id=' . $tenantId . '&error=delete_failed');
-            exit;
+            eb_ph_tenant_redirect($vars, $tenantPublicId, 'error=delete_failed');
         }
     }
 
@@ -495,7 +731,11 @@ function eb_ph_tenant_detail(array $vars)
         eb_ph_tenants_redirect($vars, 'notice=deleted');
     }
 
-    return eb_ph_tenant_shell_response($vars, (array)$msp, (array)$tenant, 'profile');
+    $portalAdmin = eb_ph_tenant_primary_admin($tenantId);
+
+    return eb_ph_tenant_shell_response($vars, (array)$msp, (array)$tenant, 'profile', [
+        'portal_admin' => $portalAdmin,
+    ]);
 }
 
 function eb_ph_tenant_storage_users(array $vars)

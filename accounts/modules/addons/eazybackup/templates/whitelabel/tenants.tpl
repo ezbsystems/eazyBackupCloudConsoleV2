@@ -18,7 +18,10 @@
         {include file="modules/addons/eazybackup/templates/whitelabel/partials/sidebar_partner_hub.tpl" ebPhSidebarPage='tenants'}
         <main class="flex-1 min-w-0 overflow-x-auto" x-data="{ openCreateModal: false, savingModal: false }">
         <div class="flex items-center justify-between border-b border-slate-800/60 px-6 py-4">
-          <h1 class="text-2xl font-semibold tracking-tight">Customer Tenants</h1>
+          <div>
+            <h1 class="text-2xl font-semibold tracking-tight">Customer Tenants</h1>
+            <p class="mt-1 text-sm text-slate-400">Create, review, and manage customer tenant records from Partner Hub.</p>
+          </div>
           <div class="flex items-center gap-2">
             {if !isset($connect.chargesEnabled) || !$connect.chargesEnabled}
               <a href="{$modulelink}&a=ph-stripe-onboard" class="rounded-xl px-4 py-2 font-medium text-white bg-amber-600 hover:bg-amber-500">Connect Stripe</a>
@@ -45,7 +48,7 @@
       </div>
     {/if}
     {if isset($onboardSuccess) && $onboardSuccess}
-      <div class="mt-3 rounded-xl bg-emerald-500/20 ring-1 ring-emerald-400/20 px-4 py-3 text-sm text-white">
+      <div class="my-3 rounded-xl bg-emerald-500/30 ring-1 ring-emerald-400/20 px-4 py-3 text-sm text-white">
         Stripe onboarding complete. What’s next: connect status may take a moment to update; you can review <a class="underline" href="{$modulelink}&a=ph-stripe-connect">Connect &amp; Status</a> or proceed to <a class="underline" href="{$modulelink}&a=ph-stripe-manage">Manage Account</a>.
       </div>
     {/if}
@@ -87,7 +90,7 @@
              sortDirection: 'asc',
              filteredCount: 0,
              rows: [],
-             cols: { id: true, name: true, slug: true, contact_email: true, status: true, updated: true, actions: true },
+             cols: { public_id: true, name: true, slug: true, contact_email: true, status: true, updated: true, actions: true },
              init() {
                this.rows = Array.from(this.$refs.tbody.querySelectorAll('tr[data-tenant-row]'));
                this.$watch('search', () => { this.currentPage = 1; this.refreshRows(); });
@@ -112,7 +115,7 @@
                return this.sortDirection === 'asc' ? '↑' : '↓';
              },
              sortValue(row, key) {
-               if (key === 'id') return Number(row.getAttribute('data-tenant-id') || 0);
+               if (key === 'public_id') return String(row.getAttribute('data-tenant-public-id') || '').toLowerCase();
                return String(row.getAttribute('data-' + key) || '').toLowerCase();
              },
              compareRows(left, right) {
@@ -211,7 +214,7 @@
                  x-transition:leave-end="opacity-0 scale-95"
                  class="absolute left-0 mt-2 w-64 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden p-2"
                  style="display: none;">
-              <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>ID</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500" x-model="cols.id"></label>
+              <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Tenant ID</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500" x-model="cols.public_id"></label>
               <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Name</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500" x-model="cols.name"></label>
               <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Slug</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500" x-model="cols.slug"></label>
               <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Contact Email</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500" x-model="cols.contact_email"></label>
@@ -230,8 +233,8 @@
           <table class="min-w-full divide-y divide-slate-800 text-sm">
             <thead class="bg-slate-900/80 text-slate-300">
               <tr>
-                <th x-show="cols.id" class="px-4 py-3 text-left font-medium">
-                  <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('id')">ID <span x-text="sortIndicator('id')"></span></button>
+                <th x-show="cols.public_id" class="px-4 py-3 text-left font-medium">
+                  <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('public_id')">Tenant ID <span x-text="sortIndicator('public_id')"></span></button>
                 </th>
                 <th x-show="cols.name" class="px-4 py-3 text-left font-medium">
                   <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('name')">Name <span x-text="sortIndicator('name')"></span></button>
@@ -255,20 +258,20 @@
             {foreach from=$tenants item=tenant}
               <tr class="hover:bg-slate-800/50"
                   data-tenant-row="1"
-                  data-tenant-id="{$tenant.id}"
+                  data-tenant-public-id="{$tenant.public_id|escape}"
                   data-name="{$tenant.name|escape}"
                   data-slug="{$tenant.slug|escape}"
                   data-contact-email="{$tenant.contact_email|default:'-'|escape}"
                   data-status="{$tenant.status|escape}"
                   data-updated="{$tenant.updated_at|default:''|escape}">
-                <td x-show="cols.id" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{$tenant.id|escape}</td>
+                <td x-show="cols.public_id" class="px-4 py-3 whitespace-nowrap text-sm font-mono text-slate-300">{$tenant.public_id|escape}</td>
                 <td x-show="cols.name" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{$tenant.name|escape}</td>
                 <td x-show="cols.slug" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{$tenant.slug|escape}</td>
                 <td x-show="cols.contact_email" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{$tenant.contact_email|default:'-'|escape}</td>
                 <td x-show="cols.status" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{$tenant.status|escape}</td>
                 <td x-show="cols.updated" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{$tenant.updated_at|default:'-'|escape}</td>
                 <td x-show="cols.actions" class="px-4 py-3 text-right">
-                  <a class="rounded-lg px-3 py-1.5 ring-1 ring-white/10 hover:bg-white/10" href="{$modulelink}&a=ph-tenant&id={$tenant.id}">Manage</a>
+                  <a class="rounded-lg px-3 py-1.5 ring-1 ring-white/10 hover:bg-white/10" href="{$modulelink}&a=ph-tenant&id={$tenant.public_id|escape:'url'}">Manage</a>
                 </td>
               </tr>
             {foreachelse}
@@ -321,7 +324,7 @@
             </div>
             <div class="flex-1 min-h-0 overflow-y-auto">
             <div x-data="{ showAdmin: false, autoPassword: '1' }">
-            <form id="create-tenant-form" method="post" action="{$modulelink}&a=ph-tenants" class="p-6 space-y-6">
+            <form id="create-tenant-form" method="post" action="{$modulelink}&a=ph-tenants-manage" class="p-6 space-y-6">
               <input type="hidden" name="eb_create_tenant" value="1" />
               {if isset($token) && $token neq ''}
                 <input type="hidden" name="token" value="{$token}" />

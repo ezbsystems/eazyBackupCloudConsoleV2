@@ -96,33 +96,39 @@ if ($isMsp) {
 $username = normalizeUserNameForUpdate((string) ($_POST['username'] ?? $currentUser->username));
 $email = strtolower(trim((string) ($_POST['email'] ?? $currentUser->email)));
 $status = strtolower(trim((string) ($_POST['status'] ?? $currentUser->status)));
-$tenantIdRaw = $_POST['tenant_id'] ?? null;
+$tenantIdRaw = array_key_exists('tenant_id', $_POST) ? trim((string) $_POST['tenant_id']) : null;
 $currentTenantId = $currentUser->tenant_id !== null ? (int) $currentUser->tenant_id : null;
 $tenantId = $currentTenantId;
 $canonicalTenantProvided = array_key_exists('canonical_tenant_id', $_POST);
-$canonicalTenantIdRaw = $_POST['canonical_tenant_id'] ?? null;
+$canonicalTenantIdRaw = trim((string) ($_POST['canonical_tenant_id'] ?? ''));
 $canonicalTenantId = null;
 
 if ($tenantIdRaw !== null) {
     if ($tenantIdRaw === '' || $tenantIdRaw === 'direct') {
         $tenantId = null;
-    } elseif ((int) $tenantIdRaw > 0) {
-        $tenantId = (int) $tenantIdRaw;
     } else {
-        userUpdateFail('Invalid tenant selection.', 400, ['tenant_id' => 'Invalid tenant selection']);
+        $tenant = MspController::getTenantByPublicId($tenantIdRaw, $clientId);
+        if ($tenant) {
+            $tenantId = (int) $tenant->id;
+        } else {
+            userUpdateFail('Invalid tenant selection.', 400, ['tenant_id' => 'Invalid tenant selection']);
+        }
     }
 }
 
 if ($canonicalTenantProvided) {
-    if ($canonicalTenantIdRaw === null || $canonicalTenantIdRaw === '' || $canonicalTenantIdRaw === 'direct') {
+    if ($canonicalTenantIdRaw === '' || $canonicalTenantIdRaw === 'direct') {
         $canonicalTenantId = null;
         if ($isMsp) {
             $tenantId = null;
         }
-    } elseif ((int) $canonicalTenantIdRaw > 0) {
-        $canonicalTenantId = (int) $canonicalTenantIdRaw;
     } else {
-        userUpdateFail('Invalid canonical tenant selection.', 400, ['canonical_tenant_id' => 'Invalid canonical tenant selection']);
+        $canonicalTenant = eb_tenant_storage_links_resolve_tenant_for_client_by_public_id((int) $clientId, $canonicalTenantIdRaw);
+        if ($canonicalTenant) {
+            $canonicalTenantId = (int) $canonicalTenant->id;
+        } else {
+            userUpdateFail('Invalid canonical tenant selection.', 400, ['canonical_tenant_id' => 'Invalid canonical tenant selection']);
+        }
     }
 }
 

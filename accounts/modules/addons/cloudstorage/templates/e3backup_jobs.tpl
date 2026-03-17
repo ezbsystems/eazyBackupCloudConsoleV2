@@ -161,9 +161,9 @@
                             <button
                                 type="button"
                                 class="w-full px-4 py-2 text-left text-sm transition"
-                                :class="String(tenantFilter) === String('{$tenant->id}') ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
-                                @click="tenantFilter='{$tenant->id}'; isOpen=false; onTenantChange()"
-                                data-tenant-option="{$tenant->id}"
+                                :class="String(tenantFilter) === String('{$tenant->public_id|escape:'javascript'}') ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
+                                @click="tenantFilter='{$tenant->public_id|escape:'javascript'}'; isOpen=false; onTenantChange()"
+                                data-tenant-option="{$tenant->public_id|escape}"
                             >
                                 {$tenant->name|escape}
                             </button>
@@ -1175,7 +1175,7 @@ function jobsApp() {
             const isMsp = {/literal}{if $isMspClient}true{else}false{/if}{literal};
             const params = [];
             if (job.agent_uuid) params.push('agent_uuid=' + encodeURIComponent(job.agent_uuid));
-            if (isMsp) {
+            if (isMsp && !job.tenant_deleted) {
                 if (job.tenant_id) {
                     params.push('tenant_id=' + encodeURIComponent(job.tenant_id));
                 } else {
@@ -1880,6 +1880,7 @@ function confirmNoScheduleCreate() {
 
 function doCreateJobSubmit(formEl) {
     const formData = new FormData(formEl);
+    formData.set('token', '{/literal}{$token|escape:'javascript'}{literal}');
     const sourceType = formData.get('source_type');
     
     let sourceConfig = {};
@@ -3648,6 +3649,7 @@ function localWizardSubmit() {
     if (isEdit) {
         payload.job_id = window.localWizardState.jobId;
     }
+    payload.token = '{/literal}{$token|escape:'javascript'}{literal}';
 
     const opts = {
         method: 'POST',

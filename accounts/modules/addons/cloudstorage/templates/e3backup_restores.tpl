@@ -62,11 +62,11 @@
                                         @click="selectTenant('direct'); isOpen=false;">
                                     Direct (No Tenant)
                                 </button>
-                                <template x-for="tenant in filteredTenants" :key="tenant.id">
+                                <template x-for="tenant in filteredTenants" :key="tenant.public_id || tenant.id">
                                     <button type="button"
                                             class="w-full px-4 py-2 text-left text-sm transition"
-                                            :class="String(tenantFilter) === String(tenant.id) ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
-                                            @click="selectTenant(String(tenant.id)); isOpen=false;">
+                                            :class="String(tenantFilter) === String(tenant.public_id || tenant.id) ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
+                                            @click="selectTenant(String(tenant.public_id || tenant.id)); isOpen=false;">
                                         <span class="truncate" x-text="tenant.name"></span>
                                     </button>
                                 </template>
@@ -213,7 +213,7 @@
                                 <div class="text-xs text-slate-400" x-show="point.hyperv_vm_name">VM: <span x-text="point.hyperv_vm_name"></span></div>
                             </td>
                             {if $isMspClient}
-                            <td class="px-4 py-3 text-slate-300" x-text="point.tenant_name || 'Direct'"></td>
+                            <td class="px-4 py-3 text-slate-300" x-text="point.tenant_name || (point.tenant_deleted ? 'Deleted tenant' : 'Direct')"></td>
                             {/if}
                             <td class="px-4 py-3 text-slate-300" x-text="point.agent_hostname || point.agent_uuid || '—'"></td>
                             <td class="px-4 py-3">
@@ -503,7 +503,7 @@ function restoresApp() {
         tenantLabel() {
             if (!this.tenantFilter) return 'All Tenants';
             if (this.tenantFilter === 'direct') return 'Direct (No Tenant)';
-            const match = (this.tenants || []).find(t => String(t.id) === String(this.tenantFilter));
+            const match = (this.tenants || []).find(t => String(t.public_id || t.id) === String(this.tenantFilter));
             return match ? match.name : `Tenant ${this.tenantFilter}`;
         },
 
@@ -636,14 +636,17 @@ window.restorePointState = {
 
 function normalizeTenantId(value) {
     if (value === null || value === undefined || value === '') return null;
-    const num = parseInt(value, 10);
-    return Number.isNaN(num) ? null : num;
+    const normalized = String(value).trim();
+    return normalized === '' ? null : normalized;
 }
 
 function getCompatibleAgents(point) {
     const agents = Array.isArray(window.restorePointAgents) ? window.restorePointAgents : [];
     if (!point) return agents;
     const pointTenantId = normalizeTenantId(point.tenant_id);
+    if (point.tenant_deleted) {
+        return agents.filter((agent) => String(agent.agent_uuid || '') === String(point.agent_uuid || ''));
+    }
     return agents.filter((agent) => {
         const agentTenantId = normalizeTenantId(agent.tenant_id);
         if (pointTenantId === null) {

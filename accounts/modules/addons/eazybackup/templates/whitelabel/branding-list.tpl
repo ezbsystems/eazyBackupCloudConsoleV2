@@ -7,18 +7,20 @@
       <div class="flex">
         {include file="modules/addons/eazybackup/templates/whitelabel/partials/sidebar_partner_hub.tpl" ebPhSidebarPage='branding-list'}
         <main class="flex-1 min-w-0 overflow-x-auto">
-    <section class="w-full max-w-full min-w-0 overflow-hidden rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
-      <div class="mb-6 flex items-center gap-3">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 text-slate-200">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M9.53 16.122a3 3 0 0 0-5.78 1.128 2.25 2.25 0 0 1-2.4 2.245 4.5 4.5 0 0 0 8.4-2.245c0-.399-.078-.78-.22-1.128Zm0 0a15.998 15.998 0 0 0 3.388-1.62m-5.043-.025a15.994 15.994 0 0 1 1.622-3.395m3.42 3.42a15.995 15.995 0 0 0 4.764-4.648l3.876-5.814a1.151 1.151 0 0 0-1.597-1.597L14.146 6.32a15.996 15.996 0 0 0-4.649 4.763m3.42 3.42a6.776 6.776 0 0 0-3.42-3.42" />
-        </svg>
-        <div>
-          <h2 class="text-2xl font-semibold text-white">Your White-Label Tenants</h2>
-          <p class="text-xs text-slate-400 mt-1">Manage tenant branding and configuration from a single table.</p>
+          <div class="flex items-center justify-between border-b border-slate-800/60 px-6 py-4">
+            <div>
+              <h1 class="text-2xl font-semibold tracking-tight">White-Label Tenants</h1>
+              <p class="mt-1 text-sm text-slate-400">Manage tenant branding and configuration from a single table.</p>
+            </div>
+          </div>
+          <div class="p-6">
+      <section class="bg-slate-950/70 rounded-2xl border border-slate-800/80 p-4">
+        <div class="px-6 py-5">
+          <h2 class="text-lg font-medium">Tenant Branding Directory</h2>
+          <p class="mt-1 text-sm text-slate-400">Review branded tenants, domains, and quick management actions.</p>
         </div>
-      </div>
-
-      <div class="w-full max-w-full min-w-0 rounded-2xl border border-slate-800/80 bg-slate-900/70 p-5 shadow-lg">
+        <div class="border-t border-white/10"></div>
+        <div class="p-4">
         <div id="tenantsToolbar" class="mb-4 flex flex-col xl:flex-row xl:items-center gap-3">
           <div class="relative" x-data="{ isOpen: false }" @click.away="isOpen = false">
             <button type="button"
@@ -53,7 +55,7 @@
                  class="w-full xl:w-80 rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80" />
         </div>
 
-        <div class="overflow-x-auto rounded-lg border border-slate-800">
+        <div class="overflow-x-auto rounded-xl border border-slate-800">
           <table id="tenant-branding-table" class="min-w-full divide-y divide-slate-800 text-sm">
             <thead class="bg-slate-900/80 text-slate-300">
               <tr>
@@ -129,7 +131,7 @@
             </button>
           </div>
         </div>
-      </div>
+        </div>
 
       <script>
       (function(){
@@ -279,7 +281,8 @@
         } catch (e) {}
       })();
       </script>
-    </section>
+      </section>
+          </div>
         </main>
       </div>
     </div>

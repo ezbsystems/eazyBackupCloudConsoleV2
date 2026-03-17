@@ -21,7 +21,23 @@ $clientId = $ca->getUserID();
 
 $isMsp = MspController::isMspClient($clientId);
 $tenantTable = MspController::getTenantTableName();
-$tenantFilter = isset($_GET['tenant_id']) ? $_GET['tenant_id'] : null;
+$tenantFilterRaw = isset($_GET['tenant_id']) ? trim((string) $_GET['tenant_id']) : null;
+$tenantFilter = null;
+
+if ($tenantFilterRaw !== null && $tenantFilterRaw !== '' && $tenantFilterRaw !== 'direct') {
+    $tenant = MspController::getTenantByPublicId($tenantFilterRaw, $clientId);
+    if ($tenant) {
+        $tenantFilter = (int) $tenant->id;
+    } else {
+        (new JsonResponse(['status' => 'fail', 'message' => 'Tenant not found'], 404))->send();
+        exit;
+    }
+}
+
+$tenantSelect = 'a.tenant_id';
+if ($isMsp && $tenantTable === 'eb_tenants' && MspController::hasTenantPublicIds()) {
+    $tenantSelect = Capsule::raw('t.public_id as tenant_id');
+}
 
 function getModuleSetting(string $key, $default = null)
 {
@@ -55,7 +71,8 @@ $query = Capsule::table('s3_cloudbackup_agents as a')
         'a.install_id',
         'a.status',
         'a.agent_type',
-        'a.tenant_id',
+        'a.tenant_id as storage_tenant_id',
+        $tenantSelect,
         'a.tenant_user_id',
         'a.last_seen_at',
         'a.created_at',
@@ -75,11 +92,11 @@ if ($isMsp) {
     })->addSelect('t.name as tenant_name');
     
     // Apply tenant filter
-    if ($tenantFilter !== null) {
-        if ($tenantFilter === 'direct') {
+    if ($tenantFilterRaw !== null) {
+        if ($tenantFilterRaw === 'direct') {
             $query->whereNull('a.tenant_id');
-        } elseif ((int)$tenantFilter > 0) {
-            $query->where('a.tenant_id', (int)$tenantFilter);
+        } elseif ($tenantFilter !== null) {
+            $query->where('a.tenant_id', $tenantFilter);
         }
     }
 }
@@ -97,6 +114,7 @@ foreach ($agents as $a) {
         $a->online_status = 'offline';
     }
     $a->online_threshold_seconds = $onlineThresholdSeconds;
+    unset($a->storage_tenant_id);
 }
 
 (new JsonResponse(['status' => 'success', 'agents' => $agents, 'online_threshold_seconds' => $onlineThresholdSeconds], 200))->send();

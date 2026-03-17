@@ -28,7 +28,7 @@ if (!$isMspClient) {
 }
 
 // Legacy e3 tenant routes remain valid entry points, but Partner Hub is canonical.
-$tenantId = isset($_GET['tenant_id']) ? (int) $_GET['tenant_id'] : 0;
+$tenantPublicId = MspController::resolveTenantPublicIdForClient((string) ($_GET['tenant_id'] ?? ''), $loggedInUserId) ?? '';
 $legacyView = strtolower(trim((string) ($_GET['view'] ?? '')));
 $mode = strtolower(trim((string) ($_GET['mode'] ?? '')));
 
@@ -37,17 +37,17 @@ $targetUrl = 'index.php?m=eazybackup&a=ph-tenants-manage&legacy=e3-tenants';
 if ($legacyView === 'tenant_detail') {
     if ($mode === 'create') {
         $targetUrl = 'index.php?m=eazybackup&a=ph-tenants-manage&legacy=e3-tenant-create';
-    } elseif ($tenantId > 0) {
-        $targetUrl = 'index.php?m=eazybackup&a=ph-tenant&id=' . $tenantId . '&legacy=e3-tenant-detail';
+    } elseif ($tenantPublicId !== '') {
+        $targetUrl = 'index.php?m=eazybackup&a=ph-tenant&id=' . rawurlencode($tenantPublicId) . '&legacy=e3-tenant-detail';
     }
 } elseif ($legacyView === 'tenant_members' || $legacyView === 'tenant_users') {
-    if ($tenantId > 0) {
-        $targetUrl = 'index.php?m=eazybackup&a=ph-tenant-members&id=' . $tenantId . '&legacy=e3-tenant-members';
+    if ($tenantPublicId !== '') {
+        $targetUrl = 'index.php?m=eazybackup&a=ph-tenant-members&id=' . rawurlencode($tenantPublicId) . '&legacy=e3-tenant-members';
     } else {
         $targetUrl = 'index.php?m=eazybackup&a=ph-tenants-manage&legacy=e3-tenant-members';
     }
-} elseif ($tenantId > 0) {
-    $targetUrl = 'index.php?m=eazybackup&a=ph-tenant&id=' . $tenantId . '&legacy=e3-tenants';
+} elseif ($tenantPublicId !== '') {
+    $targetUrl = 'index.php?m=eazybackup&a=ph-tenant&id=' . rawurlencode($tenantPublicId) . '&legacy=e3-tenants';
 }
 
 header('Location: ' . $targetUrl);

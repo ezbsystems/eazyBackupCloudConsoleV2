@@ -42,7 +42,8 @@ if (!MspController::isMspClient($clientId)) {
     exit;
 }
 
-$tenantId = (int)($_POST['tenant_id'] ?? 0);
+$tenantPublicId = trim((string) ($_POST['tenant_id'] ?? ''));
+$tenantId = 0;
 $name = trim($_POST['name'] ?? '');
 $email = strtolower(trim($_POST['email'] ?? ''));
 $password = $_POST['password'] ?? '';
@@ -50,17 +51,18 @@ $role = $_POST['role'] ?? 'user';
 $status = $_POST['status'] ?? 'active';
 
 // Validate required fields
-if ($tenantId <= 0) {
+if ($tenantPublicId === '') {
     (new JsonResponse(['status' => 'fail', 'message' => 'Tenant is required'], 400))->send();
     exit;
 }
 
-// Verify tenant ownership
-$tenant = MspController::getTenant($tenantId, $clientId);
+// Resolve browser-facing tenant public ID at the boundary.
+$tenant = MspController::getTenantByPublicId($tenantPublicId, $clientId);
 if (!$tenant) {
     (new JsonResponse(['status' => 'fail', 'message' => 'Tenant not found'], 404))->send();
     exit;
 }
+$tenantId = (int) $tenant->id;
 
 if (empty($name)) {
     (new JsonResponse(['status' => 'fail', 'message' => 'Name is required'], 400))->send();

@@ -89,7 +89,7 @@
                     <option value="">All / Direct (No Tenant Filter)</option>
                     <option value="direct">Direct Only (No Tenant)</option>
                     {foreach from=$tenants item=tenant}
-                    <option value="{$tenant->id}">{$tenant->name|escape}</option>
+                    <option value="{$tenant->public_id|escape}">{$tenant->name|escape}</option>
                     {/foreach}
                 </select>
                 <p class="text-xs text-slate-500 mt-1">Select a tenant to filter available agents. The job will be associated with the agent's tenant.</p>
@@ -1104,7 +1104,7 @@
                                 options: [
                                     { id: '', name: 'No Tenant (Direct)' },
                                     {foreach from=$tenants item=tenant name=tenantloop}
-                                        { id: '{$tenant->id}', name: '{$tenant->name|escape:'javascript'}' }{if !$smarty.foreach.tenantloop.last},{/if}
+                                        { id: '{$tenant->public_id|escape:'javascript'}', name: '{$tenant->name|escape:'javascript'}' }{if !$smarty.foreach.tenantloop.last},{/if}
                                     {/foreach}
                                 ],
                                 get filtered() {

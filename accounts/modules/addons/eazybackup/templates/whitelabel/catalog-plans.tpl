@@ -8,21 +8,20 @@
       <div class="flex">
         {include file="modules/addons/eazybackup/templates/whitelabel/partials/sidebar_partner_hub.tpl" ebPhSidebarPage='catalog-plans'}
         <main class="flex-1 min-w-0 overflow-x-auto">
-    <div class="w-full max-w-full min-w-0 overflow-hidden rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6"
-         x-data="planPageFactory({ modulelink: '{$modulelink|escape:'javascript'}', token: '{$token|escape:'javascript'}' })">
-
-    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-3">
-      <div>
-        <h2 class="text-2xl font-semibold text-white">Catalog &mdash; Plans</h2>
-        <p class="text-xs text-slate-400 mt-1">Manage plan templates and assign them to customers.</p>
-      </div>
-      <div class="shrink-0 flex items-center gap-3">
-        <a href="{$modulelink}&a=ph-plan-export&format=csv" class="inline-flex items-center px-3 py-2 rounded-lg text-xs border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700">Export CSV</a>
-        <a href="{$modulelink}&a=ph-plan-export&format=json" class="inline-flex items-center px-3 py-2 rounded-lg text-xs border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700">Export JSON</a>
-        <button type="button" class="inline-flex items-center px-4 py-2 rounded-lg text-sm border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20" onclick="window.ebWizard && window.ebWizard.open()">Quick Plan</button>
-        <button type="button" class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-semibold text-white bg-sky-600 hover:bg-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 focus:ring-offset-slate-900" @click="openCreate()">New Plan</button>
-      </div>
-    </div>
+          <div x-data="planPageFactory({ modulelink: '{$modulelink|escape:'javascript'}', token: '{$token|escape:'javascript'}' })">
+            <div class="flex items-center justify-between border-b border-slate-800/60 px-6 py-4">
+              <div>
+                <h1 class="text-2xl font-semibold tracking-tight">Catalog - Plans</h1>
+                <p class="mt-1 text-sm text-slate-400">Manage plan templates and assign them to customers.</p>
+              </div>
+              <div class="flex items-center gap-3 shrink-0">
+                <a href="{$modulelink}&a=ph-plan-export&format=csv" class="inline-flex items-center rounded-xl px-3 py-2 text-xs text-slate-300 ring-1 ring-white/10 hover:bg-white/5">Export CSV</a>
+                <a href="{$modulelink}&a=ph-plan-export&format=json" class="inline-flex items-center rounded-xl px-3 py-2 text-xs text-slate-300 ring-1 ring-white/10 hover:bg-white/5">Export JSON</a>
+                <button type="button" class="inline-flex items-center rounded-xl px-4 py-2 text-sm text-emerald-300 ring-1 ring-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20" onclick="window.ebWizard && window.ebWizard.open()">Quick Plan</button>
+                <button type="button" class="inline-flex items-center rounded-xl px-4 py-2 text-sm font-semibold text-white bg-[rgb(var(--accent))] hover:bg-[rgb(var(--accent))]/90" @click="openCreate()">New Plan</button>
+              </div>
+            </div>
+            <div class="p-6">
 
     {* Counter cards *}
     <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-6">
@@ -44,89 +43,237 @@
       </div>
     </div>
 
-    {* Filter bar *}
-    <div class="mb-4 flex flex-wrap items-center gap-3">
-      <div class="flex items-center rounded-lg border border-slate-700 bg-slate-800/50 p-0.5">
-        <button type="button" @click="statusFilter='all'" :class="statusFilter==='all' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'" class="px-3 py-1.5 text-xs font-medium rounded-md transition">All</button>
-        <button type="button" @click="statusFilter='active'" :class="statusFilter==='active' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'" class="px-3 py-1.5 text-xs font-medium rounded-md transition">Active</button>
-        <button type="button" @click="statusFilter='draft'" :class="statusFilter==='draft' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'" class="px-3 py-1.5 text-xs font-medium rounded-md transition">Draft</button>
-        <button type="button" @click="statusFilter='archived'" :class="statusFilter==='archived' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'" class="px-3 py-1.5 text-xs font-medium rounded-md transition">Archived</button>
-      </div>
-      <input type="text" x-model="searchQuery" placeholder="Search plans..." class="px-3 py-1.5 rounded-lg bg-slate-800 text-xs text-slate-300 border border-slate-700 focus:outline-none focus:ring-1 focus:ring-sky-600 w-48" />
-    </div>
-
-    {* Plans table *}
     <section class="rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden">
-      <div class="overflow-x-auto">
-        <table class="w-full text-sm">
-          <thead class="bg-slate-800/60">
-            <tr>
-              <th class="px-4 py-3 text-left text-xs font-medium text-slate-400">Name</th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-slate-400">Components</th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-slate-400">Currency</th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-slate-400">Interval</th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-slate-400">Active Subs</th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-slate-400">Status</th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-slate-400">Created</th>
-              <th class="px-4 py-3 text-right text-xs font-medium text-slate-400">Actions</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-800">
-            {foreach from=$plans item=pl}
-            <tr class="hover:bg-slate-800/30 transition"
-                x-show="matchesPlan('{$pl.name|escape:'javascript'}', '{$pl.status|default:'active'}')">
-              <td class="px-4 py-3">
-                <div class="font-medium text-slate-100">{$pl.name|escape}</div>
-                {if $pl.description}<div class="text-xs text-slate-400 mt-0.5 truncate max-w-xs">{$pl.description|escape|truncate:60}</div>{/if}
-                <div class="text-xs text-slate-500 mt-0.5">v{$pl.version}{if $pl.trial_days} &middot; {$pl.trial_days}-day trial{/if}</div>
-              </td>
-              <td class="px-4 py-3">
-                {assign var='comp_count' value=0}
-                {foreach from=$components item=pc}{if $pc.plan_id == $pl.id}{assign var='comp_count' value=$comp_count+1}{/if}{/foreach}
-                <span class="text-slate-300">{$comp_count}</span>
-              </td>
-              <td class="px-4 py-3 text-slate-300">{$pl.currency|default:'CAD'}</td>
-              <td class="px-4 py-3 text-slate-300">{$pl.billing_interval|default:'month'}</td>
-              <td class="px-4 py-3">
-                {if $pl.active_subs > 0}
-                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/15 text-emerald-300">{$pl.active_subs}</span>
+      <div class="p-4"
+           x-data="{
+             entriesOpen: false,
+             statusOpen: false,
+             search: '',
+             entriesPerPage: 25,
+             currentPage: 1,
+             sortKey: 'name',
+             sortDirection: 'asc',
+             statusFilter: 'active',
+             filteredCount: 0,
+             rows: [],
+             init() {
+               this.rows = Array.from(this.$refs.tbody.querySelectorAll('tr[data-row]'));
+               this.$watch('search', () => { this.currentPage = 1; this.refreshRows(); });
+               this.refreshRows();
+             },
+             setEntries(size) {
+               this.entriesPerPage = Number(size) || 25;
+               this.currentPage = 1;
+               this.refreshRows();
+             },
+             setStatus(status) {
+               this.statusFilter = status;
+               this.currentPage = 1;
+               this.refreshRows();
+             },
+             statusLabel() {
+               return {
+                 active: 'Active',
+                 draft: 'Draft',
+                 archived: 'Archived',
+                 all: 'All'
+               }[this.statusFilter] || 'Active';
+             },
+             setSort(key) {
+               if (key === 'actions') return;
+               if (this.sortKey === key) {
+                 this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
+               } else {
+                 this.sortKey = key;
+                 this.sortDirection = 'asc';
+               }
+               this.refreshRows();
+             },
+             sortIndicator(key) {
+               if (this.sortKey !== key || key === 'actions') return '';
+               return this.sortDirection === 'asc' ? '↑' : '↓';
+             },
+             sortValue(row, key) {
+               return String(row.getAttribute('data-' + key) || '').toLowerCase();
+             },
+             compareRows(left, right) {
+               const a = this.sortValue(left, this.sortKey);
+               const b = this.sortValue(right, this.sortKey);
+               if (a < b) return this.sortDirection === 'asc' ? -1 : 1;
+               if (a > b) return this.sortDirection === 'asc' ? 1 : -1;
+               return 0;
+             },
+             refreshRows() {
+               const query = this.search.trim().toLowerCase();
+               const filtered = this.rows.filter((row) => {
+                 const status = row.getAttribute('data-status') || '';
+                 const matchesStatus = this.statusFilter === 'all' ? true : status === this.statusFilter;
+                 const matchesQuery = !query ? true : (row.textContent || '').toLowerCase().includes(query);
+                 return matchesStatus && matchesQuery;
+               });
+               filtered.sort((a, b) => this.compareRows(a, b));
+               filtered.forEach((row) => this.$refs.tbody.appendChild(row));
+               this.filteredCount = filtered.length;
+               const pages = this.totalPages();
+               if (this.currentPage > pages) this.currentPage = pages;
+               const start = (this.currentPage - 1) * this.entriesPerPage;
+               const end = start + this.entriesPerPage;
+               const visibleRows = new Set(filtered.slice(start, end));
+               this.rows.forEach((row) => {
+                 row.style.display = visibleRows.has(row) ? '' : 'none';
+               });
+               if (this.$refs.noResults) {
+                 this.$refs.noResults.style.display = filtered.length === 0 ? '' : 'none';
+               }
+             },
+             totalPages() {
+               return Math.max(1, Math.ceil(this.filteredCount / this.entriesPerPage));
+             },
+             pageSummary() {
+               if (this.filteredCount === 0) return 'Showing 0-0 of 0 plans';
+               const start = (this.currentPage - 1) * this.entriesPerPage + 1;
+               const end = Math.min(start + this.entriesPerPage - 1, this.filteredCount);
+               return 'Showing ' + start + '-' + end + ' of ' + this.filteredCount + ' plans';
+             },
+             prevPage() {
+               if (this.currentPage <= 1) return;
+               this.currentPage -= 1;
+               this.refreshRows();
+             },
+             nextPage() {
+               if (this.currentPage >= this.totalPages()) return;
+               this.currentPage += 1;
+               this.refreshRows();
+             }
+           }"
+           x-init="init()">
+        <div class="mb-4 flex flex-col xl:flex-row xl:items-center gap-3">
+          <div class="relative" @click.away="entriesOpen = false">
+            <button type="button" @click="entriesOpen = !entriesOpen" class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
+              <span x-text="'Show ' + entriesPerPage"></span>
+              <svg class="w-4 h-4 transition-transform" :class="entriesOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
+            </button>
+            <div x-show="entriesOpen" x-transition:enter="transition ease-out duration-100" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100" x-transition:leave="transition ease-in duration-75" x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95" class="absolute left-0 mt-2 w-40 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden" style="display: none;">
+              <template x-for="size in [10,25,50,100]" :key="'plans-entries-' + size">
+                <button type="button" class="w-full px-4 py-2 text-left text-sm transition" :class="entriesPerPage === size ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'" @click="setEntries(size); entriesOpen = false;"><span x-text="size"></span></button>
+              </template>
+            </div>
+          </div>
+          <div class="relative" @click.away="statusOpen = false">
+            <button type="button" @click="statusOpen = !statusOpen" class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
+              <span x-text="'Status: ' + statusLabel()"></span>
+              <svg class="w-4 h-4 transition-transform" :class="statusOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
+            </button>
+            <div x-show="statusOpen" x-transition:enter="transition ease-out duration-100" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100" x-transition:leave="transition ease-in duration-75" x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95" class="absolute left-0 mt-2 w-56 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden" style="display: none;">
+              <template x-for="option in [
+                { value: 'active', label: 'Active' },
+                { value: 'draft', label: 'Draft' },
+                { value: 'archived', label: 'Archived' },
+                { value: 'all', label: 'All' }
+              ]" :key="'plans-status-' + option.value">
+                <button type="button" class="w-full px-4 py-2 text-left text-sm transition" :class="statusFilter === option.value ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'" @click="setStatus(option.value); statusOpen = false;"><span x-text="option.label"></span></button>
+              </template>
+            </div>
+          </div>
+          <div class="flex-1"></div>
+          <input type="text" x-model="search" placeholder="Search plans, currency, or interval" class="w-full xl:w-80 rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
+        </div>
+
+        <div class="overflow-x-auto rounded-lg border border-slate-800">
+          <table class="min-w-full divide-y divide-slate-800 text-sm">
+            <thead class="bg-slate-900/80 text-slate-300">
+              <tr>
+                <th class="px-4 py-3 text-left font-medium"><button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('name')">Name <span x-text="sortIndicator('name')"></span></button></th>
+                <th class="px-4 py-3 text-left font-medium"><button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('components')">Components <span x-text="sortIndicator('components')"></span></button></th>
+                <th class="px-4 py-3 text-left font-medium"><button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('currency')">Currency <span x-text="sortIndicator('currency')"></span></button></th>
+                <th class="px-4 py-3 text-left font-medium"><button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('interval')">Interval <span x-text="sortIndicator('interval')"></span></button></th>
+                <th class="px-4 py-3 text-left font-medium"><button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('subs')">Active Subs <span x-text="sortIndicator('subs')"></span></button></th>
+                <th class="px-4 py-3 text-left font-medium"><button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('status')">Status <span x-text="sortIndicator('status')"></span></button></th>
+                <th class="px-4 py-3 text-left font-medium"><button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('created')">Created <span x-text="sortIndicator('created')"></span></button></th>
+                <th class="px-4 py-3 text-right font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody x-ref="tbody" class="divide-y divide-slate-800">
+              {foreach from=$plans item=pl}
+              {assign var='comp_count' value=0}
+              {foreach from=$components item=pc}{if $pc.plan_id == $pl.id}{assign var='comp_count' value=$comp_count+1}{/if}{/foreach}
+              {assign var='plan_status' value=$pl.status|default:''}
+              {if $plan_status eq ''}
+                {if $pl.active}
+                  {assign var='plan_status' value='active'}
                 {else}
-                <span class="text-slate-500">0</span>
+                  {assign var='plan_status' value='draft'}
                 {/if}
-              </td>
-              <td class="px-4 py-3">
-                {if $pl.status == 'active' || (!$pl.status && $pl.active)}
-                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/15 text-emerald-300">Active</span>
-                {elseif $pl.status == 'draft'}
-                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/15 text-amber-300">Draft</span>
-                {elseif $pl.status == 'archived'}
-                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-500/15 text-slate-400">Archived</span>
-                {/if}
-              </td>
-              <td class="px-4 py-3 text-xs text-slate-400">{$pl.created_at|date_format:'%Y-%m-%d'}</td>
-              <td class="px-4 py-3 text-right" x-data="{ o:false }">
-                <div class="relative inline-block text-left">
-                  <button type="button" class="px-3 py-1.5 text-xs bg-slate-700 rounded text-white hover:bg-slate-600 cursor-pointer" @click="o=!o">&ctdot;</button>
-                  <div x-show="o" @click.outside="o=false" x-transition class="absolute right-0 z-50 mt-2 w-48 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl overflow-hidden p-1">
-                    <button type="button" class="w-full text-left px-4 py-2 text-sm text-slate-200 hover:bg-slate-800/60 rounded-lg" @click="o=false; openEdit({$pl.id})">Edit</button>
-                    <button type="button" class="w-full text-left px-4 py-2 text-sm text-slate-200 hover:bg-slate-800/60 rounded-lg" @click="o=false; duplicatePlan({$pl.id})">Duplicate</button>
-                    <button type="button" class="w-full text-left px-4 py-2 text-sm text-slate-200 hover:bg-slate-800/60 rounded-lg" @click="o=false; openAssign({$pl.id}, '{$pl.name|escape:'javascript'}')">Assign to Customer</button>
-                    <button type="button" class="w-full text-left px-4 py-2 text-sm text-slate-200 hover:bg-slate-800/60 rounded-lg" @click="o=false; openSubs({$pl.id})">View Subscriptions</button>
-                    {if $pl.status == 'active' || (!$pl.status && $pl.active)}
-                    <button type="button" class="w-full text-left px-4 py-2 text-sm text-amber-300 hover:bg-slate-800/60 rounded-lg" @click="o=false; toggleStatus({$pl.id}, 'archived')">Archive</button>
-                    {else}
-                    <button type="button" class="w-full text-left px-4 py-2 text-sm text-emerald-300 hover:bg-slate-800/60 rounded-lg" @click="o=false; toggleStatus({$pl.id}, 'active')">Activate</button>
-                    {/if}
-                    <button type="button" class="w-full text-left px-4 py-2 text-sm text-rose-300 hover:bg-slate-800/60 rounded-lg" @click="o=false; deletePlan({$pl.id})">Delete</button>
+              {/if}
+              <tr class="hover:bg-slate-800/30 transition"
+                  data-row="plan"
+                  data-name="{$pl.name|escape}"
+                  data-components="{$comp_count|escape}"
+                  data-currency="{$pl.currency|default:'CAD'|escape}"
+                  data-interval="{$pl.billing_interval|default:'month'|escape}"
+                  data-subs="{$pl.active_subs|default:0|escape}"
+                  data-status="{$plan_status|escape}"
+                  data-created="{$pl.created_at|date_format:'%Y-%m-%d'|escape}">
+                <td class="px-4 py-3">
+                  <div class="font-medium text-slate-100">{$pl.name|escape}</div>
+                  {if $pl.description}<div class="text-xs text-slate-400 mt-0.5 truncate max-w-xs">{$pl.description|escape|truncate:60}</div>{/if}
+                  <div class="text-xs text-slate-500 mt-0.5">v{$pl.version}{if $pl.trial_days} &middot; {$pl.trial_days}-day trial{/if}</div>
+                </td>
+                <td class="px-4 py-3"><span class="text-slate-300">{$comp_count}</span></td>
+                <td class="px-4 py-3 text-slate-300">{$pl.currency|default:'CAD'}</td>
+                <td class="px-4 py-3 text-slate-300">{$pl.billing_interval|default:'month'}</td>
+                <td class="px-4 py-3">{if $pl.active_subs > 0}<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/15 text-emerald-300">{$pl.active_subs}</span>{else}<span class="text-slate-500">0</span>{/if}</td>
+                <td class="px-4 py-3">
+                  {if $plan_status == 'active'}
+                  <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/15 text-emerald-300">Active</span>
+                  {elseif $plan_status == 'draft'}
+                  <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/15 text-amber-300">Draft</span>
+                  {elseif $plan_status == 'archived'}
+                  <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-500/15 text-slate-400">Archived</span>
+                  {else}
+                  <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-white/10 text-white/70">{$plan_status|escape}</span>
+                  {/if}
+                </td>
+                <td class="px-4 py-3 text-xs text-slate-400">{$pl.created_at|date_format:'%Y-%m-%d'}</td>
+                <td class="px-4 py-3 text-right" x-data="{ o:false }">
+                  <div class="relative inline-block text-left">
+                    <button type="button" class="px-3 py-1.5 text-xs bg-slate-700 rounded text-white hover:bg-slate-600 cursor-pointer" @click="o=!o">&ctdot;</button>
+                    <div x-show="o" @click.outside="o=false" x-transition class="absolute right-0 z-50 mt-2 w-48 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl overflow-hidden p-1">
+                      <button type="button" class="w-full text-left px-4 py-2 text-sm text-slate-200 hover:bg-slate-800/60 rounded-lg" @click="o=false; openEdit({$pl.id})">Edit</button>
+                      <button type="button" class="w-full text-left px-4 py-2 text-sm text-slate-200 hover:bg-slate-800/60 rounded-lg" @click="o=false; duplicatePlan({$pl.id})">Duplicate</button>
+                      <button type="button" class="w-full text-left px-4 py-2 text-sm text-slate-200 hover:bg-slate-800/60 rounded-lg" @click="o=false; openAssign({$pl.id}, '{$pl.name|escape:'javascript'}')">Assign to Customer</button>
+                      <button type="button" class="w-full text-left px-4 py-2 text-sm text-slate-200 hover:bg-slate-800/60 rounded-lg" @click="o=false; openSubs({$pl.id})">View Subscriptions</button>
+                      {if $plan_status == 'active'}
+                      <button type="button" class="w-full text-left px-4 py-2 text-sm text-amber-300 hover:bg-slate-800/60 rounded-lg" @click="o=false; toggleStatus({$pl.id}, 'archived')">Archive</button>
+                      {else}
+                      <button type="button" class="w-full text-left px-4 py-2 text-sm text-emerald-300 hover:bg-slate-800/60 rounded-lg" @click="o=false; toggleStatus({$pl.id}, 'active')">Activate</button>
+                      {/if}
+                      <button type="button" class="w-full text-left px-4 py-2 text-sm text-rose-300 hover:bg-slate-800/60 rounded-lg" @click="o=false; deletePlan({$pl.id})">Delete</button>
+                    </div>
                   </div>
-                </div>
-              </td>
-            </tr>
-            {foreachelse}
-            <tr><td colspan="8" class="px-4 py-8 text-center text-slate-500">No plan templates yet. Create one to get started.</td></tr>
-            {/foreach}
-          </tbody>
-        </table>
+                </td>
+              </tr>
+              {foreachelse}
+              <tr>
+                <td colspan="8" class="px-4 py-8 text-center text-slate-500">No plan templates yet. Create one to get started.</td>
+              </tr>
+              {/foreach}
+              {if $plans|@count > 0}
+              <tr x-ref="noResults" style="display: none;">
+                <td colspan="8" class="px-4 py-8 text-center text-slate-500">No plan templates found.</td>
+              </tr>
+              {/if}
+            </tbody>
+          </table>
+        </div>
+        <div class="mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-400">
+          <div x-text="pageSummary()"></div>
+          <div class="flex items-center gap-2">
+            <button type="button" @click="prevPage()" :disabled="currentPage <= 1" class="px-3 py-1.5 rounded border border-slate-700 bg-slate-900/70 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed">Prev</button>
+            <span class="text-slate-300" x-text="'Page ' + currentPage + ' / ' + totalPages()"></span>
+            <button type="button" @click="nextPage()" :disabled="currentPage >= totalPages()" class="px-3 py-1.5 rounded border border-slate-700 bg-slate-900/70 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed">Next</button>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -256,7 +403,7 @@
             <select x-model="assignData.tenant_id" @change="onTenantChange()" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 outline-1 -outline-offset-1 outline-white/10 focus:outline-2 focus:-outline-offset-2 focus:outline-sky-700">
               <option value="">Select customer&hellip;</option>
               {foreach from=$tenants item=c}
-              <option value="{$c.id}">#{$c.id} &mdash; {$c.name|default:$c.id|escape}</option>
+              <option value="{$c.public_id|escape}">{$c.name|default:$c.public_id|escape}</option>
               {/foreach}
             </select>
           </label>
@@ -295,7 +442,7 @@
               <tbody>
                 <template x-for="sub in subscriptions" :key="sub.id">
                   <tr class="border-t border-slate-800">
-                    <td class="px-3 py-2 text-slate-300" x-text="sub.tenant_name || ('#'+sub.tenant_id)"></td>
+                    <td class="px-3 py-2 text-slate-300" x-text="sub.tenant_name || sub.tenant_public_id || 'Tenant'"></td>
                     <td class="px-3 py-2 text-slate-300" x-text="sub.comet_user_id"></td>
                     <td class="px-3 py-2"><span class="px-2 py-0.5 rounded-full text-xs" :class="sub.status==='active' ? 'bg-emerald-500/15 text-emerald-300' : (sub.status==='trialing' ? 'bg-sky-500/15 text-sky-300' : 'bg-slate-500/15 text-slate-400')" x-text="sub.status"></span></td>
                     <td class="px-3 py-2 text-slate-400" x-text="sub.created_at ? sub.created_at.substring(0,10) : ''"></td>
@@ -311,7 +458,8 @@
       </div>
     </div>
 
-    </div>
+            </div>
+          </div>
         </main>
       </div>
     </div>
@@ -448,6 +596,6 @@
   </div>
 </div>
 
-<script type="application/json" id="eb-comet-accounts-json">[{foreach from=$comet_accounts item=ca name=ca_loop}{ldelim}"tenant_id":{$ca.tenant_id},"comet_username":"{$ca.comet_username|escape:'javascript'}","tenant_name":"{$ca.tenant_name|escape:'javascript'}"{rdelim}{if !$smarty.foreach.ca_loop.last},{/if}{/foreach}]</script>
+<script type="application/json" id="eb-comet-accounts-json">[{foreach from=$comet_accounts item=ca name=ca_loop}{ldelim}"tenant_public_id":"{$ca.tenant_public_id|escape:'javascript'}","comet_username":"{$ca.comet_username|escape:'javascript'}","tenant_name":"{$ca.tenant_name|escape:'javascript'}"{rdelim}{if !$smarty.foreach.ca_loop.last},{/if}{/foreach}]</script>
 <script src="modules/addons/eazybackup/assets/js/catalog-plans-wizard.js"></script>
 <script src="modules/addons/eazybackup/assets/js/catalog-plans.js"></script>

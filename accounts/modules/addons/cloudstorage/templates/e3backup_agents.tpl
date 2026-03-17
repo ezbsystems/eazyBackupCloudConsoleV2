@@ -80,9 +80,9 @@
                             <button
                                 type="button"
                                 class="w-full px-4 py-2 text-left text-sm transition"
-                                :class="String(tenantFilter) === String('{$tenant->id}') ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
-                                @click="tenantFilter='{$tenant->id}'; tenantMenuOpen=false; loadAgents()"
-                                data-agents-tenant-option="{$tenant->id}"
+                                :class="String(tenantFilter) === String('{$tenant->public_id|escape:'javascript'}') ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
+                                @click="tenantFilter='{$tenant->public_id|escape:'javascript'}'; tenantMenuOpen=false; loadAgents()"
+                                data-agents-tenant-option="{$tenant->public_id|escape}"
                             >
                                 {$tenant->name|escape}
                             </button>
@@ -302,7 +302,7 @@ function agentsApp() {
         tenantLabel() {
             if (!this.tenantFilter) return 'All Agents';
             if (this.tenantFilter === 'direct') return 'Direct (No Tenant)';
-            const match = (this.tenants || []).find(t => String(t.id) === String(this.tenantFilter));
+            const match = (this.tenants || []).find(t => String(t.public_id || t.id) === String(this.tenantFilter));
             return match ? match.name : `Tenant ${this.tenantFilter}`;
         },
 

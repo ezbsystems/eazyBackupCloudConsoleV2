@@ -39,6 +39,101 @@ function eb_tenant_storage_links_resolve_tenant_for_client(int $clientId, int $c
     return $tenant;
 }
 
+function eb_tenant_storage_links_resolve_tenant_for_client_by_public_id(int $clientId, string $canonicalTenantPublicId)
+{
+    $canonicalTenantPublicId = trim($canonicalTenantPublicId);
+    if ($clientId <= 0 || $canonicalTenantPublicId === '') {
+        return null;
+    }
+
+    if (!Capsule::schema()->hasColumn('eb_whitelabel_tenants', 'public_id')) {
+        return null;
+    }
+
+    $tenant = Capsule::table('eb_whitelabel_tenants')
+        ->where('public_id', $canonicalTenantPublicId)
+        ->where('client_id', $clientId)
+        ->first();
+    if (!$tenant) {
+        return null;
+    }
+    if (!eb_tenant_storage_links_is_assignable_tenant_status((string) ($tenant->status ?? ''))) {
+        return null;
+    }
+
+    return $tenant;
+}
+
+function eb_tenant_storage_links_ensure_canonical_tenant_public_id(object $canonicalTenant): string
+{
+    $publicId = trim((string) ($canonicalTenant->public_id ?? ''));
+    if ($publicId !== '') {
+        return $publicId;
+    }
+
+    if (
+        empty($canonicalTenant->id)
+        || !Capsule::schema()->hasTable('eb_whitelabel_tenants')
+        || !Capsule::schema()->hasColumn('eb_whitelabel_tenants', 'public_id')
+    ) {
+        throw new \RuntimeException('canonical_tenant_public_id_missing');
+    }
+
+    $publicId = eazybackup_generate_ulid();
+    Capsule::table('eb_whitelabel_tenants')
+        ->where('id', (int) $canonicalTenant->id)
+        ->where(function ($query) {
+            $query->whereNull('public_id')
+                ->orWhere('public_id', '');
+        })
+        ->update(['public_id' => $publicId]);
+
+    return $publicId;
+}
+
+function eb_tenant_storage_links_storage_tenant_slug(string $canonicalTenantPublicId): string
+{
+    return 'eb-link-' . strtolower(trim($canonicalTenantPublicId));
+}
+
+function eb_tenant_storage_links_storage_tenant_name(object $canonicalTenant, string $canonicalTenantPublicId): string
+{
+    $name = trim((string) ($canonicalTenant->subdomain ?? ''));
+    if ($name === '') {
+        $name = trim((string) ($canonicalTenant->fqdn ?? ''));
+    }
+    if ($name === '') {
+        $name = 'Tenant ' . substr($canonicalTenantPublicId, 0, 8);
+    }
+
+    return $name;
+}
+
+function eb_tenant_storage_links_resolve_tenant_public_id_for_client(int $clientId, string $canonicalTenantReference): ?string
+{
+    $canonicalTenantReference = trim($canonicalTenantReference);
+    if ($clientId <= 0 || $canonicalTenantReference === '') {
+        return null;
+    }
+
+    $tenant = eb_tenant_storage_links_resolve_tenant_for_client_by_public_id($clientId, $canonicalTenantReference);
+    if ($tenant && trim((string) ($tenant->public_id ?? '')) !== '') {
+        return trim((string) $tenant->public_id);
+    }
+
+    if ((int) $canonicalTenantReference <= 0) {
+        return null;
+    }
+
+    $tenant = eb_tenant_storage_links_resolve_tenant_for_client($clientId, (int) $canonicalTenantReference);
+    if (!$tenant) {
+        return null;
+    }
+
+    $publicId = trim((string) ($tenant->public_id ?? ''));
+    return $publicId !== '' ? $publicId : null;
+}
+
 function eb_tenant_storage_links_resolve_or_create_storage_tenant_id(int $clientId, int $canonicalTenantId): int
 {
     if ($clientId <= 0 || $canonicalTenantId <= 0) {
@@ -50,14 +145,10 @@ function eb_tenant_storage_links_resolve_or_create_storage_tenant_id(int $client
         throw new \RuntimeException('canonical_tenant_not_found');
     }
 
-    $slug = 'eb-canonical-' . $canonicalTenantId;
-    $name = trim((string) ($canonicalTenant->subdomain ?? ''));
-    if ($name === '') {
-        $name = trim((string) ($canonicalTenant->fqdn ?? ''));
-    }
-    if ($name === '') {
-        $name = 'Canonical Tenant #' . $canonicalTenantId;
-    }
+    $canonicalTenantPublicId = eb_tenant_storage_links_ensure_canonical_tenant_public_id($canonicalTenant);
+    $slug = eb_tenant_storage_links_storage_tenant_slug($canonicalTenantPublicId);
+    $legacySlug = 'eb-canonical-' . $canonicalTenantId;
+    $name = eb_tenant_storage_links_storage_tenant_name($canonicalTenant, $canonicalTenantPublicId);
 
     $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id', $clientId)->first();
     if (!$msp) {
@@ -75,29 +166,57 @@ function eb_tenant_storage_links_resolve_or_create_storage_tenant_id(int $client
 
     $existing = Capsule::table('eb_tenants')
         ->where('msp_id', $mspId)
-        ->where('slug', $slug)
+        ->where(function ($query) use ($slug, $legacySlug) {
+            $query->where('slug', $slug)
+                ->orWhere('slug', $legacySlug);
+        })
         ->first();
     if ($existing) {
         $updates = ['updated_at' => Capsule::raw('NOW()')];
         if ((string) ($existing->status ?? '') === 'deleted') {
             $updates['status'] = 'active';
         }
-        if (trim((string) ($existing->name ?? '')) === '') {
+        if (trim((string) ($existing->slug ?? '')) !== $slug) {
+            $updates['slug'] = $slug;
+        }
+        if (
+            trim((string) ($existing->name ?? '')) === ''
+            || preg_match('/^Canonical Tenant #\d+$/', trim((string) ($existing->name ?? '')))
+        ) {
             $updates['name'] = $name;
         }
         Capsule::table('eb_tenants')->where('id', (int) $existing->id)->update($updates);
+        if (
+            Capsule::schema()->hasTable('eb_tenants')
+            && Capsule::schema()->hasColumn('eb_tenants', 'public_id')
+            && trim((string) ($existing->public_id ?? '')) === ''
+        ) {
+            $publicId = eazybackup_generate_ulid();
+            Capsule::table('eb_tenants')
+                ->where('id', (int) $existing->id)
+                ->where(function ($query) {
+                    $query->whereNull('public_id')
+                        ->orWhere('public_id', '');
+                })
+                ->update(['public_id' => $publicId]);
+        }
         return (int) $existing->id;
     }
 
+    $insert = [
+        'msp_id' => $mspId,
+        'name' => $name,
+        'slug' => $slug,
+        'status' => 'active',
+        'created_at' => Capsule::raw('NOW()'),
+        'updated_at' => Capsule::raw('NOW()'),
+    ];
+    if (Capsule::schema()->hasTable('eb_tenants') && Capsule::schema()->hasColumn('eb_tenants', 'public_id')) {
+        $insert['public_id'] = eazybackup_generate_ulid();
+    }
+
     try {
-        return (int) Capsule::table('eb_tenants')->insertGetId([
-            'msp_id' => $mspId,
-            'name' => $name,
-            'slug' => $slug,
-            'status' => 'active',
-            'created_at' => Capsule::raw('NOW()'),
-            'updated_at' => Capsule::raw('NOW()'),
-        ]);
+        return (int) Capsule::table('eb_tenants')->insertGetId($insert);
     } catch (\Throwable $e) {
         $raced = Capsule::table('eb_tenants')
             ->where('msp_id', $mspId)
@@ -226,6 +345,11 @@ function eb_tenant_storage_links_infer_canonical_tenant_id_from_storage_tenant_i
     }
 
     $matches = [];
+    if (preg_match('/^eb-link-([0-9a-z]{26})$/', $slug, $matches)) {
+        $canonicalTenant = eb_tenant_storage_links_resolve_tenant_for_client_by_public_id($clientId, strtoupper((string) ($matches[1] ?? '')));
+        return $canonicalTenant ? (int) $canonicalTenant->id : null;
+    }
+
     if (!preg_match('/^eb-canonical-(\d+)$/', $slug, $matches)) {
         return null;
     }
@@ -343,6 +467,7 @@ function eb_ph_tenant_storage_links_list(array $vars): void
             ->orderBy('id', 'asc')
             ->get([
                 'id',
+                'public_id',
                 'subdomain',
                 'fqdn',
                 'status',
@@ -362,10 +487,15 @@ function eb_ph_tenant_storage_links_list(array $vars): void
             $name = trim((string) ($row->fqdn ?? ''));
         }
         if ($name === '') {
-            $name = 'Tenant #' . (int) $row->id;
+            $name = 'Tenant';
+        }
+        $publicId = trim((string) ($row->public_id ?? ''));
+        if ($publicId === '') {
+            continue;
         }
         $tenants[] = [
-            'id' => (int) $row->id,
+            'id' => $publicId,
+            'public_id' => $publicId,
             'name' => $name,
             'subdomain' => (string) ($row->subdomain ?? ''),
             'fqdn' => (string) ($row->fqdn ?? ''),
@@ -424,15 +554,17 @@ function eb_ph_tenant_storage_links_write(array $vars): void
         return;
     }
 
-    $canonicalTenantIdRaw = $_POST['canonical_tenant_id'] ?? null;
+    $canonicalTenantIdRaw = trim((string) ($_POST['canonical_tenant_id'] ?? ''));
     $canonicalTenantId = null;
-    if ($canonicalTenantIdRaw !== null && $canonicalTenantIdRaw !== '' && $canonicalTenantIdRaw !== 'direct') {
-        if ((int) $canonicalTenantIdRaw > 0) {
-            $canonicalTenantId = (int) $canonicalTenantIdRaw;
-        } else {
+    $canonicalTenantPublicId = null;
+    if ($canonicalTenantIdRaw !== '' && $canonicalTenantIdRaw !== 'direct') {
+        $canonicalTenant = eb_tenant_storage_links_resolve_tenant_for_client_by_public_id($clientId, $canonicalTenantIdRaw);
+        if (!$canonicalTenant) {
             echo json_encode(['status' => 'error', 'message' => 'invalid_tenant']);
             return;
         }
+        $canonicalTenantId = (int) $canonicalTenant->id;
+        $canonicalTenantPublicId = trim((string) ($canonicalTenant->public_id ?? ''));
     }
 
     $result = eb_tenant_storage_links_upsert_for_client($clientId, $storageIdentifier, $canonicalTenantId);
@@ -444,6 +576,6 @@ function eb_ph_tenant_storage_links_write(array $vars): void
     echo json_encode([
         'status' => 'success',
         'storage_identifier' => $storageIdentifier,
-        'canonical_tenant_id' => $canonicalTenantId,
+        'canonical_tenant_id' => $canonicalTenantPublicId,
     ]);
 }

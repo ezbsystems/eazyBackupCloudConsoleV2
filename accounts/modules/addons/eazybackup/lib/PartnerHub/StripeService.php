@@ -217,6 +217,19 @@ class StripeService
         return $this->request('POST', '/v1/customers/'.$stripeCustomerId, [ 'invoice_settings[default_payment_method]' => $paymentMethodId ], null, $stripeAccount);
     }
 
+    public function retrieveCustomer(string $stripeCustomerId, ?string $stripeAccount = null): array
+    {
+        return $this->request('GET', '/v1/customers/'.$stripeCustomerId, [], null, $stripeAccount);
+    }
+
+    public function listCustomerPaymentMethods(string $stripeCustomerId, string $type = 'card', ?string $stripeAccount = null): array
+    {
+        return $this->request('GET', '/v1/payment_methods', [
+            'customer' => $stripeCustomerId,
+            'type' => $type,
+        ], null, $stripeAccount);
+    }
+
     public function createCustomerBasic(string $name, string $email, ?string $stripeAccount = null): array
     {
         return $this->request('POST','/v1/customers',[ 'name' => $name, 'email' => $email ], null, $stripeAccount);

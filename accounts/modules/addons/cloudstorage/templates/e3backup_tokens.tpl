@@ -114,7 +114,7 @@
                     <select x-model="newToken.tenant_id" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500">
                         <option value="">All / Direct</option>
                         {foreach from=$tenants item=tenant}
-                        <option value="{$tenant->id}">{$tenant->name|escape}</option>
+                        <option value="{$tenant->public_id|escape}">{$tenant->name|escape}</option>
                         {/foreach}
                     </select>
                     <p class="text-xs text-slate-500 mt-1">Agents enrolled with this token will be assigned to the selected tenant.</p>
@@ -225,6 +225,7 @@ function tokensApp() {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                     body: new URLSearchParams({
+                        token: '{/literal}{$token|escape:'javascript'}{literal}',
                         description: this.newToken.description,
                         tenant_id: this.newToken.tenant_id,
                         max_uses: this.newToken.max_uses,
@@ -255,7 +256,10 @@ function tokensApp() {
                 const res = await fetch('modules/addons/cloudstorage/api/e3backup_token_revoke.php', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: new URLSearchParams({ token_id: token.id })
+                    body: new URLSearchParams({
+                        token: '{/literal}{$token|escape:'javascript'}{literal}',
+                        token_id: token.id
+                    })
                 });
                 const data = await res.json();
                 if (data.status === 'success') {

@@ -2,6 +2,8 @@
 
 use WHMCS\Database\Capsule;
 
+require_once __DIR__ . '/TenantsController.php';
+
 function eb_ph_billing_subscriptions(array $vars)
 {
     if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { header('Location: clientarea.php'); exit; }
@@ -36,7 +38,8 @@ function eb_ph_billing_subscriptions(array $vars)
         ->get([
             's.*',
             't.name as tenant_name',
-            't.id as tenant_row_id',
+            't.public_id as tenant_public_id',
+            't.status as tenant_status',
             'p.name as plan_name',
             'pp.nickname as price_nickname',
             'pp.billing_cycle as price_cycle'
@@ -59,6 +62,7 @@ function eb_ph_billing_subscriptions(array $vars)
             'page' => $page,
             'per' => $per,
             'total' => $total,
+            'token' => function_exists('generate_token') ? generate_token('plain') : '',
         ],
     ];
 }
@@ -93,7 +97,7 @@ function eb_ph_billing_invoices(array $vars)
         ->get([
             'i.*',
             't.name as tenant_name',
-            't.id as tenant_row_id'
+            't.public_id as tenant_public_id'
         ]);
 
     $rows = [];
@@ -113,6 +117,7 @@ function eb_ph_billing_invoices(array $vars)
             'page' => $page,
             'per' => $per,
             'total' => $total,
+            'token' => function_exists('generate_token') ? generate_token('plain') : '',
         ],
     ];
 }
@@ -147,11 +152,15 @@ function eb_ph_billing_payments(array $vars)
         ->get([
             'p.*',
             't.name as tenant_name',
-            't.id as tenant_row_id'
+            't.public_id as tenant_public_id'
         ]);
 
     $rows = [];
     foreach ($rowsCol as $r) { $rows[] = (array)$r; }
+
+    $tenants = Capsule::table('eb_tenants')->where('msp_id',(int)$msp->id)->where('status', '!=', 'deleted')->orderBy('name','asc')->get(['public_id','name','contact_email','stripe_customer_id']);
+    $tenantArr = [];
+    foreach ($tenants as $t) { $tenantArr[] = (array)$t; }
 
     return [
         'pagetitle' => 'Billing — Payments',
@@ -167,6 +176,8 @@ function eb_ph_billing_payments(array $vars)
             'page' => $page,
             'per' => $per,
             'total' => $total,
+            'tenants' => $tenantArr,
+            'token' => function_exists('generate_token') ? generate_token('plain') : '',
         ],
     ];
 }
@@ -178,7 +189,7 @@ function eb_ph_billing_payment_new(array $vars)
     $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
     if (!$msp) { header('Location: '.$vars['modulelink'].'&a=ph-tenants-manage'); exit; }
 
-    $tenants = Capsule::table('eb_tenants')->where('msp_id',(int)$msp->id)->orderBy('name','asc')->get(['id','name']);
+    $tenants = Capsule::table('eb_tenants')->where('msp_id',(int)$msp->id)->where('status', '!=', 'deleted')->orderBy('name','asc')->get(['public_id','name','contact_email']);
     $tenantArr = [];
     foreach ($tenants as $t) { $tenantArr[] = (array)$t; }
 
@@ -188,19 +199,34 @@ function eb_ph_billing_payment_new(array $vars)
         'breadcrumb' => [ 'index.php?m=eazybackup' => 'eazyBackup', $vars['modulelink'].'&a=ph-billing-payments' => 'Payments' ],
         'requirelogin' => true,
         'forcessl' => true,
-        'vars' => [ 'modulelink' => $vars['modulelink'], 'msp' => $msp, 'tenants' => $tenantArr, 'customers' => $tenantArr ],
+        'vars' => [ 'modulelink' => $vars['modulelink'], 'msp' => $msp, 'tenants' => $tenantArr, 'customers' => $tenantArr, 'token' => function_exists('generate_token') ? generate_token('plain') : '' ],
     ];
+}
+
+function eb_ph_billing_resolve_tenant_for_msp(int $mspId, string $tenantPublicId)
+{
+    $tenantPublicId = trim($tenantPublicId);
+    if ($tenantPublicId === '') {
+        return null;
+    }
+
+    return Capsule::table('eb_tenants')
+        ->where('public_id', $tenantPublicId)
+        ->where('msp_id', $mspId)
+        ->where('status', '!=', 'deleted')
+        ->first(['id', 'public_id', 'name', 'stripe_customer_id']);
 }
 
 function eb_ph_billing_create_payment(array $vars): void
 {
     header('Content-Type: application/json');
     if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { echo json_encode(['status'=>'error','message'=>'auth']); return; }
+    if (!eb_ph_tenants_require_csrf_or_json_error((string)($_POST['token'] ?? ''))) { return; }
     try {
         $clientId = (int)$_SESSION['uid'];
         $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
         if (!$msp || (string)($msp->stripe_connect_id ?? '') === '') { echo json_encode(['status'=>'error','message'=>'no_account']); return; }
-        $tenantId = (int)($_POST['tenant_id'] ?? 0);
+        $tenantPublicId = trim((string)($_POST['tenant_id'] ?? ''));
         $amountDec = (string)($_POST['amount'] ?? '0'); // decimal as string
         $feeDec = (string)($_POST['application_fee'] ?? '0');
         $currency = strtoupper(trim((string)($_POST['currency'] ?? 'USD')));
@@ -217,17 +243,27 @@ function eb_ph_billing_create_payment(array $vars): void
             'payment_method_types[]' => 'card',
         ];
         if ($feeMinor > 0) { $params['application_fee_amount'] = $feeMinor; }
+        $paymentMethodId = trim((string)($_POST['payment_method_id'] ?? ''));
+        if ($paymentMethodId !== '') { $params['payment_method'] = $paymentMethodId; }
 
-        if ($tenantId > 0) {
-            $tenant = Capsule::table('eb_tenants')->where('id',$tenantId)->where('msp_id',(int)$msp->id)->first();
-            if ($tenant) {
-                $svc = new \PartnerHub\StripeService();
-                $scus = $svc->ensureStripeCustomerFor($tenantId, $acct);
-                if ($scus !== '') { $params['customer'] = $scus; }
-                $pi = $svc->createPaymentIntentOneTime($acct, $params);
-                echo json_encode(['status'=>'success','client_secret'=>$pi['client_secret'] ?? null, 'publishable'=>(new \PartnerHub\StripeService())->getPublishable()]);
+        $tenant = null;
+        $tenantId = 0;
+        if ($tenantPublicId !== '') {
+            $tenant = eb_ph_billing_resolve_tenant_for_msp((int)$msp->id, $tenantPublicId);
+            if (!$tenant) {
+                echo json_encode(['status' => 'error', 'message' => 'tenant_not_found']);
                 return;
             }
+            $tenantId = (int)$tenant->id;
+        }
+
+        if ($tenantId > 0 && $tenant) {
+            $svc = new \PartnerHub\StripeService();
+            $scus = $svc->ensureStripeCustomerFor($tenantId, $acct);
+            if ($scus !== '') { $params['customer'] = $scus; }
+            $pi = $svc->createPaymentIntentOneTime($acct, $params);
+            echo json_encode(['status'=>'success','client_secret'=>$pi['client_secret'] ?? null, 'publishable'=>(new \PartnerHub\StripeService())->getPublishable()]);
+            return;
         }
         // No customer: still create PI on connected account
         $svc = new \PartnerHub\StripeService();
@@ -236,6 +272,66 @@ function eb_ph_billing_create_payment(array $vars): void
         return;
     } catch (\Throwable $e) {
         echo json_encode(['status'=>'error','message'=>$e->getMessage()]);
+        return;
+    }
+}
+
+function eb_ph_billing_payment_methods(array $vars): void
+{
+    header('Content-Type: application/json');
+    if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { echo json_encode(['status' => 'error', 'message' => 'auth']); return; }
+
+    try {
+        $clientId = (int)$_SESSION['uid'];
+        $tenantPublicId = trim((string)($_GET['tenant_id'] ?? $_POST['tenant_id'] ?? ''));
+        $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id', $clientId)->first();
+        if (!$msp || (string)($msp->stripe_connect_id ?? '') === '') {
+            echo json_encode(['status' => 'error', 'message' => 'no_account']);
+            return;
+        }
+        if ($tenantPublicId === '') {
+            echo json_encode(['status' => 'success', 'methods' => []]);
+            return;
+        }
+
+        $tenant = eb_ph_billing_resolve_tenant_for_msp((int)$msp->id, $tenantPublicId);
+        if (!$tenant) {
+            echo json_encode(['status' => 'error', 'message' => 'tenant_not_found']);
+            return;
+        }
+
+        $svc = new \PartnerHub\StripeService();
+        $acct = (string)$msp->stripe_connect_id;
+        $stripeCustomerId = trim((string)($tenant->stripe_customer_id ?? ''));
+        if ($stripeCustomerId === '') {
+            echo json_encode(['status' => 'success', 'methods' => []]);
+            return;
+        }
+
+        $customer = $svc->retrieveCustomer($stripeCustomerId, $acct);
+        $defaultPaymentMethodId = (string)($customer['invoice_settings']['default_payment_method'] ?? '');
+        $paymentMethods = $svc->listCustomerPaymentMethods($stripeCustomerId, 'card', $acct);
+        $methods = [];
+
+        foreach (($paymentMethods['data'] ?? []) as $paymentMethod) {
+            if (!is_array($paymentMethod)) {
+                continue;
+            }
+            $card = is_array($paymentMethod['card'] ?? null) ? $paymentMethod['card'] : [];
+            $methods[] = [
+                'id' => (string)($paymentMethod['id'] ?? ''),
+                'brand' => (string)($card['brand'] ?? 'card'),
+                'last4' => (string)($card['last4'] ?? ''),
+                'exp_month' => (int)($card['exp_month'] ?? 0),
+                'exp_year' => (int)($card['exp_year'] ?? 0),
+                'is_default' => ((string)($paymentMethod['id'] ?? '') !== '' && (string)($paymentMethod['id'] ?? '') === $defaultPaymentMethodId),
+            ];
+        }
+
+        echo json_encode(['status' => 'success', 'methods' => $methods]);
+        return;
+    } catch (\Throwable $e) {
+        echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
         return;
     }
 }
@@ -284,6 +380,7 @@ function eb_ph_money_payouts(array $vars)
             'page' => $page,
             'per' => $per,
             'total' => $total,
+            'token' => function_exists('generate_token') ? generate_token('plain') : '',
         ],
     ];
 }
@@ -332,6 +429,7 @@ function eb_ph_money_disputes(array $vars)
             'page' => $page,
             'per' => $per,
             'total' => $total,
+            'token' => function_exists('generate_token') ? generate_token('plain') : '',
         ],
     ];
 }

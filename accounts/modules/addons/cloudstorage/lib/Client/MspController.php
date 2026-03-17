@@ -31,6 +31,11 @@ class MspController
         return $msp ? (int)$msp->id : null;
     }
 
+    public static function hasTenantPublicIds(): bool
+    {
+        return self::hasCanonicalTenantModel() && Capsule::schema()->hasColumn('eb_tenants', 'public_id');
+    }
+
     public static function scopeTenantOwnership($query, string $tenantAlias, int $clientId): void
     {
         if (self::hasCanonicalTenantModel()) {
@@ -90,6 +95,31 @@ class MspController
             if ($mspId === null) {
                 return [];
             }
+            if (self::hasTenantPublicIds()) {
+                return Capsule::table('eb_tenants')
+                    ->where('msp_id', $mspId)
+                    ->where('status', '!=', 'deleted')
+                    ->orderBy('name')
+                    ->get([
+                        Capsule::raw('public_id as id'),
+                        'public_id',
+                        'name',
+                        'slug',
+                        'status',
+                        'contact_email',
+                        'contact_name',
+                        'contact_phone',
+                        'address_line1',
+                        'address_line2',
+                        'city',
+                        'state',
+                        'postal_code',
+                        'country',
+                        'created_at',
+                        'updated_at',
+                    ])
+                    ->toArray();
+            }
             return Capsule::table('eb_tenants')
                 ->where('msp_id', $mspId)
                 ->where('status', '!=', 'deleted')
@@ -127,6 +157,68 @@ class MspController
             ->where('client_id', $clientId)
             ->where('status', '!=', 'deleted')
             ->first();
+    }
+
+    public static function getTenantByPublicId(string $tenantPublicId, int $clientId): ?object
+    {
+        $tenantPublicId = trim($tenantPublicId);
+        if ($tenantPublicId === '') {
+            return null;
+        }
+
+        if (self::hasTenantPublicIds()) {
+            $mspId = self::getMspIdForClient($clientId);
+            if ($mspId === null) {
+                return null;
+            }
+
+            return Capsule::table('eb_tenants')
+                ->where('public_id', $tenantPublicId)
+                ->where('msp_id', $mspId)
+                ->where('status', '!=', 'deleted')
+                ->first();
+        }
+
+        if ((int) $tenantPublicId <= 0) {
+            return null;
+        }
+
+        return self::getTenant((int) $tenantPublicId, $clientId);
+    }
+
+    public static function resolveTenantPublicIdForClient(string $tenantReference, int $clientId): ?string
+    {
+        $tenantReference = trim($tenantReference);
+        if ($tenantReference === '') {
+            return null;
+        }
+
+        if (self::hasTenantPublicIds()) {
+            $tenant = self::getTenantByPublicId($tenantReference, $clientId);
+            if ($tenant && trim((string) ($tenant->public_id ?? '')) !== '') {
+                return trim((string) $tenant->public_id);
+            }
+
+            if ((int) $tenantReference > 0) {
+                $tenant = self::getTenant((int) $tenantReference, $clientId);
+                if ($tenant && trim((string) ($tenant->public_id ?? '')) !== '') {
+                    return trim((string) $tenant->public_id);
+                }
+            }
+
+            return null;
+        }
+
+        if ((int) $tenantReference <= 0) {
+            return null;
+        }
+
+        $tenant = self::getTenant((int) $tenantReference, $clientId);
+        if (!$tenant) {
+            return null;
+        }
+
+        return (string) ($tenant->id ?? '');
     }
 
     /**

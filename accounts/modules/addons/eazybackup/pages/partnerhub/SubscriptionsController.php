@@ -3,33 +3,18 @@
 use WHMCS\Database\Capsule;
 use PartnerHub\StripeService;
 
+require_once __DIR__ . '/TenantsController.php';
+
 function eb_ph_subscriptions_new(array $vars)
 {
     if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { header('Location: clientarea.php'); exit; }
     $clientId = (int)$_SESSION['uid'];
     $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
-    $tenantId = (int)($_GET['tenant_id'] ?? 0);
-    $tenant = Capsule::table('eb_tenants')->where('id', $tenantId)->where('msp_id', (int)($msp->id ?? 0))->first();
-    if (!$tenant) { header('Location: '.$vars['modulelink'].'&a=ph-tenants-manage'); exit; }
+    $tenantReference = trim((string)($_GET['tenant_id'] ?? $_GET['customer_id'] ?? ''));
+    $tenant = eb_ph_tenants_find_owned_tenant_by_reference((int)($msp->id ?? 0), $tenantReference);
+    if (!$tenant || trim((string)($tenant->public_id ?? '')) === '') { header('Location: '.$vars['modulelink'].'&a=ph-tenants-manage'); exit; }
 
-    return [
-        'pagetitle' => 'New Subscription',
-        'templatefile' => 'whitelabel/subscriptions-new',
-        'breadcrumb' => [ 'index.php?m=eazybackup' => 'eazyBackup', $vars['modulelink'].'&a=ph-tenant&id='.$tenant->id => 'Tenant' ],
-        'requirelogin' => true,
-        'forcessl' => true,
-        'vars' => [ 'tenant' => $tenant, 'customer' => $tenant, 'msp' => $msp,
-            'plans' => Capsule::table('eb_plans')->where('msp_id',(int)$msp->id)->get(),
-            'prices' => Capsule::table('eb_plan_prices')->join('eb_plans','eb_plans.id','=','eb_plan_prices.plan_id')->where('eb_plans.msp_id',(int)$msp->id)->get(['eb_plan_prices.*']),
-            'priceFeeMap' => (function() use ($msp){
-                $rows = Capsule::table('eb_plan_prices')->join('eb_plans','eb_plans.id','=','eb_plan_prices.plan_id')->where('eb_plans.msp_id',(int)$msp->id)->get(['eb_plan_prices.stripe_price_id','eb_plan_prices.application_fee_percent']);
-                $out = [];
-                foreach ($rows as $r) { $out[$r->stripe_price_id] = $r->application_fee_percent; }
-                return $out;
-            })(),
-            'moduleDefaultFee' => (string)(Capsule::table('tbladdonmodules')->where('module','eazybackup')->where('setting','partnerhub_default_fee_percent')->value('value') ?? '0')
-        ],
-    ];
+    eb_ph_tenant_redirect($vars, (string)$tenant->public_id, 'legacy=ph-subscriptions');
 }
 
 function eb_ph_stripe_subscribe(array $vars)
@@ -37,15 +22,23 @@ function eb_ph_stripe_subscribe(array $vars)
     if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { header('Location: clientarea.php'); exit; }
     $clientId = (int)$_SESSION['uid'];
     $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
-    $tenantId = (int)($_POST['tenant_id'] ?? 0);
+    $tenantReference = trim((string)($_POST['tenant_id'] ?? $_POST['customer_id'] ?? ''));
+    $token = (string)($_POST['token'] ?? '');
     $priceId = (string)($_POST['stripe_price_id'] ?? '');
     $applicationFeePercent = isset($_POST['application_fee_percent']) ? (float)$_POST['application_fee_percent'] : null;
-    $tenant = Capsule::table('eb_tenants')->where('id', $tenantId)->where('msp_id', (int)($msp->id ?? 0))->first();
-    if (!$tenant || $priceId === '') { header('Location: '.$vars['modulelink'].'&a=ph-tenant&id='.$tenantId); exit; }
+    $tenant = eb_ph_tenants_find_owned_tenant_by_reference((int)($msp->id ?? 0), $tenantReference);
+    eb_ph_tenants_require_csrf_or_redirect($vars, $token, trim((string)($tenant->public_id ?? '')));
+    if (!$tenant || trim((string)($tenant->public_id ?? '')) === '' || $priceId === '') {
+        if ($tenant && trim((string)($tenant->public_id ?? '')) !== '') {
+            eb_ph_tenant_redirect($vars, (string)$tenant->public_id);
+        }
+        header('Location: '.$vars['modulelink'].'&a=ph-tenants-manage');
+        exit;
+    }
     try {
         $svc = new StripeService();
         $acct = (string)($msp->stripe_connect_id ?? '');
-        $scus = $svc->ensureStripeCustomerFor($tenantId, $acct ?: null);
+        $scus = $svc->ensureStripeCustomerFor((int)$tenant->id, $acct ?: null);
         if ($applicationFeePercent === null) {
             $priceRow = Capsule::table('eb_plan_prices')->where('stripe_price_id',$priceId)->first();
             if ($priceRow && $priceRow->application_fee_percent !== null) {
@@ -72,8 +65,7 @@ function eb_ph_stripe_subscribe(array $vars)
             ]);
         }
     } catch (\Throwable $__) { /* ignore */ }
-    header('Location: '.$vars['modulelink'].'&a=ph-tenant&id='.(int)$tenant->id);
-    exit;
+    eb_ph_tenant_redirect($vars, (string)$tenant->public_id);
 }
 
 

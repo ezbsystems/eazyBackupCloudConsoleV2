@@ -59,6 +59,10 @@ $tenantTable = MspController::getTenantTableName();
 $mspId = MspController::getMspIdForClient($clientId);
 $tenantOwnerId = ($tenantTable === 'eb_tenants') ? (int)($mspId ?? 0) : (int)$clientId;
 $tenantOwnerSelect = $tenantTable === 'eb_tenants' ? 't.msp_id as tenant_owner_id' : 't.client_id as tenant_owner_id';
+$tenantSelect = 'u.tenant_id';
+if ($tenantTable === 'eb_tenants' && MspController::hasTenantPublicIds()) {
+    $tenantSelect = Capsule::raw('t.public_id as tenant_id');
+}
 $userId = (int) ($_GET['user_id'] ?? 0);
 
 if ($userId <= 0) {
@@ -72,7 +76,8 @@ $user = Capsule::table('s3_backup_users as u')
     ->select([
         'u.id',
         'u.client_id',
-        'u.tenant_id',
+        'u.tenant_id as storage_tenant_id',
+        $tenantSelect,
         'u.username',
         'u.email',
         'u.status',
@@ -88,11 +93,11 @@ if (!$user) {
     userGetFail('User not found.', 404);
 }
 
-if (!$isMsp && !empty($user->tenant_id)) {
+if (!$isMsp && !empty($user->storage_tenant_id)) {
     userGetFail('User not found.', 404);
 }
 
-if ($isMsp && !empty($user->tenant_id)) {
+if ($isMsp && !empty($user->storage_tenant_id)) {
     $tenantClientId = (int) ($user->tenant_owner_id ?? 0);
     $tenantStatus = strtolower((string) ($user->tenant_status ?? ''));
     if ($tenantClientId !== $tenantOwnerId || $tenantStatus === 'deleted') {
@@ -100,8 +105,10 @@ if ($isMsp && !empty($user->tenant_id)) {
     }
 }
 
-$tenantId = $user->tenant_id !== null ? (int) $user->tenant_id : null;
+$storageTenantId = $user->storage_tenant_id !== null ? (int) $user->storage_tenant_id : null;
+$tenantPublicId = $user->tenant_id !== null ? (string) $user->tenant_id : null;
 $canonicalTenantId = null;
+$canonicalTenantPublicId = null;
 $canonicalTenantName = null;
 $isCanonicalManaged = false;
 $storageIdentifier = eb_tenant_storage_identifier_for_user((int) $user->id);
@@ -112,15 +119,17 @@ if ($isMsp) {
         $canonicalTenantId = (int) $canonicalLink->tenant_id;
         $canonicalTenant = eb_tenant_storage_links_resolve_tenant_for_client((int) $clientId, $canonicalTenantId);
         if ($canonicalTenant) {
+            $canonicalTenantPublicId = trim((string) ($canonicalTenant->public_id ?? ''));
             $canonicalTenantName = trim((string) ($canonicalTenant->subdomain ?? ''));
             if ($canonicalTenantName === '') {
                 $canonicalTenantName = trim((string) ($canonicalTenant->fqdn ?? ''));
             }
             if ($canonicalTenantName === '') {
-                $canonicalTenantName = 'Tenant #' . $canonicalTenantId;
+                $canonicalTenantName = $canonicalTenantPublicId !== '' ? ('Tenant ' . $canonicalTenantPublicId) : 'Tenant';
             }
         } else {
             $canonicalTenantId = null;
+            $canonicalTenantPublicId = null;
         }
     }
 }
@@ -136,7 +145,7 @@ $metrics = [
 if (Capsule::schema()->hasTable('s3_cloudbackup_agents')) {
     $agentQuery = Capsule::table('s3_cloudbackup_agents as a')
         ->where('a.client_id', $clientId);
-    applyTenantScope($agentQuery, 'a.tenant_id', $tenantId);
+    applyTenantScope($agentQuery, 'a.tenant_id', $storageTenantId);
     $agentStats = $agentQuery->select([
         Capsule::raw('COUNT(*) as agents_count'),
         Capsule::raw(
@@ -157,7 +166,7 @@ if (Capsule::schema()->hasTable('s3_cloudbackup_jobs') && Capsule::schema()->has
         ->leftJoin('s3_cloudbackup_agents as a', 'j.agent_id', '=', 'a.id')
         ->where('j.client_id', $clientId)
         ->where('j.status', '!=', 'deleted');
-    applyTenantScope($jobQuery, 'a.tenant_id', $tenantId);
+    applyTenantScope($jobQuery, 'a.tenant_id', $storageTenantId);
     $jobStats = $jobQuery->select([
         Capsule::raw('COUNT(j.id) as jobs_count'),
         Capsule::raw('COUNT(DISTINCT j.dest_bucket_id) as vaults_count'),
@@ -180,7 +189,7 @@ if (
         ->where('j.client_id', $clientId)
         ->whereNotNull('r.finished_at')
         ->whereIn('r.status', ['success', 'warning']);
-    applyTenantScope($lastBackupQuery, 'a.tenant_id', $tenantId);
+    applyTenantScope($lastBackupQuery, 'a.tenant_id', $storageTenantId);
     $lastBackup = $lastBackupQuery->max('r.finished_at');
     if (!empty($lastBackup)) {
         $metrics['last_backup_at'] = $lastBackup;
@@ -192,9 +201,11 @@ if (
     'user' => [
         'id' => (int) $user->id,
         'client_id' => (int) $user->client_id,
-        'tenant_id' => $tenantId,
+        'tenant_id' => $tenantPublicId,
+        'tenant_public_id' => $tenantPublicId,
         'is_canonical_managed' => $isCanonicalManaged,
-        'canonical_tenant_id' => $canonicalTenantId,
+        'canonical_tenant_id' => $canonicalTenantPublicId,
+        'canonical_tenant_public_id' => $canonicalTenantPublicId,
         'username' => (string) $user->username,
         'email' => (string) $user->email,
         'status' => (string) $user->status,

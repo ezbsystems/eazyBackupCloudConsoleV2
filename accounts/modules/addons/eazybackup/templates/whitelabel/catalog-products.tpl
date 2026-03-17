@@ -1,25 +1,30 @@
 {* Partner Hub — Catalog: Products *}
 {include file="$template/includes/head.tpl"}
 {include file="modules/addons/eazybackup/templates/partials/_ui-tokens.tpl"}
+<script src="modules/addons/eazybackup/assets/js/catalog-products.js"></script>
 
 <div class="min-h-screen bg-slate-950 text-gray-100 overflow-x-hidden">
-  <div id="toast-container" class="fixed top-4 right-4 z-50 space-y-2"></div>
+  <div id="toast-container" x-data="catalogToastManager()" x-init="init()" @catalog:toast.window="push($event.detail)" class="fixed top-4 right-4 z-[9999] space-y-2 pointer-events-none">
+    <template x-for="toast in toasts" :key="toast.id">
+      <div x-show="toast.visible" x-transition.opacity.duration.200ms class="pointer-events-auto px-4 py-2 rounded shadow text-sm text-white" :class="toast.type==='success' ? 'bg-green-600' : (toast.type==='error' ? 'bg-red-600' : (toast.type==='warning' ? 'bg-yellow-600' : 'bg-slate-700'))" x-text="toast.message"></div>
+    </template>
+  </div>
   <div class="container mx-auto max-w-full px-4 pb-8 pt-6">
     <div x-data="{ sidebarCollapsed: localStorage.getItem('eb_ph_sidebar_collapsed') === 'true' || window.innerWidth < 1360, toggleCollapse() { this.sidebarCollapsed = !this.sidebarCollapsed; localStorage.setItem('eb_ph_sidebar_collapsed', this.sidebarCollapsed); }, handleResize() { if (window.innerWidth < 1360 && !this.sidebarCollapsed) this.sidebarCollapsed = true; } }" x-init="window.addEventListener('resize', () => handleResize())" class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)]">
       <div class="flex">
         {include file="modules/addons/eazybackup/templates/whitelabel/partials/sidebar_partner_hub.tpl" ebPhSidebarPage='catalog-products'}
         <main class="flex-1 min-w-0 overflow-x-auto">
-    <div class="w-full max-w-full min-w-0 overflow-hidden rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
+          <div class="flex items-center justify-between border-b border-slate-800/60 px-6 py-4">
+            <div>
+              <h1 class="text-2xl font-semibold tracking-tight">Catalog - Products</h1>
+              <p class="mt-1 text-sm text-slate-400">Create and manage products and prices.</p>
+            </div>
+            <div class="shrink-0">
+              <button type="button" id="eb-open-create-product" class="inline-flex items-center rounded-xl px-4 py-2 text-sm font-semibold text-white bg-[rgb(var(--accent))] hover:bg-[rgb(var(--accent))]/90">New Product</button>
+            </div>
+          </div>
+          <div class="p-6">
     <input type="hidden" id="eb-token" value="{$token}" />
-    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-3">
-      <div>
-        <h2 class="text-2xl font-semibold text-white">Catalog — Products</h2>
-        <p class="text-xs text-slate-400 mt-1">Create and manage products and prices.</p>
-      </div>
-      <div class="shrink-0">
-        <button type="button" id="eb-open-create-product" class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-semibold text-white bg-sky-600 hover:bg-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 focus:ring-offset-slate-900">New Product</button>
-      </div>
-    </div>
 
     <section class="mt-6 rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden">
       <div class="px-6 py-5 border-b border-slate-800">
@@ -204,7 +209,7 @@
 
 
     {* Product Slide-Over Panel (Create / Edit) *}
-    <div id="eb-product-panel" class="hidden fixed inset-0 z-50" x-data="productPanelFactory({ currency: '{$msp_currency|default:'CAD'}', ready: {$msp_ready|default:0} })">
+    <div id="eb-product-panel" class="hidden fixed inset-0 z-50" x-data="(window.productPanelFactory||function(){ return { items: [], baseMetric: '', metricLabel: function() { return ''; } }; })({ currency: '{$msp_currency|default:'CAD'}', ready: {$msp_ready|default:0} })">
       <div class="absolute inset-0 bg-gray-950/70 backdrop-blur-xs" @click="close()"></div>
       <div class="absolute inset-y-0 right-0 w-full max-w-3xl rounded-l-xl border border-slate-700 bg-slate-900 shadow-2xl flex flex-col">
         <div class="px-6 py-5 flex items-center justify-between border-b border-slate-800">
@@ -242,30 +247,91 @@
             <template x-if="items.length===0"><div class="text-xs text-white/60">No prices yet.</div></template>
             <div class="space-y-3">
               <template x-for="(it, i) in items" :key="'pr-'+i">
-                <div class="rounded-xl border border-slate-700 p-3">
-                  <div class="flex items-center justify-between">
-                    <div class="font-medium" x-text="it.label||'Price'"></div>
+                <div class="rounded-xl border border-slate-700 bg-slate-950/40 p-4 space-y-4">
+                  <div class="flex items-start justify-between gap-3">
+                    <div>
+                      <div class="font-medium text-slate-100" x-text="it.label || ('Price ' + (i + 1))"></div>
+                      <div class="mt-1 text-xs text-slate-400">
+                        <span x-text="billingLabel(it.billingType)"></span>
+                        · <span x-text="metricLabel(it.metric)"></span>
+                        · <span x-text="it.billingType==='one_time' ? 'one-time' : (it.interval || 'month')"></span>
+                        · <span x-text="currency + ' ' + Number(it.amount || 0).toFixed(2)"></span>
+                      </div>
+                    </div>
                     <div class="flex items-center gap-2">
-                      <button type="button" class="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/20" @click="openPrice(i)">Edit</button>
-                      <div class="relative" x-data="{ldelim}o:false{rdelim}">
-                        <button type="button" class="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/20" @click="o=!o">⋯</button>
-                        <div x-show="o" @click.outside="o=false" class="absolute right-0 z-10 mt-1 w-36 rounded border border-slate-700 bg-slate-900 p-1">
-                          <button type="button" class="w-full text-left px-3 py-1.5 rounded hover:bg-white/10" @click="duplicatePrice(i); o=false">Duplicate price</button>
-                          <button type="button" class="w-full text-left px-3 py-1.5 rounded hover:bg-white/10 text-rose-300" @click="removeItem(i); o=false">Remove</button>
-                        </div>
+                      <button type="button" class="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/20" @click="duplicatePrice(i)">Duplicate</button>
+                      <button type="button" class="text-xs px-2 py-1 rounded bg-rose-500/15 text-rose-200 hover:bg-rose-500/25" @click="removeItem(i)">Remove</button>
+                    </div>
+                  </div>
+
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <label class="block">
+                      <span class="text-sm text-slate-400">Label</span>
+                      <input x-model="it.label" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 placeholder:text-gray-400 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700 transition" />
+                    </label>
+                    <label class="block">
+                      <span class="text-sm text-slate-400">Amount</span>
+                      <div class="mt-2 flex items-stretch rounded-lg overflow-hidden bg-slate-800 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700">
+                        <span class="shrink-0 px-3 py-2.5 text-slate-400 select-none">$</span>
+                        <input x-model.number="it.amount" type="text" inputmode="decimal" @blur="normalizePriceRow(i)" class="flex-1 min-w-0 text-left bg-transparent text-slate-100 placeholder-gray-400 focus:outline-none px-3 py-2.5" />
+                        <span class="shrink-0 px-3 py-2.5 bg-slate-800 text-slate-400 border-l border-slate-700 select-none" x-text="currency"></span>
                       </div>
-                        </div>
+                    </label>
+                  </div>
+
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <label class="block">
+                      <span class="text-sm text-slate-400">Interval</span>
+                      <select x-model="it.interval" :disabled="it.billingType==='one_time'" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700 disabled:bg-slate-800/60 disabled:text-slate-500">
+                        <option value="month">Month</option>
+                        <option value="year">Year</option>
+                        <option value="none">None</option>
+                      </select>
+                    </label>
+
+                    <template x-if="baseMetric==='GENERIC'">
+                      <label class="block">
+                        <span class="text-sm text-slate-400">Billing type</span>
+                        <select x-model="it.billingType" @change="onInlineBillingTypeChange(i)" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700">
+                          <option value="per_unit">Per-unit</option>
+                          <option value="one_time">One-time</option>
+                        </select>
+                      </label>
+                    </template>
+
+                    <template x-if="baseMetric!=='GENERIC'">
+                      <label class="block">
+                        <span class="text-sm text-slate-400">Billing type</span>
+                        <input :value="billingLabel(it.billingType)" disabled class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800/70 text-sm text-slate-500" />
+                      </label>
+                    </template>
+                  </div>
+
+                  <template x-if="baseMetric==='STORAGE_TB'">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <label class="block">
+                        <span class="text-sm text-slate-400">Unit</span>
+                        <select x-model="it.unitLabel" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700">
+                          <option value="GiB">GiB</option>
+                          <option value="TiB">TiB</option>
+                        </select>
+                      </label>
+                      <div class="rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2.5 text-xs text-slate-400 self-end">
+                        <span x-text="it.unitLabel==='GiB' ? ('≈ ' + (Number(it.amount || 0) * 1024).toFixed(2) + ' per TiB') : ('≈ ' + (Number(it.amount || 0) / 1024).toFixed(4) + ' per GiB')"></span>
                       </div>
-                  <div class="mt-2 text-xs text-slate-400">
-                    <span x-text="billingLabel(it.billingType)"></span>
-                    · <span x-text="metricLabel(it.metric)"></span>
-                    · <span x-text="(it.billingType==='one_time' ? 'one-time' : (it.interval||'month'))"></span>
-                    · <span x-text="currency + ' ' + Number(it.amount||0).toFixed(2)"></span>
-                          </div>
-                        </div>
-                            </template>
-                          </div>
-                        </div>
+                    </div>
+                  </template>
+
+                  <template x-if="baseMetric!=='STORAGE_TB'">
+                    <label class="block">
+                      <span class="text-sm text-slate-400">Unit label</span>
+                      <input x-model="it.unitLabel" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700 transition" />
+                    </label>
+                  </template>
+                </div>
+              </template>
+            </div>
+          </div>
           <div class="rounded-2xl bg-slate-900/60 border border-slate-800 p-4">
             <div class="mb-2">
               <h4 class="text-sm font-medium">Marketing feature list</h4>
@@ -290,88 +356,7 @@
       </div>
     </div>
 
-    {* Price Slide-Over Panel *}
-    <div id="eb-price-panel" class="hidden fixed inset-0 z-50" x-data="pricePanelFactory()">
-      <div class="absolute inset-0 bg-gray-950/70 backdrop-blur-xs" @click="close()"></div>
-      <div class="absolute inset-y-0 right-0 w-full max-w-lg rounded-l-xl border border-slate-700 bg-slate-900 shadow-2xl flex flex-col">
-        <div class="px-6 py-5 flex items-center justify-between border-b border-slate-800">
-          <h3 class="text-lg font-medium text-slate-100">Edit price</h3>
-          <button type="button" class="text-slate-400 hover:text-white" @click="close()">✕</button>
-        </div>
-        <div class="flex-1 overflow-y-auto px-6 py-6 space-y-4 text-sm">
-          <label class="block"><span class="text-sm text-slate-400">Label</span><input x-model="row.label" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 placeholder:text-gray-400 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700 transition" /></label>
-          <div class="grid grid-cols-2 gap-3">
-            <label class="block"><span class="text-sm text-slate-400">Amount (required)</span>
-              <div class="mt-2 flex items-stretch rounded-lg overflow-hidden bg-slate-800 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700">
-                <span class="shrink-0 px-3 py-2.5 text-slate-400 select-none">$</span>
-                <input x-model.number="row.amount" type="text" inputmode="decimal" @blur="row.amount = Number(row.amount||0).toFixed(2)" class="flex-1 min-w-0 text-left bg-transparent text-slate-100 placeholder-gray-400 focus:outline-none px-3 py-2.5" />
-                <span class="shrink-0 px-3 py-2.5 bg-slate-800 text-slate-400 border-l border-slate-700 select-none" x-text="(row.currency || (owner && owner.currency) || 'CAD')"></span>
-              </div>
-            </label>
-            <label class="block"><span class="text-sm text-slate-400">Interval</span>
-              <select x-model="row.interval" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700"><option value="month">Month</option><option value="year">Year</option><option value="none">None</option></select>
-            </label>
           </div>
-          <template x-if="owner && owner.baseMetric==='STORAGE_TB'">
-            <div class="grid grid-cols-2 gap-3">
-              <label class="block"><span class="text-sm text-slate-400">Billing type</span><input disabled value="Metered" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800/70 text-slate-500 text-sm" /></label>
-              <label class="block"><span class="text-sm text-slate-400">Unit</span>
-                <select x-model="row.unitLabel" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700"><option value="GiB">GiB</option><option value="TiB">TiB</option></select>
-              </label>
-              <div class="col-span-2 text-xs text-white/60" x-text="row.unitLabel==='GiB' ? ('≈ '+(Number(row.amount||0)*1024).toFixed(2)+' per TiB') : ('≈ '+(Number(row.amount||0)/1024).toFixed(4)+' per GiB')"></div>
-            </div>
-          </template>
-          <template x-if="owner && owner.baseMetric!=='STORAGE_TB' && owner.baseMetric!=='GENERIC'">
-            <div class="grid grid-cols-2 gap-3">
-              <label class="block"><span class="text-sm text-slate-400">Billing type</span><input disabled value="Per-unit" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800/70 text-slate-500 text-sm" /></label>
-              <label class="block"><span class="text-sm text-slate-400">Unit label</span><input x-model="row.unitLabel" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700 transition" /></label>
-            </div>
-          </template>
-          <template x-if="owner && owner.baseMetric==='GENERIC'">
-            <div class="grid grid-cols-2 gap-3">
-              <label class="block"><span class="text-sm text-slate-400">Billing type</span>
-                <select x-model="row.billingType" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700"><option value="per_unit">Per-unit</option><option value="one_time">One-time</option></select>
-          </label>
-              <label class="block"><span class="text-sm text-slate-400">Unit label</span><input x-model="row.unitLabel" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700 transition" /></label>
-            </div>
-          </template>
-          <div class="text-xs text-white/60">Currency: <span class="font-mono" x-text="(row.currency || (owner && owner.currency) || 'CAD')"></span></div>
-
-          <div class="mt-6 rounded-2xl bg-slate-900/60 border border-slate-800 p-4">
-            <h4 class="text-sm font-medium">Preview</h4>
-            <p class="text-xs text-white/60">Estimate totals based on pricing model, unit quantity, and tax.</p>
-            <div class="mt-3">
-              <label class="block"><span class="text-sm text-slate-400">Unit quantity</span>
-                <input x-model.number="qty" type="number" min="0" step="1" class="mt-2 w-40 px-3 py-2 rounded-lg bg-slate-800 text-sm text-slate-100 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700 transition" />
-          </label>
-              <div class="my-3 h-px bg-white/10"></div>
-              <div class="text-sm text-white/80">
-                <span x-text="qty + ' ' + unitLabelDisplay()"></span>
-                <span> × </span>
-                <span x-text="fmtMoney(row.amount)"></span>
-                <span> = </span>
-                <span class="font-semibold" x-text="fmtMoney(calcSubtotal())"></span>
-              </div>
-              <div class="my-3 h-px bg-white/10"></div>
-              <div class="grid grid-cols-2 text-sm">
-                <div class="text-slate-400">Subtotal</div>
-                <div class="text-right text-slate-100" x-text="fmtMoney(calcSubtotal())"></div>
-                <div class="text-slate-400 flex items-center gap-2">Tax <a href="#" class="text-sky-400 hover:underline">Start collecting tax</a></div>
-                <div class="text-right text-slate-100">—</div>
-                <div class="text-slate-400">Total</div>
-                <div class="text-right font-medium" x-text="fmtMoney(calcSubtotal())"></div>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="border-t border-slate-800"></div>
-        <div class="px-6 py-5 flex items-center justify-end gap-3">
-          <button type="button" class="px-4 py-2 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-800" @click="close()">Cancel</button>
-          <button type="button" class="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-sky-600 hover:bg-sky-500" @click="save()">Save</button>
-        </div>
-      </div>
-    </div>
-    </div>
         </main>
       </div>
     </div>
@@ -379,7 +364,6 @@
 </div>
 
 <script src="modules/addons/eazybackup/templates/assets/js/ui.js"></script>
-<script src="modules/addons/eazybackup/assets/js/catalog-products.js"></script>
 
 <style>
 /* Hide native number spinners inside the product builder stepper */

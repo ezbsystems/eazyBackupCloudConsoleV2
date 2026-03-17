@@ -2,14 +2,17 @@
 
 use WHMCS\Database\Capsule;
 
+require_once __DIR__ . '/TenantsController.php';
+
 function eb_ph_client_profile_update(array $vars): void
 {
     header('Content-Type: application/json');
     if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { echo json_encode(['status'=>'error','message'=>'auth']); return; }
+    if (!eb_ph_tenants_require_csrf_or_json_error((string)($_POST['token'] ?? ''))) { return; }
     $clientId = (int)$_SESSION['uid'];
     $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
-    $tenantId = (int)($_POST['tenant_id'] ?? 0);
-    $tenant = Capsule::table('eb_tenants')->where('id',$tenantId)->where('msp_id',(int)($msp->id ?? 0))->first();
+    $tenantPublicId = trim((string)($_POST['tenant_id'] ?? $_POST['customer_id'] ?? ''));
+    $tenant = eb_ph_tenants_find_owned_tenant_by_public_id((int)($msp->id ?? 0), $tenantPublicId);
     if (!$tenant) { echo json_encode(['status'=>'error','message'=>'invalid']); return; }
     $up = [];
     if (array_key_exists('companyname', $_POST) || array_key_exists('firstname', $_POST) || array_key_exists('lastname', $_POST)) {
