@@ -4364,6 +4364,9 @@ function eazybackup_clientarea(array $vars)
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-catalog-price-sub-count') {
         require_once __DIR__ . '/pages/partnerhub/CatalogProductsController.php';
         eb_ph_catalog_price_sub_count($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-catalog-price-delete') {
+        require_once __DIR__ . '/pages/partnerhub/CatalogProductsController.php';
+        eb_ph_catalog_price_delete($vars); exit;
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-plan-template-create') {
         require_once __DIR__ . '/pages/partnerhub/CatalogPlansController.php';
         eb_ph_plan_template_create($vars); exit;

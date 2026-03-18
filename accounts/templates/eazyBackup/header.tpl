@@ -99,7 +99,7 @@
                         <div class="flex items-center justify-center h-16 border-b border-slate-700">
                             {if $assetLogoPath}
                                 <a href="{$WEB_ROOT}/index.php" class="logo">
-                                    <img src="{$WEB_ROOT}/assets/img/logo.svg" alt="{$companyname}" class="h-12 max-w-[175px] h-auto">
+                                    <img src="{$WEB_ROOT}/assets/img/eazybackup-logo-dark.svg" alt="{$companyname}" class="h-12 max-w-[175px] h-auto">
                                 </a>
                             {else}
                                 <a href="{$WEB_ROOT}/index.php" class="logo text-2xl font-bold text-white">
