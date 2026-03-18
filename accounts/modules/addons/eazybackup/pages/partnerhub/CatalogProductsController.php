@@ -4,6 +4,272 @@ use WHMCS\Database\Capsule;
 use PartnerHub\StripeService;
 use PartnerHub\CatalogService;
 
+function eb_ph_catalog_normalize_pricing_scheme($value)
+{
+    $scheme = (string)($value ?? 'per_unit');
+    if ($scheme === 'tiered_graduated' || $scheme === 'tiered_volume') { return 'tiered'; }
+    return $scheme !== '' ? $scheme : 'per_unit';
+}
+
+function eb_ph_catalog_normalize_billing_type($metric, $billingType)
+{
+    $metric = (string)($metric ?? 'GENERIC');
+    $billingType = (string)($billingType ?? 'per_unit');
+    if ($metric === 'STORAGE_TB') { return 'metered'; }
+    if (in_array($metric, ['DEVICE_COUNT','DISK_IMAGE','HYPERV_VM','PROXMOX_VM','VMWARE_VM','M365_USER'], true)) { return 'per_unit'; }
+    if (!in_array($billingType, ['per_unit','metered','one_time'], true)) { return 'per_unit'; }
+    return $billingType;
+}
+
+function eb_ph_catalog_normalize_interval_for_slot($billingType, $interval)
+{
+    $billingType = (string)($billingType ?? 'per_unit');
+    if ($billingType === 'one_time') { return 'none'; }
+    $interval = (string)($interval ?? 'month');
+    if ($interval === '' || $interval === 'none') { return 'month'; }
+    return $interval;
+}
+
+function eb_ph_catalog_pricing_slot_parts($metric, $currency, $billingType, $interval, $pricingScheme)
+{
+    $metric = (string)($metric ?? 'GENERIC');
+    $currency = strtoupper((string)($currency ?? 'CAD'));
+    $billingType = eb_ph_catalog_normalize_billing_type($metric, $billingType);
+    $interval = eb_ph_catalog_normalize_interval_for_slot($billingType, $interval);
+    $pricingScheme = eb_ph_catalog_normalize_pricing_scheme($pricingScheme);
+    return [
+        'metric' => $metric,
+        'currency' => $currency,
+        'billing_type' => $billingType,
+        'interval' => $interval,
+        'pricing_scheme' => $pricingScheme,
+    ];
+}
+
+function eb_ph_catalog_pricing_slot_key($metric, $currency, $billingType, $interval, $pricingScheme)
+{
+    $parts = eb_ph_catalog_pricing_slot_parts($metric, $currency, $billingType, $interval, $pricingScheme);
+    return implode('|', [$parts['metric'], $parts['currency'], $parts['billing_type'], $parts['interval'], $parts['pricing_scheme']]);
+}
+
+function eb_ph_catalog_pricing_slot_label($metric, $currency, $billingType, $interval, $pricingScheme)
+{
+    $parts = eb_ph_catalog_pricing_slot_parts($metric, $currency, $billingType, $interval, $pricingScheme);
+    $intervalLabel = $parts['interval'] === 'none' ? 'one-time' : $parts['interval'];
+    $billingLabel = $parts['billing_type'] === 'metered' ? 'metered' : ($parts['billing_type'] === 'one_time' ? 'one-time' : 'per-unit');
+    $schemeLabel = $parts['pricing_scheme'] === 'tiered' ? 'tiered' : 'flat rate';
+    return $parts['currency'].' / '.$billingLabel.' / '.$intervalLabel.' / '.$schemeLabel;
+}
+
+function eb_ph_catalog_price_row_value($row, $field, $default = null)
+{
+    if (is_array($row)) {
+        return array_key_exists($field, $row) ? $row[$field] : $default;
+    }
+    if (is_object($row) && isset($row->{$field})) {
+        return $row->{$field};
+    }
+    return $default;
+}
+
+function eb_ph_catalog_default_unit_label($metric)
+{
+    $metric = (string)($metric ?? 'GENERIC');
+    if ($metric === 'STORAGE_TB') { return 'GiB'; }
+    $map = [
+        'DEVICE_COUNT' => 'device',
+        'DISK_IMAGE' => 'machine',
+        'HYPERV_VM' => 'VM',
+        'PROXMOX_VM' => 'VM',
+        'VMWARE_VM' => 'VM',
+        'M365_USER' => 'user',
+        'GENERIC' => 'unit',
+    ];
+    return $map[$metric] ?? 'unit';
+}
+
+function eb_ph_catalog_price_row_slot_key($row, $fallbackMetric = 'GENERIC', $fallbackCurrency = 'CAD')
+{
+    $metric = (string)eb_ph_catalog_price_row_value($row, 'metric_code', $fallbackMetric ?: 'GENERIC');
+    if ($metric === '') { $metric = (string)($fallbackMetric ?: 'GENERIC'); }
+    $currency = strtoupper((string)eb_ph_catalog_price_row_value($row, 'currency', $fallbackCurrency ?: 'CAD'));
+    if ($currency === '') { $currency = strtoupper((string)($fallbackCurrency ?: 'CAD')); }
+    $billingType = (string)eb_ph_catalog_price_row_value($row, 'billing_type', '');
+    if ($billingType === '') {
+        $kind = (string)eb_ph_catalog_price_row_value($row, 'kind', 'recurring');
+        $billingType = $kind === 'metered' ? 'metered' : ($kind === 'one_time' ? 'one_time' : 'per_unit');
+    }
+    $interval = (string)eb_ph_catalog_price_row_value($row, 'interval', 'month');
+    $pricingScheme = (string)eb_ph_catalog_price_row_value($row, 'pricing_scheme', 'per_unit');
+    return eb_ph_catalog_pricing_slot_key($metric, $currency, $billingType, $interval, $pricingScheme);
+}
+
+function eb_ph_catalog_filter_current_price_rows($rows, $fallbackMetric = 'GENERIC', $fallbackCurrency = 'CAD')
+{
+    $normalized = [];
+    $children = [];
+    foreach ($rows as $row) {
+        $arr = is_array($row) ? $row : (array)$row;
+        $normalized[] = $arr;
+        $supersedesId = (int)($arr['supersedes_price_id'] ?? 0);
+        if ($supersedesId > 0) {
+            if (!isset($children[$supersedesId])) { $children[$supersedesId] = []; }
+            $children[$supersedesId][] = $arr;
+        }
+    }
+
+    $current = [];
+    foreach ($normalized as $row) {
+        $rowId = (int)($row['id'] ?? 0);
+        $slotKey = eb_ph_catalog_price_row_slot_key($row, $fallbackMetric, $fallbackCurrency);
+        $hide = false;
+        foreach (($children[$rowId] ?? []) as $child) {
+            if (eb_ph_catalog_price_row_slot_key($child, $fallbackMetric, $fallbackCurrency) === $slotKey) {
+                $hide = true;
+                break;
+            }
+        }
+        if (!$hide) {
+            $current[] = $row;
+        }
+    }
+
+    return $current;
+}
+
+function eb_ph_catalog_remote_price_payload(array $remotePrice, $baseMetric = 'GENERIC', $defaultCurrency = 'CAD')
+{
+    $kind = 'recurring';
+    if ((string)($remotePrice['type'] ?? '') === 'one_time') {
+        $kind = 'one_time';
+    } elseif ((string)($remotePrice['recurring']['usage_type'] ?? '') === 'metered') {
+        $kind = 'metered';
+    }
+    $billingType = $kind === 'metered' ? 'metered' : ($kind === 'one_time' ? 'one_time' : 'per_unit');
+    $interval = $kind === 'one_time' ? 'none' : (string)($remotePrice['recurring']['interval'] ?? 'month');
+    $metric = (string)($baseMetric ?: 'GENERIC');
+    $currency = strtoupper((string)($remotePrice['currency'] ?? $defaultCurrency ?: 'CAD'));
+    if ($currency === '') { $currency = strtoupper((string)($defaultCurrency ?: 'CAD')); }
+    $pricingScheme = eb_ph_catalog_normalize_pricing_scheme((string)($remotePrice['billing_scheme'] ?? 'per_unit'));
+    return [
+        'name' => (string)($remotePrice['nickname'] ?? ''),
+        'kind' => $kind,
+        'currency' => $currency,
+        'unit_label' => eb_ph_catalog_default_unit_label($metric),
+        'unit_amount' => (int)($remotePrice['unit_amount'] ?? 0),
+        'interval' => $interval,
+        'aggregate_usage' => $billingType === 'metered' ? (string)($remotePrice['recurring']['aggregate_usage'] ?? 'sum') : null,
+        'metric_code' => $metric,
+        'stripe_price_id' => (string)($remotePrice['id'] ?? ''),
+        'active' => !empty($remotePrice['active']) ? 1 : 0,
+        'billing_type' => $billingType,
+        'pricing_scheme' => $pricingScheme,
+        'tiers_mode' => isset($remotePrice['tiers_mode']) ? (string)$remotePrice['tiers_mode'] : null,
+    ];
+}
+
+function eb_ph_catalog_sync_local_prices_from_stripe($productId, array $remotePrices, $baseMetric = 'GENERIC', $defaultCurrency = 'CAD')
+{
+    $productId = (int)$productId;
+    if ($productId <= 0) { return []; }
+
+    $existingRows = [];
+    foreach (Capsule::table('eb_catalog_prices')->where('product_id', $productId)->orderBy('updated_at', 'desc')->get() as $row) {
+        $existingRows[] = (array)$row;
+    }
+
+    $byStripeId = [];
+    foreach ($existingRows as $row) {
+        $stripePriceId = (string)($row['stripe_price_id'] ?? '');
+        if ($stripePriceId !== '' && !isset($byStripeId[$stripePriceId])) {
+            $byStripeId[$stripePriceId] = $row;
+        }
+    }
+
+    $timestamp = date('Y-m-d H:i:s');
+    foreach ($remotePrices as $remotePrice) {
+        if (!is_array($remotePrice)) { continue; }
+        $payload = eb_ph_catalog_remote_price_payload($remotePrice, $baseMetric, $defaultCurrency);
+        $match = null;
+        $stripePriceId = (string)$payload['stripe_price_id'];
+        if ($stripePriceId !== '' && isset($byStripeId[$stripePriceId])) {
+            $match = $byStripeId[$stripePriceId];
+        }
+        if ($match === null) {
+            $targetSlot = eb_ph_catalog_price_row_slot_key($payload, $baseMetric, $defaultCurrency);
+            foreach ($existingRows as $row) {
+                if (eb_ph_catalog_price_row_slot_key($row, $baseMetric, $defaultCurrency) !== $targetSlot) { continue; }
+                if ((string)($row['stripe_price_id'] ?? '') === '' || (string)($row['stripe_price_id'] ?? '') === $stripePriceId) {
+                    $match = $row;
+                    break;
+                }
+                if ($match === null) {
+                    $match = $row;
+                }
+            }
+        }
+
+        $write = [
+            'name' => $payload['name'],
+            'kind' => $payload['kind'],
+            'currency' => $payload['currency'],
+            'unit_label' => $payload['unit_label'],
+            'unit_amount' => $payload['unit_amount'],
+            'interval' => $payload['interval'],
+            'aggregate_usage' => $payload['aggregate_usage'],
+            'metric_code' => $payload['metric_code'],
+            'stripe_price_id' => $payload['stripe_price_id'],
+            'active' => $payload['active'],
+            'billing_type' => $payload['billing_type'],
+            'pricing_scheme' => $payload['pricing_scheme'],
+            'tiers_mode' => $payload['tiers_mode'],
+            'is_published' => 1,
+            'published_at' => $timestamp,
+            'updated_at' => $timestamp,
+        ];
+        if ($payload['metric_code'] === 'STORAGE_TB') {
+            $write['amount_per_gb_cents'] = $payload['unit_label'] === 'GiB'
+                ? (int)$payload['unit_amount']
+                : (int)round(((int)$payload['unit_amount']) / 1024);
+            $write['display_per_tb_money'] = $payload['unit_label'] === 'TiB'
+                ? (int)$payload['unit_amount']
+                : (int)$payload['unit_amount'] * 1024;
+        }
+
+        if ($match !== null) {
+            Capsule::table('eb_catalog_prices')->where('id', (int)$match['id'])->update($write);
+            foreach ($existingRows as &$rowRef) {
+                if ((int)($rowRef['id'] ?? 0) === (int)$match['id']) {
+                    $rowRef = array_merge($rowRef, $write);
+                    break;
+                }
+            }
+            unset($rowRef);
+        } else {
+            $insert = array_merge($write, [
+                'product_id' => $productId,
+                'version' => 1,
+                'supersedes_price_id' => null,
+                'last_publish_request_id' => null,
+                'created_at' => $timestamp,
+            ]);
+            $newId = (int)Capsule::table('eb_catalog_prices')->insertGetId($insert);
+            $insert['id'] = $newId;
+            $existingRows[] = $insert;
+        }
+
+        if ($stripePriceId !== '') {
+            $byStripeId[$stripePriceId] = $match !== null ? array_merge($match, $write) : $insert;
+        }
+    }
+
+    $rows = [];
+    foreach (Capsule::table('eb_catalog_prices')->where('product_id', $productId)->orderBy('updated_at', 'desc')->get() as $row) {
+        $rows[] = (array)$row;
+    }
+    return eb_ph_catalog_filter_current_price_rows($rows, $baseMetric, $defaultCurrency);
+}
+
 function eb_ph_catalog_products_index(array $vars)
 {
     if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { header('Location: clientarea.php'); exit; }
@@ -23,6 +289,8 @@ function eb_ph_catalog_products_index(array $vars)
         if ((!empty($need) || $needsColumn) && function_exists('eazybackup_migrate_schema')) { @eazybackup_migrate_schema(); }
     } catch (\Throwable $__) { /* ignore */ }
 
+    $mspCurrency = (string)($msp->default_currency ?? 'CAD');
+
     $products = Capsule::table('eb_catalog_products as p')
         ->where('p.msp_id',(int)$msp->id)
         ->orderBy('p.updated_at','desc')
@@ -32,7 +300,7 @@ function eb_ph_catalog_products_index(array $vars)
         ->join('eb_catalog_products as p','p.id','=','pr.product_id')
         ->where('p.msp_id',(int)$msp->id)
         ->orderBy('pr.updated_at','desc')
-        ->get(['pr.*']);
+        ->get(['pr.*','p.base_metric_code as product_base_metric','p.default_currency as product_default_currency']);
 
     // Normalize to arrays for Smarty (avoid stdClass access errors)
     $productsArr = [];
@@ -56,6 +324,15 @@ function eb_ph_catalog_products_index(array $vars)
         if (!isset($priceMapArr[$pid])) { $priceMapArr[$pid] = []; }
         $priceMapArr[$pid][] = (array)$row;
     }
+    foreach ($priceMapArr as $pid => $rows) {
+        $productBaseMetric = 'GENERIC';
+        $productCurrency = $mspCurrency;
+        if (isset($rows[0])) {
+            $productBaseMetric = (string)($rows[0]['product_base_metric'] ?? 'GENERIC');
+            $productCurrency = (string)($rows[0]['product_default_currency'] ?? $mspCurrency);
+        }
+        $priceMapArr[$pid] = eb_ph_catalog_filter_current_price_rows($rows, $productBaseMetric, $productCurrency);
+    }
 
     // MSP readiness + default currency (fallback to live Stripe if DB flags are stale)
     $chargesEnabled = (int)($msp->charges_enabled ?? 0) === 1;
@@ -71,8 +348,6 @@ function eb_ph_catalog_products_index(array $vars)
             }
         }
     } catch (\Throwable $__) { /* ignore live fallback errors */ }
-    $mspCurrency = (string)($msp->default_currency ?? 'CAD');
-
     // Fetch Stripe (connected account) products so UI can list all owned products
     $stripeProductsArr = [];
     try {
@@ -151,6 +426,8 @@ function eb_ph_catalog_products_list(array $vars)
     $clientId = (int)$_SESSION['uid'];
     $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
     if (!$msp) { header('Location: '.$vars['modulelink'].'&a=ph-tenants-manage'); exit; }
+    $showStripeDebug = isset($_SESSION['adminid']) && (int)$_SESSION['adminid'] > 0
+        && (((string)($_GET['stripe_debug'] ?? '') === '1') || ((string)($_GET['debug'] ?? '') === 'stripe'));
 
     // Company name (fallbacks)
     $company = '';
@@ -173,7 +450,8 @@ function eb_ph_catalog_products_list(array $vars)
 
     // Stripe products (with price summaries)
     $stripeProducts = [];
-    $countAll = 0; $countActive = 0; $countArchived = 0;
+    $stripePriceMap = [];
+    $stripeProductActiveMap = [];
     try {
         $acctId = (string)($msp->stripe_connect_id ?? '');
         if ($acctId !== '') {
@@ -182,13 +460,14 @@ function eb_ph_catalog_products_list(array $vars)
             if (isset($remote['data']) && is_array($remote['data'])) {
                 foreach ($remote['data'] as $p) {
                     if (!is_array($p)) { continue; }
-                    $countAll++;
                     $isActive = (bool)($p['active'] ?? true);
-                    if ($isActive) { $countActive++; } else { $countArchived++; }
+                    $stripeProductId = (string)($p['id'] ?? '');
+                    if ($stripeProductId !== '') { $stripeProductActiveMap[$stripeProductId] = $isActive ? 1 : 0; }
                     $prices = [];
                     try {
-                        $lp = $svcCatalog->listPrices((string)($p['id'] ?? ''), $acctId, 100, null);
+                        $lp = $svcCatalog->listPrices($stripeProductId, $acctId, 100, null);
                         if (isset($lp['data']) && is_array($lp['data'])) {
+                            $stripePriceMap[$stripeProductId] = array_values($lp['data']);
                             foreach ($lp['data'] as $pr) {
                                 $kind = 'recurring';
                                 if ((string)($pr['type'] ?? '') === 'one_time') { $kind = 'one_time'; }
@@ -205,7 +484,9 @@ function eb_ph_catalog_products_list(array $vars)
                                 ];
                             }
                         }
-                    } catch (\Throwable $___) {}
+                    } catch (\Throwable $___) {
+                        if ($stripeProductId !== '') { $stripePriceMap[$stripeProductId] = []; }
+                    }
                     // Simple summary: prefer first active price; else show count
                     $summary = '';
                     foreach ($prices as $pr) {
@@ -213,16 +494,18 @@ function eb_ph_catalog_products_list(array $vars)
                     }
                     if ($summary === '') { $summary = (count($prices) > 0 ? (string)count($prices).' prices' : '—'); }
                     $updated = 0; foreach ($prices as $pr) { $updated = max($updated, (int)$pr['created']); }
-                    $stripeProducts[] = [
-                        'id' => (string)($p['id'] ?? ''),
-                        'name' => (string)($p['name'] ?? ''),
-                        'description' => isset($p['description']) ? (string)$p['description'] : '',
-                        'active' => $isActive ? 1 : 0,
-                        'created' => (int)($p['created'] ?? 0),
-                        'updated' => (int)$updated,
-                        'pricing_summary' => $summary,
-                        'price_count' => (int)count($prices),
-                    ];
+                    if ($showStripeDebug) {
+                        $stripeProducts[] = [
+                            'id' => $stripeProductId,
+                            'name' => (string)($p['name'] ?? ''),
+                            'description' => isset($p['description']) ? (string)$p['description'] : '',
+                            'active' => $isActive ? 1 : 0,
+                            'created' => (int)($p['created'] ?? 0),
+                            'updated' => (int)$updated,
+                            'pricing_summary' => $summary,
+                            'price_count' => (int)count($prices),
+                        ];
+                    }
                 }
             }
         }
@@ -231,12 +514,23 @@ function eb_ph_catalog_products_list(array $vars)
     // Local/draft products
     $localProducts = [];
     $localPriceMap = [];
-    $countDraft = 0;
     try {
         $lp = Capsule::table('eb_catalog_products')->where('msp_id', (int)$msp->id)->orderBy('updated_at', 'desc')->get();
         foreach ($lp as $r) {
             $row = (array)$r;
-            if (empty($row['stripe_product_id']) && (int)($row['active'] ?? 1) === 1) { $countDraft++; }
+            $stripeProductId = (string)($row['stripe_product_id'] ?? '');
+            if ($stripeProductId !== '' && array_key_exists($stripeProductId, $stripeProductActiveMap)) {
+                $remoteActive = (int)$stripeProductActiveMap[$stripeProductId];
+                $row['active'] = $remoteActive;
+                if ((int)($r->active ?? 1) !== $remoteActive) {
+                    try {
+                        Capsule::table('eb_catalog_products')->where('id', (int)$row['id'])->update([
+                            'active' => $remoteActive,
+                            'updated_at' => date('Y-m-d H:i:s'),
+                        ]);
+                    } catch (\Throwable $____) {}
+                }
+            }
             try {
                 $fx = isset($row['features_json']) ? (string)$row['features_json'] : '';
                 if ($fx !== '') { $arr = json_decode($fx, true); if (is_array($arr)) { $row['features'] = array_values(array_filter($arr, 'strlen')); } }
@@ -247,13 +541,42 @@ function eb_ph_catalog_products_list(array $vars)
             ->join('eb_catalog_products as p', 'p.id', '=', 'pr.product_id')
             ->where('p.msp_id', (int)$msp->id)
             ->orderBy('pr.updated_at', 'desc')
-            ->get(['pr.*']);
+            ->get(['pr.*', 'p.base_metric_code as product_base_metric', 'p.default_currency as product_default_currency']);
         foreach ($lpr as $row) {
             $pid = (string)$row->product_id;
             if (!isset($localPriceMap[$pid])) { $localPriceMap[$pid] = []; }
             $localPriceMap[$pid][] = (array)$row;
         }
+        foreach ($localProducts as $row) {
+            $productId = (int)($row['id'] ?? 0);
+            if ($productId <= 0) { continue; }
+            $pid = (string)$productId;
+            $baseMetric = (string)($row['base_metric_code'] ?? 'GENERIC');
+            $productCurrency = (string)($row['default_currency'] ?? ($msp->default_currency ?? 'CAD'));
+            $stripeProductId = (string)($row['stripe_product_id'] ?? '');
+            if ($stripeProductId !== '' && array_key_exists($stripeProductId, $stripePriceMap)) {
+                $localPriceMap[$pid] = eb_ph_catalog_sync_local_prices_from_stripe($productId, (array)$stripePriceMap[$stripeProductId], $baseMetric, $productCurrency);
+                continue;
+            }
+            $localPriceMap[$pid] = eb_ph_catalog_filter_current_price_rows($localPriceMap[$pid] ?? [], $baseMetric, $productCurrency);
+        }
     } catch (\Throwable $__) {}
+
+    $countAll = count($localProducts);
+    $countActive = 0;
+    $countArchived = 0;
+    $countDraft = 0;
+    foreach ($localProducts as $row) {
+        $hasStripeProduct = !empty($row['stripe_product_id']);
+        $isActive = (int)($row['active'] ?? 1) === 1;
+        if ($hasStripeProduct) {
+            $countActive++;
+        } elseif ($isActive) {
+            $countDraft++;
+        } else {
+            $countArchived++;
+        }
+    }
 
     return [
         'pagetitle' => 'Catalog — Products',
@@ -268,9 +591,10 @@ function eb_ph_catalog_products_list(array $vars)
             'msp_currency' => (string)($msp->default_currency ?? 'CAD'),
             'acct_info' => $acctInfo,
             'stripe_products' => $stripeProducts,
+            'show_stripe_debug' => $showStripeDebug ? 1 : 0,
             'products' => $localProducts,
             'priceMap' => $localPriceMap,
-            'count_all' => $countAll + count($localProducts),
+            'count_all' => $countAll,
             'count_active' => $countActive,
             'count_archived' => $countArchived,
             'count_draft' => $countDraft,
@@ -383,6 +707,32 @@ function eb_ph_catalog_product_save(array $vars): void
         }
     } catch (\Throwable $e) { echo json_encode(['status'=>'error','message'=>'persist_fail']); return; }
 
+    $seenSlots = [];
+    foreach ($items as $it) {
+        $metric = (string)($it['metric'] ?? ($baseMetric !== '' ? $baseMetric : 'GENERIC'));
+        $billingType = (string)($it['billingType'] ?? 'per_unit');
+        $interval = (string)($it['interval'] ?? 'month');
+        $priceCurrency = trim((string)($it['currency'] ?? ''));
+        if ($priceCurrency === '' || !preg_match('/^[A-Z]{3}$/', strtoupper($priceCurrency))) { $priceCurrency = $mspCurrency; }
+        $pricingScheme = (string)($it['pricingScheme'] ?? 'per_unit');
+        $slotKey = eb_ph_catalog_pricing_slot_key($metric, $priceCurrency, $billingType, $interval, $pricingScheme);
+        if (isset($seenSlots[$slotKey])) {
+            echo json_encode([
+                'status' => 'error',
+                'message' => 'duplicate_pricing_slot',
+                'detail' => 'Each price needs a unique billing setup. Duplicate setup: '.eb_ph_catalog_pricing_slot_label($metric, $priceCurrency, $billingType, $interval, $pricingScheme),
+            ]);
+            return;
+        }
+        $seenSlots[$slotKey] = true;
+    }
+
+    $submittedExistingIds = [];
+    foreach ($items as $it) {
+        $rowId = (int)($it['id'] ?? 0);
+        if ($rowId > 0) { $submittedExistingIds[$rowId] = true; }
+    }
+
     $persisted = [];
     foreach ($items as $it) {
         $label = trim((string)($it['label'] ?? ''));
@@ -402,9 +752,9 @@ function eb_ph_catalog_product_save(array $vars): void
             $prodBase = (string)Capsule::table('eb_catalog_products')->where('id',(int)$productId)->value('base_metric_code');
             if ($prodBase !== '' && $prodBase !== $metric) { echo json_encode(['status'=>'error','message'=>'mismatched_metric']); return; }
         } catch (\Throwable $__) {}
-        if ($metric === 'STORAGE_TB') { $billingType = 'metered'; if ($unitLabel === '') { $unitLabel = 'GB'; } }
-        if (in_array($metric,['DEVICE_COUNT','DISK_IMAGE','HYPERV_VM','PROXMOX_VM','VMWARE_VM','M365_USER'])) { $billingType = 'per_unit'; }
-        if ($billingType === 'one_time') { $interval = 'none'; }
+        $billingType = eb_ph_catalog_normalize_billing_type($metric, $billingType);
+        if ($metric === 'STORAGE_TB' && $unitLabel === '') { $unitLabel = 'GB'; }
+        $interval = eb_ph_catalog_normalize_interval_for_slot($billingType, $interval);
         $amountCents = (int)round($amount * 100);
         $amountPerGbCents = null; $displayPerTbMoney = null;
         if ($metric === 'STORAGE_TB') {
@@ -530,6 +880,24 @@ function eb_ph_catalog_product_save(array $vars): void
         }
     }
 
+    try {
+        $allRows = Capsule::table('eb_catalog_prices')
+            ->where('product_id', (int)$productId)
+            ->orderBy('updated_at', 'desc')
+            ->get();
+        $currentRows = eb_ph_catalog_filter_current_price_rows($allRows, $baseMetric !== '' ? $baseMetric : 'GENERIC', $mspCurrency);
+        $removeIds = [];
+        foreach ($currentRows as $row) {
+            $currentId = (int)($row['id'] ?? 0);
+            if (!isset($submittedExistingIds[$currentId]) && !in_array($currentId, $persisted, true)) {
+                $removeIds[] = $currentId;
+            }
+        }
+        if (!empty($removeIds)) {
+            Capsule::table('eb_catalog_prices')->whereIn('id', $removeIds)->delete();
+        }
+    } catch (\Throwable $__) {}
+
     if ($mode === 'draft') { echo json_encode(['status'=>'success','product_id'=>$productId,'prices'=>$persisted]); return; }
 
     // Publish on Stripe
@@ -636,10 +1004,24 @@ function eb_ph_catalog_product_get(array $vars): void
     try {
         $prod = Capsule::table('eb_catalog_products')->where('id',$id)->first();
         if (!$prod || (int)$prod->msp_id !== (int)$msp->id) { echo json_encode(['status'=>'error','message'=>'scope']); return; }
-        $prices = Capsule::table('eb_catalog_prices')->where('product_id',$id)->orderBy('updated_at','desc')->get();
         $pricesArr = [];
+        $baseMetric = (string)($prod->base_metric_code ?? 'GENERIC');
+        $defaultCurrency = (string)($prod->default_currency ?? 'CAD');
+        if ((string)($prod->stripe_product_id ?? '') !== '' && (string)($msp->stripe_connect_id ?? '') !== '') {
+            try {
+                $remote = (new CatalogService())->listPrices((string)$prod->stripe_product_id, (string)$msp->stripe_connect_id, 100, null);
+                $pricesArr = eb_ph_catalog_sync_local_prices_from_stripe($id, (array)($remote['data'] ?? []), $baseMetric, $defaultCurrency);
+            } catch (\Throwable $__) {}
+        }
+        if (empty($pricesArr)) {
+            $prices = Capsule::table('eb_catalog_prices as pr')
+                ->where('pr.product_id',$id)
+                ->orderBy('pr.updated_at','desc')
+                ->get(['pr.*']);
+            $pricesArr = eb_ph_catalog_filter_current_price_rows($prices, $baseMetric, $defaultCurrency);
+        }
         $metricsSet = [];
-        foreach ($prices as $r) { $pricesArr[] = (array)$r; $metricsSet[(string)$r->metric_code] = true; }
+        foreach ($pricesArr as $r) { $metricsSet[(string)($r['metric_code'] ?? '')] = true; }
         $mixed = (count(array_keys($metricsSet)) > 1);
         $features = [];
         try { $rawf = (string)($prod->features_json ?? ''); if ($rawf !== '') { $arr = json_decode($rawf, true); if (is_array($arr)) { $features = array_values(array_filter($arr, 'strlen')); } } } catch (\Throwable $__) {}
@@ -878,7 +1260,23 @@ function eb_ph_catalog_product_get_stripe(array $vars): void
         $onlyActive = true;
         if ($activeParam === 'all') { $onlyActive = null; }
         else if ($activeParam === '0' || strtolower($activeParam) === 'false') { $onlyActive = false; }
-        $prices = $svc->listPrices($stripeProductId, $acct, 100, $onlyActive);
+        if ($onlyActive === null) {
+            $activePrices = $svc->listPrices($stripeProductId, $acct, 100, true);
+            $inactivePrices = $svc->listPrices($stripeProductId, $acct, 100, false);
+            $merged = [];
+            $seenPriceIds = [];
+            foreach ([$activePrices, $inactivePrices] as $priceSet) {
+                foreach ((array)($priceSet['data'] ?? []) as $row) {
+                    $priceId = (string)($row['id'] ?? '');
+                    if ($priceId === '' || isset($seenPriceIds[$priceId])) { continue; }
+                    $seenPriceIds[$priceId] = true;
+                    $merged[] = $row;
+                }
+            }
+            $prices = ['data' => $merged];
+        } else {
+            $prices = $svc->listPrices($stripeProductId, $acct, 100, $onlyActive);
+        }
         $items = [];
         $derivedBase = 'GENERIC';
         if (isset($prices['data']) && is_array($prices['data'])) {
@@ -995,6 +1393,26 @@ function eb_ph_catalog_product_save_stripe(array $vars): void
     $currency = strtoupper((string)($json['currency'] ?? ($msp->default_currency ?? 'CAD')));
     if ($stripeProductId === '') { echo json_encode(['status'=>'error','message'=>'id']); return; }
 
+    $seenSlots = [];
+    foreach ($items as $it) {
+        $metric = (string)($it['metric'] ?? 'GENERIC');
+        $billingType = (string)($it['billingType'] ?? 'per_unit');
+        $interval = (string)($it['interval'] ?? 'month');
+        $itemCurrency = strtoupper((string)($it['currency'] ?? $currency));
+        if ($itemCurrency === '' || !preg_match('/^[A-Z]{3}$/', $itemCurrency)) { $itemCurrency = $currency; }
+        $pricingScheme = (string)($it['pricingScheme'] ?? 'per_unit');
+        $slotKey = eb_ph_catalog_pricing_slot_key($metric, $itemCurrency, $billingType, $interval, $pricingScheme);
+        if (isset($seenSlots[$slotKey])) {
+            echo json_encode([
+                'status' => 'error',
+                'message' => 'duplicate_pricing_slot',
+                'detail' => 'Each price needs a unique billing setup. Duplicate setup: '.eb_ph_catalog_pricing_slot_label($metric, $itemCurrency, $billingType, $interval, $pricingScheme),
+            ]);
+            return;
+        }
+        $seenSlots[$slotKey] = true;
+    }
+
     try {
         $svc = new CatalogService();
         // Update product fields when provided
@@ -1091,7 +1509,14 @@ function eb_ph_catalog_product_archive_stripe(array $vars): void
     if ($acct === '') { echo json_encode(['status'=>'error','message'=>'not_connected']); return; }
     $id = (string)($_POST['id'] ?? '');
     if ($id === '') { echo json_encode(['status'=>'error','message'=>'id']); return; }
-    try { (new CatalogService())->updateProduct($id, ['active'=>false], $acct); echo json_encode(['status'=>'success']); }
+    try {
+        (new CatalogService())->updateProduct($id, ['active'=>false], $acct);
+        Capsule::table('eb_catalog_products')
+            ->where('msp_id', (int)$msp->id)
+            ->where('stripe_product_id', $id)
+            ->update(['active' => 0, 'updated_at' => date('Y-m-d H:i:s')]);
+        echo json_encode(['status'=>'success']);
+    }
     catch (\Throwable $e) { echo json_encode(['status'=>'error','message'=>'archive_fail','detail'=>$e->getMessage()]); }
 }
 
@@ -1123,7 +1548,14 @@ function eb_ph_catalog_product_unarchive_stripe(array $vars): void
     if ($acct === '') { echo json_encode(['status'=>'error','message'=>'not_connected']); return; }
     $id = (string)($_POST['id'] ?? '');
     if ($id === '') { echo json_encode(['status'=>'error','message'=>'id']); return; }
-    try { (new CatalogService())->updateProduct($id, ['active'=>true], $acct); echo json_encode(['status'=>'success']); }
+    try {
+        (new CatalogService())->updateProduct($id, ['active'=>true], $acct);
+        Capsule::table('eb_catalog_products')
+            ->where('msp_id', (int)$msp->id)
+            ->where('stripe_product_id', $id)
+            ->update(['active' => 1, 'updated_at' => date('Y-m-d H:i:s')]);
+        echo json_encode(['status'=>'success']);
+    }
     catch (\Throwable $e) { echo json_encode(['status'=>'error','message'=>'unarchive_fail','detail'=>$e->getMessage()]); }
 }
 
@@ -1219,5 +1651,91 @@ function eb_ph_catalog_price_sub_count(array $vars): void
         echo json_encode(['status'=>'success','active_subscriptions'=>$count]);
     } catch (\Throwable $e) {
         echo json_encode(['status'=>'success','active_subscriptions'=>0]);
+    }
+}
+
+function eb_ph_catalog_price_delete(array $vars): void
+{
+    header('Content-Type: application/json');
+    if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { echo json_encode(['status'=>'error','message'=>'auth']); return; }
+    if (function_exists('check_token')) { try { check_token('WHMCS.default'); } catch (\Throwable $__) { echo json_encode(['status'=>'error','message'=>'csrf']); return; } }
+    $clientId = (int)$_SESSION['uid'];
+    $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
+    if (!$msp) { echo json_encode(['status'=>'error','message'=>'msp']); return; }
+    $priceId = (int)($_POST['price_id'] ?? 0);
+    if ($priceId <= 0) { echo json_encode(['status'=>'error','message'=>'id']); return; }
+
+    try {
+        $row = Capsule::table('eb_catalog_prices as pr')
+            ->join('eb_catalog_products as p', 'p.id', '=', 'pr.product_id')
+            ->where('pr.id', $priceId)
+            ->first([
+                'pr.*',
+                'p.msp_id as owner_msp_id',
+            ]);
+        if (!$row || (int)$row->owner_msp_id !== (int)$msp->id) { echo json_encode(['status'=>'error','message'=>'scope']); return; }
+
+        $stripePriceId = (string)($row->stripe_price_id ?? '');
+        $activeSubscriptions = (int)Capsule::table('eb_plan_components as pc')
+            ->join('eb_plan_instances as pi', 'pi.plan_id', '=', 'pc.plan_id')
+            ->where('pc.price_id', $priceId)
+            ->where('pi.status', 'active')
+            ->count();
+
+        $slotRowIds = [];
+        $rootSlotKey = eb_ph_catalog_price_row_slot_key((array)$row);
+        $cursor = $row;
+        while ($cursor) {
+            $cursorId = (int)($cursor->id ?? 0);
+            if ($cursorId <= 0 || in_array($cursorId, $slotRowIds, true)) { break; }
+            if (eb_ph_catalog_price_row_slot_key((array)$cursor) !== $rootSlotKey) { break; }
+            $slotRowIds[] = $cursorId;
+            $supersedesId = (int)($cursor->supersedes_price_id ?? 0);
+            if ($supersedesId <= 0) { break; }
+            $cursor = Capsule::table('eb_catalog_prices')->where('id', $supersedesId)->first();
+        }
+
+        if ($stripePriceId !== '') {
+            $acct = (string)($msp->stripe_connect_id ?? '');
+            if ($acct === '') { echo json_encode(['status'=>'error','message'=>'not_connected']); return; }
+            $svc = new CatalogService();
+            $svc->updatePrice($stripePriceId, ['active' => false], $acct);
+            if (!empty($slotRowIds)) {
+                Capsule::table('eb_catalog_prices')->whereIn('id', $slotRowIds)->update([
+                    'active' => 0,
+                    'updated_at' => date('Y-m-d H:i:s'),
+                ]);
+            }
+
+            echo json_encode([
+                'status' => 'success',
+                'archived_on_stripe' => true,
+                'archived_ids' => $slotRowIds,
+                'active_subscriptions' => $activeSubscriptions,
+            ]);
+            return;
+        }
+
+        if ($activeSubscriptions > 0) {
+            echo json_encode([
+                'status' => 'error',
+                'message' => 'price_in_use',
+                'detail' => 'This local-only price is currently used by active billing and cannot be deleted.',
+                'active_subscriptions' => $activeSubscriptions,
+            ]);
+            return;
+        }
+
+        if (!empty($slotRowIds)) {
+            Capsule::table('eb_catalog_prices')->whereIn('id', $slotRowIds)->delete();
+        }
+
+        echo json_encode([
+            'status' => 'success',
+            'archived_on_stripe' => false,
+            'deleted_ids' => $slotRowIds,
+        ]);
+    } catch (\Throwable $e) {
+        echo json_encode(['status'=>'error','message'=>'delete_fail','detail'=>$e->getMessage()]);
     }
 }

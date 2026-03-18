@@ -4,6 +4,157 @@ use WHMCS\Database\Capsule;
 use PartnerHub\StripeService;
 use PartnerHub\CatalogService;
 
+function eb_ph_plan_normalize_billing_type($kind): string
+{
+    $kind = (string)($kind ?? 'recurring');
+    if ($kind === 'metered') {
+        return 'metered';
+    }
+    if ($kind === 'one_time') {
+        return 'one_time';
+    }
+    return 'per_unit';
+}
+
+function eb_ph_plan_normalize_interval($interval): string
+{
+    $interval = strtolower(trim((string)($interval ?? 'month')));
+    return in_array($interval, ['month', 'year'], true) ? $interval : 'month';
+}
+
+function eb_ph_plan_normalize_currency($currency): string
+{
+    $currency = strtoupper(trim((string)($currency ?? 'CAD')));
+    if (!preg_match('/^[A-Z]{3}$/', $currency)) {
+        return 'CAD';
+    }
+    return $currency;
+}
+
+function eb_ph_plan_normalize_status($status, $default = 'draft'): string
+{
+    $status = strtolower(trim((string)($status ?? $default)));
+    return in_array($status, ['draft', 'active', 'archived'], true) ? $status : $default;
+}
+
+function eb_ph_plan_validation_error(string $message, string $code = 'invalid'): array
+{
+    return ['ok' => false, 'message' => $message, 'code' => $code];
+}
+
+function eb_ph_plan_validate_component_rows(int $mspId, array $components, string $currency, string $interval, bool $requireComponents, bool $requireActivePrices): array
+{
+    if ($requireComponents && count($components) === 0) {
+        return eb_ph_plan_validation_error('At least one recurring price is required before publishing.', 'no_components');
+    }
+
+    if (count($components) === 0) {
+        return ['ok' => true, 'rows' => []];
+    }
+
+    $priceIds = [];
+    foreach ($components as $component) {
+        $priceId = (int)($component['price_id'] ?? 0);
+        if ($priceId > 0) {
+            $priceIds[] = $priceId;
+        }
+    }
+    $priceIds = array_values(array_unique($priceIds));
+
+    if (empty($priceIds)) {
+        return $requireComponents
+            ? eb_ph_plan_validation_error('At least one recurring price is required before publishing.', 'no_components')
+            : ['ok' => true, 'rows' => []];
+    }
+
+    $rows = Capsule::table('eb_catalog_prices as p')
+        ->join('eb_catalog_products as pr', 'pr.id', '=', 'p.product_id')
+        ->where('pr.msp_id', $mspId)
+        ->whereIn('p.id', $priceIds)
+        ->get([
+            'p.id',
+            'p.product_id',
+            'p.name',
+            'p.kind',
+            'p.metric_code',
+            'p.unit_amount',
+            'p.currency',
+            'p.interval',
+            'p.unit_label',
+            'p.active',
+            'p.stripe_price_id',
+            'pr.name as product_name',
+            'pr.description as product_description',
+            'pr.base_metric_code as product_base_metric',
+            'pr.active as product_active',
+            'pr.stripe_product_id',
+        ]);
+
+    $byId = [];
+    foreach ($rows as $row) {
+        $byId[(int)$row->id] = (array)$row;
+    }
+
+    foreach ($components as $component) {
+        $priceId = (int)($component['price_id'] ?? 0);
+        if ($priceId <= 0) {
+            continue;
+        }
+        if (!isset($byId[$priceId])) {
+            return eb_ph_plan_validation_error('One or more selected prices are no longer available.', 'missing_price');
+        }
+
+        $row = $byId[$priceId];
+        $rowCurrency = eb_ph_plan_normalize_currency($row['currency'] ?? 'CAD');
+        $rowInterval = eb_ph_plan_normalize_interval($row['interval'] ?? 'month');
+        $kind = (string)($row['kind'] ?? 'recurring');
+
+        if ($kind === 'one_time') {
+            return eb_ph_plan_validation_error('One-time prices are not supported in plan templates.', 'one_time_not_supported');
+        }
+        if ($rowCurrency !== $currency) {
+            return eb_ph_plan_validation_error('All recurring plan components must use the same currency.', 'currency_mismatch');
+        }
+        if ($rowInterval !== $interval) {
+            return eb_ph_plan_validation_error('All recurring plan components must use the same billing interval.', 'interval_mismatch');
+        }
+        if ($requireActivePrices && !(int)($row['active'] ?? 0)) {
+            return eb_ph_plan_validation_error('Archived prices cannot be used when publishing a plan.', 'archived_price');
+        }
+        if ($requireActivePrices && trim((string)($row['stripe_price_id'] ?? '')) === '') {
+            return eb_ph_plan_validation_error('Only published catalog prices can be used when publishing a plan.', 'draft_price');
+        }
+    }
+
+    return ['ok' => true, 'rows' => $byId];
+}
+
+function eb_ph_plan_validate_existing_plan_state($plan, int $mspId, bool $requireActivePrices): array
+{
+    $components = Capsule::table('eb_plan_components')
+        ->where('plan_id', (int)$plan->id)
+        ->get(['id', 'price_id', 'default_qty', 'overage_mode']);
+
+    $incoming = [];
+    foreach ($components as $component) {
+        $incoming[] = [
+            'id' => (int)$component->id,
+            'price_id' => (int)$component->price_id,
+            'default_qty' => (int)$component->default_qty,
+            'overage_mode' => (string)$component->overage_mode,
+        ];
+    }
+
+    return eb_ph_plan_validate_component_rows(
+        $mspId,
+        $incoming,
+        eb_ph_plan_normalize_currency($plan->currency ?? 'CAD'),
+        eb_ph_plan_normalize_interval($plan->billing_interval ?? 'month'),
+        true,
+        $requireActivePrices
+    );
+}
+
 function eb_ph_catalog_plans_index(array $vars)
 {
     if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { header('Location: clientarea.php'); exit; }
@@ -29,9 +180,29 @@ function eb_ph_catalog_plans_index(array $vars)
     $prices = Capsule::table('eb_catalog_prices as p')
         ->join('eb_catalog_products as pr','pr.id','=','p.product_id')
         ->where('pr.msp_id',(int)$msp->id)
-        ->where('p.active',1)
+        ->whereIn('p.kind', ['recurring', 'metered', 'one_time'])
+        ->orderBy('pr.name','asc')
         ->orderBy('p.name','asc')
-        ->get(['p.*']);
+        ->get([
+            'p.*',
+            'pr.name as product_name',
+            'pr.description as product_description',
+            'pr.base_metric_code as product_base_metric',
+            'pr.active as product_active',
+            'pr.stripe_product_id',
+        ]);
+
+    $products = Capsule::table('eb_catalog_products as p')
+        ->where('p.msp_id', (int)$msp->id)
+        ->orderBy('p.name', 'asc')
+        ->get([
+            'p.id',
+            'p.name',
+            'p.description',
+            'p.active',
+            'p.base_metric_code',
+            'p.stripe_product_id',
+        ]);
 
     $tenants = Capsule::table('eb_tenants')->where('msp_id',(int)$msp->id)->where('status', '!=', 'deleted')->orderBy('id','desc')->limit(200)->get(['public_id', 'name']);
 
@@ -69,6 +240,43 @@ function eb_ph_catalog_plans_index(array $vars)
     $pricesArr = []; foreach ((array)$prices as $r) { $pricesArr[] = (array)$r; }
     $tenantsArr = []; foreach ((array)$tenants as $r) { $tenantsArr[] = (array)$r; }
 
+    $catalogByProduct = [];
+    foreach ((array)$products as $row) {
+        $arr = (array)$row;
+        $catalogByProduct[(int)$arr['id']] = [
+            'id' => (int)$arr['id'],
+            'name' => (string)($arr['name'] ?? ''),
+            'description' => (string)($arr['description'] ?? ''),
+            'active' => (int)($arr['active'] ?? 0) === 1,
+            'base_metric_code' => (string)($arr['base_metric_code'] ?? 'GENERIC'),
+            'stripe_product_id' => (string)($arr['stripe_product_id'] ?? ''),
+            'prices' => [],
+        ];
+    }
+    foreach ($pricesArr as $row) {
+        $productId = (int)($row['product_id'] ?? 0);
+        if (!isset($catalogByProduct[$productId])) {
+            continue;
+        }
+        $kind = (string)($row['kind'] ?? 'recurring');
+        $billingType = eb_ph_plan_normalize_billing_type($kind);
+        $catalogByProduct[$productId]['prices'][] = [
+            'id' => (int)($row['id'] ?? 0),
+            'product_id' => $productId,
+            'name' => (string)($row['name'] ?? ''),
+            'kind' => $kind,
+            'billing_type' => $billingType,
+            'metric_code' => (string)($row['metric_code'] ?? ($catalogByProduct[$productId]['base_metric_code'] ?? 'GENERIC')),
+            'unit_amount' => (int)($row['unit_amount'] ?? 0),
+            'currency' => eb_ph_plan_normalize_currency($row['currency'] ?? 'CAD'),
+            'interval' => eb_ph_plan_normalize_interval($row['interval'] ?? 'month'),
+            'unit_label' => (string)($row['unit_label'] ?? ''),
+            'active' => (int)($row['active'] ?? 0) === 1,
+            'stripe_price_id' => (string)($row['stripe_price_id'] ?? ''),
+        ];
+    }
+    $catalogProducts = array_values($catalogByProduct);
+
     return [
         'pagetitle' => 'Catalog — Plans',
         'templatefile' => 'whitelabel/catalog-plans',
@@ -80,6 +288,8 @@ function eb_ph_catalog_plans_index(array $vars)
             'plans' => $plansArr,
             'components' => $componentsArr,
             'prices' => $pricesArr,
+            'catalog_products' => $catalogProducts,
+            'catalog_products_json' => json_encode($catalogProducts, JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT),
             'tenants' => $tenantsArr,
             'customers' => $tenantsArr,
             'comet_accounts' => $cometAccounts,
@@ -117,6 +327,9 @@ function eb_ph_plan_template_create(array $vars): void
     $name = trim((string)($_POST['name'] ?? ''));
     $description = trim((string)($_POST['description'] ?? ''));
     $trialDays = (int)($_POST['trial_days'] ?? 0);
+    $billingInterval = eb_ph_plan_normalize_interval($_POST['billing_interval'] ?? 'month');
+    $currency = eb_ph_plan_normalize_currency($_POST['currency'] ?? 'CAD');
+    $status = eb_ph_plan_normalize_status($_POST['status'] ?? 'draft', 'draft');
     if ($name === '' || $trialDays < 0) { echo json_encode(['status'=>'error','message'=>'invalid']); return; }
 
     $id = Capsule::table('eb_plan_templates')->insertGetId([
@@ -124,12 +337,15 @@ function eb_ph_plan_template_create(array $vars): void
         'name' => $name,
         'description' => $description !== '' ? $description : null,
         'trial_days' => $trialDays,
+        'billing_interval' => $billingInterval,
+        'currency' => $currency,
         'version' => 1,
-        'active' => 1,
+        'status' => $status === 'archived' ? 'archived' : 'draft',
+        'active' => 0,
         'created_at' => date('Y-m-d H:i:s'),
         'updated_at' => date('Y-m-d H:i:s'),
     ]);
-    try { if (function_exists('logModuleCall')) { @logModuleCall('eazybackup','ph-plan-template-create',[ 'name'=>$name,'trial_days'=>$trialDays ],[ 'plan_id'=>$id ]); } } catch (\Throwable $__) {}
+    try { if (function_exists('logModuleCall')) { @logModuleCall('eazybackup','ph-plan-template-create',[ 'name'=>$name,'trial_days'=>$trialDays,'billing_interval'=>$billingInterval,'currency'=>$currency,'status'=>$status ],[ 'plan_id'=>$id ]); } } catch (\Throwable $__) {}
     echo json_encode(['status'=>'success','id'=>$id]);
 }
 
@@ -190,6 +406,9 @@ function eb_ph_plan_assign(array $vars): void
 
     $plan = Capsule::table('eb_plan_templates')->where('id',$planId)->first();
     if (!$plan || (int)$plan->msp_id !== (int)$msp->id) { echo json_encode(['status'=>'error','message'=>'scope']); return; }
+    if (eb_ph_plan_normalize_status($plan->status ?? ($plan->active ? 'active' : 'draft')) !== 'active') {
+        echo json_encode(['status'=>'error','message'=>'plan_not_active']); return;
+    }
     $tenant = eb_ph_catalog_plans_resolve_tenant_for_msp((int)$msp->id, $tenantPublicId);
     if (!$tenant) { echo json_encode(['status'=>'error','message'=>'tenant_not_found']); return; }
     $tenantId = (int)$tenant->id;
@@ -301,8 +520,25 @@ function eb_ph_plan_template_get(array $vars): void
     if (!$plan || (int)$plan->msp_id !== (int)$msp->id) { echo json_encode(['status'=>'error','message'=>'scope']); return; }
     $components = Capsule::table('eb_plan_components as pc')
         ->join('eb_catalog_prices as pr','pr.id','=','pc.price_id')
+        ->join('eb_catalog_products as p','p.id','=','pr.product_id')
         ->where('pc.plan_id',$id)
-        ->get(['pc.*','pr.name as price_name','pr.metric_code as price_metric','pr.unit_amount as price_amount','pr.currency as price_currency','pr.interval as price_interval','pr.kind as price_kind']);
+        ->get([
+            'pc.*',
+            'pr.product_id',
+            'pr.name as price_name',
+            'pr.metric_code as price_metric',
+            'pr.unit_amount as price_amount',
+            'pr.currency as price_currency',
+            'pr.interval as price_interval',
+            'pr.kind as price_kind',
+            'pr.unit_label as price_unit_label',
+            'pr.active as price_active',
+            'pr.stripe_price_id',
+            'p.name as product_name',
+            'p.description as product_description',
+            'p.base_metric_code as product_base_metric',
+            'p.active as product_active',
+        ]);
     $subCount = Capsule::table('eb_plan_instances')->where('plan_id',$id)->where('status','active')->count();
     echo json_encode(['status'=>'success','plan'=>(array)$plan,'components'=>array_map(function($c){ return (array)$c; }, iterator_to_array($components)),'active_subs'=>$subCount]);
 }
@@ -325,21 +561,41 @@ function eb_ph_plan_template_update(array $vars): void
     $plan = Capsule::table('eb_plan_templates')->where('id',$planId)->first();
     if (!$plan || (int)$plan->msp_id !== (int)$msp->id) { echo json_encode(['status'=>'error','message'=>'scope']); return; }
 
+    $incoming = (array)($json['components'] ?? []);
     $name = trim((string)($json['name'] ?? $plan->name));
-    if ($name === '') { echo json_encode(['status'=>'error','message'=>'invalid']); return; }
+    $description = isset($json['description']) ? trim((string)$json['description']) : (string)$plan->description;
+    $trialDays = (int)($json['trial_days'] ?? $plan->trial_days);
+    $billingInterval = eb_ph_plan_normalize_interval($json['billing_interval'] ?? $plan->billing_interval ?? 'month');
+    $currency = eb_ph_plan_normalize_currency($json['currency'] ?? $plan->currency ?? 'CAD');
+    $status = eb_ph_plan_normalize_status($json['status'] ?? $plan->status ?? ($plan->active ? 'active' : 'draft'), $plan->active ? 'active' : 'draft');
+    if ($name === '' || $trialDays < 0) { echo json_encode(['status'=>'error','message'=>'invalid']); return; }
+
+    $validation = eb_ph_plan_validate_component_rows(
+        (int)$msp->id,
+        $incoming,
+        $currency,
+        $billingInterval,
+        $status === 'active',
+        $status === 'active'
+    );
+    if (!$validation['ok']) {
+        echo json_encode(['status' => 'error', 'message' => $validation['code'], 'detail' => $validation['message']]);
+        return;
+    }
 
     Capsule::table('eb_plan_templates')->where('id',$planId)->update([
         'name' => $name,
-        'description' => isset($json['description']) ? trim((string)$json['description']) : $plan->description,
-        'trial_days' => (int)($json['trial_days'] ?? $plan->trial_days),
-        'billing_interval' => (string)($json['billing_interval'] ?? $plan->billing_interval ?? 'month'),
-        'currency' => strtoupper((string)($json['currency'] ?? $plan->currency ?? 'CAD')),
+        'description' => $description !== '' ? $description : null,
+        'trial_days' => $trialDays,
+        'billing_interval' => $billingInterval,
+        'currency' => $currency,
+        'status' => $status,
+        'active' => $status === 'active' ? 1 : 0,
         'version' => (int)$plan->version + 1,
         'updated_at' => date('Y-m-d H:i:s'),
     ]);
 
     // Sync components: diff-based add/update/remove
-    $incoming = (array)($json['components'] ?? []);
     $existingIds = Capsule::table('eb_plan_components')->where('plan_id',$planId)->pluck('id')->toArray();
     $incomingIds = array_filter(array_map(function($c){ return (int)($c['id'] ?? 0); }, $incoming));
     $toRemove = array_diff($existingIds, $incomingIds);
@@ -382,7 +638,7 @@ function eb_ph_plan_template_duplicate(array $vars): void
     $newId = Capsule::table('eb_plan_templates')->insertGetId([
         'msp_id' => (int)$msp->id, 'name' => $plan->name . ' (Copy)', 'description' => $plan->description,
         'trial_days' => (int)$plan->trial_days, 'billing_interval' => $plan->billing_interval ?? 'month',
-        'currency' => $plan->currency ?? 'CAD', 'version' => 1, 'active' => 1, 'status' => 'draft',
+        'currency' => $plan->currency ?? 'CAD', 'version' => 1, 'active' => 0, 'status' => 'draft',
         'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s'),
     ]);
     $components = Capsule::table('eb_plan_components')->where('plan_id',$id)->get();
@@ -409,6 +665,13 @@ function eb_ph_plan_template_toggle(array $vars): void
     if (!in_array($newStatus,['active','archived','draft'],true)) { echo json_encode(['status'=>'error','message'=>'invalid']); return; }
     $plan = Capsule::table('eb_plan_templates')->where('id',$id)->first();
     if (!$plan || (int)$plan->msp_id !== (int)$msp->id) { echo json_encode(['status'=>'error','message'=>'scope']); return; }
+    if ($newStatus === 'active') {
+        $validation = eb_ph_plan_validate_existing_plan_state($plan, (int)$msp->id, true);
+        if (!$validation['ok']) {
+            echo json_encode(['status' => 'error', 'message' => $validation['code'], 'detail' => $validation['message']]);
+            return;
+        }
+    }
     Capsule::table('eb_plan_templates')->where('id',$id)->update([
         'status' => $newStatus, 'active' => ($newStatus === 'active' ? 1 : 0), 'updated_at' => date('Y-m-d H:i:s'),
     ]);

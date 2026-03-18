@@ -4,6 +4,7 @@
     const $$ = (s,ctx)=> Array.from((ctx||document).querySelectorAll(s));
     const open = el => el && el.classList.remove('hidden');
     const close = el => el && el.classList.add('hidden');
+    let activeConfirm = null;
 
     const createModal = $('#eb-create-product-modal');
     const addPriceModal = $('#eb-add-price-modal');
@@ -51,6 +52,27 @@
         }
       });
     });
+    $$('[data-eb-edit-price]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const productId = btn.getAttribute('data-eb-edit-price-product');
+        const localPriceId = btn.getAttribute('data-eb-edit-price-local');
+        const stripePriceId = btn.getAttribute('data-eb-edit-price-stripe');
+        if (window.ebProductPanel && typeof window.ebProductPanel.openEditPrice === 'function') {
+          window.ebProductPanel.openEditPrice(productId, localPriceId, stripePriceId);
+        } else if (window.ebProductPanel && typeof window.ebProductPanel.openEdit === 'function') {
+          window.ebProductPanel.openEdit(productId);
+        }
+      });
+    });
+    $$('[data-eb-delete-price]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const priceId = btn.getAttribute('data-eb-delete-price');
+        const stripePriceId = btn.getAttribute('data-eb-delete-price-stripe');
+        if (window.ebStripeActions && typeof window.ebStripeActions.deletePrice === 'function') {
+          window.ebStripeActions.deletePrice(priceId, stripePriceId);
+        }
+      });
+    });
 
     // Open Stripe-connected product editor from table row
     $$('[data-eb-open-edit-stripe]').forEach(row=>{
@@ -70,49 +92,218 @@
       return a ? a.href.split('&a=')[0] : 'index.php?m=eazybackup';
     })();
 
+    const confirmModalEl = $('#eb-confirm-modal');
+    const confirmTitleEl = $('#eb-confirm-title');
+    const confirmMessageEl = $('#eb-confirm-message');
+    const confirmCancelBtn = $('#eb-confirm-cancel');
+    const confirmSubmitBtn = $('#eb-confirm-submit');
+    const confirmSubmitLabelEl = $('#eb-confirm-submit-label');
+    const confirmSpinnerEl = $('#eb-confirm-spinner');
+    const confirmBackdropEl = $('#eb-confirm-backdrop');
+
+    function setConfirmBusy(isBusy){
+      if (!confirmSubmitBtn || !confirmCancelBtn) return;
+      confirmSubmitBtn.disabled = !!isBusy;
+      confirmCancelBtn.disabled = !!isBusy;
+      confirmSubmitBtn.classList.toggle('opacity-70', !!isBusy);
+      confirmSubmitBtn.classList.toggle('cursor-not-allowed', !!isBusy);
+      confirmCancelBtn.classList.toggle('opacity-70', !!isBusy);
+      confirmCancelBtn.classList.toggle('cursor-not-allowed', !!isBusy);
+      if (confirmSpinnerEl) confirmSpinnerEl.classList.toggle('hidden', !isBusy);
+    }
+
+    function teardownConfirm(){
+      if (!activeConfirm) return;
+      document.removeEventListener('keydown', activeConfirm.onKeydown);
+      if (confirmSubmitBtn) confirmSubmitBtn.onclick = null;
+      if (confirmCancelBtn) confirmCancelBtn.onclick = null;
+      if (confirmBackdropEl) confirmBackdropEl.onclick = null;
+      setConfirmBusy(false);
+      close(confirmModalEl);
+      activeConfirm = null;
+    }
+
+    function showConfirmDialog(opts){
+      if (!confirmModalEl) return Promise.resolve(window.confirm((opts && opts.message) || 'Are you sure?'));
+      if (activeConfirm) {
+        try { activeConfirm.resolve(false); } catch(_){}
+        teardownConfirm();
+      }
+      return new Promise((resolve)=>{
+        const title = (opts && opts.title) || 'Confirm action';
+        const message = (opts && opts.message) || 'Are you sure you want to continue?';
+        const confirmLabel = (opts && opts.confirmLabel) || 'Confirm';
+        const onConfirm = (opts && opts.onConfirm) || null;
+
+        if (confirmTitleEl) confirmTitleEl.textContent = title;
+        if (confirmMessageEl) confirmMessageEl.textContent = message;
+        if (confirmSubmitLabelEl) confirmSubmitLabelEl.textContent = confirmLabel;
+        setConfirmBusy(false);
+        open(confirmModalEl);
+
+        const finish = (result)=>{
+          teardownConfirm();
+          resolve(result);
+        };
+
+        const cancel = ()=>{
+          if (activeConfirm && activeConfirm.busy) return;
+          finish(false);
+        };
+
+        const submit = async ()=>{
+          if (activeConfirm && activeConfirm.busy) return;
+          if (typeof onConfirm !== 'function') {
+            finish(true);
+            return;
+          }
+          activeConfirm.busy = true;
+          setConfirmBusy(true);
+          try {
+            const result = await onConfirm();
+            finish(result !== false);
+          } catch (e) {
+            activeConfirm.busy = false;
+            setConfirmBusy(false);
+            console.error(e);
+          }
+        };
+
+        const onKeydown = (event)=>{
+          if (event.key === 'Escape') cancel();
+        };
+
+        activeConfirm = { resolve, onKeydown, busy: false };
+        document.addEventListener('keydown', onKeydown);
+        if (confirmCancelBtn) confirmCancelBtn.onclick = cancel;
+        if (confirmSubmitBtn) confirmSubmitBtn.onclick = submit;
+        if (confirmBackdropEl) confirmBackdropEl.onclick = cancel;
+      });
+    }
+
     // Stripe product actions (archive/delete)
     if (!window.ebStripeActions) {
       window.ebStripeActions = {
         async archiveProduct(id){
           try{
-            const token = (document.getElementById('eb-token')||{}).value || '';
-            const body = new URLSearchParams({ token, id });
-            const res = await fetch(`${modulelink}&a=ph-catalog-product-archive-stripe`, { method:'POST', credentials:'include', headers:{ 'Content-Type':'application/x-www-form-urlencoded','Accept':'application/json' }, body });
-            const out = await res.json();
-            if (out && out.status==='success'){ try{ window.showToast && window.showToast('Product archived','success'); }catch(_){} setTimeout(()=>location.reload(),500); }
-            else { alert('Archive failed'); }
+            await showConfirmDialog({
+              title: 'Archive product',
+              message: 'Archive this product? It will no longer be available for new billing. Existing records remain available for history, invoices, subscriptions, and auditability.',
+              confirmLabel: 'Archive product',
+              onConfirm: async ()=>{
+                const token = (document.getElementById('eb-token')||{}).value || '';
+                const body = new URLSearchParams({ token, id });
+                const res = await fetch(`${modulelink}&a=ph-catalog-product-archive-stripe`, { method:'POST', credentials:'include', headers:{ 'Content-Type':'application/x-www-form-urlencoded','Accept':'application/json' }, body });
+                const out = await res.json();
+                if (out && out.status==='success'){ try{ window.showToast && window.showToast('Product archived','success'); }catch(_){} setTimeout(()=>location.reload(),500); return true; }
+                alert('Archive failed'+(out && out.detail ? ': '+out.detail : ''));
+                return false;
+              }
+            });
           } catch(e){ console.error(e); alert('Network error'); }
         },
         async deleteProduct(id){
           try{
-            if (!confirm('Delete this product on Stripe? This cannot be undone.')) return;
-            const token = (document.getElementById('eb-token')||{}).value || '';
-            const body = new URLSearchParams({ token, id });
-            const res = await fetch(`${modulelink}&a=ph-catalog-product-delete-stripe`, { method:'POST', credentials:'include', headers:{ 'Content-Type':'application/x-www-form-urlencoded','Accept':'application/json' }, body });
-            const out = await res.json();
-            if (out && out.status==='success'){ try{ window.showToast && window.showToast('Product deleted','success'); }catch(_){} setTimeout(()=>location.reload(),600); }
-            else { alert('Delete failed'+(out && out.detail? ': '+out.detail : '')); }
+            await showConfirmDialog({
+              title: 'Delete Stripe product',
+              message: 'Delete this product on Stripe? This cannot be undone.',
+              confirmLabel: 'Delete product',
+              onConfirm: async ()=>{
+                const token = (document.getElementById('eb-token')||{}).value || '';
+                const body = new URLSearchParams({ token, id });
+                const res = await fetch(`${modulelink}&a=ph-catalog-product-delete-stripe`, { method:'POST', credentials:'include', headers:{ 'Content-Type':'application/x-www-form-urlencoded','Accept':'application/json' }, body });
+                const out = await res.json();
+                if (out && out.status==='success'){ try{ window.showToast && window.showToast('Product deleted','success'); }catch(_){} setTimeout(()=>location.reload(),600); return true; }
+                alert('Delete failed'+(out && out.detail? ': '+out.detail : ''));
+                return false;
+              }
+            });
           } catch(e){ console.error(e); alert('Network error'); }
         },
         async unarchiveProduct(id){
           try{
-            const token = (document.getElementById('eb-token')||{}).value || '';
-            const body = new URLSearchParams({ token, id });
-            const res = await fetch(`${modulelink}&a=ph-catalog-product-unarchive-stripe`, { method:'POST', credentials:'include', headers:{ 'Content-Type':'application/x-www-form-urlencoded','Accept':'application/json' }, body });
-            const out = await res.json();
-            if (out && out.status==='success'){ try{ window.showToast && window.showToast('Product unarchived','success'); }catch(_){} setTimeout(()=>location.reload(),500); }
-            else { alert('Unarchive failed'); }
+            await showConfirmDialog({
+              title: 'Unarchive product',
+              message: 'Unarchive this product and make it available for new billing again?',
+              confirmLabel: 'Unarchive product',
+              onConfirm: async ()=>{
+                const token = (document.getElementById('eb-token')||{}).value || '';
+                const body = new URLSearchParams({ token, id });
+                const res = await fetch(`${modulelink}&a=ph-catalog-product-unarchive-stripe`, { method:'POST', credentials:'include', headers:{ 'Content-Type':'application/x-www-form-urlencoded','Accept':'application/json' }, body });
+                const out = await res.json();
+                if (out && out.status==='success'){ try{ window.showToast && window.showToast('Product unarchived','success'); }catch(_){} setTimeout(()=>location.reload(),500); return true; }
+                alert('Unarchive failed'+(out && out.detail ? ': '+out.detail : ''));
+                return false;
+              }
+            });
           } catch(e){ console.error(e); alert('Network error'); }
         },
         async deleteDraft(id){
-          if (!confirm('Delete this draft product and all its prices? This cannot be undone.')) return;
           try {
-            const token = (document.getElementById('eb-token')||{}).value || '';
-            const body = new URLSearchParams({ token, id: String(id) });
-            const res = await fetch(`${modulelink}&a=ph-catalog-product-delete-draft`, { method:'POST', credentials:'include', headers:{ 'Content-Type':'application/x-www-form-urlencoded','Accept':'application/json' }, body });
-            const out = await res.json();
-            if (out && out.status==='success'){ try{ window.showToast && window.showToast('Draft deleted','success'); }catch(_){} setTimeout(()=>location.reload(),500); }
-            else { alert('Delete failed'+(out && out.message ? ': '+out.message : '')); }
+            await showConfirmDialog({
+              title: 'Delete draft product',
+              message: 'Delete this draft product and all its prices? This cannot be undone.',
+              confirmLabel: 'Delete draft',
+              onConfirm: async ()=>{
+                const token = (document.getElementById('eb-token')||{}).value || '';
+                const body = new URLSearchParams({ token, id: String(id) });
+                const res = await fetch(`${modulelink}&a=ph-catalog-product-delete-draft`, { method:'POST', credentials:'include', headers:{ 'Content-Type':'application/x-www-form-urlencoded','Accept':'application/json' }, body });
+                const out = await res.json();
+                if (out && out.status==='success'){ try{ window.showToast && window.showToast('Draft deleted','success'); }catch(_){} setTimeout(()=>location.reload(),500); return true; }
+                alert('Delete failed'+(out && out.message ? ': '+out.message : ''));
+                return false;
+              }
+            });
+          } catch(e){ console.error(e); alert('Network error'); }
+        },
+        async deletePrice(id, stripePriceId){
+          try {
+            const priceId = String(id || '');
+            const isStripePrice = !!stripePriceId;
+            let activeSubscriptions = 0;
+            if (priceId) {
+              try {
+                const subRes = await fetch(`${modulelink}&a=ph-catalog-price-sub-count&price_id=${encodeURIComponent(priceId)}`, { method:'GET', credentials:'include', headers:{ 'Accept':'application/json' } });
+                const subOut = await subRes.json();
+                activeSubscriptions = Number(subOut && subOut.active_subscriptions || 0);
+              } catch (_) {}
+            }
+            if (!isStripePrice && activeSubscriptions > 0) {
+              try {
+                window.showToast && window.showToast('This local-only price is used in active billing and cannot be deleted.', 'warning');
+              } catch (_) {}
+              return;
+            }
+            const dialogTitle = isStripePrice ? 'Archive price' : 'Delete price';
+            let dialogMessage = 'Delete this local price? This cannot be undone.';
+            if (isStripePrice) {
+              dialogMessage = 'Archive this published Stripe price? It will remain available for history, invoices, subscriptions, and auditability, but it will no longer be offered for new billing.';
+              if (activeSubscriptions > 0) {
+                dialogMessage = `Archive this published Stripe price? It is currently used in ${activeSubscriptions} active subscription${activeSubscriptions === 1 ? '' : 's'}. It will remain available for history, invoices, subscriptions, and auditability, but it will no longer be offered for new billing.`;
+              }
+            }
+            await showConfirmDialog({
+              title: dialogTitle,
+              message: dialogMessage,
+              confirmLabel: isStripePrice ? 'Archive price' : 'Delete price',
+              onConfirm: async ()=>{
+                const token = (document.getElementById('eb-token')||{}).value || '';
+                const body = new URLSearchParams({ token, price_id: priceId });
+                const res = await fetch(`${modulelink}&a=ph-catalog-price-delete`, { method:'POST', credentials:'include', headers:{ 'Content-Type':'application/x-www-form-urlencoded','Accept':'application/json' }, body });
+                const out = await res.json();
+                if (out && out.status === 'success') {
+                  try { window.showToast && window.showToast(isStripePrice ? 'Price archived' : 'Price deleted','success'); } catch(_){}
+                  setTimeout(()=>location.reload(), 500);
+                  return true;
+                }
+                if (out && out.message === 'price_in_use') {
+                  try { window.showToast && window.showToast((out.detail || 'This price is currently used in active billing.'),'warning'); } catch(_){}
+                  return false;
+                }
+                alert((isStripePrice ? 'Archive failed' : 'Delete failed')+(out && out.detail ? ': '+out.detail : ''));
+                return false;
+              }
+            });
           } catch(e){ console.error(e); alert('Network error'); }
         }
       };
@@ -237,7 +428,7 @@ window.productForm = function initProductForm({ currency = 'CAD', ready = 0 }){
     },
     reset(){ this.state.step=1; this.state.productId=null; this.state.stripeProductId=null; this.state.isStripeRemote=false; this.state.product={ name:'', description:'', category:'Backup' }; this.state.items=[]; this.state.footer=''; this.state.selectedPreset=''; },
     openCreate(){ this.reset(); const modal=document.getElementById('eb-create-product-modal'); if(modal) modal.classList.remove('hidden'); },
-    async openEdit(id){ try{ this.reset(); const res = await fetch(`${this.modulelink}&a=ph-catalog-product-get&id=${encodeURIComponent(id)}`, { method:'GET' }); const out = await res.json(); if(out.status!=='success') throw new Error('bad'); this.state.productId = out.product.id; this.state.product = { name: out.product.name||'', description: out.product.description||'', category: out.product.category||'Backup' }; this.state.baseMetric = out.product.base_metric_code || null; this.state.mixedMetrics = !!out.mixed_metrics; this.state.items = (out.prices||[]).map(pr=>({ id: pr.id, label: pr.name||'', billingType: (pr.kind==='metered'?'metered':(pr.kind==='one_time'?'one_time':'per_unit')), metric: pr.metric_code||this.state.baseMetric||'GENERIC', unitLabel: pr.unit_label||'unit', amount: (Number(pr.unit_amount||0)/100), interval: (pr.kind==='one_time'?'none':(pr.interval||'month')), active: !!pr.active })); this.state.step=1; const modal=document.getElementById('eb-create-product-modal'); if(modal) modal.classList.remove('hidden'); }catch(e){ console.error('[eb.catalog] openEdit failed', e); const modal=document.getElementById('eb-create-product-modal'); if(modal) modal.classList.remove('hidden'); } },
+    async openEdit(id){ try{ this.reset(); const res = await fetch(`${this.modulelink}&a=ph-catalog-product-get&id=${encodeURIComponent(id)}`, { method:'GET' }); const out = await res.json(); if(out.status!=='success') throw new Error('bad'); if (out.product && out.product.stripe_product_id) { await this.openEditStripe(out.product.stripe_product_id); return; } this.state.productId = out.product.id; this.state.product = { name: out.product.name||'', description: out.product.description||'', category: out.product.category||'Backup' }; this.state.baseMetric = out.product.base_metric_code || null; this.state.mixedMetrics = !!out.mixed_metrics; this.state.items = (out.prices||[]).map(pr=>({ id: pr.id, label: pr.name||'', billingType: (pr.kind==='metered'?'metered':(pr.kind==='one_time'?'one_time':'per_unit')), metric: pr.metric_code||this.state.baseMetric||'GENERIC', unitLabel: pr.unit_label||'unit', amount: (Number(pr.unit_amount||0)/100), interval: (pr.kind==='one_time'?'none':(pr.interval||'month')), active: !!pr.active })); this.state.step=1; const modal=document.getElementById('eb-create-product-modal'); if(modal) modal.classList.remove('hidden'); }catch(e){ console.error('[eb.catalog] openEdit failed', e); const modal=document.getElementById('eb-create-product-modal'); if(modal) modal.classList.remove('hidden'); } },
       async openEditStripe(stripeId){
         try {
           this.reset();
@@ -471,12 +662,56 @@ if (!window.catalogToastManager) {
   function describeSaveError(out){
     if (!out) return 'Save failed';
     if (out.message === 'mismatched_metric') return 'One or more prices use a different product type. Update the price rows to match the selected product type.';
+    if (out.message === 'duplicate_pricing_slot') return out.detail ? String(out.detail) : 'Each price needs a unique billing setup.';
     if (out.message === 'stripe_name_exists') return 'A Stripe product with this name already exists. Choose a different name.';
     if (out.message === 'stripe_product_fail') return out.detail ? ('Stripe product error: ' + out.detail) : 'Stripe product creation failed.';
     if (out.message === 'stripe_price_fail') return out.detail ? ('Stripe price creation failed: ' + out.detail) : 'Stripe price creation failed.';
     if (out.message === 'stripe_not_ready') return 'Stripe account not ready. Finish onboarding before saving Stripe products.';
     if (out.message) return String(out.message);
     return 'Save failed';
+  }
+  function normalizedPricingScheme(value){
+    var scheme = String(value || 'per_unit');
+    if (scheme === 'tiered_graduated' || scheme === 'tiered_volume') return 'tiered';
+    return scheme;
+  }
+  function normalizedBillingType(metric, billingType){
+    var m = String(metric || 'GENERIC');
+    var bt = String(billingType || 'per_unit');
+    if (m === 'STORAGE_TB') return 'metered';
+    if (['DEVICE_COUNT','DISK_IMAGE','HYPERV_VM','PROXMOX_VM','VMWARE_VM','M365_USER'].indexOf(m) !== -1) return 'per_unit';
+    if (bt !== 'one_time' && bt !== 'metered') return 'per_unit';
+    return bt;
+  }
+  function normalizedIntervalForSlot(billingType, interval){
+    if (String(billingType || '') === 'one_time') return 'none';
+    var normalized = String(interval || 'month');
+    return normalized && normalized !== 'none' ? normalized : 'month';
+  }
+  function pricingSlotParts(item, baseMetric){
+    var metric = String(baseMetric || (item && item.metric) || 'GENERIC');
+    var currency = String((item && item.currency) || 'CAD').toUpperCase();
+    var billingType = normalizedBillingType(metric, item && item.billingType);
+    var interval = normalizedIntervalForSlot(billingType, item && item.interval);
+    var pricingScheme = normalizedPricingScheme(item && item.pricingScheme);
+    return {
+      metric: metric,
+      currency: currency,
+      billingType: billingType,
+      interval: interval,
+      pricingScheme: pricingScheme
+    };
+  }
+  function pricingSlotKey(item, baseMetric){
+    var parts = pricingSlotParts(item, baseMetric);
+    return [parts.metric, parts.currency, parts.billingType, parts.interval, parts.pricingScheme].join('|');
+  }
+  function pricingSlotLabel(item, baseMetric){
+    var parts = pricingSlotParts(item, baseMetric);
+    var intervalLabel = parts.interval === 'none' ? 'one-time' : parts.interval;
+    var billingLabel = parts.billingType === 'per_unit' ? 'per-unit' : (parts.billingType === 'metered' ? 'metered' : 'one-time');
+    var schemeLabel = parts.pricingScheme === 'tiered' ? 'tiered' : 'flat rate';
+    return parts.currency + ' / ' + billingLabel + ' / ' + intervalLabel + ' / ' + schemeLabel;
   }
 
   window.productPanelFactory = function(opts){
@@ -493,19 +728,70 @@ if (!window.catalogToastManager) {
       items: [],
       features: [],
       lastSeededMetric: null,
+      focusPriceId: null,
+      focusPriceKey: null,
       showInactive: false,
       isSaving: false,
       _dirty: false,
+      _edited: false,
       init(){ try{ window.ebProductPanel = this; }catch(_){ } },
       open(){ this.isOpen=true; showEl('eb-product-panel'); },
-      close(){ this.isOpen=false; hideEl('eb-product-panel'); if (this._dirty) { window.location.reload(); } },
+      close(){
+        if (this._edited && !this._dirty) {
+          if (!window.confirm('Discard unsaved changes to this product?')) return;
+        }
+        this.isOpen=false;
+        hideEl('eb-product-panel');
+        if (this._dirty) { window.location.reload(); }
+      },
       preset: null,
-      reset(){ this.mode='create'; this.productId=null; this.stripeProductId=null; this.product={ name:'', description:'' }; this.baseMetric=null; this.items=[]; this.features=[]; this.lastSeededMetric=null; this.showInactive=false; this.isSaving=false; this._dirty=false; this.preset=null; },
+      reset(){ this.mode='create'; this.productId=null; this.stripeProductId=null; this.product={ name:'', description:'' }; this.baseMetric=null; this.items=[]; this.features=[]; this.lastSeededMetric=null; this.focusPriceId=null; this.focusPriceKey=null; this.showInactive=false; this.isSaving=false; this._dirty=false; this._edited=false; this.preset=null; },
       openCreate(){ this.reset(); this.mode='create'; this.open(); },
-      async openEdit(id){ try{ this.reset(); this.mode='edit'; const res = await fetch(`${this.modulelink}&a=ph-catalog-product-get&id=${encodeURIComponent(id)}`, { method:'GET' }); const out = await res.json(); if(out.status!=='success') throw new Error('bad'); var p=out.product||{}; this.productId = p.id || id || null; this.product={ name:p.name||'', description:p.description||'' }; this.baseMetric = p.base_metric_code || null; this.items=(out.prices||[]).map(pr=>({ id: pr.id, label: pr.name||'', billingType:(pr.kind==='metered'?'metered':(pr.kind==='one_time'?'one_time':'per_unit')), metric: pr.metric_code||this.baseMetric||'GENERIC', unitLabel: pr.unit_label||(String(pr.metric_code||this.baseMetric||'GENERIC')==='STORAGE_TB'?'GiB':defaultUnitLabel(pr.metric_code||this.baseMetric||'GENERIC')), amount:Number(pr.unit_amount||0)/100, interval:(pr.kind==='one_time'?'none':(pr.interval||'month')), active:!!pr.active, currency:this.currency, pricingScheme: pr.pricing_scheme||'per_unit', tiers: pr.tiers_json ? (function(){ try{ var t=JSON.parse(pr.tiers_json); return t.map(function(r){ return { up_to:r.up_to, unit_amount:r.unit_amount||0, unit_amount_display:Number(r.unit_amount||0)/100, flat_amount:r.flat_amount||0, flat_amount_display:Number(r.flat_amount||0)/100 }; }); }catch(_){ return []; } })() : [] })); this.features=Array.isArray(p.features)?p.features:[]; this.items.forEach((_, idx)=>this.normalizePriceRow(idx)); this.open(); }catch(e){ console.error('[eb.catalog] openEdit(panel) failed',e); safeToast('Failed to load product','error'); } },
-      async openEditStripe(spid){ try{ this.reset(); this.mode='editStripe'; this.stripeProductId = spid; this.showInactive = false; await this.refreshStripePrices(); } catch(e){ console.error('[eb.catalog] openEditStripe(panel) failed',e); safeToast('Failed to load Stripe product','error'); } },
-      async refreshStripePrices(){ try{ const token=(document.getElementById('eb-token')||{}).value||''; const activeParam=this.showInactive?'all':'1'; const res=await fetch(`${this.modulelink}&a=ph-catalog-product-get-stripe&id=${encodeURIComponent(this.stripeProductId)}&active=${encodeURIComponent(activeParam)}&token=${encodeURIComponent(token)}`, { method:'GET', credentials:'include' }); const out=await res.json(); if(out.status!=='success') throw new Error('bad'); var p=out.product||{}; this.product={ name:p.name||'', description:p.description||'' }; var bm = p.base_metric_code || ((out.prices||[]).some(pr => (pr.billingType==='metered')) ? 'STORAGE_TB' : 'GENERIC'); this.baseMetric=bm; this.items=(out.prices||[]).map(pr=>({ id: pr.id, label: pr.label||pr.nickname||'', billingType: pr.billingType || 'per_unit', metric: bm, unitLabel: pr.unitLabel || (bm==='STORAGE_TB'?'GiB':defaultUnitLabel(bm)), amount: Number(pr.amount||0), interval: pr.interval || 'month', active: !!pr.active, currency: pr.currency||this.currency })); this.features=Array.isArray(p.features)?p.features:[]; this.items.forEach((_, idx)=>this.normalizePriceRow(idx)); this.open(); } catch(e){ console.error('[eb.catalog] refreshStripePrices failed', e); safeToast('Failed to load Stripe prices','error'); } },
-      metricLabel(v){ switch(String(v||'')){ case 'STORAGE_TB': return 'Storage'; case 'DEVICE_COUNT': return 'Device Count'; case 'DISK_IMAGE': return 'Disk Image'; case 'HYPERV_VM': return 'Hyper-V VM'; case 'PROXMOX_VM': return 'Proxmox VM'; case 'VMWARE_VM': return 'VMware VM'; case 'M365_USER': return 'Microsoft 365 User'; case 'GENERIC': return 'Generic'; default: return v; } },
+      async openEdit(id, focusPriceId){ try{ this.reset(); this.mode='edit'; const res = await fetch(`${this.modulelink}&a=ph-catalog-product-get&id=${encodeURIComponent(id)}`, { method:'GET' }); const out = await res.json(); if(out.status!=='success') throw new Error('bad'); var p=out.product||{}; if (p.stripe_product_id) { await this.openEditStripe(String(p.stripe_product_id), { focusPriceId: focusPriceId ? String(focusPriceId) : null }); return; } this.productId = p.id || id || null; this.product={ name:p.name||'', description:p.description||'' }; this.baseMetric = p.base_metric_code || null; this.items=(out.prices||[]).map(pr=>({ id: pr.id, label: pr.name||'', billingType:(pr.kind==='metered'?'metered':(pr.kind==='one_time'?'one_time':'per_unit')), metric: pr.metric_code||this.baseMetric||'GENERIC', unitLabel: pr.unit_label||(String(pr.metric_code||this.baseMetric||'GENERIC')==='STORAGE_TB'?'GiB':defaultUnitLabel(pr.metric_code||this.baseMetric||'GENERIC')), amount:Number(pr.unit_amount||0)/100, interval:(pr.kind==='one_time'?'none':(pr.interval||'month')), active:!!pr.active, currency:this.currency, pricingScheme: pr.pricing_scheme||'per_unit', tiers: pr.tiers_json ? (function(){ try{ var t=JSON.parse(pr.tiers_json); return t.map(function(r){ return { up_to:r.up_to, unit_amount:r.unit_amount||0, unit_amount_display:Number(r.unit_amount||0)/100, flat_amount:r.flat_amount||0, flat_amount_display:Number(r.flat_amount||0)/100 }; }); }catch(_){ return []; } })() : [] })); this.features=Array.isArray(p.features)?p.features:[]; this.focusPriceId = focusPriceId ? String(focusPriceId) : null; this.items.forEach((_, idx)=>this.normalizePriceRow(idx)); this.open(); }catch(e){ console.error('[eb.catalog] openEdit(panel) failed',e); safeToast('Failed to load product','error'); } },
+      async openEditPrice(productId, localPriceId, stripePriceId){
+        try {
+          const res = await fetch(`${this.modulelink}&a=ph-catalog-product-get&id=${encodeURIComponent(productId)}`, { method:'GET' });
+          const out = await res.json();
+          if (out.status !== 'success') throw new Error('bad');
+          const p = out.product || {};
+          const targetLocalPrice = Array.isArray(out.prices) ? out.prices.find(function(pr){ return String(pr.id || '') === String(localPriceId || ''); }) : null;
+          const fallbackFocusKey = targetLocalPrice ? pricingSlotKey({
+            metric: targetLocalPrice.metric_code || p.base_metric_code || 'GENERIC',
+            currency: targetLocalPrice.currency || this.currency,
+            billingType: targetLocalPrice.billing_type || (targetLocalPrice.kind === 'metered' ? 'metered' : (targetLocalPrice.kind === 'one_time' ? 'one_time' : 'per_unit')),
+            interval: targetLocalPrice.interval || 'month',
+            pricingScheme: targetLocalPrice.pricing_scheme || 'per_unit'
+          }, p.base_metric_code || targetLocalPrice.metric_code || 'GENERIC') : null;
+          if (p.stripe_product_id) {
+            await this.openEditStripe(String(p.stripe_product_id), {
+              focusPriceId: stripePriceId ? String(stripePriceId) : null,
+              focusPriceKey: fallbackFocusKey
+            });
+            return;
+          }
+          await this.openEdit(productId, localPriceId ? String(localPriceId) : null);
+        } catch (e) {
+          console.error('[eb.catalog] openEditPrice(panel) failed', e);
+          safeToast('Failed to load price','error');
+        }
+      },
+      clearPriceFocus(){ this.focusPriceId = null; this.focusPriceKey = null; },
+      async openEditStripe(spid, focusTarget){ try{ this.reset(); this.mode='editStripe'; this.stripeProductId = spid; this.focusPriceId = focusTarget && focusTarget.focusPriceId ? String(focusTarget.focusPriceId) : null; this.focusPriceKey = focusTarget && focusTarget.focusPriceKey ? String(focusTarget.focusPriceKey) : null; this.showInactive = true; await this.refreshStripePrices(); } catch(e){ console.error('[eb.catalog] openEditStripe(panel) failed',e); safeToast('Failed to load Stripe product','error'); } },
+      async refreshStripePrices(){ try{ const token=(document.getElementById('eb-token')||{}).value||''; const activeParam=this.showInactive?'all':'1'; const res=await fetch(`${this.modulelink}&a=ph-catalog-product-get-stripe&id=${encodeURIComponent(this.stripeProductId)}&active=${encodeURIComponent(activeParam)}&token=${encodeURIComponent(token)}`, { method:'GET', credentials:'include' }); const out=await res.json(); if(out.status!=='success') throw new Error('bad'); var p=out.product||{}; this.product={ name:p.name||'', description:p.description||'' }; var bm = p.base_metric_code || ((out.prices||[]).some(pr => (pr.billingType==='metered')) ? 'STORAGE_TB' : 'GENERIC'); this.baseMetric=bm; this.items=(out.prices||[]).map(pr=>({ id: pr.id, label: pr.label||pr.nickname||'', billingType: pr.billingType || 'per_unit', metric: bm, unitLabel: pr.unitLabel || (bm==='STORAGE_TB'?'GiB':defaultUnitLabel(bm)), amount: Number(pr.amount||0), interval: pr.interval || 'month', active: !!pr.active, currency: pr.currency||this.currency, pricingScheme: pr.pricingScheme || 'per_unit' })); this.features=Array.isArray(p.features)?p.features:[]; this.items.forEach((_, idx)=>this.normalizePriceRow(idx)); if (this.focusPriceKey && !this.focusPriceId) { var matched = this.items.find((it)=> this.priceSlotKey(it) === this.focusPriceKey); if (matched && matched.id) this.focusPriceId = String(matched.id); } if (this.focusPriceId && !this.items.some((it)=> String(it.id || '') === String(this.focusPriceId))) { this.focusPriceId = null; } this.open(); } catch(e){ console.error('[eb.catalog] refreshStripePrices failed', e); safeToast('Failed to load Stripe prices','error'); } },
+    metricLabel(v){ switch(String(v||'')){ case 'STORAGE_TB': return 'Storage'; case 'DEVICE_COUNT': return 'Device Count'; case 'DISK_IMAGE': return 'Disk Image'; case 'HYPERV_VM': return 'Hyper-V VM'; case 'PROXMOX_VM': return 'Proxmox VM'; case 'VMWARE_VM': return 'VMware VM'; case 'M365_USER': return 'Microsoft 365 User'; case 'GENERIC': return 'Generic'; default: return v; } },
+    metricIcon(v){
+      switch(String(v||'')){
+        case 'STORAGE_TB': return 'storage.svg';
+        case 'DEVICE_COUNT': return 'device_endpoint.svg';
+        case 'DISK_IMAGE': return 'disk_image.svg';
+        case 'HYPERV_VM': return 'hyper-v.svg';
+        case 'PROXMOX_VM': return 'sql_server.svg';
+        case 'VMWARE_VM': return 'vmware.svg';
+        case 'M365_USER': return 'ms365.svg';
+        case 'GENERIC': return 'generic_product.svg';
+        default: return 'generic_product.svg';
+      }
+    },
       metricDescription(v){
         switch(String(v||'')){
           case 'STORAGE_TB': return 'Metered billing based on the customer\'s storage consumption. Priced per GiB or TiB.';
@@ -520,7 +806,7 @@ if (!window.catalogToastManager) {
         }
       },
       billingLabel(v){ return v==='per_unit'?'Per-unit':(v==='metered'?'Metered':'One-time'); },
-      selectProductType(code){ this.baseMetric=code; if (this.lastSeededMetric!==code) { this.items=[]; this.lastSeededMetric=null; } if (code==='STORAGE_TB' && this.items.length===0){ this.items.push({ label:'Storage', billingType:'metered', metric:'STORAGE_TB', unitLabel:'GiB', amount:0, interval:'month', active:true, currency:this.currency, pricingScheme:'per_unit' }); this.lastSeededMetric='STORAGE_TB'; } else if (this.items.length===0) { var d=[this.metricLabel(code)||'Generic', defaultUnitLabel(code)]; this.items.push({ label:d[0], billingType:'per_unit', metric:code, unitLabel:d[1], amount:0, interval:'month', active:true, currency:this.currency, pricingScheme:'per_unit' }); this.lastSeededMetric=code; } },
+      selectProductType(code){ this.baseMetric=code; this._edited=true; if (this.lastSeededMetric!==code) { this.items=[]; this.lastSeededMetric=null; } if (code==='STORAGE_TB' && this.items.length===0){ this.items.push({ label:'Storage', billingType:'metered', metric:'STORAGE_TB', unitLabel:'GiB', amount:0, interval:'month', active:true, currency:this.currency, pricingScheme:'per_unit' }); this.lastSeededMetric='STORAGE_TB'; } else if (this.items.length===0) { var d=[this.metricLabel(code)||'Generic', defaultUnitLabel(code)]; this.items.push({ label:d[0], billingType:'per_unit', metric:code, unitLabel:d[1], amount:0, interval:'month', active:true, currency:this.currency, pricingScheme:'per_unit' }); this.lastSeededMetric=code; } },
       applyPreset(key){
         this.preset = key;
         var presets = {
@@ -530,19 +816,23 @@ if (!window.catalogToastManager) {
           custom_service: { name:'Custom Service', metric:'GENERIC', items:[{ label:'Service', billingType:'per_unit', metric:'GENERIC', unitLabel:'unit', amount:0, interval:'month', active:true, pricingScheme:'per_unit' }] },
         };
         var p = presets[key]; if(!p) return;
+        this._edited = true;
         this.product.name = p.name;
         this.baseMetric = p.metric;
         this.items = JSON.parse(JSON.stringify(p.items));
         this.lastSeededMetric = p.metric;
       },
-      clearPreset(){ this.preset=null; },
-      addEmptyItem(){ const m=this.baseMetric||'GENERIC'; const bt=(m==='STORAGE_TB')?'metered':'per_unit'; const unit=(m==='STORAGE_TB')?'GiB':defaultUnitLabel(m); this.items.push({ label:'', billingType:bt, metric:m, unitLabel:unit, amount:0, interval:'month', active:true, currency:this.currency, pricingScheme:'per_unit' }); },
-      removeItem(i){ try{ if(Array.isArray(this.items) && i>=0 && i<this.items.length){ this.items.splice(i,1); } }catch(_){ } },
-      duplicatePrice(i){ try{ const it=this.items[i]; if(!it) return; const cp=JSON.parse(JSON.stringify(it)); delete cp.id; this.items.splice(i+1,0,cp); }catch(_){ } },
+      clearPreset(){ this._edited=true; this.preset=null; },
+      addEmptyItem(){ this._edited=true; this.focusPriceId = null; this.focusPriceKey = null; const m=this.baseMetric||'GENERIC'; const bt=(m==='STORAGE_TB')?'metered':'per_unit'; const unit=(m==='STORAGE_TB')?'GiB':defaultUnitLabel(m); this.items.push({ label:'', billingType:bt, metric:m, unitLabel:unit, amount:0, interval:'month', active:true, currency:this.currency, pricingScheme:'per_unit' }); },
+      removeItem(i){ try{ if(Array.isArray(this.items) && i>=0 && i<this.items.length){ this._edited=true; var removed = this.items[i]; this.items.splice(i,1); if (this.focusPriceId && removed && String(removed.id || '') === String(this.focusPriceId)) { this.focusPriceId = null; this.focusPriceKey = null; } } }catch(_){ } },
+      duplicatePrice(i){ try{ const it=this.items[i]; if(!it) return; this._edited=true; this.focusPriceId = null; this.focusPriceKey = null; const cp=JSON.parse(JSON.stringify(it)); delete cp.id; this.items.splice(i+1,0,cp); }catch(_){ } },
+      priceSlotKey(it){ return pricingSlotKey(it, this.baseMetric); },
+      priceSlotLabel(it){ return pricingSlotLabel(it, this.baseMetric); },
       normalizePriceRow(i){ try{ var it=this.items[i]; if(!it) return; it.amount = coerceMoney(it.amount); it.metric = this.baseMetric || it.metric || 'GENERIC'; if (it.metric === 'STORAGE_TB') { it.billingType = 'metered'; if (it.unitLabel !== 'GiB' && it.unitLabel !== 'TiB') it.unitLabel = 'GiB'; if (it.interval === 'none' || !it.interval) it.interval = 'month'; } else if (it.metric === 'GENERIC') { if (it.billingType !== 'one_time' && it.billingType !== 'per_unit') it.billingType = 'per_unit'; if (it.billingType === 'one_time') it.interval = 'none'; else if (it.interval === 'none' || !it.interval) it.interval = 'month'; if (!it.unitLabel) it.unitLabel = defaultUnitLabel(it.metric); } else { it.billingType = 'per_unit'; if (it.interval === 'none' || !it.interval) it.interval = 'month'; if (!it.unitLabel) it.unitLabel = defaultUnitLabel(it.metric); } }catch(_){ } },
-      onInlineBillingTypeChange(i){ this.normalizePriceRow(i); },
+      onInlineBillingTypeChange(i){ this._edited=true; this.normalizePriceRow(i); },
       onPricingSchemeChange(i){
         var it = this.items[i]; if(!it) return;
+        this._edited = true;
         if (!it.pricingScheme) it.pricingScheme = 'per_unit';
         if (it.pricingScheme.startsWith('tiered')) {
           if (!it.tiers || it.tiers.length === 0) {
@@ -555,11 +845,13 @@ if (!window.catalogToastManager) {
       },
       addTier(i){
         var it = this.items[i]; if(!it) return;
+        this._edited = true;
         if (!it.tiers) it.tiers = [];
         it.tiers.push({ up_to: null, unit_amount: 0, unit_amount_display: 0, flat_amount: 0, flat_amount_display: 0 });
       },
       removeTier(i, ti){
         var it = this.items[i]; if(!it || !it.tiers || it.tiers.length <= 2) return;
+        this._edited = true;
         it.tiers.splice(ti, 1);
       },
       async togglePriceActive(i){
@@ -573,12 +865,24 @@ if (!window.catalogToastManager) {
             }
           } catch(_) {}
         }
-        it.active = !it.active;
+        this._edited = true;
+        var nextState = !it.active;
+        it.active = nextState;
+        if (nextState) {
+          var targetKey = this.priceSlotKey(it);
+          for (var pi = 0; pi < this.items.length; pi++) {
+            if (pi === i) continue;
+            if (this.priceSlotKey(this.items[pi]) === targetKey) {
+              this.items[pi].active = false;
+            }
+          }
+        }
       },
       validateBeforeSave(){
         if (!this.product || !String(this.product.name||'').trim()) return 'Enter a product name';
         if (!this.baseMetric) return 'Select a product type';
         if (!Array.isArray(this.items) || this.items.length===0) return 'Add at least one price';
+        var seenSlots = {};
         for (var i=0;i<this.items.length;i++){
           this.normalizePriceRow(i);
           var it=this.items[i]||{};
@@ -598,6 +902,9 @@ if (!window.catalogToastManager) {
           }
           if (String(it.metric||'') !== String(this.baseMetric||'')) return 'Each price must match the selected product type';
           if (it.metric === 'STORAGE_TB' && it.unitLabel !== 'GiB' && it.unitLabel !== 'TiB') return 'Storage prices must use GiB or TiB';
+          var slotKey = this.priceSlotKey(it);
+          if (seenSlots[slotKey] !== undefined) return 'Each price needs a unique billing setup. Duplicate setup: ' + this.priceSlotLabel(it);
+          seenSlots[slotKey] = i;
         }
         return '';
       },

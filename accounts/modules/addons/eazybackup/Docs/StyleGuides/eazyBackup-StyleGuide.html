@@ -1,0 +1,2262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>eazyBackup — Website Design & Style Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet">
+<style>
+/* ═══════════════════════════════════════════════════════════════
+   CSS TOKENS
+═══════════════════════════════════════════════════════════════ */
+:root {
+  /* Brand */
+  --brand-orange:     #FE5000;
+  --primary:          #d55d1d;
+  --primary-hover:    #c04f18;
+  --accent:           #FF7A33;
+  --accent-2:         #FF924D;
+  --gold:             #C28247;
+  --sage:             #5a6359;
+
+  /* Surfaces — Light */
+  --surface-hero:     #fff4dd;
+  --surface:          #fff5e3;
+  --surface-2:        #fff5e3;
+  --surface-muted:    #FFEFE0;
+  --surface-dark-alt: #c56c3a;
+  --surface-dark:     #A8562D;
+  --charcoal:         #2B2B2B;
+
+  /* Borders */
+  --border:           #FFBE91;
+  --border-muted:     #FFE3CC;
+
+  /* Text */
+  --fg:               #2B2B2B;
+  --fg-body:          #444444;
+  --fg-muted:         #6B6B6B;
+
+  /* Dark theme */
+  --dark-bg:          #0F172A;
+  --dark-card:        #1E293B;
+  --dark-card-2:      #334155;
+  --dark-border:      #475569;
+  --dark-text:        #F8FAFC;
+  --dark-muted:       #94A3B8;
+
+  /* Fonts */
+  --font-display: 'Outfit', system-ui, sans-serif;
+  --font-body:    'DM Sans', system-ui, sans-serif;
+
+  /* Radius */
+  --r-sm:   8px;
+  --r-md:   12px;
+  --r-lg:   16px;
+  --r-xl:   20px;
+  --r-full: 9999px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   RESET & BASE
+═══════════════════════════════════════════════════════════════ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: var(--font-body);
+  font-size: 15px;
+  color: var(--fg-body);
+  background: #f0ece4;
+  line-height: 1.6;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   GUIDE LAYOUT
+═══════════════════════════════════════════════════════════════ */
+.guide-wrap {
+  display: flex;
+  min-height: 100vh;
+}
+
+/* Sidebar */
+.guide-sidebar {
+  width: 260px;
+  flex-shrink: 0;
+  position: fixed;
+  top: 0; left: 0; bottom: 0;
+  background: var(--charcoal);
+  overflow-y: auto;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-logo {
+  padding: 24px 20px 20px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.sidebar-logo .brand {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--brand-orange);
+  letter-spacing: -0.02em;
+}
+.sidebar-logo .sub {
+  font-size: 10px;
+  color: rgba(255,255,255,0.4);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  margin-top: 3px;
+}
+
+.sidebar-nav { padding: 16px 12px; flex: 1; }
+
+.nav-section-label {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: rgba(255,255,255,0.3);
+  padding: 16px 8px 6px;
+}
+
+.nav-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: rgba(255,255,255,0.55);
+  text-decoration: none;
+  transition: all 0.15s;
+  line-height: 1.3;
+}
+.nav-link:hover { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.9); }
+.nav-link.active { background: rgba(254,80,0,0.18); color: #fff; }
+.nav-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--brand-orange); flex-shrink: 0; opacity: 0.6; }
+
+/* Main content */
+.guide-main {
+  margin-left: 260px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   GUIDE SECTIONS
+═══════════════════════════════════════════════════════════════ */
+.guide-section {
+  padding: 56px 56px 48px;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+  background: #faf8f4;
+}
+.guide-section:nth-child(even) { background: #f5f1eb; }
+
+.guide-section.is-dark {
+  background: var(--charcoal);
+  color: rgba(255,255,255,0.85);
+  border-bottom-color: rgba(255,255,255,0.06);
+}
+
+.section-eyebrow {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  color: var(--brand-orange);
+  margin-bottom: 8px;
+}
+
+.section-title {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--fg);
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+  margin-bottom: 10px;
+  padding-bottom: 14px;
+  border-bottom: 3px solid var(--brand-orange);
+  display: inline-block;
+}
+.is-dark .section-title { color: #fff; }
+
+.section-subtitle {
+  font-size: 14.5px;
+  color: var(--fg-muted);
+  max-width: 680px;
+  line-height: 1.65;
+  margin-top: 12px;
+  margin-bottom: 32px;
+}
+.is-dark .section-subtitle { color: rgba(255,255,255,0.5); }
+
+.subsection-title {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--fg);
+  margin-top: 40px;
+  margin-bottom: 14px;
+  letter-spacing: -0.01em;
+}
+.is-dark .subsection-title { color: #fff; }
+
+/* ═══════════════════════════════════════════════════════════════
+   COLOUR SWATCHES
+═══════════════════════════════════════════════════════════════ */
+.swatch-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 32px;
+}
+.swatch-card {
+  border-radius: var(--r-md);
+  overflow: hidden;
+  border: 1px solid rgba(0,0,0,0.08);
+}
+.swatch-color {
+  height: 72px;
+}
+.swatch-info {
+  background: white;
+  padding: 10px 12px;
+}
+.swatch-name { font-size: 12px; font-weight: 700; color: var(--fg); font-family: var(--font-display); }
+.swatch-hex  { font-size: 11px; color: var(--brand-orange); font-family: monospace; margin-top: 2px; }
+.swatch-var  { font-size: 10px; color: var(--fg-muted); font-family: monospace; margin-top: 1px; }
+.swatch-use  { font-size: 10.5px; color: var(--fg-muted); margin-top: 5px; border-top: 1px solid #f0ece4; padding-top: 5px; }
+
+/* ═══════════════════════════════════════════════════════════════
+   TYPOGRAPHY SPECIMENS
+═══════════════════════════════════════════════════════════════ */
+.type-specimen {
+  background: white;
+  border: 1px solid var(--border-muted);
+  border-radius: var(--r-lg);
+  padding: 28px 32px;
+  margin-bottom: 16px;
+}
+.type-label {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--fg-muted);
+  margin-bottom: 8px;
+}
+.type-meta {
+  font-size: 11px;
+  color: var(--fg-muted);
+  font-family: monospace;
+  margin-top: 6px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   BUTTON SPECIMENS
+═══════════════════════════════════════════════════════════════ */
+.btn-grid { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 20px; }
+
+.btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 10px 20px;
+  border-radius: var(--r-md);
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: all 0.18s;
+  text-decoration: none;
+  white-space: nowrap;
+  line-height: 1;
+}
+.btn-primary {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+  box-shadow: 0 2px 8px rgba(213,93,29,0.25);
+}
+.btn-primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(213,93,29,0.3); }
+
+.btn-outline {
+  background: rgba(255,190,145,0.12);
+  color: var(--fg);
+  border-color: var(--border);
+}
+.btn-outline:hover { background: rgba(255,190,145,0.22); }
+
+.btn-outline-white {
+  background: transparent;
+  color: white;
+  border-color: rgba(255,255,255,0.5);
+}
+.btn-outline-white:hover { background: white; color: var(--primary); }
+
+.btn-sage {
+  background: var(--sage);
+  color: white;
+  border-color: var(--sage);
+}
+.btn-sage:hover { background: #4a5249; }
+
+.btn-dark {
+  background: var(--charcoal);
+  color: white;
+  border-color: var(--charcoal);
+}
+.btn-dark:hover { background: #3d3d3d; }
+
+.btn-ghost {
+  background: transparent;
+  color: var(--primary);
+  border-color: transparent;
+  padding-left: 0;
+}
+.btn-ghost:hover { color: var(--primary-hover); text-decoration: underline; }
+
+.btn-sm { padding: 7px 14px; font-size: 12.5px; }
+.btn-lg { padding: 14px 28px; font-size: 15.5px; border-radius: var(--r-lg); }
+
+/* ═══════════════════════════════════════════════════════════════
+   TABLE STYLES
+═══════════════════════════════════════════════════════════════ */
+.spec-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  background: white;
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  border: 1px solid var(--border-muted);
+  margin-bottom: 28px;
+}
+.spec-table thead th {
+  background: var(--charcoal);
+  color: white;
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 10px 14px;
+  text-align: left;
+}
+.spec-table tbody td {
+  padding: 9px 14px;
+  border-bottom: 1px solid #f3ede4;
+  color: var(--fg-body);
+  vertical-align: top;
+  line-height: 1.5;
+}
+.spec-table tbody tr:last-child td { border-bottom: none; }
+.spec-table tbody tr:hover td { background: #fffaf4; }
+.spec-table code {
+  font-family: monospace;
+  font-size: 11.5px;
+  color: var(--brand-orange);
+  background: rgba(254,80,0,0.06);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.spec-table .tag-pill {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  background: rgba(254,80,0,0.1);
+  color: var(--brand-orange);
+  padding: 2px 7px;
+  border-radius: var(--r-full);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ROW LAYOUT PREVIEWS — wrapper
+═══════════════════════════════════════════════════════════════ */
+.row-preview-wrap {
+  border-radius: var(--r-xl);
+  overflow: hidden;
+  border: 2px solid var(--border);
+  margin-bottom: 16px;
+  position: relative;
+}
+.row-preview-label {
+  position: absolute;
+  top: 12px; right: 12px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  background: var(--charcoal);
+  color: white;
+  padding: 4px 10px;
+  border-radius: var(--r-full);
+  z-index: 10;
+}
+.row-spec-box {
+  background: white;
+  border: 1px solid var(--border-muted);
+  border-radius: var(--r-lg);
+  padding: 20px 24px;
+  margin-top: 14px;
+  margin-bottom: 32px;
+}
+.row-spec-box h4 {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--fg-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  margin-bottom: 12px;
+}
+.row-spec-box ul { list-style: none; display: flex; flex-direction: column; gap: 5px; }
+.row-spec-box li {
+  font-size: 12.5px;
+  color: var(--fg-body);
+  padding-left: 16px;
+  position: relative;
+  line-height: 1.5;
+}
+.row-spec-box li::before {
+  content: '→';
+  position: absolute; left: 0;
+  color: var(--brand-orange);
+  font-size: 11px;
+}
+.row-spec-box code { font-family: monospace; font-size: 11px; color: var(--brand-orange); background: rgba(254,80,0,0.07); padding: 1px 4px; border-radius: 3px; }
+
+/* ═══════════════════════════════════════════════════════════════
+   ██████████████████  ROW 1 — HERO  ██████████████████
+═══════════════════════════════════════════════════════════════ */
+.preview-hero {
+  background: var(--surface-hero);
+  padding: 64px 48px;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+/* Dot pattern */
+.preview-hero::before {
+  content: '';
+  position: absolute; inset: 0;
+  background-image: radial-gradient(circle, rgba(180,140,100,0.18) 1px, transparent 1px);
+  background-size: 24px 24px;
+  pointer-events: none;
+}
+/* Ambient orbs */
+.orb {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  filter: blur(60px);
+}
+.orb-1 { width: 320px; height: 320px; background: rgba(254,80,0,0.18); top: -80px; right: -60px; animation: float-orb 20s ease-in-out infinite; }
+.orb-2 { width: 260px; height: 260px; background: rgba(255,122,51,0.14); bottom: -40px; left: -40px; animation: float-orb-rev 25s ease-in-out infinite; }
+.orb-3 { width: 180px; height: 180px; background: rgba(254,80,0,0.22); top: 40%; left: 50%; transform: translate(-50%,-50%); animation: pulse-glow 8s ease-in-out infinite; }
+
+@keyframes float-orb { 0%,100%{transform:translate(0,0)} 33%{transform:translate(20px,-15px)} 66%{transform:translate(-10px,12px)} }
+@keyframes float-orb-rev { 0%,100%{transform:translate(0,0)} 33%{transform:translate(-18px,12px)} 66%{transform:translate(14px,-10px)} }
+@keyframes pulse-glow { 0%,100%{opacity:0.3;transform:translate(-50%,-50%) scale(1)} 50%{opacity:0.5;transform:translate(-50%,-50%) scale(1.08)} }
+
+.hero-pills { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; margin-bottom: 28px; position: relative; }
+.hero-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 14px 5px 10px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--fg);
+  letter-spacing: 0.06em;
+}
+.hero-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--brand-orange); flex-shrink: 0; }
+
+.hero-h1 {
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 5vw, 3.2rem);
+  font-weight: 800;
+  color: var(--fg);
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+  position: relative;
+  margin-bottom: 12px;
+}
+.hero-h1 span {
+  color: var(--primary);
+}
+.hero-sub {
+  font-size: 16px;
+  color: var(--fg-body);
+  max-width: 560px;
+  margin: 0 auto 32px;
+  line-height: 1.65;
+  position: relative;
+}
+.hero-ctas { display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; position: relative; margin-bottom: 32px; }
+.hero-trust { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; position: relative; }
+.trust-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 14px 5px 10px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--border);
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--fg-muted);
+}
+.trust-badge .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--brand-orange); flex-shrink: 0; }
+
+/* ═══════════════════════════════════════════════════════════════
+   ██████████████████  ROW 2 — FEATURE GRID  ██████████████████
+═══════════════════════════════════════════════════════════════ */
+.preview-features {
+  background: var(--surface);
+  padding: 56px 48px;
+  border-top: 1px solid var(--border-muted);
+}
+.preview-features .sec-head { text-align: center; margin-bottom: 40px; }
+.preview-features .eyebrow {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.2em; color: var(--fg-muted); margin-bottom: 8px;
+}
+.preview-features h2 {
+  font-family: var(--font-display);
+  font-size: clamp(1.4rem, 3vw, 2rem);
+  font-weight: 800;
+  color: var(--fg);
+  letter-spacing: -0.025em;
+  margin-bottom: 10px;
+}
+.preview-features .desc { font-size: 14.5px; color: var(--fg-muted); max-width: 540px; margin: 0 auto; line-height: 1.6; }
+
+.feature-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.feature-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  padding: 24px;
+  position: relative;
+  transition: all 0.2s;
+  overflow: hidden;
+}
+.feature-card::after {
+  content: '• •';
+  position: absolute; top: 16px; right: 16px;
+  font-size: 10px; letter-spacing: 4px;
+  color: var(--accent-2);
+  opacity: 0.8;
+}
+.feature-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(213,93,29,0.1);
+}
+.feat-icon {
+  width: 44px; height: 44px;
+  border-radius: var(--r-md);
+  background: var(--surface-muted);
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 16px;
+  color: var(--primary);
+}
+.feat-icon svg { width: 22px; height: 22px; }
+.feature-card h3 {
+  font-family: var(--font-display);
+  font-size: 15px; font-weight: 700;
+  color: var(--fg);
+  margin-bottom: 6px;
+}
+.feature-card p { font-size: 13px; color: var(--fg-muted); line-height: 1.55; }
+
+/* ═══════════════════════════════════════════════════════════════
+   WAVE DIVIDER
+═══════════════════════════════════════════════════════════════ */
+.wave-divider { line-height: 0; }
+.wave-divider svg { display: block; width: 100%; }
+
+/* ═══════════════════════════════════════════════════════════════
+   ██████████████████  ROW 3 — SPLIT CONTENT  ██████████████████
+═══════════════════════════════════════════════════════════════ */
+.preview-split {
+  background: var(--surface);
+  padding: 56px 48px;
+}
+.split-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; align-items: center; }
+.split-text .eyebrow { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.2em; color: var(--fg-muted); margin-bottom: 10px; }
+.split-text h2 {
+  font-family: var(--font-display);
+  font-size: clamp(1.4rem, 2.5vw, 1.9rem);
+  font-weight: 800; color: var(--fg);
+  letter-spacing: -0.025em; line-height: 1.15;
+  margin-bottom: 14px;
+}
+.split-text p { font-size: 14px; color: var(--fg-body); line-height: 1.65; margin-bottom: 20px; }
+.split-bullets { list-style: none; margin-bottom: 28px; display: flex; flex-direction: column; gap: 8px; }
+.split-bullets li {
+  display: flex; align-items: flex-start; gap: 9px;
+  font-size: 13.5px; color: var(--fg-body);
+}
+.split-bullets li .check {
+  width: 18px; height: 18px; border-radius: 50%;
+  background: rgba(254,80,0,0.1);
+  color: var(--brand-orange);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; margin-top: 2px;
+  font-size: 9px;
+}
+.split-visual { position: relative; }
+.mockup-device {
+  background: var(--charcoal);
+  border-radius: 20px;
+  padding: 12px;
+  box-shadow: 0 24px 64px rgba(43,43,43,0.35);
+}
+.mockup-screen {
+  background: #1e293b;
+  border-radius: 12px;
+  aspect-ratio: 16/10;
+  overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  position: relative;
+}
+.mockup-placeholder {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+}
+.mockup-placeholder .mp-icon { color: rgba(255,255,255,0.15); }
+.mockup-placeholder span { font-size: 11px; color: rgba(255,255,255,0.2); font-family: monospace; }
+
+/* MSP dashboard mockup */
+.msp-dash {
+  background: var(--surface);
+  border-radius: 10px;
+  overflow: hidden;
+  width: 100%;
+}
+.msp-dash-bar {
+  background: #f8f0e8;
+  padding: 7px 12px;
+  display: flex; gap: 5px; align-items: center;
+  border-bottom: 1px solid var(--border-muted);
+}
+.msp-dot { width: 8px; height: 8px; border-radius: 50%; }
+.msp-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border-muted);
+  font-size: 11px;
+}
+.msp-row .msp-avatar {
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--surface-muted);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9px; font-weight: 700; color: var(--primary);
+  margin-right: 7px;
+}
+.msp-row .msp-name { color: var(--fg); font-weight: 600; }
+.msp-active { font-size: 10px; color: #22c55e; font-weight: 600; }
+
+/* ═══════════════════════════════════════════════════════════════
+   ██████████████████  ROW 4 — STATS BAND  ██████████████████
+═══════════════════════════════════════════════════════════════ */
+.preview-stats {
+  background: var(--charcoal);
+  padding: 52px 48px;
+}
+.stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; }
+.stat-item {
+  text-align: center;
+  padding: 0 24px;
+  border-right: 1px solid rgba(255,255,255,0.08);
+}
+.stat-item:last-child { border-right: none; }
+.stat-num {
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 4vw, 3rem);
+  font-weight: 800;
+  color: white;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  margin-bottom: 6px;
+}
+.stat-num span { color: var(--brand-orange); }
+.stat-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: rgba(255,255,255,0.4);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   GRADIENT TRANSITION
+═══════════════════════════════════════════════════════════════ */
+.grad-transition-down { height: 48px; background: linear-gradient(to bottom, var(--charcoal), var(--surface)); }
+.grad-transition-up   { height: 48px; background: linear-gradient(to top, var(--charcoal), var(--surface)); }
+
+/* ═══════════════════════════════════════════════════════════════
+   ██████████████████  ROW 5 — CTA BAND  ██████████████████
+═══════════════════════════════════════════════════════════════ */
+.preview-cta-band {
+  background: var(--surface-dark-alt);
+  padding: 56px 48px;
+  position: relative;
+  overflow: hidden;
+}
+.preview-cta-band::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.03'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  pointer-events: none;
+}
+.cta-band-inner {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 32px; flex-wrap: wrap; position: relative;
+  background: rgba(255,255,255,0.95);
+  border-radius: var(--r-xl);
+  padding: 40px 48px;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.15);
+}
+.cta-band-text { flex: 1; min-width: 280px; }
+.cta-band-text .eyebrow { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.18em; color: var(--fg-muted); margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+.cta-band-text .eyebrow .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--brand-orange); }
+.cta-band-text h2 {
+  font-family: var(--font-display);
+  font-size: clamp(1.3rem, 2.5vw, 1.75rem);
+  font-weight: 800; color: var(--fg);
+  letter-spacing: -0.025em; line-height: 1.2;
+  margin-bottom: 10px;
+}
+.cta-band-text p { font-size: 14px; color: var(--fg-muted); line-height: 1.6; }
+.cta-band-btns { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+
+/* ═══════════════════════════════════════════════════════════════
+   ██████████████████  ROW 6 — TABBED  ██████████████████
+═══════════════════════════════════════════════════════════════ */
+.preview-tabs {
+  background: var(--surface);
+  padding: 56px 48px;
+  border-top: 1px solid var(--border-muted);
+}
+.preview-tabs .sec-head { margin-bottom: 36px; }
+.preview-tabs .eyebrow { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.2em; color: var(--fg-muted); margin-bottom: 8px; }
+.preview-tabs h2 {
+  font-family: var(--font-display);
+  font-size: clamp(1.4rem, 2.5vw, 2rem);
+  font-weight: 800; color: var(--fg);
+  letter-spacing: -0.025em;
+}
+
+.tabs-layout { display: grid; grid-template-columns: 240px 1fr; gap: 20px; align-items: start; }
+.tab-rail { display: flex; flex-direction: column; gap: 4px; }
+.tab-btn {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px;
+  border-radius: var(--r-md);
+  border: none; background: none; cursor: pointer;
+  font-family: var(--font-body);
+  font-size: 13px; font-weight: 500;
+  color: var(--fg-muted);
+  text-align: left;
+  transition: all 0.15s;
+}
+.tab-btn:hover { background: var(--surface-muted); color: var(--fg); }
+.tab-btn.active { background: var(--charcoal); color: white; }
+.tab-btn.active .tb-dot { background: var(--brand-orange); }
+.tb-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border); flex-shrink: 0; }
+
+.tab-panel {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  padding: 32px;
+}
+.tab-panel h3 {
+  font-family: var(--font-display);
+  font-size: 18px; font-weight: 700;
+  color: var(--fg); letter-spacing: -0.02em;
+  margin-bottom: 10px;
+}
+.tab-panel p { font-size: 13.5px; color: var(--fg-body); line-height: 1.65; margin-bottom: 18px; }
+.tab-features { list-style: none; display: flex; flex-direction: column; gap: 7px; margin-bottom: 22px; }
+.tab-features li {
+  display: flex; align-items: center; gap: 9px;
+  font-size: 13px; color: var(--fg-body);
+}
+.tab-features li .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--brand-orange); flex-shrink: 0; }
+.tab-learn { font-size: 13px; font-weight: 600; color: var(--primary); text-decoration: none; }
+.tab-learn:hover { text-decoration: underline; }
+
+/* Flow pill */
+.flow-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; color: var(--fg-muted);
+  background: var(--surface-muted);
+  border: 1px solid var(--border-muted);
+  padding: 3px 10px;
+  border-radius: var(--r-full);
+  margin-top: 16px;
+}
+.flow-pill .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--brand-orange); }
+
+/* ═══════════════════════════════════════════════════════════════
+   ██████████████████  PRICING ROW  ██████████████████
+═══════════════════════════════════════════════════════════════ */
+.preview-pricing {
+  background: var(--surface);
+  padding: 56px 48px;
+  position: relative;
+  overflow: hidden;
+}
+.preview-pricing::before {
+  content: '';
+  position: absolute; inset: 0;
+  background-image: radial-gradient(circle, rgba(180,140,100,0.12) 1px, transparent 1px);
+  background-size: 24px 24px;
+  pointer-events: none;
+  opacity: 0.5;
+}
+.pricing-head { text-align: center; margin-bottom: 40px; position: relative; }
+.pricing-head .eyebrow { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.2em; color: var(--fg-muted); margin-bottom: 8px; }
+.pricing-head h2 {
+  font-family: var(--font-display);
+  font-size: clamp(1.4rem, 3vw, 2rem);
+  font-weight: 800; color: var(--fg);
+  letter-spacing: -0.025em; margin-bottom: 10px;
+}
+.pricing-head p { font-size: 14px; color: var(--fg-muted); max-width: 520px; margin: 0 auto; line-height: 1.6; }
+.pricing-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; position: relative; }
+.pricing-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  padding: 24px;
+  display: flex; flex-direction: column;
+  transition: all 0.2s;
+  position: relative;
+}
+.pricing-card.popular { border: 2px solid var(--primary); box-shadow: 0 8px 32px rgba(213,93,29,0.15); }
+.pricing-card:hover { transform: translateY(-3px); box-shadow: 0 12px 36px rgba(213,93,29,0.12); }
+.badge-pill {
+  position: absolute; top: -12px; right: 16px;
+  font-size: 9.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em;
+  background: var(--primary);
+  color: white;
+  padding: 4px 12px;
+  border-radius: var(--r-full);
+}
+.badge-soon { background: var(--charcoal); }
+.pc-header { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+.pc-icon { width: 28px; height: 28px; border-radius: 8px; background: var(--surface-muted); display: flex; align-items: center; justify-content: center; }
+.pc-icon .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--brand-orange); }
+.pc-cat { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.14em; color: var(--fg-muted); }
+.pc-name {
+  font-family: var(--font-display);
+  font-size: 15.5px; font-weight: 700;
+  color: var(--fg); margin-bottom: 4px;
+}
+.pc-tag { font-size: 11.5px; color: var(--fg-muted); margin-bottom: 16px; }
+.pc-price {
+  font-family: var(--font-display);
+  font-size: 34px; font-weight: 800;
+  color: var(--fg); letter-spacing: -0.03em;
+  line-height: 1; margin-bottom: 4px;
+}
+.pc-price sup { font-size: 16px; font-weight: 600; vertical-align: top; margin-top: 6px; }
+.pc-price sub { font-size: 13px; font-weight: 500; color: var(--fg-muted); }
+.pc-price-note { font-size: 11px; color: var(--fg-muted); margin-bottom: 6px; }
+.pc-accent-note { font-size: 12px; font-weight: 600; color: var(--brand-orange); margin-bottom: 16px; }
+.pc-divider { height: 1px; background: var(--border-muted); margin-bottom: 16px; }
+.pc-features { list-style: none; display: flex; flex-direction: column; gap: 7px; flex: 1; margin-bottom: 20px; }
+.pc-features li {
+  display: flex; align-items: flex-start; gap: 8px;
+  font-size: 12.5px; color: var(--fg-body); line-height: 1.4;
+}
+.pc-check { color: var(--brand-orange); font-size: 11px; flex-shrink: 0; margin-top: 1px; }
+
+.pricing-trust {
+  display: flex; justify-content: center; gap: 10px; flex-wrap: wrap;
+  margin-top: 28px; position: relative;
+}
+.pt-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 14px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--border-muted);
+  font-size: 11px; font-weight: 500;
+  color: var(--fg-muted);
+}
+.pt-badge .icon { color: var(--brand-orange); font-size: 10px; }
+
+/* ═══════════════════════════════════════════════════════════════
+   ██████████████████  CONTACT SECTION  ██████████████████
+═══════════════════════════════════════════════════════════════ */
+.preview-contact {
+  background: var(--charcoal);
+  padding: 56px 48px;
+}
+.contact-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 64px; align-items: start; }
+.contact-text .eyebrow { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.18em; color: rgba(255,255,255,0.4); margin-bottom: 10px; }
+.contact-text h2 {
+  font-family: var(--font-display);
+  font-size: clamp(1.4rem, 2.5vw, 1.85rem);
+  font-weight: 800; color: white;
+  letter-spacing: -0.025em; line-height: 1.2;
+  margin-bottom: 14px;
+}
+.contact-text p { font-size: 14px; color: rgba(255,255,255,0.55); line-height: 1.65; margin-bottom: 24px; }
+.contact-bullets { list-style: none; display: flex; flex-direction: column; gap: 10px; margin-bottom: 28px; }
+.contact-bullets li {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 13.5px; color: rgba(255,255,255,0.7);
+}
+.contact-bullets li .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--brand-orange); flex-shrink: 0; }
+.contact-alt { display: flex; flex-direction: column; gap: 10px; }
+.contact-link {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; font-weight: 600; color: white;
+  text-decoration: none;
+}
+.contact-link .icon-bg {
+  width: 30px; height: 30px; border-radius: var(--r-sm);
+  background: rgba(254,80,0,0.15);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--brand-orange); font-size: 12px;
+}
+.contact-office { font-size: 11px; color: rgba(255,255,255,0.3); margin-top: 8px; }
+
+.contact-form { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); border-radius: var(--r-xl); padding: 32px; }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+.form-group { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; }
+.form-group label { font-size: 11.5px; font-weight: 600; color: rgba(255,255,255,0.55); }
+.form-group input, .form-group textarea, .form-group select {
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: var(--r-md);
+  color: white;
+  font-family: var(--font-body);
+  font-size: 13.5px;
+  padding: 10px 14px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.form-group input::placeholder, .form-group textarea::placeholder { color: rgba(255,255,255,0.25); }
+.form-group input:focus, .form-group textarea:focus {
+  border-color: rgba(254,80,0,0.5);
+  box-shadow: 0 0 0 3px rgba(254,80,0,0.08);
+}
+.form-group textarea { min-height: 100px; resize: vertical; }
+
+/* ═══════════════════════════════════════════════════════════════
+   TRANSITION / DIVIDER EXAMPLES
+═══════════════════════════════════════════════════════════════ */
+.divider-examples {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 16px; margin-bottom: 28px;
+}
+.divider-example {
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  border: 1px solid var(--border-muted);
+}
+.divider-example .de-top { height: 40px; }
+.divider-example .de-mid { height: 32px; }
+.divider-example .de-bot { height: 40px; }
+.divider-example .de-label { background: white; padding: 10px 14px; font-size: 11px; font-weight: 600; color: var(--fg-muted); border-top: 1px solid var(--border-muted); }
+
+/* Animated SVG line */
+.flowing-line-wrap { position: relative; height: 60px; background: var(--surface); overflow: hidden; }
+.flowing-line-wrap svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+@keyframes draw-line { from { stroke-dashoffset: 1000; } to { stroke-dashoffset: 0; } }
+.animated-path { stroke-dasharray: 1000; stroke-dashoffset: 0; animation: draw-line 2.5s ease-out forwards; }
+
+/* ═══════════════════════════════════════════════════════════════
+   DARK THEME PREVIEW
+═══════════════════════════════════════════════════════════════ */
+.dark-preview {
+  background: var(--dark-bg);
+  border-radius: var(--r-xl);
+  overflow: hidden;
+  border: 1px solid var(--dark-border);
+  margin-bottom: 28px;
+}
+.dark-preview-bar {
+  background: #0a0f1a;
+  padding: 10px 16px;
+  display: flex; gap: 6px;
+  border-bottom: 1px solid var(--dark-border);
+}
+.dark-preview-bar .dot { width: 9px; height: 9px; border-radius: 50%; }
+.dark-preview-body { display: grid; grid-template-columns: 200px 1fr; min-height: 220px; }
+.dark-sidebar {
+  background: #0d1525;
+  border-right: 1px solid var(--dark-border);
+  padding: 16px 12px;
+}
+.dark-sidebar .brand-small {
+  font-family: var(--font-display);
+  font-size: 14px; font-weight: 800;
+  color: var(--brand-orange);
+  margin-bottom: 20px;
+  padding: 0 6px;
+}
+.ds-link {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px; border-radius: var(--r-sm);
+  font-size: 11.5px; color: var(--dark-muted);
+  margin-bottom: 2px; cursor: pointer;
+}
+.ds-link.active { background: var(--dark-card); color: var(--dark-text); }
+.ds-link .icon { font-size: 12px; }
+.dark-content { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+.dark-card {
+  background: var(--dark-card);
+  border: 1px solid var(--dark-border);
+  border-radius: var(--r-md);
+  padding: 16px;
+}
+.dark-card .dc-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.14em; color: var(--dark-muted); margin-bottom: 6px; }
+.dark-card .dc-val { font-family: var(--font-display); font-size: 22px; font-weight: 700; color: var(--dark-text); }
+.dark-card .dc-sub { font-size: 11px; color: var(--dark-muted); margin-top: 3px; }
+.dark-cards-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; }
+
+/* ═══════════════════════════════════════════════════════════════
+   GUIDE COVER / HERO
+═══════════════════════════════════════════════════════════════ */
+.guide-cover {
+  background: var(--charcoal);
+  padding: 80px 56px 72px;
+  position: relative;
+  overflow: hidden;
+}
+.guide-cover::before {
+  content: '';
+  position: absolute;
+  width: 600px; height: 600px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(254,80,0,0.15), transparent 70%);
+  top: -200px; right: -100px;
+  pointer-events: none;
+}
+.guide-cover .cover-eyebrow {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.22em; color: rgba(255,255,255,0.35);
+  margin-bottom: 16px;
+}
+.guide-cover h1 {
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  font-weight: 800; color: white;
+  letter-spacing: -0.03em; line-height: 1.05;
+  margin-bottom: 10px;
+}
+.guide-cover h1 em { color: var(--brand-orange); font-style: normal; }
+.guide-cover .cover-sub {
+  font-size: 15px; color: rgba(255,255,255,0.5);
+  max-width: 480px; line-height: 1.6; margin-bottom: 40px;
+}
+.cover-meta {
+  display: flex; gap: 24px; flex-wrap: wrap;
+}
+.cover-meta-item {
+  display: flex; flex-direction: column; gap: 3px;
+}
+.cover-meta-item .cmi-label { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.16em; color: rgba(255,255,255,0.3); }
+.cover-meta-item .cmi-val { font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.75); }
+
+/* ═══════════════════════════════════════════════════════════════
+   MISC
+═══════════════════════════════════════════════════════════════ */
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; margin-bottom: 28px; }
+.three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 28px; }
+
+.info-card {
+  background: white;
+  border: 1px solid var(--border-muted);
+  border-radius: var(--r-lg);
+  padding: 20px 22px;
+}
+.info-card h4 { font-family: var(--font-display); font-size: 14px; font-weight: 700; color: var(--fg); margin-bottom: 8px; }
+.info-card p, .info-card li { font-size: 12.5px; color: var(--fg-body); line-height: 1.55; }
+.info-card ul { list-style: disc; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.info-card code { font-family: monospace; font-size: 11px; color: var(--brand-orange); background: rgba(254,80,0,0.07); padding: 1px 4px; border-radius: 3px; }
+
+.note-box {
+  background: rgba(254,80,0,0.05);
+  border-left: 3px solid var(--brand-orange);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  padding: 12px 16px;
+  margin: 16px 0;
+  font-size: 12.5px;
+  color: var(--fg-body);
+  line-height: 1.55;
+}
+.note-box strong { color: var(--primary); }
+
+.page-break { height: 1px; background: var(--border-muted); margin: 48px 0; }
+
+/* ═══════════════════════════════════════════════════════════════
+   RESPONSIVE TWEAKS
+═══════════════════════════════════════════════════════════════ */
+@media (max-width: 900px) {
+  .guide-sidebar { display: none; }
+  .guide-main { margin-left: 0; }
+  .guide-section { padding: 36px 24px; }
+  .feature-grid { grid-template-columns: 1fr 1fr; }
+  .stats-grid { grid-template-columns: repeat(2,1fr); }
+  .pricing-grid { grid-template-columns: 1fr 1fr; }
+  .contact-grid, .split-grid, .two-col { grid-template-columns: 1fr; }
+  .tabs-layout { grid-template-columns: 1fr; }
+  .cta-band-inner { flex-direction: column; }
+  .dark-preview-body { grid-template-columns: 1fr; }
+  .dark-sidebar { display: none; }
+  .three-col { grid-template-columns: 1fr 1fr; }
+  .divider-examples { grid-template-columns: 1fr; }
+  .dark-cards-grid { grid-template-columns: 1fr 1fr; }
+  .form-row { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<div class="guide-wrap">
+
+  <!-- ═══════════════ SIDEBAR ═══════════════ -->
+  <aside class="guide-sidebar">
+    <div class="sidebar-logo">
+      <div class="brand">eazyBackup</div>
+      <div class="sub">Design & Style Guide v1.0</div>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-section-label">Foundation</div>
+      <a class="nav-link" href="#colours"><span class="nav-dot"></span>Colour Palette</a>
+      <a class="nav-link" href="#typography"><span class="nav-dot"></span>Typography</a>
+      <a class="nav-link" href="#buttons"><span class="nav-dot"></span>Buttons & CTAs</a>
+      <a class="nav-link" href="#cards"><span class="nav-dot"></span>Cards & Surfaces</a>
+      <a class="nav-link" href="#badges"><span class="nav-dot"></span>Badges & Icons</a>
+
+      <div class="nav-section-label">Row Layouts</div>
+      <a class="nav-link" href="#row1"><span class="nav-dot"></span>Row 1 — Hero</a>
+      <a class="nav-link" href="#row2"><span class="nav-dot"></span>Row 2 — Feature Grid</a>
+      <a class="nav-link" href="#row3"><span class="nav-dot"></span>Row 3 — Split Content</a>
+      <a class="nav-link" href="#row4"><span class="nav-dot"></span>Row 4 — Stats Band</a>
+      <a class="nav-link" href="#row5"><span class="nav-dot"></span>Row 5 — CTA Band</a>
+      <a class="nav-link" href="#row6"><span class="nav-dot"></span>Row 6 — Tabbed</a>
+
+      <div class="nav-section-label">Key Sections</div>
+      <a class="nav-link" href="#pricing"><span class="nav-dot"></span>Pricing Row</a>
+      <a class="nav-link" href="#contact"><span class="nav-dot"></span>Contact Section</a>
+      <a class="nav-link" href="#transitions"><span class="nav-dot"></span>Transitions</a>
+      <a class="nav-link" href="#darktheme"><span class="nav-dot"></span>Dark Theme</a>
+      <a class="nav-link" href="#tailwind"><span class="nav-dot"></span>Tailwind Config</a>
+    </nav>
+  </aside>
+
+  <!-- ═══════════════ MAIN ═══════════════ -->
+  <main class="guide-main">
+
+    <!-- COVER -->
+    <div class="guide-cover">
+      <div class="cover-eyebrow">Website Design & Style Guide</div>
+      <h1>eazy<em>Backup</em></h1>
+      <p class="cover-sub">A comprehensive design system for the eazyBackup marketing site — colours, typography, row layouts, and component specifications for Tailwind + Alpine.js.</p>
+      <div class="cover-meta">
+        <div class="cover-meta-item"><span class="cmi-label">Version</span><span class="cmi-val">1.0</span></div>
+        <div class="cover-meta-item"><span class="cmi-label">Stack</span><span class="cmi-val">Tailwind v4 + Alpine.js</span></div>
+        <div class="cover-meta-item"><span class="cmi-label">Brand</span><span class="cmi-val">Canadian Cloud Backup</span></div>
+        <div class="cover-meta-item"><span class="cmi-label">Themes</span><span class="cmi-val">Light + Dark</span></div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════
+         COLOUR PALETTE
+    ═══════════════════════════════════════════════ -->
+    <section class="guide-section" id="colours">
+      <div class="section-eyebrow">01 — Foundation</div>
+      <h2 class="section-title">Colour Palette</h2>
+      <p class="section-subtitle">The palette centres on warm cream surfaces that keep Brand Orange vibrant without visual fatigue. Brand Orange (#FE5000) is a powerful accent — used sparingly on small details, icons, and dots. The Primary CTA (#d55d1d) is used for all buttons and major CTAs.</p>
+
+      <h3 class="subsection-title">Brand & Action Colours</h3>
+      <div class="swatch-grid">
+        <div class="swatch-card">
+          <div class="swatch-color" style="background:#FE5000"></div>
+          <div class="swatch-info">
+            <div class="swatch-name">Brand Orange</div>
+            <div class="swatch-hex">#FE5000</div>
+            <div class="swatch-var">--brand-orange</div>
+            <div class="swatch-use">Accent dots, small icons, badges, links, highlight spans. Use sparingly — high energy.</div>
+          </div>
+        </div>
+        <div class="swatch-card">
+          <div class="swatch-color" style="background:#d55d1d"></div>
+          <div class="swatch-info">
+            <div class="swatch-name">Primary CTA</div>
+            <div class="swatch-hex">#d55d1d</div>
+            <div class="swatch-var">--primary</div>
+            <div class="swatch-use">All buttons (Start Trial, Send Message), large CTAs. Default button colour.</div>
+          </div>
+        </div>
+        <div class="swatch-card">
+          <div class="swatch-color" style="background:#c04f18"></div>
+          <div class="swatch-info">
+            <div class="swatch-name">Primary Hover</div>
+            <div class="swatch-hex">#c04f18</div>
+            <div class="swatch-var">--primary-hover</div>
+            <div class="swatch-use">Hover state for all primary buttons. Slightly deeper for tactile feedback.</div>
+          </div>
+        </div>
+        <div class="swatch-card">
+          <div class="swatch-color" style="background:#FF7A33"></div>
+          <div class="swatch-info">
+            <div class="swatch-name">Accent</div>
+            <div class="swatch-hex">#FF7A33</div>
+            <div class="swatch-var">--accent</div>
+            <div class="swatch-use">Gradient end stops, animated border overlays, card hover border.</div>
+          </div>
+        </div>
+        <div class="swatch-card">
+          <div class="swatch-color" style="background:#FF924D"></div>
+          <div class="swatch-info">
+            <div class="swatch-name">Accent Soft</div>
+            <div class="swatch-hex">#FF924D</div>
+            <div class="swatch-var">--accent-2</div>
+            <div class="swatch-use">Softer gradient accents, decorative corner dots on cards.</div>
+          </div>
+        </div>
+        <div class="swatch-card">
+          <div class="swatch-color" style="background:#C28247"></div>
+          <div class="swatch-info">
+            <div class="swatch-name">Brand Gold</div>
+            <div class="swatch-hex">#C28247</div>
+            <div class="swatch-var">--gold</div>
+            <div class="swatch-use">SaaS/premium badge accents, gold star ratings, secondary highlights.</div>
+          </div>
+        </div>
+        <div class="swatch-card">
+          <div class="swatch-color" style="background:#5a6359"></div>
+          <div class="swatch-info">
+            <div class="swatch-name">Sage Green</div>
+            <div class="swatch-hex">#5a6359</div>
+            <div class="swatch-var">--sage / --btn-alt</div>
+            <div class="swatch-use">CGP button, MSP "Learn More" button. Government / compliance-adjacent CTAs only.</div>
+          </div>
+        </div>
+      </div>
+
+      <h3 class="subsection-title">Surface & Background Colours</h3>
+      <div class="note-box"><strong>Key distinction:</strong> Hero section uses <code>#fff4dd</code> (slightly warmer/darker). All other page sections use <code>#fff5e3</code>. This creates a subtle visual anchor for the hero without introducing jarring contrast.</div>
+      <div class="swatch-grid">
+        <div class="swatch-card">
+          <div class="swatch-color" style="background:#fff4dd; border-bottom: 1px solid #ffe8bb;"></div>
+          <div class="swatch-info">
+            <div class="swatch-name">Hero Background</div>
+            <div class="swatch-hex">#fff4dd</div>
+            <div class="swatch-var">--surface-hero</div>
+            <div class="swatch-use">Hero section only. Slightly deeper cream to visually anchor the page top.</div>
+          </div>
+        </div>
+        <div class="swatch-card">
+          <div class="swatch-color" style="background:#fff5e3; border-bottom: 1px solid #ffe8c8;"></div>
+          <div class="swatch-info">
+            <div class="swatch-name">Page Surface</div>
+            <div class="swatch-hex">#fff5e3</div>
+            <div class="swatch-var">--surface / --surface-2</div>
+            <div class="swatch-use">Main page canvas and all content cards/panels.</div>
+          </div>
+        </div>
+        <div class="swatch-card">
+          <div class="swatch-color" style="background:#FFEFE0; border-bottom: 1px solid #ffd9b8;"></div>
+          <div class="swatch-info">
+            <div class="swatch-name">Surface Muted</div>
+            <div class="swatch-hex">#FFEFE0</div>
+            <div class="swatch-var">--surface-muted</div>
+            <div class="swatch-use">Icon container backgrounds, secondary callout panels, inner card backgrounds.</div>
+          </div>
+        </div>
+        <div class="swatch-card">
+          <div class="swatch-color" style="background:#c56c3a"></div>
+          <div class="swatch-info">
+            <div class="swatch-name">Surface Dark Alt</div>
+            <div class="swatch-hex">#c56c3a</div>
+            <div class="swatch-var">--surface-dark-alt</div>
+            <div class="swatch-use">MSP callout band outer background, CTA band sections.</div>
+          </div>
+        </div>
+        <div class="swatch-card">
+          <div class="swatch-color" style="background:#A8562D"></div>
+          <div class="swatch-info">
+            <div class="swatch-name">Surface Dark</div>
+            <div class="swatch-hex">#A8562D</div>
+            <div class="swatch-var">--surface-dark</div>
+            <div class="swatch-use">Hero CTA bands, announcement bars, dark orange sections.</div>
+          </div>
+        </div>
+        <div class="swatch-card">
+          <div class="swatch-color" style="background:#2B2B2B"></div>
+          <div class="swatch-info">
+            <div class="swatch-name">Charcoal</div>
+            <div class="swatch-hex">#2B2B2B</div>
+            <div class="swatch-var">--charcoal</div>
+            <div class="swatch-use">Stats band, contact section, footer, dark tab active states, nav sign-in.</div>
+          </div>
+        </div>
+      </div>
+
+      <h3 class="subsection-title">Text & Border Colours</h3>
+      <div class="swatch-grid" style="grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));">
+        <div class="swatch-card">
+          <div class="swatch-color" style="background:#2B2B2B"></div>
+          <div class="swatch-info"><div class="swatch-name">Heading</div><div class="swatch-hex">#2B2B2B</div><div class="swatch-var">--fg</div></div>
+        </div>
+        <div class="swatch-card">
+          <div class="swatch-color" style="background:#444444"></div>
+          <div class="swatch-info"><div class="swatch-name">Body</div><div class="swatch-hex">#444444</div><div class="swatch-var">--fg-body</div></div>
+        </div>
+        <div class="swatch-card">
+          <div class="swatch-color" style="background:#6B6B6B"></div>
+          <div class="swatch-info"><div class="swatch-name">Muted</div><div class="swatch-hex">#6B6B6B</div><div class="swatch-var">--fg-muted</div></div>
+        </div>
+        <div class="swatch-card">
+          <div class="swatch-color" style="background:#FFBE91; border-bottom: 1px solid #e8a070;"></div>
+          <div class="swatch-info"><div class="swatch-name">Border</div><div class="swatch-hex">#FFBE91</div><div class="swatch-var">--border</div></div>
+        </div>
+        <div class="swatch-card">
+          <div class="swatch-color" style="background:#FFE3CC; border-bottom: 1px solid #e8c8aa;"></div>
+          <div class="swatch-info"><div class="swatch-name">Border Muted</div><div class="swatch-hex">#FFE3CC</div><div class="swatch-var">--border-muted</div></div>
+        </div>
+      </div>
+
+      <h3 class="subsection-title">Brand Orange — Usage Rules</h3>
+      <table class="spec-table">
+        <thead><tr><th>Context</th><th>Use Brand Orange (#FE5000)?</th><th>What to Use Instead</th></tr></thead>
+        <tbody>
+          <tr><td>Hero heading (H1)</td><td>❌ No — too bright for large text</td><td>#2B2B2B (charcoal) — strong black is more readable and authoritative</td></tr>
+          <tr><td>Section headings (H2, H3)</td><td>❌ No</td><td>#2B2B2B charcoal</td></tr>
+          <tr><td>Primary CTA buttons</td><td>❌ No</td><td>#d55d1d (--primary) — warmer, more button-appropriate</td></tr>
+          <tr><td>Small accent dots / decorative •</td><td>✅ Yes — ideal use</td><td>—</td></tr>
+          <tr><td>Small icon fills (16–20px)</td><td>✅ Yes — selective icons only</td><td>Not all icons — use --primary for most icon containers</td></tr>
+          <tr><td>Inline text links</td><td>✅ Yes — sparingly</td><td>--primary for hover; brand orange for active/focus</td></tr>
+          <tr><td>Trust badge dots</td><td>✅ Yes</td><td>—</td></tr>
+          <tr><td>Flow pill dots</td><td>✅ Yes</td><td>—</td></tr>
+          <tr><td>Checkmark icons in feature lists</td><td>✅ Yes — small, contained</td><td>—</td></tr>
+          <tr><td>Card decorative corner dots</td><td>✅ Yes — use --accent-2 variant</td><td>—</td></tr>
+          <tr><td>Eyebrow section labels</td><td>✅ Yes — 10–11px only</td><td>—</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════
+         TYPOGRAPHY
+    ═══════════════════════════════════════════════ -->
+    <section class="guide-section" id="typography">
+      <div class="section-eyebrow">02 — Foundation</div>
+      <h2 class="section-title">Typography</h2>
+      <p class="section-subtitle">Two-font system: Outfit for all display/heading use, DM Sans for body. Both loaded as variable fonts from Google Fonts for weight flexibility and performance.</p>
+
+      <h3 class="subsection-title">Font Stack</h3>
+      <table class="spec-table" style="margin-bottom:32px;">
+        <thead><tr><th>Font</th><th>Role</th><th>Google Fonts Load</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Outfit</strong> (300–800)</td><td>All headings H1–H4, navigation labels, button text, pricing numbers, stat figures</td><td><code>family=Outfit:wght@300..800</code></td></tr>
+          <tr><td><strong>DM Sans</strong> (300–700, 9–40 optical)</td><td>Paragraph text, list items, captions, eyebrow labels, table content, form labels</td><td><code>family=DM+Sans:opsz,wght@9..40,300..700</code></td></tr>
+          <tr><td><strong>Monospace</strong> (system)</td><td>Code snippets, CSS variable names in docs, API endpoints. System fallback only — no custom load.</td><td>—</td></tr>
+        </tbody>
+      </table>
+
+      <h3 class="subsection-title">Type Scale — Live Specimens</h3>
+
+      <div class="type-specimen">
+        <div class="type-label">H1 — Hero Heading (heading-xl)</div>
+        <div style="font-family:'Outfit',sans-serif;font-size:clamp(2rem,5vw,3.2rem);font-weight:800;color:#2B2B2B;letter-spacing:-0.03em;line-height:1.05;">Don't Lose a Byte</div>
+        <div class="type-meta">Outfit 800 · 3rem desktop / 1.875rem mobile · tracking -0.03em · line-height 1.05 · color #2B2B2B</div>
+      </div>
+
+      <div class="type-specimen">
+        <div class="type-label">H1 — Hero Subtitle Line (orange CTA phrase — used with main heading)</div>
+        <div style="font-family:'Outfit',sans-serif;font-size:clamp(1.5rem,3.5vw,2.4rem);font-weight:800;color:#d55d1d;letter-spacing:-0.025em;line-height:1.1;">Canadian Cloud Backup You Can Count On</div>
+        <div class="type-meta">Outfit 800 · colour --primary (#d55d1d) — NOT brand orange · secondary line only</div>
+      </div>
+
+      <div class="type-specimen">
+        <div class="type-label">H2 — Section Heading (heading-lg)</div>
+        <div style="font-family:'Outfit',sans-serif;font-size:clamp(1.4rem,3vw,2rem);font-weight:800;color:#2B2B2B;letter-spacing:-0.025em;line-height:1.15;">Everything You Need to Protect</div>
+        <div class="type-meta">Outfit 800 · 2rem desktop / 1.5rem mobile · tracking -0.025em · color #2B2B2B</div>
+      </div>
+
+      <div class="type-specimen">
+        <div class="type-label">H3 — Card / Sub-section Title</div>
+        <div style="font-family:'Outfit',sans-serif;font-size:1.1rem;font-weight:700;color:#2B2B2B;letter-spacing:-0.015em;">Documents & Files</div>
+        <div class="type-meta">Outfit 700 · 1.1rem · tracking -0.015em · color #2B2B2B</div>
+      </div>
+
+      <div class="type-specimen">
+        <div class="type-label">Eyebrow Label</div>
+        <div style="font-family:'DM Sans',sans-serif;font-size:11px;font-weight:700;color:#6B6B6B;letter-spacing:0.2em;text-transform:uppercase;">COMPLETE DATA PROTECTION</div>
+        <div class="type-meta">DM Sans 700 · 11px · uppercase · tracking 0.2em · color #6B6B6B</div>
+      </div>
+
+      <div class="type-specimen">
+        <div class="type-label">Body Text (Large)</div>
+        <div style="font-family:'DM Sans',sans-serif;font-size:15.5px;color:#444444;line-height:1.65;max-width:600px;">eazyBackup is a Canadian cloud storage provider delivering enterprise-grade, automated backups for files, folders, databases, virtual machines, and Microsoft 365 — stored on infrastructure we own and operate.</div>
+        <div class="type-meta">DM Sans 400 · 15.5px · line-height 1.65 · color #444444</div>
+      </div>
+
+      <div class="type-specimen">
+        <div class="type-label">Body Text (Small / Card)</div>
+        <div style="font-family:'DM Sans',sans-serif;font-size:13px;color:#6B6B6B;line-height:1.6;max-width:480px;">Automatic backup for all your important documents, photos, and files with versioning and point-in-time recovery.</div>
+        <div class="type-meta">DM Sans 400 · 13px · line-height 1.6 · color #6B6B6B</div>
+      </div>
+
+      <div class="type-specimen">
+        <div class="type-label">Pricing / Stat Number</div>
+        <div style="font-family:'Outfit',sans-serif;font-size:3.5rem;font-weight:800;color:#2B2B2B;letter-spacing:-0.04em;line-height:1;"><sup style="font-size:1.5rem;vertical-align:top;margin-top:10px;font-weight:600;">$</sup>12.95<sub style="font-size:1rem;font-weight:500;color:#6B6B6B;">/mo</sub></div>
+        <div class="type-meta">Outfit 800 · 3.5rem · tracking -0.04em · sup/sub at reduced weight</div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════
+         BUTTONS
+    ═══════════════════════════════════════════════ -->
+    <section class="guide-section" id="buttons">
+      <div class="section-eyebrow">03 — Components</div>
+      <h2 class="section-title">Buttons & CTAs</h2>
+      <p class="section-subtitle">All button variants. Do not introduce new button colours outside this set. Every variant serves a specific conversion context.</p>
+
+      <h3 class="subsection-title">All Variants</h3>
+      <div class="btn-grid">
+        <button class="btn btn-primary">Start Free Trial</button>
+        <button class="btn btn-outline">Talk to Sales</button>
+        <button class="btn btn-sage">Learn About CGP</button>
+        <button class="btn btn-dark">Learn More MSP</button>
+        <a class="btn btn-ghost">Learn more →</a>
+      </div>
+      <div class="btn-grid">
+        <button class="btn btn-lg btn-primary">Start Free Trial</button>
+        <button class="btn btn-sm btn-primary">Start Trial</button>
+        <button class="btn btn-sm btn-outline">Details</button>
+      </div>
+      <div style="background:var(--surface-dark-alt);padding:20px 24px;border-radius:var(--r-lg);margin-bottom:24px;">
+        <div class="btn-grid">
+          <button class="btn btn-outline-white">Talk to Sales</button>
+          <button class="btn" style="background:white;color:var(--primary);border-color:white;">Start Free Trial</button>
+        </div>
+      </div>
+
+      <table class="spec-table">
+        <thead><tr><th>Variant</th><th>Background</th><th>Border</th><th>Usage</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Primary</strong></td><td><code>#d55d1d</code> → hover <code>#c04f18</code></td><td>Same as bg</td><td>Start Trial, Send Message, Submit — all main conversion actions</td></tr>
+          <tr><td><strong>Outline Steel</strong></td><td><code>rgba(255,190,145,0.12)</code></td><td><code>#FFBE91</code> 2px</td><td>Talk to Sales, Verify Registration, secondary CTAs on light bg</td></tr>
+          <tr><td><strong>Outline White</strong></td><td>Transparent</td><td>white 50% alpha</td><td>Secondary CTA on orange/dark backgrounds. Hover: white bg, primary text</td></tr>
+          <tr><td><strong>Sage Green</strong></td><td><code>#5a6359</code></td><td>Same as bg</td><td>CGP program, MSP "Learn More" — government/compliance adjacent only</td></tr>
+          <tr><td><strong>Dark / Charcoal</strong></td><td><code>#2B2B2B</code></td><td>Same as bg</td><td>Secondary action on dark-alt band sections</td></tr>
+          <tr><td><strong>Ghost / Link</strong></td><td>Transparent</td><td>None</td><td>Inline "Learn more →" links within content, not for primary conversion</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════
+         CARDS
+    ═══════════════════════════════════════════════ -->
+    <section class="guide-section" id="cards">
+      <div class="section-eyebrow">04 — Components</div>
+      <h2 class="section-title">Cards & Surfaces</h2>
+      <p class="section-subtitle">All cards share the same warm surface colour. Differentiation comes from border weight, shadow level, and hover behaviour.</p>
+
+      <div class="three-col">
+        <div class="info-card" style="border:1px solid #FFBE91;border-radius:16px;padding:24px;">
+          <div style="width:44px;height:44px;border-radius:12px;background:#FFEFE0;display:flex;align-items:center;justify-content:center;margin-bottom:16px;color:#FE5000;font-size:18px;">⚙</div>
+          <h4>Feature Card (Standard)</h4>
+          <p style="margin-top:6px;font-size:12.5px;color:#6B6B6B;line-height:1.55;">bg <code>#fff5e3</code> · border <code>#FFBE91</code> · rounded-2xl · p-6 · hover border brightens to <code>--accent</code>, translateY(-2px)</p>
+        </div>
+        <div class="info-card" style="border:1px solid #FFE3CC;border-radius:16px;padding:24px;">
+          <div style="font-size:18px;color:#FE5000;margin-bottom:12px;">⬡</div>
+          <h4>Platform Product Card (Compact)</h4>
+          <p style="margin-top:6px;font-size:12.5px;color:#6B6B6B;line-height:1.55;">bg <code>#fff5e3</code> · border <code>#FFE3CC</code> · rounded-xl · p-5 · flow pill at footer · "Learn more →" in <code>--brand-orange</code></p>
+        </div>
+        <div class="info-card" style="border:1px solid #FFBE91;border-radius:16px;padding:24px;border-left:3px solid #FE5000;">
+          <div style="font-size:18px;color:#FE5000;margin-bottom:12px;">🛡</div>
+          <h4>Compliance / Trust Card</h4>
+          <p style="margin-top:6px;font-size:12.5px;color:#6B6B6B;line-height:1.55;">bg <code>#fff5e3</code> · icon bare (no container bg) · compliance standard names in <code>--brand-orange</code> inline text</p>
+        </div>
+      </div>
+
+      <table class="spec-table">
+        <thead><tr><th>Property</th><th>Standard Feature Card</th><th>Compact Platform Card</th><th>Pricing Card</th></tr></thead>
+        <tbody>
+          <tr><td>Background</td><td><code>#fff5e3</code></td><td><code>#fff5e3</code></td><td><code>#fff5e3</code></td></tr>
+          <tr><td>Border</td><td>1px <code>#FFBE91</code></td><td>1px <code>#FFE3CC/60</code></td><td>1px <code>#FFBE91</code> · popular: 2px <code>#d55d1d</code></td></tr>
+          <tr><td>Border Radius</td><td>16px (rounded-2xl)</td><td>12px (rounded-xl)</td><td>16px (rounded-2xl)</td></tr>
+          <tr><td>Padding</td><td>24px (p-6)</td><td>20px (p-5)</td><td>24px (p-6)</td></tr>
+          <tr><td>Hover Border</td><td><code>#FF7A33</code> (--accent)</td><td><code>#FF7A33</code></td><td><code>#FF7A33</code></td></tr>
+          <tr><td>Hover Transform</td><td>translateY(-2px) scale(1.003)</td><td>translateY(-1px)</td><td>translateY(-3px)</td></tr>
+          <tr><td>Shadow</td><td>shadow-sm → shadow-md hover</td><td>none → shadow-sm hover</td><td>shadow-sm → shadow-md hover</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════
+         BADGES
+    ═══════════════════════════════════════════════ -->
+    <section class="guide-section" id="badges">
+      <div class="section-eyebrow">05 — Components</div>
+      <h2 class="section-title">Badges, Pills & Icons</h2>
+
+      <h3 class="subsection-title">Badge Variants</h3>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:28px;padding:24px;background:white;border-radius:var(--r-lg);border:1px solid var(--border-muted);">
+        <span class="hero-pill"><span class="dot"></span>CANADIAN CLOUD DATA PROTECTION</span>
+        <span class="hero-pill">🍁 CANADIAN-OWNED CLOUD</span>
+        <span class="trust-badge"><span class="dot"></span>Controlled Goods Program Registered</span>
+        <span class="trust-badge"><span class="dot"></span>PIPEDA &amp; HIPAA Compliant</span>
+        <span class="trust-badge"><span class="dot"></span>No Lock-in Contracts</span>
+        <span class="badge-pill" style="position:static;background:#d55d1d;color:white;font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:0.1em;padding:4px 12px;border-radius:9999px;">POPULAR</span>
+        <span class="badge-pill badge-soon" style="position:static;background:#2B2B2B;color:white;font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:0.1em;padding:4px 12px;border-radius:9999px;">COMING SOON</span>
+      </div>
+
+      <h3 class="subsection-title">Icon Usage Rules</h3>
+      <table class="spec-table">
+        <thead><tr><th>Icon Type</th><th>Size</th><th>Color</th><th>Container</th></tr></thead>
+        <tbody>
+          <tr><td>Feature card icon</td><td>22px (w-5.5 h-5.5)</td><td><code>--primary</code> (#d55d1d)</td><td>44×44 rounded-xl bg <code>--surface-muted</code></td></tr>
+          <tr><td>Accent icon (selective)</td><td>18–20px</td><td><code>--brand-orange</code> (#FE5000) — use on ≤30% of icons</td><td>Optional container</td></tr>
+          <tr><td>Inline button icon</td><td>16px (w-4 h-4)</td><td>currentColor (inherits button text)</td><td>None</td></tr>
+          <tr><td>Trust badge icon</td><td>12px</td><td><code>--brand-orange</code></td><td>None</td></tr>
+          <tr><td>Nav icon</td><td>16px</td><td>Inherits text color</td><td>None</td></tr>
+          <tr><td>Library</td><td colspan="3">Lucide Icons — stroke-based, stroke-width 1.5 for decorative, 2 for UI</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════
+         ROW 1 — HERO
+    ══════════════════════════════════════════════════════ -->
+    <section class="guide-section" id="row1">
+      <div class="section-eyebrow">06 — Row Layouts</div>
+      <h2 class="section-title">Row 1 — Hero Section</h2>
+      <p class="section-subtitle">Full-width centred hero with ambient orb effects, dot pattern background, and trust badge rows. The hero uses a slightly warmer background (#fff4dd) to distinguish it from the page body.</p>
+
+      <div class="row-preview-wrap">
+        <div class="row-preview-label">Live Preview</div>
+        <div class="preview-hero">
+          <div class="orb orb-1"></div>
+          <div class="orb orb-2"></div>
+          <div class="orb orb-3"></div>
+          <div class="hero-pills">
+            <span class="hero-pill"><span class="dot"></span>CANADIAN CLOUD DATA PROTECTION</span>
+            <span class="hero-pill">🍁 CANADIAN-OWNED CLOUD</span>
+          </div>
+          <h1 class="hero-h1">Don't Lose a Byte<br><span>Canadian Cloud Backup You Can Count On</span></h1>
+          <p class="hero-sub">eazyBackup delivers enterprise-grade, automated backups for files, folders, databases, virtual machines, and Microsoft 365 — stored on Canadian infrastructure we own and operate.</p>
+          <div class="hero-ctas">
+            <button class="btn btn-primary btn-lg">Start Free Trial</button>
+            <button class="btn btn-outline btn-lg">Talk to Sales</button>
+          </div>
+          <div class="hero-trust">
+            <span class="trust-badge"><span class="dot"></span>Controlled Goods Program Registered</span>
+            <span class="trust-badge"><span class="dot"></span>PIPEDA &amp; HIPAA Compliant</span>
+            <span class="trust-badge"><span class="dot"></span>No Lock-in Contracts</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="row-spec-box">
+        <h4>Specification</h4>
+        <ul>
+          <li>Background: <code>#fff4dd</code> (--surface-hero) — hero-exclusive, warmer than page body</li>
+          <li>H1 Line 1: Outfit 800, #2B2B2B — NOT brand orange. Black creates authority and readability at large size</li>
+          <li>H1 Line 2: Outfit 800, <code>--primary</code> (#d55d1d) — warmer CTA orange, not the bright #FE5000</li>
+          <li>Ambient orbs: rgba(254,80,0,0.18–0.30) blurred circles, CSS keyframe animated (float-orb, pulse-glow)</li>
+          <li>Background pattern: radial dot grid, rgba(180,140,100,0.18) at 24px intervals</li>
+          <li>Trust pills (top): pill shape, border <code>--border</code>, background <code>--surface</code>, dot in <code>--brand-orange</code></li>
+          <li>Trust badges (bottom): same pill, no background, dots in <code>--brand-orange</code></li>
+          <li>Transition OUT: h-24 gradient <code>#fff4dd</code> → <code>--surface</code> at section bottom</li>
+          <li>Cursor glow: 600px radial, rgba(254,80,0,0.12), follows cursor via JS translate</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════
+         ROW 2 — FEATURE GRID
+    ══════════════════════════════════════════════════════ -->
+    <section class="guide-section" id="row2">
+      <div class="section-eyebrow">06 — Row Layouts</div>
+      <h2 class="section-title">Row 2 — Feature Grid</h2>
+      <p class="section-subtitle">3-column (desktop) icon card grid. Used to present product features, backup types, or compliance certifications. Supports 3-up and 6-up configurations.</p>
+
+      <div class="row-preview-wrap">
+        <div class="row-preview-label">Live Preview</div>
+        <div class="preview-features">
+          <div class="sec-head">
+            <div class="eyebrow">COMPLETE DATA PROTECTION</div>
+            <h2>Everything You Need to Protect</h2>
+            <p class="desc">From everyday documents to critical infrastructure, eazyBackup safeguards all your data with enterprise-grade encryption and automated scheduling.</p>
+          </div>
+          <div class="feature-grid">
+            <div class="feature-card">
+              <div class="feat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
+              <h3>Documents & Files</h3>
+              <p>Automatic backup for all your important documents, photos, and files with versioning and point-in-time recovery.</p>
+            </div>
+            <div class="feature-card">
+              <div class="feat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></div>
+              <h3>NAS & Network Drives</h3>
+              <p>Protect network-attached storage and shared drives with scheduled backups and bandwidth throttling.</p>
+            </div>
+            <div class="feature-card">
+              <div class="feat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
+              <h3>Virtual Machines</h3>
+              <p>Full VM backup and recovery for VMware, Hyper-V, and other hypervisors with application-consistent snapshots.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row-spec-box">
+        <h4>Specification</h4>
+        <ul>
+          <li>Background: <code>#fff5e3</code> (--surface) + <code>border-t border-[--border-muted]</code> top edge separator</li>
+          <li>Card: bg <code>#fff5e3</code>, 1px border <code>#FFBE91</code>, rounded-2xl, p-6, hover border <code>#FF7A33</code></li>
+          <li>Icon container: 44×44, rounded-xl, bg <code>#FFEFE0</code> (--surface-muted), icon in <code>--primary</code></li>
+          <li>Corner decoration (::after): <code>'• •'</code> in <code>--accent-2</code>, absolute top-right, opacity 0.8</li>
+          <li>Grid: 3 columns desktop, 2 tablet, 1 mobile. 6-up variant uses same grid, 2 rows</li>
+          <li>Padding: py-20 lg:py-28 on section wrapper</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════
+         ROW 3 — SPLIT
+    ══════════════════════════════════════════════════════ -->
+    <section class="guide-section" id="row3">
+      <div class="section-eyebrow">06 — Row Layouts</div>
+      <h2 class="section-title">Row 3 — Split Content + Screenshot</h2>
+      <p class="section-subtitle">Two-column layout: text left, product screenshot or dashboard mockup right. Every other instance flips the order (image left, text right) to create visual rhythm.</p>
+
+      <div class="row-preview-wrap">
+        <div class="row-preview-label">Live Preview — Text Left</div>
+        <div class="preview-split">
+          <div class="split-grid">
+            <div class="split-text">
+              <div class="eyebrow">FOR MSPS &amp; RESELLERS</div>
+              <h2>Built for Managed Service Providers</h2>
+              <p>White-label backup solutions with multi-tenant management, per-client isolation, and predictable pricing you can resell with confidence.</p>
+              <ul class="split-bullets">
+                <li><span class="check">✓</span>Multi-tenant dashboard with client isolation</li>
+                <li><span class="check">✓</span>Per-client storage buckets and credentials</li>
+                <li><span class="check">✓</span>Usage reporting and billing integration</li>
+                <li><span class="check">✓</span>Canadian data residency for compliance</li>
+              </ul>
+              <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                <button class="btn btn-sage">Learn about MSP solutions</button>
+                <button class="btn btn-outline">Talk to Sales</button>
+              </div>
+            </div>
+            <div class="split-visual">
+              <div class="mockup-device">
+                <div class="mockup-screen" style="background:var(--surface);">
+                  <div class="msp-dash" style="width:100%;">
+                    <div class="msp-dash-bar">
+                      <div class="msp-dot" style="background:#FF5F56;"></div>
+                      <div class="msp-dot" style="background:#FFBD2E;"></div>
+                      <div class="msp-dot" style="background:#27C93F;"></div>
+                      <span style="font-size:10px;color:#6B6B6B;margin-left:8px;">MSP Dashboard</span>
+                    </div>
+                    <div class="msp-row">
+                      <div style="display:flex;align-items:center;"><div class="msp-avatar">A</div><span class="msp-name">Acme Corp</span></div>
+                      <span class="msp-active">● Active</span>
+                    </div>
+                    <div class="msp-row">
+                      <div style="display:flex;align-items:center;"><div class="msp-avatar">B</div><span class="msp-name">Beta Inc</span></div>
+                      <span class="msp-active">● Active</span>
+                    </div>
+                    <div class="msp-row" style="border-bottom:none;">
+                      <div style="display:flex;align-items:center;"><div class="msp-avatar">C</div><span class="msp-name">Cypress Ltd</span></div>
+                      <span class="msp-active">● Active</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row-spec-box">
+        <h4>Specification</h4>
+        <ul>
+          <li>Grid: <code>grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center</code></li>
+          <li>Alternation: even instances use <code>lg:order-first</code> on image column to flip layout</li>
+          <li>Mockup device frame: bg <code>#2B2B2B</code> (charcoal), rounded-3xl, padding p-3</li>
+          <li>Screen placeholder: bg-slate-800 if no real screenshot available, centered icon + label</li>
+          <li>Screenshot ring: <code>ring-1 ring-[--border] shadow-xl</code> on inner screen</li>
+          <li>Check bullet dots: bg <code>rgba(254,80,0,0.1)</code> circle, checkmark in <code>--brand-orange</code></li>
+          <li>Padding: <code>py-20 lg:py-28</code> on section wrapper</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════
+         ROW 4 — STATS BAND
+    ══════════════════════════════════════════════════════ -->
+    <section class="guide-section" id="row4">
+      <div class="section-eyebrow">06 — Row Layouts</div>
+      <h2 class="section-title">Row 4 — Stats & Social Proof Band</h2>
+      <p class="section-subtitle">Dark charcoal band that breaks the warm cream rhythm and creates visual hierarchy. Contains 3–4 large stat numbers with bold labels. Can also host a logo strip of integration partners.</p>
+
+      <div class="row-preview-wrap">
+        <div class="row-preview-label">Live Preview</div>
+        <div class="grad-transition-up"></div>
+        <div class="preview-stats">
+          <div class="stats-grid">
+            <div class="stat-item">
+              <div class="stat-num"><span>99.9</span>%</div>
+              <div class="stat-label">Uptime SLA</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-num"><span>256</span>-bit</div>
+              <div class="stat-label">AES Encryption</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-num"><span>2018</span></div>
+              <div class="stat-label">Founded in Canada</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-num"><span>3</span>×</div>
+              <div class="stat-label">Redundant Copies</div>
+            </div>
+          </div>
+        </div>
+        <div class="grad-transition-down"></div>
+      </div>
+
+      <div class="row-spec-box">
+        <h4>Specification</h4>
+        <ul>
+          <li>Background: <code>#2B2B2B</code> (--charcoal)</li>
+          <li>Stat number: Outfit 800, white, 3rem+ · Accent unit/suffix in <code>--brand-orange</code></li>
+          <li>Stat label: DM Sans 700, uppercase, tracking 0.16em, rgba(255,255,255,0.4)</li>
+          <li>Column dividers: 1px rgba(255,255,255,0.08), hidden on mobile</li>
+          <li>Transition IN/OUT: <code>h-48px gradient</code> from surface to charcoal and back — prevents abrupt colour jump</li>
+          <li>Logo strip variant: grayscale hover:grayscale-0, opacity-70 hover:opacity-100, h-8 per logo</li>
+          <li>Grid: <code>grid-cols-2 lg:grid-cols-4</code></li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════
+         ROW 5 — CTA BAND
+    ══════════════════════════════════════════════════════ -->
+    <section class="guide-section" id="row5">
+      <div class="section-eyebrow">06 — Row Layouts</div>
+      <h2 class="section-title">Row 5 — CTA Callout Band</h2>
+      <p class="section-subtitle">Full-width orange band with a contained white card. Used mid-page to re-engage visitors. The contained variant places content inside a white/light card on the orange background, preventing text-on-orange legibility issues.</p>
+
+      <div class="row-preview-wrap">
+        <div class="row-preview-label">Live Preview — Contained Variant</div>
+        <div class="preview-cta-band">
+          <div class="cta-band-inner">
+            <div class="cta-band-text">
+              <div class="eyebrow"><span class="dot"></span>FOR MSPS &amp; RESELLERS</div>
+              <h2>Built for Managed Service Providers</h2>
+              <p>White-label backup solutions with multi-tenant management, per-client isolation, and predictable pricing you can resell with confidence.</p>
+            </div>
+            <div class="cta-band-btns">
+              <button class="btn btn-dark">Learn about MSP solutions</button>
+              <button class="btn btn-outline">Talk to Sales</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row-spec-box">
+        <h4>Specification</h4>
+        <ul>
+          <li>Outer band: bg <code>#c56c3a</code> (--surface-dark-alt), subtle crosshatch pattern overlay at 3% white opacity</li>
+          <li>Inner container: bg rgba(255,255,255,0.95), rounded-3xl, p-10 lg:p-12, box-shadow 0 24px 64px rgba(0,0,0,0.15)</li>
+          <li>Layout: flex row items-center justify-between on desktop, col on mobile</li>
+          <li>Heading: Outfit 800, <code>#2B2B2B</code> — always dark text inside white card, never orange heading</li>
+          <li>Eyebrow dot: <code>--brand-orange</code> (#FE5000) — appropriate for 5px dot at this scale</li>
+          <li>Alternative (full-bleed): text directly on band with text-white — only use for very short 1-line CTAs</li>
+          <li>Corner decoration: optional SVG maple leaf, absolute top-right of band, white 8% opacity</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════
+         ROW 6 — TABBED
+    ══════════════════════════════════════════════════════ -->
+    <section class="guide-section" id="row6">
+      <div class="section-eyebrow">06 — Row Layouts</div>
+      <h2 class="section-title">Row 6 — Tabbed / Accordion Content</h2>
+      <p class="section-subtitle">Left-rail tab navigation with rich content pane. Used for platform product details, feature comparison, and FAQ. Tabs use charcoal active state. Alpine.js manages tab state.</p>
+
+      <div class="row-preview-wrap">
+        <div class="row-preview-label">Live Preview (interactive)</div>
+        <div class="preview-tabs">
+          <div class="sec-head">
+            <div class="eyebrow">THE EAZYBACKUP PLATFORM</div>
+            <h2>One Platform, Four Ways to Protect Your Data</h2>
+          </div>
+          <div class="tabs-layout">
+            <div class="tab-rail" id="tabRail">
+              <button class="tab-btn active" onclick="switchTab(this,'cloud')" data-tab="cloud"><span class="tb-dot"></span>Cloud Backup</button>
+              <button class="tab-btn" onclick="switchTab(this,'c2c')" data-tab="c2c"><span class="tb-dot"></span>Cloud-to-Cloud</button>
+              <button class="tab-btn" onclick="switchTab(this,'m365')" data-tab="m365"><span class="tb-dot"></span>Microsoft 365</button>
+              <button class="tab-btn" onclick="switchTab(this,'e3')" data-tab="e3"><span class="tb-dot"></span>e3 Object Storage</button>
+            </div>
+            <div>
+              <div class="tab-panel" id="tab-cloud">
+                <h3>Cloud Backup</h3>
+                <p>Encrypted offsite backups for workstations, servers, and NAS landing directly in Canadian storage.</p>
+                <ul class="tab-features">
+                  <li><span class="dot"></span>Immutable backup options with object lock</li>
+                  <li><span class="dot"></span>Central monitoring for MSPs</li>
+                  <li><span class="dot"></span>Fast restores from always-hot storage</li>
+                </ul>
+                <a class="tab-learn" href="#">Learn more →</a>
+                <div class="flow-pill"><span class="dot"></span>Backups → e3 storage</div>
+              </div>
+              <div class="tab-panel" id="tab-c2c" style="display:none;">
+                <h3>Cloud-to-Cloud</h3>
+                <p>Protect SaaS workloads by copying data directly into Canadian infrastructure you control.</p>
+                <ul class="tab-features">
+                  <li><span class="dot"></span>Reduce reliance on provider retention</li>
+                  <li><span class="dot"></span>Align with residency requirements</li>
+                  <li><span class="dot"></span>Restore across clouds</li>
+                </ul>
+                <a class="tab-learn" href="#">Learn more →</a>
+                <div class="flow-pill"><span class="dot"></span>SaaS → eazyBackup</div>
+              </div>
+              <div class="tab-panel" id="tab-m365" style="display:none;">
+                <h3>Microsoft 365</h3>
+                <p>Close retention gaps for Exchange, OneDrive, SharePoint, and Teams with Canadian backups.</p>
+                <ul class="tab-features">
+                  <li><span class="dot"></span>Recover from accidental deletion</li>
+                  <li><span class="dot"></span>Meet audit requirements</li>
+                  <li><span class="dot"></span>Separate compliance copies</li>
+                </ul>
+                <a class="tab-learn" href="#">Learn more →</a>
+                <div class="flow-pill"><span class="dot"></span>M365 → eazyBackup</div>
+              </div>
+              <div class="tab-panel" id="tab-e3" style="display:none;">
+                <h3>e3 Object Storage</h3>
+                <p>Canadian S3-compatible storage for backups, archives, and modern applications.</p>
+                <ul class="tab-features">
+                  <li><span class="dot"></span>Standard S3 API compatible</li>
+                  <li><span class="dot"></span>Immutability & object lock</li>
+                  <li><span class="dot"></span>No egress or API fees</li>
+                </ul>
+                <a class="tab-learn" href="#">Learn more →</a>
+                <div class="flow-pill"><span class="dot"></span>Platform storage fabric</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row-spec-box">
+        <h4>Specification</h4>
+        <ul>
+          <li>Layout: <code>grid grid-cols-[240px_1fr] gap-5 items-start</code></li>
+          <li>Active tab: bg <code>#2B2B2B</code> text-white, dot in <code>--brand-orange</code></li>
+          <li>Inactive tab: text <code>--fg-muted</code>, hover bg <code>--surface-muted</code></li>
+          <li>Panel: bg <code>#fff5e3</code>, border <code>#FFBE91</code>, rounded-2xl, p-8</li>
+          <li>Alpine pattern: <code>x-data="{ tab: 'cloud' }"</code>, <code>:class</code> binding, <code>x-show</code> on panels</li>
+          <li>Mobile: converts to accordion, max-h-0 / max-h-screen transition with <code>x-show</code> + transition</li>
+          <li>Flow pill: bg <code>--surface-muted</code>, border <code>--border-muted</code>, dot in <code>--brand-orange</code></li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════
+         PRICING
+    ══════════════════════════════════════════════════════ -->
+    <section class="guide-section" id="pricing">
+      <div class="section-eyebrow">07 — Key Sections</div>
+      <h2 class="section-title">Pricing Row</h2>
+      <p class="section-subtitle">4-column card grid with transparent, trust-forward pricing. The popular card uses a double-weight border and a pill badge. The "Contact Us" card uses the outline CTA.</p>
+
+      <div class="row-preview-wrap">
+        <div class="row-preview-label">Live Preview</div>
+        <div class="preview-pricing">
+          <div class="pricing-head">
+            <div class="eyebrow">SIMPLE, TRANSPARENT PRICING</div>
+            <h2>Choose Your Protection Plan</h2>
+            <p>All plans include Canadian data residency, CGP certification, and PIPEDA compliance. No hidden fees, no surprises.</p>
+          </div>
+          <div class="pricing-grid">
+            <!-- Card 1 — Popular -->
+            <div class="pricing-card popular">
+              <span class="badge-pill">POPULAR</span>
+              <div class="pc-header"><div class="pc-icon"><div class="dot"></div></div><div class="pc-cat">CLOUD BACKUP</div></div>
+              <div class="pc-name">eazyBackup</div>
+              <div class="pc-tag">For workstations, servers &amp; NAS</div>
+              <div class="pc-price"><sup>$</sup>12.95<sub>/month</sub></div>
+              <div class="pc-price-note">Includes 1TB storage · Additional: $9.45/TB per month</div>
+              <div class="pc-divider"></div>
+              <ul class="pc-features">
+                <li><span class="pc-check">✓</span>Windows, Linux &amp; macOS</li>
+                <li><span class="pc-check">✓</span>NAS &amp; network drives</li>
+                <li><span class="pc-check">✓</span>Unlimited files, no size limits</li>
+                <li><span class="pc-check">✓</span>Emergency restore drive*</li>
+              </ul>
+              <button class="btn btn-primary" style="width:100%;">Start Free Trial</button>
+            </div>
+            <!-- Card 2 -->
+            <div class="pricing-card">
+              <div class="pc-header"><div class="pc-icon"><div class="dot"></div></div><div class="pc-cat">M365 BACKUP</div></div>
+              <div class="pc-name">Microsoft 365</div>
+              <div class="pc-tag">Exchange, OneDrive, SharePoint, Teams</div>
+              <div class="pc-price"><sup>$</sup>3.50<sub>/user/month</sub></div>
+              <div class="pc-price-note">Unlimited storage per user</div>
+              <div class="pc-accent-note">Volume discounts available</div>
+              <ul class="pc-features">
+                <li><span class="pc-check">✓</span>Mail, Calendar, Contacts, Tasks</li>
+                <li><span class="pc-check">✓</span>Groups &amp; Teams data</li>
+                <li><span class="pc-check">✓</span>OneDrive &amp; SharePoint</li>
+                <li><span class="pc-check">✓</span>Granular restore options</li>
+              </ul>
+              <button class="btn btn-primary" style="width:100%;">Start Free Trial</button>
+            </div>
+            <!-- Card 3 -->
+            <div class="pricing-card">
+              <div class="pc-header"><div class="pc-icon" style="background:white;border:1px solid var(--border);"><div class="dot"></div></div><div class="pc-cat">OBJECT STORAGE</div></div>
+              <div class="pc-name">e3 Cloud Storage</div>
+              <div class="pc-tag">S3-compatible, always-hot</div>
+              <div class="pc-price"><sup style="font-size:13px;">$</sup>9 CAD<sub>/TB/month</sub></div>
+              <div class="pc-price-note">Minimum 1TB commitment</div>
+              <div class="pc-accent-note">No egress or API fees</div>
+              <ul class="pc-features">
+                <li><span class="pc-check">✓</span>Always-hot storage, 24/7 access</li>
+                <li><span class="pc-check">✓</span>Standard S3 API compatible</li>
+                <li><span class="pc-check">✓</span>Object Lock &amp; immutability</li>
+                <li><span class="pc-check">✓</span>Pay-as-you-go billing</li>
+              </ul>
+              <button class="btn btn-primary" style="width:100%;">Learn More</button>
+            </div>
+            <!-- Card 4 — Contact -->
+            <div class="pricing-card">
+              <span class="badge-pill badge-soon">COMING SOON</span>
+              <div class="pc-header"><div class="pc-icon"><div class="dot"></div></div><div class="pc-cat">CLOUD-TO-CLOUD</div></div>
+              <div class="pc-name">SaaS Backup</div>
+              <div class="pc-tag">Google Workspace, Dropbox &amp; more</div>
+              <div class="pc-price" style="font-size:1.7rem;margin-top:8px;">Contact Us</div>
+              <div class="pc-price-note">Custom pricing available</div>
+              <div class="pc-accent-note">Early access available</div>
+              <ul class="pc-features">
+                <li><span class="pc-check">✓</span>Google Workspace backup</li>
+                <li><span class="pc-check">✓</span>Dropbox protection</li>
+                <li><span class="pc-check">✓</span>Canadian data destination</li>
+              </ul>
+              <button class="btn btn-outline" style="width:100%;">Request Early Access</button>
+            </div>
+          </div>
+          <div class="pricing-trust">
+            <span class="pt-badge"><span class="icon">⬡</span>CGP Certified</span>
+            <span class="pt-badge"><span class="icon">⬡</span>PIPEDA Compliant</span>
+            <span class="pt-badge"><span class="icon">⬡</span>HIPAA Ready</span>
+            <span class="pt-badge">🍁 Canadian-Owned Cloud</span>
+          </div>
+          <p style="text-align:center;font-size:12.5px;color:var(--fg-muted);margin-top:16px;">Need volume pricing or custom solutions? <a href="#" style="color:var(--brand-orange);font-weight:600;">Talk to our sales team</a> or call <a href="tel:18889692016" style="color:var(--brand-orange);font-weight:600;">1-888-969-2016</a></p>
+        </div>
+      </div>
+
+      <div class="row-spec-box">
+        <h4>Specification</h4>
+        <ul>
+          <li>Section bg: <code>#fff5e3</code> + radial dot pattern at 30% opacity</li>
+          <li>Popular card: 2px border <code>#d55d1d</code>, badge pill in <code>--primary</code></li>
+          <li>Checkmarks: <code>--brand-orange</code> (#FE5000) — small and contained, ideal use case</li>
+          <li>Accent notes ("Volume discounts"): <code>--brand-orange</code> text at 12px — small, inline, appropriate</li>
+          <li>All CTA buttons: <code>--primary</code> (#d55d1d) NOT brand orange</li>
+          <li>Trust strip: pill badges with shield icon in <code>--brand-orange</code> at 10px</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════
+         CONTACT
+    ══════════════════════════════════════════════════════ -->
+    <section class="guide-section" id="contact">
+      <div class="section-eyebrow">08 — Key Sections</div>
+      <h2 class="section-title">Contact Section</h2>
+      <p class="section-subtitle">Charcoal band near page bottom. Two columns: trust copy + alt contact methods on the left, enquiry form on the right. Dark form inputs with subtle glass styling.</p>
+
+      <div class="row-preview-wrap">
+        <div class="row-preview-label">Live Preview</div>
+        <div class="preview-contact">
+          <div class="contact-grid">
+            <div class="contact-text">
+              <div class="eyebrow">GET IN TOUCH</div>
+              <h2>Talk to a Canadian Backup Expert</h2>
+              <p>Whether you're protecting a single workstation or managing backups for hundreds of clients, our team can help you find the right solution.</p>
+              <ul class="contact-bullets">
+                <li><span class="dot"></span>CGP registered — cleared for sensitive data discussions</li>
+                <li><span class="dot"></span>Ottawa-based team, Mon–Fri 9am–5pm ET</li>
+                <li><span class="dot"></span>Respond within 1 business day</li>
+              </ul>
+              <div class="contact-alt">
+                <a class="contact-link" href="tel:18889692016"><div class="icon-bg">📞</div>1-888-969-2016</a>
+                <a class="contact-link" href="mailto:info@eazybackup.ca"><div class="icon-bg">✉</div>info@eazybackup.ca</a>
+                <div style="margin-top:4px;">
+                  <button class="btn btn-outline-white btn-sm">Book a Call →</button>
+                </div>
+              </div>
+              <p class="contact-office">Ottawa, Ontario, Canada · Mon–Fri 9am–5pm ET</p>
+            </div>
+            <div class="contact-form">
+              <div class="form-row">
+                <div class="form-group"><label>First Name</label><input type="text" placeholder="Jane"></div>
+                <div class="form-group"><label>Last Name</label><input type="text" placeholder="Smith"></div>
+              </div>
+              <div class="form-group"><label>Business Email</label><input type="email" placeholder="jane@company.com"></div>
+              <div class="form-group"><label>Company</label><input type="text" placeholder="Acme Corp"></div>
+              <div class="form-group"><label>Message</label><textarea placeholder="Tell us about your backup needs..."></textarea></div>
+              <button class="btn btn-primary" style="width:100%;justify-content:center;">Send Message</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row-spec-box">
+        <h4>Specification</h4>
+        <ul>
+          <li>Section bg: <code>#2B2B2B</code> (--charcoal)</li>
+          <li>Eyebrow on dark: text rgba(255,255,255,0.4) — lighter muted version for dark bg</li>
+          <li>Bullet dots: <code>--brand-orange</code> (#FE5000) — small 5px dot, appropriate use</li>
+          <li>Contact icon backgrounds: rgba(254,80,0,0.15) with <code>--brand-orange</code> emoji/icon</li>
+          <li>Form inputs: bg rgba(255,255,255,0.07), border rgba(255,255,255,0.12), focus: ring rgba(254,80,0,0.5)</li>
+          <li>Submit: <code>--primary</code> (#d55d1d) button, NOT brand orange</li>
+          <li>Success state: replace form with checkmark + confirmation message</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════
+         TRANSITIONS
+    ══════════════════════════════════════════════════════ -->
+    <section class="guide-section" id="transitions">
+      <div class="section-eyebrow">09 — Motion & Transitions</div>
+      <h2 class="section-title">Section Transitions & Dividers</h2>
+      <p class="section-subtitle">Five transition types prevent the page from feeling like stacked boxes. Each is appropriate for specific section pairings.</p>
+
+      <div class="divider-examples">
+        <div>
+          <div class="divider-example">
+            <div class="de-top" style="background:#fff5e3;"></div>
+            <div class="de-mid" style="background:linear-gradient(to bottom,#fff5e3,#2B2B2B);"></div>
+            <div class="de-bot" style="background:#2B2B2B;"></div>
+            <div class="de-label">Gradient Fade — Light → Dark<br><span style="font-size:10px;color:#9ca3af;">h-8 div between sections</span></div>
+          </div>
+        </div>
+        <div>
+          <div class="divider-example">
+            <div class="de-top" style="background:#2B2B2B;"></div>
+            <div class="de-mid" style="background:linear-gradient(to bottom,#2B2B2B,#fff5e3);"></div>
+            <div class="de-bot" style="background:#fff5e3;"></div>
+            <div class="de-label">Gradient Fade — Dark → Light<br><span style="font-size:10px;color:#9ca3af;">h-8 div between sections</span></div>
+          </div>
+        </div>
+        <div>
+          <div class="divider-example" style="overflow:visible;">
+            <div style="background:#fff5e3;height:40px;"></div>
+            <svg style="display:block;width:100%;" height="32" viewBox="0 0 800 32" preserveAspectRatio="none">
+              <path d="M0,32 L0,16 Q400,0 800,16 L800,32 Z" fill="#FFEFE0"/>
+            </svg>
+            <div style="background:#FFEFE0;height:40px;"></div>
+            <div class="de-label">SVG Wave Divider<br><span style="font-size:10px;color:#9ca3af;">fill = incoming section bg colour</span></div>
+          </div>
+        </div>
+        <div>
+          <div class="divider-example">
+            <div class="de-top" style="background:#fff5e3;"></div>
+            <div class="flowing-line-wrap">
+              <svg viewBox="0 0 100 100" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                  <linearGradient id="lineGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" style="stop-color:rgba(213,93,29,0);stop-opacity:1"/>
+                    <stop offset="50%" style="stop-color:rgba(213,93,29,0.5);stop-opacity:1"/>
+                    <stop offset="100%" style="stop-color:rgba(213,93,29,0);stop-opacity:1"/>
+                  </linearGradient>
+                </defs>
+                <path class="animated-path" d="M 0,50 Q 25,70 50,50 T 100,70" fill="none" stroke="url(#lineGrad)" stroke-width="1.5"/>
+              </svg>
+            </div>
+            <div class="de-bot" style="background:#fff5e3;"></div>
+            <div class="de-label">Animated Curved Line<br><span style="font-size:10px;color:#9ca3af;">draw-line 2.5s, stroke gradient</span></div>
+          </div>
+        </div>
+      </div>
+
+      <table class="spec-table">
+        <thead><tr><th>Type</th><th>When to Use</th><th>Implementation</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Gradient Fade</strong></td><td>Same-colour section boundaries, light↔light</td><td><code>h-12 bg-gradient-to-b from-[--surface-2] to-transparent</code></td></tr>
+          <tr><td><strong>Dark Band Fade</strong></td><td>Any transition into/out of charcoal or dark-alt</td><td><code>h-8 bg-gradient-to-b from-[--surface] to-[--charcoal]</code> (and reverse)</td></tr>
+          <tr><td><strong>SVG Wave</strong></td><td>Entering a new background colour (muted to surface)</td><td>Inline SVG with path, fill = incoming section bg</td></tr>
+          <tr><td><strong>Animated Curved Line</strong></td><td>Between major platform/feature sections</td><td>SVG path + <code>draw-line</code> keyframe, gradient stroke in <code>--primary</code></td></tr>
+          <tr><td><strong>Hard Border</strong></td><td>Same-colour sections, clean logical break</td><td><code>border-t border-[--border-muted]</code></td></tr>
+        </tbody>
+      </table>
+
+      <h3 class="subsection-title">Background Pattern Rules</h3>
+      <table class="spec-table">
+        <thead><tr><th>Section Type</th><th>Pattern</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td>Hero</td><td>bg-dot-pattern (radial dots, 24px)</td><td>At full opacity — primary visual texture</td></tr>
+          <tr><td>Pricing</td><td>bg-dot-pattern opacity-30–50</td><td>Subtle, doesn't compete with card grid</td></tr>
+          <tr><td>Content body sections</td><td>bg-grid-fine (32px line grid, 3% opacity)</td><td>Nearly invisible — adds micro-texture only</td></tr>
+          <tr><td>Dark charcoal sections</td><td>bg-radial (ambient orange glow 6–12%)</td><td>No dot pattern on dark — use orange radial only</td></tr>
+          <tr><td>CTA Band</td><td>SVG crosshatch at 3% white</td><td>Geometric repeat adds depth without distraction</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════
+         DARK THEME
+    ══════════════════════════════════════════════════════ -->
+    <section class="guide-section is-dark" id="darktheme">
+      <div class="section-eyebrow">10 — Themes</div>
+      <h2 class="section-title">Dark Theme — Client Portal</h2>
+      <p class="section-subtitle">The client area uses a full dark theme based on Tailwind slate colours. Brand Orange (#FE5000) connects the portal to the marketing site without change.</p>
+
+      <div class="dark-preview">
+        <div class="dark-preview-bar">
+          <div class="dot" style="background:#FF5F56;"></div>
+          <div class="dot" style="background:#FFBD2E;"></div>
+          <div class="dot" style="background:#27C93F;"></div>
+        </div>
+        <div class="dark-preview-body">
+          <div class="dark-sidebar">
+            <div class="brand-small">eazyBackup</div>
+            <div class="ds-link active"><span class="icon">◈</span> Dashboard</div>
+            <div class="ds-link"><span class="icon">☁</span> Backups</div>
+            <div class="ds-link"><span class="icon">⬢</span> Storage</div>
+            <div class="ds-link"><span class="icon">⚙</span> Settings</div>
+          </div>
+          <div class="dark-content">
+            <div class="dark-cards-grid">
+              <div class="dark-card"><div class="dc-label">Total Storage</div><div class="dc-val">847 GB</div><div class="dc-sub">of 1 TB used</div></div>
+              <div class="dark-card"><div class="dc-label">Last Backup</div><div class="dc-val">2h ago</div><div class="dc-sub">All systems healthy</div></div>
+              <div class="dark-card"><div class="dc-label">Protected Files</div><div class="dc-val">1.2M</div><div class="dc-sub">Across 3 devices</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <h3 class="subsection-title" style="color:white;">Light ↔ Dark Mapping</h3>
+      <table class="spec-table">
+        <thead><tr><th>Element</th><th>Light Theme</th><th>Dark Theme</th></tr></thead>
+        <tbody>
+          <tr><td>Page background</td><td>#FFF5E3</td><td>bg-slate-950 (#0F172A)</td></tr>
+          <tr><td>Card surface</td><td>#FFF5E3 + orange border</td><td>bg-slate-800 + slate-700 border</td></tr>
+          <tr><td>Heading text</td><td>#2B2B2B</td><td>text-slate-50 (#F8FAFC)</td></tr>
+          <tr><td>Body text</td><td>#444444</td><td>text-slate-300 (#CBD5E1)</td></tr>
+          <tr><td>Muted / eyebrow</td><td>#6B6B6B</td><td>text-slate-400 (#94A3B8)</td></tr>
+          <tr><td>Primary CTA button</td><td>#d55d1d (unchanged)</td><td>#d55d1d (unchanged)</td></tr>
+          <tr><td>Brand Orange accent</td><td>#FE5000 (unchanged)</td><td>#FE5000 (unchanged)</td></tr>
+          <tr><td>Icon container bg</td><td>#FFEFE0</td><td>bg-slate-700</td></tr>
+          <tr><td>Focus ring</td><td>#FFBE91</td><td>rgba(254,80,0,0.5)</td></tr>
+          <tr><td>Section divider</td><td>border-[#FFE3CC]</td><td>border-slate-700/50</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════
+         TAILWIND CONFIG
+    ══════════════════════════════════════════════════════ -->
+    <section class="guide-section" id="tailwind">
+      <div class="section-eyebrow">11 — Configuration</div>
+      <h2 class="section-title">Tailwind & Alpine.js Reference</h2>
+      <p class="section-subtitle">CSS variable definitions, semantic colour remapping, and Alpine.js interaction patterns used across the site.</p>
+
+      <h3 class="subsection-title">CSS Variables — tailwind-alt.css</h3>
+      <table class="spec-table">
+        <thead><tr><th>Variable</th><th>Light Value</th><th>Dark Value</th></tr></thead>
+        <tbody>
+          <tr><td><code>--brand-orange</code></td><td>#FE5000</td><td>#FE5000 (same)</td></tr>
+          <tr><td><code>--primary</code></td><td>#d55d1d</td><td>#d55d1d (same)</td></tr>
+          <tr><td><code>--primary-hover</code></td><td>#c04f18</td><td>#c04f18 (same)</td></tr>
+          <tr><td><code>--accent</code></td><td>#FF7A33</td><td>#FF7A33 (same)</td></tr>
+          <tr><td><code>--surface-hero</code></td><td>#fff4dd</td><td>—</td></tr>
+          <tr><td><code>--surface</code></td><td>#fff5e3</td><td>#0F172A</td></tr>
+          <tr><td><code>--surface-2</code></td><td>#fff5e3</td><td>#1E293B</td></tr>
+          <tr><td><code>--surface-muted</code></td><td>#FFEFE0</td><td>#334155</td></tr>
+          <tr><td><code>--surface-charcoal</code></td><td>#2B2B2B</td><td>#1E293B</td></tr>
+          <tr><td><code>--foreground</code></td><td>#2B2B2B</td><td>#F8FAFC</td></tr>
+          <tr><td><code>--foreground-body</code></td><td>#444444</td><td>#CBD5E1</td></tr>
+          <tr><td><code>--muted-foreground</code></td><td>#6B6B6B</td><td>#94A3B8</td></tr>
+          <tr><td><code>--border-container</code></td><td>#FFBE91</td><td>#475569</td></tr>
+          <tr><td><code>--border-muted</code></td><td>#FFE3CC</td><td>#334155</td></tr>
+          <tr><td><code>--ring</code></td><td>#FFBE91</td><td>rgba(254,80,0,0.5)</td></tr>
+        </tbody>
+      </table>
+
+      <h3 class="subsection-title">Alpine.js Interaction Patterns</h3>
+      <table class="spec-table">
+        <thead><tr><th>Component</th><th>Alpine Pattern</th></tr></thead>
+        <tbody>
+          <tr><td>Mobile nav drawer</td><td><code>x-data="{ open: false }" x-show="open" @click.outside="open = false"</code></td></tr>
+          <tr><td>Pricing toggle (monthly/annual)</td><td><code>x-data="{ billing: 'monthly' }"</code> — toggle price display with <code>x-show</code></td></tr>
+          <tr><td>Tab / platform row</td><td><code>x-data="{ tab: 'cloud-backup' }"</code> — <code>:class</code> on tabs, <code>x-show</code> on panels</td></tr>
+          <tr><td>Contact form</td><td><code>x-data="{ loading: false, success: false }"</code> with <code>@submit.prevent</code> + fetch</td></tr>
+          <tr><td>Cursor glow</td><td><code>x-init</code> + <code>@mousemove.window</code> updating CSS translate variables</td></tr>
+          <tr><td>Scroll reveal</td><td>Vanilla IntersectionObserver in <code>x-init</code>, adds <code>reveal-soft--visible</code> class</td></tr>
+          <tr><td>Mobile accordion</td><td><code>x-show="open"</code> + <code>x-transition:enter="transition ease-out duration-200"</code></td></tr>
+        </tbody>
+      </table>
+
+      <h3 class="subsection-title">Google Fonts Load (in &lt;head&gt;)</h3>
+      <div style="background:#1e293b;border-radius:var(--r-lg);padding:20px 24px;margin-bottom:24px;font-family:monospace;font-size:12.5px;color:#94a3b8;line-height:1.8;overflow-x:auto;">
+        <span style="color:#64748b;">&lt;!-- Preconnect --&gt;</span><br>
+        <span style="color:#e2e8f0;">&lt;link rel=<span style="color:#86efac;">"preconnect"</span> href=<span style="color:#86efac;">"https://fonts.googleapis.com"</span>&gt;</span><br>
+        <span style="color:#e2e8f0;">&lt;link rel=<span style="color:#86efac;">"preconnect"</span> href=<span style="color:#86efac;">"https://fonts.gstatic.com"</span> crossorigin&gt;</span><br><br>
+        <span style="color:#64748b;">&lt;!-- Variable fonts --&gt;</span><br>
+        <span style="color:#e2e8f0;">&lt;link href=<span style="color:#86efac;">"https://fonts.googleapis.com/css2?family=Outfit:wght@300..800&amp;family=DM+Sans:opsz,wght@9..40,300..700&amp;display=swap"</span> rel=<span style="color:#86efac;">"stylesheet"</span>&gt;</span>
+      </div>
+
+      <div class="note-box">
+        <strong>Tailwind semantic colour remapping:</strong> sky, emerald, cyan, violet, blue, teal, indigo, green, and purple utility classes are all remapped to the orange scale (50–950) via tailwind-alt.css. Always use CSS variables (<code>var(--primary)</code> etc.) directly in custom CSS to ensure correct theme switching.
+      </div>
+    </section>
+
+    <!-- FOOTER -->
+    <div style="background:var(--charcoal);padding:32px 56px;text-align:center;border-top:1px solid rgba(255,255,255,0.06);">
+      <div style="font-family:var(--font-display);font-size:16px;font-weight:800;color:var(--brand-orange);margin-bottom:6px;">eazyBackup</div>
+      <div style="font-size:11px;color:rgba(255,255,255,0.3);letter-spacing:0.1em;">Website Design &amp; Style Guide · Version 1.0 · Tailwind + Alpine.js</div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+// Tab switcher for Row 6 preview
+function switchTab(btn, tabId) {
+  document.querySelectorAll('#tabRail .tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.tab-panel').forEach(p => p.style.display = 'none');
+  document.getElementById('tab-' + tabId).style.display = 'block';
+}
+
+// Active nav link on scroll
+const sections = document.querySelectorAll('[id]');
+const navLinks = document.querySelectorAll('.nav-link');
+window.addEventListener('scroll', () => {
+  let current = '';
+  sections.forEach(s => { if (window.scrollY >= s.offsetTop - 80) current = s.id; });
+  navLinks.forEach(l => {
+    l.classList.remove('active');
+    if (l.getAttribute('href') === '#' + current) l.classList.add('active');
+  });
+});
+</script>
+</body>
+</html>
