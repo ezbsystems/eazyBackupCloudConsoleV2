@@ -1,30 +1,44 @@
-<div class="bg-gray-800">
-  <div class="min-h-screen bg-gray-800 container mx-auto pb-8">
-    <div class="flex justify-between items-center h-16 space-y-12 px-2">
-      <h2 class="text-2xl font-semibold text-white">Setting up your tenant…</h2>
+{include file="modules/addons/eazybackup/templates/partials/_ui-tokens.tpl"}
+
+{capture assign=ebLoaderContent}
+  {include file="$template/includes/ui/page-header.tpl"
+    ebPageTitle='Setting up your tenant'
+    ebPageDescription='Provisioning progress for your new tenant environment.'
+  }
+
+  <div class="eb-subpanel space-y-6">
+    <div>
+      <h3 class="eb-app-card-title">Provisioning Timeline</h3>
+      <p class="eb-field-help">Each step updates automatically while the background setup pipeline runs.</p>
     </div>
-    <div class="mt-6 px-2">
-      <div class="bg-gray-900/50 p-6 rounded-lg">
-        <div id="wl-steps" class="space-y-2 text-slate-300 text-sm"></div>
-        <div class="mt-4 text-xs text-slate-400">Service address: <span class="font-mono">{$tenant.fqdn}</span></div>
-        {if $devMode == 1}
-        <div class="mt-6 border-t border-slate-800 pt-4">
-          <h4 class="text-slate-200 font-semibold mb-2">DEV Debug Panel</h4>
-          <div class="text-xs text-slate-400 mb-2">Run specific steps to test failures and retries.</div>
-          <div class="flex flex-wrap gap-2">
-            {foreach from=['dns','nginx','cert','org','admin','branding','email','storage','whmcs','verify'] item=s}
-              <form method="post" action="{$modulelink}&a=whitelabel-loader&tid={$tenant.public_id}">
-                <input type="hidden" name="dev_step" value="{$s}"/>
-                <button class="px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 rounded text-white">Run {$s}</button>
-              </form>
-            {/foreach}
-          </div>
+
+    <div id="wl-steps" class="space-y-2 text-sm text-slate-300"></div>
+
+    <div class="eb-card-raised">
+      <div class="eb-stat-label">Service Address</div>
+      <div class="mt-2 text-sm text-slate-200 font-mono">{$tenant.fqdn}</div>
+    </div>
+
+    {if $devMode == 1}
+      <div class="border-t border-slate-800 pt-5">
+        <h4 class="eb-app-card-title">DEV Debug Panel</h4>
+        <p class="eb-field-help mb-3">Run specific steps to test failures and retries.</p>
+        <div class="flex flex-wrap gap-2">
+          {foreach from=['dns','nginx','cert','org','admin','branding','email','storage','whmcs','verify'] item=s}
+            <form method="post" action="{$modulelink}&a=whitelabel-loader&tid={$tenant.public_id}">
+              <input type="hidden" name="dev_step" value="{$s}"/>
+              <button class="eb-btn eb-btn-secondary eb-btn-xs" type="submit">Run {$s}</button>
+            </form>
+          {/foreach}
         </div>
-        {/if}
       </div>
-    </div>
+    {/if}
   </div>
-</div>
+{/capture}
+
+{include file="$template/includes/ui/page-shell.tpl"
+  ebPageContent=$ebLoaderContent
+}
 <script>
 (function(){
   const url = '{$modulelink}&a=whitelabel-status&tid={$tenant.public_id}';

@@ -3,9 +3,15 @@
 <script src="{$WEB_ROOT}/assets/js/tooltips.js"></script>
 <script src="{$WEB_ROOT}/modules/addons/eazybackup/templates/assets/js/ui.js"></script>
 
-<div class="min-h-screen bg-slate-950 text-gray-300">
+<style>
+  [x-cloak] {
+    display: none !important;
+  }
+</style>
+
+<div class="eb-page">
   {* <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div> *}
-  <div class="container mx-auto px-4 pb-10 pt-6 relative pointer-events-relative w-full px-3 py-2 text-slate-300 focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500">
+  <div class="eb-page-inner">
 
     {if $showCreateOrderAnnouncement}
       <div
@@ -28,7 +34,7 @@
 
   <!-- Panel -->
   <div
-    class="relative w-full max-w-xl mx-4 rounded-2xl bg-[#0b1220] text-gray-100 shadow-2xl ring-1 ring-white/10"
+    class="eb-order-modal"
     x-show="open"
     x-transition:enter="transition ease-out duration-200"
     x-transition:enter-start="opacity-0 scale-95"
@@ -40,7 +46,7 @@
     <!-- Close button -->
     <button
       type="button"
-      class="absolute top-3 right-3 rounded-lg p-2 text-gray-400 hover:text-white hover:bg-white/5 focus:outline-none focus:ring-2 focus:ring-sky-500/50"
+      class="eb-order-modal-close focus:outline-none focus:ring-2 focus:ring-[var(--eb-ring)]"
       @click="open=false; dismissAnnouncement()"
       aria-label="Close"
     >
@@ -50,25 +56,25 @@
     </button>
 
     <!-- Header -->
-    <div class="px-6 pt-6">
-      <div class="inline-flex items-center gap-2 rounded-full bg-sky-500/10 px-3 py-1 text-xs font-medium text-sky-300 ring-1 ring-inset ring-sky-500/20">
+    <div class="eb-order-modal-header">
+      <div class="eb-badge eb-badge--info">
         <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor">
           <path d="M12 2a10 10 0 100 20 10 10 0 000-20Zm1 15h-2v-6h2v6Zm0-8h-2V7h2v2Z"/>
         </svg>
         Announcement
       </div>
-      <h3 id="order-process-title" class="mt-3 text-2xl font-semibold tracking-tight text-white">
+      <h3 id="order-process-title" class="mt-3 eb-type-h2">
         New, simplified order process
       </h3>
-      <p class="mt-2 text-sm text-gray-300 leading-6">
+      <p class="mt-2 eb-type-body">
         One form for all new backup accounts and services. 
       </p>
     </div>
 
     <!-- Body -->
-    <div class="px-6 mt-4 space-y-5 text-[15px] leading-7 text-gray-200">
+    <div class="eb-order-modal-body space-y-5 text-[15px] leading-7 text-[var(--eb-text-secondary)]">
       <div class="space-y-3">
-        <p class="text-gray-300">
+        <p class="eb-type-body">
           Billing is usage-based for storage, devices, and add-ons. You do not need to select quantities — your actual usage is measured automatically and reflected each billing cycle.
         </p>
         <ul class="space-y-2">
@@ -83,26 +89,26 @@
         </ul>
       </div>
 
-      <div class="border-t border-white/10 pt-4">
-        <h4 class="text-sm font-medium text-white">Annual plans & prorating</h4>
-        <p class="mt-2 text-gray-300">
+      <div class="border-t pt-4" style="border-color: var(--eb-border-subtle);">
+        <h4 class="eb-type-h4">Annual plans & prorating</h4>
+        <p class="mt-2 eb-type-body">
           On annual billing, new or changed usage (for example, adding a device or increasing storage) incurs a prorated charge for the days remaining in your annual term.
           Credit is not applied for reduced usage during the term. If you expect usage to fluctuate, monthly billing may be a better fit.
         </p>
       </div>
 
-      <div class="border-t border-white/10 pt-4">
-        <p class="text-gray-400 text-sm">
+      <div class="border-t pt-4" style="border-color: var(--eb-border-subtle);">
+        <p class="eb-type-caption">
           Questions about short-term or temporary increases? Contact your eazyBackup account manager.
         </p>
       </div>
     </div>
 
     <!-- Footer -->
-    <div class="px-6 pb-6 pt-4 flex flex-col sm:flex-row gap-3 sm:justify-end">
+    <div class="eb-order-modal-footer">
       <button
         type="button"
-        class="inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-sm font-medium text-white bg-sky-600 hover:bg-sky-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[#0b1220] focus:ring-sky-500 transition"
+        class="eb-btn eb-btn-md eb-btn-primary"
         @click="open=false; dismissAnnouncement()"
         x-ref="primaryBtn"
       >
@@ -130,14 +136,21 @@
       </div>
     {/if}
 
-    <div class="mx-8 space-y-12">
-      <div
-        class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6 max-w-6xl mx-auto" data-eb-loader-host="1">
-        <div class="flex items-center mb-6">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
+    <div class="eb-order-shell">
+      <div class="eb-panel" data-eb-loader-host="1">
+        <div class="eb-page-header">
+          <div>
+            <div class="eb-breadcrumb">
+              <span class="eb-breadcrumb-current">Provisioning</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 text-[var(--eb-text-muted)]">
             <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 10.5V6a3.75 3.75 0 1 0-7.5 0v4.5m11.356-1.993 1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 0 1-1.12-1.243l1.264-12A1.125 1.125 0 0 1 5.513 7.5h12.974c.576 0 1.059.435 1.119 1.007ZM8.625 10.5a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm7.5 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" />
           </svg>      
-          <h2 class="text-2xl font-semibold text-white ml-2 flex items-center gap-2">Provision New Services</h2>
+              <h2 class="eb-page-title">Provision New Services</h2>
+            </div>
+            <p class="eb-page-description">Create a single backup tenant or provision a validated bulk batch using the normalized order flow.</p>
+          </div>
         </div>
 
         <!-- Loading Overlay -->
@@ -152,10 +165,10 @@
         </div> *}
 
         <!-- Content Container -->
-        <div class="job-row group relative overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-900/70 p-5 shadow-sm">
+        <div class="eb-order-stage">
           <div
             class="min-h-[calc(100vh-14rem)]" data-eb-loader-host="1">
-            <div class="flex flex-col lg:flex-row gap-8" x-data="{
+            <div class="eb-order-grid" x-data="{
                     loading: false,
                     open: false,
                     // Mode: single | bulk (segmented control)
@@ -223,22 +236,6 @@
                     isVm() {
                       const pid = parseInt(this.selectedProduct || 0, 10);
                       return [53,54].includes(pid);
-                    },
-                    init() {
-                      this.updateProductType();
-                      this.$watch('selectedProduct', () => this.updateProductType());
-                      // hydrate emails
-                      {if !empty($POST.reportemail)} this.addEmailsFromString('{$POST.reportemail|escape:'html'}'); {/if}
-                      // Clear disallowed preselection for non-resellers
-                      {if !$isResellerClient}
-                      if ([60,57,54].includes(parseInt(this.selectedProduct||0,10))) {
-                        this.selectedProduct = '';
-                        this.selectedName = 'Choose a Service';
-                        this.selectedDesc = '';
-                        this.selectedIcon = '';
-                        this.productType = '';
-                      }
-                      {/if}
                     },
                     updateProductType() {
                       const pid = parseInt(this.selectedProduct || 0, 10);
@@ -478,39 +475,31 @@
                     },
                   }">
               
-              <div class="w-full lg:w-1/2 col-form" x-show="mode==='single'" x-transition x-cloak>
+              <div class="eb-order-main" x-show="mode==='single'" x-transition x-cloak>
                 <!-- Mode segmented control (positioned above Choose a Service) -->
                 <div class="w-full mb-6">
-                  <div class="inline-flex rounded-xl ring-1 ring-white/10 bg-[#0b1220] text-gray-300 shadow-sm overflow-hidden">
-                    <button type="button" @click="mode='single'" class="px-4 py-2 text-sm transition" :class="mode==='single' ? 'bg-slate-800 text-white' : 'hover:bg-white/5'">Single Account</button>
-                    <button type="button" @click="mode='bulk'" class="px-4 py-2 text-sm transition flex items-center gap-2" :class="mode==='bulk' ? 'bg-slate-800 text-white' : 'hover:bg-white/5'">Bulk Account Creation <span class="text-[10px] uppercase bg-sky-600/20 text-sky-300 px-2 py-0.5 rounded">Advanced</span></button>
+                  <div class="eb-order-segmented">
+                    <button type="button" @click="mode='single'" class="eb-order-segmented-btn" :class="{ 'is-active': mode==='single' }">Single Account</button>
+                    <button type="button" @click="mode='bulk'" class="eb-order-segmented-btn" :class="{ 'is-active': mode==='bulk' }">Bulk Account Creation <span class="eb-order-pill">Advanced</span></button>
                   </div>
                 </div>
                 <!-- Loader -->
                 <div id="loader" class="loader text-center hidden">
                   <img src="{$BASE_PATH_IMG}/loader.svg" alt="Loading..." class="mx-auto mb-2">
-                  <p class="text-gray-300">Processing your request… This may take up to 60 seconds.</p>
+                  <p class="eb-type-body">Processing your request... This may take up to 60 seconds.</p>
                 </div>
 
                 <div class="col-form w-full max-w-lg">
                   {if !empty($errors["error"])}
-                    <div class="bg-red-700 text-gray-100 px-4 py-3 rounded mb-4">
+                    <div class="eb-alert eb-alert--danger">
                       {$errors["error"]}
                     </div>
                   {/if}
 
-
-                  {* hide until Alpine kicks in *}
-                  <style>
-                    [x-cloak] {
-                      display: none !important;
-                    }
-                  </style>
-
                   <form id="createorder" method="post" action="{$modulelink}&a=createorder" class="space-y-4 xl:space-y-8" @submit="loading=true; submitWithLoader($event)">
                     <!-- Product Selection -->
                     <div class="{if !empty($errors['product'])}border-red-500{/if}">
-                      <label for="product" class="block text-sm font-medium text-gray-300 mb-1">
+                      <label for="product" class="eb-field-label">
                         Choose a Service
                       </label>
 
@@ -519,21 +508,21 @@
 
                         <!-- Closed button -->
                         <button type="button" @click="open = !open"
-                          class="cursor-pointer flex items-center w-full rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2.5 text-sm text-slate-100 placeholder:text-gray-500 text-white outline-1 -outline-offset-1 outline-white/10 placeholder:text-gray-500 focus:outline-2 focus:-outline-offset-2 transition hover:bg-slate-800/50 {if !empty($errors['product'])}border-red-500{/if}">
+                          class="eb-order-dropdown-btn {if !empty($errors['product'])}is-error{/if}">
                           <template x-if="selectedIcon">
                             <span class="flex-shrink-0 mr-3" x-html="selectedIcon"></span>
                           </template>
                           <div class="flex-1 text-left">
                             <div class="text-sm" x-text="selectedName"></div>
                             <template x-if="selectedDesc">
-                              <div class="text-xs text-gray-400" x-text="selectedDesc"></div>
+                              <div class="eb-type-caption" x-text="selectedDesc"></div>
                             </template>
                           </div>
                         </button>
 
                         <!-- Dropdown menu -->
                         <div x-show="open" @click.away="open = false"
-                          class="absolute z-10 w-full mt-1 bg-[#151f2e] border border-slate-700 rounded shadow-lg max-h-60 overflow-auto">
+                          class="eb-order-dropdown-menu">
                           {foreach $categories.whitelabel as $product}
                             <div @click="
                                               selectedProduct = '{$product.pid}';
@@ -542,19 +531,19 @@
                                               selectedIcon    = $event.currentTarget.querySelector('svg').outerHTML;
                                               productType     = 'usage';
                                               open            = false
-                                            " class="relative group flex items-start px-3 py-2 cursor-pointer hover:bg-slate-800/80 transition-colors duration-150">
+                                            " class="eb-order-dropdown-item">
                               
                               <div class="flex-shrink-0">
                                 <!-- whitelabel SVG -->
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
-                                  stroke="currentColor" class="w-6 h-6 text-gray-300 mr-3">
+                                  stroke="currentColor" class="mr-3 h-6 w-6 text-[var(--eb-text-secondary)]">
                                   <path stroke-linecap="round" stroke-linejoin="round"
                                     d="M9.53 16.122a3 3 0 0 0-5.78 1.128 2.25 2.25 0 0 1-2.4 2.245 4.5 4.5 0 0 0 8.4-2.245c0-.399-.078-.78-.22-1.128Zm0 0a15.998 15.998 0 0 0 3.388-1.62m-5.043-.025a15.994 15.994 0 0 1 1.622-3.395m3.42 3.42a15.995 15.995 0 0 0 4.764-4.648l3.876-5.814a1.151 1.151 0 0 0-1.597-1.597L14.146 6.32a15.996 15.996 0 0 0-4.649 4.763m3.42 3.42a6.776 6.776 0 0 0-3.42-3.42" />
                                 </svg>
                               </div>
-                              <div class="ml-1">
-                                <div class="text-sm text-gray-100">{$product.name}</div>
-                                <div class="text-xs text-gray-400">Whitelabel backup client and Control Panel</div>
+                              <div class="min-w-0">
+                                <div class="text-sm text-[var(--eb-text-primary)]">{$product.name}</div>
+                                <div class="eb-type-caption">Whitelabel backup client and Control Panel</div>
                               </div>
                             </div>
                           {/foreach}                      
@@ -568,7 +557,7 @@
                               selectedIcon    = $event.currentTarget.querySelector('svg').outerHTML;
                                               productType     = 'usage';
                               open            = false
-                            " class="relative group flex items-start px-3 py-2 cursor-pointer hover:bg-slate-800/80 transition-colors duration-150">
+                            " class="eb-order-dropdown-item">
                               {* <span class="absolute left-0 inset-y-0 w-1 bg-sky-500 opacity-0 transition-opacity duration-200 group-hover:opacity-100"></span> *}
                                 <div class="flex-shrink-0">
                                   {* <svg xmlns="http://www.w3.org/2000/svg" x="0px" y="0px" width="24" height="24" viewBox="0 0 50 50" style="fill:currentColor;" class="mr-3 {if $product.gid == 7}text-sky-500{else}text-orange-600{/if}"><path d="M20.13,32.5c-2.79-1.69-4.53-4.77-4.53-8.04V8.9c0-1.63,0.39-3.19,1.11-4.57L7.54,9.88C4.74,11.57,3,14.65,3,17.92v14.15 c0,1.59,0.42,3.14,1.16,4.5c0.69,1.12,1.67,2.06,2.88,2.74c2.53,1.42,5.51,1.36,7.98-0.15l8.02-4.9L20.13,32.5z M42.84,27.14 l-8.44-5.05v2.29c0,3.25-1.72,6.33-4.49,8.02l-13.84,8.47c1.52,0.93,3.19,1.42-4.87,1.46l8.93,5.41c1.5,0.91,3.19,1.36,4.87,1.36 s3.37-0.45,4.87-1.36l9.08-5.5l3.52-2.13c0.27-0.16,0.53-0.34,0.78-0.54c0.08-0.05,0.16-0.11,0.23-0.16 c0.65-0.53,1.23-1.13,1.71-1.79c0.02-0.03,0.04-0.06,0.06-0.09c0.77-1.19,1.2-2.59,1.19-4.06C46.43,30.85,45.09,28.48,42.84,27.14z M42.46,9.88l-9.57-5.79l-3.02-1.83C29.45,2,29.01,1.79,28.56,1.61c-0.49-0.21-1-0.37-1.51-0.47c-1.84-0.38-3.76-0.08-5.46,0.89 c-2.5,1.43-3.99,3.99-3.99,6.87v9.6l2.8-1.65c2.84-1.67,6.36-1.66,9.19,0.03l14.28,8.54c1.29,0.78,2.35,1.81,3.12,3.02L47,17.92 C47,14.65,45.26,11.57,42.46,9.88z"></path></svg>
@@ -607,9 +596,9 @@
                                   </svg>
                                 {/if}
                               </div>
-                              <div class="ml-1">
-                              <div class="text-sm text-gray-100">{$product.name}</div>
-                              <div class="text-xs text-gray-400">{if $product.pid == 60}OBC Branded Backup Client{elseif $product.pid == 58}eazyBackup Branded Backup Client{else}Usage-based billing{/if}</div>
+                              <div class="min-w-0">
+                              <div class="text-sm text-[var(--eb-text-primary)]">{$product.name}</div>
+                              <div class="eb-type-caption">{if $product.pid == 60}OBC Branded Backup Client{elseif $product.pid == 58}eazyBackup Branded Backup Client{else}Usage-based billing{/if}</div>
                             </div>
                           </div>
                           {/if}
@@ -624,7 +613,7 @@
                                             selectedIcon    = $event.currentTarget.querySelector('svg').outerHTML;
                                             productType     = 'ms365';
                                             open            = false
-                                          " class="relative group flex items-start px-3 py-2 cursor-pointer hover:bg-slate-800/80 transition-colors duration-150">
+                                          " class="eb-order-dropdown-item">
                             {* <span class="absolute left-0 inset-y-0 w-1 bg-sky-500 opacity-0 transition-opacity duration-200 group-hover:opacity-100"></span> *}
                             <div class="flex-shrink-0">
                               <!-- eazyBackup (gid=6) orange, OBC (gid=7) sky -->
@@ -641,9 +630,9 @@
                               </svg>
 
                             </div>
-                            <div class="ml-1">
-                              <div class="text-sm text-gray-100">{$product.name}</div>
-                              <div class="text-xs text-gray-400">Cloud to Cloud backup for Microsoft 365 data</div>
+                            <div class="min-w-0">
+                              <div class="text-sm text-[var(--eb-text-primary)]">{$product.name}</div>
+                              <div class="eb-type-caption">Cloud to Cloud backup for Microsoft 365 data</div>
                             </div>
                           </div>
                           {/if}
@@ -658,7 +647,7 @@
                                             selectedIcon    = $event.currentTarget.querySelector('svg').outerHTML;
                                             productType     = 'usage';
                                             open            = false
-                                          " class="relative group flex items-start px-3 py-2 cursor-pointer hover:bg-slate-800/80 transition-colors duration-150">
+                                          " class="eb-order-dropdown-item">
                             {* <span class="absolute left-0 inset-y-0 w-1 bg-sky-500 opacity-0 transition-opacity duration-200 group-hover:opacity-100"></span> *}
                             <div class="flex-shrink-0 {if $product.gid == 7}text-sky-500{else}text-orange-600{/if}">
                             {if $product.pid == 53}
@@ -698,9 +687,9 @@
                               </svg>
                             {/if}
                             </div>
-                            <div class="ml-1">
-                              <div class="text-sm text-gray-100">{$product.name}</div>
-                              <div class="text-xs text-gray-400">Backup for Hyper-V, Proxmox, and VMware, no device charges</div>
+                            <div class="min-w-0">
+                              <div class="text-sm text-[var(--eb-text-primary)]">{$product.name}</div>
+                              <div class="eb-type-caption">Backup for Hyper-V, Proxmox, and VMware, no device charges</div>
                               </div>
                             </div>
                           {/if}
@@ -720,49 +709,51 @@
 
                   <!-- Consolidated Billing (Future Orders Only) -->
                   <div class="mb-8">
-                    <div class="flex items-start">
-                      <label class="w-1/4 text-sm font-medium text-gray-300">Consolidated billing</label>
-                      <div class="w-3/4 space-y-3">
+                    <div class="eb-order-field-row">
+                      <label class="eb-field-label md:pt-2">Consolidated billing</label>
+                      <div class="space-y-3">
                         <!-- Toggle switch -->
-                        <div class="flex items-center gap-3">
+                        <div class="eb-toggle">
                           <button type="button"
                             :aria-pressed="cb.enabled ? 'true' : 'false'"
                             role="switch"
                             :aria-checked="cb.enabled ? 'true' : 'false'"
                             @click="if(!cb.locked){ cb.enabled = !cb.enabled }"
                             :class="cb.locked ? 'opacity-50 cursor-not-allowed' : ''"
-                            class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-sky-500/50"
-                            :style="cb.enabled ? 'background-color: rgb(2 132 199 / 1)' : 'background-color: rgb(30 41 59 / 1)'"></button>
-                          <span class="text-sm text-gray-300" x-text="cb.locked ? 'Enabled' : 'Consolidate billing for future orders.'"></span>
+                            class="eb-toggle-track"
+                            :class="{ 'is-on': cb.enabled }">
+                            <span class="eb-toggle-thumb"></span>
+                          </button>
+                          <span class="eb-toggle-label" x-text="cb.locked ? 'Enabled' : 'Consolidate billing for future orders.'"></span>
                           <input type="hidden" id="cb_enabled" name="cb_enabled" value="0">
                         </div>
 
                         <!-- Day picker (1–31) -->
                         <div class="relative" x-show="cb.enabled" x-cloak>
                           <div class="flex items-center gap-3">
-                            <span class="text-sm text-gray-300">Day of month</span>
+                            <span class="eb-type-body">Day of month</span>
                             <button type="button" @click="!cb.locked && (domOpen=!domOpen)" :disabled="cb.locked"
-                              class="px-3 py-2 border border-slate-700 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600"
+                              class="eb-order-dropdown-btn max-w-32"
                               :class="cb.locked ? 'opacity-50 cursor-not-allowed' : ''"
                               x-text="cb.dom"></button>
                             <input type="hidden" id="cb_dom" name="cb_dom" :value="cb.dom">
                           </div>
                           <div x-show="domOpen" @click.away="domOpen=false" x-cloak
-                            class="absolute z-10 mt-1 bg-[#151f2e] border border-sky-600 rounded shadow-lg max-h-48 overflow-auto w-40">
+                            class="eb-order-dropdown-menu max-w-40">
                             <template x-for="n in 31" :key="n">
                               <div @click="cb.dom=n; domOpen=false"
-                                class="px-3 py-1 cursor-pointer hover:bg-slate-800/50 text-gray-300"
+                                class="eb-order-dropdown-item py-1"
                                 x-text="n"></div>
                             </template>
                           </div>
                           <template x-if="domError">
                             <p class="text-red-500 text-xs mt-1" x-text="domError"></p>
                           </template>
-                          <p x-show="cb.enabled && !cb.locked" x-cloak class="text-xs text-gray-400 mt-2">Selected billing date applies to this order and all future orders. Existing plans keep their current billing dates. To change past orders, contact Sales.</p>
+                          <p x-show="cb.enabled && !cb.locked" x-cloak class="eb-field-help">Selected billing date applies to this order and all future orders. Existing plans keep their current billing dates. To change past orders, contact Sales.</p>
                         </div>
 
                         <!-- Summary row -->
-                        <div x-show="cb.enabled" x-cloak class="text-sm text-gray-300 select-none">
+                        <div x-show="cb.enabled" x-cloak class="eb-type-body select-none">
                           <span x-text="cb.summary"></span>
                         </div>
                       </div>
@@ -771,12 +762,12 @@
 
                   <!-- Username Field -->
                   <div class="mb-8 {if !empty($errors.username)}border-red-500{/if}">
-                    <div class="flex items-center">
+                    <div class="eb-order-field-row">
                       <!-- Label + Tooltip Icon -->
-                      <label for="username" class="w-1/4 text-sm font-medium text-gray-300 flex items-center">
+                      <label for="username" class="eb-field-label flex items-center md:pt-2">
                         Username
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
-                          stroke="currentColor" class="w-5 h-5 text-gray-400 ml-2 cursor-pointer"
+                          stroke="currentColor" class="ml-2 h-5 w-5 cursor-pointer text-[var(--eb-text-muted)]"
                           data-tippy-content="At least 6 characters; letters, numbers, underscore, dot, or dash.">
                           <path stroke-linecap="round" stroke-linejoin="round"
                             d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
@@ -784,12 +775,12 @@
                       </label>
 
                       <!-- Input -->
-                      <div class="w-3/4">
+                      <div>
                         <input type="text" id="username" name="username" placeholder="Username"
-                          class="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-2.5 text-sm text-slate-100 placeholder:text-gray-400 text-white outline-1 -outline-offset-1 outline-white/10 focus:outline-2 focus:-outline-offset-2 focus:outline-slate-500 {if !empty($errors.username)}border-red-500{/if} transition hover:bg-slate-800/70"
+                          class="eb-input {if !empty($errors.username)}is-error{/if}"
                           {if !empty($POST.username)}value="{$POST.username|escape:"html"}" {/if}>
                         {if !empty($errors.username)}
-                          <p class="text-red-500 text-xs mt-1">{$errors.username}</p>
+                          <p class="eb-field-error">{$errors.username}</p>
                         {/if}
                       </div>
                     </div>
@@ -797,12 +788,12 @@
 
                   <div x-data="{ldelim} showPassword: false, showConfirmPassword: false {rdelim}"
                     class="mb-8 {if !empty($errors.password) || !empty($errors.confirmpassword)}border-red-500{/if}">
-                    <div class="flex items-center">
+                    <div class="eb-order-field-row">
                       <!-- Left label + tooltip icon -->
-                      <label for="password" class="w-1/4 text-sm font-medium text-gray-300 flex items-center">
+                      <label for="password" class="eb-field-label flex items-center md:pt-2">
                         Password
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
-                          stroke="currentColor" class="w-5 h-5 text-gray-400 ml-2 cursor-pointer"
+                          stroke="currentColor" class="ml-2 h-5 w-5 cursor-pointer text-[var(--eb-text-muted)]"
                           data-tippy-content="At least 8 characters, mix of upper/lowercase, numbers & symbols.">
                           <path stroke-linecap="round" stroke-linejoin="round"
                             d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
@@ -810,17 +801,17 @@
                       </label>
 
                       <!-- Inputs -->
-                      <div class="w-3/4 flex space-x-4">
+                      <div class="flex flex-col gap-4 md:flex-row">
                         <!-- Create Password -->
-                        <div class="flex-1 relative">
+                        <div class="eb-input-wrap flex-1">
                           <input :type="showPassword ? 'text' : 'password'" id="password" name="password"
                             placeholder="Create password"
-                            class="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2.5 text-sm text-slate-100 placeholder:text-gray-400 text-white outline-1 -outline-offset-1 outline-white/10 focus:outline-2 focus:-outline-offset-2 focus:outline-slate-500 {if !empty($errors.username)}border-red-500{/if} transition hover:bg-slate-800/70">
+                            class="eb-input {if !empty($errors.password)}is-error{/if}">
                           <button type="button" @click="showPassword = !showPassword" tabindex="-1"
-                            class="absolute inset-y-0 right-3 flex items-center text-gray-400">
+                            class="absolute inset-y-0 right-3 flex items-center text-[var(--eb-text-muted)]">
                             <!-- Hidden Icon -->
                             <svg x-show="!showPassword" x-cloak xmlns="http://www.w3.org/2000/svg" fill="none"
-                              viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="text-slate-500 w-5 h-5">
+                              viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-5 w-5 text-[var(--eb-text-muted)]">
                               <path stroke-linecap="round" stroke-linejoin="round" d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 
                                 7.244 19.5 12 19.5c.993 0 1.953-.138 
                                 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 
@@ -834,7 +825,7 @@
                             </svg>
                             <!-- Visible Icon -->
                             <svg x-show="showPassword" x-cloak xmlns="http://www.w3.org/2000/svg" fill="none"
-                              viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="text-slate-500 w-5 h-5">
+                              viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-5 w-5 text-[var(--eb-text-muted)]">
                               <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 
                                 7.51 7.36 4.5 12 4.5c4.638 0 8.573 
                                 3.007 9.963 7.178.07.207.07.431 
@@ -846,20 +837,20 @@
                           </button>
 
                           {if !empty($errors.password)}
-                            <p class="text-red-500 text-xs mt-1">{$errors.password}</p>
+                            <p class="eb-field-error">{$errors.password}</p>
                           {/if}
                         </div>
 
                         <!-- Confirm Password -->
-                        <div class="flex-1 relative">
+                        <div class="eb-input-wrap flex-1">
                           <input :type="showConfirmPassword ? 'text' : 'password'" id="confirmpassword"
                             name="confirmpassword" placeholder="Confirm password"
-                            class="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2.5 text-sm text-slate-100 placeholder:text-gray-500 text-white outline-1 -outline-offset-1 outline-white/10 placeholder:text-gray-500 focus:outline-2 focus:-outline-offset-2 focus:outline-slate-600 transition hover:bg-slate-800/50 {if !empty($errors.confirmpassword)}border-red-500{/if}">
+                            class="eb-input {if !empty($errors.confirmpassword)}is-error{/if}">
                           <button type="button" @click="showConfirmPassword = !showConfirmPassword" tabindex="-1"
-                            class="absolute inset-y-0 right-3 flex items-center text-gray-400">
+                            class="absolute inset-y-0 right-3 flex items-center text-[var(--eb-text-muted)]">
                             <!-- Hidden Icon -->
                             <svg x-show="!showConfirmPassword" x-cloak xmlns="http://www.w3.org/2000/svg" fill="none"
-                              viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="text-slate-500 w-5 h-5">
+                              viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-5 w-5 text-[var(--eb-text-muted)]">
                               <path stroke-linecap="round" stroke-linejoin="round" d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 
                                 7.244 19.5 12 19.5c.993 0 1.953-.138 
                                 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 
@@ -873,7 +864,7 @@
                             </svg>
                             <!-- Visible Icon -->
                             <svg x-show="showConfirmPassword" x-cloak xmlns="http://www.w3.org/2000/svg" fill="none"
-                              viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="text-slate-500 w-5 h-5">
+                              viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-5 w-5 text-[var(--eb-text-muted)]">
                               <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 
                                 7.51 7.36 4.5 12 4.5c4.638 0 8.573 
                                 3.007 9.963 7.178.07.207.07.431 
@@ -885,7 +876,7 @@
                           </button>
 
                           {if !empty($errors.confirmpassword)}
-                            <p class="text-red-500 text-xs mt-1">{$errors.confirmpassword}</p>
+                            <p class="eb-field-error">{$errors.confirmpassword}</p>
                           {/if}
                         </div>
                       </div>
@@ -894,60 +885,50 @@
 
                   <!-- Reporting‑email (chips) -->
                   <div class="mb-8">
-                    <div class="flex items-center">
-                      <label for="reportemail" class="w-1/4 text-sm font-medium text-gray-300 flex items-center">
+                    <div class="eb-order-field-row">
+                      <label for="reportemail" class="eb-field-label flex items-center md:pt-2">
                         Email for Reports
                       </label>
-                      <div class="w-3/4">
+                      <div>
                         <div class="flex flex-wrap gap-2 mb-2">
                           <template x-for="(e,idx) in emails" :key="e">
-                            <span class="inline-flex items-center px-2 py-1 rounded bg-slate-700 text-xs">
+                            <span class="eb-order-chip">
                               <span x-text="e"></span>
-                              <button type="button" @click="removeEmail(idx)" class="ml-1 text-gray-300 hover:text-white focus:outline-none">&times;</button>
+                              <button type="button" @click="removeEmail(idx)" class="ml-1 hover:text-white focus:outline-none">&times;</button>
                             </span>
                           </template>
                         </div>
                         <input type="text" id="reportemail_entry" x-model="emailEntry" @keydown="handleEmailKey($event)" @blur="handleEmailBlur()" placeholder="backupreports@example.com"
-                          class="w-full px-3 py-2 border {if !empty($errors.reportemail)}border-red-500{else}border-slate-700{/if} rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2.5 text-sm text-slate-100 placeholder:text-gray-500 text-white outline-1 -outline-offset-1 outline-white/10 placeholder:text-gray-500 focus:outline-2 focus:-outline-offset-2 focus:outline-slate-600 transition hover:bg-slate-800/50">
+                          class="eb-input {if !empty($errors.reportemail)}is-error{/if}">
                         <input type="hidden" id="reportemail" name="reportemail" value="{$POST.reportemail|escape:'html'}">
-                        <p class="text-xs text-gray-400 mt-1">Enter one or more emails, press enter or tab after each email.</p>
+                        <p class="eb-field-help">Enter one or more emails, press enter or tab after each email.</p>
                       </div>
                     </div>
 
                     {if !empty($errors.reportemail)}
-                      <p class="text-red-500 text-xs mt-1">{$errors.reportemail}</p>
+                      <p class="eb-field-error">{$errors.reportemail}</p>
                     {/if}
                   </div>
-
-                  {* hide until Alpine initializes *}
-                  <style>
-                    [x-cloak] {
-                      display: none !important;
-                    }
-                  </style>
 
 
 
                   <!-- Billing Term Selection -->
                   <div class="mb-8">
-                    <div class="flex items-center">
-                      <label for="billing-term" class="w-1/4 text-sm font-medium text-gray-300">
+                    <div class="eb-order-field-row">
+                      <label for="billing-term" class="eb-field-label md:pt-2">
                         Billing Term
                       </label>
-                      <div class="w-3/4 relative">
+                      <div class="relative">
                         <!-- bind to the root Alpine state -->
                         <input type="hidden" name="billingterm" x-model="billingTerm">
 
                         <!-- toggle button -->
                         <button type="button" :disabled="termDisabled" @click="!termDisabled && (termOpen = !termOpen)"
-                          class="flex items-center w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2.5 text-sm text-slate-100 placeholder:text-gray-500 text-white outline-1 -outline-offset-1 outline-white/10 placeholder:text-gray-500 focus:outline-2 focus:-outline-offset-2 focus:outline-slate-600 transition
-                " :class="termDisabled
-                  ? 'opacity-60 cursor-not-allowed bg-slate-700 pointer-events-none'
-                  : 'hover:bg-slate-800/50'">
+                          class="eb-order-dropdown-btn" :class="termDisabled ? 'opacity-60 cursor-not-allowed pointer-events-none' : ''">
                           <span class="flex-1 text-left" x-text="billingTerm
             ? termOptions.find(o => o.value === billingTerm).label
             : 'Select billing term'"></span>
-                          <svg class="w-5 h-5 ml-2 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none"
+                          <svg class="w-5 h-5 ml-2 text-[var(--eb-text-muted)]" xmlns="http://www.w3.org/2000/svg" fill="none"
                             viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
                           </svg>
@@ -955,12 +936,12 @@
 
                         <!-- dropdown menu -->
                         <div x-show="termOpen" @click.away="termOpen = false" x-cloak
-                          class="absolute z-10 w-full mt-1 bg-[#151f2e] border border-slate-700 rounded shadow-lg">
+                          class="eb-order-dropdown-menu">
                           <template x-for="opt in termOptions" :key="opt.value">
                             <div @click="billingTerm = opt.value; termOpen = false"
-                              class="relative group flex items-center px-4 py-2 cursor-pointer hover:bg-slate-800/80 transition-colors duration-150">
+                              class="eb-order-dropdown-item">
                               <!-- option label -->
-                              <span class="flex-1 ml-2 text-gray-300 group-hover:text-white" x-text="opt.label"></span>
+                              <span class="flex-1" x-text="opt.label"></span>
                             </div>
                           </template>
                         </div>
@@ -968,12 +949,12 @@
 
                         <!-- validation error -->
                         {if !empty($errors['billingterm'])}
-                          <p class="text-red-500 text-xs mt-1">Please select a billing term.</p>
+                          <p class="eb-field-error">Please select a billing term.</p>
                         {/if}
                       </div>
                     </div>
                     <!-- Annual fine-print -->
-                    <p x-show="billingTerm === 'annual'" x-cloak class="mt-2 ml-1 text-xs text-gray-400">
+                    <p x-show="billingTerm === 'annual'" x-cloak class="eb-field-help mt-2">
                       Annual plans are subject to prorated charges for increased usage during the billing term.
                     </p>
                   </div>
@@ -984,21 +965,21 @@
 
                   <!-- Payment method gating / Stripe inline capture -->
                   <div class="mb-8">
-                    <div class="flex items-start">
-                      <label class="w-1/4 text-sm font-medium text-gray-300">Payment</label>
-                      <div class="w-3/4 space-y-2">
+                    <div class="eb-order-field-row">
+                      <label class="eb-field-label md:pt-2">Payment</label>
+                      <div class="space-y-2">
                         <template x-if="!payment.isStripeDefault">
-                          <div class="text-sm text-gray-300">Your default payment method is <span class="font-medium" x-text="payment.defaultGateway || 'invoice'"></span>. You can proceed.</div>
+                          <div class="eb-type-body">Your default payment method is <span class="font-medium" x-text="payment.defaultGateway || 'invoice'"></span>. You can proceed.</div>
                         </template>
                         <template x-if="payment.isStripeDefault && payment.hasCardOnFile">
-                          <div class="text-sm text-gray-300">Your saved card <span x-text="payment.lastFour ? ('•••• ' + payment.lastFour) : ''"></span> will be used. You can place the order.</div>
+                          <div class="eb-type-body">Your saved card <span x-text="payment.lastFour ? ('•••• ' + payment.lastFour) : ''"></span> will be used. You can place the order.</div>
                         </template>
                         <template x-if="payment.isStripeDefault && !payment.hasCardOnFile">
                           <div class="space-y-3">
-                            <div class="text-sm text-amber-300">A saved card is required to complete the order.</div>
-                            <a href="{$payment.addCardExternalUrl|escape:'html'}" class="inline-flex items-center px-3 py-2 rounded bg-sky-600 hover:bg-sky-700">Add Card (Secure)</a>
-                            <div class="text-xs text-gray-500">
-                              After adding your card, <a href="{$modulelink}&a=createorder" class="text-sky-400 underline">refresh this page</a> to continue.
+                            <div class="eb-alert eb-alert--warning mb-0">A saved card is required to complete the order.</div>
+                            <a href="{$payment.addCardExternalUrl|escape:'html'}" class="eb-btn eb-btn-md eb-btn-info">Add Card (Secure)</a>
+                            <div class="eb-field-help">
+                              After adding your card, <a href="{$modulelink}&a=createorder" class="text-[var(--eb-info-text)] underline">refresh this page</a> to continue.
                             </div>
                           </div>
                         </template>
@@ -1008,19 +989,19 @@
 
                   <!-- Billing start date (static) -->
                   <div class="mb-8" :class="cb.enabled ? 'opacity-50 pointer-events-none select-none' : ''">
-                    <div class="flex items-center">
-                      <label class="w-1/4 text-sm font-medium text-gray-300">
+                    <div class="eb-order-field-row">
+                      <label class="eb-field-label md:pt-2">
                         Billing start date
                       </label>
-                      <div class="w-3/4">
+                      <div>
                         <template x-if="isResellerClient && !cb.enabled">
                           <div>
-                            <div class="text-xs text-gray-500 line-through" x-text="new Date().toISOString().slice(0,10)"></div>
-                            <div class="mt-1 px-3 py-2 border border-slate-700 text-white bg-[#11182759] rounded-lg select-none">
+                            <div class="eb-type-caption line-through" x-text="new Date().toISOString().slice(0,10)"></div>
+                            <div class="eb-order-static-box mt-1 text-white">
                               <span x-text="(() => { const d = new Date(); d.setDate(d.getDate()+30); return d.toISOString().slice(0,10); })()"></span>
                             </div>
                             <p class="mt-1">
-                              <span class="inline-flex items-center rounded-full text-[10px] uppercase bg-sky-600/20 text-sky-300 px-2 py-0.5 rounded px-2.5 py-0.5 text-[11px] font-medium text-emerald-400/75">
+                              <span class="eb-badge eb-badge--success">
                                 Reseller Promo Applied — 30 days free
                               </span>
                             </p>
@@ -1028,14 +1009,14 @@
                         </template>
                         <template x-if="!isResellerClient && !cb.enabled">
                           <div>
-                            <div class="mt-1 px-3 py-2 border border-slate-700 text-gray-300 bg-[#11182759] rounded select-none">
+                            <div class="eb-order-static-box mt-1">
                               <span x-text="new Date().toISOString().slice(0,10)"></span>
                             </div>
                           </div>
                         </template>
                         <template x-if="cb.enabled">
                           <div>
-                            <div class="mt-1 px-3 py-2 border border-slate-700 text-gray-300 bg-[#11182759] rounded select-none">
+                            <div class="eb-order-static-box is-muted mt-1">
                               <span></span>
                             </div>
                           </div>
@@ -1050,10 +1031,7 @@
 
                   <!-- Submit Button -->
                   <button type="submit" :disabled="!canSubmit()"
-                    class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-700"
-                    :class="canSubmit() 
-                        ? 'bg-green-600 hover:bg-green-700' 
-                        : 'opacity-50 cursor-not-allowed bg-green-600'">
+                    class="eb-btn eb-btn-md eb-btn-success">
                     <!-- swap text -->
                     <span x-text="loading ? 'Processing…' : 'Confirm'"></span>
 
@@ -1070,21 +1048,21 @@
             <!-- Bulk Confirmation Modal (scoped inside main Alpine component) -->
             <div x-show="confirmOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center">
               <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="confirmOpen=false"></div>
-              <div class="relative w-full max-w-lg mx-4 rounded-2xl bg-[#0b1220] text-gray-100 shadow-2xl ring-1 ring-white/10"
+              <div class="eb-order-modal max-w-lg"
                    x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
                    x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95">
-                <div class="px-6 py-4 border-b border-white/10">
-                  <h3 class="text-xl font-semibold">Confirm Provision</h3>
+                <div class="eb-order-modal-header">
+                  <h3 class="eb-section-title">Confirm Provision</h3>
                 </div>
-                <div class="px-6 py-4 space-y-2 text-sm">
-                  <div class="flex justify-between"><span class="text-gray-400">Product</span><span x-text="confirm.product"></span></div>
-                  <div class="flex justify-between"><span class="text-gray-400">Billing term</span><span x-text="confirm.term"></span></div>
-                  <div class="flex justify-between"><span class="text-gray-400">Accounts</span><span x-text="confirm.count"></span></div>
-                  <div class="flex justify-between"><span class="text-gray-400">Billing start</span><span x-text="confirm.start"></span></div>
+                <div class="eb-order-modal-body space-y-2 text-sm">
+                  <div class="flex justify-between"><span class="text-[var(--eb-text-muted)]">Product</span><span x-text="confirm.product"></span></div>
+                  <div class="flex justify-between"><span class="text-[var(--eb-text-muted)]">Billing term</span><span x-text="confirm.term"></span></div>
+                  <div class="flex justify-between"><span class="text-[var(--eb-text-muted)]">Accounts</span><span x-text="confirm.count"></span></div>
+                  <div class="flex justify-between"><span class="text-[var(--eb-text-muted)]">Billing start</span><span x-text="confirm.start"></span></div>
                 </div>
-                <div class="px-6 py-4 flex justify-end gap-3 border-t border-white/10">
-                  <button type="button" class="px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-600" @click="confirmOpen=false">Cancel</button>
-                  <button type="button" class="px-4 py-2 rounded-xl bg-green-600 hover:bg-green-500" @click="confirmProvision()">Confirm</button>
+                <div class="eb-order-modal-footer">
+                  <button type="button" class="eb-btn eb-btn-md eb-btn-secondary" @click="confirmOpen=false">Cancel</button>
+                  <button type="button" class="eb-btn eb-btn-md eb-btn-success" @click="confirmProvision()">Confirm</button>
                 </div>
               </div>
             </div>
@@ -1092,33 +1070,33 @@
             </div>
 
             <!-- Bulk mode left column -->
-            <div class="w-full lg:w-full" x-show="mode==='bulk'" x-transition x-cloak>
+            <div class="eb-order-main--wide" x-show="mode==='bulk'" x-transition x-cloak>
               <!-- Mode segmented control (positioned above Choose a Service) -->
               <div class="w-full mb-6">
-                <div class="inline-flex rounded-xl ring-1 ring-white/10 bg-[#0b1220] text-gray-300 shadow-sm overflow-hidden">
-                  <button type="button" @click="mode='single'" class="px-4 py-2 text-sm transition" :class="mode==='single' ? 'bg-slate-800 text-white' : 'hover:bg-white/5'">Single Account</button>
-                  <button type="button" @click="mode='bulk'" class="px-4 py-2 text-sm transition flex items-center gap-2" :class="mode==='bulk' ? 'bg-slate-800 text-white' : 'hover:bg-white/5'">Bulk Account Creation <span class="text-[10px] uppercase bg-sky-600/20 text-sky-300 px-2 py-0.5 rounded">Advanced</span></button>
+                <div class="eb-order-segmented">
+                  <button type="button" @click="mode='single'" class="eb-order-segmented-btn" :class="{ 'is-active': mode==='single' }">Single Account</button>
+                  <button type="button" @click="mode='bulk'" class="eb-order-segmented-btn" :class="{ 'is-active': mode==='bulk' }">Bulk Account Creation <span class="eb-order-pill">Advanced</span></button>
                 </div>
               </div>
               <!-- Choose a Service (reuse same dropdown, separate input id) -->
               <div class="col-form w-full mb-6">
                 <div>
-                  <label for="productBulk" class="block text-sm font-medium text-gray-300 mb-1">Choose a Service</label>
+                  <label for="productBulk" class="eb-field-label">Choose a Service</label>
                   <div class="relative">
                     <input type="hidden" id="productSelectBulk" name="product_bulk" x-model="selectedProduct">
-                    <button type="button" @click="open = !open" class="flex items-center w-full px-3 py-2 border border-slate-700 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600">
+                    <button type="button" @click="open = !open" class="eb-order-dropdown-btn">
                       <template x-if="selectedIcon">
                         <span class="flex-shrink-0 mr-3" x-html="selectedIcon"></span>
                       </template>
                       <div class="flex-1 text-left">
                         <div class="text-sm" x-text="selectedName"></div>
                         <template x-if="selectedDesc">
-                          <div class="text-xs text-gray-400" x-text="selectedDesc"></div>
+                          <div class="eb-type-caption" x-text="selectedDesc"></div>
                         </template>
                       </div>
                     </button>
                     <!-- Dropdown menu (bulk: restrict to PIDs 58,60,53,54) -->
-                    <div x-show="open" @click.away="open = false" class="absolute z-10 w-full mt-1 bg-[#151f2e] border border-sky-600 rounded shadow-lg max-h-60 overflow-auto">
+                    <div x-show="open" @click.away="open = false" class="eb-order-dropdown-menu">
                       {foreach $categories.usage as $product}
                         {if ($product.pid == 58) || ($isResellerClient && $product.pid == 60)}
                         <div @click="
@@ -1128,7 +1106,7 @@
                           selectedIcon    = $event.currentTarget.querySelector('svg').outerHTML;
                           productType     = 'usage';
                           open            = false
-                        " class="relative group flex items-start px-3 py-2 cursor-pointer">
+                        " class="eb-order-dropdown-item">
                           {* <span class="absolute left-0 inset-y-0 w-1 bg-sky-500 opacity-0 transition-opacity duration-200 group-hover:opacity-100"></span> *}
                           <div class="flex-shrink-0">
                             {if $product.pid == 58}
@@ -1163,9 +1141,9 @@
                               </svg>
                             {/if}
                           </div>
-                          <div class="ml-1">
-                            <div class="text-sm text-gray-100">{$product.name}</div>
-                            <div class="text-xs text-gray-400">{if $product.pid == 60}OBC Branded Backup Client{elseif $product.pid == 58}eazyBackup Branded Backup Client{else}Usage-based billing{/if}</div>
+                          <div class="min-w-0">
+                            <div class="text-sm text-[var(--eb-text-primary)]">{$product.name}</div>
+                            <div class="eb-type-caption">{if $product.pid == 60}OBC Branded Backup Client{elseif $product.pid == 58}eazyBackup Branded Backup Client{else}Usage-based billing{/if}</div>
                           </div>
                         </div>
                         {/if}
@@ -1179,14 +1157,14 @@
                           selectedIcon    = $event.currentTarget.querySelector('svg').outerHTML;
                           productType     = 'usage';
                           open            = false
-                        " class="relative group flex items-start px-3 py-2 cursor-pointer">
+                        " class="eb-order-dropdown-item">
                           {* <span class="absolute left-0 inset-y-0 w-1 bg-sky-500 opacity-0 transition-opacity duration-200 group-hover:opacity-100"></span> *}
                           <div class="flex-shrink-0 {if $product.gid == 7}text-sky-500{else}text-orange-600{/if}">
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" class="mr-3 size-6"><path d="M5.507 4.048A3 3 0 0 1 7.785 3h8.43a3 3 0 0 1 2.278 1.048l1.722 2.008A4.533 4.533 0 0 0 19.5 6h-15c-.243 0-.482.02-.715.056l1.722-2.008Z" /><path fill-rule="evenodd" d="M1.5 10.5a3 3 0 0 1 3-3h15a3 3 0 1 1 0 6h-15a3 3 0 0 1-3-3Zm15 0a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm2.25.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM4.5 15a3 3 0 1 0 0 6h15a3 3 0 1 0 0-6h-15Zm11.25 3.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM19.5 18a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z" clip-rule="evenodd" /></svg>
                           </div>
-                          <div class="ml-1">
-                            <div class="text-sm text-gray-100">{$product.name}</div>
-                            <div class="text-xs text-gray-400">Backup for Hyper-V, Proxmox, and VMware, no device charges</div>
+                          <div class="min-w-0">
+                            <div class="text-sm text-[var(--eb-text-primary)]">{$product.name}</div>
+                            <div class="eb-type-caption">Backup for Hyper-V, Proxmox, and VMware, no device charges</div>
                           </div>
                         </div>
                         {/if}
@@ -1197,83 +1175,85 @@
               </div>
               <div class="space-y-6">
                 <!-- Bulk tabs -->
-                <div class="inline-flex rounded-xl ring-1 ring-white/10 bg-[#0b1220] text-gray-300 shadow-sm overflow-hidden">
-                  <button type="button" @click="bulkTab='manual'" class="px-4 py-2 text-sm" :class="bulkTab==='manual' ? 'bg-slate-800 text-white' : 'hover:bg-white/5'">Manual Entry</button>
-                  <button type="button" @click="bulkTab='csv'" class="px-4 py-2 text-sm" :class="bulkTab==='csv' ? 'bg-slate-800 text-white' : 'hover:bg-white/5'">CSV Upload</button>
+                <div class="eb-order-segmented">
+                  <button type="button" @click="bulkTab='manual'" class="eb-order-segmented-btn" :class="{ 'is-active': bulkTab==='manual' }">Manual Entry</button>
+                  <button type="button" @click="bulkTab='csv'" class="eb-order-segmented-btn" :class="{ 'is-active': bulkTab==='csv' }">CSV Upload</button>
                 </div>
 
                 <!-- Shared controls -->
                 <div class="grid grid-cols-1 gap-4">
                   <div>
-                    <label class="block text-sm font-medium text-white mb-1">Billing Term</label>
+                    <label class="eb-field-label">Billing Term</label>
                     <div class="flex gap-3">
-                      <button type="button" @click="billingTerm='monthly'" class="px-3 py-2 rounded ring-1 ring-white/10" :class="billingTerm==='monthly' ? 'bg-slate-800 text-white' : 'hover:bg-white/5'">Monthly</button>
-                      <button type="button" @click="billingTerm='annual'" class="px-3 py-2 rounded ring-1 ring-white/10" :class="billingTerm==='annual' ? 'bg-slate-800 text-white' : 'hover:bg-white/5'">Annual</button>
+                      <button type="button" @click="billingTerm='monthly'" class="eb-order-segmented-btn rounded-lg border border-[var(--eb-border-default)]" :class="{ 'is-active': billingTerm==='monthly' }">Monthly</button>
+                      <button type="button" @click="billingTerm='annual'" class="eb-order-segmented-btn rounded-lg border border-[var(--eb-border-default)]" :class="{ 'is-active': billingTerm==='annual' }">Annual</button>
                     </div>
                   </div>
                   <div>
-                    <label class="block text-sm font-medium text-gray-300 mb-1">Consolidated Billing</label>
-                    <div class="flex items-center gap-3">
+                    <label class="eb-field-label">Consolidated Billing</label>
+                    <div class="eb-toggle">
                       <button type="button"
                         :aria-pressed="cb.enabled ? 'true' : 'false'"
                         role="switch"
                         :aria-checked="cb.enabled ? 'true' : 'false'"
                         @click="if(!cb.locked){ cb.enabled = !cb.enabled }"
                         :class="cb.locked ? 'opacity-50 cursor-not-allowed' : ''"
-                        class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-sky-500/50"
-                        :style="cb.enabled ? 'background-color: rgb(2 132 199 / 1)' : 'background-color: rgb(30 41 59 / 1)'"></button>
-                      <span class="text-sm text-gray-300" x-text="cb.locked ? 'Enabled' : (cb.enabled ? 'Enabled' : 'Off')"></span>
+                        class="eb-toggle-track"
+                        :class="{ 'is-on': cb.enabled }">
+                        <span class="eb-toggle-thumb"></span>
+                      </button>
+                      <span class="eb-toggle-label" x-text="cb.locked ? 'Enabled' : (cb.enabled ? 'Enabled' : 'Off')"></span>
                       <input type="hidden" id="cb_enabled_bulk" name="cb_enabled" :value="cb.enabled ? '1' : '0'">
                     </div>
                     <!-- Day picker (1–31), same as single mode -->
                     <div class="relative mt-3" x-show="cb.enabled" x-cloak>
                       <div class="flex items-center gap-3">
-                        <span class="text-sm text-gray-300">Day of month</span>
+                        <span class="eb-type-body">Day of month</span>
                         <button type="button" @click="!cb.locked && (domOpen=!domOpen)" :disabled="cb.locked"
-                          class="px-3 py-2 border border-slate-700 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600"
+                          class="eb-order-dropdown-btn max-w-32"
                           :class="cb.locked ? 'opacity-50 cursor-not-allowed' : ''"
                           x-text="cb.dom"></button>
                         <input type="hidden" id="cb_dom_bulk" name="cb_dom" :value="cb.dom">
                       </div>
-                      <div x-show="domOpen" @click.away="domOpen=false" x-cloak class="absolute z-10 mt-1 bg-[#151f2e] border border-sky-600 rounded shadow-lg max-h-48 overflow-auto w-40">
+                      <div x-show="domOpen" @click.away="domOpen=false" x-cloak class="eb-order-dropdown-menu max-w-40">
                         <template x-for="n in 31" :key="n">
-                          <div @click="cb.dom=n; domOpen=false" class="px-3 py-1 cursor-pointer hover:bg-slate-800/50 text-gray-300" x-text="n"></div>
+                          <div @click="cb.dom=n; domOpen=false" class="eb-order-dropdown-item py-1" x-text="n"></div>
                         </template>
                       </div>
                       <template x-if="domError">
                         <p class="text-red-500 text-xs mt-1" x-text="domError"></p>
                       </template>
-                      <p x-show="cb.enabled && !cb.locked" x-cloak class="text-xs text-gray-400 mt-2">Selected billing date applies to this order and all future orders. Existing plans keep their current billing dates. To change past orders, contact Sales.</p>
+                      <p x-show="cb.enabled && !cb.locked" x-cloak class="eb-field-help mt-2">Selected billing date applies to this order and all future orders. Existing plans keep their current billing dates. To change past orders, contact Sales.</p>
                     </div>
                     <!-- Summary row -->
-                    <div x-show="cb.enabled" x-cloak class="text-sm text-gray-300 select-none mt-2">
+                    <div x-show="cb.enabled" x-cloak class="eb-type-body select-none mt-2">
                       <span x-text="cb.summary"></span>
                     </div>
                   </div>
                 </div>
 
                 <!-- Manual Entry Pane -->
-                <div x-show="bulkTab==='manual'" x-transition class="p-4 bg-slate-900/60 rounded-xl ring-1 ring-white/10 shadow">
+                <div x-show="bulkTab==='manual'" x-transition class="eb-order-pane">
                   <div class="flex items-center gap-3 mb-3">
-                    <input type="text" placeholder="Prefix (optional)" x-model="prefix" class="px-3 py-2 border border-slate-700 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600">
-                    <button type="button" @click="genUsernames()" class="px-3 py-2 rounded bg-slate-800 hover:bg-slate-700">Generate Usernames</button>
-                    <button type="button" @click="fillPasswords()" class="px-3 py-2 rounded bg-slate-800 hover:bg-slate-700">Generate Passwords</button>
-                    <button type="button" @click="copyDown('email')" class="px-3 py-2 rounded bg-slate-800 hover:bg-slate-700">Copy Email Down</button>
+                    <input type="text" placeholder="Prefix (optional)" x-model="prefix" class="eb-input max-w-48">
+                    <button type="button" @click="genUsernames()" class="eb-btn eb-btn-sm eb-btn-secondary">Generate Usernames</button>
+                    <button type="button" @click="fillPasswords()" class="eb-btn eb-btn-sm eb-btn-secondary">Generate Passwords</button>
+                    <button type="button" @click="copyDown('email')" class="eb-btn eb-btn-sm eb-btn-secondary">Copy Email Down</button>
                   </div>
                   <div class="space-y-3">
                     <template x-for="(r,idx) in rows" :key="idx">
                       <div class="grid grid-cols-12 gap-3 items-start">
                         <div class="col-span-4">
-                          <input type="text" x-model="r.username" placeholder="Username" class="w-full px-3 py-2 border border-slate-700 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600">
+                          <input type="text" x-model="r.username" placeholder="Username" class="eb-input">
                           <template x-if="r.errors && r.errors.username"><p class="text-xs text-red-500 mt-1" x-text="r.errors.username"></p></template>
                         </div>
                         <div class="col-span-4 relative">
-                          <input :type="r._show ? 'text' : 'password'" x-model="r.password" placeholder="Password" class="w-full px-3 py-2 border border-slate-700 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600">
+                          <input :type="r._show ? 'text' : 'password'" x-model="r.password" placeholder="Password" class="eb-input">
                           <button type="button" @click="r._show = !r._show" tabindex="-1"
-                            class="absolute inset-y-0 right-3 flex items-center text-gray-400">
+                            class="absolute inset-y-0 right-3 flex items-center text-[var(--eb-text-muted)]">
                             <!-- Hidden Icon -->
                             <svg x-show="!r._show" x-cloak xmlns="http://www.w3.org/2000/svg" fill="none"
-                              viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="text-slate-500 w-5 h-5">
+                              viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-5 w-5 text-[var(--eb-text-muted)]">
                               <path stroke-linecap="round" stroke-linejoin="round" d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 
                                 7.244 19.5 12 19.5c.993 0 1.953-.138 
                                 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 
@@ -1287,7 +1267,7 @@
                             </svg>
                             <!-- Visible Icon -->
                             <svg x-show="r._show" x-cloak xmlns="http://www.w3.org/2000/svg" fill="none"
-                              viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="text-slate-500 w-5 h-5">
+                              viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-5 w-5 text-[var(--eb-text-muted)]">
                               <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 
                                 7.51 7.36 4.5 12 4.5c4.638 0 8.573 
                                 3.007 9.963 7.178.07.207.07.431 
@@ -1300,21 +1280,21 @@
                           <template x-if="r.errors && r.errors.password"><p class="text-xs text-red-500 mt-1" x-text="r.errors.password"></p></template>
                         </div>
                         <div class="col-span-3">
-                          <input type="email" x-model="r.email" placeholder="Email" class="w-full px-3 py-2 border border-slate-700 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600">
+                          <input type="email" x-model="r.email" placeholder="Email" class="eb-input">
                           <template x-if="r.errors && r.errors.email"><p class="text-xs text-red-500 mt-1" x-text="r.errors.email"></p></template>
                         </div>
                         <div class="col-span-1 flex justify-end">
-                          <button type="button" @click="removeRow(idx)" class="px-2 py-2 rounded bg-slate-800 hover:bg-slate-700">✕</button>
+                          <button type="button" @click="removeRow(idx)" class="eb-btn eb-btn-sm eb-btn-danger">✕</button>
                         </div>
                       </div>
                     </template>
                   </div>
                   <div class="mt-3">
-                    <button type="button" @click="addRow()" class="px-3 py-2 rounded bg-slate-800 hover:bg-slate-700">Add Row</button>
+                    <button type="button" @click="addRow()" class="eb-btn eb-btn-sm eb-btn-secondary">Add Row</button>
                   </div>
                   <div class="mt-4 flex gap-3">
-                    <button type="button" @click="bulkValidate()" class="px-4 py-2 rounded bg-sky-600 hover:bg-sky-500">Validate List</button>
-                    <button type="button" :disabled="!(validation.ok && (!payment.isStripeDefault || payment.hasCardOnFile)) || loading || progress.active" @click="openBulkConfirm()" class="px-4 py-2 rounded bg-green-600 hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed">Provision Accounts</button>
+                    <button type="button" @click="bulkValidate()" class="eb-btn eb-btn-md eb-btn-info">Validate List</button>
+                    <button type="button" :disabled="!(validation.ok && (!payment.isStripeDefault || payment.hasCardOnFile)) || loading || progress.active" @click="openBulkConfirm()" class="eb-btn eb-btn-md eb-btn-success">Provision Accounts</button>
                   </div>
                   <div class="mt-2 text-sm">
                     <template x-if="validation.summary && validation.summary.length">
@@ -1326,23 +1306,23 @@
                   </div>
                   <!-- Progress bar -->
                   <div class="mt-4" x-show="progress.active" x-cloak>
-                    <div class="text-sm text-gray-300 mb-1">Provisioning <span x-text="progress.done"></span> of <span x-text="progress.total"></span><span x-show="progress.failed>0"> — <span class="text-amber-300" x-text="progress.failed + ' failed'"></span></span></div>
-                    <div class="w-full h-2 bg-slate-700 rounded">
-                      <div class="h-2 bg-sky-600 rounded" :style="'width:' + (progress.total>0 ? Math.floor((progress.done/Math.max(progress.total,1))*100) : 0) + '%'"></div>
+                    <div class="eb-type-body mb-1">Provisioning <span x-text="progress.done"></span> of <span x-text="progress.total"></span><span x-show="progress.failed>0"> - <span class="text-[var(--eb-warning-text)]" x-text="progress.failed + ' failed'"></span></span></div>
+                    <div class="eb-order-progress">
+                      <div class="eb-order-progress-bar" :style="'width:' + (progress.total>0 ? Math.floor((progress.done/Math.max(progress.total,1))*100) : 0) + '%'"></div>
                     </div>
                   </div>
                 </div>
 
                 <!-- CSV Upload Pane -->
-                <div x-show="bulkTab==='csv'" x-transition class="p-4 bg-slate-900/60 rounded-xl ring-1 ring-white/10 shadow">
+                <div x-show="bulkTab==='csv'" x-transition class="eb-order-pane">
                   <div class="flex items-center justify-between mb-3">
-                    <div class="text-sm">Upload CSV with header: username,password,email</div>
-                    <a href="{$modulelink}&a=bulk_csv_sample" class="text-sky-300 text-sm underline">Download sample</a>
+                    <div class="eb-type-body">Upload CSV with header: username,password,email</div>
+                    <a href="{$modulelink}&a=bulk_csv_sample" class="text-[var(--eb-info-text)] text-sm underline">Download sample</a>
                   </div>
-                  <input type="file" accept=".csv,text/csv" @change="csvSelect($event)" class="block w-full text-sm text-gray-300 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-slate-800 file:text-gray-200 hover:file:bg-slate-700" />
+                  <input type="file" accept=".csv,text/csv" @change="csvSelect($event)" class="eb-file-input" />
                   <div class="mt-4 flex gap-3">
-                    <button type="button" @click="bulkValidate()" class="px-4 py-2 rounded bg-sky-600 hover:bg-sky-500">Validate List</button>
-                    <button type="button" :disabled="!(validation.ok && (!payment.isStripeDefault || payment.hasCardOnFile)) || loading || progress.active" @click="openBulkConfirm()" class="px-4 py-2 rounded bg-green-600 hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed">Provision Accounts</button>
+                    <button type="button" @click="bulkValidate()" class="eb-btn eb-btn-md eb-btn-info">Validate List</button>
+                    <button type="button" :disabled="!(validation.ok && (!payment.isStripeDefault || payment.hasCardOnFile)) || loading || progress.active" @click="openBulkConfirm()" class="eb-btn eb-btn-md eb-btn-success">Provision Accounts</button>
                   </div>
                   <div class="mt-2 text-sm">
                     <template x-if="validation.summary && validation.summary.length">
@@ -1354,27 +1334,27 @@
                   </div>
                   <!-- Progress bar -->
                   <div class="mt-4" x-show="progress.active" x-cloak>
-                    <div class="text-sm text-gray-300 mb-1">Provisioning <span x-text="progress.done"></span> of <span x-text="progress.total"></span><span x-show="progress.failed>0"> — <span class="text-amber-300" x-text="progress.failed + ' failed'"></span></span></div>
-                    <div class="w-full h-2 bg-slate-700 rounded">
-                      <div class="h-2 bg-sky-600 rounded" :style="'width:' + (progress.total>0 ? Math.floor((progress.done/Math.max(progress.total,1))*100) : 0) + '%'"></div>
+                    <div class="eb-type-body mb-1">Provisioning <span x-text="progress.done"></span> of <span x-text="progress.total"></span><span x-show="progress.failed>0"> - <span class="text-[var(--eb-warning-text)]" x-text="progress.failed + ' failed'"></span></span></div>
+                    <div class="eb-order-progress">
+                      <div class="eb-order-progress-bar" :style="'width:' + (progress.total>0 ? Math.floor((progress.done/Math.max(progress.total,1))*100) : 0) + '%'"></div>
                     </div>
                   </div>
                 </div>
 
                 <!-- Completion report -->
-                <div x-show="report.visible" x-cloak class="p-4 bg-slate-900/60 rounded-xl ring-1 ring-white/10 shadow">
+                <div x-show="report.visible" x-cloak class="eb-order-pane">
                   <div class="flex items-center justify-between mb-3">
-                    <div class="text-sm text-gray-200" x-text="successMsg"></div>
-                    <button type="button" @click="copyReport()" class="px-3 py-2 rounded bg-slate-800 hover:bg-slate-700 text-sm">Copy CSV</button>
+                    <div class="eb-type-body text-[var(--eb-text-primary)]" x-text="successMsg"></div>
+                    <button type="button" @click="copyReport()" class="eb-btn eb-btn-sm eb-btn-secondary">Copy CSV</button>
                   </div>
                   <div class="overflow-auto">
-                    <table class="min-w-full text-sm">
+                    <table class="eb-order-table">
                       <thead>
-                        <tr class="text-gray-400">
-                          <th class="text-left pr-4 py-2">Username</th>
-                          <th class="text-left pr-4 py-2">Password</th>
-                          <th class="text-left pr-4 py-2">Email</th>
-                          <th class="text-left pr-4 py-2">Status</th>
+                        <tr>
+                          <th>Username</th>
+                          <th>Password</th>
+                          <th>Email</th>
+                          <th>Status</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1383,7 +1363,7 @@
                             <td class="pr-4 py-1" x-text="it.username"></td>
                             <td class="pr-4 py-1" x-text="it.password"></td>
                             <td class="pr-4 py-1" x-text="it.email"></td>
-                            <td class="pr-4 py-1"><span :class="it.ok ? 'text-green-400' : 'text-amber-300'" x-text="it.ok ? 'OK' : 'Failed'"></span></td>
+                            <td class="pr-4 py-1"><span :class="it.ok ? 'text-[var(--eb-success-text)]' : 'text-[var(--eb-warning-text)]'" x-text="it.ok ? 'OK' : 'Failed'"></span></td>
                           </tr>
                         </template>
                       </tbody>
@@ -1393,21 +1373,21 @@
               </div>
             </div>
           <!-- right column: dynamic price list -->
-          <div class="w-full lg:w-1/2 text-gray-400 space-y-4 mt-12" x-show="mode==='single'">
+          <div class="eb-order-side" x-show="mode==='single'">
             <!-- Usage-based / eazyBackup / OBC plans -->
             <div x-show="isUsage()">
-              <div class="max-w-lg mx-auto pr-6 pl-6 rounded-lg text-gray-300">
-                <h3 class="text-xl font-semibold mb-4"
+              <div class="eb-order-side-card">
+                <h3 class="eb-section-title mb-4"
                     x-text="(parseInt(selectedProduct)==60)
                       ? 'OBC Branded Backup Client'
                       : (parseInt(selectedProduct)==58)
                           ? 'eazyBackup Branded Backup Client'
                           : 'Usage-Based Backup'">
                 </h3>
-                <p class="text-gray-400 mb-4">
+                <p class="eb-type-body mb-4">
                   Your plan includes a <strong x-text="priceFor(67)"></strong> base fee for 1&nbsp;terabyte of storage per <span x-text="termLabel()"></span>. Additional services are billed dynamically according to what you use:
                 </p>
-                <ul class="list-disc list-inside text-gray-400 mb-4 space-y-1">
+                <ul class="list-disc list-inside eb-type-body mb-4 space-y-1">
                   <li><span class="font-medium">Cloud Storage:</span> <span x-text="priceFor(67)"></span> per terabyte per <span x-text="termLabel()"></span></li>
                   <li><span class="font-medium">Devices / Endpoints:</span> <span x-text="priceFor(88)"></span> per device per <span x-text="termLabel()"></span></li>
                   <li><span class="font-medium">Disk Image (Hyper-V):</span> <span x-text="priceFor(91)"></span> per protected machine per <span x-text="termLabel()"></span></li>
@@ -1415,7 +1395,7 @@
                   <li><span class="font-medium">VMware backups:</span> <span x-text="priceFor(99)"></span> per virtual machine per <span x-text="termLabel()"></span></li>
                   <li><span class="font-medium">Proxmox Guest VM:</span> <span x-text="priceFor(102)"></span> per virtual machine per <span x-text="termLabel()"></span></li>
                 </ul>
-                <p class="text-gray-400 mb-4">
+                <p class="eb-type-body mb-4">
                   You're free to use all features; charges automatically adjust each <span x-text="termLabel()"></span> to match your actual consumption.
                 </p>
               </div>
@@ -1423,17 +1403,17 @@
 
             <!-- Microsoft 365 backup plans -->
             <div x-show="isMs365()">
-              <div class="max-w-lg mx-auto pr-6 pl-6 rounded-lg text-gray-300">
-                <h3 class="text-xl font-semibold mb-4">Microsoft 365 Backup Pricing</h3>
-                <p class="text-gray-400 mb-4">
+              <div class="eb-order-side-card">
+                <h3 class="eb-section-title mb-4">Microsoft 365 Backup Pricing</h3>
+                <p class="eb-type-body mb-4">
                   Your plan includes a <strong x-text="priceFor(60)"></strong> base fee for a single Microsoft 365 user per <span x-text="termLabel()"></span>. Billing for additional users is usage-based:
                 </p>
-                <ul class="list-disc list-inside text-gray-400 mb-4 space-y-1">
+                <ul class="list-disc list-inside eb-type-body mb-4 space-y-1">
                   <li><span class="font-medium">Per User:</span> <span x-text="priceFor(60)"></span> per protected 365 account per <span x-text="termLabel()"></span></li>
                   <li><span class="font-medium">Storage:</span> Unlimited per user</li>
                   <li><span class="font-medium">Retention:</span> 1 year (30 daily + 52 weekly snapshots)</li>
                 </ul>
-                <p class="text-gray-400 mb-4">
+                <p class="eb-type-body mb-4">
                   Longer retention periods are available; contact sales for extended-retention pricing.
                 </p>
               </div>
@@ -1441,21 +1421,21 @@
 
             <!-- VM-only backup plans (Hyper-V / Proxmox / VMware) -->
             <div x-show="isVm()">
-              <div class="max-w-lg mx-auto pr-6 pl-6 rounded-lg text-gray-300">
-                <h3 class="text-xl font-semibold mb-4">Virtual Server Backup</h3>
-                <p class="text-gray-400 mb-4">
+              <div class="eb-order-side-card">
+                <h3 class="eb-section-title mb-4">Virtual Server Backup</h3>
+                <p class="eb-type-body mb-4">
                   This plan backs up guest virtual machines only (no physical servers or file-and-folder jobs). Pricing is:
                 </p>
-                <p class="text-gray-400 mb-4">
+                <p class="eb-type-body mb-4">
                   Base storage of <strong x-text="priceFor(67)"></strong> for 1&nbsp;terabyte per <span x-text="termLabel()"></span>, plus:
                 </p>
-                <ul class="list-disc list-inside text-gray-400 mb-4 space-y-1">
+                <ul class="list-disc list-inside eb-type-body mb-4 space-y-1">
                   <li><span class="font-medium">Cloud Storage:</span> <span x-text="priceFor(67)"></span> per terabyte per <span x-text="termLabel()"></span></li>
                   <li><span class="font-medium">Hyper-V VMs:</span> <span x-text="priceFor(97)"></span> per VM per <span x-text="termLabel()"></span></li>
                   <li><span class="font-medium">Proxmox VMs:</span> <span x-text="priceFor(102)"></span> per VM per <span x-text="termLabel()"></span></li>
                   <li><span class="font-medium">VMware VMs:</span> <span x-text="priceFor(99)"></span> per VM per <span x-text="termLabel()"></span></li>
                 </ul>
-                <p class="text-gray-400 mb-4">
+                <p class="eb-type-body mb-4">
                   You can freely add/remove VMs; charges adjust automatically each <span x-text="termLabel()"></span>.
                 </p>
               </div>
@@ -1463,7 +1443,7 @@
 
             <!-- Fallback or placeholder when nothing selected -->
             <div x-show="!selectedProduct">
-              <p class="italic text-gray-500">Select a service on the left to see pricing here.</p>
+              <p class="eb-type-caption italic">Select a service on the left to see pricing here.</p>
             </div>
           </div>
         </div>

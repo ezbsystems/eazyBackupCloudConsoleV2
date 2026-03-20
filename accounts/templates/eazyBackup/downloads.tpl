@@ -1,65 +1,85 @@
-<form role="form" method="post" action="{routePath('download-search')}">
-    <div class="input-group input-group-lg kb-search margin-bottom">
-        <input type="text" name="search" id="inputDownloadsSearch" class="form-control font-weight-light" placeholder="{lang key='downloadssearch'}" />
-        <div class="input-group-append">
-            <button type="submit" id="btnDownloadsSearch" class="btn btn-primary btn-input-padded-responsive">
+{capture name=ebDownloadsBreadcrumb}
+    <div class="eb-breadcrumb">
+        <a href="{$WEB_ROOT}/clientarea.php" class="eb-breadcrumb-link">Client Area</a>
+        <span class="eb-breadcrumb-separator">/</span>
+        <span class="eb-breadcrumb-current">{lang key='downloads'}</span>
+    </div>
+{/capture}
+
+{capture name=ebDownloadsContent}
+    {include file="$template/includes/ui/page-header.tpl"
+        ebBreadcrumb=$smarty.capture.ebDownloadsBreadcrumb
+        ebPageTitle={lang key='downloads'}
+        ebPageDescription="Search the download library, browse categories, and access the most requested files."
+    }
+
+    <div class="eb-subpanel mb-4">
+        <form role="form" method="post" action="{routePath('download-search')}" class="eb-search-row">
+            <input type="text" name="search" id="inputDownloadsSearch" class="eb-input" placeholder="{lang key='downloadssearch'}" />
+            <button type="submit" id="btnDownloadsSearch" class="eb-btn eb-btn-primary">
                 {lang key='search'}
             </button>
-        </div>
+        </form>
     </div>
-</form>
 
-{if $dlcats}
-    <div class="row">
-        {foreach $dlcats as $category}
-            <div class="col-xl-6">
-                <div class="card kb-category mb-4">
-                    <a href="{routePath('download-by-cat', {$category.id}, {$category.urlfriendlyname})}" class="card-body">
-                        <span class="h5 m-0">
-                            <i class="fal fa-folder fa-fw"></i>
-                            {$category.name}
-                            <span class="badge badge-info float-right">
-                                {lang key="downloads.numDownload{if $kbcat.numarticles != 1}s{/if}" num=$category.numarticles}
-                            </span>
-                        </span>
-                        <p class="m-0 text-muted"><small>{$category.description}</small></p>
-                    </a>
-                </div>
-            </div>
-        {/foreach}
-    </div>
-{else}
-    {include file="$template/includes/alert.tpl" type="info" msg="{lang key='downloadsnone'}" textcenter=true}
-{/if}
-
-{if $mostdownloads}
-    <div class="card">
-        <div class="card-body">
-            <h3 class="card-title m-0">
-                <i class="fal fa-star fa-fw"></i>
-                {lang key='downloadspopular'}
-            </h3>
-        </div>
-        <div class="list-group list-group-flush">
-            {foreach $mostdownloads as $download}
-                <a href="{$download.link}" class="list-group-item kb-article-item">
-                    {$download.type|replace:'alt':' class="pr-1" alt'}
-                    {$download.title}
-                    {if $download.clientsonly}
-                        <div class="float-md-right">
-                            <span class="label label-danger">
-                                <i class="fas fa-lock fa-fw"></i>
-                                {lang key='restricted'}
-                            </span>
+    {if $dlcats}
+        <div class="grid gap-4 xl:grid-cols-2">
+            {foreach $dlcats as $category}
+                <a href="{routePath('download-by-cat', {$category.id}, {$category.urlfriendlyname})}" class="eb-content-card">
+                    <div class="flex items-start justify-between gap-4">
+                        <div>
+                            <h2 class="eb-content-title">
+                                <i class="fal fa-folder fa-fw"></i>
+                                {$category.name}
+                            </h2>
+                            <p class="eb-content-body mt-2">{$category.description}</p>
                         </div>
-                    {/if}
-                    <small>
-                        {$download.description}
-                        <br>
-                        <strong>{lang key='downloadsfilesize'}: {$download.filesize}</strong>
-                    </small>
+                        <span class="eb-badge eb-badge--info">
+                            {lang key="downloads.numDownload{if $kbcat.numarticles != 1}s{/if}" num=$category.numarticles}
+                        </span>
+                    </div>
                 </a>
             {/foreach}
         </div>
-    </div>
-{/if}
+    {else}
+        {include file="$template/includes/alert-darkmode.tpl" type="info" msg="{lang key='downloadsnone'}" textcenter=true}
+    {/if}
+
+    {if $mostdownloads}
+        <div class="mt-4 eb-home-panel">
+            <div class="eb-home-panel-header">
+                <h3 class="eb-home-panel-title">
+                    <i class="fal fa-star fa-fw"></i>
+                    {lang key='downloadspopular'}
+                </h3>
+            </div>
+            <div class="eb-list-stack">
+                {foreach $mostdownloads as $download}
+                    <a href="{$download.link}" class="eb-list-item">
+                        <div class="min-w-0">
+                            <div class="eb-table-primary">
+                                {$download.type|replace:'alt':' class="pr-1" alt'}
+                                {$download.title}
+                            </div>
+                            <div class="eb-choice-card-description mt-2">
+                                {$download.description}
+                                <br>
+                                <strong>{lang key='downloadsfilesize'}: {$download.filesize}</strong>
+                            </div>
+                        </div>
+                        {if $download.clientsonly}
+                            <span class="eb-badge eb-badge--danger">
+                                <i class="fas fa-lock fa-fw"></i>
+                                {lang key='restricted'}
+                            </span>
+                        {/if}
+                    </a>
+                {/foreach}
+            </div>
+        </div>
+    {/if}
+{/capture}
+
+{include file="$template/includes/ui/page-shell.tpl"
+    ebPageContent=$smarty.capture.ebDownloadsContent
+}

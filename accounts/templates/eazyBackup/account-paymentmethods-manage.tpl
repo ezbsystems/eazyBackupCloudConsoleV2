@@ -1,89 +1,43 @@
-<style>
-/* Base form control styling for dark theme */
-.form-control {
-  display: block;
-  width: 100%;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid #334155;            /* slate-700 */
-  color: #e5e7eb;                       /* slate-200 */
-  background-color: rgba(15, 23, 42, .7); /* bg-slate-900/70 */
-  border-radius: 0.5rem;
-  outline: none;
-}
-
-#stripeElements .form-control {
-  margin-bottom: 16px;
-}
-
-.StripeElement {
-  padding: 11px 12px !important;
-}
-
-/* Stripe Elements dark container overrides */
-#stripeElements .StripeElement {
-  display: block;
-  width: 100%;
-  padding: 0.625rem 0.75rem !important;
-  border: 1px solid #334155 !important;          /* slate-700 */
-  color: #e5e7eb !important;                     /* slate-200 */
-  background-color: rgba(15, 23, 42, 0.8) !important; /* bg-slate-900/80 */
-  border-radius: 0.5rem !important;
-  outline: none !important;
-}
-
-#stripeElements .StripeElement--focus {
-  border-color: #22c55e !important;              /* emerald-500 */
-  box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.6) !important;
-}
-
-#stripeElements .StripeElement--invalid {
-  border-color: #fbbf24 !important;              /* amber-400 */
-}
-
-/* Payment provider logos - header */
-.eb-payment-logo {
-  height: 1.75rem; /* ~28px */
-  width: auto;
-}
-
-.eb-payment-logo--pci {
-  height: 4.5rem; /* ~24px */
-  width: auto;
-}
-
-/* Payment provider logos - bottom strip */
-.eb-payment-logo-bottom {
-  height: 1.25rem; /* ~20px */
-  width: auto;
-}
-
-.eb-payment-logo-bottom--pci {
-  height: 2.5rem; /* ~24px */
-  width: auto;
-}
-</style>
-
-
 <script src="{$BASE_PATH_JS}/StatesDropdown.js"></script>
 
-<div class="min-h-screen bg-slate-950 text-slate-200">
-    <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
-    <div class="relative z-10 container mx-auto px-4 pb-8 pt-6">
+{assign var="activeTab" value="paymethodsmanage"}
 
-        <!-- Main Card Container -->
-        <div class="max-w-2xl mx-auto rounded-3xl border border-slate-800/80 bg-slate-900/80 backdrop-blur-sm shadow-[0_18px_60px_rgba(0,0,0,0.65)] px-4 sm:px-6 py-6">
-            <div class="p-2 md:p-4">
+{capture name=ebAccountNav}
+    {include file="$template/includes/profile-nav.tpl" activeTab=$activeTab}
+{/capture}
+
+{capture name=ebAccountBreadcrumb}
+    <div class="eb-breadcrumb">
+        <a href="{$WEB_ROOT}/clientarea.php?action=details" class="eb-breadcrumb-link">Account</a>
+        <span class="eb-breadcrumb-separator">/</span>
+        <a href="{routePath('account-paymentmethods')}" class="eb-breadcrumb-link">Payment Details</a>
+        <span class="eb-breadcrumb-separator">/</span>
+        <span class="eb-breadcrumb-current">{if $editMode}Edit Payment Method{else}Add Payment Method{/if}</span>
+    </div>
+{/capture}
+
+{capture name=ebPaymentMethodTitle}{if $editMode}{lang key='paymentMethodsManage.editPaymentMethod'}{else}{lang key='paymentMethodsManage.addPaymentMethod'}{/if}{/capture}
+
+{capture name=ebAccountContent}
+    {include file="$template/includes/ui/page-header.tpl"
+        ebBreadcrumb=$smarty.capture.ebAccountBreadcrumb
+        ebPageTitle=$smarty.capture.ebPaymentMethodTitle
+        ebPageDescription="Manage your saved billing method and Stripe-backed payment details."
+    }
+
+    <div class="eb-payment-method-shell">
+        <div class="p-2 md:p-4">
                 <!-- Header block with title and badges -->
                 <div class="flex items-start justify-between mb-6 gap-4">
                     <div>
-                        <h3 class="text-lg sm:text-xl font-semibold text-slate-50">
+                        <h3 class="eb-section-title">
                             {if $editMode}
                                 {lang key='paymentMethodsManage.editPaymentMethod'}
                             {else}
                                 {lang key='paymentMethodsManage.addPaymentMethod'}
                             {/if}
                         </h3>
-                        <p class="mt-1 text-xs sm:text-sm text-slate-400">
+                        <p class="eb-section-description">
                             Card details are encrypted and stored securely with Stripe.
                         </p>
                     </div>
@@ -100,7 +54,7 @@
                 <form id="frmManagePaymentMethod" class="frm-credit-card-input" role="form" method="post" action="{if $editMode}{routePath('account-paymentmethods-save', $payMethod->id)}{else}{routePath('account-paymentmethods-add')}{/if}">
             
             <!-- Alert Message -->
-            <div class="gateway-errors assisted-cc-input-feedback hidden mb-4 rounded-md border border-red-500/70 bg-red-900/40 px-4 py-3 text-xs sm:text-sm text-red-50 text-center">
+            <div class="gateway-errors assisted-cc-input-feedback eb-assist-error hidden">
                 {lang key='paymentMethodsManage.invalidCardDetails'}
             </div>
 
@@ -135,14 +89,14 @@
 
             <!-- Auxiliary Fields (e.g. Description) -->
             <div class="w-72 sm:w-96 mx-auto mb-4">
-                <label for="inputDescription" class="block text-sm font-medium text-slate-200 mb-1">
+                <label for="inputDescription" class="eb-field-label">
                     {lang key='paymentMethods.description'} {lang key='paymentMethodsManage.optional'}
                 </label>
                 <input 
                     type="text" 
                     id="inputDescription" 
                     name="description" 
-                    class="block w-full rounded-md border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500" 
+                    class="eb-form-control" 
                     placeholder="{lang key='paymentMethods.descriptionInput'}"
                 >
             </div>
@@ -233,14 +187,14 @@
             <div class="fieldgroup-auxfields{if $remoteUpdate} hidden{/if}">
                 <!-- Billing Address -->
                 <div class="mx-auto w-72 sm:w-96 flex flex-wrap mb-4">
-                    <label for="inputBillingAddress" class="w-full md:w-1/3 block text-sm font-medium text-slate-200 mb-1">
+                    <label for="inputBillingAddress" class="eb-field-label">
                         {lang key='billingAddress'}
                     </label>
                     <div class="w-full">
                         <div id="billingContactsContainer" class="mb-4">
                             {include file="$template/account-paymentmethods-billing-contacts.tpl"}
                         </div>                        
-                        <a href="#" class="inline-flex items-center bg-slate-800/80 border border-slate-700 shadow-sm text-xs sm:text-sm font-medium rounded-full text-slate-100 px-3 py-1.5 hover:bg-slate-700 hover:border-slate-500 transition-colors" data-toggle="modal" data-target="#modalBillingAddress">
+                        <a href="#" class="eb-btn eb-btn-secondary eb-btn-sm" data-toggle="modal" data-target="#modalBillingAddress">
                             {lang key='paymentMethodsManage.addNewAddress'}
                         </a>
                     </div>
@@ -248,25 +202,25 @@
 
                 <!-- Security / trust strip -->
                 <div class="mx-auto w-72 sm:w-96 mt-6 mb-4 flex flex-col gap-3">
-                    <div class="flex items-start gap-3 rounded-xl border border-slate-800 bg-slate-900/80 px-4 py-3">
-                        <svg class="mt-0.5 h-4 w-4 flex-none text-sky-400" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <div class="eb-choice-card">
+                        <svg class="mt-0.5 h-4 w-4 flex-none" style="color: var(--eb-info-icon);" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                             <path d="M7 10V8a5 5 0 0 1 10 0v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                             <rect x="5" y="10" width="14" height="9" rx="2" stroke="currentColor" stroke-width="1.5"/>
                         </svg>
-                        <p class="text-xs text-slate-400">
+                        <p class="eb-choice-card-description">
                             We don’t store your full card number on eazyBackup servers.
                             Card details are encrypted and stored by Stripe, a PCI&nbsp;DSS Level&nbsp;1 service provider.
                         </p>
                     </div>
 
-                    <div class="flex flex-wrap items-center gap-3 text-[11px] sm:text-xs text-slate-400">
+                    <div class="flex flex-wrap items-center gap-3 text-[11px] sm:text-xs" style="color: var(--eb-text-muted);">
                         <div class="flex items-center gap-2">
                             <img src="{$WEB_ROOT}/assets/payments/stripe-badge.svg"
                                  alt="Payments powered by Stripe"
                                  class="eb-payment-logo-bottom">
                             <span>Payments processed by Stripe</span>
                         </div>
-                        <span class="hidden sm:inline text-slate-700">•</span>
+                        <span class="hidden sm:inline" style="color: var(--eb-border-default);">•</span>
                         <div class="flex items-center gap-2">
                             <img src="{$WEB_ROOT}/assets/payments/pci-dss-badge.svg"
                                  alt="PCI DSS"
@@ -281,12 +235,12 @@
                         type="submit" 
                         name="submit" 
                         id="btnSubmit" 
-                        class="btn-accent"
+                        class="eb-btn eb-btn-primary"
                     >
                         {lang key='clientareasavechanges'}
                     </button>
 
-                    <a href="{routePath('account-paymentmethods')}" class="mr-4 text-sm/6 font-semibold text-slate-300 hover:text-slate-100">
+                    <a href="{routePath('account-paymentmethods')}" class="mr-4 eb-link-muted text-sm/6 font-semibold">
                         {lang key='cancel'}
                     </a>
                 </div>
@@ -317,94 +271,98 @@
                 {/if}
             </div>
         </div>
-
     </div>
-</div>
+{/capture}
+
+{include file="$template/includes/ui/page-shell.tpl"
+    ebPageNav=$smarty.capture.ebAccountNav
+    ebPageContent=$smarty.capture.ebAccountContent
+}
 
 <!-- Billing Address Modal -->
 <div id="modalBillingAddress" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="modalBillingAddressLabel" role="dialog" aria-modal="true">
     <div class="flex items-center justify-center min-h-screen px-4 text-center sm:block sm:p-0">
         <!-- Background overlay -->
         <div class="fixed inset-0 transition-opacity" aria-hidden="true">
-            <div class="absolute inset-0 bg-gray-700 opacity-75"></div>
+            <div class="eb-modal-backdrop absolute inset-0"></div>
         </div>
 
         <!-- Modal panel -->
         <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
-        <div class="inline-block align-bottom bg-gray-800 rounded-lg text-left overflohidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-4xl sm:w-full">
+        <div class="inline-block align-bottom text-left transform transition-all sm:my-8 sm:align-middle sm:max-w-4xl sm:w-full">
             <form id="billingContactForm" action="{routePath('account-paymentmethods-billing-contacts-create')}" data-role="json-form">
                 <input type="hidden" name="token" value="{$csrfToken}" />
                 <!-- Modal Header -->
-                <div class="bg-gray-800 rounded-tr-lg rounded-tl-lg px-4 py-3 sm:px-6 sm:flex sm:justify-between sm:items-center">
+                <div class="eb-modal-header">
                     <!-- Modal Title (Aligned Left) -->
-                    <h3 class="text-lg leading-6 font-medium text-gray-300" id="modalBillingAddressLabel">
+                    <h3 class="eb-modal-title" id="modalBillingAddressLabel">
                         {lang key='paymentMethodsManage.addNewBillingAddress'}
                     </h3>
                     
                     <!-- Close Button (Aligned Right) -->
-                    <button type="button" class="mt-3 sm:mt-0 inline-flex justify-center rounded-md border border-gray-700 shadow-sm px-4 py-2 bg-gray-700 text-base font-medium text-gray-300 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 sm:text-sm" data-dismiss="modal">
+                    <button type="button" class="eb-modal-close mt-3 sm:mt-0" data-dismiss="modal">
                         &times;
                     </button>
                 </div>
 
                 <!-- Modal Body -->
-                <div class="bg-gray-800 px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                <div class="eb-modal-body">
                     <div class="grid grid-cols-12 gap-6">
                         <!-- Left Column -->
                         <div class="col-span-12 md:col-span-6 space-y-6">
                             <!-- First Name -->
                             <div class="form-group">
-                                <label for="inputFirstName" class="block text-sm font-medium text-gray-300">
+                                <label for="inputFirstName" class="eb-field-label">
                                     {lang key='clientareafirstname'}
                                 </label>
                                 <input type="text" name="firstname" id="inputFirstName" value="{$contactfirstname}"
-                                       class="block w-full rounded-md border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500">
+                                       class="eb-form-control">
                             </div>
 
                             <!-- Last Name -->
                             <div class="form-group">
-                                <label for="inputLastName" class="block text-sm font-medium text-gray-300">
+                                <label for="inputLastName" class="eb-field-label">
                                     {lang key='clientarealastname'}
                                 </label>
                                 <input type="text" name="lastname" id="inputLastName" value="{$contactlastname}"
-                                       class="block w-full rounded-md border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500">
+                                       class="eb-form-control">
                             </div>
 
                             <!-- Company Name -->
                             <div class="form-group">
-                                <label for="inputCompanyName" class="block text-sm font-medium text-gray-300">
+                                <label for="inputCompanyName" class="eb-field-label">
                                     {lang key='clientareacompanyname'}
                                 </label>
                                 <input type="text" name="companyname" id="inputCompanyName" value="{$contactcompanyname}"
-                                       class="block w-full rounded-md border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500">
+                                       class="eb-form-control">
                             </div>
 
                             
                             <!-- City -->
                             <div class="form-group">
-                                <label for="inputCity" class="block text-sm font-medium text-gray-300">
+                                <label for="inputCity" class="eb-field-label">
                                     {lang key='clientareacity'}
                                 </label>
                                 <input type="text" name="city" id="inputCity" value="{$contactcity}"
-                                       class="block w-full rounded-md border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500">
+                                       class="eb-form-control">
                             </div>
 
                             <!-- State -->
                             <div class="form-group">
-                                <label for="inputState" class="block text-sm font-medium text-gray-300">
+                                <label for="inputState" class="eb-field-label">
                                     {lang key='clientareastate'}
                                 </label>
                                 <input type="text" name="state" id="inputState" value="{$contactstate}"
-                                        class="block w-full rounded-md border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500">
+                                        class="eb-form-control">
                             </div>
 
                             {if $showTaxIdField}
                                 <!-- Tax ID -->
                                 <div class="form-group">
-                                    <label for="inputTaxId" class="block text-sm font-medium text-gray-300">
+                                    <label for="inputTaxId" class="eb-field-label">
                                         {lang key=$taxIdLabel}
                                     </label>
-                                    <input type="text" name="tax_id" id="inputTaxId" class="block w-full rounded-md border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+                                    <input type="text" name="tax_id" id="inputTaxId" class="eb-form-control"
                                            value="{$contactTaxId}">
                                 </div>
                             {/if}
@@ -414,38 +372,38 @@
                         <div class="col-span-12 md:col-span-6 space-y-6">
                             <!-- Address 1 -->
                             <div class="form-group">
-                                <label for="inputAddress1" class="block text-sm font-medium text-gray-300">
+                                <label for="inputAddress1" class="eb-field-label">
                                     {lang key='clientareaaddress1'}
                                 </label>
                                 <input type="text" name="address1" id="inputAddress1" value="{$contactaddress1}"
-                                       class="block w-full rounded-md border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500">
+                                       class="eb-form-control">
                             </div>
 
                             <!-- Address 2 -->
                             <div class="form-group">
-                                <label for="inputAddress2" class="block text-sm font-medium text-gray-300">
+                                <label for="inputAddress2" class="eb-field-label">
                                     {lang key='clientareaaddress2'}
                                 </label>
                                 <input type="text" name="address2" id="inputAddress2" value="{$contactaddress2}"
-                                       class="block w-full rounded-md border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500">
+                                       class="eb-form-control">
                             </div>
 
                             <!-- Phone Number -->
                             <div class="form-group sm:col-span-2">
-                                <label for="inputPhone" class="col-form-label block text-sm font-medium text-gray-300">
+                                <label for="inputPhone" class="eb-field-label">
                                     {lang key='clientareaphonenumber'}
                                 </label>
                                 <input type="tel" name="phonenumber" id="inputPhone" value="{$contactphonenumber}" 
-                                        class="block w-full rounded-md border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500" />
+                                        class="eb-form-control" />
                             </div>  
 
                             <!-- Country -->
                             <div class="form-group">
-                                <label for="inputCountry" class="block text-sm font-medium text-gray-300">
+                                <label for="inputCountry" class="eb-field-label">
                                     {lang key='clientareacountry'}
                                 </label>
                                 <select name="country" id="inputCountry"
-                                        class="block w-full rounded-md border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500">
+                                        class="eb-select">
                                     {foreach $countries as $countryCode => $countryName}
                                         <option value="{$countryCode}"{if ($countryCode == $clientCountry)} selected="selected"{/if}>
                                             {$countryName}
@@ -456,22 +414,22 @@
 
                             <!-- Postcode -->
                             <div class="form-group">
-                                <label for="inputPostcode" class="block text-sm font-medium text-gray-300">
+                                <label for="inputPostcode" class="eb-field-label">
                                     {lang key='clientareapostcode'}
                                 </label>
                                 <input type="text" name="postcode" id="inputPostcode" value="{$contactpostcode}"
-                                       class="block w-full rounded-md border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500">
+                                       class="eb-form-control">
                             </div>
                         </div>
                     </div>
                 </div>
 
                 <!-- Modal Footer -->
-                <div class="bg-gray-800 rounded-br-lg rounded-bl-lg px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
-                    <button type="submit" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-sky-600 text-base font-medium text-white hover:bg-sky-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 sm:ml-3 sm:w-auto sm:text-sm">
+                <div class="eb-modal-footer">
+                    <button type="submit" class="eb-btn eb-btn-primary w-full sm:ml-3 sm:w-auto">
                         {lang key='paymentMethods.saveChanges'}
                     </button>
-                    <button type="button" class="text-sm font-semibold text-gray-300" data-dismiss="modal">
+                    <button type="button" class="eb-btn eb-btn-ghost" data-dismiss="modal">
                         {lang key='paymentMethods.close'}
                     </button>
                 </div>
@@ -723,8 +681,8 @@
             jQuery('#inputBillingCountry').val(contact.find('.country').html());
 
             // Visual selection state for billing cards
-            jQuery('#innerBillingContactsContainer label').removeClass('ring-2 ring-sky-500 border-sky-500 bg-slate-900');
-            contact.addClass('ring-2 ring-sky-500 border-sky-500 bg-slate-900');
+            jQuery('#innerBillingContactsContainer label').removeClass('is-selected');
+            contact.addClass('is-selected');
         });
 
         if (jQuery('input[name="type"]:checked', ccForm).length === 0) {
@@ -742,35 +700,39 @@
             reloadBillingContacts(data.id);
         });
     });
-
-    
-    $(document).ready(function(){
-        $('#country').removeClass().addClass('block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#192331] rounded focus:outline-none focus:ring-0 focus:border-sky-600');
-    });
 </script>
 
 {literal}
 <script>
 // Post-initialisation styling for Stripe Elements on payment method manage page
 (function () {
+    function cssVar(name) {
+        return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    }
+
     function applyStripeDarkTheme() {
         var styledAnything = false;
+        var textPrimary = cssVar('--eb-text-primary');
+        var textDisabled = cssVar('--eb-text-disabled');
+        var success = cssVar('--eb-success-icon');
+        var dangerText = cssVar('--eb-danger-text');
+        var bodyFont = cssVar('--eb-font-body') || 'system-ui, sans-serif';
 
         if (window.card && typeof card.update === 'function') {
             card.update({
                 style: {
                     base: {
-                        color: '#e5e7eb', // slate-200
-                        iconColor: '#22c55e',
+                        color: textPrimary,
+                        iconColor: success,
                         '::placeholder': {
-                            color: '#6b7280' // gray-500
+                            color: textDisabled
                         },
-                        fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+                        fontFamily: bodyFont,
                         fontSize: '14px'
                     },
                     invalid: {
-                        color: '#fca5a5',
-                        iconColor: '#fca5a5'
+                        color: dangerText,
+                        iconColor: dangerText
                     }
                 }
             });
@@ -781,13 +743,13 @@
             cardExpiryElements.update({
                 style: {
                     base: {
-                        color: '#e5e7eb',
+                        color: textPrimary,
                         '::placeholder': {
-                            color: '#6b7280'
+                            color: textDisabled
                         }
                     },
                     invalid: {
-                        color: '#fca5a5'
+                        color: dangerText
                     }
                 }
             });
@@ -798,13 +760,13 @@
             cardCvcElements.update({
                 style: {
                     base: {
-                        color: '#e5e7eb',
+                        color: textPrimary,
                         '::placeholder': {
-                            color: '#6b7280'
+                            color: textDisabled
                         }
                     },
                     invalid: {
-                        color: '#fca5a5'
+                        color: dangerText
                     }
                 }
             });
@@ -826,4 +788,3 @@
 })();
 </script>
 {/literal}
-

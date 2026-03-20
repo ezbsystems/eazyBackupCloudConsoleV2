@@ -1,241 +1,356 @@
-<style>
-	.loading-dots {
-		display: none;
-		position: relative;
-		width: 60px;
-		margin-top: 10px;
-	}
+<div class="eb-page">
+    <div class="eb-page-inner py-8">
+        <div class="mx-auto max-w-6xl">
+            <div class="eb-panel">
+                <div class="eb-page-header">
+                    <div>
+                        <div class="eb-type-eyebrow">Cloud Storage</div>
+                        <h1 class="eb-page-title mt-2">Create Your e3 Storage Account</h1>
+                        <p class="eb-page-description">
+                            Provision your S3-compatible e3 object storage account and unlock buckets, access keys, usage analytics, and billing controls in the client area.
+                        </p>
+                    </div>
+                    <div class="eb-badge eb-badge--orange">Provisioning Required</div>
+                </div>
 
-	.loading-dots .dot {
-		position: absolute;
-		width: 10px;
-		height: 10px;
-		border-radius: 50%;
-		background-color: #00082D; /* Change to desired dot color */
-		animation: dotFlashing 1s infinite linear alternate;
-		animation-delay: 0s;
-	}
+                {if $status eq 'fail'}
+                    <div class="eb-alert eb-alert--danger">
+                        <div>
+                            <div class="eb-alert-title">Cloud Storage is not ready yet</div>
+                            <div>The previous setup attempt did not complete. Review the billing terms, then try provisioning the account again.</div>
+                        </div>
+                    </div>
+                {/if}
 
-	.loading-dots .dot:nth-child(2) {
-		left: 20px;
-		animation-delay: 0.2s;
-	}
+                <div class="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(22rem,0.8fr)]">
+                    <section class="space-y-6">
+                        <div class="eb-card-raised">
+                            <div class="flex flex-col gap-6 lg:flex-row lg:items-start">
+                                <div class="min-w-0 flex-1">
+                                    <img
+                                        src="{$WEB_ROOT}/resources/images/eazybackup_e3_light.svg"
+                                        class="h-auto w-full max-w-[16rem]"
+                                        alt="eazyBackup e3"
+                                    >
+                                    <p class="eb-type-body mt-6 max-w-2xl">
+                                        e3 is a high-performance S3-compatible object storage service. Bring your own backup software, media workflows, and automation to store, manage, and access data securely on scalable infrastructure.
+                                    </p>
+                                </div>                             
+                            </div>
+                        </div>
 
-	.loading-dots .dot:nth-child(3) {
-		left: 40px;
-		animation-delay: 0.4s;
-	}
+                        <div class="grid gap-4 md:grid-cols-3">
+                            <div class="eb-stat-card">
+                                <div class="eb-stat-label">Minimum Charge</div>
+                                <div class="eb-stat-value">1 TiB</div>
+                                <div class="eb-type-caption mt-2">$9 CAD per month for the first tebibyte of protected storage.</div>
+                            </div>
+                            <div class="eb-stat-card">
+                                <div class="eb-stat-label">Additional Storage</div>
+                                <div class="eb-stat-value">$0.00878</div>
+                                <div class="eb-type-caption mt-2">Per GiB beyond the included first 1 TiB, equivalent to $9 per TiB.</div>
+                            </div>
+                            <div class="eb-stat-card">
+                                <div class="eb-stat-label">Included Egress</div>
+                                <div class="eb-stat-value">3x</div>
+                                <div class="eb-type-caption mt-2">Monthly outbound transfer is included up to three times your maximum monthly stored data.</div>
+                            </div>
+                        </div>
 
-	@keyframes spin {
-		0% {
-			transform: rotate(0deg);
-		}
+                        {* <div class="grid gap-4 lg:grid-cols-2">
+                            <div class="eb-card">
+                                <div class="eb-card-header">
+                                    <div>
+                                        <h2 class="eb-card-title">What You Get</h2>
+                                        <p class="eb-card-subtitle">Provisioning creates the storage identity used across the Cloud Storage workspace.</p>
+                                    </div>
+                                </div>
+                                <div class="eb-richtext">
+                                    <ul class="list-disc space-y-2 pl-5">
+                                        <li>S3-compatible object storage backed by the e3 platform.</li>
+                                        <li>Access to buckets, access keys, usage reporting, and billing views.</li>
+                                        <li>Compatibility with standard S3 tooling, SDKs, and backup platforms.</li>
+                                        <li>A billing profile aligned with your existing WHMCS client account.</li>
+                                    </ul>
+                                </div>
+                            </div>
 
-		100% {
-			transform: rotate(360deg);
-		}
-	}
-</style>
+                            <div class="eb-card">
+                                <div class="eb-card-header">
+                                    <div>
+                                        <h2 class="eb-card-title">Before You Continue</h2>
+                                        <p class="eb-card-subtitle">Provisioning is immediate and enables monthly billing for the storage account.</p>
+                                    </div>
+                                </div>
+                                <div class="space-y-4">
+                                    <div class="flex items-start gap-3">
+                                        <div class="eb-badge eb-badge--default">1</div>
+                                        <div>
+                                            <div class="text-sm font-semibold text-[var(--eb-text-primary)]">Confirm the billing terms</div>
+                                            <p class="eb-type-caption mt-1">The account starts with a 1 TiB minimum monthly charge and scales with storage beyond that threshold.</p>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-start gap-3">
+                                        <div class="eb-badge eb-badge--default">2</div>
+                                        <div>
+                                            <div class="text-sm font-semibold text-[var(--eb-text-primary)]">Review the generated username</div>
+                                            <p class="eb-type-caption mt-1">Your storage username is derived from the primary email on your WHMCS account to keep provisioning consistent.</p>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-start gap-3">
+                                        <div class="eb-badge eb-badge--default">3</div>
+                                        <div>
+                                            <div class="text-sm font-semibold text-[var(--eb-text-primary)]">Create the account</div>
+                                            <p class="eb-type-caption mt-1">Once complete, this page will redirect into the Cloud Storage dashboard.</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div> *}
+                    </section>
 
-<!-- Sign-Up Form Container -->
-<div class="flex justify-center items-center min-h-screen bg-gray-700">
-	<div class="bg-gray-800 rounded-lg shadow p-8 max-w-xl w-full">
-		{* ebLoader is used instead of legacy loading overlay *}
+                    <section class="eb-card-raised">
+                        <div class="eb-card-header">
+                            <div>
+                                <h2 class="eb-card-title">Provision Storage Access</h2>                                
+                            </div>
+                        </div>
 
-		<div class="flex flex-col mb-6">
-			<img src="{$WEB_ROOT}/resources/images/eazybackup_e3_light.svg" class="text-white w-64 mb-6" alt="eazyBackup e3">
-			<p class="text-gray-300 mb-6">
-				e3 is a high-performance S3-compatible object storage service, bring your own software to store, manage, and access your data securely with our scalable storage.
-			</p>
-			<h3 class="font-semibold text-xl text-gray-300 mb-2">Pricing</h3>
-			<ul class="list-disc list-inside text-gray-300">
-				<li>Minimum monthly charge: 1 TiB / $9 CAD</li>
-				<li>Additional storage is billed at $0.00878 per GiB ($9/TiB) beyond the initial 1 TiB. </li>
-				<li>Free egress up to 3x your monthly maxiumum storage.</li>
-			</ul>
-		</div>
+                        <div id="responseMessage" class="hidden eb-alert" aria-live="polite">
+                            <div>
+                                <div id="responseMessageTitle" class="eb-alert-title"></div>
+                                <div id="responseMessageBody"></div>
+                            </div>
+                        </div>
 
-		<div class="w-full">
-			<form id="s3StorageForm" class="flex flex-col">
-				<div class="mb-6">
-					<div class="relative">
-						<span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-300">
-							<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-4">
-								<path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
-							</svg>
-						</span>
-						<label for="username" class="sr-only">Username:</label>
-						<input
-							type="text"
-							id="username"
-							name="username"
-							placeholder="Username"
-							value="{$default_username|escape}"
-							required
-							class="block w-full pl-10 pr-3 py-2 border border-gray-600 text-gray-300 bg-gray-700 rounded focus:outline-none focus:ring-0 focus:border-blue-600"
-						>
-					</div>
+                        <form id="s3StorageForm" class="space-y-6">
+                            
+                            <div class="eb-subpanel space-y-4">
+                                <div class="flex items-start gap-3">
+                                    <input
+                                        id="agreeTerms"
+                                        name="agreeTerms"
+                                        type="checkbox"
+                                        class="mt-1 h-4 w-4 rounded border-[var(--eb-border-default)] bg-[var(--eb-bg-input)] text-[var(--eb-brand-orange)]"
+                                        required
+                                    >
+                                    <div class="space-y-2 text-sm text-[var(--eb-text-secondary)]">
+                                        <label for="agreeTerms" class="block">
+                                            I have read and agree to the billing terms for this storage account.
+                                        </label>
+                                        <button type="button" id="openModalButton" class="font-semibold text-[var(--eb-brand-orange)] transition-colors hover:text-[var(--eb-accent)]">
+                                            Review billing terms
+                                        </button>
+                                    </div>
+                                </div>
+                                <p id="agreeError" class="hidden eb-field-error">You must agree to the billing terms before creating the account.</p>
+                            </div>
 
-				</div>
-				<!-- Agreement Checkbox -->
-				<div class="flex items-start space-x-2 mb-6">
-					<div class="flex items-center h-5">
-						<input
-							id="agreeTerms"
-							name="agreeTerms"
-							type="checkbox"
-							required
-							class="h-4 w-4 accent-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
-						>
-					</div>
-					<div class="text-sm">
-						<label for="agreeTerms" class="font-medium text-gray-300">
-							I have read and agree to the
-							<a href="#" id="openModalButton" class="text-sm font-semibold text-blue-500 hover:underline">billing terms</a>
-						</label>
-						<div id="agreeError" class="mt-4 text-center bg-red-700 hidden">
-							<label class="text-gray-300"></label>
-						</div>
-					</div>
-				</div>
-				<div class="mb-6">
-					<button
-						type="submit"
-						id="createS3StorageAccount"
-						class="items-center w-full px-4 py-2 mb-4 border border-transparent shadow-sm text-md font-semisbold rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-						disabled
-					>
-						Create Account
-					</button>
-				</div>
-			</form>
-		</div>
-
-		<div id="responseMessage" class="mt-4 text-center">
-			<p class="text-gray-300"></p>
-		</div>
-	</div>
+                            <div class="flex flex-col gap-3 sm:flex-row">
+                                <button
+                                    type="submit"
+                                    id="createS3StorageAccount"
+                                    class="eb-btn eb-btn-primary eb-btn-md w-full justify-center sm:flex-1"
+                                    disabled
+                                >
+                                    Create Account
+                                </button>
+                                <button
+                                    type="button"
+                                    id="openModalButtonSecondary"
+                                    class="eb-btn eb-btn-secondary eb-btn-md w-full justify-center sm:w-auto"
+                                >
+                                    Review Billing Terms
+                                </button>
+                            </div>
+                        </form>
+                    </section>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
-<!-- Billing Terms Modal -->
-<!-- ebLoader -->
 <script src="{$WEB_ROOT}/modules/addons/eazybackup/templates/assets/js/ui.js"></script>
+
 <div
-	id="billingModal"
-	class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden lg:ml-64"
-	aria-labelledby="modal-title"
-	role="dialog"
-	aria-modal="true"
+    id="billingModal"
+    class="hidden fixed inset-0 z-50 flex items-center justify-center px-4 eb-modal-backdrop"
+    aria-labelledby="billing-modal-title"
+    role="dialog"
+    aria-modal="true"
 >
-	<div class="bg-gray-800 rounded-lg w-full max-w-3xl mx-4 relative">
-		<div class="flex justify-between items-center bg-orange-600 text-white p-4 rounded-t-lg">
-			<h5 class="text-lg font-semibold flex items-center">
-				<i class="fas fa-file-contract text-gray-100 mr-2"></i> Billing Terms
-			</h5>
-			<button id="closeModalButton" class="text-white hover:text-gray-200 focus:outline-none">
-				<svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-				</svg>
-			</button>
-		</div>
-		<div class="p-6 overflow-y-auto max-h-96">
-			<!-- Billing Terms Content -->
-			<h2 class="text-2xl font-bold text-gray-300 mb-4">Billing Terms</h2>
-			<p class="text-gray-300 mb-2">
-				By proceeding with the registration and creating an account, you agree to the following billing terms:
-			</p>
-			<ul class="list-disc list-inside text-gray-300 mb-4">
-				<li>You will be charged a minimum of 1 TiB / $9 CAD at the end of your first month.</li>
-				<li>Additional storage used beyond the initial 1 TiB will be billed at $0.00878 per GiB.</li>
-				<li>Free egress up to 3x your monthly maxiumum storage, with any additional egress priced at $0.01/GB</li>
-			</ul>
-			<p class="text-gray-300">
-				If you have any questions about our service or pricing, please contact our support team for assistance.
-			</p>
-			<!-- Add more detailed billing terms as needed -->
-		</div>
-		<div class="flex justify-end p-4 bg-gray-800 rounded-b-lg">
-			<button id="closeModalFooterButton" class="px-4 py-2 text-sm/6 font-semibold text-gray-300">
-				Close
-			</button>
-		</div>
-	</div>
+    <div class="eb-modal max-w-3xl">
+        <div class="eb-modal-header">
+            <div>
+                <h2 id="billing-modal-title" class="eb-modal-title">Billing Terms</h2>
+                <p class="eb-modal-subtitle">Review the pricing model for the e3 object storage account before provisioning.</p>
+            </div>
+            <button id="closeModalButton" type="button" class="eb-modal-close" aria-label="Close">
+                <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+        <div class="eb-modal-body">
+            <div class="eb-richtext space-y-4">
+                <p>
+                    By proceeding with the registration and creating an account, you agree to the following billing terms:
+                </p>
+                <ul class="list-disc space-y-2 pl-5">
+                    <li>You will be charged a minimum of 1 TiB / $9 CAD at the end of your first month.</li>
+                    <li>Additional storage used beyond the initial 1 TiB will be billed at $0.00878 per GiB.</li>
+                    <li>Free egress is included up to 3x your monthly maximum storage, with any additional egress priced at $0.01 per GB.</li>
+                </ul>
+                <p>
+                    If you have questions about the service or pricing model, contact support before creating the account.
+                </p>
+            </div>
+        </div>
+        <div class="eb-modal-footer">
+            <button id="closeModalFooterButton" type="button" class="eb-btn eb-btn-secondary eb-btn-sm">
+                Close
+            </button>
+        </div>
+    </div>
 </div>
 
 <script>
-	jQuery(document).ready(function() {
-		jQuery('#openModalButton').click(function(e) {
-			e.preventDefault();
-			showBillingModal();
-		});
+    jQuery(document).ready(function() {
+        var alertStateClasses = 'eb-alert--success eb-alert--danger eb-alert--warning eb-alert--info';
+        var createButton = jQuery('#createS3StorageAccount');
+        var createButtonLabel = jQuery.trim(createButton.text());
 
-		jQuery('#closeModalButton, #closeModalFooterButton').click(function() {
-			hideBillingModal();
-		});
-		// Close modal when clicking outside the modal content
-		jQuery('#billingModal').click(function(e) {
-			if (e.target === this) {
-				hideBillingModal();
-			}
-		});
-		// Close modal on Escape key press
-		jQuery(document).keydown(function(e) {
-			if (e.key === 'Escape') {
-				hideBillingModal();
-			}
-		});
+        function clearAlert() {
+            jQuery('#responseMessage')
+                .addClass('hidden')
+                .removeClass(alertStateClasses)
+                .attr('aria-hidden', 'true');
+            jQuery('#responseMessageTitle').text('');
+            jQuery('#responseMessageBody').text('');
+        }
 
-		jQuery('#agreeTerms').change(function() {
-			if (jQuery(this).is(':checked')) {
-				jQuery('#createS3StorageAccount').prop('disabled', false);
-				jQuery('#agreeError label').text('');
-				jQuery('#agreeError').addClass('hidden');
-			} else {
-				jQuery('#createS3StorageAccount').prop('disabled', true);
-			}
-		});
+        function showAlert(type, title, message) {
+            var stateClass = 'eb-alert--info';
 
-		jQuery('#createS3StorageAccount').click(function(e) {
-			e.preventDefault();
-			if (jQuery('#agreeTerms').is(':checked')) {
-				jQuery('#s3StorageForm').submit();
-			} else {
-				jQuery('#agreeError label').text('You must agree to the terms.');
-				jQuery('#agreeError').removeClass('hidden');
-			}
-		});
-		jQuery('#s3StorageForm').submit(function(e) {
-			e.preventDefault();
-			try { if (window.ebShowLoader) window.ebShowLoader(document.body, 'Creating account…'); } catch(_) {}
-			var username = jQuery('#username').val();
-			jQuery.ajax({
-				type: 'POST',
-				url: 'modules/addons/cloudstorage/api/createS3StorageAccount.php',
-				data: { username: username },
-				success: function(response) {
-					try { if (window.ebHideLoader) window.ebHideLoader(document.body); } catch(_) {}
-					if (response.status === 'fail') {
-						jQuery('#responseMessage').addClass('bg-red-700').find('p').text(response.message);
-						return;
-					} else {
-						jQuery('#responseMessage').removeClass('bg-red-700').addClass('bg-green-600').find('p').text(response.message);
-						setTimeout(function() { location.reload(); }, 2000);
-					}
-				},
-				error: function(xhr, status, error) {
-					try { if (window.ebHideLoader) window.ebHideLoader(document.body); } catch(_) {}
-					jQuery('#responseMessage').html('Error: ' + xhr.responseText);
-				}
-			});
-		});
+            if (type === 'success') {
+                stateClass = 'eb-alert--success';
+            } else if (type === 'danger') {
+                stateClass = 'eb-alert--danger';
+            } else if (type === 'warning') {
+                stateClass = 'eb-alert--warning';
+            }
 
-		function showBillingModal() {
-			jQuery('#billingModal').removeClass('hidden');
-			jQuery('body').addClass('overflow-hidden');
-		}
-		function hideBillingModal() {
-			jQuery('#billingModal').addClass('hidden');
-			jQuery('body').removeClass('overflow-hidden');
-		}
-	});
+            jQuery('#responseMessage')
+                .removeClass('hidden ' + alertStateClasses)
+                .addClass(stateClass)
+                .attr('aria-hidden', 'false');
+            jQuery('#responseMessageTitle').text(title);
+            jQuery('#responseMessageBody').text(message);
+        }
+
+        function setSubmissionState(isBusy) {
+            createButton.prop('disabled', isBusy || !jQuery('#agreeTerms').is(':checked'));
+            createButton.text(isBusy ? 'Creating Account...' : createButtonLabel);
+        }
+
+        function showBillingModal() {
+            jQuery('#billingModal').removeClass('hidden');
+            jQuery('body').addClass('overflow-hidden');
+        }
+
+        function hideBillingModal() {
+            jQuery('#billingModal').addClass('hidden');
+            jQuery('body').removeClass('overflow-hidden');
+        }
+
+        jQuery('#openModalButton, #openModalButtonSecondary').click(function(e) {
+            e.preventDefault();
+            showBillingModal();
+        });
+
+        jQuery('#closeModalButton, #closeModalFooterButton').click(function() {
+            hideBillingModal();
+        });
+
+        jQuery('#billingModal').click(function(e) {
+            if (e.target === this) {
+                hideBillingModal();
+            }
+        });
+
+        jQuery(document).keydown(function(e) {
+            if (e.key === 'Escape' && !jQuery('#billingModal').hasClass('hidden')) {
+                hideBillingModal();
+            }
+        });
+
+        jQuery('#agreeTerms').change(function() {
+            jQuery('#agreeError').addClass('hidden');
+            setSubmissionState(false);
+        });
+
+        jQuery('#s3StorageForm').submit(function(e) {
+            e.preventDefault();
+            clearAlert();
+
+            if (!jQuery('#agreeTerms').is(':checked')) {
+                jQuery('#agreeError').removeClass('hidden');
+                return;
+            }
+
+            setSubmissionState(true);
+
+            try {
+                if (window.ebShowLoader) {
+                    window.ebShowLoader(document.body, 'Creating account...');
+                }
+            } catch (_) {}
+
+            jQuery.ajax({
+                type: 'POST',
+                url: 'modules/addons/cloudstorage/api/createS3StorageAccount.php',
+                data: { username: jQuery('#username').val() },
+                success: function(response) {
+                    try {
+                        if (window.ebHideLoader) {
+                            window.ebHideLoader(document.body);
+                        }
+                    } catch (_) {}
+
+                    if (response.status === 'fail') {
+                        showAlert('danger', 'Provisioning failed', response.message);
+                        setSubmissionState(false);
+                        return;
+                    }
+
+                    showAlert('success', 'Storage account created', response.message);
+                    setTimeout(function() {
+                        location.reload();
+                    }, 2000);
+                },
+                error: function(xhr) {
+                    var errorMessage = 'An unexpected error occurred while creating the storage account.';
+
+                    try {
+                        if (window.ebHideLoader) {
+                            window.ebHideLoader(document.body);
+                        }
+                    } catch (_) {}
+
+                    if (xhr.responseJSON && xhr.responseJSON.message) {
+                        errorMessage = xhr.responseJSON.message;
+                    } else if (xhr.responseText) {
+                        errorMessage = xhr.responseText;
+                    }
+
+                    showAlert('danger', 'Provisioning failed', errorMessage);
+                    setSubmissionState(false);
+                }
+            });
+        });
+
+        setSubmissionState(false);
+        clearAlert();
+    });
 </script>

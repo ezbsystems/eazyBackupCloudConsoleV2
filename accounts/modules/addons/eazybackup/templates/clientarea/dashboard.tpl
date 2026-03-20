@@ -123,11 +123,11 @@
 </style>
 {/literal}
 
-<div class="min-h-screen bg-slate-950 text-gray-100 overflow-x-hidden">
+<div class="eb-page">
     <!-- Global nebula background -->
     {* <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div> *}
 
-    <div class="container mx-auto max-w-full px-4 pb-8 pt-6">
+    <div class="eb-page-inner">
         <!-- App Shell with Sidebar -->
         <div x-data="{ 
             activeTab: '{$initialTab|escape:"javascript"|default:'dashboard'}',
@@ -150,38 +150,38 @@
             }
         }" 
         x-init="window.addEventListener('resize', () => handleResize())"
-        class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)]">
+        class="eb-panel !p-0">
           
-            <div class="flex">
+            <div class="eb-app-shell">
                 {include file="modules/addons/eazybackup/templates/clientarea/partials/sidebar.tpl" ebSidebarPage='dashboard'}
                 
                 <!-- Main Content Area -->
-                <main class="flex-1 min-w-0 overflow-x-auto">
+                <main class="eb-app-main">
                     <!-- Content Header -->
-                    <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800/60">
-                        <div class="flex items-center gap-3">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-slate-400">
+                    <div class="eb-app-header">
+                        <div class="eb-app-header-copy">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="eb-app-header-icon h-6 w-6">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 14.25v2.25m3-4.5v4.5m3-6.75v6.75m3-9v9M6 20.25h12A2.25 2.25 0 0 0 20.25 18V6A2.25 2.25 0 0 0 18 3.75H6A2.25 2.25 0 0 0 3.75 6v12A2.25 2.25 0 0 0 6 20.25Z" />
                             </svg>
-                            <h1 class="text-xl font-semibold text-white" x-text="activeTab === 'users' ? 'Users' : 'Backup Status'"></h1>
+                            <h1 class="eb-app-header-title" x-text="activeTab === 'users' ? 'Users' : 'Backup Status'"></h1>
                         </div>
                     </div>
                     
                     <!-- Tabs Content -->
-                    <div class="p-6">
+                    <div class="eb-app-body">
                 <div x-show="activeTab === 'dashboard'" x-transition x-cloak>
-                    <h2 class="text-md font-medium eb-text-white mb-4 px-2">Usage overview</h2>
+                    <h2 class="eb-section-title mb-4 px-2">Usage overview</h2>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div class="bg-slate-900 p-4 rounded-lg shadow eb-text-white h-full flex flex-col">
-                            <div class="flex items-center gap-3 mb-3">
+                        <div class="eb-app-card">
+                            <div class="eb-app-card-header">
                                 <span class="eb-usage-icon-badge">
                                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="eb-usage-icon-svg">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0 3 3m-3-3-3 3M6.75 19.5a4.5 4.5 0 0 1-1.41-8.775 5.25 5.25 0 0 1 10.233-2.33 3 3 0 0 1 3.758 3.848A3.752 3.752 0 0 1 18 19.5H6.75Z" />
                                     </svg>
                                 </span>
-                                <h3 class="text-base font-semibold">Last 24 Hours (Status)</h3>
+                                <h3 class="eb-app-card-title">Last 24 Hours (Status)</h3>
                             </div>
-                            <div class="eb-usage-content-inset">
+                            <div class="eb-app-card-body eb-usage-content-inset">
                                 <div id="eb-status24h-donut" class="mt-3 w-full rounded overflow-hidden" style="height:180px;">
                                     <div class="h-full w-full flex items-center justify-center text-xs text-slate-500">Loading chart...</div>
                                 </div>
@@ -199,19 +199,19 @@
                             </div>
                         </div>
 
-                        <div class="bg-slate-900 p-4 rounded-lg shadow eb-text-white h-full flex flex-col">
-                            <div class="flex items-center justify-between mb-3">
+                        <div class="eb-app-card">
+                            <div class="eb-app-card-header">
                                 <div class="flex items-center gap-3">
                                     <span class="eb-usage-icon-badge">
                                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="eb-usage-icon-svg">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 0 0-1.883 2.542l.857 6a2.25 2.25 0 0 0 2.227 1.932H19.05a2.25 2.25 0 0 0 2.227-1.932l.857-6a2.25 2.25 0 0 0-1.883-2.542m-16.5 0V6A2.25 2.25 0 0 1 6 3.75h3.879a1.5 1.5 0 0 1 1.06.44l2.122 2.12a1.5 1.5 0 0 0 1.06.44H18A2.25 2.25 0 0 1 20.25 9v.776" />
                                         </svg>
                                     </span>
-                                    <h3 class="text-base font-semibold">Protected Items</h3>
+                                    <h3 class="eb-app-card-title">Protected Items</h3>
                                 </div>
                                 <span class="text-sm text-slate-400">{$totalProtectedItems}</span>
                             </div>
-                            <div class="eb-usage-content-inset">
+                            <div class="eb-app-card-body eb-usage-content-inset">
                             <div style="min-height:1.5rem;"></div>
                             <div class="space-y-2 text-sm text-slate-300">
                                 <div class="flex items-center justify-between">
@@ -289,18 +289,18 @@
                             </div>
                         </div>
 
-                        <div class="bg-slate-900 p-4 rounded-lg shadow eb-text-white h-full flex flex-col">
-                            <div class="flex items-center justify-between mb-3">
+                        <div class="eb-app-card">
+                            <div class="eb-app-card-header">
                                 <div class="flex items-center gap-3">
                                     <span class="eb-usage-icon-badge">
                                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="eb-usage-icon-svg">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 12V5.25" />
                                         </svg>
                                     </span>
-                                    <h3 class="text-base font-semibold">Devices</h3>
+                                    <h3 class="eb-app-card-title">Devices</h3>
                                 </div>
                             </div>
-                            <div class="eb-usage-content-inset">
+                            <div class="eb-app-card-body eb-usage-content-inset">
                             <div style="min-height:3.5rem;" class="flex items-end justify-between gap-3">
                                 <div class="flex items-end gap-3">
                                     <div class="text-3xl font-bold">{$totalDevices|default:0}</div>
@@ -317,18 +317,18 @@
                             </div>
                         </div>
 
-                        <div class="bg-slate-900 p-4 rounded-lg shadow eb-text-white h-full flex flex-col">
-                            <div class="flex items-center justify-between mb-3">
+                        <div class="eb-app-card">
+                            <div class="eb-app-card-header">
                                 <div class="flex items-center gap-3">
                                     <span class="eb-usage-icon-badge">
                                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="eb-usage-icon-svg">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
                                         </svg>
                                     </span>
-                                    <h3 class="text-base font-semibold">Storage</h3>
+                                    <h3 class="eb-app-card-title">Storage</h3>
                                 </div>
                             </div>
-                            <div class="eb-usage-content-inset">
+                            <div class="eb-app-card-body eb-usage-content-inset">
                             <div style="min-height:3.5rem;" class="flex items-end gap-3">
                                 <div class="text-2xl font-bold">{$totalStorageUsed|default:'0.00 B'}</div>
                                 <div class="text-sm text-slate-400 pb-1">Used</div>
@@ -373,19 +373,19 @@
                                 <div class="flex flex-wrap items-center gap-2 order-1 md:order-2 md:flex-nowrap">
                                     <!-- Status dropdown -->
                                     <div x-data="dropdown()" class="relative flex-shrink-0">
-                                        <button @click="toggle()" class="inline-flex items-center justify-center gap-2 px-2.5 py-1.5 md:px-4 md:py-2 text-sm md:text-base font-sans text-gray-300 border border-gray-600 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600 appearance-none whitespace-nowrap leading-normal">
+                                        <button @click="toggle()" class="eb-app-toolbar-button whitespace-nowrap leading-normal">
                                             <span x-text="selected || 'All Statuses'"></span>
                                             <svg class="w-3.5 h-3.5 md:w-4 md:h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
                                             </svg>
                                         </button>
                                     <div x-show="open" @click.away="close()" x-transition
-                                            class="absolute mt-1 w-full min-w-[140px] rounded-md bg-gray-800 shadow-lg border border-gray-700 z-10">
+                                            class="eb-menu absolute mt-1 min-w-[140px] z-10">
                                         <ul class="py-1">
                                             <template x-for="option in options" :key="option">
                                                 <li>
                                                     <a href="#" @click.prevent="select(option)"
-                                                        class="block px-4 py-2 text-gray-300 hover:bg-sky-600 hover:text-white">
+                                                        class="eb-menu-item">
                                                         <span x-text="option"></span>
                                                     </a>
                                                 </li>
@@ -397,7 +397,7 @@
                                     <!-- Group by selector -->
                                     <div class="relative flex-shrink-0" x-data="{ open:false }" @click.away="open=false">
                                         <button type="button"
-                                                class="inline-flex items-center justify-center gap-2 px-2.5 py-1.5 md:px-4 md:py-2 text-sm md:text-base font-sans text-gray-300 border border-gray-600 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600 appearance-none whitespace-nowrap leading-normal"
+                                                class="eb-app-toolbar-button whitespace-nowrap leading-normal"
                                                 @click="open=!open">
                                             <span class="text-slate-400 hidden sm:inline">Group by:</span>
                                             <span x-text="($store.ebDeviceGroups && $store.ebDeviceGroups.groupByLabel) ? $store.ebDeviceGroups.groupByLabel() : 'None'"></span>
@@ -406,17 +406,17 @@
                                             </svg>
                                         </button>
                                         <div x-show="open" x-transition
-                                             class="absolute mt-1 w-full min-w-[180px] rounded-md bg-gray-800 shadow-lg border border-gray-700 z-50">
+                                             class="eb-menu absolute mt-1 min-w-[180px] z-50">
                                             <ul class="py-1">
                                                 <li>
                                                     <a href="#" @click.prevent="open=false; $store.ebDeviceGroups && $store.ebDeviceGroups.setGroupBy('none')"
-                                                       class="block px-4 py-2 text-gray-300 hover:bg-sky-600 hover:text-white">
+                                                       class="eb-menu-item">
                                                         None
                                                     </a>
                                                 </li>
                                                 <li>
                                                     <a href="#" @click.prevent="open=false; $store.ebDeviceGroups && $store.ebDeviceGroups.setGroupBy('groups')"
-                                                       class="block px-4 py-2 text-gray-300 hover:bg-sky-600 hover:text-white">
+                                                       class="eb-menu-item">
                                                         Client/Company Groups
                                                     </a>
                                                 </li>
@@ -426,7 +426,7 @@
 
                                     <!-- Manage Groups -->
                                     <button type="button"
-                                            class="inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 md:px-4 md:py-2 text-sm md:text-base font-sans text-gray-300 border border-gray-600 bg-[#11182759] rounded hover:bg-[#1118272e] focus:outline-none focus:ring-0 focus:border-sky-600 whitespace-nowrap flex-shrink-0"
+                                            class="eb-app-toolbar-button whitespace-nowrap flex-shrink-0"
                                             @click="$store.ebDeviceGroups && $store.ebDeviceGroups.openDrawer()"
                                             title="Manage Groups">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -437,8 +437,8 @@
 
                                     <!-- Bulk select mode -->
                                     <button type="button"
-                                            class="inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 md:px-4 md:py-2 text-sm md:text-base font-sans border rounded focus:outline-none focus:ring-0 focus:border-sky-600 whitespace-nowrap flex-shrink-0"
-                                            :class="selectMode ? 'text-sky-200 border-sky-500/60 bg-sky-500/10' : 'text-gray-300 border-gray-600 bg-[#11182759] hover:bg-[#1118272e]'"
+                                            class="eb-app-toolbar-button whitespace-nowrap flex-shrink-0"
+                                            :class="selectMode ? 'is-active' : ''"
                                             @click="toggleSelectMode()"
                                             title="Select devices">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -450,12 +450,12 @@
 
                                 <!-- Row 2: Search (bottom on mobile, top on desktop, full width) -->
                                 <input type="text" placeholder="Search devices..." x-model="searchTerm"
-                                    class="block w-full px-3 py-2 border border-gray-600 text-gray-300 bg-[#11182759] rounded focus:outline-none focus:ring-0 focus:border-sky-600 order-2 md:order-1" />
+                                    class="eb-input order-2 md:order-1" />
                             </div>
 
                             <!-- Issues Summary Strip (Last 24 hours) -->
                             <div class="mb-4">
-                                <div class="rounded-2xl border border-slate-800/80 bg-slate-900/40 shadow-[0_10px_30px_rgba(0,0,0,0.35)] px-3 py-2"
+                                <div class="eb-subpanel px-3 py-2"
                                      x-effect="countsCache = computeCounts(); publishSummary24hCounts()">
                                     <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                                         <!-- Left: label + tooltip -->
@@ -523,7 +523,7 @@
 
                             <!-- Bulk action bar -->
                             <div x-show="selectMode && selectedCount() > 0" x-cloak class="px-2 mb-4">
-                                <div class="sticky bottom-2 z-40 rounded-2xl border border-slate-800 bg-slate-900/60 shadow-[0_10px_30px_rgba(0,0,0,0.35)] px-3 py-2 backdrop-blur">
+                                <div class="eb-subpanel sticky bottom-2 z-40 px-3 py-2 backdrop-blur">
                                     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                                         <div class="text-sm text-slate-200">
                                             <span class="font-semibold tabular-nums" x-text="selectedCount()"></span>
@@ -2133,5 +2133,3 @@ try {
 
 {* Device Groups drawer (Manage Groups) *}
 {include file="modules/addons/eazybackup/templates/clientarea/partials/device-groups-drawer.tpl"}
-
-

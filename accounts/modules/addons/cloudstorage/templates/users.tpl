@@ -6,55 +6,20 @@
 <!-- ebLoader -->
 <script src="{$WEB_ROOT}/modules/addons/eazybackup/templates/assets/js/ui.js"></script>
 
-<div class="min-h-screen bg-slate-950 text-gray-300" x-data="usersManager()">
+<div class="eb-page" x-data="usersManager()">
 	{* <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div> *}
-	<div class="container mx-auto px-4 pb-10 pt-6 relative pointer-events-auto">
-
-		<!-- Cloud Storage Navigation (moved above content) -->
-
-
-		
-		<!-- Cloud Storage Navigation -->
-        <div class="mb-6">
-            <nav class="inline-flex rounded-full bg-slate-900/80 p-1 text-xs font-medium text-slate-400" aria-label="Cloud Storage Navigation">
-                <a href="index.php?m=cloudstorage&page=dashboard"
-                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'dashboard'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-                    Dashboard
-                </a>
-                <a href="index.php?m=cloudstorage&page=buckets"
-                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'buckets'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-                    Buckets
-                </a>                
-                <a href="index.php?m=cloudstorage&page=access_keys"
-                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'access_keys'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-                    Access Keys
-                </a>
-                <a href="index.php?m=cloudstorage&page=users"
-                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'users'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-                    Users
-                </a>
-                <a href="index.php?m=cloudstorage&page=billing"
-                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'billing'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-                    Billing
-                </a>
-                <a href="index.php?m=cloudstorage&page=history"
-                   class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'history'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-                    Historical Stats
-                </a>
-            </nav>
-        </div>
-		
-		<!-- Glass Container -->
-		<div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
+	<div class="eb-page-inner relative pointer-events-auto pb-10">
+		<div class="eb-panel">
+            <div class="eb-panel-nav">
+                {include file="modules/addons/cloudstorage/templates/partials/core_nav.tpl" cloudstorageActivePage='users'}
+            </div>
 		<!-- Header Section -->
-		<div class="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-4">
-			<div class="flex items-center">
-				<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 mr-2">
-					<path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" />
-				</svg>
-				<h1 class="text-2xl font-semibold text-white">Manage Users</h1>
-				<span class="ml-3 px-2 py-1 bg-slate-700 text-slate-300 text-sm rounded" x-text="filteredUsers.length + ' users'"></span>
+		<div class="eb-page-header">
+			<div>
+				<h1 class="eb-page-title">Manage Users</h1>
+				<p class="eb-page-description">Create storage users, manage API credentials, and review subuser access for each account.</p>
 			</div>
+			<span class="eb-badge eb-badge--neutral" x-text="filteredUsers.length + ' users'"></span>
 		
 
 		<!-- Actions Bar -->
@@ -64,7 +29,7 @@
 					<input type="text" 
 						x-model="searchTerm" 
 						placeholder="Search users..."
-						class="bg-slate-800 text-gray-300 placeholder-slate-400 focus:ring-sky-500 focus:border-sky-500 block w-full sm:w-48 lg:w-64 px-4 py-2 border border-slate-600 rounded-md focus:outline-none">
+						class="eb-input block w-full sm:w-48 lg:w-64 pr-10">
 					<svg class="absolute right-3 top-2.5 h-5 w-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
 					</svg>
@@ -73,25 +38,25 @@
 				<!-- Filter Dropdown -->
 				<div class="relative" x-data="{ open: false }">
 					<button @click="open = !open" @click.away="open = false"
-						class="bg-slate-800 hover:bg-slate-700 text-gray-300 px-4 py-2 border border-slate-600 rounded-md focus:outline-none flex items-center">
+						class="eb-app-toolbar-button">
 						<svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"></path>
 						</svg>
 						Filter
 					</button>
 					<div x-show="open" x-cloak
-						class="absolute right-0 z-50 mt-2 w-48 bg-slate-800 border border-slate-600 rounded-md shadow-lg scrollbar_thin">
+						class="eb-menu absolute right-0 z-50 mt-2 w-48 scrollbar_thin">
 						<div class="p-2">
 							<label class="flex items-center mb-2">
-								<input type="checkbox" x-model="filters.hasKeys" class="mr-2 text-sky-600">
+								<input type="checkbox" x-model="filters.hasKeys" class="eb-checkbox mr-2">
 								<span class="text-sm">Has API Keys</span>
 							</label>
 							<label class="flex items-center mb-2">
-								<input type="checkbox" x-model="filters.hasSubusers" class="mr-2 text-sky-600">
+								<input type="checkbox" x-model="filters.hasSubusers" class="eb-checkbox mr-2">
 								<span class="text-sm">Has Subusers</span>
 							</label>
 							<label class="flex items-center">
-								<input type="checkbox" x-model="filters.hasStorage" class="mr-2 text-sky-600">
+								<input type="checkbox" x-model="filters.hasStorage" class="eb-checkbox mr-2">
 								<span class="text-sm">Has Storage</span>
 							</label>
 						</div>
@@ -102,14 +67,14 @@
 				<div x-show="selectedUsers.length > 0" class="flex items-center gap-2">
 					<span class="text-sm text-slate-400" x-text="selectedUsers.length + ' selected'"></span>
 					<button @click="bulkDelete" 
-						class="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-md text-sm">
+						class="eb-btn eb-btn-danger-solid eb-btn-sm">
 						Delete Selected
 					</button>
 				</div>
 				
 				<!-- Create User Button -->
 				<button onclick="openCreateUserSlideover()"
-					class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md focus:outline-none whitespace-nowrap">
+					class="eb-btn eb-btn-success whitespace-nowrap">
 					<svg class="w-4 h-4 mr-2 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
 					</svg>
@@ -124,12 +89,12 @@
 			window.addEventListener('close-create-user-slideover', () => { isOpen = false });
 		" x-show="isOpen" class="fixed inset-0 z-50" style="display: none;">
 			<!-- Backdrop -->
-			<div class="absolute inset-0 bg-black/75"
+			<div class="absolute inset-0 eb-drawer-backdrop"
 				 x-show="isOpen"
 				 x-transition.opacity
 				 onclick="closeCreateUserSlideover()"></div>
 			<!-- Panel -->
-			<div class="absolute right-0 top-0 h-full w-full max-w-xl bg-slate-950 border-l border-slate-800/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] overflow-y-auto"
+			<div class="absolute right-0 top-0 h-full eb-drawer eb-drawer--wide overflow-y-auto"
 				 x-show="isOpen"
 				 x-transition:enter="transform transition ease-in-out duration-300"
 				 x-transition:enter-start="translate-x-full"
@@ -137,65 +102,56 @@
 				 x-transition:leave="transform transition ease-in-out duration-300"
 				 x-transition:leave-start="translate-x-0"
 				 x-transition:leave-end="translate-x-full">
-				<div class="flex items-center justify-between p-4 border-b border-slate-700">
-					<h3 class="text-lg font-semibold text-white">Create User</h3>
-					<button class="text-slate-300 hover:text-white" onclick="closeCreateUserSlideover()">
-						<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+				<div class="eb-drawer-header">
+                    <div>
+					    <h3 class="eb-drawer-title">Create User</h3>
+                        <p class="mt-1 text-sm text-slate-400">Provision a new Cloud Storage user before generating keys or subusers.</p>
+                    </div>
+					<button class="eb-modal-close" onclick="closeCreateUserSlideover()" aria-label="Close">
+						<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
 						</svg>
 					</button>
 				</div>
-				<div class="p-4">
+				<div class="eb-drawer-body">
 					<style>
 					#createUserSlideover ::placeholder { color: #94a3b8; opacity: 1; }
-					#createUserSlideover .border-slate-700 { border-color: rgba(51,65,85,1); }
-					#createUserSlideover input[type="text"] {
-						background-color: rgb(15 23 42) !important;
-						border-color: rgba(51,65,85,1) !important;
-						color: #e2e8f0 !important;
-					}
-					#createUserSlideover input:focus {
-						outline: none !important;
-						border-color: rgb(14 165 233 / 1) !important;
-						box-shadow: 0 0 0 1px rgb(14 165 233 / 1) !important;
-					}
 					</style>
 
-					<div id="createUserMessage" class="bg-red-600 text-white px-4 py-2 rounded-md mb-4 hidden"></div>
+					<div id="createUserMessage" class="eb-alert eb-alert--danger mb-4 hidden"></div>
 
 					<div class="mb-4">
-						<label class="block text-sm font-medium text-slate-300 mb-2">Username</label>
+						<label class="eb-field-label">Username</label>
 						<input type="text" x-model="newUser.username" placeholder="e.g., acme-corp"
-							   class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600" required>
+							   class="eb-input w-full" required>
 						
 					</div>
-
-					<div class="flex justify-end space-x-2 mt-6">
-						<button type="button" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-md" onclick="closeCreateUserSlideover()">Cancel</button>
-						<button type="button" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md" @click="createUser(); closeCreateUserSlideover()">Confirm</button>
-					</div>
+                </div>
+                <div class="eb-drawer-footer justify-end">
+					<button type="button" class="eb-btn eb-btn-secondary" onclick="closeCreateUserSlideover()">Cancel</button>
+					<button type="button" class="eb-btn eb-btn-success" @click="createUser(); closeCreateUserSlideover()">Confirm</button>
 				</div>
 			</div>
 		</div>
 
 		<!-- Alert Messages -->
 		<div x-show="alert.show" x-cloak x-transition
-			class="px-4 py-3 rounded-md mb-6" 
-			:class="alert.type === 'success' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'">
+			class="eb-alert mb-6" 
+			:class="alert.type === 'success' ? 'eb-alert--success' : 'eb-alert--danger'">
 			<span x-text="alert.message"></span>
 		</div>
 
 		<!-- Users Table -->
-		<div class="bg-slate-800 rounded-lg border border-slate-700 shadow-lg overflow-hidden">
+		<div class="eb-table-shell overflow-hidden">
 			<!-- Table Controls -->
-			<div class="flex flex-col sm:flex-row justify-between items-center p-4 border-b border-slate-700 gap-3">
+			<div class="eb-table-toolbar flex-col sm:flex-row justify-between items-center gap-3">
 				<div class="flex items-center gap-4">
 					<!-- Select All -->
 					<label class="flex items-center">
 						<input type="checkbox" 
 							:checked="selectedUsers.length === filteredUsers.length && filteredUsers.length > 0"
 							@change="toggleSelectAll"
-							class="mr-2 text-sky-600">
+							class="eb-checkbox mr-2">
 						<span class="text-sm text-slate-400">Select All</span>
 					</label>
 					
@@ -203,7 +159,7 @@
 					<div class="flex items-center gap-2">
 						<span class="text-sm text-slate-400">Sort by:</span>
 						<select x-model="sortBy" 
-							class="bg-slate-700 border border-slate-600 text-gray-300 text-sm rounded pl-3 pr-8 py-1 min-w-[120px] scrollbar_thin appearance-none">
+							class="eb-select min-w-[120px] py-1 text-sm scrollbar_thin appearance-none">
 							<option value="username">Username</option>
 							<option value="total_buckets">Buckets</option>
 							<option value="total_storage">Storage</option>
@@ -211,7 +167,7 @@
 							<option value="subusers_count">Subusers</option>
 						</select>
 						<button @click="sortOrder = sortOrder === 'asc' ? 'desc' : 'asc'"
-							class="text-slate-400 hover:text-slate-200">
+							class="eb-table-sort-button">
 							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
 									x-bind:d="sortOrder === 'asc' ? 'M3 4l9 16 9-16H3z' : 'M21 20L12 4 3 20h18z'"></path>

@@ -175,6 +175,11 @@ function cloudstorage_config()
                 'Size' => '100',
                 'Description' => 'Secret key for server-side Turnstile verification.'
             ],
+            'turnstile_use_invisible' => [
+                'FriendlyName' => 'Turnstile: use invisible widget',
+                'Type' => 'yesno',
+                'Description' => 'Match your Cloudflare widget type for this site key. OFF = visible challenge (typical for staging/dev). ON = invisible widget (typical for production — no visible CAPTCHA row).',
+            ],
             'trial_verification_email_template' => [
                 'FriendlyName' => 'Trial Verification Email Template',
                 'Type' => 'dropdown',
@@ -4124,6 +4129,7 @@ function cloudstorage_clientarea($vars) {
     $cephAdminSecretKey = $config['ceph_secret_key'];
     $turnstileSiteKey = $config['turnstile_site_key'] ?? '';
     $turnstileSecretKey = $config['turnstile_secret_key'] ?? '';
+    $turnstileUseInvisible = (($config['turnstile_use_invisible'] ?? '') === 'on');
 
     switch ($page) {
         case 'signup':
@@ -4132,6 +4138,7 @@ function cloudstorage_clientarea($vars) {
             $requireLogin = false;
             $viewVars = [
                 'TURNSTILE_SITE_KEY' => $turnstileSiteKey,
+                'TURNSTILE_USE_INVISIBLE' => $turnstileUseInvisible,
             ];
             break;
 
@@ -4148,6 +4155,7 @@ function cloudstorage_clientarea($vars) {
             if (empty($viewVars['TURNSTILE_SITE_KEY'])) {
                 $viewVars['TURNSTILE_SITE_KEY'] = $turnstileSiteKey;
             }
+            $viewVars['TURNSTILE_USE_INVISIBLE'] = $turnstileUseInvisible;
             break;
 
         case 'resendtrial':
@@ -4161,6 +4169,7 @@ function cloudstorage_clientarea($vars) {
             if (empty($viewVars['TURNSTILE_SITE_KEY'])) {
                 $viewVars['TURNSTILE_SITE_KEY'] = $turnstileSiteKey;
             }
+            $viewVars['TURNSTILE_USE_INVISIBLE'] = $turnstileUseInvisible;
             break;
 
         case 'verifytrial':
@@ -4171,6 +4180,7 @@ function cloudstorage_clientarea($vars) {
             if (empty($viewVars['TURNSTILE_SITE_KEY'])) {
                 $viewVars['TURNSTILE_SITE_KEY'] = $turnstileSiteKey;
             }
+            $viewVars['TURNSTILE_USE_INVISIBLE'] = $turnstileUseInvisible;
             break;
 
         case 'welcome':

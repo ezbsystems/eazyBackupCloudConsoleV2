@@ -3,24 +3,20 @@
 {include file="modules/addons/eazybackup/templates/partials/_ui-tokens.tpl"}
 
 {assign var=activeTab value=$active_tab|default:'profile'}
+{capture assign=ebPhTitle}
+  {$tenant.name|default:'Unnamed'|escape}
+{/capture}
+{capture assign=ebPhDescription}
+  Tenant ID {$tenant.public_id|escape} · View and manage this customer tenant's profile, members, storage users, billing, and white-label state.
+{/capture}
+{capture assign=ebPhActions}
+  <div class="flex flex-wrap items-center justify-end gap-2">
+    <a href="{$modulelink}&a=ph-tenants-manage" class="eb-btn eb-btn-secondary eb-btn-sm">Back to Customer Tenants</a>
+  </div>
+{/capture}
 
-<div class="min-h-screen bg-slate-950 text-gray-100 overflow-x-hidden">
-  <div class="container mx-auto max-w-full px-4 pb-8 pt-6">
-    <div x-data="{
-      sidebarCollapsed: localStorage.getItem('eb_ph_sidebar_collapsed') === 'true' || window.innerWidth < 1360,
-      toggleCollapse() {
-        this.sidebarCollapsed = !this.sidebarCollapsed;
-        localStorage.setItem('eb_ph_sidebar_collapsed', this.sidebarCollapsed);
-      },
-      handleResize() {
-        if (window.innerWidth < 1360 && !this.sidebarCollapsed) this.sidebarCollapsed = true;
-      }
-    }" x-init="window.addEventListener('resize', () => handleResize())" class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)]">
-      <div class="flex">
-        {include file="modules/addons/eazybackup/templates/whitelabel/partials/sidebar_partner_hub.tpl" ebPhSidebarPage='tenants'}
-        <main class="flex-1 min-w-0 overflow-x-auto">
-      <div class="w-full max-w-full min-w-0 overflow-hidden px-6 py-6">
-      <div class="-mx-6 -mt-6 mb-6 rounded-t-r-3xl border-b border-slate-800/80 bg-slate-900/50 px-6 py-3">
+{capture assign=ebPhContent}
+      <div class="eb-panel-nav">
         <nav class="flex flex-wrap items-center gap-1" aria-label="Tenant detail tabs">
           <a href="{$tab_links.profile|default:'#'|escape}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $activeTab eq 'profile'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998-0A4.5 4.5 0 0 0 12 16.5h-1.5a4.5 4.5 0 0 0-4.499 3.618Z" /></svg>
@@ -45,39 +41,28 @@
         </nav>
       </div>
 
-      <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-3">
-        <div>
-          <div class="flex items-center gap-2 mb-1">
-            <a href="{$modulelink}&a=ph-tenants-manage" class="text-slate-400 hover:text-white text-sm">Customer Tenants</a>
-            <span class="text-slate-600">/</span>
-            <span class="text-white text-sm font-medium">Tenant ID {$tenant.public_id|escape}</span>
+    {if $notice neq '' || $error neq '' || (isset($legacy_notice) && $legacy_notice neq '')}
+      <div class="mb-6 space-y-3">
+        {if $notice neq ''}
+          <div class="rounded-xl bg-emerald-500/20 ring-1 ring-emerald-400/30 px-4 py-3 text-sm text-white">
+            Tenant updated.
           </div>
-          <h2 class="text-2xl font-semibold text-white">{$tenant.name|default:'Unnamed'|escape}</h2>
-          <p class="text-xs text-slate-400 mt-1">View and edit this customer tenant's profile, members, storage users, and billing.</p>
-        </div>
-        <div class="shrink-0">
-          <a href="{$modulelink}&a=ph-tenants-manage" class="inline-flex items-center px-4 py-2 rounded-md border border-slate-700 bg-slate-900/70 text-slate-200 text-sm font-medium hover:bg-slate-800">Back to Customer Tenants</a>
-        </div>
-      </div>
-
-    {if $notice neq ''}
-      <div class="mt-4 rounded-xl bg-emerald-500/20 ring-1 ring-emerald-400/30 px-4 py-3 text-sm text-white">
-        Tenant updated.
-      </div>
-    {/if}
-    {if $error neq ''}
-      <div class="mt-4 rounded-xl bg-rose-500/10 ring-1 ring-rose-400/20 px-4 py-3 text-sm text-rose-200">
-        Unable to process the request ({$error|escape}).
-      </div>
-    {/if}
-    {if isset($legacy_notice) && $legacy_notice neq ''}
-      <div class="mt-4 rounded-xl bg-amber-500/10 ring-1 ring-amber-400/30 px-4 py-3 text-sm text-amber-100">
-        You were redirected here from a legacy e3 tenant URL ({$legacy_notice|escape}). This Partner Hub page is the canonical tenant view.
+        {/if}
+        {if $error neq ''}
+          <div class="rounded-xl bg-rose-500/10 ring-1 ring-rose-400/20 px-4 py-3 text-sm text-rose-200">
+            Unable to process the request ({$error|escape}).
+          </div>
+        {/if}
+        {if isset($legacy_notice) && $legacy_notice neq ''}
+          <div class="rounded-xl bg-amber-500/10 ring-1 ring-amber-400/30 px-4 py-3 text-sm text-amber-100">
+            You were redirected here from a legacy e3 tenant URL ({$legacy_notice|escape}). This Partner Hub page is the canonical tenant view.
+          </div>
+        {/if}
       </div>
     {/if}
 
     {if $activeTab eq 'profile'}
-      <section class="mt-6 rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden">
+      <section class="rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden">
         <div class="px-6 py-5 border-b border-slate-800">
           <h2 class="text-lg font-medium text-slate-100">Edit Customer Tenant</h2>
         </div>
@@ -290,7 +275,7 @@
         </form>
       </section>
     {elseif $activeTab eq 'members'}
-      <section class="mt-6 rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden">
+      <section class="rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden">
         <div class="px-6 py-5 border-b border-slate-800 flex items-center justify-between">
           <h2 class="text-lg font-medium text-slate-100">Tenant Members</h2>
           <span class="text-sm text-slate-400">{$members|@count} total</span>
@@ -327,7 +312,7 @@
         {/if}
       </section>
     {elseif $activeTab eq 'storage_users'}
-      <section class="mt-6 rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden">
+      <section class="rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden">
         <div class="px-6 py-5 border-b border-slate-800 flex items-center justify-between">
           <h2 class="text-lg font-medium text-slate-100">Storage Users</h2>
           <span class="text-sm text-slate-400">{$storage_users|@count} total</span>
@@ -362,7 +347,7 @@
         {/if}
       </section>
     {elseif $activeTab eq 'billing'}
-      <section class="mt-6 rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden">
+      <section class="rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden">
         <div class="px-6 py-5 border-b border-slate-800"><h2 class="text-lg font-medium text-slate-100">Billing Overview</h2></div>
         <div class="px-6 py-5 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
           <div class="rounded-xl border border-slate-700 bg-slate-800/50 p-4">
@@ -387,7 +372,7 @@
         {/if}
       </section>
     {elseif $activeTab eq 'white_label'}
-      <section class="mt-6 rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden">
+      <section class="rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden">
         <div class="px-6 py-5 border-b border-slate-800"><h2 class="text-lg font-medium text-slate-100">White Label Mapping</h2></div>
         <div class="px-6 py-5 text-sm">
           {if $whitelabel_error|default:'' neq ''}
@@ -430,10 +415,12 @@
         </div>
       </section>
     {/if}
-    </div>
-        </main>
-      </div>
-    </div>
-  </div>
-</div>
+{/capture}
 
+{include file="modules/addons/eazybackup/templates/whitelabel/partials/partner_hub_shell.tpl"
+  ebPhSidebarPage='tenants'
+  ebPhTitle=$ebPhTitle
+  ebPhDescription=$ebPhDescription
+  ebPhActions=$ebPhActions
+  ebPhContent=$ebPhContent
+}

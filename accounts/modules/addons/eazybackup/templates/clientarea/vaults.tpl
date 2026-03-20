@@ -29,8 +29,8 @@
 </style>
 {/literal}
 
-<div class="min-h-screen bg-slate-950 text-gray-100 overflow-x-hidden">
-    <div class="container mx-auto max-w-full px-4 pb-8 pt-6">
+<div class="eb-page">
+    <div class="eb-page-inner">
         <!-- App Shell with Sidebar -->
         <div x-data="{ 
             sidebarOpen: true,
@@ -46,25 +46,25 @@
             }
         }" 
         x-init="window.addEventListener('resize', () => handleResize())"
-        class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)]">
+        class="eb-panel !p-0">
           
-            <div class="flex">
+            <div class="eb-app-shell">
                 {include file="modules/addons/eazybackup/templates/clientarea/partials/sidebar.tpl" ebSidebarPage='vaults'}
                 
                 <!-- Main Content Area -->
-                <main class="flex-1 min-w-0 overflow-x-auto">
+                <main class="eb-app-main">
                     <!-- Content Header -->
-                    <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800/60">
-                        <div class="flex items-center gap-3">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-slate-400">
+                    <div class="eb-app-header">
+                        <div class="eb-app-header-copy">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="eb-app-header-icon h-6 w-6">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
                             </svg>
-                            <h1 class="text-xl font-semibold text-white">Storage Vaults</h1>
+                            <h1 class="eb-app-header-title">Storage Vaults</h1>
                         </div>
                     </div>
                     
                     <!-- Vaults Content -->
-                    <div class="p-6">                   
+                    <div class="eb-app-body">                   
                     {* Preprocess vaults into per-account groups with totals *}
                     {assign var=accountGroups value=[]}
                                 {foreach from=$vaults item=vault}
@@ -158,7 +158,7 @@
 
                     {assign var=tbBytes value=1099511627776}
 
-                    <div class="bg-slate-950/70 rounded-2xl border border-slate-800/80 p-4"
+                    <div class="eb-subpanel"
                          data-vaults-loader-host
                          x-data="{
                             columnsOpen: false,
@@ -259,11 +259,11 @@
                             }
                          }"
                          x-init="init()">
-                        <div class="mb-4 flex flex-col xl:flex-row xl:items-center gap-3">
+                        <div class="eb-app-toolbar">
                             <div class="relative" @click.away="entriesOpen=false">
                                 <button type="button"
                                         @click="entriesOpen=!entriesOpen"
-                                        class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
+                                        class="eb-app-toolbar-button">
                                     <span x-text="'Show ' + entriesPerPage"></span>
                                     <svg class="w-4 h-4 transition-transform" :class="entriesOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                                         <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
@@ -276,12 +276,12 @@
                                      x-transition:leave="transition ease-in duration-75"
                                      x-transition:leave-start="opacity-100 scale-100"
                                      x-transition:leave-end="opacity-0 scale-95"
-                                     class="absolute left-0 mt-2 w-40 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden"
+                                     class="eb-menu absolute left-0 mt-2 w-40 z-50 overflow-hidden"
                                      style="display: none;">
                                     <template x-for="size in [10,25,50,100]" :key="'vaults-entries-' + size">
                                         <button type="button"
-                                                class="w-full px-4 py-2 text-left text-sm transition"
-                                                :class="entriesPerPage === size ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
+                                                class="eb-menu-item"
+                                                :class="entriesPerPage === size ? 'is-active' : ''"
                                                 @click="setEntries(size); entriesOpen=false;">
                                             <span x-text="size"></span>
                                         </button>
@@ -292,7 +292,7 @@
                             <div class="relative" @click.away="columnsOpen=false">
                                 <button type="button"
                                         @click="columnsOpen=!columnsOpen"
-                                        class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
+                                        class="eb-app-toolbar-button">
                                     Columns
                                     <svg class="w-4 h-4 transition-transform" :class="columnsOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                                         <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
@@ -305,15 +305,15 @@
                                      x-transition:leave="transition ease-in duration-75"
                                      x-transition:leave-start="opacity-100 scale-100"
                                      x-transition:leave-end="opacity-0 scale-95"
-                                     class="absolute left-0 mt-2 w-64 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden p-2"
+                                     class="eb-menu absolute left-0 mt-2 w-64 z-50 overflow-hidden p-2"
                                      style="display: none;">
-                                    <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Account Name</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500" x-model="cols.acct"></label>
-                                    <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Storage Vault</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500" x-model="cols.name"></label>
-                                    <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Stored</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500" x-model="cols.stored"></label>
-                                    <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Quota</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500" x-model="cols.quota"></label>
-                                    <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Usage</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500" x-model="cols.usage"></label>
-                                    <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Billing</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500" x-model="cols.billing"></label>
-                                    <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Actions</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500" x-model="cols.actions"></label>
+                                    <label class="flex cursor-pointer items-center justify-between rounded px-2 py-2 text-sm hover:bg-[var(--eb-bg-hover)]"><span>Account Name</span><input type="checkbox" class="h-4 w-4 rounded border border-slate-600 bg-slate-900 text-orange-500 focus:ring-2 focus:ring-orange-500/40" x-model="cols.acct"></label>
+                                    <label class="flex cursor-pointer items-center justify-between rounded px-2 py-2 text-sm hover:bg-[var(--eb-bg-hover)]"><span>Storage Vault</span><input type="checkbox" class="h-4 w-4 rounded border border-slate-600 bg-slate-900 text-orange-500 focus:ring-2 focus:ring-orange-500/40" x-model="cols.name"></label>
+                                    <label class="flex cursor-pointer items-center justify-between rounded px-2 py-2 text-sm hover:bg-[var(--eb-bg-hover)]"><span>Stored</span><input type="checkbox" class="h-4 w-4 rounded border border-slate-600 bg-slate-900 text-orange-500 focus:ring-2 focus:ring-orange-500/40" x-model="cols.stored"></label>
+                                    <label class="flex cursor-pointer items-center justify-between rounded px-2 py-2 text-sm hover:bg-[var(--eb-bg-hover)]"><span>Quota</span><input type="checkbox" class="h-4 w-4 rounded border border-slate-600 bg-slate-900 text-orange-500 focus:ring-2 focus:ring-orange-500/40" x-model="cols.quota"></label>
+                                    <label class="flex cursor-pointer items-center justify-between rounded px-2 py-2 text-sm hover:bg-[var(--eb-bg-hover)]"><span>Usage</span><input type="checkbox" class="h-4 w-4 rounded border border-slate-600 bg-slate-900 text-orange-500 focus:ring-2 focus:ring-orange-500/40" x-model="cols.usage"></label>
+                                    <label class="flex cursor-pointer items-center justify-between rounded px-2 py-2 text-sm hover:bg-[var(--eb-bg-hover)]"><span>Billing</span><input type="checkbox" class="h-4 w-4 rounded border border-slate-600 bg-slate-900 text-orange-500 focus:ring-2 focus:ring-orange-500/40" x-model="cols.billing"></label>
+                                    <label class="flex cursor-pointer items-center justify-between rounded px-2 py-2 text-sm hover:bg-[var(--eb-bg-hover)]"><span>Actions</span><input type="checkbox" class="h-4 w-4 rounded border border-slate-600 bg-slate-900 text-orange-500 focus:ring-2 focus:ring-orange-500/40" x-model="cols.actions"></label>
                                 </div>
                             </div>
 
@@ -321,46 +321,46 @@
                             <input type="text"
                                    x-model.debounce.200ms="search"
                                    placeholder="Search vaults..."
-                                   class="w-full xl:w-80 rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
+                                   class="eb-input eb-app-toolbar-search">
                         </div>
 
-                        <div class="overflow-x-auto rounded-lg border border-slate-800">
-                            <table id="vaults-table" class="min-w-full divide-y divide-slate-800 text-sm" x-init="
+                        <div class="eb-table-shell overflow-x-auto">
+                            <table id="vaults-table" class="eb-table min-w-full text-sm" x-init="
                               (()=>{ try{ document.addEventListener('vaults:hydrate-start', ()=> window.ebShowLoader && window.ebShowLoader($el.closest('[data-vaults-loader-host]')) ); }catch(_){ }
                                      try{ document.addEventListener('vaults:hydrate-end',   ()=> window.ebHideLoader && window.ebHideLoader($el.closest('[data-vaults-loader-host]')) ); }catch(_){ }
                               })()
                             ">
-                                <thead class="bg-slate-900/80 text-slate-300">
+                                <thead>
                                     <tr>
                                         <th x-show="cols.acct" class="px-4 py-3 text-left font-medium">
-                                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('acct')">Account Name <span x-text="sortIndicator('acct')"></span></button>
+                                            <button type="button" class="eb-table-sort-button" @click="setSort('acct')">Account Name <span x-text="sortIndicator('acct')"></span></button>
                                         </th>
                                         <th x-show="cols.name" class="px-4 py-3 text-left font-medium">
-                                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('name')">Storage Vault <span x-text="sortIndicator('name')"></span></button>
+                                            <button type="button" class="eb-table-sort-button" @click="setSort('name')">Storage Vault <span x-text="sortIndicator('name')"></span></button>
                                         </th>
                                         <th x-show="cols.stored" class="px-4 py-3 text-left font-medium">
-                                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('stored')">Stored <span x-text="sortIndicator('stored')"></span></button>
+                                            <button type="button" class="eb-table-sort-button" @click="setSort('stored')">Stored <span x-text="sortIndicator('stored')"></span></button>
                                         </th>
                                         <th x-show="cols.quota" class="px-4 py-3 text-left font-medium">
-                                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('quota')">Quota <span x-text="sortIndicator('quota')"></span></button>
+                                            <button type="button" class="eb-table-sort-button" @click="setSort('quota')">Quota <span x-text="sortIndicator('quota')"></span></button>
                                         </th>
                                         <th x-show="cols.usage" class="px-4 py-3 text-left font-medium">
-                                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('usage')">Usage <span x-text="sortIndicator('usage')"></span></button>
+                                            <button type="button" class="eb-table-sort-button" @click="setSort('usage')">Usage <span x-text="sortIndicator('usage')"></span></button>
                                         </th>
                                         <th x-show="cols.billing" class="px-4 py-3 text-left font-medium">
-                                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('billing')">Billing <span x-text="sortIndicator('billing')"></span></button>
+                                            <button type="button" class="eb-table-sort-button" @click="setSort('billing')">Billing <span x-text="sortIndicator('billing')"></span></button>
                                         </th>
                                         <th x-show="cols.actions" class="px-4 py-3 text-left font-medium">Actions</th>
                                     </tr>
                                 </thead>
-                                <tbody class="divide-y divide-slate-800" x-ref="tbody">
+                                <tbody x-ref="tbody">
                                     {if $accountGroups|@count > 0}
                                         {foreach from=$accountGroups key=acctName item=group}
                                             {assign var=acctTotals value=$group.totals}
                                             {assign var=billableTB value=($acctTotals.quota>0)?ceil($acctTotals.quota/$tbBytes):0}
                                             {foreach from=$group.vaults item=row}
                                                 {assign var=isLocked value=($row.packageId == 52 || $row.packageId == 57)}
-                                                <tr class="hover:bg-slate-800/50 vault-row"
+                                                <tr class="vault-row"
                                                     data-vault-row="1"
                                                     data-account="{$row.acct}"
                                                     data-name="{$row.vaultName}"
@@ -383,23 +383,23 @@
                                                         {assign var=cpSize value=$row.usedBytes}
                                                         {assign var=cpStart value=0}
                                                         {assign var=cpEnd value=$row.usedMeasuredEnd}
-                                                        <button type="button" class="eb-stats-btn inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium bg-slate-700 hover:bg-slate-600 text-sky-400 cursor-pointer" title="View vault usage breakdown" data-vault-id="{if $row.vaultId}{$row.vaultId}{else}{$row.vaultName}{/if}" data-vault-name="{$row.vaultName|escape}" data-size-bytes="{$cpSize}" data-measure-start="{$cpStart}" data-measure-end="{$cpEnd}" data-service-id="{$row.serviceId}" data-username="{$row.username}">
+                                                        <button type="button" class="eb-btn eb-btn-info eb-btn-xs cursor-pointer" title="View vault usage breakdown" data-eb-stats-trigger="1" data-vault-id="{if $row.vaultId}{$row.vaultId}{else}{$row.vaultName}{/if}" data-vault-name="{$row.vaultName|escape}" data-size-bytes="{$cpSize}" data-measure-start="{$cpStart}" data-measure-end="{$cpEnd}" data-service-id="{$row.serviceId}" data-username="{$row.username}">
                                                             {\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($cpSize, 2)}
                                                         </button>
                                                         <script type="application/json" class="eb-components">{$row.componentsJson}</script>
                                                     </td>
                                                     <td x-show="cols.quota" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300" data-cell="quota">
                                                         {if not $row.hasQuota}
-                                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium bg-slate-700 text-slate-300">Unlimited</span>
+                                                            <span class="eb-badge eb-badge--neutral">Unlimited</span>
                                                         {else}
                                                             <span class="inline-flex items-center gap-2">
-                                                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium bg-slate-700 text-slate-200" title="Storage quota">{\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($row.quotaBytes, 2)}</span>
+                                                                <span class="eb-badge eb-badge--default" title="Storage quota">{\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($row.quotaBytes, 2)}</span>
                                                                 {if $row.quotaEnabled}
-                                                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-900/40 text-emerald-300">On</span>
+                                                                    <span class="eb-badge eb-badge--success">On</span>
                                                                 {else}
-                                                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-700 text-slate-300">Off</span>
+                                                                    <span class="eb-badge eb-badge--neutral">Off</span>
                                                                 {/if}
-                                                                <button type="button" class="configure-vault-button ml-1 p-1.5 rounded {if $isLocked}text-slate-500 opacity-50 cursor-not-allowed{else}hover:bg-slate-700 text-slate-300 cursor-pointer{/if}"
+                                                                <button type="button" class="configure-vault-button eb-btn eb-btn-icon eb-btn-sm {if $isLocked}opacity-50 cursor-not-allowed{else}{/if}"
                                                                     title="{if $isLocked}Locked for Microsoft 365 services{else}Edit quota{/if}"
                                                                     {if $isLocked}disabled="disabled" aria-disabled="true"{/if}
                                                                     data-vault-id="{if $row.vaultId}{$row.vaultId}{else}{$row.vaultName}{/if}"
@@ -440,7 +440,7 @@
                                                         {if $billableTB>0}{$billableTB} TB{else}—{/if}
                                                     </td>
                                                     <td x-show="cols.actions" class="px-4 py-3 whitespace-nowrap text-sm">
-                                                        <button class="open-vault-panel px-3 py-1.5 text-xs bg-slate-700 rounded text-white {if $isLocked}opacity-50 cursor-not-allowed{else}hover:bg-slate-600 cursor-pointer{/if}"
+                                                        <button class="open-vault-panel eb-btn eb-btn-secondary eb-btn-xs {if $isLocked}opacity-50 cursor-not-allowed{else}cursor-pointer{/if}"
                                                                 title="{if $isLocked}Locked for Microsoft 365 services{else}Manage{/if}"
                                                                 {if $isLocked}disabled="disabled" aria-disabled="true"{/if}
                                                                 data-vault-id="{if $row.vaultId}{$row.vaultId}{else}{$row.vaultName}{/if}"
@@ -467,14 +467,14 @@
                                 <button type="button"
                                         @click="prevPage()"
                                         :disabled="currentPage <= 1"
-                                        class="px-3 py-1.5 rounded border border-slate-700 bg-slate-900/70 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed">
+                                        class="eb-table-pagination-button">
                                     Prev
                                 </button>
                                 <span class="text-slate-300" x-text="'Page ' + currentPage + ' / ' + totalPages()"></span>
                                 <button type="button"
                                         @click="nextPage()"
                                         :disabled="currentPage >= totalPages()"
-                                        class="px-3 py-1.5 rounded border border-slate-700 bg-slate-900/70 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed">
+                                        class="eb-table-pagination-button">
                                     Next
                                 </button>
                             </div>
@@ -715,27 +715,27 @@
                 <div x-show="newRange.Type===911"><label class="block text-xs text-slate-400 mb-1">Years</label><input type="number" min="1" x-model.number="newRange.Years" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"><label class="block text-xs text-slate-400 mt-1">On month</label><input type="number" min="1" max="12" x-model.number="newRange.YearOffset" class="w-full px-3 py-2 rounded border border-slate-600 bg-slate-800 text-slate-200 text-sm"></div>
               </div>
               <div class="mt-3 flex justify-end">
-                <button class="rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 text-sm font-medium cursor-pointer" @click="addRangeFromNew()">Add rule</button>
+                <button class="eb-btn eb-btn-success eb-btn-sm cursor-pointer" @click="addRangeFromNew()">Add rule</button>
               </div>
             </div>
 
             <template x-if="(state.ranges || []).length===0">
-              <div class="rounded-xl border border-slate-700/70 bg-slate-900/30 p-3 text-sm text-slate-400">
+              <div class="eb-app-empty text-sm">
                 No rules yet. Add a rule above to define this vault's custom retention behavior.
               </div>
             </template>
 
             <template x-for="(r,i) in state.ranges" :key="i">
-              <div :class="['rounded-xl border bg-slate-800/60 p-3 shadow-sm', editing===i ? 'border-sky-500 ring-1 ring-sky-500/30' : 'border-slate-700']">
+              <div :class="['eb-card', editing===i ? 'border-sky-500 ring-1 ring-sky-500/30' : '']">
                 <div class="flex items-start justify-between gap-3">
                   <div class="min-w-0">
                     <div class="mb-1 text-[11px] uppercase tracking-wide text-slate-400">Retention type</div>
-                    <span class="inline-flex items-center rounded-md bg-slate-700 px-2 py-0.5 text-xs font-medium text-slate-100" x-text="labelFor(r.Type)"></span>
+                    <span class="eb-badge eb-badge--default" x-text="labelFor(r.Type)"></span>
                     <p class="mt-2 text-sm leading-5 text-slate-200" x-text="summaryFor(r).replace('[' + labelFor(r.Type) + '] ', '')"></p>
                   </div>
                   <div class="flex shrink-0 gap-2">
-                    <button class="text-sky-300 hover:text-sky-200 text-sm cursor-pointer" @click="editing = (editing===i?null:i)"><span x-text="editing===i ? 'Close' : 'Edit'"></span></button>
-                    <button class="text-rose-300 hover:text-rose-200 text-sm cursor-pointer" @click="removeRange(i)">Remove</button>
+                    <button class="eb-btn eb-btn-ghost eb-btn-sm cursor-pointer" @click="editing = (editing===i?null:i)"><span x-text="editing===i ? 'Close' : 'Edit'"></span></button>
+                    <button class="eb-btn eb-btn-danger eb-btn-sm cursor-pointer" @click="removeRange(i)">Remove</button>
                   </div>
                 </div>
                 <div x-show="editing===i" x-transition class="mt-3 border-t border-slate-700 pt-3">
@@ -804,19 +804,19 @@
         <template x-if="!state.override">
           <div class="text-sm text-slate-300">This vault follows the account default policy.</div>
         </template>
-        <div class="sticky bottom-0 mt-4 rounded-xl border border-slate-700 bg-slate-800/80 backdrop-blur p-3">
+        <div class="eb-subpanel sticky bottom-0 mt-4 backdrop-blur">
           <p class="text-slate-300 font-medium mb-1">Effective policy:</p>
           <div class="mt-2 space-y-2">
             <template x-if="(state.override ? state.mode : state.defaultMode) === 801">
               <div class="space-y-1">
-                <span class="inline-flex items-center rounded-md bg-slate-700 px-2 py-0.5 text-xs font-medium text-slate-100">Mode</span>
+                <span class="eb-badge eb-badge--default">Mode</span>
                 <p class="text-sm leading-5 text-slate-200">Keep everything (no deletions)</p>
               </div>
             </template>
             <template x-if="(state.override ? state.mode : state.defaultMode) !== 801">
               <template x-for="(r,i) in ((state.override ? state.ranges : state.defaultRanges) || [])" :key="'effective-rule-'+i">
                 <div class="space-y-1">
-                  <span class="inline-flex items-center rounded-md bg-slate-700 px-2 py-0.5 text-xs font-medium text-slate-100" x-text="labelFor(r.Type)"></span>
+                  <span class="eb-badge eb-badge--default" x-text="labelFor(r.Type)"></span>
                   <p class="text-sm leading-5 text-slate-200" x-text="summaryFor(r).replace('[' + labelFor(r.Type) + '] ', '')"></p>
                 </div>
               </template>
@@ -827,14 +827,14 @@
           </div>
         </div>
         <div class="mt-4 flex justify-end">
-          <button id="vault-retention-save" class="inline-flex items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold shadow-sm ring-1 ring-emerald-500/40 bg-gradient-to-r from-emerald-600 to-emerald-500 text-white transition hover:from-emerald-700 hover:to-emerald-600 cursor-pointer">Save</button>
+          <button id="vault-retention-save" class="eb-btn eb-btn-success cursor-pointer">Save</button>
         </div>
 
       </div>
 
       <div x-show="tab==='danger'" x-transition class="px-5 py-5 space-y-4">
         <h4 class="text-rose-400 font-semibold">Danger zone</h4>
-        <div class="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4">
+        <div class="eb-alert eb-alert--danger">
           <div class="flex items-start gap-3">
             <svg class="h-5 w-5 shrink-0 text-rose-400 mt-0.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
@@ -845,14 +845,14 @@
             </div>
           </div>
         </div>
-        <button id="vault-delete" class="inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold shadow-sm ring-1 ring-rose-500/40 bg-gradient-to-r from-rose-600 to-rose-500 text-white transition hover:from-rose-700 hover:to-rose-600 cursor-pointer">Delete Vault</button>
-        <div id="vault-delete-confirm" class="hidden rounded-xl border border-slate-700 p-4 bg-slate-900/60 space-y-3">
+        <button id="vault-delete" class="eb-btn eb-btn-danger-solid cursor-pointer">Delete Vault</button>
+        <div id="vault-delete-confirm" class="eb-subpanel hidden space-y-3">
           <div class="text-slate-100 text-sm font-semibold">Confirm your account password</div>
           <div class="text-slate-400 text-xs">This is the password you use to sign in to your eazyBackup Client Area.</div>
-          <input id="vault-delete-password" type="password" class="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-900/60 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500/40 focus:border-rose-600 placeholder:text-slate-500 transition" placeholder="Account password" />
+          <input id="vault-delete-password" type="password" class="eb-input is-error" placeholder="Account password" />
           <div class="flex justify-end gap-3 pt-2">
-            <button id="vault-delete-cancel" class="px-4 py-2.5 rounded-lg border border-slate-800 bg-transparent hover:bg-slate-900/60 text-slate-200 text-sm transition cursor-pointer">Cancel</button>
-            <button id="vault-delete-confirm-btn" class="inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold shadow-sm ring-1 ring-rose-500/40 bg-gradient-to-r from-rose-600 to-rose-500 text-white transition hover:from-rose-700 hover:to-rose-600 cursor-pointer">Confirm delete</button>
+            <button id="vault-delete-cancel" class="eb-btn eb-btn-ghost cursor-pointer">Cancel</button>
+            <button id="vault-delete-confirm-btn" class="eb-btn eb-btn-danger-solid cursor-pointer">Confirm delete</button>
           </div>
         </div>
       </div>
@@ -864,17 +864,17 @@
 
 <!-- Storage Breakdown Modal (shared) -->
 <div id="vault-stats-modal" class="fixed inset-0 z-50 hidden">
-  <div class="absolute inset-0 bg-black/60"></div>
-  <div class="relative mx-auto my-8 w-full max-w-3xl bg-slate-900 border border-slate-700 rounded-lg shadow-xl">
-    <div class="flex items-center justify-between px-5 py-4 border-b border-slate-700">
-      <h3 id="vsm-title" class="text-slate-200 text-lg font-semibold">Vault usage</h3>
-      <button id="vsm-close" class="text-slate-400 hover:text-slate-200">
+  <div class="absolute inset-0 eb-modal-backdrop"></div>
+  <div class="eb-modal relative mx-auto my-8 max-w-3xl">
+    <div class="eb-modal-header">
+      <h3 id="vsm-title" class="eb-modal-title">Vault usage</h3>
+      <button id="vsm-close" class="eb-modal-close">
         <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
       </button>
     </div>
-    <div class="px-5 py-4 space-y-3">
+    <div class="eb-modal-body space-y-3">
       <div id="vsm-summary" class="text-sm text-slate-300"></div>
-      <div class="border border-slate-700 rounded overflow-hidden">
+      <div class="eb-table-shell overflow-hidden">
         <div class="grid grid-cols-12 gap-0 bg-slate-800/60 px-3 py-2 text-xs text-slate-300">
           <div class="col-span-4">Size</div>
           <div class="col-span-8">Used by</div>

@@ -1,19 +1,9 @@
 {include file="modules/addons/eazybackup/templates/partials/_ui-tokens.tpl"}
 
-<div class="min-h-screen bg-slate-950 text-gray-100 overflow-x-hidden">
-  <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
-  <div class="container mx-auto max-w-full px-4 pb-8 pt-6 relative">
-    <div x-data="{ sidebarCollapsed: localStorage.getItem('eb_ph_sidebar_collapsed') === 'true' || window.innerWidth < 1360, toggleCollapse() { this.sidebarCollapsed = !this.sidebarCollapsed; localStorage.setItem('eb_ph_sidebar_collapsed', this.sidebarCollapsed); }, handleResize() { if (window.innerWidth < 1360 && !this.sidebarCollapsed) this.sidebarCollapsed = true; } }" x-init="window.addEventListener('resize', () => handleResize())" class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)]">
-      <div class="flex">
-        {include file="modules/addons/eazybackup/templates/whitelabel/partials/sidebar_partner_hub.tpl" ebPhSidebarPage='branding-list'}
-        <main class="flex-1 min-w-0 overflow-x-auto">
-          <div class="flex items-center justify-between border-b border-slate-800/60 px-6 py-4">
-            <div>
-              <h1 class="text-2xl font-semibold tracking-tight">White-Label Tenants</h1>
-              <p class="mt-1 text-sm text-slate-400">Manage tenant branding and configuration from a single table.</p>
-            </div>
-          </div>
-          <div class="p-6">
+<div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
+
+{capture assign=ebPhContent}
+          <div>
       <section class="bg-slate-950/70 rounded-2xl border border-slate-800/80 p-4">
         <div class="px-6 py-5">
           <h2 class="text-lg font-medium">Tenant Branding Directory</h2>
@@ -283,11 +273,14 @@
       </script>
       </section>
           </div>
-        </main>
-      </div>
-    </div>
-  </div>
-</div>
+{/capture}
+
+{include file="modules/addons/eazybackup/templates/whitelabel/partials/partner_hub_shell.tpl"
+  ebPhSidebarPage='branding-list'
+  ebPhTitle='White-Label Tenants'
+  ebPhDescription='Manage tenant branding, custom domains, and quick Partner Hub actions from one directory.'
+  ebPhContent=$ebPhContent
+}
 
 <!-- Tenant slide-over panel -->
 <div id="tenant-slide-panel" class="fixed inset-y-0 right-0 z-50 w-full max-w-xl transform translate-x-full transition-transform duration-200 ease-out">

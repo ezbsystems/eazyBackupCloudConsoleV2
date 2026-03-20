@@ -2,83 +2,69 @@
 {include file="$template/includes/head.tpl"}
 {include file="modules/addons/eazybackup/templates/partials/_ui-tokens.tpl"}
 
-<div class="min-h-screen bg-slate-950 text-gray-100 overflow-x-hidden">
-  <div class="container mx-auto max-w-full px-4 pb-8 pt-6">
-    <div x-data="{
-      sidebarCollapsed: localStorage.getItem('eb_ph_sidebar_collapsed') === 'true' || window.innerWidth < 1360,
-      toggleCollapse() {
-        this.sidebarCollapsed = !this.sidebarCollapsed;
-        localStorage.setItem('eb_ph_sidebar_collapsed', this.sidebarCollapsed);
-      },
-      handleResize() {
-        if (window.innerWidth < 1360 && !this.sidebarCollapsed) this.sidebarCollapsed = true;
-      }
-    }" x-init="window.addEventListener('resize', () => handleResize())" class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)]">
-      <div class="flex">
-        {include file="modules/addons/eazybackup/templates/whitelabel/partials/sidebar_partner_hub.tpl" ebPhSidebarPage='tenants'}
-        <main class="flex-1 min-w-0 overflow-x-auto" x-data="{ openCreateModal: false, savingModal: false }">
-        <div class="flex items-center justify-between border-b border-slate-800/60 px-6 py-4">
+{capture assign=ebPhContent}
+        <div x-data="{ openCreateModal: false, savingModal: false }">
+        <div class="flex flex-col gap-4 border-b border-[var(--eb-border-subtle)] px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 class="text-2xl font-semibold tracking-tight">Customer Tenants</h1>
-            <p class="mt-1 text-sm text-slate-400">Create, review, and manage customer tenant records from Partner Hub.</p>
+            <h1 class="eb-type-h2 tracking-tight text-[var(--eb-text-primary)]">Customer Tenants</h1>
+            <p class="eb-page-description mt-1">Create, review, and manage customer tenant records from Partner Hub.</p>
           </div>
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center gap-2">
             {if !isset($connect.chargesEnabled) || !$connect.chargesEnabled}
-              <a href="{$modulelink}&a=ph-stripe-onboard" class="rounded-xl px-4 py-2 font-medium text-white bg-amber-600 hover:bg-amber-500">Connect Stripe</a>
+              <a href="{$modulelink}&a=ph-stripe-onboard" class="eb-btn eb-btn-warning eb-btn-sm">Connect Stripe</a>
             {/if}
-            <button type="button" @click="openCreateModal = true" class="rounded-xl px-4 py-2 font-medium text-white bg-[rgb(var(--accent))] hover:bg-[rgb(var(--accent))]/90">Create New Tenant</button>
-            <a href="{$modulelink}&a=ph-tenants-manage" class="rounded-xl px-4 py-2 text-white/80 ring-1 ring-white/10 hover:bg-white/5">Back to Tenants</a>
+            <button type="button" @click="openCreateModal = true" class="eb-btn eb-btn-primary eb-btn-sm">Create New Tenant</button>
+            <a href="{$modulelink}&a=ph-tenants-manage" class="eb-btn eb-btn-outline eb-btn-sm">Back to Tenants</a>
           </div>
         </div>
         <div class="p-6">
 
     {if !isset($connect.chargesEnabled) || !$connect.chargesEnabled}
-      <div class="mt-3 rounded-xl bg-amber-500/10 ring-1 ring-amber-400/20 px-4 py-3 text-sm text-amber-200">
+      <div class="eb-alert eb-alert--warning mt-3 text-sm">
         To accept payments, finish Stripe onboarding for this MSP. Click Connect Stripe to get started.
       </div>
     {/if}
     {if isset($connect_due) && $connect_due|@count > 0}
-      <div class="mt-3 rounded-xl bg-amber-500/10 ring-1 ring-amber-400/20 px-4 py-3 text-sm text-amber-200">
+      <div class="eb-alert eb-alert--warning mt-3 text-sm">
         Stripe requires additional information. <a href="{$modulelink}&a=ph-stripe-connect" class="underline">View details</a> or <a href="{$modulelink}&a=ph-stripe-onboard" class="underline">Resume onboarding</a>.
       </div>
     {/if}
     {if isset($onboardError) && $onboardError}
-      <div class="mt-3 rounded-xl bg-rose-500/10 ring-1 ring-rose-400/20 px-4 py-3 text-sm text-rose-200">
+      <div class="eb-alert eb-alert--danger mt-3 text-sm">
         We couldn't start Stripe onboarding. Please try again.
       </div>
     {/if}
     {if isset($onboardSuccess) && $onboardSuccess}
-      <div class="my-3 rounded-xl bg-emerald-500/30 ring-1 ring-emerald-400/20 px-4 py-3 text-sm text-white">
+      <div class="eb-alert eb-alert--success my-3 text-sm">
         Stripe onboarding complete. What’s next: connect status may take a moment to update; you can review <a class="underline" href="{$modulelink}&a=ph-stripe-connect">Connect &amp; Status</a> or proceed to <a class="underline" href="{$modulelink}&a=ph-stripe-manage">Manage Account</a>.
       </div>
     {/if}
     {if isset($onboardRefresh) && $onboardRefresh}
-      <div class="mt-3 rounded-xl bg-white/5 ring-1 ring-white/10 px-4 py-3 text-sm text-white/70">
+      <div class="eb-alert eb-alert--info mt-3 text-sm">
         You can resume Stripe onboarding at any time. If setup is complete, continue to <a class="underline" href="{$modulelink}&a=ph-stripe-manage">Manage Account</a>.
       </div>
     {/if}
 
     {if $notice neq ''}
-      <div class="mt-4 rounded-xl bg-emerald-500/20 ring-1 ring-emerald-400/30 px-4 py-3 text-sm text-white">
+      <div class="eb-alert eb-alert--success mt-4 text-sm">
         Saved successfully.
       </div>
     {/if}
     {if $error neq ''}
-      <div class="mt-4 rounded-xl bg-rose-500/10 ring-1 ring-rose-400/20 px-4 py-3 text-sm text-rose-200">
+      <div class="eb-alert eb-alert--danger mt-4 text-sm">
         Unable to process the request ({$error|escape}).
       </div>
     {/if}
     {if isset($legacy_notice) && $legacy_notice neq ''}
-      <div class="mt-4 rounded-xl bg-amber-500/10 ring-1 ring-amber-400/30 px-4 py-3 text-sm text-amber-100">
+      <div class="eb-alert eb-alert--warning mt-4 text-sm">
         You were redirected here from a legacy e3 tenants URL ({$legacy_notice|escape}). Customer tenant management now lives in Partner Hub.
       </div>
     {/if}
 
-    <section class="bg-slate-950/70 rounded-2xl border border-slate-800/80 p-4">
-      <div class="px-6 py-5">
-        <h2 class="text-lg font-medium">Existing Customer Tenants</h2>
+    <section class="eb-card-raised !p-0">
+      <div class="border-b border-[var(--eb-border-subtle)] px-6 py-5">
+        <h2 class="eb-app-card-title">Existing Customer Tenants</h2>
       </div>
-      <div class="border-t border-white/10"></div>
       <div class="p-4"
            x-data="{
              columnsOpen: false,
@@ -167,13 +153,13 @@
              }
            }"
            x-init="init()">
-        <div class="mb-4 flex flex-col xl:flex-row xl:items-center gap-3">
+        <div class="eb-table-toolbar mb-4">
           <div class="relative" @click.away="entriesOpen=false">
             <button type="button"
                     @click="entriesOpen=!entriesOpen"
-                    class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
+                    class="eb-btn eb-btn-outline eb-btn-sm inline-flex items-center gap-2">
               <span x-text="'Show ' + entriesPerPage"></span>
-              <svg class="w-4 h-4 transition-transform" :class="entriesOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+              <svg class="h-4 w-4 transition-transform" :class="entriesOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                 <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
               </svg>
             </button>
@@ -184,12 +170,12 @@
                  x-transition:leave="transition ease-in duration-75"
                  x-transition:leave-start="opacity-100 scale-100"
                  x-transition:leave-end="opacity-0 scale-95"
-                 class="absolute left-0 mt-2 w-40 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden"
+                 class="eb-dropdown-menu absolute left-0 z-50 mt-2 w-40 overflow-hidden !min-w-0"
                  style="display: none;">
               <template x-for="size in [10,25,50,100]" :key="'tenants-entries-' + size">
                 <button type="button"
-                        class="w-full px-4 py-2 text-left text-sm transition"
-                        :class="entriesPerPage === size ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
+                        class="eb-menu-item w-full justify-start !rounded-[var(--eb-radius-md)]"
+                        :class="entriesPerPage === size ? 'is-active' : ''"
                         @click="setEntries(size); entriesOpen=false;">
                   <span x-text="size"></span>
                 </button>
@@ -199,9 +185,9 @@
           <div class="relative" @click.away="columnsOpen=false">
             <button type="button"
                     @click="columnsOpen=!columnsOpen"
-                    class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
+                    class="eb-btn eb-btn-outline eb-btn-sm inline-flex items-center gap-2">
               Columns
-              <svg class="w-4 h-4 transition-transform" :class="columnsOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+              <svg class="h-4 w-4 transition-transform" :class="columnsOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                 <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
               </svg>
             </button>
@@ -212,90 +198,89 @@
                  x-transition:leave="transition ease-in duration-75"
                  x-transition:leave-start="opacity-100 scale-100"
                  x-transition:leave-end="opacity-0 scale-95"
-                 class="absolute left-0 mt-2 w-64 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden p-2"
+                 class="eb-dropdown-menu absolute left-0 z-50 mt-2 w-64 overflow-hidden p-2 !min-w-0"
                  style="display: none;">
-              <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Tenant ID</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500" x-model="cols.public_id"></label>
-              <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Name</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500" x-model="cols.name"></label>
-              <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Slug</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500" x-model="cols.slug"></label>
-              <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Contact Email</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500" x-model="cols.contact_email"></label>
-              <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Status</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500" x-model="cols.status"></label>
-              <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Updated</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500" x-model="cols.updated"></label>
-              <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Actions</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500" x-model="cols.actions"></label>
+              <label class="eb-menu-checklist-item flex cursor-pointer items-center justify-between rounded px-2 py-2 text-sm"><span>Tenant ID</span><input type="checkbox" class="eb-checkbox" x-model="cols.public_id"></label>
+              <label class="eb-menu-checklist-item flex cursor-pointer items-center justify-between rounded px-2 py-2 text-sm"><span>Name</span><input type="checkbox" class="eb-checkbox" x-model="cols.name"></label>
+              <label class="eb-menu-checklist-item flex cursor-pointer items-center justify-between rounded px-2 py-2 text-sm"><span>Slug</span><input type="checkbox" class="eb-checkbox" x-model="cols.slug"></label>
+              <label class="eb-menu-checklist-item flex cursor-pointer items-center justify-between rounded px-2 py-2 text-sm"><span>Contact Email</span><input type="checkbox" class="eb-checkbox" x-model="cols.contact_email"></label>
+              <label class="eb-menu-checklist-item flex cursor-pointer items-center justify-between rounded px-2 py-2 text-sm"><span>Status</span><input type="checkbox" class="eb-checkbox" x-model="cols.status"></label>
+              <label class="eb-menu-checklist-item flex cursor-pointer items-center justify-between rounded px-2 py-2 text-sm"><span>Updated</span><input type="checkbox" class="eb-checkbox" x-model="cols.updated"></label>
+              <label class="eb-menu-checklist-item flex cursor-pointer items-center justify-between rounded px-2 py-2 text-sm"><span>Actions</span><input type="checkbox" class="eb-checkbox" x-model="cols.actions"></label>
             </div>
           </div>
           <div class="flex-1"></div>
           <input type="text"
                  x-model.debounce.200ms="search"
                  placeholder="Search tenants..."
-                 class="w-full xl:w-80 rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
+                 class="eb-toolbar-search w-full xl:w-80">
         </div>
-        <div class="overflow-x-auto rounded-lg border border-slate-800">
-          <table class="min-w-full divide-y divide-slate-800 text-sm">
-            <thead class="bg-slate-900/80 text-slate-300">
+        <div class="eb-table-shell">
+          <table class="eb-table min-w-full text-sm">
+            <thead>
               <tr>
-                <th x-show="cols.public_id" class="px-4 py-3 text-left font-medium">
-                  <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('public_id')">Tenant ID <span x-text="sortIndicator('public_id')"></span></button>
+                <th x-show="cols.public_id">
+                  <button type="button" class="eb-table-sort-button" @click="setSort('public_id')">Tenant ID <span x-text="sortIndicator('public_id')"></span></button>
                 </th>
-                <th x-show="cols.name" class="px-4 py-3 text-left font-medium">
-                  <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('name')">Name <span x-text="sortIndicator('name')"></span></button>
+                <th x-show="cols.name">
+                  <button type="button" class="eb-table-sort-button" @click="setSort('name')">Name <span x-text="sortIndicator('name')"></span></button>
                 </th>
-                <th x-show="cols.slug" class="px-4 py-3 text-left font-medium">
-                  <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('slug')">Slug <span x-text="sortIndicator('slug')"></span></button>
+                <th x-show="cols.slug">
+                  <button type="button" class="eb-table-sort-button" @click="setSort('slug')">Slug <span x-text="sortIndicator('slug')"></span></button>
                 </th>
-                <th x-show="cols.contact_email" class="px-4 py-3 text-left font-medium">
-                  <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('contact_email')">Contact Email <span x-text="sortIndicator('contact_email')"></span></button>
+                <th x-show="cols.contact_email">
+                  <button type="button" class="eb-table-sort-button" @click="setSort('contact_email')">Contact Email <span x-text="sortIndicator('contact_email')"></span></button>
                 </th>
-                <th x-show="cols.status" class="px-4 py-3 text-left font-medium">
-                  <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('status')">Status <span x-text="sortIndicator('status')"></span></button>
+                <th x-show="cols.status">
+                  <button type="button" class="eb-table-sort-button" @click="setSort('status')">Status <span x-text="sortIndicator('status')"></span></button>
                 </th>
-                <th x-show="cols.updated" class="px-4 py-3 text-left font-medium">
-                  <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('updated')">Updated <span x-text="sortIndicator('updated')"></span></button>
+                <th x-show="cols.updated">
+                  <button type="button" class="eb-table-sort-button" @click="setSort('updated')">Updated <span x-text="sortIndicator('updated')"></span></button>
                 </th>
-                <th x-show="cols.actions" class="px-4 py-3 text-right font-medium">Actions</th>
+                <th x-show="cols.actions" class="!text-right">Actions</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-slate-800" x-ref="tbody">
+            <tbody x-ref="tbody">
             {foreach from=$tenants item=tenant}
-              <tr class="hover:bg-slate-800/50"
-                  data-tenant-row="1"
+              <tr data-tenant-row="1"
                   data-tenant-public-id="{$tenant.public_id|escape}"
                   data-name="{$tenant.name|escape}"
                   data-slug="{$tenant.slug|escape}"
                   data-contact-email="{$tenant.contact_email|default:'-'|escape}"
                   data-status="{$tenant.status|escape}"
                   data-updated="{$tenant.updated_at|default:''|escape}">
-                <td x-show="cols.public_id" class="px-4 py-3 whitespace-nowrap text-sm font-mono text-slate-300">{$tenant.public_id|escape}</td>
-                <td x-show="cols.name" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{$tenant.name|escape}</td>
-                <td x-show="cols.slug" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{$tenant.slug|escape}</td>
-                <td x-show="cols.contact_email" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{$tenant.contact_email|default:'-'|escape}</td>
-                <td x-show="cols.status" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{$tenant.status|escape}</td>
-                <td x-show="cols.updated" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{$tenant.updated_at|default:'-'|escape}</td>
-                <td x-show="cols.actions" class="px-4 py-3 text-right">
-                  <a class="rounded-lg px-3 py-1.5 ring-1 ring-white/10 hover:bg-white/10" href="{$modulelink}&a=ph-tenant&id={$tenant.public_id|escape:'url'}">Manage</a>
+                <td x-show="cols.public_id" class="whitespace-nowrap eb-table-mono">{$tenant.public_id|escape}</td>
+                <td x-show="cols.name" class="whitespace-nowrap eb-table-primary">{$tenant.name|escape}</td>
+                <td x-show="cols.slug" class="whitespace-nowrap">{$tenant.slug|escape}</td>
+                <td x-show="cols.contact_email" class="whitespace-nowrap">{$tenant.contact_email|default:'-'|escape}</td>
+                <td x-show="cols.status" class="whitespace-nowrap">{$tenant.status|escape}</td>
+                <td x-show="cols.updated" class="whitespace-nowrap">{$tenant.updated_at|default:'-'|escape}</td>
+                <td x-show="cols.actions" class="!text-right">
+                  <a class="eb-btn eb-btn-outline eb-btn-xs" href="{$modulelink}&a=ph-tenant&id={$tenant.public_id|escape:'url'}">Manage</a>
                 </td>
               </tr>
             {foreachelse}
             {/foreach}
               <tr x-ref="noResults" {if $tenants|@count > 0}style="display:none;"{/if}>
-                <td colspan="7" class="px-4 py-6 text-center text-slate-400">No customer tenants yet.</td>
+                <td colspan="7" class="py-6 text-center text-[var(--eb-text-muted)]">No customer tenants yet.</td>
               </tr>
             </tbody>
           </table>
         </div>
-        <div class="mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-400">
+        <div class="eb-table-pagination">
           <div x-text="pageSummary()"></div>
           <div class="flex items-center gap-2">
             <button type="button"
                     @click="prevPage()"
                     :disabled="currentPage <= 1"
-                    class="px-3 py-1.5 rounded border border-slate-700 bg-slate-900/70 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed">
+                    class="eb-table-pagination-button">
               Prev
             </button>
-            <span class="text-slate-300" x-text="'Page ' + currentPage + ' / ' + totalPages()"></span>
+            <span class="text-[var(--eb-text-secondary)]" x-text="'Page ' + currentPage + ' / ' + totalPages()"></span>
             <button type="button"
                     @click="nextPage()"
                     :disabled="currentPage >= totalPages()"
-                    class="px-3 py-1.5 rounded border border-slate-700 bg-slate-900/70 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed">
+                    class="eb-table-pagination-button">
               Next
             </button>
           </div>
@@ -315,37 +300,37 @@
              class="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto p-4"
              style="display: none;"
              @keydown.escape.window="openCreateModal = false">
-          <div class="absolute inset-0 bg-black/60 min-h-full" @click="openCreateModal = false"></div>
-          <div class="relative w-full max-w-2xl max-h-[85vh] flex flex-col rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl my-auto"
+          <div class="absolute inset-0 eb-modal-backdrop min-h-full" @click="openCreateModal = false"></div>
+          <div class="relative eb-modal !max-w-2xl max-h-[85vh] my-auto flex flex-col"
                @click.stop>
-            <div class="flex-shrink-0 flex items-center justify-between border-b border-slate-700 px-6 py-4 bg-slate-900 rounded-t-2xl">
-              <h2 class="text-lg font-semibold text-white">Create Customer Tenant</h2>
-              <button type="button" @click="openCreateModal = false" class="rounded-lg p-2 text-slate-400 hover:text-white hover:bg-slate-800">×</button>
+            <div class="eb-modal-header shrink-0">
+              <h2 class="eb-modal-title">Create Customer Tenant</h2>
+              <button type="button" @click="openCreateModal = false" class="eb-modal-close" aria-label="Close">×</button>
             </div>
-            <div class="flex-1 min-h-0 overflow-y-auto">
+            <div class="flex min-h-0 flex-1 flex-col overflow-y-auto">
             <div x-data="{ showAdmin: false, autoPassword: '1' }">
-            <form id="create-tenant-form" method="post" action="{$modulelink}&a=ph-tenants-manage" class="p-6 space-y-6">
+            <form id="create-tenant-form" method="post" action="{$modulelink}&a=ph-tenants-manage" class="space-y-6 p-6">
               <input type="hidden" name="eb_create_tenant" value="1" />
               {if isset($token) && $token neq ''}
                 <input type="hidden" name="token" value="{$token}" />
               {/if}
 
-              <div class="rounded-xl border border-slate-800 bg-slate-800/50 p-5">
-                <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">Organization</h3>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div class="eb-subpanel space-y-4 !p-5">
+                <h3 class="eb-type-eyebrow text-[var(--eb-text-muted)]">Organization</h3>
+                <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <div class="md:col-span-2">
-                    <label class="block text-sm font-medium text-slate-300 mb-1">Company Name <span class="text-rose-400">*</span></label>
-                    <input type="text" name="name" required placeholder="Acme Corporation" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500">
-                    <p id="create-tenant-error-name" class="hidden text-rose-400 text-xs mt-1"></p>
+                    <label class="eb-field-label">Company Name <span class="text-[var(--eb-danger-text)]">*</span></label>
+                    <input type="text" name="name" required placeholder="Acme Corporation" class="eb-input w-full">
+                    <p id="create-tenant-error-name" class="eb-field-error mt-1 hidden"></p>
                   </div>
                   <div>
-                    <label class="block text-sm font-medium text-slate-300 mb-1">Slug</label>
-                    <input type="text" name="slug" placeholder="auto-from-name" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono">
-                    <p class="text-xs text-slate-500 mt-1">URL-friendly identifier. Optional.</p>
+                    <label class="eb-field-label">Slug</label>
+                    <input type="text" name="slug" placeholder="auto-from-name" class="eb-input w-full font-mono">
+                    <p class="eb-field-help mt-1">URL-friendly identifier. Optional.</p>
                   </div>
                   <div>
-                    <label class="block text-sm font-medium text-slate-300 mb-1">Status</label>
-                    <select name="status" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500">
+                    <label class="eb-field-label">Status</label>
+                    <select name="status" class="eb-select w-full">
                       {foreach from=$statuses item=s}
                         <option value="{$s|escape}">{$s|escape}</option>
                       {/foreach}
@@ -354,99 +339,99 @@
                 </div>
               </div>
 
-              <div class="rounded-xl border border-slate-800 bg-slate-800/50 p-5">
-                <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">Contact Information</h3>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div class="eb-subpanel space-y-4 !p-5">
+                <h3 class="eb-type-eyebrow text-[var(--eb-text-muted)]">Contact Information</h3>
+                <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <div>
-                    <label class="block text-sm font-medium text-slate-300 mb-1">Contact Email <span class="text-rose-400">*</span></label>
-                    <input type="email" name="contact_email" required placeholder="billing@acme.com" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500">
-                    <p id="create-tenant-error-contact_email" class="hidden text-rose-400 text-xs mt-1"></p>
+                    <label class="eb-field-label">Contact Email <span class="text-[var(--eb-danger-text)]">*</span></label>
+                    <input type="email" name="contact_email" required placeholder="billing@acme.com" class="eb-input w-full">
+                    <p id="create-tenant-error-contact_email" class="eb-field-error mt-1 hidden"></p>
                   </div>
                   <div>
-                    <label class="block text-sm font-medium text-slate-300 mb-1">Contact Name <span class="text-rose-400">*</span></label>
-                    <input type="text" name="contact_name" required placeholder="Jane Smith" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500">
-                    <p id="create-tenant-error-contact_name" class="hidden text-rose-400 text-xs mt-1"></p>
+                    <label class="eb-field-label">Contact Name <span class="text-[var(--eb-danger-text)]">*</span></label>
+                    <input type="text" name="contact_name" required placeholder="Jane Smith" class="eb-input w-full">
+                    <p id="create-tenant-error-contact_name" class="eb-field-error mt-1 hidden"></p>
                   </div>
                   <div class="md:col-span-2">
-                    <label class="block text-sm font-medium text-slate-300 mb-1">Phone</label>
-                    <input type="tel" name="contact_phone" placeholder="+1 (555) 123-4567" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500">
+                    <label class="eb-field-label">Phone</label>
+                    <input type="tel" name="contact_phone" placeholder="+1 (555) 123-4567" class="eb-input w-full">
                   </div>
                 </div>
               </div>
 
-              <div class="rounded-xl border border-slate-800 bg-slate-800/50 p-5">
-                <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">Billing Address <span class="text-slate-500 font-normal">(optional)</span></h3>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div class="eb-subpanel space-y-4 !p-5">
+                <h3 class="eb-type-eyebrow text-[var(--eb-text-muted)]">Billing Address <span class="font-normal text-[var(--eb-text-muted)]">(optional)</span></h3>
+                <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <div class="md:col-span-2">
-                    <label class="block text-sm font-medium text-slate-300 mb-1">Address Line 1</label>
-                    <input type="text" name="address_line1" placeholder="123 Main Street" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500">
+                    <label class="eb-field-label">Address Line 1</label>
+                    <input type="text" name="address_line1" placeholder="123 Main Street" class="eb-input w-full">
                   </div>
                   <div class="md:col-span-2">
-                    <label class="block text-sm font-medium text-slate-300 mb-1">Address Line 2</label>
-                    <input type="text" name="address_line2" placeholder="Suite 100" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500">
+                    <label class="eb-field-label">Address Line 2</label>
+                    <input type="text" name="address_line2" placeholder="Suite 100" class="eb-input w-full">
                   </div>
                   <div>
-                    <label class="block text-sm font-medium text-slate-300 mb-1">City</label>
-                    <input type="text" name="city" placeholder="Toronto" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500">
+                    <label class="eb-field-label">City</label>
+                    <input type="text" name="city" placeholder="Toronto" class="eb-input w-full">
                   </div>
                   <div>
-                    <label class="block text-sm font-medium text-slate-300 mb-1">State / Province</label>
-                    <input type="text" name="state" placeholder="Ontario" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500">
+                    <label class="eb-field-label">State / Province</label>
+                    <input type="text" name="state" placeholder="Ontario" class="eb-input w-full">
                   </div>
                   <div>
-                    <label class="block text-sm font-medium text-slate-300 mb-1">Postal Code</label>
-                    <input type="text" name="postal_code" placeholder="M5V 1A1" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500">
+                    <label class="eb-field-label">Postal Code</label>
+                    <input type="text" name="postal_code" placeholder="M5V 1A1" class="eb-input w-full">
                   </div>
                   <div>
-                    <label class="block text-sm font-medium text-slate-300 mb-1">Country Code</label>
-                    <input type="text" name="country" maxlength="2" placeholder="CA" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 uppercase" autocomplete="off" inputmode="text" autocapitalize="characters">
-                    <p id="create-tenant-error-country" class="hidden text-rose-400 text-xs mt-1"></p>
-                    <p id="create-tenant-hint-country" class="text-xs text-slate-500 mt-1">2-letter ISO code (e.g. CA, US, GB)</p>
+                    <label class="eb-field-label">Country Code</label>
+                    <input type="text" name="country" maxlength="2" placeholder="CA" class="eb-input w-full uppercase" autocomplete="off" inputmode="text" autocapitalize="characters">
+                    <p id="create-tenant-error-country" class="eb-field-error mt-1 hidden"></p>
+                    <p id="create-tenant-hint-country" class="eb-field-help mt-1">2-letter ISO code (e.g. CA, US, GB)</p>
                   </div>
                 </div>
               </div>
 
-              <div class="rounded-xl border border-slate-800 bg-slate-800/50 p-5">
-                <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">Portal Admin Account</h3>
-                <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
-                  <input type="checkbox" name="create_admin" value="1" x-model="showAdmin" class="rounded bg-slate-800 border-slate-600 text-amber-500 focus:ring-sky-500">
+              <div class="eb-subpanel space-y-4 !p-5">
+                <h3 class="eb-type-eyebrow text-[var(--eb-text-muted)]">Portal Admin Account</h3>
+                <label class="flex cursor-pointer items-center gap-2 text-sm text-[var(--eb-text-secondary)]">
+                  <input type="checkbox" name="create_admin" value="1" x-model="showAdmin" class="eb-checkbox">
                   Create portal admin user for this tenant
                 </label>
-                <div x-show="showAdmin" x-cloak class="space-y-4 mt-4 pl-4 border-l border-amber-600/30" style="display: none;">
-                  <p class="text-xs text-slate-400">Creates a tenant member that can log in to the tenant portal.</p>
-                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div x-show="showAdmin" x-cloak class="mt-4 space-y-4 border-l border-[var(--eb-border-orange)] pl-4" style="display: none;">
+                  <p class="eb-field-help">Creates a tenant member that can log in to the tenant portal.</p>
+                  <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
                     <div>
-                      <label class="block text-sm font-medium text-slate-300 mb-1">Admin Email</label>
-                      <input type="email" name="admin_email" placeholder="admin@acme.com" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500">
+                      <label class="eb-field-label">Admin Email</label>
+                      <input type="email" name="admin_email" placeholder="admin@acme.com" class="eb-input w-full">
                     </div>
                     <div>
-                      <label class="block text-sm font-medium text-slate-300 mb-1">Admin Name</label>
-                      <input type="text" name="admin_name" placeholder="Admin User" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500">
+                      <label class="eb-field-label">Admin Name</label>
+                      <input type="text" name="admin_name" placeholder="Admin User" class="eb-input w-full">
                     </div>
                   </div>
                   <div class="space-y-2">
-                    <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
-                      <input type="radio" name="auto_password" value="1" x-model="autoPassword" class="bg-slate-800 border-slate-600 text-amber-500 focus:ring-sky-500">
+                    <label class="flex cursor-pointer items-center gap-2 text-sm text-[var(--eb-text-secondary)]">
+                      <input type="radio" name="auto_password" value="1" x-model="autoPassword" class="eb-radio-input">
                       Auto-generate password and email to user
                     </label>
-                    <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
-                      <input type="radio" name="auto_password" value="0" x-model="autoPassword" class="bg-slate-800 border-slate-600 text-amber-500 focus:ring-sky-500">
+                    <label class="flex cursor-pointer items-center gap-2 text-sm text-[var(--eb-text-secondary)]">
+                      <input type="radio" name="auto_password" value="0" x-model="autoPassword" class="eb-radio-input">
                       Set password manually
                     </label>
                   </div>
                   <div x-show="autoPassword === '0'" x-cloak class="mt-2" style="display: none;">
-                    <label class="block text-sm font-medium text-slate-300 mb-1">Password</label>
-                    <input type="password" name="admin_password" minlength="8" placeholder="Minimum 8 characters" class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500">
-                    <p id="create-tenant-error-admin_password" class="hidden text-rose-400 text-xs mt-1"></p>
+                    <label class="eb-field-label">Password</label>
+                    <input type="password" name="admin_password" minlength="8" placeholder="Minimum 8 characters" class="eb-input w-full">
+                    <p id="create-tenant-error-admin_password" class="eb-field-error mt-1 hidden"></p>
                   </div>
                 </div>
               </div>
 
-              <div class="flex justify-end gap-3 pt-2 border-t border-slate-700">
-                <button type="button" @click="openCreateModal = false" class="px-4 py-2 rounded-lg border border-slate-600 bg-slate-800 text-slate-200 text-sm font-medium hover:bg-slate-700">
+              <div class="flex justify-end gap-3 border-t border-[var(--eb-border-subtle)] px-6 pb-6 pt-4">
+                <button type="button" @click="openCreateModal = false" class="eb-btn eb-btn-secondary eb-btn-sm">
                   Cancel
                 </button>
-                <button type="submit" :disabled="savingModal" class="px-4 py-2 rounded-lg bg-amber-600 text-white text-sm font-semibold hover:bg-amber-500 disabled:opacity-60 disabled:cursor-not-allowed">
+                <button type="submit" :disabled="savingModal" class="eb-btn eb-btn-primary eb-btn-sm disabled:cursor-not-allowed disabled:opacity-60">
                   <span x-show="!savingModal">Create Tenant</span>
                   <span x-show="savingModal" style="display: none;">Saving…</span>
                 </button>
@@ -456,11 +441,14 @@
             </div>
           </div>
         </div>
-        </main>
-      </div>
-    </div>
-  </div>
-</div>
+        </div>
+{/capture}
+
+{include file="modules/addons/eazybackup/templates/whitelabel/partials/partner_hub_shell.tpl"
+  ebPhSidebarPage='tenants'
+  ebPhBodyClass='!p-0'
+  ebPhContent=$ebPhContent
+}
 
 
 
@@ -569,4 +557,3 @@
   });
 })();
 </script>
-

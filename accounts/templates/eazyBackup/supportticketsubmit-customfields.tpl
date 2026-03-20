@@ -1,9 +1,9 @@
 {foreach $customfields as $customfield}
-    <div class="form-group">
-        <label for="customfield{$customfield.id}">{$customfield.name}</label>
+    <div class="space-y-2">
+        <label for="customfield{$customfield.id}" class="eb-field-label">{$customfield.name}</label>
         {$customfield.input}
         {if $customfield.description}
-            <p class="form-text text-muted">{$customfield.description}</p>
+            <p class="eb-field-help">{$customfield.description}</p>
         {/if}
     </div>
 {/foreach}

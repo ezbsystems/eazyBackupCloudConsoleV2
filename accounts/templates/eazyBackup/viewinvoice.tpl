@@ -8,7 +8,11 @@
 
     {* Core font + Tailwind + custom app styles, mirroring includes/head.tpl *}
     {\WHMCS\View\Asset::fontCssInclude('open-sans-family.css')}
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet">
     <link href="{$WEB_ROOT}/templates/{$template}/css/tailwind.css?v={$versionHash}" rel="stylesheet">
+    {include file="modules/addons/eazybackup/templates/partials/_ui-tokens.tpl"}
     <link href="{$WEB_ROOT}/templates/{$template}/css/custom.css" rel="stylesheet">
 
     {* Invoice-specific WHMCS styles for print/layout *}
@@ -43,7 +47,7 @@
     </style>
 
 </head>
-<body class="invoice-view-page min-h-screen bg-slate-950 text-slate-200">
+<body data-theme="dark" class="invoice-view-page min-h-screen bg-slate-950 text-slate-200">
 
     <!-- Nebula background -->
     <div class="pointer-events-none fixed inset-0 bg-slate-900/80 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>

@@ -1,6 +1,27 @@
 (function(){
   function q(id){ return document.getElementById(id); }
-  function toast(msg){ try{ var t=q('toast-container'); if(!t){ t=document.createElement('div'); t.id='toast-container'; t.style.position='fixed'; t.style.top='1rem'; t.style.right='1rem'; t.style.zIndex='9999'; document.body.appendChild(t);} var el=document.createElement('div'); el.className='mt-2 rounded-xl bg-white/5 ring-1 ring-white/10 px-4 py-3 text-sm text-white/80'; el.textContent=msg; t.appendChild(el); setTimeout(function(){ try{ el.remove(); }catch(_){ } }, 3000);}catch(_){}}
+  function toast(msg, type){
+    try{
+      type = type || 'info';
+      var variant = 'info';
+      if(type === 'success') variant = 'success';
+      else if(type === 'error' || type === 'danger') variant = 'danger';
+      else if(type === 'warning') variant = 'warning';
+      var t=q('toast-container');
+      if(!t){
+        t=document.createElement('div');
+        t.id='toast-container';
+        t.className='pointer-events-none fixed right-4 top-4 z-[9999] flex flex-col items-end gap-2';
+        document.body.appendChild(t);
+      }
+      var el=document.createElement('div');
+      el.className='pointer-events-auto eb-toast eb-toast--' + variant;
+      el.setAttribute('role','status');
+      el.textContent=msg;
+      t.appendChild(el);
+      setTimeout(function(){ try{ el.remove(); }catch(_){ } }, 3000);
+    }catch(_){}
+  }
   function val(id){ var el=q(id); return el ? (el.value||'') : ''; }
   function bool(id){ var el=q(id); return !!(el && el.checked); }
 
@@ -44,21 +65,21 @@
   }
 
   function save(){
-    if(!validate()){ toast('Fix validation errors.'); return; }
+    if(!validate()){ toast('Fix validation errors.', 'warning'); return; }
     var token=(q('eb-token')?.value)||'';
     var body=new URLSearchParams();
     body.set('token', token);
     body.set('payload', JSON.stringify(payload()));
     fetch('index.php?m=eazybackup&a=ph-settings-tax-save', { method:'POST', headers:{ 'Content-Type':'application/x-www-form-urlencoded' }, body: body.toString() })
       .then(function(r){ return r.json(); })
-      .then(function(j){ if(j && j.status==='success'){ toast('Settings saved.'); setTimeout(function(){ location.reload(); }, 400); } else { toast((j && (j.message||'Save failed')) || 'Save failed'); } })
-      .catch(function(){ toast('Network error.'); });
+      .then(function(j){ if(j && j.status==='success'){ toast('Settings saved.', 'success'); setTimeout(function(){ location.reload(); }, 400); } else { toast((j && (j.message||'Save failed')) || 'Save failed', 'danger'); } })
+      .catch(function(){ toast('Network error.', 'danger'); });
   }
 
   // Registrations UI
   function openReg(){ q('tx-reg-id').value=''; q('tx-reg-country').value=''; q('tx-reg-region').value=''; q('tx-reg-number').value=''; q('tx-reg-legal').value=''; q('tx-reg-modal').classList.remove('hidden'); }
   function closeReg(){ q('tx-reg-modal').classList.add('hidden'); }
-  function refreshRegs(){ fetch('index.php?m=eazybackup&a=ph-tax-registrations').then(function(r){ return r.json(); }).then(function(j){ if(!j||j.status!=='success') return; var tb=document.getElementById('tx-reg-tbody'); if(!tb) return; tb.innerHTML=''; (j.data||[]).forEach(function(r){ var tr=document.createElement('tr'); tr.className='hover:bg-white/5'; tr.setAttribute('data-id', r.id); tr.innerHTML='<td class="px-4 py-3">'+(r.country||'')+'</td><td class="px-4 py-3">'+(r.region||'-')+'</td><td class="px-4 py-3">'+(r.registration_number||'')+'</td><td class="px-4 py-3">'+(r.legal_name||'-')+'</td><td class="px-4 py-3 text-right"><button class="tx-del rounded-lg px-3 py-1.5 ring-1 ring-white/10 hover:bg-white/10">Delete</button></td>'; tb.appendChild(tr); }); }); }
+  function refreshRegs(){ fetch('index.php?m=eazybackup&a=ph-tax-registrations').then(function(r){ return r.json(); }).then(function(j){ if(!j||j.status!=='success') return; var tb=document.getElementById('tx-reg-tbody'); if(!tb) return; tb.innerHTML=''; (j.data||[]).forEach(function(r){ var tr=document.createElement('tr'); tr.setAttribute('data-id', r.id); tr.innerHTML='<td>'+(r.country||'')+'</td><td>'+(r.region||'-')+'</td><td>'+(r.registration_number||'')+'</td><td>'+(r.legal_name||'-')+'</td><td class="!text-right"><button type="button" class="tx-del eb-btn eb-btn-outline eb-btn-xs">Delete</button></td>'; tb.appendChild(tr); }); }); }
   function upsertReg(){
     var token=(q('eb-token')?.value)||'';
     var body=new URLSearchParams();
@@ -69,10 +90,10 @@
     body.set('registration_number', q('tx-reg-number').value||'');
     body.set('legal_name', q('tx-reg-legal').value||'');
     fetch('index.php?m=eazybackup&a=ph-tax-registration-upsert', { method:'POST', headers:{ 'Content-Type':'application/x-www-form-urlencoded' }, body: body.toString() })
-      .then(function(r){ return r.json(); }).then(function(j){ if(j && j.status==='success'){ toast('Saved.'); closeReg(); refreshRegs(); } else { toast((j && (j.message||'Save failed')) || 'Save failed'); } })
-      .catch(function(){ toast('Network error.'); });
+      .then(function(r){ return r.json(); }).then(function(j){ if(j && j.status==='success'){ toast('Saved.', 'success'); closeReg(); refreshRegs(); } else { toast((j && (j.message||'Save failed')) || 'Save failed', 'danger'); } })
+      .catch(function(){ toast('Network error.', 'danger'); });
   }
-  function deleteReg(id){ var token=(q('eb-token')?.value)||''; var b=new URLSearchParams(); b.set('token', token); b.set('id', id); fetch('index.php?m=eazybackup&a=ph-tax-registration-delete', { method:'POST', headers:{ 'Content-Type':'application/x-www-form-urlencoded' }, body: b.toString() }).then(function(r){ return r.json(); }).then(function(j){ if(j && j.status==='success'){ toast('Deleted.'); refreshRegs(); } else { toast((j && (j.message||'Delete failed')) || 'Delete failed'); } }).catch(function(){ toast('Network error.'); }); }
+  function deleteReg(id){ var token=(q('eb-token')?.value)||''; var b=new URLSearchParams(); b.set('token', token); b.set('id', id); fetch('index.php?m=eazybackup&a=ph-tax-registration-delete', { method:'POST', headers:{ 'Content-Type':'application/x-www-form-urlencoded' }, body: b.toString() }).then(function(r){ return r.json(); }).then(function(j){ if(j && j.status==='success'){ toast('Deleted.', 'success'); refreshRegs(); } else { toast((j && (j.message||'Delete failed')) || 'Delete failed', 'danger'); } }).catch(function(){ toast('Network error.', 'danger'); }); }
 
   // Events
   q('tax-btn-save')?.addEventListener('click', save);

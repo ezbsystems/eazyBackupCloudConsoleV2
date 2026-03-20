@@ -8,7 +8,6 @@
     </title>
     {include file="$template/includes/head.tpl"}
     {$headoutput}
-    {include file="modules/addons/eazybackup/templates/partials/_ui-tokens.tpl"}
 
     <style>
     /* Ensure Alpine cloaked elements are hidden before initialization */
@@ -42,41 +41,46 @@
     }
 
     /* Sidebar scrollbar (Chrome, Edge, Safari) */
-    #sidebar-scroll::-webkit-scrollbar {
+    .eb-theme-sidebar-scroll::-webkit-scrollbar {
         width: 4px;
     }
 
-    #sidebar-scroll::-webkit-scrollbar-track {
-        background: #1e293b; /* slate-800 - dark track */
+    .eb-theme-sidebar-scroll::-webkit-scrollbar-track {
+        background: var(--eb-bg-base);
     }
 
-    #sidebar-scroll::-webkit-scrollbar-thumb {
-        background-color: #475569; /* slate-600 - slightly lighter thumb */
+    .eb-theme-sidebar-scroll::-webkit-scrollbar-thumb {
+        background-color: var(--eb-border-default);
         border-radius: 9999px;
     }
 
-    #sidebar-scroll::-webkit-scrollbar-thumb:hover {
-        background-color: #64748b; /* slate-500 - lighter on hover */
+    .eb-theme-sidebar-scroll::-webkit-scrollbar-thumb:hover {
+        background-color: var(--eb-border-strong);
     }
 
     /* Sidebar scrollbar (Firefox) */
-    #sidebar-scroll {
+    .eb-theme-sidebar-scroll {
         scrollbar-width: thin;
-        scrollbar-color: #475569 #1e293b; /* thumb, track */
+        scrollbar-color: var(--eb-border-default) var(--eb-bg-base);
     }
+
     </style>
 </head>
 
-<body data-phone-cc-input="{$phoneNumberInputStyle}" class="flex bg-slate-950">
+<body data-theme="dark" data-phone-cc-input="{$phoneNumberInputStyle}" class="eb-shell-body">
 
     {$headeroutput}
 
     <!-- Mobile Hamburger Button (Visible on small screens) -->
     <button
         id="menu-button"
-        class="lg:hidden p-4 focus:outline-none z-40 bg-slate-900"
+        class="eb-theme-mobile-toggle"
+        type="button"
+        aria-label="Open menu"
+        aria-controls="sidebar"
+        aria-expanded="false"
     >
-        <svg class="w-6 h-6 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+        <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path
                 stroke-linecap="round"
                 stroke-linejoin="round"
@@ -91,26 +95,44 @@
         <!-- Sidebar (Desktop + Mobile) -->
         <aside
             id="sidebar"
-            class="fixed top-0 left-0 w-64 bg-slate-900 shadow-md ring-1 ring-inset ring-white/10 h-screen flex-shrink-0 z-40 hidden lg:block"
+            class="eb-theme-sidebar"
+            aria-hidden="true"
         >
-            <div class="h-full flex flex-col">
+            <div class="eb-theme-sidebar-inner">
                     <!-- Logo (hidden when logged out) -->
                     {if $loggedin}
-                        <div class="flex items-center justify-center h-16 border-b border-slate-700">
-                            {if $assetLogoPath}
-                                <a href="{$WEB_ROOT}/index.php" class="logo">
-                                    <img src="{$WEB_ROOT}/assets/img/eazybackup-logo-dark.svg" alt="{$companyname}" class="h-12 max-w-[175px] h-auto">
-                                </a>
-                            {else}
-                                <a href="{$WEB_ROOT}/index.php" class="logo text-2xl font-bold text-white">
-                                    {$companyname}
-                                </a>
-                            {/if}
+                        <div class="eb-theme-sidebar-brand">
+                            <div class="flex items-start justify-between gap-3">
+                                <div class="min-w-0 flex-1">
+                                    {if $assetLogoPath}
+                                        <a href="{$WEB_ROOT}/index.php" class="logo">
+                                            <img src="{$WEB_ROOT}/assets/img/eazybackup-logo-dark.svg" alt="{$companyname}" class="h-auto max-w-[175px]">
+                                        </a>
+                                    {else}
+                                        <a href="{$WEB_ROOT}/index.php" class="logo text-2xl font-bold text-white">
+                                            {$companyname}
+                                        </a>
+                                    {/if}
+                                    <div style="font-size:11px;color:var(--eb-text-disabled);margin-top:2px;">
+                                        {if $clientsdetails.companyname}{$clientsdetails.companyname}{else}{$companyname} Portal{/if}
+                                    </div>
+                                </div>
+                                <button
+                                    id="sidebar-close-button"
+                                    type="button"
+                                    class="eb-sidebar-icon-button lg:hidden"
+                                    aria-label="Close menu"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-5 w-5">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            </div>
                         </div>
                     {/if}
 
                     <!-- Navigation Items / Vertical logo when logged out -->
-                    <nav class="relative flex-1 px-2 py-4 space-y-1 overflow-hidden">
+                    <nav class="eb-theme-sidebar-nav">
                     {if !$loggedin}
                         <!-- Vertical eazyBackup logo for logged-out state -->
                         <div class="relative h-full w-full">
@@ -126,406 +148,193 @@
                     {/if}
 
                     {if $loggedin}
-                        <div id="sidebar-scroll" class="h-full overflow-y-auto space-y-1">
-                        <!-- Dashboard -->
-                        <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=dashboard"
-                        class="flex items-center px-2 py-2 text-gray-300 rounded-md hover:bg-[#1B2C50]
-                                {if $smarty.get.m == 'eazybackup' && $smarty.get.a == 'dashboard'}bg-[#1B2C50] font-semibold{/if}"
-                        >
-                            {* <i class="fas fa-gauge mr-3 text-lg"></i> *}
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-3">
+                        <div id="sidebar-scroll" class="eb-theme-sidebar-scroll">
+                        <div class="eb-sidebar-section-label">Overview</div>
+                        <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=dashboard" class="eb-sidebar-link {if $smarty.get.m == 'eazybackup' && $smarty.get.a == 'dashboard'}is-active{/if}">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" />
                             </svg>
                             Dashboard
                         </a>
 
+                        {* Partner Hub: one link to ph-overview (overview.tpl); expandable submenu removed — see sidebar_partner_hub.tpl *}
                         {include file="$template/includes/nav_partner_hub.tpl"}
 
-                        <!-- My Services -->
-                        <a href="/clientarea.php?action=services"
-                        class="flex items-center px-2 py-2 text-gray-300 rounded-md hover:bg-[#1B2C50]
-                                {if $smarty.server.REQUEST_URI == '/clientarea.php?action=services'}bg-[#1B2C50] font-semibold{/if}"
-                        >
-                            {* <i class="fas fa-users-gear mr-3 text-lg"></i> *}
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-3">
+                        <div class="eb-sidebar-divider"></div>
+                        <div class="eb-sidebar-section-label">Workspace</div>
+
+                        <a href="/clientarea.php?action=services" class="eb-sidebar-link {if $smarty.server.REQUEST_URI == '/clientarea.php?action=services'}is-active{/if}">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" />
                             </svg>
                             My Services
                         </a>
 
-                        <!-- Order New Services button to open flyout) -->
                         <button
                             id="order-services-button"
-                            class="flex items-center w-full px-2 py-2 text-gray-300 rounded-md hover:bg-[#1B2C50] focus:outline-none"
+                            class="eb-sidebar-link w-full text-left focus:outline-none"
                             aria-haspopup="true"
                             aria-expanded="false"
                             aria-controls="sidebar-flyout"
                         >
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-3">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 10.5V6a3.75 3.75 0 1 0-7.5 0v4.5m11.356-1.993 1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 0 1-1.12-1.243l1.264-12A1.125 1.125 0 0 1 5.513 7.5h12.974c.576 0 1.059.435 1.119 1.007ZM8.625 10.5a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm7.5 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" />
                             </svg>
-                            Order New Services
-                            <svg class="w-4 h-4 ml-auto text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                                <path
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    stroke-width="2"
-                                    d="M19 9l-7 7-7-7"
-                                ></path>
+                            <span class="whitespace-nowrap">Order New Services</span>
+                            <svg class="eb-sidebar-chevron" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
                             </svg>
-                        </button>                        
-
-                        <!-- Download Backup Client Button -->
-                        
-                        <button
-                        id="download-backup-client-button"
-                        class="flex items-center w-full px-2 py-2 text-gray-300 rounded-md hover:bg-[#1B2C50] focus:outline-none"
-                        aria-haspopup="true"
-                        aria-expanded="false"
-                        aria-controls="sidebar-download-flyout"
-                        >
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-3">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
-                        </svg>                      
-                        Download
-                        <svg class="w-4 h-4 ml-auto text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-                        </svg>
                         </button>
 
-
-                        <!-- Support -->
-                        <a href="{$WEB_ROOT}/supporttickets.php"
-                        class="flex items-center px-2 py-2 text-gray-300 rounded-md hover:bg-[#1B2C50]
-                                {if $smarty.server.REQUEST_URI == '/supporttickets.php'}bg-[#1B2C50] font-semibold{/if}"
+                        <button
+                            id="download-backup-client-button"
+                            class="eb-sidebar-link w-full text-left focus:outline-none"
+                            aria-haspopup="true"
+                            aria-expanded="false"
+                            aria-controls="sidebar-download-flyout"
                         >
-                            {* <i class="fas fa-question-circle mr-3 text-lg"></i> *}
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-3">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                            </svg>
+                            Download
+                            <svg class="eb-sidebar-chevron" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                            </svg>
+                        </button>
+
+                        <a href="{$WEB_ROOT}/supporttickets.php" class="eb-sidebar-link {if $smarty.server.REQUEST_URI == '/supporttickets.php'}is-active{/if}">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z" />
                             </svg>
                             Support
                         </a>
 
-                        <!-- Billing -->
-                        <a href="{$WEB_ROOT}/clientarea.php?action=invoices"
-                        class="flex items-center px-2 py-2 text-gray-300 rounded-md hover:bg-[#1B2C50]
-                                {if $smarty.server.REQUEST_URI == '/clientarea.php?action=invoices'}bg-[#1B2C50] font-semibold{/if}"
-                        >
-                            {* <i class="fas fa-file-invoice mr-3 text-lg"></i> *}
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-3">
+                        <a href="{$WEB_ROOT}/clientarea.php?action=invoices" class="eb-sidebar-link {if $smarty.server.REQUEST_URI == '/clientarea.php?action=invoices'}is-active{/if}">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
                             </svg>
-
                             Billing
                         </a>
 
-                        <!-- Affiliates -->
-                        {* <a href="{$WEB_ROOT}/affiliates.php"
-                        class="flex items-center px-2 py-2 text-gray-300 rounded-md hover:bg-[#1B2C50]
-                                {if $smarty.server.REQUEST_URI == '/affiliates.php'}bg-[#1B2C50] font-semibold{/if}"
-                        > *}
-                            {* <i class="fas fa-file-invoice mr-3 text-lg"></i> *}
-                            {* <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-3">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M15.042 21.672 13.684 16.6m0 0-2.51 2.225.569-9.47 5.227 7.917-3.286-.672Zm-7.518-.267A8.25 8.25 0 1 1 20.25 10.5M8.288 14.212A5.25 5.25 0 1 1 17.25 10.5" />
-                            </svg>                          *}
-{* 
-                            Affiliates
-                        </a>                         *}
+                        <div class="eb-sidebar-divider"></div>
+                        <div class="eb-sidebar-section-label">Tools</div>
 
-
-                        <!-- Control Panel (Dropdown) -->
-                        <div x-data="{ open: false }" class="relative">
-                        <button
-                            @click="open = !open"
-                            class="flex items-center w-full px-2 py-2 text-left text-gray-300 rounded-md hover:bg-[#1B2C50]
-                                {if $smarty.server.REQUEST_URI == '/control-panel-path'}bg-[#1B2C50] font-semibold{/if}"
-                        >
-                            {* <i class="fas fa-up-right-from-square mr-3 text-lg"></i> *}
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-3">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
-                            </svg>
-
-                            Control Panel
-                            <svg class="w-4 h-4 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    stroke-width="2"
-                                    d="M19 9l-7 7-7-7"
-                                ></path>
-                            </svg>
-                        </button>
-                        <!-- Dropdown Menu -->
-                        <div
-                            x-show="open"
-                            @click.away="open = false"
-                            class="mt-1 space-y-1 pl-8"
-                        >
-                            <a href="https://panel.eazybackup.ca/" class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]">
-                                eazyBackup Control Panel
-                            </a>
-                            {if $clientsdetails.groupid == 2 || $clientsdetails.groupid == 3 || $clientsdetails.groupid == 4 || $clientsdetails.groupid == 5 || $clientsdetails.groupid == 6 || $clientsdetails.groupid == 7}
-                                <a href="https://panel.obcbackup.com/" class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]">
-                                    OBC Control Panel
-                                </a>
-                            {/if}   
-                        </div>
-                    </div>
-
-
-                    <!-- Knowledgebase -->
-                    <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=knowledgebase"
-                    class="flex items-center px-2 py-2 text-gray-300 rounded-md hover:bg-[#1B2C50]
-                            {if $smarty.server.REQUEST_URI == '/index.php?m=eazybackup&a=knowledgebase'}bg-[#1B2C50] font-semibold{/if}"
-                    >
-                        {* <i class="fas fa-file-invoice mr-3 text-lg"></i> *}
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-3">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
-                      </svg>
-                      
-                        Knowledgebase
-                    </a>
-
-                    <!-- Cloud Storage (Dropdown) -->
-                    <div x-data="{
-                        // Keep closed by default; open only for specific Cloud Storage pages (not 'welcome')
-                        open: [
-                            'index.php?m=cloudstorage&page=dashboard',
-                            'index.php?m=cloudstorage&page=buckets',
-                            'index.php?m=cloudstorage&page=access_keys',
-                            'index.php?m=cloudstorage&page=users',
-                            'index.php?m=cloudstorage&page=billing',
-                            'index.php?m=cloudstorage&page=history'
-                        ].some(path => window.location.href.includes(path))
-                    }">
-                        <button
-                            @click="open = !open"
-                            class="flex items-center w-full px-2 py-2 text-left text-gray-300 rounded-md hover:bg-[#1B2C50]
-                                {if 
-                                    ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=dashboard')
-                                    || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=buckets')
-                                    || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=access_keys')
-                                    || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=users')
-                                    || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=billing')
-                                    || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=history')
-                                } bg-[#1B2C50] font-semibold {/if}"
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-3">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15a4.5 4.5 0 0 0 4.5 4.5H18a3.75 3.75 0 0 0 1.332-7.257 3 3 0 0 0-3.758-3.848 5.25 5.25 0 0 0-10.233 2.33A4.502 4.502 0 0 0 2.25 15Z" />
-                            </svg>
-
-                                e3 Object Storage
-                            <svg class="w-4 h-4 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-                            </svg>
-                        </button>
-
-                        <!-- Dropdown Menu -->
-                        <div
-                            x-show="open"
-                            @click.away="open = false"
-                            class="mt-1 space-y-1 pl-8"
-                        >
-                            <!-- Dashboard -->
-                            <a href="{$WEB_ROOT}/index.php?m=cloudstorage" 
-                            class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
-                                {if $smarty.get.m == 'cloudstorage' and (empty($smarty.get.page) or $smarty.get.page == 'dashboard')}
-                                    bg-[#1B2C50] font-semibold
-                                {/if}">
-                            Dashboard
-                            </a>
-                            <!-- Buckets -->
-                            <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=buckets" 
-                            class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
-                                    {if $smarty.server.REQUEST_URI|strstr:'page=buckets'} bg-[#1B2C50] font-semibold {/if}">
-                                Buckets
-                            </a>
-                            <!-- Access Keys -->
-                            <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=access_keys" 
-                            class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
-                                    {if $smarty.server.REQUEST_URI|strstr:'page=access_keys'} bg-[#1B2C50] font-semibold {/if}">
-                                Access Keys
-                            </a>
-                            <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=users" 
-                            class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
-                                    {if $smarty.server.REQUEST_URI|strstr:'page=users'} bg-[#1B2C50] font-semibold {/if}">
-                                Users
-                            </a>
-                            <!-- Billing -->
-                            <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=billing" 
-                            class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
-                                    {if $smarty.server.REQUEST_URI|strstr:'page=billing'} bg-[#1B2C50] font-semibold {/if}">
-                                Billing
-                            </a>
-                            <!-- History -->
-                            <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=history"
-                            class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
-                                    {if $smarty.server.REQUEST_URI|strstr:'page=history'} bg-[#1B2C50] font-semibold {/if}">
-                                Historical Stats
-                            </a>
-                            
-                        </div>
-                    </div>                  
-
-                    {if $e3Allowed}
-                    <!-- e3 Cloud Backup (Dropdown) -->
-                    <div x-data="{
-                        open: [
-                            'index.php?m=cloudstorage&page=e3backup',
-                        ].some(path => window.location.href.includes(path))
-                    }">
-                        <button
-                            @click="open = !open"
-                            class="flex items-center w-full px-2 py-2 text-left text-gray-300 rounded-md hover:bg-[#1B2C50]
-                                {if $smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=e3backup'} bg-[#1B2C50] font-semibold {/if}"
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-3">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
-                            </svg>
-                            e3 Cloud Backup
-                            <svg class="w-4 h-4 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-                            </svg>
-                        </button>
-
-                        <!-- Dropdown Menu -->
-                        <div
-                            x-show="open"
-                            @click.away="open = false"
-                            class="mt-1 space-y-1 pl-8"
-                        >
-                            <!-- Dashboard -->
-                            <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup" 
-                               class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
-                                    {if $smarty.get.page == 'e3backup' && empty($smarty.get.view)} bg-[#1B2C50] font-semibold {/if}">
-                                Dashboard
-                            </a>
-                            <!-- Users -->
-                            <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=users" 
-                               class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
-                                    {if $smarty.get.view == 'users' || $smarty.get.view == 'user_detail'} bg-[#1B2C50] font-semibold {/if}">
-                                Users
-                            </a>
-                            <!-- Agents -->
-                            <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=agents" 
-                               class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
-                                    {if $smarty.get.view == 'agents'} bg-[#1B2C50] font-semibold {/if}">
-                                Agents
-                            </a>
-                            <!-- Jobs -->
-                            <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=jobs" 
-                               class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
-                                    {if $smarty.get.view == 'jobs'} bg-[#1B2C50] font-semibold {/if}">
-                                Jobs
-                            </a>
-                            <!-- Restores -->
-                            <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=restores" 
-                               class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
-                                    {if $smarty.get.view == 'restores'} bg-[#1B2C50] font-semibold {/if}">
-                                Restores
-                            </a>
-                            <!-- Cloud NAS -->
-                            <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=cloudnas" 
-                               class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
-                                    {if $smarty.get.view == 'cloudnas'} bg-[#1B2C50] font-semibold {/if}">
-                                Cloud NAS
-                            </a>
-                            <!-- Download Agent -->
-                            <button id="e3backup-download-trigger"
-                               class="block w-full text-left px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]">
-                                Download Agent
+                        <div x-data="{ open: false }" class="space-y-1">
+                            <button @click="open = !open" class="eb-sidebar-link w-full text-left {if $smarty.server.REQUEST_URI == '/control-panel-path'}is-active{/if}">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+                                </svg>
+                                Control Panel
+                                <svg class="eb-sidebar-chevron" :style="{ldelim} transform: open ? 'rotate(180deg)' : 'rotate(0deg)' {rdelim}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                                </svg>
                             </button>
-                            <!-- Hyper-V -->
-                            <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=hyperv" 
-                               class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
-                                    {if $smarty.get.view == 'hyperv' || $smarty.get.view == 'hyperv_restore'} bg-[#1B2C50] font-semibold {/if}">
-                                Hyper-V
-                            </a>
-                            <!-- Enrollment Tokens -->
-                            <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=tokens" 
-                               class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
-                                    {if $smarty.get.view == 'tokens'} bg-[#1B2C50] font-semibold {/if}">
-                                Enrollment Tokens
-                            </a>
-                            {if $isMspClient}
-                            <!-- Tenants (MSP Only) -->
-                            <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=tenants" 
-                               class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
-                                    {if $smarty.get.view == 'tenants' || $smarty.get.view == 'tenant_detail'} bg-[#1B2C50] font-semibold {/if}">
-                                Tenants
-                            </a>
-                            <!-- Tenant Members (MSP Only) -->
-                            <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=tenant_members" 
-                               class="block px-2 py-1 text-gray-300 rounded-md hover:bg-[#1B2C50]
-                                    {if $smarty.get.view == 'tenant_members' || $smarty.get.view == 'tenant_users'} bg-[#1B2C50] font-semibold {/if}">
-                                Tenant Members
-                            </a>
-                            {/if}
+                            <div x-show="open" x-cloak class="eb-sidebar-subnav">
+                                <a href="https://panel.eazybackup.ca/" class="eb-sidebar-sublink">eazyBackup Control Panel</a>
+                                {if $clientsdetails.groupid == 2 || $clientsdetails.groupid == 3 || $clientsdetails.groupid == 4 || $clientsdetails.groupid == 5 || $clientsdetails.groupid == 6 || $clientsdetails.groupid == 7}
+                                    <a href="https://panel.obcbackup.com/" class="eb-sidebar-sublink">OBC Control Panel</a>
+                                {/if}
+                            </div>
                         </div>
-                    </div>
-                    {/if}
 
-                       
-
-                        <!-- Create -->
-                        {* <a href="/index.php?m=eazybackup&amp;a=createorder"
-                        class="flex items-center px-2 py-2 text-gray-300 rounded-md hover:bg-[#1B2C50]
-                                {if $smarty.server.REQUEST_URI == '/index.php?m=eazybackup&a=createorder'}bg-[#1B2C50] font-semibold{/if}"
-                        > *}
-                            {* <i class="fas fa-user-plus mr-3 text-lg"></i> *}
-                            {* <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-3">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M18 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0ZM3 19.235v-.11a6.375 6.375 0 0 1 12.75 0v.109A12.318 12.318 0 0 1 9.374 21c-2.331 0-4.512-.645-6.374-1.766Z" />
+                        <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=knowledgebase" class="eb-sidebar-link {if $smarty.server.REQUEST_URI == '/index.php?m=eazybackup&a=knowledgebase'}is-active{/if}">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
                             </svg>
+                            Knowledgebase
+                        </a>
 
-                            Create
-                        </a> *}
+                        <div x-data="{ open: ['index.php?m=cloudstorage&page=dashboard','index.php?m=cloudstorage&page=buckets','index.php?m=cloudstorage&page=access_keys','index.php?m=cloudstorage&page=users','index.php?m=cloudstorage&page=billing','index.php?m=cloudstorage&page=history'].some(path => window.location.href.includes(path)) }" class="space-y-1">
+                            <button
+                                @click="open = !open"
+                                class="eb-sidebar-link w-full text-left {if ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=dashboard') || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=buckets') || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=access_keys') || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=users') || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=billing') || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=history')}is-active{/if}"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15a4.5 4.5 0 0 0 4.5 4.5H18a3.75 3.75 0 0 0 1.332-7.257 3 3 0 0 0-3.758-3.848 5.25 5.25 0 0 0-10.233 2.33A4.502 4.502 0 0 0 2.25 15Z" />
+                                </svg>
+                                e3 Object Storage
+                                <svg class="eb-sidebar-chevron" :style="{ldelim} transform: open ? 'rotate(180deg)' : 'rotate(0deg)' {rdelim}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                                </svg>
+                            </button>
+                            <div x-show="open" x-cloak class="eb-sidebar-subnav">
+                                <a href="{$WEB_ROOT}/index.php?m=cloudstorage" class="eb-sidebar-sublink {if $smarty.get.m == 'cloudstorage' and (empty($smarty.get.page) or $smarty.get.page == 'dashboard')}is-active{/if}">Dashboard</a>
+                                <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=buckets" class="eb-sidebar-sublink {if $smarty.server.REQUEST_URI|strstr:'page=buckets'}is-active{/if}">Buckets</a>
+                                <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=access_keys" class="eb-sidebar-sublink {if $smarty.server.REQUEST_URI|strstr:'page=access_keys'}is-active{/if}">Access Keys</a>
+                                <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=users" class="eb-sidebar-sublink {if $smarty.server.REQUEST_URI|strstr:'page=users'}is-active{/if}">Users</a>
+                                <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=billing" class="eb-sidebar-sublink {if $smarty.server.REQUEST_URI|strstr:'page=billing'}is-active{/if}">Billing</a>
+                                <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=history" class="eb-sidebar-sublink {if $smarty.server.REQUEST_URI|strstr:'page=history'}is-active{/if}">Historical Stats</a>
+                            </div>
+                        </div>
+
+                        {if $e3Allowed}
+                        <div x-data="{ open: ['index.php?m=cloudstorage&page=e3backup'].some(path => window.location.href.includes(path)) }" class="space-y-1">
+                            <button
+                                @click="open = !open"
+                                class="eb-sidebar-link w-full text-left {if $smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=e3backup'}is-active{/if}"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
+                                </svg>
+                                e3 Cloud Backup
+                                <svg class="eb-sidebar-chevron" :style="{ldelim} transform: open ? 'rotate(180deg)' : 'rotate(0deg)' {rdelim}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                                </svg>
+                            </button>
+                            <div x-show="open" x-cloak class="eb-sidebar-subnav">
+                                <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup" class="eb-sidebar-sublink {if $smarty.get.page == 'e3backup' && empty($smarty.get.view)}is-active{/if}">Dashboard</a>
+                                <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=users" class="eb-sidebar-sublink {if $smarty.get.view == 'users' || $smarty.get.view == 'user_detail'}is-active{/if}">Users</a>
+                                <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=agents" class="eb-sidebar-sublink {if $smarty.get.view == 'agents'}is-active{/if}">Agents</a>
+                                <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=jobs" class="eb-sidebar-sublink {if $smarty.get.view == 'jobs'}is-active{/if}">Jobs</a>
+                                <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=restores" class="eb-sidebar-sublink {if $smarty.get.view == 'restores'}is-active{/if}">Restores</a>
+                                <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=cloudnas" class="eb-sidebar-sublink {if $smarty.get.view == 'cloudnas'}is-active{/if}">Cloud NAS</a>
+                                <button id="e3backup-download-trigger" class="eb-sidebar-sublink w-full text-left">Download Agent</button>
+                                <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=hyperv" class="eb-sidebar-sublink {if $smarty.get.view == 'hyperv' || $smarty.get.view == 'hyperv_restore'}is-active{/if}">Hyper-V</a>
+                                <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=tokens" class="eb-sidebar-sublink {if $smarty.get.view == 'tokens'}is-active{/if}">Enrollment Tokens</a>
+                                {if $isMspClient}
+                                <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=tenants" class="eb-sidebar-sublink {if $smarty.get.view == 'tenants' || $smarty.get.view == 'tenant_detail'}is-active{/if}">Tenants</a>
+                                <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=tenant_members" class="eb-sidebar-sublink {if $smarty.get.view == 'tenant_members' || $smarty.get.view == 'tenant_users'}is-active{/if}">Tenant Members</a>
+                                {/if}
+                            </div>
+                        </div>
+                        {/if}
                         </div>
                     {/if}
                     </nav>
 
                     <!-- Secondary Navigation (User Info and Logout) -->
                     {if $loggedin}
-                        <div class="px-2 py-4 border-t border-gray-700">
-                            <div class="flex items-center justify-between">
-                                <div class="flex items-center">
-                                <!-- User Icon -->
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-8 text-gray-300 mr-3">
-                                    <path fill-rule="evenodd" d="M18.685 19.097A9.723 9.723 0 0 0 21.75 12c0-5.385-4.365-9.75-9.75-9.75S2.25 6.615 2.25 12a9.723 9.723 0 0 0 3.065 7.097A9.716 9.716 0 0 0 12 21.75a9.716 9.716 0 0 0 6.685-2.653Zm-12.54-1.285A7.486 7.486 0 0 1 12 15a7.486 7.486 0 0 1 5.855 2.812A8.224 8.224 0 0 1 12 20.25a8.224 8.224 0 0 1-5.855-2.438ZM15.75 9a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" clip-rule="evenodd" />
-                                </svg>
-                            
-                                <!-- User Info -->
-                                <div>
-                                    <p class="text-white font-semibold">{$clientsdetails.firstname}</p>
-                                    <a href="/clientarea.php?action=details" class="text-sm text-blue-300 hover:underline">
-                                        My Account
-                                    </a>
-                                </div>
-                            </div>                    
-                            <!-- Theme Toggle Button (swaps icons) -->
-                            <button id="sidebarThemeToggle" class="p-2 focus:outline-none">
-                                <span id="sidebarThemeIcon">
-                                    <!-- Default icon: if light mode is active, show night icon (inactive mode) -->
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" />
-                                    </svg>
-                                </span>
-                            </button>
-                        </div>
-                    {/if}
-                        <div class="mt-3">
+                        <div class="eb-theme-sidebar-footer">
+                            <div class="flex items-center gap-2">
+                                <a href="/clientarea.php?action=details" class="eb-sidebar-user flex-1">
+                                    <div class="eb-avatar">{$clientsdetails.firstname|default:'U'|truncate:1:''}</div>
+                                    <div class="eb-sidebar-user-meta">
+                                        <div class="eb-sidebar-user-name">{$clientsdetails.firstname} {$clientsdetails.lastname}</div>
+                                        <div class="eb-sidebar-user-role">My Account</div>
+                                    </div>
+                                </a>
+                                <button id="sidebarThemeToggle" class="eb-sidebar-icon-button focus:outline-none" aria-label="Toggle theme">
+                                    <span id="sidebarThemeIcon">
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-5">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" />
+                                        </svg>
+                                    </span>
+                                </button>
+                            </div>
+                            <div class="eb-sidebar-divider"></div>
                             {if $loggedin}
-                                <a href="{$WEB_ROOT}/logout.php" class="flex items-center px-2 py-2 text-gray-300 hover:text-red-400 rounded-md hover:bg-[#1B2C50]">
-                                    <i class="fas fa-sign-out-alt mr-3 text-lg"></i>
+                                <a href="{$WEB_ROOT}/logout.php" class="eb-sidebar-link">
+                                    <i class="fas fa-sign-out-alt"></i>
                                     Log Out
                                 </a>
                             {/if}
                             {if $adminMasqueradingAsClient || $adminLoggedIn}
                                 <a href="{$WEB_ROOT}/logout.php?returntoadmin=1"
-                                class="flex items-center px-2 py-2 mt-2 text-red-400 rounded-md hover:bg-red-100"
+                                class="eb-sidebar-link eb-sidebar-link-danger"
                                 data-toggle="tooltip" data-placement="bottom"
                                 title="{if $adminMasqueradingAsClient}{$LANG.adminmasqueradingasclient} {$LANG.logoutandreturntoadminarea}{else}{$LANG.adminloggedin} {$LANG.returntoadminarea}{/if}"
                                 >
-                                    <i class="fas fa-sign-out-alt mr-3 text-lg"></i>
+                                    <i class="fas fa-sign-out-alt"></i>
                                     {if $adminMasqueradingAsClient}
                                         Logout & Return to Admin Area
                                     {else}
@@ -534,7 +343,7 @@
                                 </a>
                             {/if}
                         </div>
-                    </div>
+                    {/if}
                     </div>
             </div>
 
@@ -543,40 +352,38 @@
         {* sidebar-flyout    *}
         <div 
             id="sidebar-flyout" 
-            class="fixed top-0 left-[1rem] h-screen w-[40rem] transform -translate-x-full transition-transform duration-300 ease-in-out bg-white shadow-md z-30 pointer-events-none"
+            class="eb-sidebar-flyout"
             aria-hidden="true"
             role="menu"            
         >
         <div class="flex flex-col h-full">
             <!-- Fly-Out Header -->
-            <div class="bg-gray-900 h-16 flex items-center justify-between px-4 py-3 border-b border-gray-700">
-                <h2 class="text-lg font-semibold text-gray-100">Order New Services</h2>
-                <button id="flyout-close-button" class="text-gray-300 hover:text-gray-300 focus:outline-none" aria-label="Close menu">
+            <div class="eb-sidebar-flyout-header flex h-16 items-center justify-between px-4 py-3">
+                <h2 class="text-lg font-semibold" style="color:var(--eb-text-primary);">Order New Services</h2>
+                <button id="flyout-close-button" class="focus:outline-none" style="color:var(--eb-text-secondary);" aria-label="Close menu">
                     <i class="fas fa-times fa-lg" aria-hidden="true"></i>
                 </button>
             </div>
 
 
             <!-- Fly-Out Nav Items -->
-            <nav class="bg-gray-900 flex-1 overflow-y-auto p-4">
+            <nav class="eb-sidebar-flyout-body flex-1 overflow-y-auto p-4">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <!-- Column 1: eazyBackup -->
                     <div>
-                        <h3 class="text-md font-semibold text-gray-300 mb-4">eazyBackup</h3>
+                        <h3 class="eb-flyout-section-title">eazyBackup</h3>
                         <ul class="space-y-1">
                             <li>
                                 <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=createorder"
-                                class="group flex items-start space-x-3 p-4 rounded-md hover:bg-slate-800 transition-colors duration-200">
+                                class="eb-flyout-card group">
                                     <!-- Icon -->
-                                    <svg class="w-6 h-6 text-gray-300 group-hover:text-[#fe5000] transition-colors duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                    <svg class="eb-flyout-card-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 12V5.25" />
                                     </svg>
 
                                     <div>
-                                        <h3 class="font-semibold text-gray-300 group-hover:text-[#fe5000]">eazyBackup</h3>
-                                        {* <p class="text-sm text-gray-300 mt-1">File and Folder Protection.</p> *}
-                                        <!-- Bullet Points -->
-                                        <ul class="text-xs text-white list-disc ml-5 mt-2 space-y-1">
+                                        <h3 class="eb-flyout-card-title">eazyBackup</h3>
+                                        <ul class="eb-flyout-card-list">
                                             <li>Windows 10/11/Server, macOS, Linux</li>                                            
                                             <li>Protect unlimited files and folders</li>
                                             <li>Disk Image for Windows and Linux</li>
@@ -589,17 +396,15 @@
                                                         
                             <li>
                                 <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=createorder"
-                                class="group flex items-start space-x-3 p-4 rounded-md hover:bg-slate-800 transition-colors duration-200">
+                                class="eb-flyout-card group">
                                     <!-- Icon -->
-                                    <svg class="w-6 h-6 text-gray-300 group-hover:text-[#fe5000] transition-colors duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                    <svg class="eb-flyout-card-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 17.25v-.228a4.5 4.5 0 0 0-.12-1.03l-2.268-9.64a3.375 3.375 0 0 0-3.285-2.602H7.923a3.375 3.375 0 0 0-3.285 2.602l-2.268 9.64a4.5 4.5 0 0 0-.12 1.03v.228m19.5 0a3 3 0 0 1-3 3H5.25a3 3 0 0 1-3-3m19.5 0a3 3 0 0 0-3-3H5.25a3 3 0 0 0-3 3m16.5 0h.008v.008h-.008v-.008Zm-3 0h.008v.008h-.008v-.008Z" />
                                     </svg>
 
                                     <div>
-                                        <h3 class="font-semibold text-gray-300 group-hover:text-[#fe5000]">Microsoft 365 Backup</h3>
-                                        {* <p class="text-sm text-gray-300 mt-1">Comprehensive Data Protection.</p> *}
-                                        <!-- Bullet Points -->
-                                            <ul class="text-xs text-white list-disc ml-5 mt-2 space-y-1">
+                                        <h3 class="eb-flyout-card-title">Microsoft 365 Backup</h3>
+                                            <ul class="eb-flyout-card-list">
                                             <li>Cloud backup for Microsoft 365</li>                                            
                                             <li>eazyBackup branded control panel</li>                                                             
                                         </ul>
@@ -609,17 +414,15 @@
                             
                             <li>
                                 <a href="{$WEB_ROOT}/index.php/store/eazybackup/hyper-v"
-                                class="group flex items-start space-x-3 p-4 rounded-md hover:bg-slate-800 transition-colors duration-200">
+                                class="eb-flyout-card group">
                                     <!-- Icon -->
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-gray-300 group-hover:text-[#fe5000] transition-colors duration-200">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="eb-flyout-card-icon">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 0 1-3-3m3 3a3 3 0 1 0 0 6h13.5a3 3 0 1 0 0-6m-16.5-3a3 3 0 0 1 3-3h13.5a3 3 0 0 1 3 3m-19.5 0a4.5 4.5 0 0 1 .9-2.7L5.737 5.1a3.375 3.375 0 0 1 2.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 0 1 .9 2.7m0 0a3 3 0 0 1-3 3m0 3h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Zm-3 6h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Z" />
                                     </svg>
                                 
                                     <div>
-                                        <h3 class="font-semibold text-gray-300 group-hover:text-[#fe5000]">Virtual Server Backup</h3>
-                                        {* <p class="text-sm text-gray-300 mt-1">Comprehensive Data Protection including Disk Image.</p> *}
-                                        <!-- Bullet Points -->
-                                        <ul class="text-xs text-white list-disc ml-5 mt-2 space-y-1">                                            
+                                        <h3 class="eb-flyout-card-title">Virtual Server Backup</h3>
+                                        <ul class="eb-flyout-card-list">                                            
                                             <li>For Windows and Linux Servers</li>
                                             <li>Hyper-V, Proxmox, VMware guest VM backups only</li> 
                                             <li>eazyBackup branded client</li>                                                                             
@@ -631,7 +434,7 @@
                             {if $isResellerClient}
                                 <li>
                                   <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=whitelabel"
-                                     class="group flex items-start space-x-3 p-4 rounded-md hover:bg-slate-800 transition-colors duration-200"
+                                     class="eb-flyout-card group"
                                      x-data="{ hover: false }"
                                      @mouseenter="hover = true"
                                      @mouseleave="hover = false">
@@ -643,7 +446,7 @@
                                          stroke-width="1.75"
                                          stroke-linecap="round"
                                          stroke-linejoin="round"
-                                         class="w-6 h-6 flex-shrink-0 text-gray-300 transition-all duration-300 group-hover:drop-shadow group-hover:scale-105">
+                                         class="eb-flyout-card-icon transition-all duration-300 group-hover:drop-shadow group-hover:scale-105">
                                       <defs>
                                         <!-- Full spectrum gradient -->
                                         <linearGradient id="wl-rainbow" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -660,16 +463,14 @@
                                 
                                     <div>
                                       <!-- Title: gray by default, rainbow on hover -->
-                                      <h3 class="font-semibold text-gray-300 transition-all duration-300 group-hover:drop-shadow
+                                      <h3 class="eb-flyout-card-title transition-all duration-300 group-hover:drop-shadow
                                                   group-hover:text-transparent group-hover:bg-clip-text
                                                   group-hover:bg-gradient-to-r
                                                   group-hover:from-red-500 group-hover:via-amber-500 group-hover:via-green-500
                                                   group-hover:via-cyan-500 group-hover:via-blue-500 group-hover:to-purple-500">
                                         White Label
                                       </h3>
-                                
-                                      <!-- Bullet Points -->
-                                      <ul class="text-xs text-white list-disc ml-5 mt-2 space-y-1">
+                                      <ul class="eb-flyout-card-list">
                                         <li>Fully branded backup client</li>
                                         <li>Brandable emails and control panel</li>
                                       </ul>
@@ -679,13 +480,13 @@
 
                                 <li>
                                   <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=ph-tenants-manage"
-                                     class="group flex items-start space-x-3 p-4 rounded-md hover:bg-slate-800 transition-colors duration-200">
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor" class="w-6 h-6 flex-shrink-0 text-gray-300">
+                                     class="eb-flyout-card group">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor" class="eb-flyout-card-icon">
                                       <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 7.125C2.25 6.504 2.754 6 3.375 6h6c.621 0 1.125.504 1.125 1.125v3.75c0 .621-.504 1.125-1.125 1.125h-6a1.125 1.125 0 0 1-1.125-1.125v-3.75ZM14.25 8.625c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v8.25c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 0 1-1.125-1.125v-8.25ZM3.75 16.125c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v2.25c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 0 1-1.125-1.125v-2.25Z" />
                                     </svg>
                                     <div>
-                                      <h3 class="font-semibold text-gray-300">Partner Hub Billing</h3>
-                                      <ul class="text-xs text-white list-disc ml-5 mt-2 space-y-1">
+                                      <h3 class="eb-flyout-card-title">Partner Hub Billing</h3>
+                                      <ul class="eb-flyout-card-list">
                                         <li>Manage tenants for billing</li>
                                         <li>Attach storage users to tenants</li>
                                       </ul>
@@ -697,23 +498,22 @@
                     </div>
                     <!-- Column 2: OBC or Custom White Label Products -->
                     <div>
-                            <h3 class="text-md font-semibold text-gray-300 mb-4">OBC</h3>
+                            <h3 class="eb-flyout-section-title">OBC</h3>
                         <ul class="space-y-1">
                             <li>
                                 {if isset($whitelabel_product_name) && $whitelabel_product_name neq "OBC"}
                                     <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=createorder"
-                                    class="group flex items-start space-x-3 p-4 rounded-md hover:bg-slate-800 transition-colors duration-200">
+                                    class="eb-flyout-card group">
                                 {else}
                                     <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=createorder"
-                                    class="group flex items-start space-x-3 p-4 rounded-md hover:bg-slate-800 transition-colors duration-200">
+                                    class="eb-flyout-card group">
                                 {/if}                    
-                                        <svg class="w-6 h-6 text-gray-300 group-hover:text-indigo-600 transition-colors duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                        <svg class="eb-flyout-card-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25a2.25 2.25 0 0 1-2.25-2.25V5.25" />
                                         </svg>
                                         <div>
-                                                <h3 class="font-semibold text-gray-300 group-hover:text-indigo-600">OBC</h3>
-                                            <!-- Bullet Points -->
-                                            <ul class="text-xs text-white list-disc ml-5 mt-2 space-y-1">
+                                                <h3 class="eb-flyout-card-title">OBC</h3>
+                                            <ul class="eb-flyout-card-list">
                                                 <li>Windows 10/11/Server, macOS, Linux</li>
                                                 <li>Protect unlimited files and folders</li>
                                                 <li>Disk Image for Windows and Linux</li>
@@ -727,15 +527,14 @@
                             <li>
                                 <!-- Microsoft 365 Backup-->
                                 <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=createorder"
-                                class="group flex items-start space-x-3 p-4 rounded-md hover:bg-slate-800 transition-colors duration-200">
+                                class="eb-flyout-card group">
                                     <!-- Icon -->
-                                    <svg class="w-6 h-6 text-gray-300 group-hover:text-indigo-600 transition-colors duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                    <svg class="eb-flyout-card-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 17.25v-.228a4.5 4.5 0 0 0-.12-1.03l-2.268-9.64a3.375 3.375 0 0 0-3.285-2.602H7.923a3.375 3.375 0 0 0-3.285 2.602l-2.268 9.64a4.5 4.5 0 0 0-.12 1.03v.228m19.5 0a3 3 0 0 1-3 3H5.25a3 3 0 0 1-3-3m19.5 0a3 3 0 0 0-3-3H5.25a3 3 0 0 0-3 3m16.5 0h.008v.008h-.008v-.008Zm-3 0h.008v.008h-.008v-.008Z" />
                                     </svg>
                                     <div>
-                                        <h3 class="font-semibold text-gray-300 group-hover:text-indigo-600">Microsoft 365 Backup (OBC)</h3>
-                                        <!-- Bullet Points -->
-                                        <ul class="text-xs text-white list-disc ml-5 mt-2 space-y-1">
+                                        <h3 class="eb-flyout-card-title">Microsoft 365 Backup (OBC)</h3>
+                                        <ul class="eb-flyout-card-list">
                                             <li>Cloud Backup for Microsoft 365</li>
                                             <li>OBC branded control panel</li>
                                         </ul>
@@ -746,17 +545,17 @@
                             <li>
                                 {if isset($whitelabel_product_name) && $whitelabel_product_name neq "OBC"}
                                     <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=createorder"
-                                    class="group flex items-start space-x-3 p-4 rounded-md hover:bg-slate-800 transition-colors duration-200">
+                                    class="eb-flyout-card group">
                                 {else}
                                     <a href="{$WEB_ROOT}/index.php/store/obc/hyper-v-server"
-                                    class="group flex items-start space-x-3 p-4 rounded-md hover:bg-slate-800 transition-colors duration-200">
+                                    class="eb-flyout-card group">
                                 {/if}                    
-                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-gray-300 group-hover:text-indigo-600 transition-colors duration-200">
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="eb-flyout-card-icon">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 0 1-3-3m3 3a3 3 0 1 0 0 6h13.5a3 3 0 1 0 0-6m-16.5-3a3 3 0 0 1 3-3h13.5a3 3 0 0 1 3 3m-19.5 0a4.5 4.5 0 0 1 .9-2.7L5.737 5.1a3.375 3.375 0 0 1 2.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 0 1 .9 2.7m0 0a3 3 0 0 1-3 3m0 3h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Zm-3 6h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Z" />
                                         </svg>
                                         <div>
-                                            <h3 class="font-semibold text-gray-300 group-hover:text-indigo-600">Virtual Server Backup (OBC)</h3>                        
-                                            <ul class="text-xs text-white list-disc ml-5 mt-2 space-y-1">
+                                            <h3 class="eb-flyout-card-title">Virtual Server Backup (OBC)</h3>
+                                            <ul class="eb-flyout-card-list">
                                                 <li>For Windows and Linux Servers</li>
                                                 <li>Hyper-V, Proxmox, VMware guest VM backups only</li> 
                                                 <li>OBC branded client</li>
@@ -775,7 +574,7 @@
  <!-- Download Backup Client Flyout -->
 <div 
 id="sidebar-download-flyout" 
-class="fixed top-0 left-[1rem] h-screen w-[40rem] transform -translate-x-full transition-transform duration-300 ease-in-out bg-white shadow-md z-30 pointer-events-none"
+class="eb-sidebar-flyout"
 aria-hidden="true"
 role="menu"
 x-data="{ openModal: null }"
@@ -783,37 +582,36 @@ x-data="{ openModal: null }"
 >
 <div class="flex flex-col h-full">
   <!-- Flyout Header -->
-  <div class="bg-gray-900 h-16 flex items-center justify-between px-4 py-3 border-b border-gray-700">
-    <h2 class="text-lg font-semibold text-white">Download Backup Client</h2>
-    <button id="download-flyout-close-button" class="text-white hover:text-gray-200 focus:outline-none" aria-label="Close menu">
+  <div class="eb-sidebar-flyout-header flex h-16 items-center justify-between px-4 py-3">
+    <h2 class="text-lg font-semibold" style="color:var(--eb-text-primary);">Download Backup Client</h2>
+    <button id="download-flyout-close-button" class="focus:outline-none" style="color:var(--eb-text-secondary);" aria-label="Close menu">
       <i class="fas fa-times fa-lg"></i>
     </button>
   </div>
 
   <!-- Simplified Flyout Content -->
-  <nav class="flex-1 overflow-y-auto p-4 bg-gray-900">
+  <nav class="eb-sidebar-flyout-body flex-1 overflow-y-auto p-4">
     <div class="space-y-8">
       <!-- eazyBackup Branded Section -->
       <div>
-        <h3 class="text-md font-semibold text-gray-100 mb-4">eazyBackup Branded Client</h3>
-        <!-- On small devices, stack vertically; on md+, display in a row -->
-        <div class="flex flex-col md:flex-row justify-center divide-y md:divide-y-0 md:divide-x divide-orange-700">
+        <h3 class="eb-flyout-section-title">eazyBackup Branded Client</h3>
+        <div class="eb-flyout-platform-grid">
           <!-- Windows Button -->
           <button 
             @click="openModal = 'eazyWindows'" 
-            class="flex-1 flex items-center justify-center bg-orange-600 hover:bg-orange-700 text-white font-semibold py-2 px-4 text-sm rounded-t-md md:rounded-l-md md:rounded-tr-none transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-orange-500">
+            class="eb-flyout-platform-btn eb-flyout-platform-btn--brand focus:outline-none">
             <i class="fa-brands fa-windows mr-2"></i> Windows
           </button>
           <!-- Linux Button -->
           <button 
             @click="openModal = 'eazyLinux'" 
-            class="flex-1 flex items-center justify-center bg-orange-600 hover:bg-orange-700 text-white font-semibold py-2 px-4 text-sm transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-orange-500">
+            class="eb-flyout-platform-btn eb-flyout-platform-btn--brand focus:outline-none">
             <i class="fa-brands fa-linux mr-2"></i> Linux
           </button>
           <!-- macOS Button -->
           <button 
             @click="openModal = 'eazyMacos'" 
-            class="flex-1 flex items-center justify-center bg-orange-600 hover:bg-orange-700 text-white font-semibold rounded-b-md md:rounded-r-md md:rounded-bl-none py-2 px-4 text-sm transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-orange-500">
+            class="eb-flyout-platform-btn eb-flyout-platform-btn--brand focus:outline-none">
             <i class="fa-brands fa-apple mr-2"></i> macOS
           </button>
           <!-- Synology Button -->
@@ -827,28 +625,27 @@ x-data="{ openModal: null }"
                                   
       <!-- OBC Branded Section -->
       <div>
-        <h3 class="text-md font-semibold text-gray-100 mb-4">{$eb_brand_download.productName|default:'OBC Branded Client'}</h3>
-        <!-- Stack vertically on small devices, row on md+ -->
-        <div class="flex flex-col md:flex-row justify-center divide-y md:divide-y-0 md:divide-x divide-indigo-700 space-y-px md:space-y-0 md:space-x-px">
+        <h3 class="eb-flyout-section-title">{$eb_brand_download.productName|default:'OBC Branded Client'}</h3>
+        <div class="eb-flyout-platform-grid">
           <!-- Windows Button -->
           <button 
             @click="openModal = 'obcWindows'" 
-            class="flex-1 flex items-center justify-center text-white font-semibold py-2 px-4 text-sm rounded-t-md md:rounded-l-md md:rounded-tr-none transition-colors duration-200 focus:outline-none"
-            style="background-color: {$eb_brand_download.accent|default:'#4f46e5'};{if $eb_brand_download.isBranded} border-color: {$eb_brand_download.accent|default:'#4f46e5'};{/if}">
+            class="eb-flyout-platform-btn focus:outline-none"
+            style="background-color: {$eb_brand_download.accent|default:'#4f46e5'}; color:#fff;">
             <i class="fa-brands fa-windows mr-2"></i> Windows
           </button>
           <!-- Linux Button -->
           <button 
             @click="openModal = 'obcLinux'" 
-            class="flex-1 flex items-center justify-center text-white font-semibold py-2 px-4 text-sm transition-colors duration-200 focus:outline-none"
-            style="background-color: {$eb_brand_download.accent|default:'#4f46e5'};{if $eb_brand_download.isBranded} border-color: {$eb_brand_download.accent|default:'#4f46e5'};{/if}">
+            class="eb-flyout-platform-btn focus:outline-none"
+            style="background-color: {$eb_brand_download.accent|default:'#4f46e5'}; color:#fff;">
             <i class="fa-brands fa-linux mr-2"></i> Linux
           </button>
           <!-- macOS Button -->
           <button 
             @click="openModal = 'obcMacos'" 
-            class="flex-1 flex items-center justify-center text-white font-semibold rounded-b-md md:rounded-r-md md:rounded-bl-none py-2 px-4 text-sm transition-colors duration-200 focus:outline-none"
-            style="background-color: {$eb_brand_download.accent|default:'#4f46e5'};{if $eb_brand_download.isBranded} border-color: {$eb_brand_download.accent|default:'#4f46e5'};{/if}">
+            class="eb-flyout-platform-btn focus:outline-none"
+            style="background-color: {$eb_brand_download.accent|default:'#4f46e5'}; color:#fff;">
             <i class="fa-brands fa-apple mr-2"></i> macOS
           </button>
           <!-- Synology Button -->
@@ -1404,7 +1201,7 @@ x-data="{ openModal: null }"
     <!-- Overlay for Mobile (Dark background behind sidebar) -->
     <div
         id="overlay"
-        class="fixed inset-0 bg-black bg-opacity-50 z-10 hidden"
+        class="eb-theme-overlay"
     ></div>
 
 
@@ -1416,7 +1213,7 @@ x-data="{ openModal: null }"
 {* <div id="overlay" class="fixed inset-0 bg-black bg-opacity-50 hidden"></div> *}
 
 <!-- Main Content Container (right side) -->
-<div class="flex flex-col flex-1 min-w-0 min-h-screen lg:ml-64 transition-all duration-300 overflow-x-hidden">
+<div class="eb-theme-main">
     <!-- The main content area -->
     {$maincontent}
 
@@ -1426,19 +1223,82 @@ x-data="{ openModal: null }"
 document.addEventListener('DOMContentLoaded', function () {
     /*** Primary Hamburger Menu ***/
     const menuButton = document.getElementById('menu-button');
+    const closeButton = document.getElementById('sidebar-close-button');
     const sidebar = document.getElementById('sidebar');
     const overlay = document.getElementById('overlay');
+    const desktopMediaQuery = window.matchMedia('(min-width: 1024px)');
 
     if (menuButton && sidebar && overlay) {
-        menuButton.addEventListener('click', function () {
-            sidebar.classList.toggle('hidden');
-            overlay.classList.toggle('hidden');
+        const syncSidebarState = () => {
+            const isDesktop = desktopMediaQuery.matches;
+            if (isDesktop) {
+                sidebar.classList.remove('is-open');
+            }
+
+            const isOpen = !isDesktop && sidebar.classList.contains('is-open');
+            const isVisible = isDesktop || isOpen;
+
+            sidebar.setAttribute('aria-hidden', isVisible ? 'false' : 'true');
+            menuButton.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+            overlay.classList.toggle('is-open', isOpen);
+            document.body.classList.toggle('eb-sidebar-mobile-open', isOpen);
+        };
+
+        const openSidebar = () => {
+            if (desktopMediaQuery.matches) {
+                return;
+            }
+
+            sidebar.classList.add('is-open');
+            syncSidebarState();
+        };
+
+        const closeSidebar = () => {
+            sidebar.classList.remove('is-open');
+            syncSidebarState();
+        };
+
+        const toggleSidebar = () => {
+            if (desktopMediaQuery.matches) {
+                return;
+            }
+
+            if (sidebar.classList.contains('is-open')) {
+                closeSidebar();
+            } else {
+                openSidebar();
+            }
+        };
+
+        menuButton.addEventListener('click', function (event) {
+            event.preventDefault();
+            toggleSidebar();
         });
 
+        if (closeButton) {
+            closeButton.addEventListener('click', function (event) {
+                event.preventDefault();
+                closeSidebar();
+            });
+        }
+
         overlay.addEventListener('click', function () {
-            sidebar.classList.add('hidden');
-            overlay.classList.add('hidden');
+            closeSidebar();
         });
+
+        document.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape' && sidebar.classList.contains('is-open') && !desktopMediaQuery.matches) {
+                closeSidebar();
+            }
+        });
+
+        if (typeof desktopMediaQuery.addEventListener === 'function') {
+            desktopMediaQuery.addEventListener('change', syncSidebarState);
+        } else if (typeof desktopMediaQuery.addListener === 'function') {
+            desktopMediaQuery.addListener(syncSidebarState);
+        }
+
+        syncSidebarState();
     }
 
     /*** Mobile Flyout Menu ***/
@@ -1517,31 +1377,27 @@ document.addEventListener('DOMContentLoaded', function () {
     if (orderServicesButton && orderFlyout && orderFlyoutCloseButton) {
         // Function to open the flyout
         function openOrderFlyout() {
-            orderFlyout.classList.remove('-translate-x-full', 'pointer-events-none');
-            orderFlyout.classList.add('translate-x-60', 'pointer-events-auto');
+            orderFlyout.classList.add('is-open');
             orderFlyout.setAttribute('aria-hidden', 'false');
             orderServicesButton.setAttribute('aria-expanded', 'true');
-            // Add active classes to the button
-            orderServicesButton.classList.add('bg-[#1B2C50]', 'font-semibold', 'text-white');
+            orderServicesButton.classList.add('is-active');
             // Optionally, disable body scrolling
             document.body.classList.add('overflow-hidden');
         }
 
         // Function to close the flyout
         function closeOrderFlyout() {
-            orderFlyout.classList.remove('translate-x-60', 'pointer-events-auto');
-            orderFlyout.classList.add('-translate-x-full', 'pointer-events-none');
+            orderFlyout.classList.remove('is-open');
             orderFlyout.setAttribute('aria-hidden', 'true');
             orderServicesButton.setAttribute('aria-expanded', 'false');
-            // Remove active classes from the button
-            orderServicesButton.classList.remove('bg-[#1B2C50]', 'font-semibold', 'text-white');
+            orderServicesButton.classList.remove('is-active');
             // Re-enable body scrolling
             document.body.classList.remove('overflow-hidden');
         }
 
         // Function to toggle the flyout
         function toggleOrderFlyout() {
-            if (orderFlyout.classList.contains('-translate-x-full')) {
+            if (!orderFlyout.classList.contains('is-open')) {
                 openOrderFlyout();
             } else {
                 closeOrderFlyout();
@@ -1563,7 +1419,7 @@ document.addEventListener('DOMContentLoaded', function () {
         // Close the flyout when clicking outside the flyout or the button
         document.addEventListener('click', function(event) {
             if (!orderFlyout.contains(event.target) && !orderServicesButton.contains(event.target)) {
-                if (!orderFlyout.classList.contains('-translate-x-full')) {
+                if (orderFlyout.classList.contains('is-open')) {
                     closeOrderFlyout();
                 }
             }
@@ -1571,7 +1427,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         // Close the flyout when pressing the Escape key
         document.addEventListener('keydown', function(event) {
-            if (event.key === 'Escape' && !orderFlyout.classList.contains('-translate-x-full')) {
+            if (event.key === 'Escape' && orderFlyout.classList.contains('is-open')) {
                 closeOrderFlyout();
             }
         });
@@ -1606,31 +1462,27 @@ document.addEventListener('DOMContentLoaded', function () {
     if (downloadButton && downloadFlyout && downloadFlyoutCloseButton) {
         // Function to open the download flyout
         function openDownloadFlyout() {
-            downloadFlyout.classList.remove('-translate-x-full', 'pointer-events-none');
-            downloadFlyout.classList.add('translate-x-60', 'pointer-events-auto');
+            downloadFlyout.classList.add('is-open');
             downloadFlyout.setAttribute('aria-hidden', 'false');
             downloadButton.setAttribute('aria-expanded', 'true');
-            // Add active classes to the button
-            downloadButton.classList.add('bg-[#1B2C50]', 'font-semibold', 'text-white');
+            downloadButton.classList.add('is-active');
             // Optionally, disable body scrolling
             document.body.classList.add('overflow-hidden');
         }
 
         // Function to close the download flyout
         function closeDownloadFlyout() {
-            downloadFlyout.classList.remove('translate-x-60', 'pointer-events-auto');
-            downloadFlyout.classList.add('-translate-x-full', 'pointer-events-none');
+            downloadFlyout.classList.remove('is-open');
             downloadFlyout.setAttribute('aria-hidden', 'true');
             downloadButton.setAttribute('aria-expanded', 'false');
-            // Remove active classes from the button
-            downloadButton.classList.remove('bg-[#1B2C50]', 'font-semibold', 'text-white');
+            downloadButton.classList.remove('is-active');
             // Re-enable body scrolling
             document.body.classList.remove('overflow-hidden');
         }
 
         // Function to toggle the download flyout
         function toggleDownloadFlyout() {
-            if (downloadFlyout.classList.contains('-translate-x-full')) {
+            if (!downloadFlyout.classList.contains('is-open')) {
                 openDownloadFlyout();
             } else {
                 closeDownloadFlyout();
@@ -1652,7 +1504,7 @@ document.addEventListener('DOMContentLoaded', function () {
         // Close the download flyout when clicking outside the flyout or the button
         document.addEventListener('click', function(event) {
             if (!downloadFlyout.contains(event.target) && !downloadButton.contains(event.target)) {
-                if (!downloadFlyout.classList.contains('-translate-x-full')) {
+                if (downloadFlyout.classList.contains('is-open')) {
                     closeDownloadFlyout();
                 }
             }
@@ -1660,7 +1512,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         // Close the download flyout when pressing the Escape key
         document.addEventListener('keydown', function(event) {
-            if (event.key === 'Escape' && !downloadFlyout.classList.contains('-translate-x-full')) {
+            if (event.key === 'Escape' && downloadFlyout.classList.contains('is-open')) {
                 closeDownloadFlyout();
             }
         });

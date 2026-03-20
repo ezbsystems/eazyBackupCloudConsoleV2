@@ -1,60 +1,92 @@
 {include file="$template/includes/head.tpl"}
 {include file="modules/addons/eazybackup/templates/partials/_ui-tokens.tpl"}
 
-<div class="min-h-screen bg-slate-950 text-gray-100 overflow-x-hidden">
-  <div class="container mx-auto max-w-full px-4 pb-8 pt-6">
-    <div x-data="{ sidebarCollapsed: localStorage.getItem('eb_ph_sidebar_collapsed') === 'true' || window.innerWidth < 1360, toggleCollapse() { this.sidebarCollapsed = !this.sidebarCollapsed; localStorage.setItem('eb_ph_sidebar_collapsed', this.sidebarCollapsed); }, handleResize() { if (window.innerWidth < 1360 && !this.sidebarCollapsed) this.sidebarCollapsed = true; } }" x-init="window.addEventListener('resize', () => handleResize())" class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)]">
-      <div class="flex">
-        {include file="modules/addons/eazybackup/templates/whitelabel/partials/sidebar_partner_hub.tpl" ebPhSidebarPage='settings-tax'}
-        <main class="flex-1 min-w-0 overflow-x-auto">
-          <div class="flex items-center justify-between border-b border-slate-800/60 px-6 py-4">
+{capture assign=ebPhContent}
+          <div class="flex flex-col gap-4 border-b border-[var(--eb-border-subtle)] px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h1 class="text-2xl font-semibold tracking-tight">Settings - Tax &amp; Invoicing</h1>
-              <p class="mt-1 text-sm text-slate-400">Tax mode, registrations, and invoice presentation.</p>
+              <h1 class="eb-type-h2 tracking-tight text-[var(--eb-text-primary)]">Settings — Tax &amp; Invoicing</h1>
+              <p class="eb-page-description mt-1">Tax mode, registrations, and invoice presentation.</p>
             </div>
-            <div class="flex items-center gap-3 text-sm shrink-0">
-              <button type="button" id="tax-btn-preview" class="inline-flex items-center rounded-xl px-4 py-2 text-slate-300 ring-1 ring-white/10 hover:bg-white/5">Preview sample invoice</button>
-              <button type="button" id="tax-btn-save" class="inline-flex items-center rounded-xl px-4 py-2 text-sm font-semibold text-white bg-[rgb(var(--accent))] hover:bg-[rgb(var(--accent))]/90 disabled:opacity-50" disabled>Save</button>
+            <div class="flex shrink-0 flex-wrap items-center gap-3 text-sm">
+              <button type="button" id="tax-btn-preview" class="eb-btn eb-btn-outline eb-btn-sm">Preview sample invoice</button>
+              <button type="button" id="tax-btn-save" class="eb-btn eb-btn-primary eb-btn-sm disabled:opacity-50" disabled>Save</button>
             </div>
           </div>
           <div class="p-6">
 
     <input type="hidden" id="eb-token" value="{$token}" />
+    {assign var=txTaxBehavior value=$settings.tax_mode.default_tax_behavior|default:'exclusive'}
+    {assign var=txTerms value=$settings.invoice_presentation.payment_terms|default:'due_immediately'}
+    {assign var=txCreditReason value=$settings.credit_notes.default_reason|default:'customer_request'}
+    {assign var=txRoundingMode value=$settings.rounding.rounding_mode|default:'bankers_rounding'}
 
-    <section class="rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden">
-      <div class="px-6 py-5 border-b border-slate-800"><h2 class="text-lg font-medium text-slate-100">Tax Mode</h2></div>
+    <section class="eb-card-raised !p-0">
+      <div class="border-b border-[var(--eb-border-subtle)] px-6 py-5"><h2 class="eb-app-card-title">Tax Mode</h2></div>
       <div class="px-6 py-6 space-y-4">
-        <label class="flex items-center gap-3 text-sm text-slate-300"><input id="tx-stripe-tax" type="checkbox" class="rounded border-slate-600 bg-slate-800 text-sky-600 focus:ring-sky-500" {if $settings.tax_mode.stripe_tax_enabled}checked{/if}> Enable Stripe Tax</label>
-        <label class="block"><span class="text-sm text-slate-400">Default tax behavior</span>
-          <select id="tx-tax-behavior" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700 transition">
-            <option value="exclusive" {if $settings.tax_mode.default_tax_behavior=='exclusive'}selected{/if}>Exclusive</option>
-            <option value="inclusive" {if $settings.tax_mode.default_tax_behavior=='inclusive'}selected{/if}>Inclusive</option>
-          </select>
+        <label class="eb-inline-choice cursor-pointer !text-[var(--eb-text-primary)]">
+          <input id="tx-stripe-tax" type="checkbox" class="eb-check-input shrink-0" {if $settings.tax_mode.stripe_tax_enabled}checked{/if} />
+          <span>Enable Stripe Tax</span>
         </label>
-        <label class="flex items-center gap-3 text-sm text-slate-300"><input id="tx-respect-exemption" type="checkbox" class="rounded border-slate-600 bg-slate-800 text-sky-600 focus:ring-sky-500" {if $settings.tax_mode.respect_exemption}checked{/if}> Customer tax exemption respected</label>
+        <label class="block"><span class="eb-field-label !mb-0">Default tax behavior</span>
+          <div
+            x-data="{
+              open: false,
+              value: '{$txTaxBehavior|escape:'javascript'}',
+              options: [
+                { value: 'exclusive', label: 'Exclusive' },
+                { value: 'inclusive', label: 'Inclusive' }
+              ],
+              currentLabel() {
+                const o = this.options.find((o) => o.value === this.value);
+                return o ? o.label : this.value;
+              }
+            }"
+            @keydown.escape.window="open = false"
+            class="relative z-10 mt-2"
+          >
+            <input type="hidden" id="tx-tax-behavior" :value="value" />
+            <button type="button" @click="open = !open" class="eb-input flex w-full cursor-pointer items-center justify-between gap-2 text-left" :aria-expanded="open">
+              <span class="truncate" x-text="currentLabel()"></span>
+              <svg class="h-4 w-4 shrink-0 opacity-70" :class="open ? 'rotate-180' : ''" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.08z" clip-rule="evenodd"/></svg>
+            </button>
+            <div x-show="open" x-cloak @click.outside="open = false" class="eb-dropdown-menu absolute z-[80] mt-1 w-full overflow-hidden !min-w-0 shadow-[var(--eb-shadow-lg)]">
+              <ul class="max-h-60 divide-y divide-[var(--eb-border-subtle)] overflow-y-auto">
+                <template x-for="opt in options" :key="opt.value">
+                  <li>
+                    <button type="button" class="eb-menu-item w-full justify-start !rounded-[var(--eb-radius-md)]" @click="value = opt.value; open = false" x-text="opt.label"></button>
+                  </li>
+                </template>
+              </ul>
+            </div>
+          </div>
+        </label>
+        <label class="eb-inline-choice cursor-pointer !text-[var(--eb-text-primary)]">
+          <input id="tx-respect-exemption" type="checkbox" class="eb-check-input shrink-0" {if $settings.tax_mode.respect_exemption}checked{/if} />
+          <span>Customer tax exemption respected</span>
+        </label>
       </div>
     </section>
 
-    <section class="mt-6 rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden">
-      <div class="px-6 py-5 border-b border-slate-800 flex items-center justify-between">
-        <h2 class="text-lg font-medium text-slate-100">Registrations</h2>
-        <button type="button" id="tx-btn-add-reg" class="inline-flex items-center px-3 py-2 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-800 text-sm font-medium">Add registration</button>
+    <section class="mt-6 eb-card-raised !p-0">
+      <div class="flex flex-col gap-3 border-b border-[var(--eb-border-subtle)] px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
+        <h2 class="eb-app-card-title">Registrations</h2>
+        <button type="button" id="tx-btn-add-reg" class="eb-btn eb-btn-outline eb-btn-sm shrink-0">Add registration</button>
       </div>
       <div class="px-6 py-6">
-        <div class="w-full max-w-full min-w-0 rounded-xl border border-slate-800 overflow-hidden">
-          <table class="w-full text-sm text-slate-300">
-            <thead class="bg-slate-900/80 text-slate-300">
-              <tr class="text-left">
-                <th class="px-4 py-3 font-medium">Country</th>
-                <th class="px-4 py-3 font-medium">Region</th>
-                <th class="px-4 py-3 font-medium">Registration #</th>
-                <th class="px-4 py-3 font-medium">Legal name</th>
-                <th class="px-4 py-3 text-right font-medium">Actions</th>
+        <div class="eb-table-shell min-w-0 max-w-full">
+          <table class="eb-table min-w-full text-sm">
+            <thead>
+              <tr>
+                <th>Country</th>
+                <th>Region</th>
+                <th>Registration #</th>
+                <th>Legal name</th>
+                <th class="!text-right">Actions</th>
               </tr>
             </thead>
-            <tbody id="tx-reg-tbody" class="divide-y divide-slate-800">
+            <tbody id="tx-reg-tbody">
               {foreach from=$registrations item=r}
-              <tr class="hover:bg-slate-800/50" data-id="{$r.id}"><td class="px-4 py-3">{$r.country|escape}</td><td class="px-4 py-3">{$r.region|default:'-'|escape}</td><td class="px-4 py-3">{$r.registration_number|escape}</td><td class="px-4 py-3">{$r.legal_name|default:'-'|escape}</td><td class="px-4 py-3 text-right"><button type="button" class="tx-del inline-flex items-center rounded-lg border border-slate-600 bg-slate-800/80 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-700">Delete</button></td></tr>
+              <tr data-id="{$r.id}"><td>{$r.country|escape}</td><td>{$r.region|default:'-'|escape}</td><td>{$r.registration_number|escape}</td><td>{$r.legal_name|default:'-'|escape}</td><td class="!text-right"><button type="button" class="tx-del eb-btn eb-btn-outline eb-btn-xs">Delete</button></td></tr>
               {/foreach}
             </tbody>
           </table>
@@ -62,87 +94,193 @@
       </div>
     </section>
 
-    <section class="mt-6 rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden">
-      <div class="px-6 py-5 border-b border-slate-800"><h2 class="text-lg font-medium text-slate-100">Invoice Presentation</h2></div>
+    <section class="mt-6 eb-card-raised !p-0">
+      <div class="border-b border-[var(--eb-border-subtle)] px-6 py-5"><h2 class="eb-app-card-title">Invoice Presentation</h2></div>
       <div class="px-6 py-6 space-y-4">
-        <label class="block"><span class="text-sm text-slate-400">Invoice prefix</span><input id="tx-prefix" value="{$settings.invoice_presentation.invoice_prefix|escape}" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700 transition" /></label>
-        <label class="block"><span class="text-sm text-slate-400">Payment terms</span>
-          <select id="tx-terms" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700 transition">
-            <option value="due_immediately" {if $settings.invoice_presentation.payment_terms=='due_immediately'}selected{/if}>Due immediately</option>
-            <option value="net_7" {if $settings.invoice_presentation.payment_terms=='net_7'}selected{/if}>Net 7</option>
-            <option value="net_15" {if $settings.invoice_presentation.payment_terms=='net_15'}selected{/if}>Net 15</option>
-            <option value="net_30" {if $settings.invoice_presentation.payment_terms=='net_30'}selected{/if}>Net 30</option>
-          </select>
+        <label class="block"><span class="eb-field-label !mb-0">Invoice prefix</span><input id="tx-prefix" value="{$settings.invoice_presentation.invoice_prefix|escape}" class="eb-input mt-2 w-full" /></label>
+        <label class="block"><span class="eb-field-label !mb-0">Payment terms</span>
+          <div
+            x-data="{
+              open: false,
+              value: '{$txTerms|escape:'javascript'}',
+              options: [
+                { value: 'due_immediately', label: 'Due immediately' },
+                { value: 'net_7', label: 'Net 7' },
+                { value: 'net_15', label: 'Net 15' },
+                { value: 'net_30', label: 'Net 30' }
+              ],
+              currentLabel() {
+                const o = this.options.find((o) => o.value === this.value);
+                return o ? o.label : this.value;
+              }
+            }"
+            @keydown.escape.window="open = false"
+            class="relative z-10 mt-2"
+          >
+            <input type="hidden" id="tx-terms" :value="value" />
+            <button type="button" @click="open = !open" class="eb-input flex w-full cursor-pointer items-center justify-between gap-2 text-left" :aria-expanded="open">
+              <span class="truncate" x-text="currentLabel()"></span>
+              <svg class="h-4 w-4 shrink-0 opacity-70" :class="open ? 'rotate-180' : ''" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.08z" clip-rule="evenodd"/></svg>
+            </button>
+            <div x-show="open" x-cloak @click.outside="open = false" class="eb-dropdown-menu absolute z-[80] mt-1 w-full overflow-hidden !min-w-0 shadow-[var(--eb-shadow-lg)]">
+              <ul class="max-h-60 divide-y divide-[var(--eb-border-subtle)] overflow-y-auto">
+                <template x-for="opt in options" :key="opt.value">
+                  <li>
+                    <button type="button" class="eb-menu-item w-full justify-start !rounded-[var(--eb-radius-md)]" @click="value = opt.value; open = false" x-text="opt.label"></button>
+                  </li>
+                </template>
+              </ul>
+            </div>
+          </div>
         </label>
-        <label class="flex items-center gap-3 text-sm text-slate-300"><input id="tx-show-qtyxprice" type="checkbox" class="rounded border-slate-600 bg-slate-800 text-sky-600 focus:ring-sky-500" {if $settings.invoice_presentation.show_qty_x_price}checked{/if}> Show quantity × unit price on line items</label>
-        <label class="block"><span class="text-sm text-slate-400">Invoice memo/footer (Markdown)</span>
-          <textarea id="tx-footer-md" rows="4" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700 transition">{$settings.invoice_presentation.footer_md|escape}</textarea>
+        <label class="eb-inline-choice cursor-pointer !text-[var(--eb-text-primary)]">
+          <input id="tx-show-qtyxprice" type="checkbox" class="eb-check-input shrink-0" {if $settings.invoice_presentation.show_qty_x_price}checked{/if} />
+          <span>Show quantity × unit price on line items</span>
         </label>
-        <label class="flex items-center gap-3 text-sm text-slate-300"><input id="tx-show-logo" type="checkbox" class="rounded border-slate-600 bg-slate-800 text-sky-600 focus:ring-sky-500" {if $settings.invoice_presentation.show_logo}checked{/if}> Display company logo on invoices</label>
-        <label class="flex items-center gap-3 text-sm text-slate-300"><input id="tx-show-legal" type="checkbox" class="rounded border-slate-600 bg-slate-800 text-sky-600 focus:ring-sky-500" {if $settings.invoice_presentation.show_legal_override}checked{/if}> Display legal business name override</label>
-        <label class="block"><span class="text-sm text-slate-400">Legal name override</span><input id="tx-legal-name" value="{$settings.invoice_presentation.legal_name_override|escape}" placeholder="Legal business name" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 placeholder:text-gray-400 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700 transition" /></label>
+        <label class="block"><span class="eb-field-label !mb-0">Invoice memo/footer (Markdown)</span>
+          <textarea id="tx-footer-md" rows="4" class="eb-textarea mt-2 w-full">{$settings.invoice_presentation.footer_md|escape}</textarea>
+        </label>
+        <label class="eb-inline-choice cursor-pointer !text-[var(--eb-text-primary)]">
+          <input id="tx-show-logo" type="checkbox" class="eb-check-input shrink-0" {if $settings.invoice_presentation.show_logo}checked{/if} />
+          <span>Display company logo on invoices</span>
+        </label>
+        <label class="eb-inline-choice cursor-pointer !text-[var(--eb-text-primary)]">
+          <input id="tx-show-legal" type="checkbox" class="eb-check-input shrink-0" {if $settings.invoice_presentation.show_legal_override}checked{/if} />
+          <span>Display legal business name override</span>
+        </label>
+        <label class="block"><span class="eb-field-label !mb-0">Legal name override</span><input id="tx-legal-name" value="{$settings.invoice_presentation.legal_name_override|escape}" placeholder="Legal business name" class="eb-input mt-2 w-full" /></label>
       </div>
     </section>
 
-    <section class="mt-6 rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden">
-      <div class="px-6 py-5 border-b border-slate-800"><h2 class="text-lg font-medium text-slate-100">Credit Notes &amp; Rounding</h2></div>
+    <section class="mt-6 eb-card-raised !p-0">
+      <div class="border-b border-[var(--eb-border-subtle)] px-6 py-5"><h2 class="eb-app-card-title">Credit Notes &amp; Rounding</h2></div>
       <div class="px-6 py-6 space-y-4">
-        <label class="flex items-center gap-3 text-sm text-slate-300"><input id="tx-allow-partial" type="checkbox" class="rounded border-slate-600 bg-slate-800 text-sky-600 focus:ring-sky-500" {if $settings.credit_notes.allow_partial}checked{/if}> Allow partial credit notes</label>
-        <label class="flex items-center gap-3 text-sm text-slate-300"><input id="tx-allow-negative" type="checkbox" class="rounded border-slate-600 bg-slate-800 text-sky-600 focus:ring-sky-500" {if $settings.credit_notes.allow_negative_lines}checked{/if}> Allow negative line items</label>
-        <label class="block"><span class="text-sm text-slate-400">Default credit note reason</span>
-          <select id="tx-credit-reason" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700 transition">
-            <option value="customer_request" {if $settings.credit_notes.default_reason=='customer_request'}selected{/if}>Customer request</option>
-            <option value="service_issue" {if $settings.credit_notes.default_reason=='service_issue'}selected{/if}>Service issue</option>
-            <option value="promotion" {if $settings.credit_notes.default_reason=='promotion'}selected{/if}>Promotion</option>
-          </select>
+        <label class="eb-inline-choice cursor-pointer !text-[var(--eb-text-primary)]">
+          <input id="tx-allow-partial" type="checkbox" class="eb-check-input shrink-0" {if $settings.credit_notes.allow_partial}checked{/if} />
+          <span>Allow partial credit notes</span>
         </label>
-        <label class="block"><span class="text-sm text-slate-400">Rounding mode</span>
-          <select id="tx-rounding" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700 transition">
-            <option value="bankers_rounding" {if $settings.rounding.rounding_mode=='bankers_rounding'}selected{/if}>Bankers rounding</option>
-            <option value="round_half_up" {if $settings.rounding.rounding_mode=='round_half_up'}selected{/if}>Round half up</option>
-          </select>
+        <label class="eb-inline-choice cursor-pointer !text-[var(--eb-text-primary)]">
+          <input id="tx-allow-negative" type="checkbox" class="eb-check-input shrink-0" {if $settings.credit_notes.allow_negative_lines}checked{/if} />
+          <span>Allow negative line items</span>
         </label>
-        <label class="block"><span class="text-sm text-slate-400">Small balance write‑off threshold</span>
-          <input id="tx-writeoff" type="number" min="0" step="0.01" value="{if isset($settings.rounding.writeoff_threshold_cents)}{$settings.rounding.writeoff_threshold_cents/100}{else}0.00{/if}" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700 transition" />
+        <label class="block"><span class="eb-field-label !mb-0">Default credit note reason</span>
+          <div
+            x-data="{
+              open: false,
+              value: '{$txCreditReason|escape:'javascript'}',
+              options: [
+                { value: 'customer_request', label: 'Customer request' },
+                { value: 'service_issue', label: 'Service issue' },
+                { value: 'promotion', label: 'Promotion' }
+              ],
+              currentLabel() {
+                const o = this.options.find((o) => o.value === this.value);
+                return o ? o.label : this.value;
+              }
+            }"
+            @keydown.escape.window="open = false"
+            class="relative z-10 mt-2"
+          >
+            <input type="hidden" id="tx-credit-reason" :value="value" />
+            <button type="button" @click="open = !open" class="eb-input flex w-full cursor-pointer items-center justify-between gap-2 text-left" :aria-expanded="open">
+              <span class="truncate" x-text="currentLabel()"></span>
+              <svg class="h-4 w-4 shrink-0 opacity-70" :class="open ? 'rotate-180' : ''" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.08z" clip-rule="evenodd"/></svg>
+            </button>
+            <div x-show="open" x-cloak @click.outside="open = false" class="eb-dropdown-menu absolute z-[80] mt-1 w-full overflow-hidden !min-w-0 shadow-[var(--eb-shadow-lg)]">
+              <ul class="max-h-60 divide-y divide-[var(--eb-border-subtle)] overflow-y-auto">
+                <template x-for="opt in options" :key="opt.value">
+                  <li>
+                    <button type="button" class="eb-menu-item w-full justify-start !rounded-[var(--eb-radius-md)]" @click="value = opt.value; open = false" x-text="opt.label"></button>
+                  </li>
+                </template>
+              </ul>
+            </div>
+          </div>
+        </label>
+        <label class="block"><span class="eb-field-label !mb-0">Rounding mode</span>
+          <div
+            x-data="{
+              open: false,
+              value: '{$txRoundingMode|escape:'javascript'}',
+              options: [
+                { value: 'bankers_rounding', label: 'Bankers rounding' },
+                { value: 'round_half_up', label: 'Round half up' }
+              ],
+              currentLabel() {
+                const o = this.options.find((o) => o.value === this.value);
+                return o ? o.label : this.value;
+              }
+            }"
+            @keydown.escape.window="open = false"
+            class="relative z-10 mt-2"
+          >
+            <input type="hidden" id="tx-rounding" :value="value" />
+            <button type="button" @click="open = !open" class="eb-input flex w-full cursor-pointer items-center justify-between gap-2 text-left" :aria-expanded="open">
+              <span class="truncate" x-text="currentLabel()"></span>
+              <svg class="h-4 w-4 shrink-0 opacity-70" :class="open ? 'rotate-180' : ''" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.08z" clip-rule="evenodd"/></svg>
+            </button>
+            <div x-show="open" x-cloak @click.outside="open = false" class="eb-dropdown-menu absolute z-[80] mt-1 w-full overflow-hidden !min-w-0 shadow-[var(--eb-shadow-lg)]">
+              <ul class="max-h-60 divide-y divide-[var(--eb-border-subtle)] overflow-y-auto">
+                <template x-for="opt in options" :key="opt.value">
+                  <li>
+                    <button type="button" class="eb-menu-item w-full justify-start !rounded-[var(--eb-radius-md)]" @click="value = opt.value; open = false" x-text="opt.label"></button>
+                  </li>
+                </template>
+              </ul>
+            </div>
+          </div>
+        </label>
+        <label class="block"><span class="eb-field-label !mb-0">Small balance write‑off threshold</span>
+          <input id="tx-writeoff" type="number" min="0" step="0.01" value="{if isset($settings.rounding.writeoff_threshold_cents)}{$settings.rounding.writeoff_threshold_cents/100}{else}0.00{/if}" class="eb-input mt-2 w-full" />
         </label>
       </div>
     </section>
 
-    <div id="tx-reg-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-950/70 backdrop-blur-xs">
-      <div class="absolute inset-0" data-tx-close></div>
-      <div class="relative w-full max-w-lg rounded-xl border border-slate-700 bg-slate-900 shadow-2xl">
-        <div class="px-6 py-5 flex items-center justify-between border-b border-slate-800">
-          <h3 class="text-lg font-medium text-slate-100">Registration</h3>
-          <button type="button" class="text-slate-400 hover:text-white" data-tx-close>✕</button>
+    <div id="tx-reg-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div class="absolute inset-0 eb-modal-backdrop backdrop-blur-sm" data-tx-close></div>
+      <div class="eb-modal eb-modal--confirm relative z-10 w-full max-w-lg">
+        <div class="eb-modal-header">
+          <h3 class="eb-modal-title">Registration</h3>
+          <button type="button" class="eb-modal-close" data-tx-close aria-label="Close">✕</button>
         </div>
-        <div class="px-6 py-6 space-y-4 text-sm">
+        <div class="eb-modal-body space-y-4 text-sm">
           <input type="hidden" id="tx-reg-id" value="" />
-          <label class="block"><span class="text-sm text-slate-400">Country</span><input id="tx-reg-country" placeholder="CA" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 placeholder:text-gray-400 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700 uppercase" /></label>
-          <label class="block"><span class="text-sm text-slate-400">Region</span><input id="tx-reg-region" placeholder="ON" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 placeholder:text-gray-400 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700 uppercase" /></label>
-          <label class="block"><span class="text-sm text-slate-400">Registration #</span><input id="tx-reg-number" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700 transition" /></label>
-          <label class="block"><span class="text-sm text-slate-400">Legal name (optional)</span><input id="tx-reg-legal" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 placeholder:text-gray-400 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700 transition" /></label>
+          <label class="block"><span class="eb-field-label !mb-0">Country</span><input id="tx-reg-country" placeholder="CA" class="eb-input mt-2 w-full uppercase" /></label>
+          <label class="block"><span class="eb-field-label !mb-0">Region</span><input id="tx-reg-region" placeholder="ON" class="eb-input mt-2 w-full uppercase" /></label>
+          <label class="block"><span class="eb-field-label !mb-0">Registration #</span><input id="tx-reg-number" class="eb-input mt-2 w-full" /></label>
+          <label class="block"><span class="eb-field-label !mb-0">Legal name (optional)</span><input id="tx-reg-legal" class="eb-input mt-2 w-full" /></label>
         </div>
-        <div class="px-6 pb-6 flex justify-end gap-3"><button type="button" class="rounded-lg px-4 py-2 border border-slate-600 text-slate-300 hover:bg-slate-800" data-tx-close>Cancel</button><button type="button" id="tx-reg-save" class="rounded-lg px-4 py-2 text-sm font-semibold text-white bg-sky-600 hover:bg-sky-500">Save</button></div>
+        <div class="eb-modal-footer !justify-end !gap-3">
+          <button type="button" class="eb-btn eb-btn-outline eb-btn-sm" data-tx-close>Cancel</button>
+          <button type="button" id="tx-reg-save" class="eb-btn eb-btn-primary eb-btn-sm">Save</button>
+        </div>
       </div>
     </div>
 
-    <div id="tx-preview-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-950/70 backdrop-blur-xs">
-      <div class="absolute inset-0" data-tx-prev-close></div>
-      <div class="relative w-full max-w-3xl rounded-xl border border-slate-700 bg-slate-900 shadow-2xl">
-        <div class="px-6 py-5 flex items-center justify-between border-b border-slate-800"><h3 class="text-lg font-medium text-slate-100">Invoice preview</h3><button type="button" class="text-slate-400 hover:text-white" data-tx-prev-close>✕</button></div>
-        <div class="px-6 py-6 text-sm text-slate-300">
+    <div id="tx-preview-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div class="absolute inset-0 eb-modal-backdrop backdrop-blur-sm" data-tx-prev-close></div>
+      <div class="eb-modal relative z-10 w-full max-w-3xl">
+        <div class="eb-modal-header">
+          <h3 class="eb-modal-title">Invoice preview</h3>
+          <button type="button" class="eb-modal-close" data-tx-prev-close aria-label="Close">✕</button>
+        </div>
+        <div class="eb-modal-body text-sm text-[var(--eb-text-secondary)]">
           <div id="tx-preview-body" class="prose prose-invert max-w-none">
             <p>This is a sample invoice preview using your current settings. Logo/footer and prefix are applied for demonstration.</p>
           </div>
         </div>
-        <div class="px-6 pb-6 flex justify-end"><button type="button" class="rounded-lg px-4 py-2 border border-slate-600 text-slate-300 hover:bg-slate-800" data-tx-prev-close>Close</button></div>
+        <div class="eb-modal-footer !justify-end">
+          <button type="button" class="eb-btn eb-btn-outline eb-btn-sm" data-tx-prev-close>Close</button>
+        </div>
       </div>
     </div>
           </div>
-        </main>
-      </div>
-    </div>
-  </div>
-</div>
+{/capture}
+
+{include file="modules/addons/eazybackup/templates/whitelabel/partials/partner_hub_shell.tpl"
+  ebPhSidebarPage='settings-tax'
+  ebPhBodyClass='!p-0'
+  ebPhContent=$ebPhContent
+}
 
 <script src="modules/addons/eazybackup/assets/js/settings-tax.js"></script>

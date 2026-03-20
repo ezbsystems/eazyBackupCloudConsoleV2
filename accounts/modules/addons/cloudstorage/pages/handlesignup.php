@@ -116,10 +116,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    // 1) Turnstile validation
-    $cfToken = $_POST['cf-turnstile-response'] ?? '';
-    if (!validateTurnstile($cfToken, $turnstileSecretKey ?? '')) {
-        $errors['turnstile'] = 'Captcha validation failed. Please try again.';
+    // 1) Turnstile validation (only when a secret is configured; production may omit CAPTCHA)
+    if (!empty($turnstileSecretKey)) {
+        $cfToken = $_POST['cf-turnstile-response'] ?? '';
+        if (!validateTurnstile($cfToken, $turnstileSecretKey)) {
+            $errors['turnstile'] = 'Captcha validation failed. Please try again.';
+        }
     }
 
     // 2) Basic required field validation (Company optional)

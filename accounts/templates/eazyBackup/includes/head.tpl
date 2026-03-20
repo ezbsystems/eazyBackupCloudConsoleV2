@@ -3,14 +3,17 @@
 {* <link href="{assetPath file='theme.min.css'}?v={$versionHash}" rel="stylesheet"> *}
 {* <link href="{$WEB_ROOT}/assets/css/fontawesome-all.min.css" rel="stylesheet"> *}
 
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet">
+
 <link href="{$WEB_ROOT}/templates/{$template}/css/tailwind.css?v={$versionHash}" rel="stylesheet">
+{include file="modules/addons/eazybackup/templates/partials/_ui-tokens.tpl"}
 
 <script src="{$WEB_ROOT}/modules/addons/eazybackup/assets/js/eazybackup-ui-helpers.js" defer></script>
 
 <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
 <script defer src="{$WEB_ROOT}/modules/addons/eazybackup/assets/js/email-reports.js"></script>
-
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 

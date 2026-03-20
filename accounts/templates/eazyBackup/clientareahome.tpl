@@ -1,106 +1,115 @@
-{* <script type="text/javascript">
-    window.location.href = '/index.php?m=eazybackup&a=dashboard';
-</script>
-<noscript>
-    <meta http-equiv="refresh" content="0; url=/index.php?m=eazybackup&a=dashboard" />
-</noscript>  *}
- 
- {* <div class="loader" id="whmcsloader">
-	<img src="{$BASE_PATH_IMG}/loader.svg" alt="Loading...">
-	<span>Loading...</span>
-</div>  *}
+{include file="$template/includes/flashmessage-darkmode.tpl"}
 
-<!-- accounts/modules/addons/eazybackup/templates/whitelabel-signup.tpl -->
-{* <div class="flex flex-col flex-1 overflow-y-auto bg-gray-700">
-  <div class="flex items-center justify-center min-h-screen px-4">
-    <div class="w-full max-w-lg">
-      <!-- Heading Container -->
-      <div class="shadow rounded-t-md border-b border-gray-700 bg-gray-800 mx-4 mt-4 pt-4 pr-4 pl-4">
-        <h1 class="text-2xl font-semibold text-gray-300 text-center">
-          Maintenance Notice
-        </h1>
-      </div>
-      <!-- Message Container -->
-      <div class="bg-gray-800 mx-4 pb-4 pt-6 px-4 rounded-b-md">
-        <p class="text-lg text-gray-300 text-center">
-          Backup Dashboard is currently offline for maintenance. Our development team is working on an update.
-        </p>
-        <div class="mt-4 text-sm text-gray-400 text-center">
-          <p>Start: March 5, 2025, 18:30 PM EST</p>
-          <p>End: March 7, 2025, 15:00 PM EST</p>
-          <p class="mt-2">
-            We appreciate your patience and understanding. If you have any questions, please don’t hesitate to contact our support team.
-          </p>
-        </div>
-      </div>
+{capture name=ebClientHomeContent}
+    {include file="$template/includes/ui/page-header.tpl"
+        ebPageTitle={lang key='clientareatitle'}
+        ebPageDescription="Use the client area to review services, domains, invoices, quotes, and support activity."
+    }
+
+    <div class="eb-home-grid mb-6">
+        <a href="clientarea.php?action=services" class="eb-home-tile">
+            <span class="eb-home-tile-icon"><i class="fas fa-cube"></i></span>
+            <div class="eb-home-tile-stat">{$clientsstats.productsnumactive}</div>
+            <div class="eb-home-tile-title">{lang key='navservices'}</div>
+        </a>
+
+        {if $clientsstats.numdomains || $registerdomainenabled || $transferdomainenabled}
+            <a href="clientarea.php?action=domains" class="eb-home-tile">
+                <span class="eb-home-tile-icon"><i class="fas fa-globe"></i></span>
+                <div class="eb-home-tile-stat">{$clientsstats.numactivedomains}</div>
+                <div class="eb-home-tile-title">{lang key='navdomains'}</div>
+            </a>
+        {elseif $condlinks.affiliates && $clientsstats.isAffiliate}
+            <a href="affiliates.php" class="eb-home-tile">
+                <span class="eb-home-tile-icon"><i class="fas fa-shopping-cart"></i></span>
+                <div class="eb-home-tile-stat">{$clientsstats.numaffiliatesignups}</div>
+                <div class="eb-home-tile-title">{lang key='affiliatessignups'}</div>
+            </a>
+        {else}
+            <a href="clientarea.php?action=quotes" class="eb-home-tile">
+                <span class="eb-home-tile-icon"><i class="far fa-file-alt"></i></span>
+                <div class="eb-home-tile-stat">{$clientsstats.numquotes}</div>
+                <div class="eb-home-tile-title">{lang key='quotes'}</div>
+            </a>
+        {/if}
+
+        <a href="supporttickets.php" class="eb-home-tile">
+            <span class="eb-home-tile-icon"><i class="fas fa-comments"></i></span>
+            <div class="eb-home-tile-stat">{$clientsstats.numactivetickets}</div>
+            <div class="eb-home-tile-title">{lang key='navtickets'}</div>
+        </a>
+
+        <a href="clientarea.php?action=invoices" class="eb-home-tile">
+            <span class="eb-home-tile-icon"><i class="fas fa-credit-card"></i></span>
+            <div class="eb-home-tile-stat">{$clientsstats.numunpaidinvoices}</div>
+            <div class="eb-home-tile-title">{lang key='navinvoices'}</div>
+        </a>
     </div>
-  </div>
-</div> *}
 
+    {foreach $addons_html as $addon_html}
+        <div class="mb-4">
+            {$addon_html}
+        </div>
+    {/foreach}
 
+    {function name=outputHomePanels}
+        <div menuItemName="{$item->getName()}" class="eb-home-panel{if $item->getExtra('colspan')} xl:col-span-2{/if}{if $item->getClass()} {$item->getClass()}{/if}"{if $item->getAttribute('id')} id="{$item->getAttribute('id')}"{/if}>
+            <div class="eb-home-panel-header">
+                <h3 class="eb-home-panel-title">
+                    {if $item->hasIcon()}<i class="{$item->getIcon()}"></i>&nbsp;{/if}
+                    {$item->getLabel()}
+                    {if $item->hasBadge()}&nbsp;<span class="eb-badge eb-badge--neutral">{$item->getBadge()}</span>{/if}
+                </h3>
+                {if $item->getExtra('btn-link') && $item->getExtra('btn-text')}
+                    <a href="{$item->getExtra('btn-link')}" class="eb-btn eb-btn-secondary eb-btn-xs">
+                        {if $item->getExtra('btn-icon')}<i class="{$item->getExtra('btn-icon')}"></i>{/if}
+                        {$item->getExtra('btn-text')}
+                    </a>
+                {/if}
+            </div>
+            {if $item->hasBodyHtml()}
+                <div class="eb-home-panel-body">
+                    {$item->getBodyHtml()}
+                </div>
+            {/if}
+            {if $item->hasChildren()}
+                <div class="eb-home-panel-list{if $item->getChildrenAttribute('class')} {$item->getChildrenAttribute('class')}{/if}">
+                    {foreach $item->getChildren() as $childItem}
+                        {if $childItem->getUri()}
+                            <a menuItemName="{$childItem->getName()}" href="{$childItem->getUri()}" class="eb-home-panel-item{if $childItem->getClass()} {$childItem->getClass()}{/if}{if $childItem->isCurrent()} is-active{/if}"{if $childItem->getAttribute('dataToggleTab')} data-toggle="tab"{/if}{if $childItem->getAttribute('target')} target="{$childItem->getAttribute('target')}"{/if} id="{$childItem->getId()}">
+                                <span>
+                                    {if $childItem->hasIcon()}<i class="{$childItem->getIcon()}"></i>&nbsp;{/if}
+                                    {$childItem->getLabel()}
+                                </span>
+                                {if $childItem->hasBadge()}<span class="eb-badge eb-badge--neutral">{$childItem->getBadge()}</span>{/if}
+                            </a>
+                        {else}
+                            <div menuItemName="{$childItem->getName()}" class="eb-home-panel-item{if $childItem->getClass()} {$childItem->getClass()}{/if}" id="{$childItem->getId()}">
+                                <span>
+                                    {if $childItem->hasIcon()}<i class="{$childItem->getIcon()}"></i>&nbsp;{/if}
+                                    {$childItem->getLabel()}
+                                </span>
+                                {if $childItem->hasBadge()}<span class="eb-badge eb-badge--neutral">{$childItem->getBadge()}</span>{/if}
+                            </div>
+                        {/if}
+                    {/foreach}
+                </div>
+            {/if}
+            {if $item->hasFooterHtml()}
+                <div class="eb-home-panel-body">
+                    {$item->getFooterHtml()}
+                </div>
+            {/if}
+        </div>
+    {/function}
 
-{* <iframe
-	src="https://dashboard.eazybackup.ca/external?email={$client->email}&whmcs_secret=9gf329yvtr3h0hrgy8739yi8gtr9guy82t379rg"
-	id="dashboard" onload="document.getElementById('whmcsloader').style.display='none';"></iframe> *}
+    <div class="eb-home-panels">
+        {foreach $panels as $item}
+            {outputHomePanels}
+        {/foreach}
+    </div>
+{/capture}
 
-{* <script>
-	$(function() {
-		$('.sidebar').remove();
-	});
-</script> 
-
-<style>
-.loader {
-	position: fixed;
-	top: 50%;
-	width: 100%;
-	height: 101%;
-	background: #fff;
-	z-index: 9;
-	left: 60%;
-	right: 0px;
-	display: flex;
-	justify-content: center;
-	align-items: center;
-	flex-direction: column;
-	transform: translate(-50%, -50%);
+{include file="$template/includes/ui/page-shell.tpl"
+    ebPageContent=$smarty.capture.ebClientHomeContent
 }
-
-div#whmcsloader span {
-	color: #474747;
-	padding: 10px 0px 0px;
-	font-size: 16px;
-}
-
-div#whmcsloader img {
-	width: 100%;
-	max-width: 45px;
-}
-
-iframe {
-	border: none;
-	outline: none;
-	height: calc(100vh);
-	width: 100%;
-}
-
-.container {
-	width: 100%;
-	padding: 0;
-}
-
-.container .navbar-collapse {
-	padding: 0px 116px 0 117px;
-}
-
-section#main-body {
-	padding: 0 0 0 0;
-}
-
-.main-content {
-	margin: 0;
-	padding: 0;
-	width: 100%;
-	height: 100vh;
-}
-</style> *}
