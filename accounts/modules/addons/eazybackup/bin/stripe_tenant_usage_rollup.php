@@ -3,9 +3,12 @@
 declare(strict_types=1);
 
 use PartnerHub\StripeService;
+use function PartnerHub\computeBillableMeteredUsage;
+use function PartnerHub\resolveActivePlanInstanceMeteredItem;
 use WHMCS\Database\Capsule;
 
 require_once __DIR__ . '/../eazybackup.php';
+require_once __DIR__ . '/../lib/PartnerHub/MeteredUsage.php';
 
 function tenant_usage_rollup_period_bounds_utc(?DateTimeImmutable $now = null): array
 {
@@ -159,20 +162,11 @@ try {
                     ->sum('bytes_total');
             }
             $qtyGb = (int) floor(max(0, $sumBytes) / (1024 * 1024 * 1024));
-
-            $sub = Capsule::table('eb_subscriptions')
-                ->where('tenant_id', $tenantId)
-                ->where('stripe_status', 'active')
-                ->orderBy('created_at', 'desc')
-                ->first();
-            if (!$sub) {
+            $meteredItem = resolveActivePlanInstanceMeteredItem($tenantId, $metric);
+            if (!$meteredItem) {
                 continue;
             }
-
-            $priceRow = Capsule::table('eb_plan_prices')->where('id', (int) $sub->current_price_id)->first();
-            if (!$priceRow || !(int) $priceRow->is_metered) {
-                continue;
-            }
+            $billableQtyGb = computeBillableMeteredUsage($qtyGb, (int) ($meteredItem['default_qty'] ?? 0), (string) ($meteredItem['overage_mode'] ?? 'bill_all'));
 
             $idempotencyKey = tenant_usage_rollup_idempotency_key($tenantId, $metric, $periodStartTs, $periodEndTs);
 
@@ -188,7 +182,7 @@ try {
                 [
                     'tenant_id' => $tenantId,
                     'metric' => $metric,
-                    'qty' => $qtyGb,
+                    'qty' => $billableQtyGb,
                     'period_start' => $periodStart->format('Y-m-d H:i:s'),
                     'period_end' => $periodEnd->format('Y-m-d H:i:s'),
                     'source' => 'tenant_rollup',
@@ -199,21 +193,30 @@ try {
 
             $msp = Capsule::table('eb_msp_accounts')->where('id', $mspId)->first(['stripe_connect_id']);
             $stripeAccountId = (string) ($msp->stripe_connect_id ?? '');
-            $subscription = $stripeService->retrieveSubscription((string) $sub->stripe_subscription_id, $stripeAccountId !== '' ? $stripeAccountId : null);
-            $items = (array) ($subscription['items']['data'] ?? []);
-            $subscriptionItemId = tenant_usage_rollup_pick_subscription_item_id($items);
-            if ($subscriptionItemId === '') {
-                continue;
-            }
-
             $usageTimestamp = tenant_usage_rollup_clamp_usage_timestamp($periodStartTs, $periodEndTs);
-            $stripeService->createUsageRecord($subscriptionItemId, $qtyGb, $usageTimestamp, $stripeAccountId !== '' ? $stripeAccountId : null, $idempotencyKey);
+            $stripeService->createUsageRecord((string) $meteredItem['stripe_subscription_item_id'], $billableQtyGb, $usageTimestamp, $stripeAccountId !== '' ? $stripeAccountId : null, $idempotencyKey);
 
             Capsule::table('eb_usage_ledger')
                 ->where('idempotency_key', $idempotencyKey)
                 ->update([
                     'pushed_to_stripe_at' => date('Y-m-d H:i:s'),
                 ]);
+            try {
+                if (function_exists('logActivity')) {
+                    @logActivity(
+                        'eazybackup: stripe_tenant_usage_rollup tenant '
+                        . $tenantId
+                        . ' metric ' . $metric
+                        . ' raw=' . $qtyGb
+                        . ' included=' . (int) ($meteredItem['default_qty'] ?? 0)
+                        . ' overage=' . (string) ($meteredItem['overage_mode'] ?? 'bill_all')
+                        . ' billable=' . $billableQtyGb
+                        . ' plan_instance=' . (int) ($meteredItem['plan_instance_id'] ?? 0)
+                        . ' component=' . (int) ($meteredItem['plan_component_id'] ?? 0)
+                    );
+                }
+            } catch (\Throwable $__) {
+            }
         } catch (\Throwable $tenantError) {
             try {
                 if (function_exists('logActivity')) {

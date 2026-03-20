@@ -28,8 +28,8 @@
             <div class="text-slate-100 text-2xl font-semibold mt-1">
               {assign var=avail value=$balance.available|default:[]}
               {if $avail|@count > 0}
-                {$avail.0.amount|default:0} {$avail.0.currency|upper|default:'USD'}
-              {else}0{/if}
+                {($avail.0.amount|default:0)/100|string_format:'%.2f'} {$avail.0.currency|upper|default:'USD'}
+              {else}0.00{/if}
             </div>
           </div>
           <div class="rounded-xl border border-slate-700 bg-slate-800/50 p-4">
@@ -37,8 +37,8 @@
             <div class="text-slate-100 text-2xl font-semibold mt-1">
               {assign var=pending value=$balance.pending|default:[]}
               {if $pending|@count > 0}
-                {$pending.0.amount|default:0} {$pending.0.currency|upper|default:'USD'}
-              {else}0{/if}
+                {($pending.0.amount|default:0)/100|string_format:'%.2f'} {$pending.0.currency|upper|default:'USD'}
+              {else}0.00{/if}
             </div>
           </div>
           <div class="rounded-xl border border-slate-700 bg-slate-800/50 p-4">
@@ -205,23 +205,23 @@
                     <tr class="hover:bg-slate-800/50"
                         data-row="transaction"
                         data-id="{$row.id|default:'-'|escape}"
-                        data-amount="{$row.amount|default:0|escape}"
+                        data-amount="{($row.amount|default:0)/100|string_format:'%.2f'|escape}"
                         data-currency="{$row.currency|upper|default:'USD'|escape}"
                         data-type="{$row.type|default:'-'|escape}"
                         data-description="{$row.description|default:'-'|escape}"
-                        data-created="{$row.created|default:0|escape}"
-                        data-available="{$row.available_on|default:0|escape}"
-                        data-fee="{$row.fee|default:0|escape}"
-                        data-net="{$row.net|default:0|escape}">
+                        data-created="{$row.created|date_format:'%Y-%m-%d %H:%M'|escape}"
+                        data-available="{if $row.available_on}{$row.available_on|date_format:'%Y-%m-%d %H:%M'|escape}{else}-{/if}"
+                        data-fee="{($row.fee|default:0)/100|string_format:'%.2f'|escape}"
+                        data-net="{($row.net|default:0)/100|string_format:'%.2f'|escape}">
                       <td class="px-4 py-3">{$row.id|default:'-'}</td>
-                      <td class="px-4 py-3">{$row.amount|default:0}</td>
+                      <td class="px-4 py-3">{($row.amount|default:0)/100|string_format:'%.2f'}</td>
                       <td class="px-4 py-3">{$row.currency|upper|default:'USD'}</td>
                       <td class="px-4 py-3">{$row.type|default:'-'}</td>
                       <td class="px-4 py-3">{$row.description|default:'-'}</td>
-                      <td class="px-4 py-3">{$row.created|default:0}</td>
-                      <td class="px-4 py-3">{$row.available_on|default:0}</td>
-                      <td class="px-4 py-3">{$row.fee|default:0}</td>
-                      <td class="px-4 py-3">{$row.net|default:0}</td>
+                      <td class="px-4 py-3">{$row.created|date_format:'%Y-%m-%d %H:%M'}</td>
+                      <td class="px-4 py-3">{if $row.available_on}{$row.available_on|date_format:'%Y-%m-%d %H:%M'}{else}-{/if}</td>
+                      <td class="px-4 py-3">{($row.fee|default:0)/100|string_format:'%.2f'}</td>
+                      <td class="px-4 py-3">{($row.net|default:0)/100|string_format:'%.2f'}</td>
                     </tr>
                   {/foreach}
                   <tr x-ref="noResults" style="display: none;">

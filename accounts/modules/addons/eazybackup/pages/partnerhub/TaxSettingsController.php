@@ -4,6 +4,98 @@ use WHMCS\Database\Capsule;
 use PartnerHub\SettingsService;
 use PartnerHub\StripeService;
 
+/** @internal Stripe Tax Registration types referenced from Stripe API (Create a registration). */
+function eb_ph_stripe_tax_registration_types_allowed(): array
+{
+    return ['standard', 'simplified', 'province_standard', 'state_sales_tax', 'ioss', 'oss_union', 'oss_non_union'];
+}
+
+/**
+ * EU member states where Stripe documents a domestic `standard` registration with required
+ * `country_options.{cc}.standard.place_of_supply_scheme` (see Stripe Tax Registrations API).
+ */
+function eb_ph_stripe_tax_eu_member_countries(): array
+{
+    return [
+        'AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU', 'IE', 'IT',
+        'LV', 'LT', 'LU', 'MT', 'NL', 'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE',
+    ];
+}
+
+function eb_ph_default_stripe_registration_type(string $country, string $region): string
+{
+    $c = strtoupper($country);
+    if ($c === 'US') {
+        return 'state_sales_tax';
+    }
+    if ($c === 'CA') {
+        return 'standard';
+    }
+    return 'standard';
+}
+
+/**
+ * @return array<string, mixed>|null Stripe POST body, or null to skip remote registration (local-only).
+ */
+function eb_ph_build_stripe_tax_registration_create_params(array $reg, string $stripeType): ?array
+{
+    $country = strtoupper((string)($reg['country'] ?? ''));
+    $region = strtoupper((string)($reg['region'] ?? ''));
+    $cc = strtolower($country);
+
+    $allowed = eb_ph_stripe_tax_registration_types_allowed();
+    if (!in_array($stripeType, $allowed, true)) {
+        return null;
+    }
+
+    if ($stripeType === 'state_sales_tax') {
+        if ($country !== 'US' || $region === '') {
+            return null;
+        }
+        $opts = [
+            'type' => 'state_sales_tax',
+            'state' => $region,
+        ];
+    } elseif ($stripeType === 'province_standard') {
+        if ($country !== 'CA' || $region === '') {
+            return null;
+        }
+        $opts = [
+            'type' => 'province_standard',
+            'province_standard' => ['province' => $region],
+        ];
+    } else {
+        $opts = ['type' => $stripeType];
+        if ($stripeType === 'standard' && in_array($country, eb_ph_stripe_tax_eu_member_countries(), true)) {
+            $opts['standard'] = ['place_of_supply_scheme' => 'standard'];
+        }
+    }
+
+    return [
+        'country' => $country,
+        'active_from' => 'now',
+        'country_options' => [$cc => $opts],
+    ];
+}
+
+function eb_ph_stripe_registration_type_label(string $stripeType): string
+{
+    $type = trim($stripeType);
+    if ($type === '') {
+        return 'Auto';
+    }
+    $labels = [
+        'standard' => 'Standard',
+        'simplified' => 'Simplified',
+        'province_standard' => 'Canada provincial',
+        'state_sales_tax' => 'US state sales tax',
+        'ioss' => 'EU IOSS',
+        'oss_union' => 'EU OSS (union)',
+        'oss_non_union' => 'EU OSS (non-union)',
+    ];
+    return $labels[$type] ?? $type;
+}
+
 function eb_ph_settings_tax_show(array $vars)
 {
     if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { header('Location: clientarea.php'); exit; }
@@ -14,6 +106,10 @@ function eb_ph_settings_tax_show(array $vars)
 
     $settings = SettingsService::getTaxSettings($mspId);
     $regs = SettingsService::listRegistrations($mspId);
+    foreach ($regs as &$reg) {
+        $reg['stripe_registration_type_label'] = eb_ph_stripe_registration_type_label((string)($reg['stripe_registration_type'] ?? ''));
+    }
+    unset($reg);
 
     return [
         'pagetitle' => 'Settings — Tax & Invoicing',
@@ -94,6 +190,10 @@ function eb_ph_tax_registrations(array $vars): void
     $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
     if (!$msp) { echo json_encode(['status'=>'error','message'=>'msp']); return; }
     $rows = SettingsService::listRegistrations((int)$msp->id);
+    foreach ($rows as &$row) {
+        $row['stripe_registration_type_label'] = eb_ph_stripe_registration_type_label((string)($row['stripe_registration_type'] ?? ''));
+    }
+    unset($row);
     echo json_encode(['status'=>'success','data'=>$rows]);
 }
 
@@ -119,15 +219,33 @@ function eb_ph_tax_registration_upsert(array $vars): void
     ];
     if ($reg['registration_number'] === '' || strlen($reg['country']) !== 2) { echo json_encode(['status'=>'error','message'=>'invalid']); return; }
 
+    $reqStripeType = trim((string)($_POST['stripe_registration_type'] ?? ''));
+    if ($reqStripeType !== '' && !in_array($reqStripeType, eb_ph_stripe_tax_registration_types_allowed(), true)) {
+        echo json_encode(['status'=>'error','message'=>'Select a valid Stripe registration type.']);
+        return;
+    }
+    $stripeType = $reqStripeType !== '' ? $reqStripeType : eb_ph_default_stripe_registration_type($reg['country'], $reg['region']);
+    if ($stripeType === 'state_sales_tax' && $reg['country'] === 'US' && $reg['region'] === '') {
+        echo json_encode(['status'=>'error','message'=>'State/region is required for United States tax registrations.']);
+        return;
+    }
+    if ($stripeType === 'province_standard' && $reg['country'] === 'CA' && $reg['region'] === '') {
+        echo json_encode(['status'=>'error','message'=>'Province/region is required for Canadian provincial registrations.']);
+        return;
+    }
+    $reg['stripe_registration_type'] = $stripeType;
+
     // Try Stripe first
     try {
         $acct = (string)($msp->stripe_connect_id ?? '');
         if ($acct !== '') {
-            $svc = new StripeService();
-            $params = [ 'country' => $reg['country'], 'state' => $reg['region'] ?: null, 'type' => 'vat', 'registration_number' => $reg['registration_number'] ];
-            $created = $svc->createTaxRegistration($acct, array_filter($params, function($v){ return $v !== null && $v !== ''; }));
-            $reg['stripe_registration_id'] = (string)($created['id'] ?? '');
-            $reg['source'] = 'stripe';
+            $stripeParams = eb_ph_build_stripe_tax_registration_create_params($reg, $stripeType);
+            if (is_array($stripeParams)) {
+                $svc = new StripeService();
+                $created = $svc->createTaxRegistration($acct, $stripeParams);
+                $reg['stripe_registration_id'] = (string)($created['id'] ?? '');
+                $reg['source'] = 'stripe';
+            }
         }
     } catch (\Throwable $__) { /* fall back to local */ }
 

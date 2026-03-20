@@ -14,11 +14,13 @@ $moduleRoot = dirname(__DIR__, 2);
 $rollupScriptFile = $moduleRoot . '/bin/stripe_tenant_usage_rollup.php';
 $stripeServiceFile = $moduleRoot . '/lib/PartnerHub/StripeService.php';
 $usageControllerFile = $moduleRoot . '/pages/partnerhub/UsageController.php';
+$meteredUsageHelperFile = $moduleRoot . '/lib/PartnerHub/MeteredUsage.php';
 
 $targets = [
     'tenant usage rollup script file' => [
         'path' => $rollupScriptFile,
         'markers' => [
+            'metered helper include marker' => "require_once __DIR__ . '/../lib/PartnerHub/MeteredUsage.php';",
             'period bounds helper marker' => 'function tenant_usage_rollup_period_bounds_utc(?DateTimeImmutable $now = null): array',
             'closed period current month anchor marker' => '$currentMonthStart = new DateTimeImmutable($now->format(\'Y-m-01 00:00:00\'), new DateTimeZone(\'UTC\'));',
             'closed period start previous month marker' => '$periodStart = $currentMonthStart->modify(\'-1 month\');',
@@ -39,7 +41,10 @@ $targets = [
             'usage ledger upsert marker' => "Capsule::table('eb_usage_ledger')->updateOrInsert(",
             'usage ledger pushed check marker' => "->where('idempotency_key', \$idempotencyKey)",
             'stripe metered usage timestamp marker' => '$usageTimestamp = tenant_usage_rollup_clamp_usage_timestamp($periodStartTs, $periodEndTs);',
-            'stripe metered usage push marker' => '$stripeService->createUsageRecord($subscriptionItemId, $qtyGb, $usageTimestamp, $stripeAccountId !== \'\' ? $stripeAccountId : null, $idempotencyKey);',
+            'rollup resolver marker' => '$meteredItem = resolveActivePlanInstanceMeteredItem($tenantId, $metric);',
+            'rollup billable qty marker' => '$billableQtyGb = computeBillableMeteredUsage($qtyGb, (int) ($meteredItem[\'default_qty\'] ?? 0), (string) ($meteredItem[\'overage_mode\'] ?? \'bill_all\'));',
+            'rollup ledger billable qty marker' => '\'qty\' => $billableQtyGb,',
+            'stripe metered usage push marker' => '$stripeService->createUsageRecord((string) $meteredItem[\'stripe_subscription_item_id\'], $billableQtyGb, $usageTimestamp, $stripeAccountId !== \'\' ? $stripeAccountId : null, $idempotencyKey);',
         ],
     ],
     'stripe service file' => [
@@ -50,6 +55,19 @@ $targets = [
             'usage record idempotent signature marker' => 'public function createUsageRecord(string $subscriptionItemId, int $quantity, int $timestamp, ?string $stripeAccount = null, ?string $idempotencyKey = null): array',
             'usage idempotency header marker' => '$headers = $idempotencyKey ? [\'Idempotency-Key: \'.$idempotencyKey] : null;',
             'usage request with connected account marker' => '], null, $stripeAccount, $headers);',
+        ],
+    ],
+    'metered usage helper file' => [
+        'path' => $meteredUsageHelperFile,
+        'markers' => [
+            'namespace marker' => 'namespace PartnerHub;',
+            'billable usage helper marker' => 'function computeBillableMeteredUsage(int $actualUsage, int $defaultQty, string $overageMode): int',
+            'plan instance resolver marker' => 'function resolveActivePlanInstanceMeteredItem(int $tenantId, string $metricCode): ?array',
+            'bill all branch marker' => "if (\$normalizedMode === 'bill_all') {",
+            'cap at default branch marker' => "if (\$normalizedMode === 'cap_at_default') {",
+            'plan instance query marker' => "Capsule::table('eb_plan_instances as pi')",
+            'plan instance items join marker' => "->join('eb_plan_instance_items as pii', 'pii.plan_instance_id', '=', 'pi.id')",
+            'plan component join marker' => "->join('eb_plan_components as pc', 'pc.id', '=', 'pii.plan_component_id')",
         ],
     ],
     'usage controller file' => [
@@ -66,11 +84,11 @@ $targets = [
             'manual usage timestamp clamp upper marker' => '$upperBound = min($periodEnd - 1, $nowTs - 1);',
             'manual usage timestamp clamp lower marker' => 'if ($upperBound < $periodStart) {',
             'msp required guard marker' => 'if (!$msp || (int) ($msp->id ?? 0) <= 0) {',
-            'customer ownership query marker' => "->where('msp_id', (int) \$msp->id)",
-            'customer ownership fail closed marker' => "echo json_encode(['status'=>'error','message'=>'customer']);",
-            'tenant idempotency branch marker' => 'if ($tenantId > 0) {',
-            'tenant idempotency key assignment marker' => '$idKey = eb_usage_tenant_period_idempotency_key($tenantId, $metric, $resolvedPeriodStart, $resolvedPeriodEnd);',
-            'ledger tenant field marker' => "'tenant_id' => (\$tenantId > 0 ? \$tenantId : null),",
+            'customer ownership query marker' => 'eb_ph_tenants_find_owned_tenant_by_public_id((int)$msp->id, $tenantPublicId)',
+            'customer ownership fail closed marker' => "echo json_encode(['status'=>'error','message'=>'tenant']);",
+            'tenant idempotency branch marker' => 'if ($tenantId <= 0) {',
+            'tenant idempotency key assignment marker' => '$idKey = eb_usage_tenant_period_idempotency_key((int)$tenant->id, $metric, $resolvedPeriodStart, $resolvedPeriodEnd);',
+            'ledger tenant field marker' => "'tenant_id' => (int)\$tenant->id,",
             'connected account id marker' => '$stripeAccountId = (string) ($msp->stripe_connect_id ?? \'\');',
             'manual usage item picker marker' => '$itemId = eb_usage_pick_subscription_item_id($items);',
             'deterministic usage timestamp marker' => '$usageTimestamp = eb_usage_clamp_usage_timestamp($resolvedPeriodStart, $resolvedPeriodEnd);',
@@ -102,6 +120,7 @@ if ($failures !== []) {
     exit(1);
 }
 
+require_once $meteredUsageHelperFile;
 require_once $usageControllerFile;
 
 // Behavioral assertions for helper functions to avoid marker-only regressions.
@@ -134,6 +153,21 @@ if ($pickedNoMetered !== '') {
 $clamped = eb_usage_clamp_usage_timestamp(100, 200, 150);
 if ($clamped !== 149) {
     $failures[] = 'FAIL: usage timestamp clamp should use now-1 inside period';
+}
+
+$billAllOver = \PartnerHub\computeBillableMeteredUsage(1500, 1024, 'bill_all');
+if ($billAllOver !== 476) {
+    $failures[] = 'FAIL: bill_all should charge only usage above included quantity';
+}
+
+$billAllUnder = \PartnerHub\computeBillableMeteredUsage(900, 1024, 'bill_all');
+if ($billAllUnder !== 0) {
+    $failures[] = 'FAIL: bill_all should clamp below-included usage to zero';
+}
+
+$capAtDefault = \PartnerHub\computeBillableMeteredUsage(1500, 1024, 'cap_at_default');
+if ($capAtDefault !== 0) {
+    $failures[] = 'FAIL: cap_at_default should push zero billable usage';
 }
 
 if ($failures !== []) {

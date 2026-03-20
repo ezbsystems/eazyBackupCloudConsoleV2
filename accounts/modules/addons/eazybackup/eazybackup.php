@@ -1603,6 +1603,9 @@ function eazybackup_migrate_schema(): void {
         });
     }
 
+    eb_add_column_if_missing('eb_invoice_cache', 'tenant_id', fn(Blueprint $t) => $t->bigInteger('tenant_id')->nullable()->index());
+    eb_add_column_if_missing('eb_payment_cache', 'tenant_id', fn(Blueprint $t) => $t->bigInteger('tenant_id')->nullable()->index());
+
     // --- Partner Hub Catalog: Products ---
     if (!$schema->hasTable('eb_catalog_products')) {
         $schema->create('eb_catalog_products', function (Blueprint $t) {
@@ -1706,6 +1709,7 @@ function eazybackup_migrate_schema(): void {
             $t->string('region', 8)->nullable();
             $t->string('registration_number', 191);
             $t->string('legal_name', 191)->nullable();
+            $t->string('stripe_registration_type', 64)->nullable();
             $t->string('stripe_registration_id', 191)->nullable()->index();
             $t->enum('source', ['stripe','local'])->default('local');
             $t->tinyInteger('is_active')->default(1);
@@ -1714,6 +1718,7 @@ function eazybackup_migrate_schema(): void {
             $t->index(['msp_id','country','region']);
         });
     }
+    eb_add_column_if_missing('eb_msp_tax_regs', 'stripe_registration_type', fn(Blueprint $t)=>$t->string('stripe_registration_type', 64)->nullable());
 
     // MSP Tax Audit trail
     if (!$schema->hasTable('eb_msp_tax_audit')) {
@@ -4258,6 +4263,9 @@ function eazybackup_clientarea(array $vars)
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-billing-create-payment') {
         require_once __DIR__ . '/pages/partnerhub/BillingController.php';
         eb_ph_billing_create_payment($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-billing-refund') {
+        require_once __DIR__ . '/pages/partnerhub/BillingController.php';
+        eb_ph_billing_refund_payment($vars); exit;
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-billing-payment-methods') {
         require_once __DIR__ . '/pages/partnerhub/BillingController.php';
         eb_ph_billing_payment_methods($vars); exit;
@@ -4397,6 +4405,21 @@ function eazybackup_clientarea(array $vars)
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-plan-subscriptions-list') {
         require_once __DIR__ . '/pages/partnerhub/CatalogPlansController.php';
         eb_ph_plan_subscriptions_list($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-plan-subscription-detail') {
+        require_once __DIR__ . '/pages/partnerhub/CatalogPlansController.php';
+        eb_ph_plan_subscription_detail($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-plan-subscription-preview') {
+        require_once __DIR__ . '/pages/partnerhub/CatalogPlansController.php';
+        eb_ph_plan_subscription_preview($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-plan-subscription-update') {
+        require_once __DIR__ . '/pages/partnerhub/CatalogPlansController.php';
+        eb_ph_plan_subscription_update($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-plan-subscription-pause') {
+        require_once __DIR__ . '/pages/partnerhub/CatalogPlansController.php';
+        eb_ph_plan_subscription_pause($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-plan-subscription-resume') {
+        require_once __DIR__ . '/pages/partnerhub/CatalogPlansController.php';
+        eb_ph_plan_subscription_resume($vars); exit;
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-plan-subscription-cancel') {
         require_once __DIR__ . '/pages/partnerhub/CatalogPlansController.php';
         eb_ph_plan_subscription_cancel($vars); exit;

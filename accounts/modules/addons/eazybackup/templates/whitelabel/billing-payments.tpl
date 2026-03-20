@@ -15,6 +15,7 @@
             </div>
           </div>
           <div class="p-6">
+            <input type="hidden" id="ph-payments-csrf" value="{$token|escape}" />
             <section class="bg-slate-950/70 rounded-2xl border border-slate-800/80 p-4">
               <div class="px-6 py-5">
                 <h2 class="text-lg font-medium">One-Time Payments</h2>
@@ -170,6 +171,7 @@
                         <th class="px-4 py-3 text-left font-medium"><button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('created')">Created <span x-text="sortIndicator('created')"></span></button></th>
                         <th class="px-4 py-3 text-left font-medium"><button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('intent')">Payment Intent <span x-text="sortIndicator('intent')"></span></button></th>
                         <th class="px-4 py-3 text-left font-medium"><button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('stripe')">Stripe <span x-text="sortIndicator('stripe')"></span></button></th>
+                        <th class="px-4 py-3 text-left font-medium">Actions</th>
                       </tr>
                     </thead>
                     <tbody x-ref="tbody" class="divide-y divide-slate-800">
@@ -194,14 +196,15 @@
                             <td class="px-4 py-3 text-left text-slate-300">{$row.created|date_format:'%Y-%m-%d %H:%M'}</td>
                             <td class="px-4 py-3 text-left text-slate-300">{$row.stripe_payment_intent_id|default:'-'}</td>
                             <td class="px-4 py-3 text-left">{assign var=acct value=$msp.stripe_connect_id|default:''}{if $acct}<a href="https://dashboard.stripe.com/connect/accounts/{$acct}/payments/{$row.stripe_payment_intent_id}" target="_blank" rel="noopener" class="text-sky-400 hover:underline">Open</a>{else}-{/if}</td>
+                            <td class="px-4 py-3 text-left">{if $st=='succeeded' && $acct && $row.stripe_payment_intent_id|default:''}<button type="button" class="rounded-lg border border-amber-600/50 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-200 hover:bg-amber-500/20" data-refund-pi="{$row.stripe_payment_intent_id|escape}">Refund</button>{else}<span class="text-slate-500">—</span>{/if}</td>
                           </tr>
                         {/foreach}
                         <tr x-ref="noResults" style="display: none;">
-                          <td colspan="7" class="px-4 py-10 text-center text-sm text-slate-400">No payments found.</td>
+                          <td colspan="8" class="px-4 py-10 text-center text-sm text-slate-400">No payments found.</td>
                         </tr>
                       {else}
                         <tr>
-                          <td colspan="7" class="px-4 py-10 text-center text-sm text-slate-400">
+                          <td colspan="8" class="px-4 py-10 text-center text-sm text-slate-400">
                             <div class="flex flex-col items-center gap-2">
                               <div class="flex h-9 w-9 items-center justify-center rounded-full bg-slate-800/80">
                                 <svg class="w-4 h-4 text-slate-500" viewBox="0 0 24 24" fill="none">
@@ -234,5 +237,41 @@
     </div>
   </div>
 </div>
+<script>
+(function () {
+  var csrfEl = document.getElementById('ph-payments-csrf');
+  var refundUrl = '{$modulelink}&a=ph-billing-refund';
+  document.addEventListener('click', function (ev) {
+    var t = ev.target && ev.target.closest ? ev.target.closest('[data-refund-pi]') : null;
+    if (!t) return;
+    ev.preventDefault();
+    var pi = t.getAttribute('data-refund-pi');
+    if (!csrfEl || !pi) return;
+    if (!window.confirm('Issue a full refund for this payment?')) return;
+    t.disabled = true;
+    var body = new URLSearchParams();
+    body.set('token', csrfEl.value);
+    body.set('payment_intent_id', pi);
+    fetch(refundUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (j && j.status === 'success') {
+          window.location.reload();
+          return;
+        }
+        window.alert((j && j.message) ? String(j.message) : 'Refund failed');
+        t.disabled = false;
+      })
+      .catch(function () {
+        window.alert('Refund request failed');
+        t.disabled = false;
+      });
+  });
+})();
+</script>
 
 

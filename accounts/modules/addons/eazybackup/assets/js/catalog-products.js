@@ -535,13 +535,14 @@ window.productForm = function initProductForm({ currency = 'CAD', ready = 0 }){
           alert('Save failed');
           return;
         }
-        const payload = { mode, product_id: this.state.productId, product: this.state.product, base_metric_code: this.state.baseMetric || null, items: this.state.items };
-        let res = await fetch(`${this.modulelink}&a=ph-catalog-product-save`, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(payload) });
+        const token = (document.getElementById('eb-token')||{}).value || '';
+        const payload = { mode, product_id: this.state.productId, product: this.state.product, base_metric_code: this.state.baseMetric || null, items: this.state.items, token };
+        let res = await fetch(`${this.modulelink}&a=ph-catalog-product-save`, { method:'POST', credentials:'include', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(payload) });
         let out = await res.json();
         if (out && out.status==='error' && (out.message==='bad_json' || out.message==='empty')) {
           // Fallback: some stacks strip JSON; retry as form-encoded
-          const body = new URLSearchParams({ payload: JSON.stringify(payload) });
-          res = await fetch(`${this.modulelink}&a=ph-catalog-product-save`, { method:'POST', headers:{ 'Content-Type':'application/x-www-form-urlencoded' }, body });
+          const body = new URLSearchParams({ token, payload: JSON.stringify(payload) });
+          res = await fetch(`${this.modulelink}&a=ph-catalog-product-save`, { method:'POST', credentials:'include', headers:{ 'Content-Type':'application/x-www-form-urlencoded' }, body });
           out = await res.json();
         }
         if (out.status==='success'){
@@ -555,6 +556,7 @@ window.productForm = function initProductForm({ currency = 'CAD', ready = 0 }){
           }
           return;
         }
+        if (out.message==='csrf'){ try { window.showToast && window.showToast('Your session expired or the security token was invalid. Refresh the page and try again.', 'warning'); } catch(_){ alert('Your session expired or the security token was invalid. Refresh the page and try again.'); } return; }
         if (out.message==='mismatched_metric'){ alert('One or more price items use a different resource type than this product. Please align metrics or split into a new product.'); return; }
         if (out.message==='stripe_name_exists'){ alert('A Stripe product with this name already exists on the connected account. Please choose a new, unique product name.'); return; }
         if (out.message==='stripe_product_fail'){ alert((out.detail && out.detail.indexOf('Idempotency')>=0) ? 'A Stripe product with this name already exists for the connected account or an earlier attempt created it with different parameters. Please choose a new unique name.' : ('Stripe product error: '+(out.detail||''))); return; }
@@ -661,6 +663,7 @@ if (!window.catalogToastManager) {
   }
   function describeSaveError(out){
     if (!out) return 'Save failed';
+    if (out.message === 'csrf') return 'Your session expired or the security token was invalid. Refresh the page and try again.';
     if (out.message === 'mismatched_metric') return 'One or more prices use a different product type. Update the price rows to match the selected product type.';
     if (out.message === 'duplicate_pricing_slot') return out.detail ? String(out.detail) : 'Each price needs a unique billing setup.';
     if (out.message === 'stripe_name_exists') return 'A Stripe product with this name already exists. Choose a different name.';
@@ -921,11 +924,12 @@ if (!window.catalogToastManager) {
           return;
         }
         // Local create/edit
-        const body={ mode: mode || 'draft', product_id:(this.mode==='edit'? (this.productId||0):0), product:{ name:this.product.name, description:this.product.description }, base_metric_code:this.baseMetric||null, items:this.items, features:this.features };
-        const res=await fetch(`${this.modulelink}&a=ph-catalog-product-save`, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) });
+        const token=(document.getElementById('eb-token')||{}).value||'';
+        const body={ mode: mode || 'draft', product_id:(this.mode==='edit'? (this.productId||0):0), product:{ name:this.product.name, description:this.product.description }, base_metric_code:this.baseMetric||null, items:this.items, features:this.features, token };
+        const res=await fetch(`${this.modulelink}&a=ph-catalog-product-save`, { method:'POST', credentials:'include', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) });
         let out=await res.json();
         if (out && out.status==='error' && (out.message==='bad_json' || out.message==='empty')) {
-          const res2=await fetch(`${this.modulelink}&a=ph-catalog-product-save`, { method:'POST', headers:{ 'Content-Type':'application/x-www-form-urlencoded' }, body: new URLSearchParams({ payload: JSON.stringify(body) }) });
+          const res2=await fetch(`${this.modulelink}&a=ph-catalog-product-save`, { method:'POST', credentials:'include', headers:{ 'Content-Type':'application/x-www-form-urlencoded' }, body: new URLSearchParams({ token, payload: JSON.stringify(body) }) });
           out=await res2.json();
         }
         if (out && out.status==='success'){ this._dirty=true; this.mode='edit'; this.productId = out.product_id || this.productId; if (Array.isArray(out.prices)) { for (var pi=0; pi<out.prices.length; pi++) { if (this.items[pi]) this.items[pi].id = out.prices[pi]; } } safeToast(mode==='publish' ? 'Product published to Stripe' : 'Draft saved','success'); } else { safeToast(describeSaveError(out),'error'); }

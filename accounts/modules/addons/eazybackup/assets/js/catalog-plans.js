@@ -101,6 +101,21 @@
       filteredCometAccounts: [],
       subscriptions: [],
       subsLoading: false,
+      subsPlanId: null,
+      subscriptionEditor: {
+        open: false,
+        loading: false,
+        saving: false,
+        previewLoading: false,
+        instanceId: null,
+        subscription: null,
+        items: [],
+        baseItems: [],
+        availablePlans: [],
+        swapPlanId: '',
+        preview: null,
+        error: ''
+      },
 
       resetBuilder(){
         this.step = 1;
@@ -443,6 +458,10 @@
         return billingLabel(type);
       },
 
+      formatMoneyCents(cents, currency){
+        return formatMoneyCents(cents, currency);
+      },
+
       priceBadgeClass(price){
         if (String(price.billing_type || '') === 'metered') return 'bg-sky-500/15 text-sky-300';
         return 'bg-slate-700 text-slate-200';
@@ -749,6 +768,8 @@
       },
 
       async openSubs(planId){
+        this.subsPlanId = planId;
+        this.subscriptionEditor.open = false;
         this.subsLoading = true;
         this.subscriptions = [];
         showEl('eb-subs-modal');
@@ -764,7 +785,185 @@
       },
 
       closeSubs(){
+        this.subscriptionEditor.open = false;
         hideEl('eb-subs-modal');
+      },
+
+      resetSubscriptionEditor(){
+        this.subscriptionEditor = {
+          open: false,
+          loading: false,
+          saving: false,
+          previewLoading: false,
+          instanceId: null,
+          subscription: null,
+          items: [],
+          baseItems: [],
+          availablePlans: [],
+          swapPlanId: '',
+          preview: null,
+          error: ''
+        };
+      },
+
+      normalizeEditorItem(raw){
+        return {
+          plan_component_id: parseInt(raw.plan_component_id, 10) || 0,
+          plan_instance_item_id: parseInt(raw.plan_instance_item_id, 10) || 0,
+          subscription_item_id: raw.subscription_item_id || '',
+          price_id: parseInt(raw.price_id, 10) || 0,
+          stripe_price_id: raw.stripe_price_id || '',
+          price_name: raw.price_name || '',
+          metric_code: raw.metric_code || 'GENERIC',
+          kind: raw.kind || 'recurring',
+          currency: normalizeCurrency(raw.currency || 'CAD'),
+          interval: normalizeInterval(raw.interval || 'month'),
+          unit_label: raw.unit_label || metricUnit(raw.metric_code || 'GENERIC', ''),
+          unit_amount: parseInt(raw.unit_amount, 10) || 0,
+          default_qty: parseInt(raw.default_qty, 10) || 0,
+          quantity: parseInt(raw.quantity, 10) || 0,
+          editable_quantity: !!raw.editable_quantity,
+          removable: raw.removable !== false,
+          remove: !!raw.remove
+        };
+      },
+
+      async openSubscriptionEditor(instanceId){
+        this.resetSubscriptionEditor();
+        this.subscriptionEditor.open = true;
+        this.subscriptionEditor.loading = true;
+        try {
+          var res = await fetch(modulelink + '&a=ph-plan-subscription-detail&instance_id=' + encodeURIComponent(instanceId), { method:'GET', credentials:'include' });
+          var out = await res.json();
+          if (out.status !== 'success') {
+            this.subscriptionEditor.error = out.message || 'Failed to load subscription.';
+            return;
+          }
+          this.subscriptionEditor.instanceId = instanceId;
+          this.subscriptionEditor.subscription = out.subscription || null;
+          this.subscriptionEditor.availablePlans = Array.isArray(out.available_plans) ? out.available_plans : [];
+          this.subscriptionEditor.items = (out.items || []).map(this.normalizeEditorItem.bind(this));
+          this.subscriptionEditor.baseItems = clone(this.subscriptionEditor.items);
+        } catch (e) {
+          console.error(e);
+          this.subscriptionEditor.error = 'Failed to load subscription.';
+        } finally {
+          this.subscriptionEditor.loading = false;
+        }
+      },
+
+      applySwapPlan(planId){
+        planId = String(planId || '');
+        this.subscriptionEditor.swapPlanId = planId;
+        this.subscriptionEditor.preview = null;
+        if (!planId) {
+          this.subscriptionEditor.items = clone(this.subscriptionEditor.baseItems);
+          return;
+        }
+        var targetPlan = this.subscriptionEditor.availablePlans.find(function(plan){
+          return String(plan.id || '') === planId;
+        });
+        if (!targetPlan) return;
+        this.subscriptionEditor.items = (targetPlan.components || []).map(this.normalizeEditorItem.bind(this));
+      },
+
+      async previewSubscriptionChanges(){
+        if (!this.subscriptionEditor.instanceId) return;
+        this.subscriptionEditor.previewLoading = true;
+        this.subscriptionEditor.preview = null;
+        this.subscriptionEditor.error = '';
+        try {
+          var res = await fetch(modulelink + '&a=ph-plan-subscription-preview', {
+            method:'POST',
+            credentials:'include',
+            headers:{ 'Content-Type':'application/json' },
+            body: JSON.stringify({
+              token: token,
+              instance_id: this.subscriptionEditor.instanceId,
+              swap_plan_id: this.subscriptionEditor.swapPlanId || '',
+              items: this.subscriptionEditor.items
+            })
+          });
+          var out = await res.json();
+          if (out.status !== 'success') {
+            this.subscriptionEditor.error = out.message || 'Preview failed.';
+            return;
+          }
+          this.subscriptionEditor.preview = out.preview || null;
+        } catch (e) {
+          console.error(e);
+          this.subscriptionEditor.error = 'Preview failed.';
+        } finally {
+          this.subscriptionEditor.previewLoading = false;
+        }
+      },
+
+      async saveSubscriptionChanges(){
+        if (!this.subscriptionEditor.instanceId) return;
+        this.subscriptionEditor.saving = true;
+        this.subscriptionEditor.error = '';
+        try {
+          var res = await fetch(modulelink + '&a=ph-plan-subscription-update', {
+            method:'POST',
+            credentials:'include',
+            headers:{ 'Content-Type':'application/json' },
+            body: JSON.stringify({
+              token: token,
+              instance_id: this.subscriptionEditor.instanceId,
+              swap_plan_id: this.subscriptionEditor.swapPlanId || '',
+              items: this.subscriptionEditor.items
+            })
+          });
+          var out = await res.json();
+          if (out.status !== 'success') {
+            this.subscriptionEditor.error = out.message || 'Update failed.';
+            return;
+          }
+          safeToast('Subscription updated.', 'success');
+          this._dirty = true;
+          await this.openSubs(this.subsPlanId || 0);
+        } catch (e) {
+          console.error(e);
+          this.subscriptionEditor.error = 'Update failed.';
+        } finally {
+          this.subscriptionEditor.saving = false;
+        }
+      },
+
+      async pauseSubscription(instanceId){
+        try {
+          var body = new URLSearchParams({ token: token, instance_id: String(instanceId) });
+          var res = await fetch(modulelink + '&a=ph-plan-subscription-pause', { method:'POST', credentials:'include', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: body });
+          var out = await res.json();
+          if (out.status === 'success') {
+            safeToast('Subscription paused.', 'success');
+            this._dirty = true;
+            this.openSubs(this.subsPlanId || 0);
+          } else {
+            safeToast(out.message || 'Failed to pause subscription.', 'error');
+          }
+        } catch(e){
+          console.error(e);
+          safeToast('Network error', 'error');
+        }
+      },
+
+      async resumeSubscription(instanceId){
+        try {
+          var body = new URLSearchParams({ token: token, instance_id: String(instanceId) });
+          var res = await fetch(modulelink + '&a=ph-plan-subscription-resume', { method:'POST', credentials:'include', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: body });
+          var out = await res.json();
+          if (out.status === 'success') {
+            safeToast('Subscription resumed.', 'success');
+            this._dirty = true;
+            this.openSubs(this.subsPlanId || 0);
+          } else {
+            safeToast(out.message || 'Failed to resume subscription.', 'error');
+          }
+        } catch(e){
+          console.error(e);
+          safeToast('Network error', 'error');
+        }
       },
 
       async cancelSubscription(instanceId){
@@ -776,7 +975,7 @@
           if (out.status === 'success') {
             safeToast('Subscription cancelled.', 'success');
             this._dirty = true;
-            this.openSubs(this.assignPlanId || 0);
+            this.openSubs(this.subsPlanId || 0);
           } else {
             safeToast('Failed to cancel subscription.', 'error');
           }

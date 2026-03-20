@@ -182,7 +182,7 @@
                               data-currency="{$row.currency|upper|default:'USD'|escape}"
                               data-reason="{$row.reason|default:'-'|escape}"
                               data-status="{$st|escape}"
-                              data-evidence="{$row.evidence_due_by|default:0|escape}"
+                              data-evidence="{if $row.evidence_due_by}{$row.evidence_due_by|date_format:'%Y-%m-%d %H:%M'|escape}{else}-{/if}"
                               data-charge="{$row.charge_id|default:'-'|escape}">
                             <td class="px-4 py-3">{$row.stripe_dispute_id|default:'-'}</td>
                             <td class="px-4 py-3">{$row.amount/100|string_format:'%.2f'}</td>
@@ -191,7 +191,7 @@
                             <td class="px-4 py-3">
                               <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold {if $st=='won'}bg-emerald-500/15 text-emerald-200{elseif $st=='needs_response' || $st=='warning_needs_response'}bg-amber-500/15 text-amber-200{elseif $st=='lost'}bg-rose-500/15 text-rose-200{else}bg-slate-700 text-slate-300{/if}"><span class="h-1.5 w-1.5 rounded-full {if $st=='won'}bg-emerald-400{elseif $st=='needs_response' || $st=='warning_needs_response'}bg-amber-400{elseif $st=='lost'}bg-rose-400{else}bg-slate-500{/if}"></span>{$st}</span>
                             </td>
-                            <td class="px-4 py-3">{$row.evidence_due_by|default:0}</td>
+                            <td class="px-4 py-3">{if $row.evidence_due_by}{$row.evidence_due_by|date_format:'%Y-%m-%d %H:%M'}{else}-{/if}</td>
                             <td class="px-4 py-3">{$row.charge_id|default:'-'}</td>
                             <td class="px-4 py-3">
                               {assign var=acct value=$msp.stripe_connect_id|default:''}
