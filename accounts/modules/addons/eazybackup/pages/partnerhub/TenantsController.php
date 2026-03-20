@@ -141,6 +141,28 @@ function eb_ph_tenants_delete_blockers(int $tenantId): array
         }
     }
 
+    if (Capsule::schema()->hasTable('eb_plan_instances')) {
+        $activeSubs = (int)Capsule::table('eb_plan_instances')
+            ->where('tenant_id', $tenantId)
+            ->whereIn('status', ['active', 'trialing', 'past_due', 'paused'])
+            ->count();
+        if ($activeSubs > 0) {
+            $blockers['plan_instances'] = $activeSubs;
+        }
+    }
+    if (Capsule::schema()->hasTable('eb_subscriptions')) {
+        $legacySubs = (int)Capsule::table('eb_subscriptions')
+            ->where('tenant_id', $tenantId)
+            ->where(function ($q) {
+                $q->whereNull('stripe_status')
+                    ->orWhereNotIn('stripe_status', ['canceled', 'cancelled']);
+            })
+            ->count();
+        if ($legacySubs > 0) {
+            $blockers['subscriptions'] = $legacySubs;
+        }
+    }
+
     return $blockers;
 }
 
@@ -428,7 +450,6 @@ function eb_ph_tenants_index(array $vars)
             eb_ph_tenants_redirect($vars, 'error=slug_taken');
         }
 
-        // Admin user creation from modal is deferred; create_admin / admin_email / admin_name / auto_password / admin_password are ignored here.
         $insert = [
             'msp_id' => (int)$msp->id,
             'name' => $name,
@@ -474,6 +495,76 @@ function eb_ph_tenants_index(array $vars)
                 $tenantPublicId = (string)(Capsule::table('eb_tenants')->where('id', $tenantId)->value('public_id') ?? '');
                 $tenantPublicId = trim($tenantPublicId);
             }
+
+            try {
+                $createAdminRequested = isset($post['create_admin']) && (string)$post['create_admin'] === '1';
+                $adminEmail = strtolower(trim((string)($post['admin_email'] ?? '')));
+                $adminName = trim((string)($post['admin_name'] ?? ''));
+                $autoPasswordFlag = (string)($post['auto_password'] ?? '1');
+                $adminPassword = (string)($post['admin_password'] ?? '');
+
+                if (
+                    $createAdminRequested
+                    && $adminEmail !== ''
+                    && $adminName !== ''
+                    && Capsule::schema()->hasTable('eb_tenant_users')
+                    && filter_var($adminEmail, FILTER_VALIDATE_EMAIL)
+                ) {
+                    $hasAdmin = (bool)Capsule::table('eb_tenant_users')
+                        ->where('tenant_id', $tenantId)
+                        ->where('role', 'admin')
+                        ->exists();
+                    if (!$hasAdmin) {
+                        $plainPassword = null;
+                        if ($autoPasswordFlag === '0') {
+                            if (strlen($adminPassword) >= 8) {
+                                $plainPassword = $adminPassword;
+                            }
+                        } else {
+                            try {
+                                $plainPassword = bin2hex(random_bytes(16));
+                            } catch (\Throwable $___) {
+                                $plainPassword = sha1((string)microtime(true) . '-' . mt_rand());
+                            }
+                        }
+                        if ($plainPassword !== null) {
+                            Capsule::table('eb_tenant_users')->insertGetId([
+                                'tenant_id' => $tenantId,
+                                'email' => $adminEmail,
+                                'password_hash' => password_hash($plainPassword, PASSWORD_DEFAULT),
+                                'name' => $adminName,
+                                'role' => 'admin',
+                                'status' => 'active',
+                                'created_at' => Capsule::raw('NOW()'),
+                                'updated_at' => Capsule::raw('NOW()'),
+                            ]);
+                        }
+                    }
+                }
+            } catch (\Throwable $___) {
+                // Best-effort: tenant row already exists.
+            }
+
+            $acct = trim((string)($msp->stripe_connect_id ?? ''));
+            if ($acct !== '') {
+                try {
+                    (new StripeService())->ensureStripeCustomerFor($tenantId, $acct);
+                } catch (\Throwable $stripeEx) {
+                    if (function_exists('logModuleCall')) {
+                        try {
+                            logModuleCall(
+                                'eazybackup',
+                                'ph-tenant-create-stripe-customer-warning',
+                                ['tenant_id' => $tenantId],
+                                $stripeEx->getMessage()
+                            );
+                        } catch (\Throwable $__) {
+                            // ignore
+                        }
+                    }
+                }
+            }
+
             if ($tenantPublicId !== '') {
                 eb_ph_tenant_redirect($vars, $tenantPublicId, 'notice=created');
             }
@@ -662,6 +753,45 @@ function eb_ph_tenant_detail(array $vars)
             }
             Capsule::table('eb_tenants')->where('id', $tenantId)->where('msp_id', (int)$msp->id)->update($update);
 
+            $stripeCustomerSyncWarning = false;
+            $stripeCustomerId = trim((string)($tenant->stripe_customer_id ?? ''));
+            $stripeConnectId = trim((string)($msp->stripe_connect_id ?? ''));
+            if ($stripeCustomerId !== '' && $stripeConnectId !== '') {
+                try {
+                    (new StripeService())->updateCustomer(
+                        $stripeCustomerId,
+                        [
+                            'name' => $name,
+                            'email' => $contactEmail,
+                            'phone' => $contactPhone,
+                            'address' => [
+                                'line1' => $addressLine1,
+                                'line2' => $addressLine2,
+                                'city' => $city,
+                                'state' => $state,
+                                'postal_code' => $postalCode,
+                                'country' => $country !== null && $country !== '' ? $country : '',
+                            ],
+                        ],
+                        $stripeConnectId
+                    );
+                } catch (\Throwable $stripeEx) {
+                    if (function_exists('logModuleCall')) {
+                        try {
+                            logModuleCall(
+                                'eazybackup',
+                                'ph-tenant-profile-stripe-sync-warning',
+                                ['tenant_id' => $tenantId, 'stripe_customer_id' => $stripeCustomerId],
+                                $stripeEx->getMessage()
+                            );
+                        } catch (\Throwable $__) {
+                            // ignore
+                        }
+                    }
+                    $stripeCustomerSyncWarning = true;
+                }
+            }
+
             if ($savePortalAdmin) {
                 $portalAdminPayload = [
                     'email' => $portalAdminEmail,
@@ -692,7 +822,11 @@ function eb_ph_tenant_detail(array $vars)
                 }
             }
 
-            eb_ph_tenant_redirect($vars, $tenantPublicId, 'notice=saved');
+            $redirectQuery = 'notice=saved';
+            if ($stripeCustomerSyncWarning) {
+                $redirectQuery .= '&error=stripe_sync_warning';
+            }
+            eb_ph_tenant_redirect($vars, $tenantPublicId, $redirectQuery);
         } catch (\Throwable $__) {
             eb_ph_tenant_redirect($vars, $tenantPublicId, 'error=save_failed');
         }

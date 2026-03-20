@@ -53,11 +53,17 @@ class StripeService
             CURLOPT_HTTPHEADER => $headers,
             CURLOPT_TIMEOUT => 30,
         ];
-        if (strtoupper($method) === 'POST') {
+        $methodU = strtoupper($method);
+        if ($methodU === 'POST') {
             $opts[CURLOPT_POST] = true;
             $opts[CURLOPT_POSTFIELDS] = http_build_query($params);
-        } elseif (strtoupper($method) === 'GET' && !empty($params)) {
+        } elseif ($methodU === 'GET' && !empty($params)) {
             $opts[CURLOPT_URL] = $url.'?'.http_build_query($params);
+        } elseif ($methodU === 'DELETE') {
+            $opts[CURLOPT_CUSTOMREQUEST] = 'DELETE';
+            if (!empty($params)) {
+                $opts[CURLOPT_URL] = $url.'?'.http_build_query($params);
+            }
         }
         curl_setopt_array($ch, $opts);
         $res = curl_exec($ch);
@@ -222,6 +228,56 @@ class StripeService
         return $this->request('GET', '/v1/customers/'.$stripeCustomerId, [], null, $stripeAccount);
     }
 
+    /**
+     * Update a Customer on the platform or a connected account (Stripe-Account header).
+     * $fields may include: name, email, phone, and address (array with line1, line2, city, state, postal_code, country).
+     */
+    public function updateCustomer(string $stripeCustomerId, array $fields, ?string $stripeAccount = null): array
+    {
+        $stripeCustomerId = trim($stripeCustomerId);
+        if ($stripeCustomerId === '') {
+            throw new \RuntimeException('Missing Stripe customer id');
+        }
+        $params = [];
+        if (array_key_exists('name', $fields)) {
+            $n = trim((string)($fields['name'] ?? ''));
+            $params['name'] = $n;
+        }
+        if (array_key_exists('email', $fields)) {
+            $e = strtolower(trim((string)($fields['email'] ?? '')));
+            $params['email'] = $e;
+        }
+        if (array_key_exists('phone', $fields)) {
+            $p = trim((string)($fields['phone'] ?? ''));
+            $params['phone'] = $p;
+        }
+        if (isset($fields['address']) && is_array($fields['address'])) {
+            $a = $fields['address'];
+            $map = [
+                'line1' => 'line1',
+                'line2' => 'line2',
+                'city' => 'city',
+                'state' => 'state',
+                'postal_code' => 'postal_code',
+                'country' => 'country',
+            ];
+            foreach ($map as $src => $stripeKey) {
+                if (!array_key_exists($src, $a)) {
+                    continue;
+                }
+                $v = trim((string)($a[$src] ?? ''));
+                if ($src === 'country') {
+                    $v = strtoupper($v);
+                }
+                $params['address['.$stripeKey.']'] = $v;
+            }
+        }
+        if (empty($params)) {
+            return $this->retrieveCustomer($stripeCustomerId, $stripeAccount);
+        }
+        return $this->request('POST', '/v1/customers/'.$stripeCustomerId, $params, null, $stripeAccount);
+    }
+
     public function listCustomerPaymentMethods(string $stripeCustomerId, string $type = 'card', ?string $stripeAccount = null): array
     {
         return $this->request('GET', '/v1/payment_methods', [
@@ -266,6 +322,43 @@ class StripeService
         return $this->request('GET','/v1/subscriptions/'.$subscriptionId, [], null, $stripeAccount);
     }
 
+    public function cancelSubscription(string $subscriptionId, ?string $stripeAccount = null): array
+    {
+        $subscriptionId = trim($subscriptionId);
+        if ($subscriptionId === '') {
+            throw new \RuntimeException('Missing Stripe subscription id');
+        }
+        return $this->request('DELETE', '/v1/subscriptions/'.$subscriptionId, [], null, $stripeAccount);
+    }
+
+    public function updateSubscription(string $subscriptionId, array $params, ?string $stripeAccount = null): array
+    {
+        $subscriptionId = trim($subscriptionId);
+        if ($subscriptionId === '') {
+            throw new \RuntimeException('Missing Stripe subscription id');
+        }
+        return $this->request('POST', '/v1/subscriptions/'.$subscriptionId, $params, null, $stripeAccount);
+    }
+
+    public function pauseSubscription(string $subscriptionId, ?string $stripeAccount = null): array
+    {
+        return $this->updateSubscription($subscriptionId, [
+            'pause_collection[behavior]' => 'void',
+        ], $stripeAccount);
+    }
+
+    public function resumeSubscription(string $subscriptionId, ?string $stripeAccount = null): array
+    {
+        return $this->updateSubscription($subscriptionId, [
+            'pause_collection' => '',
+        ], $stripeAccount);
+    }
+
+    public function previewUpcomingInvoice(array $params, ?string $stripeAccount = null): array
+    {
+        return $this->request('GET', '/v1/invoices/upcoming', $params, null, $stripeAccount);
+    }
+
     public function createUsageRecord(string $subscriptionItemId, int $quantity, int $timestamp, ?string $stripeAccount = null, ?string $idempotencyKey = null): array
     {
         $headers = $idempotencyKey ? ['Idempotency-Key: '.$idempotencyKey] : null;
@@ -281,6 +374,19 @@ class StripeService
         // Expect: amount, currency, customer (optional), payment_method (or capture via client)
         // Include application_fee_amount if platform fee applies
         return $this->request('POST','/v1/payment_intents', $params, null, $mspAccountId);
+    }
+
+    public function createRefund(string $paymentIntentId, ?int $amount = null, ?string $stripeAccount = null): array
+    {
+        $paymentIntentId = trim($paymentIntentId);
+        if ($paymentIntentId === '') {
+            throw new \RuntimeException('Missing payment intent id');
+        }
+        $params = ['payment_intent' => $paymentIntentId];
+        if ($amount !== null && $amount > 0) {
+            $params['amount'] = $amount;
+        }
+        return $this->request('POST', '/v1/refunds', $params, null, $stripeAccount);
     }
 
     public function getBalance(?string $stripeAccount = null): array

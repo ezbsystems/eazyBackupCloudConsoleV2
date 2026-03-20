@@ -48,7 +48,12 @@
             Tenant updated.
           </div>
         {/if}
-        {if $error neq ''}
+        {if $error eq 'stripe_sync_warning'}
+          <div class="rounded-xl bg-amber-500/10 ring-1 ring-amber-400/30 px-4 py-3 text-sm text-amber-100">
+            Tenant saved locally, but the Stripe customer profile could not be updated. Billing details in Stripe may be temporarily out of sync.
+          </div>
+        {/if}
+        {if $error neq '' && $error neq 'stripe_sync_warning'}
           <div class="rounded-xl bg-rose-500/10 ring-1 ring-rose-400/20 px-4 py-3 text-sm text-rose-200">
             Unable to process the request ({$error|escape}).
           </div>

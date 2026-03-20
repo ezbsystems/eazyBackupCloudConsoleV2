@@ -79,6 +79,7 @@
               <tr>
                 <th>Country</th>
                 <th>Region</th>
+                <th>Stripe Type</th>
                 <th>Registration #</th>
                 <th>Legal name</th>
                 <th class="!text-right">Actions</th>
@@ -86,7 +87,7 @@
             </thead>
             <tbody id="tx-reg-tbody">
               {foreach from=$registrations item=r}
-              <tr data-id="{$r.id}"><td>{$r.country|escape}</td><td>{$r.region|default:'-'|escape}</td><td>{$r.registration_number|escape}</td><td>{$r.legal_name|default:'-'|escape}</td><td class="!text-right"><button type="button" class="tx-del eb-btn eb-btn-outline eb-btn-xs">Delete</button></td></tr>
+              <tr data-id="{$r.id}"><td>{$r.country|escape}</td><td>{$r.region|default:'-'|escape}</td><td>{$r.stripe_registration_type_label|default:'Auto'|escape}</td><td>{$r.registration_number|escape}</td><td>{$r.legal_name|default:'-'|escape}</td><td class="!text-right"><button type="button" class="tx-del eb-btn eb-btn-outline eb-btn-xs">Delete</button></td></tr>
               {/foreach}
             </tbody>
           </table>
@@ -247,6 +248,20 @@
           <input type="hidden" id="tx-reg-id" value="" />
           <label class="block"><span class="eb-field-label !mb-0">Country</span><input id="tx-reg-country" placeholder="CA" class="eb-input mt-2 w-full uppercase" /></label>
           <label class="block"><span class="eb-field-label !mb-0">Region</span><input id="tx-reg-region" placeholder="ON" class="eb-input mt-2 w-full uppercase" /></label>
+          <label class="block">
+            <span class="eb-field-label !mb-0">Stripe registration type</span>
+            <select id="tx-reg-stripe-type" class="eb-input mt-2 w-full">
+              <option value="">Auto (recommended)</option>
+              <option value="standard">Standard</option>
+              <option value="simplified">Simplified</option>
+              <option value="province_standard">Canada — provincial (PST / RST / QST)</option>
+              <option value="state_sales_tax">United States — state sales tax</option>
+              <option value="ioss">EU — IOSS</option>
+              <option value="oss_union">EU — OSS (union scheme)</option>
+              <option value="oss_non_union">EU — OSS (non-union scheme)</option>
+            </select>
+            <span class="mt-1 block text-xs text-[var(--eb-text-muted)]">Auto now defaults to Standard for Canada and requires a state for US registrations. Wrong types are rejected by Stripe and the row is still saved locally.</span>
+          </label>
           <label class="block"><span class="eb-field-label !mb-0">Registration #</span><input id="tx-reg-number" class="eb-input mt-2 w-full" /></label>
           <label class="block"><span class="eb-field-label !mb-0">Legal name (optional)</span><input id="tx-reg-legal" class="eb-input mt-2 w-full" /></label>
         </div>

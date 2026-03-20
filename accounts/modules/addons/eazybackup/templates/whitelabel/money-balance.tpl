@@ -23,7 +23,7 @@
             <div class="eb-type-stat mt-1">
               {assign var=avail value=$balance.available|default:[]}
               {if $avail|@count > 0}
-                {$avail.0.amount|default:0} {$avail.0.currency|upper|default:'USD'}
+                {$avail.0.amount/100|string_format:'%.2f'} {$avail.0.currency|upper|default:'USD'}
               {else}0{/if}
             </div>
           </div>
@@ -32,7 +32,7 @@
             <div class="eb-type-stat mt-1">
               {assign var=pending value=$balance.pending|default:[]}
               {if $pending|@count > 0}
-                {$pending.0.amount|default:0} {$pending.0.currency|upper|default:'USD'}
+                {$pending.0.amount/100|string_format:'%.2f'} {$pending.0.currency|upper|default:'USD'}
               {else}0{/if}
             </div>
           </div>
@@ -211,14 +211,14 @@
                         data-fee="{$row.fee|default:0|escape}"
                         data-net="{$row.net|default:0|escape}">
                       <td class="eb-table-mono">{$row.id|default:'-'}</td>
-                      <td>{$row.amount|default:0}</td>
+                      <td>{$row.amount/100|string_format:'%.2f'}</td>
                       <td>{$row.currency|upper|default:'USD'}</td>
                       <td>{$row.type|default:'-'}</td>
                       <td>{$row.description|default:'-'}</td>
-                      <td>{$row.created|default:0}</td>
-                      <td>{$row.available_on|default:0}</td>
-                      <td>{$row.fee|default:0}</td>
-                      <td>{$row.net|default:0}</td>
+                      <td>{if $row.created|default:0}{$row.created|date_format:'%Y-%m-%d %H:%M'}{else}-{/if}</td>
+                      <td>{if $row.available_on|default:0}{$row.available_on|date_format:'%Y-%m-%d'}{else}-{/if}</td>
+                      <td>{$row.fee/100|string_format:'%.2f'}</td>
+                      <td>{$row.net/100|string_format:'%.2f'}</td>
                     </tr>
                   {/foreach}
                   <tr x-ref="noResults" style="display: none;">

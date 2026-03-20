@@ -661,6 +661,7 @@ if (!window.catalogToastManager) {
   }
   function describeSaveError(out){
     if (!out) return 'Save failed';
+    if (out.message === 'csrf') return 'Your session expired or the security token was invalid. Refresh the page and try again.';
     if (out.message === 'mismatched_metric') return 'One or more prices use a different product type. Update the price rows to match the selected product type.';
     if (out.message === 'duplicate_pricing_slot') return out.detail ? String(out.detail) : 'Each price needs a unique billing setup.';
     if (out.message === 'stripe_name_exists') return 'A Stripe product with this name already exists. Choose a different name.';
