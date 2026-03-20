@@ -614,15 +614,40 @@ function eb_ph_catalog_product_show(array $vars)
 function eb_ph_catalog_product_save(array $vars): void
 {
     header('Content-Type: application/json');
-    // Lightweight diagnostics
-    try { if (function_exists('logModuleCall')) { @logModuleCall('eazybackup','ph-catalog-product-save:enter',[ 'ctype'=>($_SERVER['CONTENT_TYPE'] ?? ''), 'len'=>strlen((string)file_get_contents('php://input')), 'post_keys'=>array_keys($_POST ?? []) ],''); } } catch (\Throwable $__) {}
     if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { echo json_encode(['status'=>'error','message'=>'auth']); return; }
+    $raw = file_get_contents('php://input');
+    try { if (function_exists('logModuleCall')) { @logModuleCall('eazybackup','ph-catalog-product-save:enter',[ 'ctype'=>($_SERVER['CONTENT_TYPE'] ?? ''), 'len'=>strlen((string)$raw), 'post_keys'=>array_keys($_POST ?? []) ],''); } } catch (\Throwable $__) {}
+    $json = json_decode((string)$raw, true);
+    $csrfToken = '';
+    if (is_array($json) && isset($json['token'])) {
+        $csrfToken = (string)$json['token'];
+    }
+    if ($csrfToken === '' && isset($_POST['token'])) {
+        $csrfToken = (string)$_POST['token'];
+    }
+    if ($csrfToken === '' && isset($_POST['payload'])) {
+        $payloadProbe = json_decode((string)$_POST['payload'], true);
+        if (is_array($payloadProbe) && isset($payloadProbe['token'])) {
+            $csrfToken = (string)$payloadProbe['token'];
+        }
+    }
+    if ($csrfToken === '' && isset($_REQUEST['token'])) {
+        $csrfToken = (string)$_REQUEST['token'];
+    }
+    if ($csrfToken !== '') {
+        $_POST['token'] = $csrfToken;
+    }
+    if (function_exists('check_token')) {
+        try {
+            check_token('WHMCS.default');
+        } catch (\Throwable $__) {
+            echo json_encode(['status'=>'error','message'=>'csrf']);
+            return;
+        }
+    }
     $clientId = (int)$_SESSION['uid'];
     $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
     if (!$msp) { echo json_encode(['status'=>'error','message'=>'msp']); return; }
-    $raw = file_get_contents('php://input');
-    $body = (string)$raw;
-    $json = json_decode($body, true);
     if (!is_array($json)) {
         // Fallback: form-encoded payload
         if (isset($_POST['payload'])) {
@@ -1532,8 +1557,35 @@ function eb_ph_catalog_product_delete_stripe(array $vars): void
     if ($acct === '') { echo json_encode(['status'=>'error','message'=>'not_connected']); return; }
     $id = (string)($_POST['id'] ?? '');
     if ($id === '') { echo json_encode(['status'=>'error','message'=>'id']); return; }
-    try { (new CatalogService())->deleteProduct($id, $acct); echo json_encode(['status'=>'success']); }
-    catch (\Throwable $e) { echo json_encode(['status'=>'error','message'=>'delete_fail','detail'=>$e->getMessage()]); }
+    try {
+        $svc = new CatalogService();
+        // Stripe rejects deleting a product while it still has active prices; archive in batches (no starting_after needed).
+        while (true) {
+            $lp = $svc->listPrices($id, $acct, 100, true);
+            $batch = (array)($lp['data'] ?? []);
+            if ($batch === []) { break; }
+            foreach ($batch as $pr) {
+                if (!is_array($pr)) { continue; }
+                $priceId = (string)($pr['id'] ?? '');
+                if ($priceId === '') { continue; }
+                $svc->updatePrice($priceId, ['active' => false], $acct);
+            }
+            if (count($batch) < 100) { break; }
+        }
+        $svc->deleteProduct($id, $acct);
+        $local = Capsule::table('eb_catalog_products')
+            ->where('msp_id', (int)$msp->id)
+            ->where('stripe_product_id', $id)
+            ->first();
+        if ($local) {
+            $localProductId = (int)$local->id;
+            Capsule::table('eb_catalog_prices')->where('product_id', $localProductId)->delete();
+            Capsule::table('eb_catalog_products')->where('id', $localProductId)->delete();
+        }
+        echo json_encode(['status' => 'success']);
+    } catch (\Throwable $e) {
+        echo json_encode(['status' => 'error', 'message' => 'delete_fail', 'detail' => $e->getMessage()]);
+    }
 }
 
 function eb_ph_catalog_product_unarchive_stripe(array $vars): void

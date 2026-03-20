@@ -109,6 +109,7 @@
                      }
                    }"
                    x-init="init()">
+    <input type="hidden" id="ph-payments-csrf" value="{$token|escape}" />
     <div class="mb-5 flex flex-col gap-1 border-b border-[var(--eb-border-subtle)] pb-4">
       <h2 class="eb-type-h4 text-[var(--eb-text-primary)]">One-Time Payments</h2>
       <p class="eb-page-description">Track manual charges, project billing, and payment intent activity.</p>
@@ -159,6 +160,7 @@
                         <th class="px-4 py-3 text-left font-medium"><button type="button" class="eb-table-sort-button" @click="setSort('created')">Created <span x-text="sortIndicator('created')"></span></button></th>
                         <th class="px-4 py-3 text-left font-medium"><button type="button" class="eb-table-sort-button" @click="setSort('intent')">Payment Intent <span x-text="sortIndicator('intent')"></span></button></th>
                         <th class="px-4 py-3 text-left font-medium"><button type="button" class="eb-table-sort-button" @click="setSort('stripe')">Stripe <span x-text="sortIndicator('stripe')"></span></button></th>
+                        <th class="px-4 py-3 text-left font-medium">Actions</th>
                       </tr>
         </thead>
         <tbody x-ref="tbody">
@@ -183,14 +185,15 @@
                             <td>{$row.created|date_format:'%Y-%m-%d %H:%M'}</td>
                             <td class="eb-table-mono">{$row.stripe_payment_intent_id|default:'-'}</td>
                             <td>{assign var=acct value=$msp.stripe_connect_id|default:''}{if $acct}<a href="https://dashboard.stripe.com/connect/accounts/{$acct}/payments/{$row.stripe_payment_intent_id}" target="_blank" rel="noopener" class="font-medium text-[var(--eb-primary)] hover:underline">Open</a>{else}-{/if}</td>
+                            <td>{if $st=='succeeded' && $acct && $row.stripe_payment_intent_id|default:''}<button type="button" class="eb-btn eb-btn-outline eb-btn-xs" data-refund-pi="{$row.stripe_payment_intent_id|escape}">Refund</button>{else}<span class="text-[var(--eb-text-muted)]">-</span>{/if}</td>
                           </tr>
                         {/foreach}
                         <tr x-ref="noResults" style="display: none;">
-                          <td colspan="7" class="px-4 py-10 text-center text-sm text-[var(--eb-text-muted)]">No payments found.</td>
+                          <td colspan="8" class="px-4 py-10 text-center text-sm text-[var(--eb-text-muted)]">No payments found.</td>
                         </tr>
                       {else}
                         <tr>
-                          <td colspan="7" class="px-4 py-10 text-center text-sm text-[var(--eb-text-muted)]">
+                          <td colspan="8" class="px-4 py-10 text-center text-sm text-[var(--eb-text-muted)]">
                             <div class="flex flex-col items-center gap-2">
                               <div class="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--eb-bg-overlay)]">
                                 <svg class="h-4 w-4 text-[var(--eb-text-muted)]" viewBox="0 0 24 24" fill="none">
@@ -216,6 +219,42 @@
       </div>
     </div>
   </section>
+  <script>
+  (function () {
+    var csrfEl = document.getElementById('ph-payments-csrf');
+    var refundUrl = '{$modulelink}&a=ph-billing-refund';
+    document.addEventListener('click', function (ev) {
+      var button = ev.target && ev.target.closest ? ev.target.closest('[data-refund-pi]') : null;
+      if (!button) return;
+      ev.preventDefault();
+      var paymentIntentId = button.getAttribute('data-refund-pi');
+      if (!csrfEl || !paymentIntentId) return;
+      if (!window.confirm('Issue a full refund for this payment?')) return;
+      button.disabled = true;
+      var body = new URLSearchParams();
+      body.set('token', csrfEl.value);
+      body.set('payment_intent_id', paymentIntentId);
+      fetch(refundUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body
+      })
+        .then(function (response) { return response.json(); })
+        .then(function (json) {
+          if (json && json.status === 'success') {
+            window.location.reload();
+            return;
+          }
+          window.alert((json && json.message) ? String(json.message) : 'Refund failed');
+          button.disabled = false;
+        })
+        .catch(function () {
+          window.alert('Refund request failed');
+          button.disabled = false;
+        });
+    });
+  })();
+  </script>
 {/capture}
 
 {include file="modules/addons/eazybackup/templates/whitelabel/partials/partner_hub_shell.tpl"
