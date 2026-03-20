@@ -1,56 +1,19 @@
-<div class="min-h-screen bg-slate-950 text-gray-300 overflow-x-hidden">
+<div class="eb-page">
     {* <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div> *}
-    <div class="container mx-auto max-w-full px-4 pb-8 pt-6">
-        <div class="w-full max-w-full min-w-0 overflow-hidden rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
-            <div class="-mx-6 -mt-6 mb-6 rounded-t-3xl border-b border-slate-800/80 bg-slate-900/50 px-6 py-3">
-                <nav class="flex flex-wrap items-center gap-1" aria-label="Cloud Storage Navigation">
-                    <a href="index.php?m=cloudstorage&page=dashboard"
-                       class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $smarty.get.page == 'dashboard' || !$smarty.get.page}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 14.25v2.25m3-4.5v4.5m3-6.75v6.75m3-9v9M6 20.25h12A2.25 2.25 0 0 0 20.25 18V6A2.25 2.25 0 0 0 18 3.75H6A2.25 2.25 0 0 0 3.75 6v12A2.25 2.25 0 0 0 6 20.25Z" />
-                        </svg>
-                        <span class="text-sm font-medium">Dashboard</span>
-                    </a>
-                    <a href="index.php?m=cloudstorage&page=buckets"
-                       class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $smarty.get.page == 'buckets'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
-                        </svg>
-                        <span class="text-sm font-medium">Buckets</span>
-                    </a>
-                    <a href="index.php?m=cloudstorage&page=access_keys"
-                       class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $smarty.get.page == 'access_keys'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25Z" />
-                        </svg>
-                        <span class="text-sm font-medium">Access Keys</span>
-                    </a>
-                    <a href="index.php?m=cloudstorage&page=users"
-                       class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $smarty.get.page == 'users'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" />
-                        </svg>
-                        <span class="text-sm font-medium">Users</span>
-                    </a>
-                    <a href="index.php?m=cloudstorage&page=billing"
-                       class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $smarty.get.page == 'billing'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
-                        </svg>
-                        <span class="text-sm font-medium">Billing</span>
-                    </a>
-                    <a href="index.php?m=cloudstorage&page=history"
-                       class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $smarty.get.page == 'history'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6l4 2m5-2a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                        </svg>
-                        <span class="text-sm font-medium">Historical Stats</span>
-                    </a>
-                </nav>
+    <div class="eb-page-inner max-w-full pb-8 pt-6">
+        <div class="eb-panel">
+            <div class="eb-panel-nav">
+                {include file="modules/addons/cloudstorage/templates/partials/core_nav.tpl" cloudstorageActivePage='buckets'}
+            </div>
+            <div class="eb-page-header">
+                <div>
+                    <h1 class="eb-page-title">Buckets</h1>
+                    <p class="eb-page-description">Create, browse, and manage lifecycle, logging, and deletion workflows for your storage buckets.</p>
+                </div>
             </div>
         
         <!-- Global Message Container (Always Present) -->
-        <div id="globalMessage" class="text-white px-4 py-2 rounded-md mb-6 hidden" role="alert"></div>
+        <div id="globalMessage" class="eb-alert eb-alert--info mb-6 hidden" role="alert"></div>
         <!-- Alpine Toasts -->
         <!-- ebLoader -->
         <script src="{$WEB_ROOT}/modules/addons/eazybackup/templates/assets/js/ui.js"></script>
@@ -112,33 +75,33 @@
         
         <!-- Legacy Server-Side Message (for backward compatibility) -->
         {if isset($message)}
-            <div class="{if ($smarty.get.status eq 'fail')}bg-red-700{else}bg-green-600{/if} text-gray-200 px-4 py-3 rounded-md mb-6" id="alertMessage" role="alert">
+            <div class="eb-alert {if ($smarty.get.status eq 'fail')}eb-alert--danger{else}eb-alert--success{/if} mb-6" id="alertMessage" role="alert">
                 {$message}
             </div>
         {/if}
 
         {if isset($HAS_PRIMARY_KEY) && !$HAS_PRIMARY_KEY}
-            <div class="mb-6 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-amber-200 text-sm">
+            <div class="eb-alert eb-alert--warning mb-6">
                 <div class="flex items-start justify-between gap-4">
                     <div>
-                        <div class="font-semibold text-amber-100">Access keys are required</div>
-                        <div class="mt-1 text-amber-200/90">
+                        <div class="eb-alert-title">Access keys are required</div>
+                        <div class="mt-1 text-sm">
                         Create your first access key to access buckets and use S3 tools.
                         </div>
                     </div>
-                    <a href="index.php?m=cloudstorage&page=access_keys" class="btn-accent whitespace-nowrap">Create access key</a>
+                    <a href="index.php?m=cloudstorage&page=access_keys" class="eb-btn eb-btn-primary whitespace-nowrap">Create access key</a>
                 </div>
             </div>
         {/if}
 
         <!-- Bucket Manager Row -->
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+        <div class="eb-app-toolbar mb-6">
             <div class="flex items-center">
                 <!-- Sort Button -->
                 <button
                     id="sortBuckets"
                     onmouseup="this.blur()"
-                    class="bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 py-2 rounded-md mr-2 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-600"
+                    class="eb-btn eb-btn-secondary eb-btn-icon mr-2"
                     title="Sort by size"
                 >
                     <!-- Default: bars arrow down (A–Z) -->
@@ -151,7 +114,7 @@
                     type="button"
                     id="openCreateBucketModalBtn"
                     onclick="openModal('createBucketModal')"
-                    class="btn-accent"
+                    class="eb-btn eb-btn-primary"
 
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -164,7 +127,7 @@
                 <input
                     type="text"
                     id="searchBuckets"
-                    class="w-full rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                    class="eb-input w-full"
                     placeholder="Search buckets"
                 />
             </div>
@@ -194,7 +157,7 @@
                 {/if}
 
                 <div
-                    class="bucket-row group relative overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-900/70 p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-400/60 hover:shadow-lg hover:shadow-emerald-500/15"
+                    class="bucket-row eb-card group relative overflow-hidden p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-400/60 hover:shadow-lg hover:shadow-emerald-500/15"
                     id="bucketRow{$bucket->id}"
                     data-bucket-name="{$bucket->name}"
                     data-versioning="{$bucket->versioning}"
@@ -217,11 +180,11 @@
                                 <div class="flex items-center gap-2">
                                     <h3 class="bucket-title text-sm font-semibold text-white">{$bucket->name}</h3>
                                     {assign var=ownerName value=$usernames[$bucket->user_id]}
-                                    <span class="bucket-owner inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium bg-slate-500/15 text-slate-300">
+                                    <span class="bucket-owner eb-badge eb-badge--neutral">
                                         Owner: {if $ownerName == $PRIMARY_USERNAME}Root user{else}{$ownerName}{/if}
                                     </span>
                                     {if $isPendingDelete}
-                                        <span id="pendingDeleteBadge{$bucket->id}" class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium bg-amber-500/15 text-amber-200 border border-amber-500/30" title="This bucket is pending deletion">
+                                        <span id="pendingDeleteBadge{$bucket->id}" class="eb-badge eb-badge--warning" title="This bucket is pending deletion">
                                             Pending deletion
                                             {if $deleteJob && isset($deleteJob->status) && $deleteJob->status == 'blocked'}
                                                 {if $deleteJob && isset($deleteJob->blocked_reason) && $deleteJob->blocked_reason == 'legal_hold'}
@@ -236,7 +199,7 @@
                                             {/if}
                                         </span>
                                     {else}
-                                        <span id="pendingDeleteBadge{$bucket->id}" class="!hidden inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium bg-amber-500/15 text-amber-200 border border-amber-500/30" title="This bucket is pending deletion">Pending deletion</span>
+                                        <span id="pendingDeleteBadge{$bucket->id}" class="eb-badge eb-badge--warning !hidden" title="This bucket is pending deletion">Pending deletion</span>
                                     {/if}
                                 </div>
                             </div>
@@ -248,7 +211,7 @@
                                 {assign var=canBrowse value=$HAS_KEYS_BY_USER_ID[$bucket->user_id]}
                             {/if}
                             {if $isPendingDelete}
-                                <button type="button" class="btn-accent opacity-50 cursor-not-allowed" title="Pending deletion — browsing disabled" disabled>
+                                <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm opacity-50 cursor-not-allowed" title="Pending deletion — browsing disabled" disabled>
                                     <div class="flex items-center gap-2">
                                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
@@ -256,7 +219,7 @@
                                     </div>
                                 </button>
                             {elseif $canBrowse}
-                                <a href="index.php?m=cloudstorage&page=browse&bucket={$bucket->name}&username={$usernames[$bucket->user_id]}" class="btn-accent cursor-pointer" title="Browse">
+                                <a href="index.php?m=cloudstorage&page=browse&bucket={$bucket->name}&username={$usernames[$bucket->user_id]}" class="eb-btn eb-btn-primary eb-btn-sm cursor-pointer" title="Browse">
                                     <div class="flex items-center gap-2">
                                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
@@ -264,7 +227,7 @@
                                     </div>
                                 </a>
                             {else}
-                                <button type="button" class="btn-accent opacity-50 cursor-not-allowed" title="Create an access key to browse this bucket" disabled>
+                                <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm opacity-50 cursor-not-allowed" title="Create an access key to browse this bucket" disabled>
                                     <div class="flex items-center gap-2">
                                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
@@ -3247,7 +3210,7 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
             const serverMessage = jQuery('#alertMessage');
             if (serverMessage.length > 0) {
                 const messageText = serverMessage.text().trim();
-                const messageType = serverMessage.hasClass('bg-red-700') ? 'error' : 'success';
+                const messageType = serverMessage.hasClass('eb-alert--danger') ? 'error' : 'success';
                 
                 // Show the message in the global container
                 showGlobalMessage(messageText, messageType);

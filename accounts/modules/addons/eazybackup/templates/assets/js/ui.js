@@ -256,7 +256,7 @@ document.addEventListener('DOMContentLoaded', function(){
     modal.classList.remove('hidden');
   }
 
-  document.querySelectorAll('.eb-stats-btn').forEach(btn => {
+  document.querySelectorAll('[data-eb-stats-trigger], .eb-stats-btn').forEach(btn => {
     btn.addEventListener('click', (e) => { e.preventDefault(); openModal(btn); });
   });
 

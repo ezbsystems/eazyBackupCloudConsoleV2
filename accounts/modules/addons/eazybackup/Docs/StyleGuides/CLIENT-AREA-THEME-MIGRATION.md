@@ -148,6 +148,249 @@ The rule is simple:
 - shared visual rules belong in semantic classes
 - page-specific layout can still use utility classes
 
+## Implemented Foundation Contract
+
+The first migration slice now standardizes on these files and names:
+
+- `templates/eazyBackup/includes/ui/page-shell.tpl`
+- `templates/eazyBackup/includes/ui/auth-shell.tpl`
+- `templates/eazyBackup/includes/ui/page-header.tpl`
+- `templates/eazyBackup/includes/ui/eb-alert.tpl`
+- `templates/eazyBackup/includes/ui/eb-card.tpl`
+- `templates/eazyBackup/includes/ui/table-toolbar.tpl`
+- `templates/eazyBackup/includes/ui/form-field.tpl`
+- `templates/eazyBackup/includes/ui/starter-full-page.tpl`
+
+The initial semantic CSS contract is:
+
+- `.eb-page`
+- `.eb-page-inner`
+- `.eb-panel`
+- `.eb-panel-nav`
+- `.eb-page-header`
+- `.eb-page-title`
+- `.eb-page-description`
+- `.eb-breadcrumb*`
+- `.eb-subpanel`
+- `.eb-stat-card`
+- `.eb-tab`
+- `.eb-btn`, `.eb-btn-primary`, `.eb-btn-secondary`, `.eb-btn-ghost`
+- `.eb-input`, `.eb-select`, `.eb-textarea`
+- `.eb-alert--success|warning|danger|info`
+- `.eb-table-shell`
+- `.eb-table-toolbar`
+- `.eb-table-pagination`
+- `.eb-badge`
+- `.eb-auth-shell`
+- `.eb-auth-card`
+
+Use these exact names for all new migration work unless the shared contract is intentionally revised.
+
+## Strict Style-Guide Parity Contract
+
+The migration foundation has now been extended into a strict parity layer for the dark-theme system. Before any more template migration, treat the following tokens and semantic classes as the implementation contract derived from the style guides.
+
+### Token Source of Truth
+
+Authoritative file:
+
+- `modules/addons/eazybackup/templates/partials/_ui-tokens.tpl`
+
+The token layer now explicitly covers these style-guide sections:
+
+- Colour tokens and elevation ladder:
+  - `--eb-bg-chrome`
+  - `--eb-bg-base`
+  - `--eb-bg-surface`
+  - `--eb-bg-card`
+  - `--eb-bg-raised`
+  - `--eb-bg-overlay`
+  - `--eb-bg-hover`
+  - `--eb-bg-active`
+  - `--eb-bg-input`
+  - `--eb-bg-input-focus`
+- Surface aliases used by components:
+  - `--eb-surface-page`
+  - `--eb-surface-panel`
+  - `--eb-surface-subpanel`
+  - `--eb-surface-elevated`
+  - `--eb-surface-overlay`
+  - `--eb-surface-input`
+  - `--eb-surface-nav`
+- Brand and action tokens:
+  - `--eb-brand-orange`
+  - `--eb-primary`
+  - `--eb-primary-hover`
+  - `--eb-accent`
+  - `--eb-accent-2`
+  - `--eb-primary-soft`
+  - `--eb-primary-border`
+- Text and typography tokens:
+  - `--eb-text-primary`
+  - `--eb-text-secondary`
+  - `--eb-text-muted`
+  - `--eb-text-disabled`
+  - `--eb-text-inverse`
+  - `--eb-font-display`
+  - `--eb-font-body`
+  - `--eb-font-mono`
+  - `--eb-type-hero-size`
+  - `--eb-type-h2-size`
+  - `--eb-type-h3-size`
+  - `--eb-type-h4-size`
+  - `--eb-type-eyebrow-size`
+  - `--eb-type-body-size`
+  - `--eb-type-body-lg-size`
+  - `--eb-type-caption-size`
+  - `--eb-type-button-size`
+  - `--eb-type-mono-size`
+  - `--eb-type-stat-size`
+- Border and focus tokens:
+  - `--eb-border-faint`
+  - `--eb-border-subtle`
+  - `--eb-border-default`
+  - `--eb-border-emphasis`
+  - `--eb-border-strong`
+  - `--eb-border-orange`
+  - `--eb-border-brand`
+  - `--eb-ring`
+  - `--eb-ring-danger`
+- Semantic colour families:
+  - success: `--eb-success-*`
+  - warning: `--eb-warning-*`
+  - danger: `--eb-danger-*`
+  - info: `--eb-info-*`
+  - premium: `--eb-premium-*`
+- Radius and depth tokens:
+  - `--eb-radius-sm`
+  - `--eb-radius-md`
+  - `--eb-radius-lg`
+  - `--eb-radius-xl`
+  - `--eb-radius-pill`
+  - `--eb-shadow-sm`
+  - `--eb-shadow-md`
+  - `--eb-shadow-lg`
+  - `--eb-shadow-modal`
+  - `--eb-shadow-panel`
+- Modal, drawer, and layout size tokens:
+  - `--eb-backdrop-modal`
+  - `--eb-backdrop-drawer`
+  - `--eb-sidebar-width`
+  - `--eb-drawer-width-narrow`
+  - `--eb-drawer-width-wide`
+  - `--eb-modal-width-standard`
+  - `--eb-modal-width-confirm`
+
+Dark remains the only active runtime theme during migration, but every category above must preserve light-to-dark token symmetry so the light system can be activated later without reworking component markup.
+
+### Semantic Component Contract
+
+Authoritative file:
+
+- `templates/eazyBackup/css/tailwind.src.css`
+
+The component layer now covers the remaining style-guide sections:
+
+- Typography:
+  - `.eb-type-hero`
+  - `.eb-type-h2`
+  - `.eb-type-h3`
+  - `.eb-type-h4`
+  - `.eb-type-eyebrow`
+  - `.eb-type-body`
+  - `.eb-type-caption`
+  - `.eb-type-disabled`
+  - `.eb-type-button`
+  - `.eb-type-mono`
+  - `.eb-type-stat`
+- Depth and surfaces:
+  - `.eb-depth-surface`
+  - `.eb-depth-card`
+  - `.eb-depth-raised`
+  - `.eb-depth-overlay`
+  - `.eb-panel`
+  - `.eb-subpanel`
+  - `.eb-card`
+  - `.eb-card-raised`
+  - `.eb-card-glass`
+  - `.eb-card-orange`
+  - `.eb-stat-card`
+- Sidebar and navigation:
+  - `.eb-sidebar`
+  - `.eb-sidebar-section-label`
+  - `.eb-sidebar-link`
+  - `.eb-sidebar-badge`
+  - `.eb-sidebar-divider`
+  - `.eb-sidebar-user`
+  - `.eb-avatar`
+  - `.eb-tab`
+- Buttons:
+  - `.eb-btn`
+  - size modifiers: `.eb-btn-xs`, `.eb-btn-sm`, `.eb-btn-md`, `.eb-btn-lg`
+  - variants: `.eb-btn-primary`, `.eb-btn-secondary`, `.eb-btn-outline`, `.eb-btn-ghost`, `.eb-btn-orange`, `.eb-btn-success`, `.eb-btn-warning`, `.eb-btn-danger`, `.eb-btn-danger-solid`, `.eb-btn-info`, `.eb-btn-premium`, `.eb-btn-upgrade`
+  - utility variants: `.eb-btn-icon`, `.eb-btn-copy`
+- Forms and inputs:
+  - `.eb-input`
+  - `.eb-select`
+  - `.eb-textarea`
+  - `.eb-field-label`
+  - `.eb-field-help`
+  - `.eb-field-error`
+  - `.eb-input-wrap`
+  - `.eb-input-icon`
+  - `.eb-input-has-icon`
+  - `.eb-checkbox`
+  - `.eb-toggle`, `.eb-toggle-track`, `.eb-toggle-thumb`, `.eb-toggle-label`
+- Alerts, toasts, badges, pills, and icons:
+  - `.eb-alert--success|warning|danger|info`
+  - `.eb-toast--success|warning|danger|info`
+  - `.eb-badge--default|success|warning|danger|info|premium|orange|neutral|solid-success|solid-danger|dot`
+  - `.eb-pill`
+  - `.eb-pill-dot`
+  - `.eb-icon-box`
+  - `.eb-status-dot`
+  - `.eb-progress-track`
+  - `.eb-progress-fill`
+- Tables:
+  - `.eb-table-shell`
+  - `.eb-table`
+  - `.eb-table-toolbar`
+  - `.eb-table-pagination`
+  - `.eb-table-pagination-button`
+  - `.eb-table-primary`
+  - `.eb-table-mono`
+  - `.eb-sort-indicator`
+- Menus, dropdowns, modals, and drawers:
+  - `.eb-menu`
+  - `.eb-dropdown-menu`
+  - `.eb-menu-label`
+  - `.eb-menu-divider`
+  - `.eb-menu-item`
+  - `.eb-kbd`
+  - `.eb-modal`
+  - `.eb-modal-backdrop`
+  - `.eb-modal-header`
+  - `.eb-modal-title`
+  - `.eb-modal-subtitle`
+  - `.eb-modal-body`
+  - `.eb-modal-footer`
+  - `.eb-modal-close`
+  - `.eb-drawer`
+  - `.eb-drawer-backdrop`
+  - `.eb-drawer-header`
+  - `.eb-drawer-title`
+  - `.eb-drawer-body`
+  - `.eb-drawer-footer`
+
+### Enforcement Rule
+
+From this point forward:
+
+- new client-area templates must use semantic `eb-*` classes for design decisions
+- new template-local raw hex colors for standard UI styling are not allowed
+- menus, drawers, modals, badges, button states, and table surfaces should not be redefined per-template if the parity layer already exposes a matching class
+- if a guide section still cannot be expressed with the current contract, extend the shared token or component layer first, then update templates
+
 ## Migration Phases
 
 ## Phase 0: Preparation and Audit

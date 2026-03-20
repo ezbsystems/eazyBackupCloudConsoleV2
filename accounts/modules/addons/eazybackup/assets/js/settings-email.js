@@ -1,6 +1,27 @@
 (function(){
   function q(id){ return document.getElementById(id); }
-  function toast(msg){ try{ var t=q('toast-container'); if(!t){ t=document.createElement('div'); t.id='toast-container'; t.style.position='fixed'; t.style.top='1rem'; t.style.right='1rem'; t.style.zIndex='9999'; document.body.appendChild(t);} var el=document.createElement('div'); el.className='mt-2 rounded-xl bg-white/5 ring-1 ring-white/10 px-4 py-3 text-sm text-white/80'; el.textContent=msg; t.appendChild(el); setTimeout(function(){ try{ el.remove(); }catch(_){ } }, 3000);}catch(_){}}
+  function toast(msg, type){
+    try{
+      type = type || 'info';
+      var variant = 'info';
+      if(type === 'success') variant = 'success';
+      else if(type === 'error' || type === 'danger') variant = 'danger';
+      else if(type === 'warning') variant = 'warning';
+      var t=q('toast-container');
+      if(!t){
+        t=document.createElement('div');
+        t.id='toast-container';
+        t.className='pointer-events-none fixed right-4 top-4 z-[9999] flex flex-col items-end gap-2';
+        document.body.appendChild(t);
+      }
+      var el=document.createElement('div');
+      el.className='pointer-events-auto eb-toast eb-toast--' + variant;
+      el.setAttribute('role','status');
+      el.textContent=msg;
+      t.appendChild(el);
+      setTimeout(function(){ try{ el.remove(); }catch(_){ } }, 3000);
+    }catch(_){}
+  }
   function val(id){ var el=q(id); return el ? (el.value||'') : ''; }
   function bool(id){ var el=q(id); return !!(el && el.checked); }
 
@@ -53,12 +74,12 @@
   }
 
   function save(){
-    if(!validate()){ toast('Fix validation errors.'); return; }
+    if(!validate()){ toast('Fix validation errors.', 'warning'); return; }
     var token=(q('eb-token')?.value)||'';
     var body=new URLSearchParams(); body.set('token', token); body.set('payload', JSON.stringify(payload()));
     fetch('index.php?m=eazybackup&a=ph-settings-email-save', { method:'POST', headers:{ 'Content-Type':'application/x-www-form-urlencoded' }, body: body.toString() })
-      .then(function(r){ return r.json(); }).then(function(j){ if(j && j.status==='success'){ toast('Settings saved.'); setTimeout(function(){ location.reload(); }, 400); } else { toast((j && (j.message||'Save failed')) || 'Save failed'); } })
-      .catch(function(){ toast('Network error.'); });
+      .then(function(r){ return r.json(); }).then(function(j){ if(j && j.status==='success'){ toast('Settings saved.', 'success'); setTimeout(function(){ location.reload(); }, 400); } else { toast((j && (j.message||'Save failed')) || 'Save failed', 'danger'); } })
+      .catch(function(){ toast('Network error.', 'danger'); });
   }
 
   function mdPreview(md){
@@ -86,19 +107,19 @@
     var to=(q('eml-test-to')?.value)||'';
     var b=new URLSearchParams(); b.set('token', token); b.set('template', tpl); b.set('to', to);
     fetch('index.php?m=eazybackup&a=ph-email-test', { method:'POST', headers:{ 'Content-Type':'application/x-www-form-urlencoded' }, body: b.toString() })
-      .then(function(r){ return r.json(); }).then(function(j){ if(j && j.status==='success'){ toast('Test sent.'); closeTest(); } else { toast((j && (j.message||'Send failed')) || 'Send failed'); } })
-      .catch(function(){ toast('Network error.'); });
+      .then(function(r){ return r.json(); }).then(function(j){ if(j && j.status==='success'){ toast('Test sent.', 'success'); closeTest(); } else { toast((j && (j.message||'Send failed')) || 'Send failed', 'danger'); } })
+      .catch(function(){ toast('Network error.', 'danger'); });
   }
 
   // Restore default
-  document.addEventListener('click', function(e){ var t=e.target; if(t && t.classList.contains('eml-restore')){ var key=t.getAttribute('data-key'); var token=(q('eb-token')?.value)||''; var b=new URLSearchParams(); b.set('token', token); b.set('template', key); fetch('index.php?m=eazybackup&a=ph-email-restore-default', { method:'POST', headers:{ 'Content-Type':'application/x-www-form-urlencoded' }, body: b.toString() }).then(function(r){ return r.json(); }).then(function(j){ if(j && j.status==='success'){ toast('Template restored.'); setTimeout(function(){ location.reload(); }, 300); } else { toast('Restore failed'); } }); }});
+  document.addEventListener('click', function(e){ var t=e.target; if(t && t.classList.contains('eml-restore')){ var key=t.getAttribute('data-key'); var token=(q('eb-token')?.value)||''; var b=new URLSearchParams(); b.set('token', token); b.set('template', key); fetch('index.php?m=eazybackup&a=ph-email-restore-default', { method:'POST', headers:{ 'Content-Type':'application/x-www-form-urlencoded' }, body: b.toString() }).then(function(r){ return r.json(); }).then(function(j){ if(j && j.status==='success'){ toast('Template restored.', 'success'); setTimeout(function(){ location.reload(); }, 300); } else { toast('Restore failed', 'danger'); } }); }});
 
   // Events
   q('eml-btn-save')?.addEventListener('click', save);
   q('eml-btn-test')?.addEventListener('click', openTest);
   document.querySelectorAll('[data-eml-close]')?.forEach(function(el){ el.addEventListener('click', closeTest); });
   ['eml-from-address','eml-reply-to','eml-smtp-host','eml-smtp-port'].forEach(function(id){ q(id)?.addEventListener('input', validate); });
-  q('eml-smtp-mode')?.addEventListener('change', validate);
+  document.addEventListener('eml-settings-validate', validate);
   bindPreviews();
   validate();
 })();

@@ -4775,7 +4775,7 @@ function eazybackup_clientarea(array $vars)
 
                 // Determine the correct template based on the package ID
                 $templateFile = $service->packageid == 57
-                    ? "templates/success_obc-ms365"
+                    ? "templates/success-obc-ms365"
                     : "templates/clientarea_ms365";
             }
         }
@@ -6337,6 +6337,7 @@ function eazybackup_signup($vars)
             $clientData = [
                 "firstname"      => $firstName,
                 "lastname"       => $lastName,
+                "companyname"    => trim((string)($_POST['companyname'] ?? '')),
                 "email"          => (string)$_POST["email"],
                 "phonenumber"    => (string)$_POST["phonenumber"],
                 "password2"      => $randomClientPassword,
@@ -7698,14 +7699,17 @@ function eazybackup_validate(array $vars, array $settings = [])
 
     $remoteIp = $_SERVER['REMOTE_ADDR'] ?? null;
 
-    if ($token === '' || !validateTurnstile($token, $secret, $remoteIp)) {
-        $errors['turnstile'] = 'Please complete the verification.';
-        logModuleCall(
-            'eazybackup',
-            'ValidateTurnstile',
-            ['hasToken' => $token !== '', 'hasSecret' => $secret !== ''],
-            ['success' => false]
-        );
+    // Only enforce Turnstile when a secret is configured (staging/dev); production may omit CAPTCHA.
+    if ($secret !== '') {
+        if ($token === '' || !validateTurnstile($token, $secret, $remoteIp)) {
+            $errors['turnstile'] = 'Please complete the verification.';
+            logModuleCall(
+                'eazybackup',
+                'ValidateTurnstile',
+                ['hasToken' => $token !== '', 'hasSecret' => $secret !== ''],
+                ['success' => false]
+            );
+        }
     }
 
     // ---- Username -----------------------------------------------------------
@@ -7714,7 +7718,11 @@ function eazybackup_validate(array $vars, array $settings = [])
     } else {
         try {
             // If this does not throw, user exists -> reject
-            comet_Server(['pid' => $vars['product']])->AdminGetUserProfile($vars['username']);
+            $cometPid = trim((string)($vars['product'] ?? ''));
+            if ($cometPid === '') {
+                $cometPid = '58';
+            }
+            comet_Server(['pid' => $cometPid])->AdminGetUserProfile($vars['username']);
             $errors['username'] = 'That username is not available, please try another.';
         } catch (\Throwable $e) {
             // Username likely available; do nothing
@@ -7733,6 +7741,11 @@ function eazybackup_validate(array $vars, array $settings = [])
     } elseif (($vars['confirmpassword'] ?? '') !== ($vars['password'] ?? '')) {
         $errors['confirmpassword'] = 'Passwords do not match.';
         }
+    }
+
+    // ---- Phone --------------------------------------------------------------
+    if (trim((string)($vars['phonenumber'] ?? '')) === '') {
+        $errors['phonenumber'] = 'Please enter your phone number.';
     }
 
     // ---- Email --------------------------------------------------------------

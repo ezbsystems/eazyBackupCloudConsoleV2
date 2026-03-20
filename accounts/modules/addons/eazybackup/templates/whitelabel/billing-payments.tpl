@@ -1,28 +1,12 @@
 {include file="modules/addons/eazybackup/templates/partials/_ui-tokens.tpl"}
-<div class="min-h-screen bg-slate-950 text-gray-100 overflow-x-hidden">
-  <div class="container mx-auto max-w-full px-4 pb-8 pt-6">
-    <div x-data="{ sidebarCollapsed: localStorage.getItem('eb_ph_sidebar_collapsed') === 'true' || window.innerWidth < 1360, toggleCollapse() { this.sidebarCollapsed = !this.sidebarCollapsed; localStorage.setItem('eb_ph_sidebar_collapsed', this.sidebarCollapsed); }, handleResize() { if (window.innerWidth < 1360 && !this.sidebarCollapsed) this.sidebarCollapsed = true; } }" x-init="window.addEventListener('resize', () => handleResize())" class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)]">
-      <div class="flex">
-        {include file="modules/addons/eazybackup/templates/whitelabel/partials/sidebar_partner_hub.tpl" ebPhSidebarPage='billing-payments'}
-        <main class="flex-1 min-w-0 overflow-x-auto">
-          <div class="flex items-center justify-between border-b border-slate-800/60 px-6 py-4">
-            <div>
-              <h1 class="text-2xl font-semibold tracking-tight">Payments</h1>
-              <p class="mt-1 text-sm text-slate-400">View and manage one-time charges for setup fees and project work.</p>
-            </div>
-            <div class="shrink-0">
-              <a href="{$modulelink}&a=ph-billing-payment-new" class="inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white bg-[rgb(var(--accent))] hover:bg-[rgb(var(--accent))]/90">New Payment</a>
-            </div>
-          </div>
-          <div class="p-6">
-            <section class="bg-slate-950/70 rounded-2xl border border-slate-800/80 p-4">
-              <div class="px-6 py-5">
-                <h2 class="text-lg font-medium">One-Time Payments</h2>
-                <p class="mt-1 text-sm text-slate-400">Track manual charges, project billing, and payment intent activity.</p>
-              </div>
-              <div class="border-t border-white/10"></div>
-              <div class="p-4"
-                   x-data="{
+{capture assign=ebPhActions}
+  <div class="flex flex-wrap items-center justify-end gap-2">
+    <a href="{$modulelink}&a=ph-billing-payment-new" class="eb-btn eb-btn-primary eb-btn-sm">New Payment</a>
+  </div>
+{/capture}
+{capture assign=ebPhContent}
+  <section class="eb-subpanel overflow-hidden"
+           x-data="{
                      entriesOpen: false,
                      statusOpen: false,
                      search: '{$q|escape:'javascript'}',
@@ -125,24 +109,29 @@
                      }
                    }"
                    x-init="init()">
-                <div class="mb-4 flex flex-col xl:flex-row xl:items-center gap-3">
+    <div class="mb-5 flex flex-col gap-1 border-b border-[var(--eb-border-subtle)] pb-4">
+      <h2 class="eb-type-h4 text-[var(--eb-text-primary)]">One-Time Payments</h2>
+      <p class="eb-page-description">Track manual charges, project billing, and payment intent activity.</p>
+    </div>
+    <div class="eb-table-toolbar">
+      <div class="flex flex-wrap items-center gap-3">
                   <div class="relative" @click.away="entriesOpen = false">
-                    <button type="button" @click="entriesOpen = !entriesOpen" class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
+                    <button type="button" @click="entriesOpen = !entriesOpen" class="eb-app-toolbar-button">
                       <span x-text="'Show ' + entriesPerPage"></span>
                       <svg class="w-4 h-4 transition-transform" :class="entriesOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
                     </button>
-                    <div x-show="entriesOpen" x-transition:enter="transition ease-out duration-100" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100" x-transition:leave="transition ease-in duration-75" x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95" class="absolute left-0 mt-2 w-40 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden" style="display: none;">
+                    <div x-show="entriesOpen" x-transition:enter="transition ease-out duration-100" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100" x-transition:leave="transition ease-in duration-75" x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95" class="eb-dropdown-menu absolute left-0 z-50 mt-2 w-40 overflow-hidden !min-w-0" style="display: none;">
                       <template x-for="size in [10,25,50,100]" :key="'pay-entries-' + size">
-                        <button type="button" class="w-full px-4 py-2 text-left text-sm transition" :class="entriesPerPage === size ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'" @click="setEntries(size); entriesOpen = false;"><span x-text="size"></span></button>
+                        <button type="button" class="eb-menu-item w-full justify-start !rounded-[var(--eb-radius-md)]" :class="entriesPerPage === size ? 'is-active' : ''" @click="setEntries(size); entriesOpen = false;"><span x-text="size"></span></button>
                       </template>
                     </div>
                   </div>
                   <div class="relative" @click.away="statusOpen = false">
-                    <button type="button" @click="statusOpen = !statusOpen" class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
+                    <button type="button" @click="statusOpen = !statusOpen" class="eb-app-toolbar-button">
                       <span x-text="'Status: ' + statusLabel()"></span>
                       <svg class="w-4 h-4 transition-transform" :class="statusOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
                     </button>
-                    <div x-show="statusOpen" x-transition:enter="transition ease-out duration-100" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100" x-transition:leave="transition ease-in duration-75" x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95" class="absolute left-0 mt-2 w-64 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden" style="display: none;">
+                    <div x-show="statusOpen" x-transition:enter="transition ease-out duration-100" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100" x-transition:leave="transition ease-in duration-75" x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95" class="eb-dropdown-menu absolute left-0 z-50 mt-2 w-64 overflow-hidden !min-w-0" style="display: none;">
                       <template x-for="option in [
                         { value: 'succeeded', label: 'Succeeded' },
                         { value: 'processing', label: 'Processing' },
@@ -151,32 +140,32 @@
                         { value: 'canceled', label: 'Canceled' },
                         { value: 'all', label: 'All' }
                       ]" :key="'pay-status-' + option.value">
-                        <button type="button" class="w-full px-4 py-2 text-left text-sm transition" :class="statusFilter === option.value ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'" @click="setStatus(option.value); statusOpen = false;"><span x-text="option.label"></span></button>
+                        <button type="button" class="eb-menu-item w-full justify-start !rounded-[var(--eb-radius-md)]" :class="statusFilter === option.value ? 'is-active' : ''" @click="setStatus(option.value); statusOpen = false;"><span x-text="option.label"></span></button>
                       </template>
                     </div>
                   </div>
-                  <div class="flex-1"></div>
-                  <input type="text" x-model="search" placeholder="Search client, payment intent, or status" class="w-full xl:w-80 rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
-                </div>
+      </div>
+      <input type="text" x-model="search" placeholder="Search client, payment intent, or status" class="eb-input eb-app-toolbar-search">
+    </div>
 
-                <div class="overflow-x-auto rounded-lg border border-slate-800">
-                  <table class="min-w-full divide-y divide-slate-800 text-sm">
-                    <thead class="bg-slate-900/80 text-slate-300">
+    <div class="eb-table-shell">
+      <table class="eb-table">
+        <thead>
                       <tr>
-                        <th class="px-4 py-3 text-left font-medium"><button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('client')">Client <span x-text="sortIndicator('client')"></span></button></th>
-                        <th class="px-4 py-3 text-left font-medium"><button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('amount')">Amount <span x-text="sortIndicator('amount')"></span></button></th>
-                        <th class="px-4 py-3 text-left font-medium"><button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('currency')">Currency <span x-text="sortIndicator('currency')"></span></button></th>
-                        <th class="px-4 py-3 text-left font-medium"><button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('status')">Status <span x-text="sortIndicator('status')"></span></button></th>
-                        <th class="px-4 py-3 text-left font-medium"><button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('created')">Created <span x-text="sortIndicator('created')"></span></button></th>
-                        <th class="px-4 py-3 text-left font-medium"><button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('intent')">Payment Intent <span x-text="sortIndicator('intent')"></span></button></th>
-                        <th class="px-4 py-3 text-left font-medium"><button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('stripe')">Stripe <span x-text="sortIndicator('stripe')"></span></button></th>
+                        <th class="px-4 py-3 text-left font-medium"><button type="button" class="eb-table-sort-button" @click="setSort('client')">Client <span x-text="sortIndicator('client')"></span></button></th>
+                        <th class="px-4 py-3 text-left font-medium"><button type="button" class="eb-table-sort-button" @click="setSort('amount')">Amount <span x-text="sortIndicator('amount')"></span></button></th>
+                        <th class="px-4 py-3 text-left font-medium"><button type="button" class="eb-table-sort-button" @click="setSort('currency')">Currency <span x-text="sortIndicator('currency')"></span></button></th>
+                        <th class="px-4 py-3 text-left font-medium"><button type="button" class="eb-table-sort-button" @click="setSort('status')">Status <span x-text="sortIndicator('status')"></span></button></th>
+                        <th class="px-4 py-3 text-left font-medium"><button type="button" class="eb-table-sort-button" @click="setSort('created')">Created <span x-text="sortIndicator('created')"></span></button></th>
+                        <th class="px-4 py-3 text-left font-medium"><button type="button" class="eb-table-sort-button" @click="setSort('intent')">Payment Intent <span x-text="sortIndicator('intent')"></span></button></th>
+                        <th class="px-4 py-3 text-left font-medium"><button type="button" class="eb-table-sort-button" @click="setSort('stripe')">Stripe <span x-text="sortIndicator('stripe')"></span></button></th>
                       </tr>
-                    </thead>
-                    <tbody x-ref="tbody" class="divide-y divide-slate-800">
+        </thead>
+        <tbody x-ref="tbody">
                       {if $rows|@count > 0}
                         {foreach from=$rows item=row}
                           {assign var=st value=$row.status|default:'-'}
-                          <tr class="hover:bg-slate-800/50"
+                          <tr
                               data-row="payment"
                               data-client="{$row.tenant_name|default:'-'|escape}"
                               data-amount="{$row.amount/100|string_format:'%.2f'|escape}"
@@ -185,54 +174,54 @@
                               data-created="{$row.created|date_format:'%Y-%m-%d %H:%M'|escape}"
                               data-intent="{$row.stripe_payment_intent_id|default:'-'|escape}"
                               data-stripe="{if $msp.stripe_connect_id|default:'' && $row.stripe_payment_intent_id|default:''}open{else}-{/if}">
-                            <td class="px-4 py-3 text-left font-medium text-slate-100">{$row.tenant_name|default:'-'}</td>
-                            <td class="px-4 py-3 text-left text-slate-300">{$row.amount/100|string_format:'%.2f'}</td>
-                            <td class="px-4 py-3 text-left text-slate-300">{$row.currency|upper|default:'USD'}</td>
-                            <td class="px-4 py-3 text-left">
-                              <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold {if $st=='succeeded'}bg-emerald-500/15 text-emerald-200{elseif $st=='requires_payment_method' || $st=='requires_action' || $st=='processing'}bg-amber-500/15 text-amber-200{elseif $st=='canceled'}bg-slate-700 text-slate-300{else}bg-rose-500/15 text-rose-200{/if}"><span class="h-1.5 w-1.5 rounded-full {if $st=='succeeded'}bg-emerald-400{elseif $st=='requires_payment_method' || $st=='requires_action' || $st=='processing'}bg-amber-400{else}bg-slate-500{/if}"></span>{$st}</span>
+                            <td class="eb-table-primary">{$row.tenant_name|default:'-'}</td>
+                            <td>{$row.amount/100|string_format:'%.2f'}</td>
+                            <td>{$row.currency|upper|default:'USD'}</td>
+                            <td>
+                              <span class="eb-badge eb-badge--dot {if $st=='succeeded'}eb-badge--success{elseif $st=='requires_payment_method' || $st=='requires_action' || $st=='processing'}eb-badge--warning{elseif $st=='canceled'}eb-badge--default{else}eb-badge--danger{/if}">{$st}</span>
                             </td>
-                            <td class="px-4 py-3 text-left text-slate-300">{$row.created|date_format:'%Y-%m-%d %H:%M'}</td>
-                            <td class="px-4 py-3 text-left text-slate-300">{$row.stripe_payment_intent_id|default:'-'}</td>
-                            <td class="px-4 py-3 text-left">{assign var=acct value=$msp.stripe_connect_id|default:''}{if $acct}<a href="https://dashboard.stripe.com/connect/accounts/{$acct}/payments/{$row.stripe_payment_intent_id}" target="_blank" rel="noopener" class="text-sky-400 hover:underline">Open</a>{else}-{/if}</td>
+                            <td>{$row.created|date_format:'%Y-%m-%d %H:%M'}</td>
+                            <td class="eb-table-mono">{$row.stripe_payment_intent_id|default:'-'}</td>
+                            <td>{assign var=acct value=$msp.stripe_connect_id|default:''}{if $acct}<a href="https://dashboard.stripe.com/connect/accounts/{$acct}/payments/{$row.stripe_payment_intent_id}" target="_blank" rel="noopener" class="font-medium text-[var(--eb-primary)] hover:underline">Open</a>{else}-{/if}</td>
                           </tr>
                         {/foreach}
                         <tr x-ref="noResults" style="display: none;">
-                          <td colspan="7" class="px-4 py-10 text-center text-sm text-slate-400">No payments found.</td>
+                          <td colspan="7" class="px-4 py-10 text-center text-sm text-[var(--eb-text-muted)]">No payments found.</td>
                         </tr>
                       {else}
                         <tr>
-                          <td colspan="7" class="px-4 py-10 text-center text-sm text-slate-400">
+                          <td colspan="7" class="px-4 py-10 text-center text-sm text-[var(--eb-text-muted)]">
                             <div class="flex flex-col items-center gap-2">
-                              <div class="flex h-9 w-9 items-center justify-center rounded-full bg-slate-800/80">
-                                <svg class="w-4 h-4 text-slate-500" viewBox="0 0 24 24" fill="none">
+                              <div class="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--eb-bg-overlay)]">
+                                <svg class="h-4 w-4 text-[var(--eb-text-muted)]" viewBox="0 0 24 24" fill="none">
                                   <path d="M5 12h14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                                   <path d="M12 5v14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                                 </svg>
                               </div>
                               <p>No payments found yet.</p>
-                              <a href="{$modulelink}&a=ph-billing-payment-new" class="mt-1 inline-flex items-center gap-2 text-xs font-medium text-sky-400 hover:text-sky-300">New one-time payment</a>
+                              <a href="{$modulelink}&a=ph-billing-payment-new" class="mt-1 inline-flex items-center gap-2 text-xs font-medium text-[var(--eb-primary)] hover:underline">New one-time payment</a>
                             </div>
                           </td>
                         </tr>
                       {/if}
-                    </tbody>
-                  </table>
-                </div>
-                <div class="mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-400">
-                  <div x-text="pageSummary()"></div>
-                  <div class="flex items-center gap-2">
-                    <button type="button" @click="prevPage()" :disabled="currentPage <= 1" class="px-3 py-1.5 rounded border border-slate-700 bg-slate-900/70 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed">Prev</button>
-                    <span class="text-slate-300" x-text="'Page ' + currentPage + ' / ' + totalPages()"></span>
-                    <button type="button" @click="nextPage()" :disabled="currentPage >= totalPages()" class="px-3 py-1.5 rounded border border-slate-700 bg-slate-900/70 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed">Next</button>
-                  </div>
-                </div>
-              </div>
-            </section>
-          </div>
-        </main>
+        </tbody>
+      </table>
+    </div>
+    <div class="eb-table-pagination">
+      <div x-text="pageSummary()"></div>
+      <div class="flex items-center gap-2">
+        <button type="button" @click="prevPage()" :disabled="currentPage <= 1" class="eb-table-pagination-button">Prev</button>
+        <span class="text-[var(--eb-text-muted)]" x-text="'Page ' + currentPage + ' / ' + totalPages()"></span>
+        <button type="button" @click="nextPage()" :disabled="currentPage >= totalPages()" class="eb-table-pagination-button">Next</button>
       </div>
     </div>
-  </div>
-</div>
+  </section>
+{/capture}
 
-
+{include file="modules/addons/eazybackup/templates/whitelabel/partials/partner_hub_shell.tpl"
+  ebPhSidebarPage='billing-payments'
+  ebPhTitle='Payments'
+  ebPhDescription='View and manage one-time charges for setup fees and project work.'
+  ebPhActions=$ebPhActions
+  ebPhContent=$ebPhContent
+}

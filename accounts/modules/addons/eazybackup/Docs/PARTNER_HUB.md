@@ -319,7 +319,7 @@ Note: Email template tables are also created/maintained automatically by `eazyba
   - `pages/partnerhub/StripeWebhookController.php` — Handles `invoice.*`, `charge.*`, `payment_intent.*`, `customer.subscription.*`; updates caches by `tenant_id` (resolved from `eb_tenants.stripe_customer_id`).
   - `pages/partnerhub/BackfillController.php` — Per-tenant “Refresh” action to backfill invoices/charges for last 30 days (JSON response + toast).
   - `pages/partnerhub/ServicesController.php` — Link WHMCS service → Comet user; updates `eb_service_links` (tenant_id) and `eb_tenant_comet_accounts`.
-  - `pages/partnerhub/UsageController.php` — Records usage in `eb_usage_ledger` by tenant_id; pushes a Stripe Usage Record if subscription is metered.
+- `pages/partnerhub/UsageController.php` — Records usage in `eb_usage_ledger` by tenant_id; resolves the active plan-instance metered item for the requested metric, applies plan-component included quantity / overage rules, and pushes the resulting Stripe Usage Record.
   - `pages/partnerhub/ProfileController.php` — Profile save (Client view) updates `eb_tenants` contact/address fields (JSON + toast).
 
 - Controllers (Public):
@@ -362,7 +362,7 @@ Note: Email template tables are also created/maintained automatically by `eazyba
   - `eb_service_links` — WHMCS service → Comet user; `msp_id`, `tenant_id`, `comet_user_id`.
   - `eb_plans` / `eb_plan_prices` — MSP plans; Stripe Product/Price linkage; supports metered prices (`is_metered`, `metric_code`).
   - `eb_subscriptions` — MSP subscriptions; `tenant_id`, Stripe subscription id/status; current price.
-  - `eb_usage_ledger` — `tenant_id`, metric, qty, window, source, idempotency, `pushed_to_stripe_at`.
+- `eb_usage_ledger` — `tenant_id`, metric, qty, window, source, idempotency, `pushed_to_stripe_at`. For plan-template metered storage, `qty` stores the billable quantity that was sent to Stripe after the included allowance / overage mode calculation, not the raw measured usage.
   - `eb_invoice_cache` / `eb_payment_cache` — Cached invoices and payment intents/charges by `tenant_id`.
   - Comet mirrors: nullable `tenant_id` (and `msp_id`) on `comet_users`, `comet_devices`, `comet_items`, `comet_jobs` when present.
 
@@ -389,7 +389,7 @@ Note: Email template tables are also created/maintained automatically by `eazyba
 - Webhooks: caches invoices/charges/payment intents and updates subscriptions; defensive JSON handling.
 - Invoice/Transaction refresh: per-tenant JSON endpoint to re-pull recent data (toast in UI); nightly backfill cron covers drift.
 - Services Link: associates WHMCS service id to Comet user and tenant (eb_service_links + eb_tenant_comet_accounts); toast on success.
-- Usage Ledger: records metric/qty window; if metered price is active, pushes Stripe Usage Record and stamps `pushed_to_stripe_at`.
+- Usage Ledger: records metric/qty window; for plan-template metered storage it resolves the active `eb_plan_instance_items` / `eb_plan_components` mapping, computes billable usage from raw usage using `default_qty` + `overage_mode`, then pushes that billable quantity to Stripe and stamps `pushed_to_stripe_at`.
 - Public Signup (enhanced): enable/disable per tenant; plan/price select; optional card capture before order; same abuse controls/Turnstile; welcome + MSP notice emails; redirect to download.
 
 ### Security & UX Notes
@@ -766,8 +766,8 @@ Line items within a plan template; each references a catalog price.
 | plan_id | bigint (indexed) | FK to `eb_plan_templates` |
 | price_id | bigint (indexed) | FK to `eb_catalog_prices` |
 | metric_code | enum | `STORAGE_TB`, `DEVICE_COUNT`, `DISK_IMAGE`, `HYPERV_VM`, `PROXMOX_VM`, `VMWARE_VM`, `M365_USER`, `GENERIC` |
-| default_qty | int, default 0 | Included/base quantity |
-| overage_mode | enum, default `'bill_all'` | `'bill_all'` (charge from zero) or `'cap_at_default'` (no overage) |
+| default_qty | int, default 0 | Included/base quantity. For metered storage, runtime billing treats this as the included allowance before Stripe usage is calculated. |
+| overage_mode | enum, default `'bill_all'` | `'bill_all'` bills `max(0, raw_usage - default_qty)`; `'cap_at_default'` pushes `0` billable overage for the metered component. |
 | created_at | timestamp | |
 | updated_at | timestamp | |
 

@@ -1,69 +1,91 @@
-<form role="form" method="post" action="{routePath('download-search')}">
-    <div class="input-group input-group-lg kb-search margin-bottom">
-        <input type="text" name="search" id="inputDownloadsSearch" class="form-control font-weight-light" placeholder="{lang key='downloadssearch'}" value="{$search}" />
-        <div class="input-group-append">
-            <button type="submit" id="btnDownloadsSearch" class="btn btn-primary btn-input-padded-responsive">
+{capture name=ebDownloadsCatBreadcrumb}
+    <div class="eb-breadcrumb">
+        <a href="{routePath('download-index')}" class="eb-breadcrumb-link">{lang key='downloads'}</a>
+        <span class="eb-breadcrumb-separator">/</span>
+        <span class="eb-breadcrumb-current">{lang key='downloadsfiles'}</span>
+    </div>
+{/capture}
+
+{capture name=ebDownloadsCatContent}
+    {include file="$template/includes/ui/page-header.tpl"
+        ebBreadcrumb=$smarty.capture.ebDownloadsCatBreadcrumb
+        ebPageTitle={lang key='downloadsfiles'}
+        ebPageDescription="Search within the download library and browse files grouped by category."
+    }
+
+    <div class="eb-subpanel mb-4">
+        <form role="form" method="post" action="{routePath('download-search')}" class="eb-search-row">
+            <input type="text" name="search" id="inputDownloadsSearch" class="eb-input" placeholder="{lang key='downloadssearch'}" value="{$search}" />
+            <button type="submit" id="btnDownloadsSearch" class="eb-btn eb-btn-primary">
                 {lang key='search'}
             </button>
-        </div>
+        </form>
     </div>
-</form>
 
-{if $dlcats}
-    <div class="row">
-        {foreach $dlcats as $category}
-            <div class="col-xl-6">
-                <div class="card kb-category mb-4">
-                    <a href="{routePath('download-by-cat', {$category.id}, {$category.urlfriendlyname})}" class="card-body">
-                        <span class="h5 m-0">
-                            <i class="fal fa-folder fa-fw"></i>
-                            {$category.name}
-                            <span class="badge badge-info float-right">
-                                {lang key="downloads.numDownload{if $kbcat.numarticles != 1}s{/if}" num=$category.numarticles}
-                            </span>
+    {if $dlcats}
+        <div class="grid gap-4 xl:grid-cols-2">
+            {foreach $dlcats as $category}
+                <a href="{routePath('download-by-cat', {$category.id}, {$category.urlfriendlyname})}" class="eb-content-card">
+                    <div class="flex items-start justify-between gap-4">
+                        <div>
+                            <h2 class="eb-content-title">
+                                <i class="fal fa-folder fa-fw"></i>
+                                {$category.name}
+                            </h2>
+                            <p class="eb-content-body mt-2">{$category.description}</p>
+                        </div>
+                        <span class="eb-badge eb-badge--info">
+                            {lang key="downloads.numDownload{if $kbcat.numarticles != 1}s{/if}" num=$category.numarticles}
                         </span>
-                        <p class="m-0 text-muted"><small>{$category.description}</small></p>
-                    </a>
-                </div>
-            </div>
-        {/foreach}
-    </div>
-{/if}
+                    </div>
+                </a>
+            {/foreach}
+        </div>
+    {/if}
 
-<div class="card">
-    <div class="card-body">
-        <h3 class="card-title m-0">
-            <i class="fal fa-download fa-fw"></i>
-            {lang key='downloadsfiles'}
-        </h3>
-    </div>
-    <div class="list-group list-group-flush">
-        {foreach $downloads as $download}
-            <a href="{$download.link}" class="list-group-item kb-article-item">
-                {$download.type|replace:'alt':' class="pr-1" alt'}
-                {$download.title}
-                {if $download.clientsonly}
-                    <div class="float-md-right">
-                        <span class="label label-danger">
+    <div class="mt-4 eb-home-panel">
+        <div class="eb-home-panel-header">
+            <h3 class="eb-home-panel-title">
+                <i class="fal fa-download fa-fw"></i>
+                {lang key='downloadsfiles'}
+            </h3>
+        </div>
+        <div class="eb-list-stack">
+            {foreach $downloads as $download}
+                <a href="{$download.link}" class="eb-list-item">
+                    <div class="min-w-0">
+                        <div class="eb-table-primary">
+                            {$download.type|replace:'alt':' class="pr-1" alt'}
+                            {$download.title}
+                        </div>
+                        <div class="eb-choice-card-description mt-2">
+                            {$download.description}
+                            <br>
+                            <strong>{lang key='downloadsfilesize'}: {$download.filesize}</strong>
+                        </div>
+                    </div>
+                    {if $download.clientsonly}
+                        <span class="eb-badge eb-badge--danger">
                             <i class="fas fa-lock fa-fw"></i>
                             {lang key='restricted'}
                         </span>
-                    </div>
-                {/if}
-                <small>
-                    {$download.description}
-                    <br>
-                    <strong>{lang key='downloadsfilesize'}: {$download.filesize}</strong>
-                </small>
-            </a>
-        {foreachelse}
-            <div class="list-group-item">
-                {lang key='downloadsnone'}
-            </div>
-        {/foreach}
+                    {/if}
+                </a>
+            {foreachelse}
+                <div class="eb-home-panel-body">
+                    {lang key='downloadsnone'}
+                </div>
+            {/foreach}
+        </div>
     </div>
-</div>
 
-<a href="javascript:history.go(-1)" class="btn btn-default px-4">
-    {lang key='clientareabacklink'}
-</a>
+    <div class="mt-4">
+        <a href="javascript:history.go(-1)" class="eb-btn eb-btn-secondary eb-btn-sm">
+            {lang key='clientareabacklink'}
+        </a>
+    </div>
+{/capture}
+
+{include file="$template/includes/ui/page-shell.tpl"
+    ebPageContent=$smarty.capture.ebDownloadsCatContent
+}

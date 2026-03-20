@@ -72,6 +72,7 @@
 
   var catalogProducts = parseJsonScript('eb-plan-catalog-json');
   var cometAccounts = parseJsonScript('eb-comet-accounts-json');
+  var assignTenants = parseJsonScript('eb-assign-tenants-json');
 
   window.planPageFactory = function(opts){
     var modulelink = (opts && opts.modulelink) || 'index.php?m=eazybackup';
@@ -97,7 +98,14 @@
       editComponents: [],
       assignPlanId: null,
       assignPlanName: '',
-      assignData: { tenant_id:'', comet_user_id:'', application_fee_percent:null },
+      assignData: { tenant_id:'', comet_user_id:'' },
+      assignTenantOpen: false,
+      assignTenantSearch: '',
+      assignUserOpen: false,
+      assignUserSearch: '',
+      successModalTitle: '',
+      successModalMessage: '',
+      successModalReload: false,
       filteredCometAccounts: [],
       subscriptions: [],
       subsLoading: false,
@@ -133,9 +141,9 @@
 
       currentPlanStatusClass(){
         var status = this.currentPlanStatus();
-        if (status === 'active') return 'bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-400/20';
-        if (status === 'archived') return 'bg-slate-500/15 text-slate-400 ring-1 ring-white/10';
-        return 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-400/20';
+        if (status === 'active') return 'eb-badge eb-badge--success';
+        if (status === 'archived') return 'eb-badge eb-badge--neutral';
+        return 'eb-badge eb-badge--warning';
       },
 
       openCreate(){
@@ -197,6 +205,22 @@
         hideEl('eb-plan-panel');
         this.mobileSummaryOpen = false;
         if (this._dirty) {
+          window.location.reload();
+        }
+      },
+
+      openPlanSuccessModal(title, message, reloadAfter){
+        this.successModalTitle = title || '';
+        this.successModalMessage = message || '';
+        this.successModalReload = !!reloadAfter;
+        showEl('eb-plan-success-modal');
+      },
+
+      closePlanSuccessModal(){
+        hideEl('eb-plan-success-modal');
+        var doReload = this.successModalReload;
+        this.successModalReload = false;
+        if (doReload) {
           window.location.reload();
         }
       },
@@ -422,7 +446,6 @@
           is_legacy_attached: false
         };
         this.editComponents.push(component);
-        safeToast('Price added to plan.', 'success');
       },
 
       removeComponent(index){
@@ -443,14 +466,9 @@
         return billingLabel(type);
       },
 
-      priceBadgeClass(price){
-        if (String(price.billing_type || '') === 'metered') return 'bg-sky-500/15 text-sky-300';
-        return 'bg-slate-700 text-slate-200';
-      },
-
       componentBadgeClass(comp){
-        if (String(comp.billing_type || '') === 'metered') return 'bg-sky-500/15 text-sky-300';
-        return 'bg-slate-700 text-slate-200';
+        if (String(comp.billing_type || '') === 'metered') return 'eb-badge eb-badge--info';
+        return 'eb-badge eb-badge--default';
       },
 
       componentPriceText(comp){
@@ -613,11 +631,15 @@
         try {
           await this.ensureCreatedPlan();
           var payload = this.buildUpdatePayload(targetStatus);
+          var body = new URLSearchParams({
+            token: token,
+            payload: JSON.stringify(payload)
+          });
           var res = await fetch(modulelink + '&a=ph-plan-template-update', {
             method: 'POST',
             credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+            body: body
           });
           var out = await res.json();
           if (out.status !== 'success') {
@@ -626,7 +648,25 @@
           }
           this.planData.status = targetStatus;
           this._dirty = true;
-          safeToast(targetStatus === 'active' ? 'Plan published.' : (targetStatus === 'archived' ? 'Plan archived.' : 'Draft saved.'), 'success');
+          if (targetStatus === 'active') {
+            this.openPlanSuccessModal(
+              'Plan published',
+              'This plan template is live. You can assign it to customers from the plans list.',
+              false
+            );
+          } else if (targetStatus === 'archived') {
+            this.openPlanSuccessModal(
+              'Plan archived',
+              'This template is archived and hidden from new assignments.',
+              false
+            );
+          } else {
+            this.openPlanSuccessModal(
+              'Draft saved',
+              'Your changes are saved. You can keep editing or close the panel when you are done.',
+              false
+            );
+          }
         } catch (e) {
           console.error(e);
           safeToast(e && e.message ? e.message : 'Network error', 'error');
@@ -641,8 +681,11 @@
           var res = await fetch(modulelink + '&a=ph-plan-template-duplicate', { method:'POST', credentials:'include', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: body });
           var out = await res.json();
           if (out.status === 'success') {
-            safeToast('Draft copy created.', 'success');
-            setTimeout(function(){ location.reload(); }, 500);
+            this.openPlanSuccessModal(
+              'Draft copy created',
+              'A new draft plan was added to your catalog.',
+              true
+            );
           } else {
             safeToast(this.describeSaveError(out), 'error');
           }
@@ -658,8 +701,25 @@
           var res = await fetch(modulelink + '&a=ph-plan-template-toggle', { method:'POST', credentials:'include', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: body });
           var out = await res.json();
           if (out.status === 'success') {
-            safeToast(newStatus === 'active' ? 'Plan published.' : (newStatus === 'archived' ? 'Plan archived.' : 'Plan moved to draft.'), 'success');
-            setTimeout(function(){ location.reload(); }, 500);
+            if (newStatus === 'active') {
+              this.openPlanSuccessModal(
+                'Plan published',
+                'This plan template is live. You can assign it to customers from the plans list.',
+                true
+              );
+            } else if (newStatus === 'archived') {
+              this.openPlanSuccessModal(
+                'Plan archived',
+                'This template is archived and hidden from new assignments.',
+                true
+              );
+            } else {
+              this.openPlanSuccessModal(
+                'Plan moved to draft',
+                'This plan is no longer published. Existing subscriptions are not changed.',
+                true
+              );
+            }
           } else {
             safeToast(this.describeSaveError(out), 'error');
           }
@@ -676,8 +736,11 @@
           var res = await fetch(modulelink + '&a=ph-plan-template-delete', { method:'POST', credentials:'include', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: body });
           var out = await res.json();
           if (out.status === 'success') {
-            safeToast('Plan deleted.', 'success');
-            setTimeout(function(){ location.reload(); }, 500);
+            this.openPlanSuccessModal(
+              'Plan deleted',
+              'The plan template has been removed.',
+              true
+            );
           } else if (out.message === 'has_active_subscriptions') {
             safeToast('Cannot delete: ' + out.count + ' active subscription(s).', 'warning');
           } else {
@@ -696,22 +759,94 @@
         }
         this.assignPlanId = planId;
         this.assignPlanName = planName || 'Plan #' + planId;
-        this.assignData = { tenant_id:'', comet_user_id:'', application_fee_percent:null };
+        this.assignData = { tenant_id:'', comet_user_id:'' };
+        this.assignTenantOpen = false;
+        this.assignTenantSearch = '';
+        this.assignUserOpen = false;
+        this.assignUserSearch = '';
         this.filteredCometAccounts = [];
         showEl('eb-assign-plan-modal');
       },
 
       closeAssign(){
+        this.assignTenantOpen = false;
+        this.assignUserOpen = false;
         hideEl('eb-assign-plan-modal');
         if (this._dirty) location.reload();
       },
 
-      onTenantChange(){
-        var tenantPublicId = String(this.assignData.tenant_id || '');
+      toggleAssignTenantDropdown(){
+        this.assignUserOpen = false;
+        this.assignTenantOpen = !this.assignTenantOpen;
+        var self = this;
+        if (this.assignTenantOpen) {
+          this.$nextTick(function(){
+            var el = self.$refs.assignTenantSearchInput;
+            if (el) el.focus();
+          });
+        }
+      },
+
+      toggleAssignUserDropdown(){
+        this.assignTenantOpen = false;
+        this.assignUserOpen = !this.assignUserOpen;
+        var self = this;
+        if (this.assignUserOpen) {
+          this.$nextTick(function(){
+            var el = self.$refs.assignUserSearchInput;
+            if (el) el.focus();
+          });
+        }
+      },
+
+      filteredAssignTenants(){
+        var q = String(this.assignTenantSearch || '').trim().toLowerCase();
+        if (!q) return assignTenants;
+        return assignTenants.filter(function(t){
+          return String(t.name || '').toLowerCase().indexOf(q) >= 0 ||
+            String(t.public_id || '').toLowerCase().indexOf(q) >= 0;
+        });
+      },
+
+      filteredAssignUsers(){
+        var q = String(this.assignUserSearch || '').trim().toLowerCase();
+        var list = this.filteredCometAccounts;
+        if (!q) return list;
+        return list.filter(function(u){
+          return String(u.comet_username || '').toLowerCase().indexOf(q) >= 0 ||
+            String(u.tenant_name || '').toLowerCase().indexOf(q) >= 0;
+        });
+      },
+
+      assignTenantLabel(){
+        var id = String(this.assignData.tenant_id || '');
+        for (var i = 0; i < assignTenants.length; i++) {
+          if (String(assignTenants[i].public_id || '') === id) {
+            var n = assignTenants[i].name || '';
+            return n || id;
+          }
+        }
+        return '';
+      },
+
+      selectAssignTenant(publicId){
+        this.assignData.tenant_id = publicId ? String(publicId) : '';
+        this.assignTenantOpen = false;
+        this.assignUserOpen = false;
+        this.assignTenantSearch = '';
+        var tenantPublicId = this.assignData.tenant_id;
         this.filteredCometAccounts = cometAccounts.filter(function(a){
           return String(a.tenant_public_id || '') === tenantPublicId;
         });
-        this.assignData.comet_user_id = this.filteredCometAccounts.length === 1 ? this.filteredCometAccounts[0].comet_username : '';
+        this.assignData.comet_user_id = this.filteredCometAccounts.length === 1
+          ? this.filteredCometAccounts[0].comet_username
+          : '';
+      },
+
+      selectAssignUser(username){
+        this.assignData.comet_user_id = username ? String(username) : '';
+        this.assignUserOpen = false;
+        this.assignUserSearch = '';
       },
 
       async submitAssign(){
@@ -727,16 +862,16 @@
             tenant_id: String(this.assignData.tenant_id),
             comet_user_id: this.assignData.comet_user_id
           });
-          if (this.assignData.application_fee_percent !== null && this.assignData.application_fee_percent !== '') {
-            body.append('application_fee_percent', String(this.assignData.application_fee_percent));
-          }
           var res = await fetch(modulelink + '&a=ph-plan-assign', { method:'POST', credentials:'include', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: body });
           var out = await res.json();
           if (out.status === 'success') {
             this._dirty = true;
-            safeToast('Subscription created.', 'success');
             hideEl('eb-assign-plan-modal');
-            setTimeout(function(){ location.reload(); }, 500);
+            this.openPlanSuccessModal(
+              'Subscription created',
+              'The customer subscription was created successfully.',
+              true
+            );
           } else {
             safeToast(this.describeSaveError(out), 'error');
           }
@@ -784,6 +919,35 @@
           console.error(e);
           safeToast('Network error', 'error');
         }
+      }
+    };
+  };
+
+  /**
+   * Per-row Alpine scope: teleports the actions menu to document.body with fixed coords
+   * so it is not clipped by the plans table overflow-x-auto wrapper or card chrome.
+   */
+  window.planRowMenu = function(){
+    return {
+      o: false,
+      menuTop: 0,
+      menuLeft: 0,
+      menuWidth: 208,
+      toggle(){
+        this.o = !this.o;
+        var self = this;
+        if (this.o) {
+          this.$nextTick(function(){
+            var el = self.$refs.planMenuBtn;
+            if (!el) return;
+            var r = el.getBoundingClientRect();
+            self.menuTop = r.bottom + 8;
+            self.menuLeft = Math.max(8, r.right - self.menuWidth);
+          });
+        }
+      },
+      close(){
+        this.o = false;
       }
     };
   };

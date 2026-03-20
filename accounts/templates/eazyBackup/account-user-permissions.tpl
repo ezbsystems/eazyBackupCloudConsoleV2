@@ -1,54 +1,54 @@
-<div class="min-h-screen bg-gray-700 text-gray-100">
-    <div class="container mx-auto px-4 pb-8">
-        <div class="flex flex-col sm:flex-row h-16 justify-between items-start sm:items-center px-2">
-            <!-- Navigation Horizontal -->
-            <div class="flex items-center">        
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M17.982 18.725A7.488 7.488 0 0 0 12 15.75a7.488 7.488 0 0 0-5.982 2.975m11.963 0a9 9 0 1 0-11.963 0m11.963 0A8.966 8.966 0 0 1 12 21a8.966 8.966 0 0 1-5.982-2.275M15 9.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-                </svg>                   
-                <h2 class="text-2xl font-semibold text-white">My Account</h2>
-            </div>
-        </div>
-		{assign var="activeTab" value="userpermissions"}
-        {include file="$template/includes/profile-nav.tpl" activeTab=$activeTab}
-        <div class="flex flex-col flex-1 overflow-y-auto bg-gray-700">
-            <!-- Main Content Container -->
-			<div class="bg-slate-800 shadow rounded-b-xl p-4 mb-4">	      	
+{assign var="activeTab" value="userpermissions"}
 
+{capture name=ebAccountNav}
+    {include file="$template/includes/profile-nav.tpl" activeTab=$activeTab}
+{/capture}
 
-                <div class="mb-6">
-                    <h3 class="text-lg font-semibold text-gray-100 mb-4">{lang key='userManagement.managePermissions'}</h3>
-                    <p class="text-sm text-gray-100 mb-4">{$user->email}</p>
-                    <p class="text-base font-semibold text-gray-100 mb-4">{lang key="userManagement.permissions"}</p>
+{capture name=ebAccountBreadcrumb}
+    <div class="eb-breadcrumb">
+        <a href="{$WEB_ROOT}/clientarea.php?action=details" class="eb-breadcrumb-link">Account</a>
+        <span class="eb-breadcrumb-separator">/</span>
+        <a href="{routePath('account-users')}" class="eb-breadcrumb-link">Users</a>
+        <span class="eb-breadcrumb-separator">/</span>
+        <span class="eb-breadcrumb-current">Permissions</span>
+    </div>
+{/capture}
 
-                    <form method="post" action="{routePath('account-users-permissions-save', $user->id)}" class="space-y-4">
-                        <div class="col-span-full">
-                            {foreach $permissions as $permission}
-                                <label class="block">
-                                    <input 
-                                        type="checkbox" 
-                                        class="rounded accent-sky-600 text-sky-600 focus:ring-sky-500" 
-                                        name="perms[{$permission.key}]" 
-                                        value="1"{if $userPermissions->hasPermission($permission.key)} checked{/if}>
-                                    <span class="text-sm ml-2 text-gray-100">{$permission.title}</span>
-                                    <small class="text-sm text-gray-400 block">{$permission.description}</small>
-                                </label>                
-                            {/foreach}
-                        </div>
+{capture name=ebAccountContent}
+    {include file="$template/includes/ui/page-header.tpl"
+        ebBreadcrumb=$smarty.capture.ebAccountBreadcrumb
+        ebPageTitle={lang key='userManagement.managePermissions'}
+        ebPageDescription=$user->email
+    }
 
-                        <div class="flex items-center justify-end space-x-4">
-                            <a href="{routePath('account-users')}" 
-                            class="text-sm/6 font-semibold text-gray-100">
-                                {lang key="clientareacancel"}
-                            </a>
-                            <button type="submit" 
-                                class="rounded-md bg-sky-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-sky-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600">
-                                {lang key="clientareasavechanges"}
-                            </button>
-                        </div>
-                    </form>
+    <div class="eb-subpanel">
+        <form method="post" action="{routePath('account-users-permissions-save', $user->id)}" class="space-y-5">
+            <div>
+                <h3 class="eb-section-title">{lang key="userManagement.permissions"}</h3>
+                <div class="mt-4 grid gap-3 sm:grid-cols-2">
+                    {foreach $permissions as $permission}
+                        <label class="eb-choice-card{if $userPermissions->hasPermission($permission.key)} is-selected{/if}">
+                            <div class="eb-choice-card-control">
+                                <input type="checkbox" class="eb-check-input" name="perms[{$permission.key}]" value="1"{if $userPermissions->hasPermission($permission.key)} checked{/if}>
+                            </div>
+                            <div>
+                                <span class="eb-choice-card-title">{$permission.title}</span>
+                                <small class="eb-choice-card-description">{$permission.description}</small>
+                            </div>
+                        </label>
+                    {/foreach}
                 </div>
             </div>
-        </div>
+
+            <div class="flex items-center justify-end gap-3">
+                <a href="{routePath('account-users')}" class="eb-btn eb-btn-ghost">{lang key="clientareacancel"}</a>
+                <button type="submit" class="eb-btn eb-btn-primary">{lang key="clientareasavechanges"}</button>
+            </div>
+        </form>
     </div>
-</div>
+{/capture}
+
+{include file="$template/includes/ui/page-shell.tpl"
+    ebPageNav=$smarty.capture.ebAccountNav
+    ebPageContent=$smarty.capture.ebAccountContent
+}

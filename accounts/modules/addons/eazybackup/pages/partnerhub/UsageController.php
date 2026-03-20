@@ -2,8 +2,11 @@
 
 use WHMCS\Database\Capsule;
 use PartnerHub\StripeService;
+use function PartnerHub\computeBillableMeteredUsage;
+use function PartnerHub\resolveActivePlanInstanceMeteredItem;
 
 require_once __DIR__ . '/TenantsController.php';
+require_once __DIR__ . '/../../lib/PartnerHub/MeteredUsage.php';
 
 function eb_usage_tenant_period_idempotency_key(int $tenantId, string $metric, int $periodStart, int $periodEnd): string
 {
@@ -113,24 +116,17 @@ function eb_ph_usage_push(array $vars): void
             ]
         );
 
-        // Find active subscription and price for the metric, then push usage
-        $sub = Capsule::table('eb_subscriptions')->where('tenant_id',$tenantId)->where('stripe_status','active')->orderBy('created_at','desc')->first();
-        if (!$sub) { echo json_encode(['status'=>'success','message'=>'recorded-only']); return; }
-        $priceRow = Capsule::table('eb_plan_prices')->where('id',(int)$sub->current_price_id)->first();
-        if (!$priceRow || !(int)$priceRow->is_metered) { echo json_encode(['status'=>'success','message'=>'recorded-only']); return; }
-        // Retrieve subscription to get item id
+        $meteredItem = resolveActivePlanInstanceMeteredItem($tenantId, $metric);
+        if (!$meteredItem) { echo json_encode(['status'=>'success','message'=>'recorded-only']); return; }
+        $billableQty = computeBillableMeteredUsage($qty, (int) ($meteredItem['default_qty'] ?? 0), (string) ($meteredItem['overage_mode'] ?? 'bill_all'));
         $svc = new StripeService();
         $stripeAccountId = (string) ($msp->stripe_connect_id ?? '');
-        $s = $svc->retrieveSubscription((string)$sub->stripe_subscription_id, $stripeAccountId !== '' ? $stripeAccountId : null);
-        $items = (array)($s['items']['data'] ?? []);
-        $itemId = eb_usage_pick_subscription_item_id($items);
-        if ($itemId !== '') {
-            $usageTimestamp = eb_usage_clamp_usage_timestamp($resolvedPeriodStart, $resolvedPeriodEnd);
-            $svc->createUsageRecord($itemId, $qty, $usageTimestamp, $stripeAccountId !== '' ? $stripeAccountId : null, $idKey);
-            Capsule::table('eb_usage_ledger')->where('idempotency_key',$idKey)->update([
-                'pushed_to_stripe_at' => date('Y-m-d H:i:s'),
-            ]);
-        }
+        $usageTimestamp = eb_usage_clamp_usage_timestamp($resolvedPeriodStart, $resolvedPeriodEnd);
+        $svc->createUsageRecord((string) $meteredItem['stripe_subscription_item_id'], $billableQty, $usageTimestamp, $stripeAccountId !== '' ? $stripeAccountId : null, $idKey);
+        Capsule::table('eb_usage_ledger')->where('idempotency_key',$idKey)->update([
+            'qty' => $billableQty,
+            'pushed_to_stripe_at' => date('Y-m-d H:i:s'),
+        ]);
         echo json_encode(['status'=>'success']);
         return;
     } catch (\Throwable $e) {

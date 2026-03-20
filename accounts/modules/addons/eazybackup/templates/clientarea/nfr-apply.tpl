@@ -1,169 +1,192 @@
-{* NFR Application (Client Area) *}
-{include file="modules/addons/eazybackup/templates/partials/_ui-tokens.tpl"}
-<div class="min-h-screen bg-[rgb(var(--bg-page))] text-[rgb(var(--text-primary))]">
-  <div class="mx-auto max-w-3xl px-6 py-8">
+{capture assign=ebNfrHeader}
+    {include
+        file="templates/eazyBackup/includes/ui/page-header.tpl"
+        ebPageTitle="NFR Application"
+        ebPageDescription="Apply for a not-for-resale grant using the shared client-area form and status patterns."
+    }
+{/capture}
+
+{capture assign=ebNfrBody}
+    {$ebNfrHeader nofilter}
 
     {if $submitted}
-      <div class="rounded-xl bg-emerald-500/10 ring-1 ring-emerald-400/20 px-4 py-3 text-sm text-white mb-5">
-        Thanks — your application was submitted. We will review it and email you shortly.
-      </div>
+        <div class="eb-alert eb-alert--success mb-6">
+            <div class="eb-alert-title">Application submitted</div>
+            <p>Thanks. Your application was submitted and will be reviewed by email shortly.</p>
+        </div>
     {/if}
 
     {if $hasActiveGrant}
-      <section class="mt-2 rounded-2xl bg-[rgb(var(--bg-card))] shadow-xl shadow-black/20 ring-1 ring-white/10 overflow-hidden">
-        <div class="px-6 py-5">
-          <h2 class="text-lg font-medium">Your NFR Grant</h2>
-        </div>
-        <div class="border-t border-white/10"></div>
-        <div class="px-6 py-6">
-          <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
-            <label class="block">
-              <span class="text-sm text-[rgb(var(--text-secondary))]">Status</span>
-              <div class="mt-2">{$activeGrant->status|escape}</div>
-            </label>
-            <label class="block">
-              <span class="text-sm text-[rgb(var(--text-secondary))]">Start / End</span>
-              <div class="mt-2">{$activeGrant->start_date|escape} &rarr; {$activeGrant->end_date|escape}</div>
-            </label>
-            <label class="block">
-              <span class="text-sm text-[rgb(var(--text-secondary))]">Approved Quota</span>
-              <div class="mt-2">{if $activeGrant->approved_quota_gib}{$activeGrant->approved_quota_gib|escape} GiB{else}—{/if}</div>
-            </label>
-            <label class="block">
-              <span class="text-sm text-[rgb(var(--text-secondary))]">Device Cap</span>
-              <div class="mt-2">{if $activeGrant->device_cap}{$activeGrant->device_cap|escape}{else}—{/if}</div>
-            </label>
-          </div>
-        </div>
-      </section>
+        <section class="eb-subpanel">
+            <div class="eb-section-intro">
+                <h3 class="eb-section-title">Your NFR Grant</h3>
+                <p class="eb-section-description">Current grant details associated with this account.</p>
+            </div>
+            <div class="grid grid-cols-1 gap-5 md:grid-cols-2">
+                <div>
+                    <label class="eb-field-label">Status</label>
+                    <div class="eb-detail-value">{$activeGrant->status|escape}</div>
+                </div>
+                <div>
+                    <label class="eb-field-label">Start / End</label>
+                    <div class="eb-detail-value">{$activeGrant->start_date|escape} &rarr; {$activeGrant->end_date|escape}</div>
+                </div>
+                <div>
+                    <label class="eb-field-label">Approved Quota</label>
+                    <div class="eb-detail-value">{if $activeGrant->approved_quota_gib}{$activeGrant->approved_quota_gib|escape} GiB{else}&mdash;{/if}</div>
+                </div>
+                <div>
+                    <label class="eb-field-label">Device Cap</label>
+                    <div class="eb-detail-value">{if $activeGrant->device_cap}{$activeGrant->device_cap|escape}{else}&mdash;{/if}</div>
+                </div>
+            </div>
+        </section>
     {else}
+        {if $errors}
+            <div class="eb-alert eb-alert--warning mb-6">
+                <div class="eb-alert-title">Please correct the errors and try again.</div>
+                <ul class="mt-2 list-disc pl-5">
+                    {foreach from=$errors item=msg}
+                        <li>{$msg|escape}</li>
+                    {/foreach}
+                </ul>
+            </div>
+        {/if}
 
-      {if $errors}
-        <div class="rounded-xl bg-amber-500/10 ring-1 ring-amber-400/20 px-4 py-3 text-sm text-amber-200 mb-5">
-          <div class="font-medium">Please correct the errors and try again.</div>
-          <ul class="mt-2 list-disc pl-5">
-            {foreach from=$errors item=msg}
-              <li>{$msg|escape}</li>
-            {/foreach}
-          </ul>
-        </div>
-      {/if}
-
-      <section class="mt-2 rounded-2xl bg-[rgb(var(--bg-card))] shadow-xl shadow-black/20 ring-1 ring-white/10 overflow-hidden">
-        <div class="px-6 py-5">
-          <h2 class="text-lg font-medium">Apply for NFR</h2>
-        </div>
-        <div class="border-t border-white/10"></div>
-        <div class="px-6 py-6">
-          <form method="post" action="{$modulelink}&a=nfr-apply" class="space-y-6">
-            <input type="hidden" name="token" value="{$csrfToken}" />
-
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div class="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
-                <label class="block">
-                  <span class="text-sm text-[rgb(var(--text-secondary))]">Username (requested)</span>
-                  <input name="requested_username" required placeholder="desired-username"
-                    value="{$form.requested_username|default:''|escape}"
-                    class="mt-2 w-full rounded-xl bg-[rgb(var(--bg-input))] text-white/90 placeholder-white/30 ring-1 ring-white/10 {if isset($errors.requested_username)}ring-2 ring-amber-400/40{/if} focus:ring-2 focus:ring-[rgb(var(--accent))] focus:outline-none px-3.5 py-2.5" />
-                </label>
-                <label class="block">
-                  <span class="text-sm text-[rgb(var(--text-secondary))]">Password</span>
-                  <input type="password" name="requested_password" placeholder="Strong password"
-                    autocomplete="new-password"
-                    class="mt-2 w-full rounded-xl bg-[rgb(var(--bg-input))] text-white/90 placeholder-white/30 ring-1 ring-white/10 {if isset($errors.requested_password)}ring-2 ring-amber-400/40{/if} focus:ring-2 focus:ring-[rgb(var(--accent))] focus:outline-none px-3.5 py-2.5" />
-                </label>
-              </div>
-              <label class="block">
-                <span class="text-sm text-[rgb(var(--text-secondary))]">Company name</span>
-                <input name="company_name" required value="{$form.company_name|default:''|escape}" class="mt-2 w-full rounded-xl bg-[rgb(var(--bg-input))] text-white/90 placeholder-white/30 ring-1 ring-white/10 {if isset($errors.company_name)}ring-2 ring-amber-400/40{/if} focus:ring-2 focus:ring-[rgb(var(--accent))] focus:outline-none px-3.5 py-2.5" />
-              </label>
-              <label class="block">
-                <span class="text-sm text-[rgb(var(--text-secondary))]">Contact name</span>
-                <input name="contact_name" value="{$form.contact_name|default:''|escape}" class="mt-2 w-full rounded-xl bg-[rgb(var(--bg-input))] text-white/90 placeholder-white/30 ring-1 ring-white/10 focus:ring-2 focus:ring-[rgb(var(--accent))] focus:outline-none px-3.5 py-2.5" />
-              </label>
-              <label class="block">
-                <span class="text-sm text-[rgb(var(--text-secondary))]">Job title</span>
-                <input name="job_title" value="{$form.job_title|default:''|escape}" class="mt-2 w-full rounded-xl bg-[rgb(var(--bg-input))] text-white/90 placeholder-white/30 ring-1 ring-white/10 focus:ring-2 focus:ring-[rgb(var(--accent))] focus:outline-none px-3.5 py-2.5" />
-              </label>
-              <label class="block">
-                <span class="text-sm text-[rgb(var(--text-secondary))]">Work email</span>
-                <input type="email" name="work_email" required value="{$form.work_email|default:''|escape}" class="mt-2 w-full rounded-xl bg-[rgb(var(--bg-input))] text-white/90 placeholder-white/30 ring-1 ring-white/10 {if isset($errors.work_email)}ring-2 ring-amber-400/40{/if} focus:ring-2 focus:ring-[rgb(var(--accent))] focus:outline-none px-3.5 py-2.5" />
-              </label>
-              <label class="block md:col-span-2">
-                <span class="text-sm text-[rgb(var(--text-secondary))]">Phone</span>
-                <input name="phone" value="{$form.phone|default:''|escape}" class="mt-2 w-full rounded-xl bg-[rgb(var(--bg-input))] text-white/90 placeholder-white/30 ring-1 ring-white/10 focus:ring-2 focus:ring-[rgb(var(--accent))] focus:outline-none px-3.5 py-2.5" />
-              </label>
+        <section class="eb-subpanel">
+            <div class="eb-section-intro">
+                <h3 class="eb-section-title">Apply for NFR</h3>
+                <p class="eb-section-description">Provide your partner and use-case details so the request can be reviewed quickly.</p>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <label class="block">
-                <span class="text-sm text-[rgb(var(--text-secondary))]">Markets (comma-separated)</span>
-                <input name="markets" placeholder="Healthcare, Legal, ..." value="{$form.markets|default:''|escape}" class="mt-2 w-full rounded-xl bg-[rgb(var(--bg-input))] text-white/90 placeholder-white/30 ring-1 ring-white/10 focus:ring-2 focus:ring-[rgb(var(--accent))] focus:outline-none px-3.5 py-2.5" />
-              </label>
-              <label class="block">
-                <span class="text-sm text-[rgb(var(--text-secondary))]">Use cases (comma-separated)</span>
-                <input name="use_cases" placeholder="Server backup, M365, ..." value="{$form.use_cases|default:''|escape}" class="mt-2 w-full rounded-xl bg-[rgb(var(--bg-input))] text-white/90 placeholder-white/30 ring-1 ring-white/10 focus:ring-2 focus:ring-[rgb(var(--accent))] focus:outline-none px-3.5 py-2.5" />
-              </label>
-              <label class="block">
-                <span class="text-sm text-[rgb(var(--text-secondary))]">Platforms (comma-separated)</span>
-                <input name="platforms" placeholder="Windows, Linux, macOS" value="{$form.platforms|default:''|escape}" class="mt-2 w-full rounded-xl bg-[rgb(var(--bg-input))] text-white/90 placeholder-white/30 ring-1 ring-white/10 focus:ring-2 focus:ring-[rgb(var(--accent))] focus:outline-none px-3.5 py-2.5" />
-              </label>
-              <label class="block">
-                <span class="text-sm text-[rgb(var(--text-secondary))]">Virtualization (comma-separated)</span>
-                <input name="virtualization" placeholder="Hyper‑V, VMware" value="{$form.virtualization|default:''|escape}" class="mt-2 w-full rounded-xl bg-[rgb(var(--bg-input))] text-white/90 placeholder-white/30 ring-1 ring-white/10 focus:ring-2 focus:ring-[rgb(var(--accent))] focus:outline-none px-3.5 py-2.5" />
-              </label>
-              <label class="block">
-                <span class="text-sm text-[rgb(var(--text-secondary))]">Disk Image</span>
-                <select name="disk_image" class="mt-2 w-full appearance-none pr-10 rounded-xl bg-[rgb(var(--bg-input))] text-white/90 ring-1 ring-white/10 focus:ring-2 focus:ring-[rgb(var(--accent))] focus:outline-none px-3.5 py-2.5">
-                  <option value="0" {if $form.disk_image|default:'0'=='0'}selected{/if}>No</option>
-                  <option value="1" {if $form.disk_image|default:'0'=='1'}selected{/if}>Yes</option>
-                </select>
-              </label>
-              <label class="block">
-                <span class="text-sm text-[rgb(var(--text-secondary))]">Requested storage quota (GiB)</span>
-                <input type="number" min="0" step="1" name="requested_quota_gib" value="{$form.requested_quota_gib|default:''|escape}" class="mt-2 w-full rounded-xl bg-[rgb(var(--bg-input))] text-white/90 placeholder-white/30 ring-1 ring-white/10 focus:ring-2 focus:ring-[rgb(var(--accent))] focus:outline-none px-3.5 py-2.5" />
-              </label>
-              <label class="block">
-                <span class="text-sm text-[rgb(var(--text-secondary))]">Overage handling</span>
-                <select name="overage" class="mt-2 w-full appearance-none pr-10 rounded-xl bg-[rgb(var(--bg-input))] text-white/90 ring-1 ring-white/10 focus:ring-2 focus:ring-[rgb(var(--accent))] focus:outline-none px-3.5 py-2.5">
-                  <option value="block" {if $form.overage|default:'block'=='block'}selected{/if}>Block</option>
-                  <option value="allow_notice" {if $form.overage|default:''=='allow_notice'}selected{/if}>Allow with notice</option>
-                </select>
-              </label>
-              <label class="block">
-                <span class="text-sm text-[rgb(var(--text-secondary))]">Device cap (optional)</span>
-                <input type="number" min="0" step="1" name="device_cap" value="{$form.device_cap|default:''|escape}" class="mt-2 w-full rounded-xl bg-[rgb(var(--bg-input))] text-white/90 placeholder-white/30 ring-1 ring-white/10 focus:ring-2 focus:ring-[rgb(var(--accent))] focus:outline-none px-3.5 py-2.5" />
-              </label>
-              <label class="block md:col-span-2">
-                <span class="text-sm text-[rgb(var(--text-secondary))]">NFR Product</span>
-                <select name="product_id" class="mt-2 w-full appearance-none pr-10 rounded-xl bg-[rgb(var(--bg-input))] text-white/90 ring-1 ring-white/10 focus:ring-2 focus:ring-[rgb(var(--accent))] focus:outline-none px-3.5 py-2.5">
-                  {foreach from=$nfrProducts item=p}
-                    <option value="{$p.id|escape}" {if $form.product_id|default:''==$p.id}selected{/if}>{$p.name|escape}</option>
-                  {/foreach}
-                </select>
-              </label>
-            </div>
+            <form method="post" action="{$modulelink}&a=nfr-apply" class="space-y-6">
+                <input type="hidden" name="token" value="{$csrfToken}" />
 
-            <div class="flex items-center gap-3">
-              <label class="inline-flex items-center gap-2">
-                <input type="checkbox" name="agree_terms" value="1" {if $form.agree_terms|default:''=='1'}checked{/if} required class="h-4 w-4 rounded bg-[rgb(var(--bg-input))] ring-1 ring-white/10 focus:ring-2 focus:ring-[rgb(var(--accent))]" />
-                <span>I agree to NFR terms</span>
-              </label>
-            </div>
+                <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
+                    <div class="md:col-span-2 grid grid-cols-1 gap-6 md:grid-cols-2">
+                        <div>
+                            <label for="requested_username" class="eb-field-label">Username (requested)</label>
+                            <input
+                                id="requested_username"
+                                name="requested_username"
+                                required
+                                placeholder="desired-username"
+                                value="{$form.requested_username|default:''|escape}"
+                                class="eb-input {if isset($errors.requested_username)}is-error{/if}"
+                            />
+                        </div>
+                        <div>
+                            <label for="requested_password" class="eb-field-label">Password</label>
+                            <input
+                                id="requested_password"
+                                type="password"
+                                name="requested_password"
+                                placeholder="Strong password"
+                                autocomplete="new-password"
+                                class="eb-input {if isset($errors.requested_password)}is-error{/if}"
+                            />
+                        </div>
+                    </div>
 
-            {if $captchaEnabled && $turnstile_site_key}
-              <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
-              <div class="mt-2"><div class="cf-turnstile" data-sitekey="{$turnstile_site_key|escape}"></div></div>
-            {/if}
+                    <div>
+                        <label for="company_name" class="eb-field-label">Company name</label>
+                        <input id="company_name" name="company_name" required value="{$form.company_name|default:''|escape}" class="eb-input {if isset($errors.company_name)}is-error{/if}" />
+                    </div>
+                    <div>
+                        <label for="contact_name" class="eb-field-label">Contact name</label>
+                        <input id="contact_name" name="contact_name" value="{$form.contact_name|default:''|escape}" class="eb-input" />
+                    </div>
+                    <div>
+                        <label for="job_title" class="eb-field-label">Job title</label>
+                        <input id="job_title" name="job_title" value="{$form.job_title|default:''|escape}" class="eb-input" />
+                    </div>
+                    <div>
+                        <label for="work_email" class="eb-field-label">Work email</label>
+                        <input id="work_email" type="email" name="work_email" required value="{$form.work_email|default:''|escape}" class="eb-input {if isset($errors.work_email)}is-error{/if}" />
+                    </div>
+                    <div class="md:col-span-2">
+                        <label for="phone" class="eb-field-label">Phone</label>
+                        <input id="phone" name="phone" value="{$form.phone|default:''|escape}" class="eb-input" />
+                    </div>
+                </div>
 
-            <div class="pt-2">
-              <button type="submit" class="rounded-xl px-4 py-2 font-medium text-white bg-[rgb(var(--accent))] hover:bg-[rgb(var(--accent))]/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--accent))]">Submit application</button>
-            </div>
-          </form>
-        </div>
-      </section>
+                <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
+                    <div>
+                        <label for="markets" class="eb-field-label">Markets (comma-separated)</label>
+                        <input id="markets" name="markets" placeholder="Healthcare, Legal, ..." value="{$form.markets|default:''|escape}" class="eb-input" />
+                    </div>
+                    <div>
+                        <label for="use_cases" class="eb-field-label">Use cases (comma-separated)</label>
+                        <input id="use_cases" name="use_cases" placeholder="Server backup, M365, ..." value="{$form.use_cases|default:''|escape}" class="eb-input" />
+                    </div>
+                    <div>
+                        <label for="platforms" class="eb-field-label">Platforms (comma-separated)</label>
+                        <input id="platforms" name="platforms" placeholder="Windows, Linux, macOS" value="{$form.platforms|default:''|escape}" class="eb-input" />
+                    </div>
+                    <div>
+                        <label for="virtualization" class="eb-field-label">Virtualization (comma-separated)</label>
+                        <input id="virtualization" name="virtualization" placeholder="Hyper-V, VMware" value="{$form.virtualization|default:''|escape}" class="eb-input" />
+                    </div>
+                    <div>
+                        <label for="disk_image" class="eb-field-label">Disk Image</label>
+                        <select id="disk_image" name="disk_image" class="eb-select">
+                            <option value="0" {if $form.disk_image|default:'0'=='0'}selected{/if}>No</option>
+                            <option value="1" {if $form.disk_image|default:'0'=='1'}selected{/if}>Yes</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="requested_quota_gib" class="eb-field-label">Requested storage quota (GiB)</label>
+                        <input id="requested_quota_gib" type="number" min="0" step="1" name="requested_quota_gib" value="{$form.requested_quota_gib|default:''|escape}" class="eb-input" />
+                    </div>
+                    <div>
+                        <label for="overage" class="eb-field-label">Overage handling</label>
+                        <select id="overage" name="overage" class="eb-select">
+                            <option value="block" {if $form.overage|default:'block'=='block'}selected{/if}>Block</option>
+                            <option value="allow_notice" {if $form.overage|default:''=='allow_notice'}selected{/if}>Allow with notice</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="device_cap" class="eb-field-label">Device cap (optional)</label>
+                        <input id="device_cap" type="number" min="0" step="1" name="device_cap" value="{$form.device_cap|default:''|escape}" class="eb-input" />
+                    </div>
+                    <div class="md:col-span-2">
+                        <label for="product_id" class="eb-field-label">NFR Product</label>
+                        <select id="product_id" name="product_id" class="eb-select">
+                            {foreach from=$nfrProducts item=p}
+                                <option value="{$p.id|escape}" {if $form.product_id|default:''==$p.id}selected{/if}>{$p.name|escape}</option>
+                            {/foreach}
+                        </select>
+                    </div>
+                </div>
 
+                <div class="flex items-start gap-3">
+                    <input
+                        id="agree_terms"
+                        type="checkbox"
+                        name="agree_terms"
+                        value="1"
+                        {if $form.agree_terms|default:''=='1'}checked{/if}
+                        required
+                        class="mt-0.5 h-4 w-4 rounded border border-slate-600 bg-slate-900 text-orange-500 focus:ring-2 focus:ring-orange-500/40"
+                    />
+                    <label for="agree_terms" class="text-sm text-slate-200">I agree to NFR terms</label>
+                </div>
+
+                {if $captchaEnabled && $turnstile_site_key}
+                    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+                    <div><div class="cf-turnstile" data-sitekey="{$turnstile_site_key|escape}"></div></div>
+                {/if}
+
+                <div class="flex justify-end">
+                    <button type="submit" class="eb-btn eb-btn-primary">Submit application</button>
+                </div>
+            </form>
+        </section>
     {/if}
+{/capture}
 
-  </div>
-</div>
+{include
+    file="templates/eazyBackup/includes/ui/page-shell.tpl"
+    ebInnerClass="max-w-4xl"
+    ebPageContent=$ebNfrBody
+}

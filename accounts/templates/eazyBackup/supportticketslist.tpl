@@ -1,164 +1,159 @@
-<div class="min-h-screen bg-slate-950 text-gray-300 overflow-x-hidden">
-    {* <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div> *}
+{capture name=ebSupportNav}
+    <nav class="flex flex-wrap items-center gap-1" aria-label="Support Ticket Filters">
+        <button type="button"
+                id="open-tickets-tab"
+                class="tab-button eb-tab{if $smarty.get.tab neq 'closed'} is-active{/if}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 9v.906a2.25 2.25 0 0 1-1.183 1.981l-6.478 3.488M2.25 9v.906a2.25 2.25 0 0 0 1.183 1.981l6.478 3.488m8.839 2.51-4.66-2.51m0 0-1.023-.55a2.25 2.25 0 0 0-2.134 0l-1.022.55m0 0-4.661 2.51m16.5 1.615a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V8.844a2.25 2.25 0 0 1 1.183-1.981l7.5-4.039a2.25 2.25 0 0 1 2.134 0l7.5 4.039a2.25 2.25 0 0 1 1.183 1.98V19.5Z" />
+            </svg>
+            <span>Open Tickets</span>
+        </button>
+        <button type="button"
+                id="closed-tickets-tab"
+                class="tab-button eb-tab{if $smarty.get.tab eq 'closed'} is-active{/if}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" />
+            </svg>
+            <span>Closed Tickets</span>
+        </button>
+    </nav>
+{/capture}
 
-    <div class="relative z-10 container mx-auto max-w-full px-4 py-8">
-        <div class="w-full max-w-full min-w-0 overflow-hidden rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
-            <div class="-mx-6 -mt-6 mb-6 rounded-t-3xl border-b border-slate-800/80 bg-slate-900/50 px-6 py-3">
-                <nav class="flex flex-wrap items-center gap-1" aria-label="Support Ticket Filters">
-                    <button type="button"
-                            id="open-tickets-tab"
-                            class="tab-button flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $smarty.get.tab eq 'closed'}text-slate-400 hover:text-white hover:bg-white/5{else}bg-white/10 text-white ring-1 ring-white/20{/if}">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 9v.906a2.25 2.25 0 0 1-1.183 1.981l-6.478 3.488M2.25 9v.906a2.25 2.25 0 0 0 1.183 1.981l6.478 3.488m8.839 2.51-4.66-2.51m0 0-1.023-.55a2.25 2.25 0 0 0-2.134 0l-1.022.55m0 0-4.661 2.51m16.5 1.615a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V8.844a2.25 2.25 0 0 1 1.183-1.981l7.5-4.039a2.25 2.25 0 0 1 2.134 0l7.5 4.039a2.25 2.25 0 0 1 1.183 1.98V19.5Z" />
-                        </svg>
-                        <span class="text-sm font-medium">Open Tickets</span>
-                    </button>
-                    <button type="button"
-                            id="closed-tickets-tab"
-                            class="tab-button flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $smarty.get.tab eq 'closed'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" />
-                        </svg>
-                        <span class="text-sm font-medium">Closed Tickets</span>
-                    </button>
-                </nav>
-            </div>
+{capture name=ebSupportBreadcrumb}
+    <div class="eb-breadcrumb">
+        <a href="{$WEB_ROOT}/supporttickets.php" class="eb-breadcrumb-link">Support</a>
+        <span class="eb-breadcrumb-separator">/</span>
+        <span class="eb-breadcrumb-current">Tickets</span>
+    </div>
+{/capture}
 
-            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-3">
-                <div>
-                    <div class="flex items-center gap-2 mb-1">
-                        <a href="{$WEB_ROOT}/supporttickets.php" class="text-slate-400 hover:text-white text-sm">Support</a>
-                        <span class="text-slate-600">/</span>
-                        <span class="text-white text-sm font-medium">Tickets</span>
-                    </div>
-                    <h2 class="text-2xl font-semibold text-white">Support Tickets</h2>
-                    <p class="text-xs text-slate-400 mt-1">Track your open and closed ticket activity.</p>
-                </div>
-                <div class="shrink-0">
-                    <a href="submitticket.php?step=2&deptid=1"
-                       class="inline-flex items-center px-4 py-2 rounded-md bg-amber-600 text-white text-sm font-semibold hover:bg-amber-500">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                        </svg>
-                        Create Ticket
-                    </a>
-                </div>
-            </div>
+{capture name=ebSupportActions}
+    <a href="submitticket.php?step=2&deptid=1" class="eb-btn eb-btn-primary">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+        </svg>
+        <span>Create Ticket</span>
+    </a>
+{/capture}
 
-            <div class="w-full max-w-full min-w-0 rounded-2xl border border-slate-800/80 bg-slate-900/70 p-5 shadow-lg">
-                <div id="tableLoading" class="text-center mb-4 text-sm text-slate-400">
-                    <p class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900/80 border border-slate-700">
-                        <i class="fas fa-spinner fa-spin"></i>
-                        <span>{$LANG.loading}</span>
-                    </p>
-                </div>
+{capture name=ebSupportToolbarLeft}
+    <div class="relative" x-data="{ isOpen: false }" @click.away="isOpen = false">
+        <button type="button"
+                @click="isOpen = !isOpen"
+                id="ticketsEntriesBtn"
+                class="eb-btn eb-btn-secondary">
+            <span id="ticketsEntriesLabel">Show 15</span>
+            <svg class="w-4 h-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+            </svg>
+        </button>
+        <div x-show="isOpen"
+             x-transition:enter="transition ease-out duration-100"
+             x-transition:enter-start="opacity-0 scale-95"
+             x-transition:enter-end="opacity-100 scale-100"
+             x-transition:leave="transition ease-in duration-75"
+             x-transition:leave-start="opacity-100 scale-100"
+             x-transition:leave-end="opacity-0 scale-95"
+             class="eb-menu absolute left-0 z-50 mt-2 w-40 overflow-hidden"
+             style="display:none;">
+            <button type="button" class="tickets-page-size eb-menu-option" data-size="10" @click="isOpen=false">10</button>
+            <button type="button" class="tickets-page-size eb-menu-option" data-size="25" @click="isOpen=false">25</button>
+            <button type="button" class="tickets-page-size eb-menu-option" data-size="50" @click="isOpen=false">50</button>
+            <button type="button" class="tickets-page-size eb-menu-option" data-size="100" @click="isOpen=false">100</button>
+        </div>
+    </div>
+{/capture}
 
-                <div id="ticketsToolbar" class="mb-4 flex flex-col xl:flex-row xl:items-center gap-3" style="display:none;">
-                    <div class="flex items-center gap-3 flex-wrap">
-                        <div class="relative" x-data="{ isOpen: false }" @click.away="isOpen = false">
-                            <button type="button"
-                                    @click="isOpen = !isOpen"
-                                    id="ticketsEntriesBtn"
-                                    class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
-                                <span id="ticketsEntriesLabel">Show 15</span>
-                                <svg class="w-4 h-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                                    <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
-                                </svg>
-                            </button>
-                            <div x-show="isOpen"
-                                 x-transition:enter="transition ease-out duration-100"
-                                 x-transition:enter-start="opacity-0 scale-95"
-                                 x-transition:enter-end="opacity-100 scale-100"
-                                 x-transition:leave="transition ease-in duration-75"
-                                 x-transition:leave-start="opacity-100 scale-100"
-                                 x-transition:leave-end="opacity-0 scale-95"
-                                 class="absolute left-0 mt-2 w-40 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden"
-                                 style="display: none;">
-                                <button type="button" class="tickets-page-size w-full px-4 py-2 text-left text-sm text-slate-200 hover:bg-slate-800/60 transition" data-size="10" @click="isOpen=false">10</button>
-                                <button type="button" class="tickets-page-size w-full px-4 py-2 text-left text-sm text-slate-200 hover:bg-slate-800/60 transition" data-size="25" @click="isOpen=false">25</button>
-                                <button type="button" class="tickets-page-size w-full px-4 py-2 text-left text-sm text-slate-200 hover:bg-slate-800/60 transition" data-size="50" @click="isOpen=false">50</button>
-                                <button type="button" class="tickets-page-size w-full px-4 py-2 text-left text-sm text-slate-200 hover:bg-slate-800/60 transition" data-size="100" @click="isOpen=false">100</button>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="flex-1"></div>
-                    <input id="ticketsSearchInput"
-                           type="text"
-                           placeholder="Search tickets..."
-                           class="w-full xl:w-80 rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
-                </div>
+{capture name=ebSupportToolbarRight}
+    <input id="ticketsSearchInput"
+           type="text"
+           placeholder="Search tickets..."
+           class="eb-toolbar-search xl:w-80">
+{/capture}
 
-                <div class="overflow-x-auto rounded-lg border border-slate-800">
-                    <table id="tableTicketsList" class="min-w-full divide-y divide-slate-800 text-sm">
-                        <thead class="bg-slate-900/80 text-slate-300">
-                            <tr>
-                                <th class="px-4 py-3 text-left font-medium">{$LANG.supportticketsticketid}</th>
-                                <th class="px-4 py-3 text-left font-medium">{$LANG.supportticketssubject}</th>
-                                <th class="px-4 py-3 text-left font-medium">{$LANG.supportticketsstatus}</th>
-                                <th class="px-4 py-3 text-left font-medium">{$LANG.supportticketsticketlastupdated}</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-slate-800">
-                            {foreach from=$tickets item=ticket}
-                                <tr 
-                                    class="{if $ticket.status|lower == 'closed'}closed-ticket{else}open-ticket{/if} hover:bg-slate-800/50 cursor-pointer"
-                                    onclick="window.location='viewticket.php?tid={$ticket.tid}&amp;c={$ticket.c}'"
+{capture name=ebSupportContent}
+    {include file="$template/includes/ui/page-header.tpl"
+        ebBreadcrumb=$smarty.capture.ebSupportBreadcrumb
+        ebPageTitle="Support Tickets"
+        ebPageDescription="Track your open and closed ticket activity."
+        ebPageActions=$smarty.capture.ebSupportActions
+    }
+
+    <div class="eb-subpanel">
+        <div id="tableLoading" class="mb-4 text-center">
+            <p class="eb-loader-pill">
+                <i class="fas fa-spinner fa-spin"></i>
+                <span>{$LANG.loading}</span>
+            </p>
+        </div>
+
+        <div id="ticketsToolbar" style="display:none;">
+            {include file="$template/includes/ui/table-toolbar.tpl"
+                ebToolbarLeft=$smarty.capture.ebSupportToolbarLeft
+                ebToolbarRight=$smarty.capture.ebSupportToolbarRight
+            }
+        </div>
+
+        <div class="eb-table-shell">
+            <table id="tableTicketsList" class="eb-table">
+                <thead>
+                    <tr>
+                        <th>{$LANG.supportticketsticketid}</th>
+                        <th>{$LANG.supportticketssubject}</th>
+                        <th>{$LANG.supportticketsstatus}</th>
+                        <th>{$LANG.supportticketsticketlastupdated}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {foreach from=$tickets item=ticket}
+                        <tr
+                            class="{if $ticket.status|lower == 'closed'}closed-ticket{else}open-ticket{/if} cursor-pointer"
+                            onclick="window.location='viewticket.php?tid={$ticket.tid}&amp;c={$ticket.c}'"
+                        >
+                            <td>
+                                <span class="ticket-number eb-table-primary">#{$ticket.tid}</span>
+                            </td>
+                            <td>
+                                <a href="viewticket.php?tid={$ticket.tid}&amp;c={$ticket.c}" class="eb-link-subtle">
+                                    <span class="ticket-subject{if $ticket.unread} font-semibold text-sky-100{/if}">
+                                        {$ticket.subject}
+                                    </span>
+                                </a>
+                            </td>
+                            <td>
+                                <span
+                                    class="eb-badge {if is_null($ticket.statusColor)}status-{$ticket.statusClass}{else}eb-badge--custom{/if}"
+                                    {if !is_null($ticket.statusColor)}style="--eb-badge-accent: {$ticket.statusColor};"{/if}
                                 >
-                                    <td class="px-4 py-3 text-slate-100">
-                                        <span class="ticket-number font-medium">#{$ticket.tid}</span>
-                                    </td>
-                                    <td class="px-4 py-3">
-                                        <a href="viewticket.php?tid={$ticket.tid}&amp;c={$ticket.c}" class="text-slate-100 hover:text-white">
-                                            <span class="ticket-subject{if $ticket.unread} font-semibold text-sky-100{/if}">
-                                                {$ticket.subject}
-                                            </span>
-                                        </a>
-                                    </td>
-                                    <td class="px-4 py-3">
-                                        <span 
-                                            class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold
-                                                {if is_null($ticket.statusColor)}
-                                                    status-{$ticket.statusClass}
-                                                {else}
-                                                    status-custom
-                                                {/if}"
-                                            {if !is_null($ticket.statusColor)}
-                                                style="border:1px solid {$ticket.statusColor}; color: {$ticket.statusColor}"
-                                            {/if}
-                                        >
-                                            {$ticket.status|strip_tags}
-                                        </span>
-                                    </td>
-                                    <td class="px-4 py-3 text-slate-300">
-                                        <span class="hidden">{$ticket.normalisedLastReply}</span>
-                                        {$ticket.lastreply}
-                                    </td>
-                                </tr>
-                            {/foreach}
-                        </tbody>
-                    </table>
-                </div>
+                                    {$ticket.status|strip_tags}
+                                </span>
+                            </td>
+                            <td>
+                                <span class="hidden">{$ticket.normalisedLastReply}</span>
+                                {$ticket.lastreply}
+                            </td>
+                        </tr>
+                    {/foreach}
+                </tbody>
+            </table>
+        </div>
 
-                <div id="ticketsPagination" class="mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-400" style="display:none;">
-                    <div id="ticketsPageSummary"></div>
-                    <div class="flex items-center gap-2">
-                        <button type="button" id="ticketsPrev"
-                                class="px-3 py-1.5 rounded border border-slate-700 bg-slate-900/70 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed">
-                            Prev
-                        </button>
-                        <span id="ticketsPageInfo" class="text-slate-300"></span>
-                        <button type="button" id="ticketsNext"
-                                class="px-3 py-1.5 rounded border border-slate-700 bg-slate-900/70 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed">
-                            Next
-                        </button>
-                    </div>
-                </div>
+        <div id="ticketsPagination" class="eb-table-pagination" style="display:none;">
+            <div id="ticketsPageSummary"></div>
+            <div class="flex items-center gap-2">
+                <button type="button" id="ticketsPrev" class="eb-table-pagination-button">Prev</button>
+                <span id="ticketsPageInfo"></span>
+                <button type="button" id="ticketsNext" class="eb-table-pagination-button">Next</button>
             </div>
         </div>
     </div>
-</div>
+{/capture}
 
-<!-- DataTables Script -->
+{include file="$template/includes/ui/page-shell.tpl"
+    ebPageNav=$smarty.capture.ebSupportNav
+    ebPageContent=$smarty.capture.ebSupportContent
+}
+
 <script>
 jQuery(document).ready(function () {
     var table = jQuery('#tableTicketsList')
@@ -199,21 +194,18 @@ jQuery(document).ready(function () {
         table.page('next').draw('page');
     });
 
-    // Wire custom search input
     jQuery('#ticketsSearchInput').on('input', function () {
         table.search(this.value).draw();
     });
 
-    // Wire custom page-size buttons
     jQuery('.tickets-page-size').on('click', function () {
         var size = parseInt(jQuery(this).data('size'), 10) || 15;
         table.page.len(size).draw();
         jQuery('#ticketsEntriesLabel').text('Show ' + size);
-        jQuery('.tickets-page-size').removeClass('bg-slate-800/70 text-white').addClass('text-slate-200 hover:bg-slate-800/60');
-        jQuery(this).addClass('bg-slate-800/70 text-white').removeClass('hover:bg-slate-800/60');
+        jQuery('.tickets-page-size').removeClass('is-active');
+        jQuery(this).addClass('is-active');
     });
 
-    // Sorting logic
     {if $orderby == 'did' || $orderby == 'dept'}
         table.order(0, '{$sort}');
     {elseif $orderby == 'subject' || $orderby == 'title'}
@@ -230,18 +222,14 @@ jQuery(document).ready(function () {
     jQuery('#ticketsPagination').show();
 
     function setActiveTab(status) {
-        var activeClasses = 'bg-white/10 text-white ring-1 ring-white/20';
-        var inactiveClasses = 'text-slate-400 hover:text-white hover:bg-white/5';
         var openTab = jQuery('#open-tickets-tab');
         var closedTab = jQuery('#closed-tickets-tab');
-        openTab.removeClass(activeClasses + ' ' + inactiveClasses);
-        closedTab.removeClass(activeClasses + ' ' + inactiveClasses);
+        openTab.removeClass('is-active');
+        closedTab.removeClass('is-active');
         if (status === 'closed') {
-            closedTab.addClass(activeClasses);
-            openTab.addClass(inactiveClasses);
+            closedTab.addClass('is-active');
         } else {
-            openTab.addClass(activeClasses);
-            closedTab.addClass(inactiveClasses);
+            openTab.addClass('is-active');
         }
     }
 
@@ -251,7 +239,6 @@ jQuery(document).ready(function () {
         window.history.replaceState({}, '', currentUrl.toString());
     }
 
-    // Filter table based on ticket status
     function filterTickets(status) {
         table.rows().every(function () {
             var data = this.data();
@@ -287,5 +274,3 @@ jQuery(document).ready(function () {
     });
 });
 </script>
-
-

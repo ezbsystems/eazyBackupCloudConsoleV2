@@ -231,17 +231,17 @@ function eb_ph_catalog_plans_index(array $vars)
 
     // Normalize to arrays for Smarty
     $plansArr = [];
-    foreach ((array)$plans as $r) {
+    foreach ($plans as $r) {
         $row = (array)$r;
         $row['active_subs'] = $subCounts[(int)$row['id']] ?? 0;
         $plansArr[] = $row;
     }
-    $componentsArr = []; foreach ((array)$components as $r) { $componentsArr[] = (array)$r; }
-    $pricesArr = []; foreach ((array)$prices as $r) { $pricesArr[] = (array)$r; }
-    $tenantsArr = []; foreach ((array)$tenants as $r) { $tenantsArr[] = (array)$r; }
+    $componentsArr = []; foreach ($components as $r) { $componentsArr[] = (array)$r; }
+    $pricesArr = []; foreach ($prices as $r) { $pricesArr[] = (array)$r; }
+    $tenantsArr = []; foreach ($tenants as $r) { $tenantsArr[] = (array)$r; }
 
     $catalogByProduct = [];
-    foreach ((array)$products as $row) {
+    foreach ($products as $row) {
         $arr = (array)$row;
         $catalogByProduct[(int)$arr['id']] = [
             'id' => (int)$arr['id'],
@@ -292,6 +292,12 @@ function eb_ph_catalog_plans_index(array $vars)
             'catalog_products_json' => json_encode($catalogProducts, JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT),
             'tenants' => $tenantsArr,
             'customers' => $tenantsArr,
+            'assign_tenants_json' => json_encode(array_values(array_map(static function (array $t): array {
+                return [
+                    'public_id' => (string) ($t['public_id'] ?? ''),
+                    'name' => (string) ($t['name'] ?? ''),
+                ];
+            }, $tenantsArr)), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT),
             'comet_accounts' => $cometAccounts,
             'modulelink' => $vars['modulelink'] ?? ('index.php?m=eazybackup'),
             'token' => function_exists('generate_token') ? generate_token('plain') : '',
@@ -554,7 +560,36 @@ function eb_ph_plan_template_update(array $vars): void
 
     $raw = file_get_contents('php://input');
     $json = json_decode((string)$raw, true);
-    if (!is_array($json) && isset($_POST['payload'])) { $json = json_decode((string)$_POST['payload'], true); }
+    if (!is_array($json)) {
+        if (isset($_POST['payload'])) {
+            $payloadRaw = (string)$_POST['payload'];
+            $candidates = [];
+            $candidates[] = $payloadRaw;
+            if (strlen($payloadRaw) > 2 && $payloadRaw[0] === '\'' && substr($payloadRaw, -1) === '\'') {
+                $candidates[] = substr($payloadRaw, 1, -1);
+            }
+            $candidates[] = html_entity_decode($payloadRaw, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            $candidates[] = stripslashes($payloadRaw);
+            $candidates[] = urldecode($payloadRaw);
+            foreach ($candidates as $cand) {
+                $try = json_decode((string)$cand, true);
+                if (is_array($try)) {
+                    $json = $try;
+                    break;
+                }
+            }
+        }
+        if (!is_array($json) && is_string($raw) && $raw !== '') {
+            $form = [];
+            parse_str($raw, $form);
+            if (isset($form['payload'])) {
+                $try = json_decode(html_entity_decode((string)$form['payload'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'), true);
+                if (is_array($try)) {
+                    $json = $try;
+                }
+            }
+        }
+    }
     if (!is_array($json)) { echo json_encode(['status'=>'error','message'=>'bad_json']); return; }
 
     $planId = (int)($json['plan_id'] ?? 0);

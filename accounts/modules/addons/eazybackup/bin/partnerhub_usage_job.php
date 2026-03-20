@@ -3,10 +3,14 @@
 use WHMCS\Database\Capsule;
 use PartnerHub\StripeService;
 use PartnerHub\CatalogService;
+use function PartnerHub\computeBillableMeteredUsage;
+use function PartnerHub\resolveActivePlanInstanceMeteredItem;
 
 require_once __DIR__ . '/../eazybackup.php';
+require_once __DIR__ . '/../lib/PartnerHub/MeteredUsage.php';
 
-// Nightly usage job skeleton: iterate plan instances, push metered GB usage and update per-unit quantities
+// Legacy nightly usage job. Keep behavior aligned with stripe_tenant_usage_rollup.php
+// so storage allowance handling does not diverge between operational paths.
 // This script is intended to be run by PHP CLI with WHMCS bootstrap environment.
 
 try {
@@ -39,11 +43,14 @@ try {
                 $exists = Capsule::table('eb_usage_ledger')->where('idempotency_key',$idemp)->first();
                 if (!$exists && $gb >= 0) {
                     $tenantId = (int)($pi->tenant_id ?? $pi->customer_id ?? 0);
+                    $meteredItem = resolveActivePlanInstanceMeteredItem($tenantId, 'STORAGE_TB');
+                    if (!$meteredItem) { continue; }
+                    $billableGb = computeBillableMeteredUsage($gb, (int) ($meteredItem['default_qty'] ?? 0), (string) ($meteredItem['overage_mode'] ?? 'bill_all'));
                     // Record locally and attempt to push
                     Capsule::table('eb_usage_ledger')->insert([
                         'tenant_id' => $tenantId,
                         'metric' => 'STORAGE_TB',
-                        'qty' => $gb,
+                        'qty' => $billableGb,
                         'period_start' => $periodStart->format('Y-m-d H:i:s'),
                         'period_end' => $periodEnd->format('Y-m-d H:i:s'),
                         'source' => 'cron',
@@ -51,9 +58,7 @@ try {
                         'created_at' => date('Y-m-d H:i:s'),
                     ]);
                     try {
-                        // Push usage record via REST (StripeService::createUsageRecord posts to platform; here we use direct header in retrieveSubscription path)
-                        // Reuse Subscription retrieval to get connected items if needed
-                        $cSvc->createUsageRecordConnected($map['STORAGE_TB'], $gb, time(), $acct);
+                        $cSvc->createUsageRecordConnected((string) $meteredItem['stripe_subscription_item_id'], $billableGb, time(), $acct);
                         Capsule::table('eb_usage_ledger')->where('idempotency_key',$idemp)->update(['pushed_to_stripe_at'=>date('Y-m-d H:i:s')]);
                     } catch (\Throwable $e) {
                         try { if (function_exists('logActivity')) { @logActivity('eazybackup: usage push failed for item '.$map['STORAGE_TB'].' — '.$e->getMessage()); } } catch (\Throwable $__) {}

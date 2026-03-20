@@ -734,18 +734,79 @@ if (!window.catalogToastManager) {
       isSaving: false,
       _dirty: false,
       _edited: false,
-      init(){ try{ window.ebProductPanel = this; }catch(_){ } },
+      phMenu: { key: null, top: 0, left: 0, width: 200, kind: null, rowIndex: null },
+      init(){
+        try{ window.ebProductPanel = this; }catch(_){ }
+        if (!window.__ebCatalogPhMenuCloserBound) {
+          window.__ebCatalogPhMenuCloserBound = true;
+          document.addEventListener('click', function(ev){
+            var panel = window.ebProductPanel;
+            if (!panel || !panel.phMenu || !panel.phMenu.key) return;
+            var t = ev.target;
+            if (t && t.closest && (t.closest('[data-eb-ph-menu-trigger]') || t.closest('[data-eb-ph-menu-panel]'))) return;
+            if (typeof panel.closePhMenu === 'function') panel.closePhMenu();
+          }, true);
+        }
+      },
+      closePhMenu(){ this.phMenu = { key: null, top: 0, left: 0, width: 200, kind: null, rowIndex: null }; },
+      isPhMenuOpen(kind, rowIndex){ return this.phMenu && this.phMenu.key === String(kind) + ':' + String(rowIndex); },
+      openPhMenu(kind, rowIndex, event){
+        var key = String(kind) + ':' + String(rowIndex);
+        if (this.phMenu.key === key) { this.closePhMenu(); return; }
+        var t = event && event.currentTarget;
+        var r = t && t.getBoundingClientRect ? t.getBoundingClientRect() : { left: 0, bottom: 0, width: 200 };
+        var w = Math.max(r.width, 168);
+        var top = r.bottom + 4;
+        var maxTop = (typeof window !== 'undefined' && window.innerHeight) ? window.innerHeight - 280 : top;
+        if (top > maxTop) top = Math.max(8, maxTop);
+        this.phMenu = { key: key, kind: kind, rowIndex: rowIndex, top: top, left: r.left, width: w };
+      },
+      pickPhMenuValue(value){
+        var idx = this.phMenu.rowIndex;
+        var kind = this.phMenu.kind;
+        if (idx == null || kind == null) return;
+        var it = this.items[idx];
+        if (!it) return;
+        this._edited = true;
+        if (kind === 'currency') it.currency = value;
+        else if (kind === 'interval') it.interval = value;
+        else if (kind === 'billing') { it.billingType = value; this.normalizePriceRow(idx); }
+        else if (kind === 'pricing') { it.pricingScheme = value; this.onPricingSchemeChange(idx); }
+        this.closePhMenu();
+      },
+      phMenuTriggerLabel(kind, i){
+        var it = this.items[i];
+        if (!it) return '';
+        if (kind === 'currency') return it.currency || 'CAD';
+        if (kind === 'interval') {
+          if (it.billingType === 'one_time') return '—';
+          var iv = it.interval || 'month';
+          if (iv === 'month') return 'Month';
+          if (iv === 'year') return 'Year';
+          return 'None';
+        }
+        if (kind === 'billing') return this.billingLabel(it.billingType);
+        if (kind === 'pricing') {
+          var s = it.pricingScheme || 'per_unit';
+          if (s === 'per_unit') return 'Flat rate';
+          if (s === 'tiered_graduated') return 'Graduated tiers';
+          if (s === 'tiered_volume') return 'Volume tiers';
+          return s;
+        }
+        return '';
+      },
       open(){ this.isOpen=true; showEl('eb-product-panel'); },
       close(){
         if (this._edited && !this._dirty) {
           if (!window.confirm('Discard unsaved changes to this product?')) return;
         }
+        this.closePhMenu();
         this.isOpen=false;
         hideEl('eb-product-panel');
         if (this._dirty) { window.location.reload(); }
       },
       preset: null,
-      reset(){ this.mode='create'; this.productId=null; this.stripeProductId=null; this.product={ name:'', description:'' }; this.baseMetric=null; this.items=[]; this.features=[]; this.lastSeededMetric=null; this.focusPriceId=null; this.focusPriceKey=null; this.showInactive=false; this.isSaving=false; this._dirty=false; this._edited=false; this.preset=null; },
+      reset(){ this.closePhMenu(); this.mode='create'; this.productId=null; this.stripeProductId=null; this.product={ name:'', description:'' }; this.baseMetric=null; this.items=[]; this.features=[]; this.lastSeededMetric=null; this.focusPriceId=null; this.focusPriceKey=null; this.showInactive=false; this.isSaving=false; this._dirty=false; this._edited=false; this.preset=null; },
       openCreate(){ this.reset(); this.mode='create'; this.open(); },
       async openEdit(id, focusPriceId){ try{ this.reset(); this.mode='edit'; const res = await fetch(`${this.modulelink}&a=ph-catalog-product-get&id=${encodeURIComponent(id)}`, { method:'GET' }); const out = await res.json(); if(out.status!=='success') throw new Error('bad'); var p=out.product||{}; if (p.stripe_product_id) { await this.openEditStripe(String(p.stripe_product_id), { focusPriceId: focusPriceId ? String(focusPriceId) : null }); return; } this.productId = p.id || id || null; this.product={ name:p.name||'', description:p.description||'' }; this.baseMetric = p.base_metric_code || null; this.items=(out.prices||[]).map(pr=>({ id: pr.id, label: pr.name||'', billingType:(pr.kind==='metered'?'metered':(pr.kind==='one_time'?'one_time':'per_unit')), metric: pr.metric_code||this.baseMetric||'GENERIC', unitLabel: pr.unit_label||(String(pr.metric_code||this.baseMetric||'GENERIC')==='STORAGE_TB'?'GiB':defaultUnitLabel(pr.metric_code||this.baseMetric||'GENERIC')), amount:Number(pr.unit_amount||0)/100, interval:(pr.kind==='one_time'?'none':(pr.interval||'month')), active:!!pr.active, currency:this.currency, pricingScheme: pr.pricing_scheme||'per_unit', tiers: pr.tiers_json ? (function(){ try{ var t=JSON.parse(pr.tiers_json); return t.map(function(r){ return { up_to:r.up_to, unit_amount:r.unit_amount||0, unit_amount_display:Number(r.unit_amount||0)/100, flat_amount:r.flat_amount||0, flat_amount_display:Number(r.flat_amount||0)/100 }; }); }catch(_){ return []; } })() : [] })); this.features=Array.isArray(p.features)?p.features:[]; this.focusPriceId = focusPriceId ? String(focusPriceId) : null; this.items.forEach((_, idx)=>this.normalizePriceRow(idx)); this.open(); }catch(e){ console.error('[eb.catalog] openEdit(panel) failed',e); safeToast('Failed to load product','error'); } },
       async openEditPrice(productId, localPriceId, stripePriceId){

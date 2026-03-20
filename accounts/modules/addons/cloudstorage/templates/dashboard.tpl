@@ -1,75 +1,30 @@
 <style>
     [x-cloak] { display: none !important; }
 </style>
-<div class="min-h-screen bg-slate-950 text-gray-300 overflow-x-hidden">
-    {* <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div> *}
-    <div class="container mx-auto max-w-full px-4 py-8">
-        <!-- Glass panel container -->
-        <div class="w-full max-w-full min-w-0 overflow-hidden rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
-            <div class="-mx-6 -mt-6 mb-6 rounded-t-3xl border-b border-slate-800/80 bg-slate-900/50 px-6 py-3">
-                <nav class="flex flex-wrap items-center gap-1" aria-label="Cloud Storage Navigation">
-                    <a href="index.php?m=cloudstorage&page=dashboard"
-                       class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $smarty.get.page == 'dashboard' || !$smarty.get.page}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 14.25v2.25m3-4.5v4.5m3-6.75v6.75m3-9v9M6 20.25h12A2.25 2.25 0 0 0 20.25 18V6A2.25 2.25 0 0 0 18 3.75H6A2.25 2.25 0 0 0 3.75 6v12A2.25 2.25 0 0 0 6 20.25Z" />
-                        </svg>
-                        <span class="text-sm font-medium">Dashboard</span>
-                    </a>
-                    <a href="index.php?m=cloudstorage&page=buckets"
-                       class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $smarty.get.page == 'buckets'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
-                        </svg>
-                        <span class="text-sm font-medium">Buckets</span>
-                    </a>
-                    <a href="index.php?m=cloudstorage&page=access_keys"
-                       class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $smarty.get.page == 'access_keys'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25Z" />
-                        </svg>
-                        <span class="text-sm font-medium">Access Keys</span>
-                    </a>
-                    <a href="index.php?m=cloudstorage&page=users"
-                       class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $smarty.get.page == 'users'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" />
-                        </svg>
-                        <span class="text-sm font-medium">Users</span>
-                    </a>
-                    <a href="index.php?m=cloudstorage&page=billing"
-                       class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $smarty.get.page == 'billing'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
-                        </svg>
-                        <span class="text-sm font-medium">Billing</span>
-                    </a>
-                    <a href="index.php?m=cloudstorage&page=history"
-                       class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $smarty.get.page == 'history'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6l4 2m5-2a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                        </svg>
-                        <span class="text-sm font-medium">Historical Stats</span>
-                    </a>
-                </nav>
+<div class="eb-page">
+    <div class="eb-page-inner py-8">
+        <div class="eb-panel">
+            <div class="eb-panel-nav">
+                {include file="modules/addons/cloudstorage/templates/partials/core_nav.tpl" cloudstorageActivePage='dashboard'}
             </div>
-            {* <div class="flex flex-col sm:flex-row h-16 justify-between items-start sm:items-center mb-3">
-                <div class="flex items-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15a4.5 4.5 0 0 0 4.5 4.5H18a3.75 3.75 0 0 0 1.332-7.257 3 3 0 0 0-3.758-3.848 5.25 5.25 0 0 0-10.233 2.33A4.502 4.502 0 0 0 2.25 15Z" />
-                    </svg>
-                    <h2 class="text-2xl font-semibold text-white">Dashboard</h2>
+            <div class="eb-page-header">
+                <div>
+                    <h1 class="eb-page-title">Cloud Storage Dashboard</h1>
+                    <p class="eb-page-description">Track live usage, storage distribution, and transfer volume across the current service period.</p>
                 </div>
-            </div> *}
+            </div>
         <!-- Usage Summary Card -->
         <div class="mb-8">
-            <div class="bg-slate-900/70 rounded-lg border border-slate-800/80 shadow-lg">
+            <div class="eb-app-card">
                 <!-- Card Header -->
-                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 border-b border-gray-700">
-                    <h4 class="text-xl font-semibold text-white">Usage Summary</h4>
-                    <div class="flex items-center gap-2">
+                <div class="eb-app-card-header flex-col items-start gap-4 border-b border-[var(--eb-border-subtle)] pb-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div class="min-w-0">
+                        <h4 class="eb-app-card-title">Usage Summary</h4>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-2">
                         <span class="text-sm text-slate-400">Current Service Period: {$billingPeriod['start']} to {$billingPeriod['end']}</span>
                         {if isset($overdueNotice) && $overdueNotice}
-                            <span class="text-xs bg-yellow-500/20 text-yellow-300 border border-yellow-500/40 px-2 py-1 rounded">{$overdueNotice}</span>
+                            <span class="eb-badge eb-badge--warning">{$overdueNotice}</span>
                         {/if}
                     </div>
                     
@@ -89,7 +44,7 @@
                         <button 
                             @click="open = !open"
                             @click.away="open = false"
-                            class="w-full h-9 px-4 text-left border border-slate-700 bg-slate-900/70 text-slate-200 rounded-full focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 flex items-center justify-between hover:bg-slate-800/80 transition-colors duration-200 text-xs">
+                            class="eb-app-toolbar-button w-full justify-between text-xs">
                             <span x-text="selectedLabel"></span>
                             <svg class="w-4 h-4 transition-transform duration-200" :class="{ 'transform rotate-180': open }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
@@ -106,13 +61,13 @@
                             x-transition:leave="transition ease-in duration-75"
                             x-transition:leave-start="opacity-100 scale-100"
                             x-transition:leave-end="opacity-0 scale-95"
-                            class="absolute z-50 w-full mt-1 bg-[#192331] border border-gray-600 rounded-md shadow-lg max-h-60 overflow-auto scrollbar_thin">
+                            class="eb-menu absolute z-50 mt-1 max-h-60 w-full overflow-auto scrollbar_thin">
                             
                             <!-- All Option -->
                             <div 
                                 @click="selected = ''; selectedLabel = 'All'; open = false; handleChange('')"
-                                class="px-3 py-2 text-gray-300 hover:bg-[#1e2937] hover:text-white cursor-pointer flex items-center"
-                                :class="{ 'bg-[#1e2937] text-white': selected === '' }">
+                                class="eb-menu-item"
+                                :class="{ 'is-active': selected === '' }">
                                 <span>All</span>
                                 <svg x-show="selected === ''" class="w-4 h-4 ml-auto text-sky-500" fill="currentColor" viewBox="0 0 20 20">
                                     <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
@@ -123,8 +78,8 @@
                             {foreach from=$usernames item=username}
                             <div 
                                 @click="selected = '{$username}'; selectedLabel = '{if $username == $PRIMARY_USERNAME}Root user{else}{$username}{/if}'; open = false; handleChange('{$username}')"
-                                class="px-3 py-2 text-gray-300 hover:bg-[#1e2937] hover:text-white cursor-pointer flex items-center"
-                                :class="{ 'bg-[#1e2937] text-white': selected === '{$username}' }">
+                                class="eb-menu-item"
+                                :class="{ 'is-active': selected === '{$username}' }">
                                 <span>{if $username == $PRIMARY_USERNAME}Root user{else}{$username}{/if}</span>
                                 <svg x-show="selected === '{$username}'" class="w-4 h-4 ml-auto text-sky-500" fill="currentColor" viewBox="0 0 20 20">
                                     <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
@@ -138,7 +93,7 @@
                     </div>
                 </div>
                 <!-- Card Body -->
-                <div class="p-6">
+                <div class="eb-app-card-body">
                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-6">
                         <!-- Current Usage Column -->
                         <div class="flex items-start">
@@ -188,8 +143,8 @@
 
         <!-- Buckets by Size -->
         <div class="mb-8">
-            <div class="bg-slate-900/70 rounded-lg border border-slate-800/80 shadow-lg">
-                <div class="p-6 flex items-center justify-between">
+            <div class="eb-app-card">
+                <div class="eb-app-card-header">
                     <div class="flex items-start">
                         <div class="flex items-center p-4 justify-center rounded-xl bg-slate-800/90 group-hover:bg-slate-700">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="text-emerald-600 size-8">
@@ -207,14 +162,14 @@
                     <!-- Create Bucket (shown if no buckets) -->
                     {if !$topBuckets}
                         <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=buckets"
-                        class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-md flex items-center focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                        class="eb-btn eb-btn-success">
                             Create Bucket
                         </a>
                     {/if}
                 </div>
 
                 <!-- Card Body -->
-                <div class="p-6">
+                <div class="eb-app-card-body">
                     <!-- Bucket List -->
                     <ul class="space-y-2">
                         {foreach from=$topBuckets item=bucket}
@@ -233,9 +188,9 @@
 
         <!-- Usage Chart Card -->
         <div class="mb-8">
-            <div class="bg-slate-900/70 rounded-lg border border-slate-800/80 shadow-lg">
+            <div class="eb-app-card">
                 <!-- Card Body -->
-                <div class="p-6">
+                <div class="eb-app-card-body">
                     <div class="flex items-start mb-4">
                         <div class="flex items-center p-4 justify-center rounded-xl bg-slate-800/90 group-hover:bg-slate-700">
  
@@ -260,9 +215,9 @@
         <!-- Data Ingress and Egress Cards -->
         <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
             <!-- Data Ingress Card -->
-            <div class="bg-slate-900/70 rounded-lg border border-slate-800/80 shadow-lg">
+            <div class="eb-app-card">
                 <!-- Card Body -->
-                <div class="p-6">
+                <div class="eb-app-card-body">
                     <div class="flex items-start mb-4">
                         <div class="flex items-center p-4 justify-center rounded-xl bg-slate-800/90 group-hover:bg-slate-700">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="text-sky-600 size-8">
@@ -277,7 +232,7 @@
                     </div>
                     <!-- Select Dropdown -->
                     <div class="mb-4">
-                        <select onchange="updateChart(this, 'ingress')" class="mt-1 pl-2 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                        <select onchange="updateChart(this, 'ingress')" class="eb-select mt-1 block w-full">
                             <option value="day">Today</option>
                             <option value="weekly">7 Days</option>
                             <option value="monthly">Month</option>
@@ -289,9 +244,9 @@
             </div>
 
             <!-- Data Egress Card -->
-            <div class="rounded-lg border border-slate-800/80 bg-slate-900/70 shadow-lg">
+            <div class="eb-app-card">
                 <!-- Card Body -->
-                <div class="p-6">
+                <div class="eb-app-card-body">
                     <div class="flex items-start mb-4">
                         <div class="flex items-center p-4 justify-center rounded-xl bg-slate-800/90 group-hover:bg-slate-700">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="text-amber-600 size-8">
@@ -305,7 +260,7 @@
                     </div>
                     <!-- Select Dropdown -->
                     <div class="mb-4">
-                        <select onchange="updateChart(this, 'egress')" class="mt-1 pl-2 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-red-500 focus:border-red-500">
+                        <select onchange="updateChart(this, 'egress')" class="eb-select mt-1 block w-full">
                             <option value="day">Today</option>
                             <option value="weekly">7 Days</option>
                             <option value="monthly">Month</option>

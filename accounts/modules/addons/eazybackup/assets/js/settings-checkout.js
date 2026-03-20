@@ -24,7 +24,10 @@
       var re=/^[A-Z0-9 ]{0,22}$/;
       var valid=re.test(s);
       ok = ok && valid;
-      if(help){ help.classList.toggle('text-rose-300', !valid); help.classList.toggle('text-white/50', valid); }
+      if(help){
+        if(!valid){ help.classList.remove('eb-field-help'); help.classList.add('eb-field-error'); }
+        else { help.classList.remove('eb-field-error'); help.classList.add('eb-field-help'); }
+      }
     }
     var cur=q('sc-default-currency'); if(cur){ cur.value=(cur.value||'').trim().toUpperCase(); if(cur.value.length!==3){ ok=false; } }
     var retry=q('sc-retry-schedule'); if(retry){ var parts=(retry.value||'').split(',').map(function(v){return v.trim();}).filter(Boolean); if(parts.length<3||parts.length>5){ ok=false; } }

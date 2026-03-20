@@ -3,66 +3,19 @@
 <style>
     [x-cloak] { display: none !important; }
 </style>
-<div class="min-h-screen bg-slate-950 text-gray-300 overflow-x-hidden">
-    {* <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div> *}
-    <div class="container mx-auto max-w-full px-4 py-8">
-        <!-- Glass panel container -->
-        <div class="w-full max-w-full min-w-0 overflow-hidden rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
-            <div class="-mx-6 -mt-6 mb-6 rounded-t-3xl border-b border-slate-800/80 bg-slate-900/50 px-6 py-3">
-                <nav class="flex flex-wrap items-center gap-1" aria-label="Cloud Storage Navigation">
-                    <a href="index.php?m=cloudstorage&page=dashboard"
-                       class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $smarty.get.page == 'dashboard' || !$smarty.get.page}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 14.25v2.25m3-4.5v4.5m3-6.75v6.75m3-9v9M6 20.25h12A2.25 2.25 0 0 0 20.25 18V6A2.25 2.25 0 0 0 18 3.75H6A2.25 2.25 0 0 0 3.75 6v12A2.25 2.25 0 0 0 6 20.25Z" />
-                        </svg>
-                        <span class="text-sm font-medium">Dashboard</span>
-                    </a>
-                    <a href="index.php?m=cloudstorage&page=buckets"
-                       class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $smarty.get.page == 'buckets'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
-                        </svg>
-                        <span class="text-sm font-medium">Buckets</span>
-                    </a>
-                    <a href="index.php?m=cloudstorage&page=access_keys"
-                       class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $smarty.get.page == 'access_keys'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25Z" />
-                        </svg>
-                        <span class="text-sm font-medium">Access Keys</span>
-                    </a>
-                    <a href="index.php?m=cloudstorage&page=users"
-                       class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $smarty.get.page == 'users'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" />
-                        </svg>
-                        <span class="text-sm font-medium">Users</span>
-                    </a>
-                    <a href="index.php?m=cloudstorage&page=billing"
-                       class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $smarty.get.page == 'billing'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
-                        </svg>
-                        <span class="text-sm font-medium">Billing</span>
-                    </a>
-                    <a href="index.php?m=cloudstorage&page=history"
-                       class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $smarty.get.page == 'history'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6l4 2m5-2a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                        </svg>
-                        <span class="text-sm font-medium">Historical Stats</span>
-                    </a>
-                </nav>
+<div class="eb-page">
+    <div class="eb-page-inner py-8">
+        <div class="eb-panel">
+            <div class="eb-panel-nav">
+                {include file="modules/addons/cloudstorage/templates/partials/core_nav.tpl" cloudstorageActivePage='history'}
             </div>
-            <div class="flex flex-col sm:flex-row h-16 justify-between items-start sm:items-center mb-3">
-                <div class="flex items-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                    </svg>
-                    <h2 class="text-2xl font-semibold text-white">Usage History</h2>
+            <div class="eb-page-header">
+                <div>
+                    <h1 class="eb-page-title">Usage History</h1>
+                    <p class="eb-page-description">Review historical storage, ingress, egress, and operations across billing periods or custom ranges.</p>
                 </div>
                 {if isset($overdueNotice) && $overdueNotice}
-                    <a href="clientarea.php?action=invoices" class="mt-2 sm:mt-0 inline-flex items-center gap-2 rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-3 py-1.5 text-xs text-yellow-200 hover:bg-yellow-500/20">
+                    <a href="clientarea.php?action=invoices" class="eb-btn eb-btn-warning eb-btn-sm">
                         <span>{$overdueNotice}</span>
                         <span class="text-[11px] underline underline-offset-2">View invoice</span>
                     </a>
@@ -70,7 +23,7 @@
             </div>
 
         <!-- Date Range Selection Card -->
-        <div class="bg-slate-900/70 rounded-lg border border-slate-800/80 p-6 mb-8">
+        <div class="eb-subpanel mb-8">
             <div class="space-y-4">
                 <div class="flex flex-wrap items-center justify-between gap-3">
                     <div class="flex flex-wrap items-center gap-2">
@@ -78,12 +31,12 @@
                             type="button"
                             title="Previous period"
                             aria-label="Previous period"
-                            class="h-10 w-10 rounded-lg border border-slate-800/80 bg-slate-900/70 text-slate-200 hover:bg-slate-800/80 focus:outline-none focus:ring-2 focus:ring-slate-500 inline-flex items-center justify-center">
+                            class="eb-btn eb-btn-secondary eb-btn-icon">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-5">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M21 16.811c0 .864-.933 1.406-1.683.977l-7.108-4.061a1.125 1.125 0 0 1 0-1.954l7.108-4.061A1.125 1.125 0 0 1 21 8.689v8.122ZM11.25 16.811c0 .864-.933 1.406-1.683.977l-7.108-4.061a1.125 1.125 0 0 1 0-1.954l7.108-4.061a1.125 1.125 0 0 1 1.683.977v8.122Z" />
                         </svg>
                     </button>
-                    <div class="inline-flex items-center gap-2 rounded-lg border border-slate-800/80 bg-slate-900/70 px-3 h-10 text-sm text-slate-200">
+                    <div class="inline-flex h-10 items-center gap-2 rounded-lg border border-[var(--eb-border-default)] bg-[var(--eb-bg-overlay)] px-3 text-sm text-slate-200">
                         <span class="text-slate-400">Billing Period:</span>
                         <span class="font-medium text-slate-100">{$displayedPeriod.start|date_format:"%d %b %Y"} - {$displayedPeriod.end|date_format:"%d %b %Y"}</span>
                         <span class="ml-2 inline-flex items-center rounded-full border border-slate-700 bg-slate-800 px-2 py-0.5 text-[11px] text-slate-300">
@@ -97,12 +50,12 @@
                             title="Next period"
                             aria-label="Next period"
                             {if !$canNavigateForward}disabled{/if}
-                            class="h-10 w-10 rounded-lg border border-slate-800/80 bg-slate-900/70 text-slate-200 hover:bg-slate-800/80 focus:outline-none focus:ring-2 focus:ring-slate-500 inline-flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed">
+                            class="eb-btn eb-btn-secondary eb-btn-icon disabled:opacity-50 disabled:cursor-not-allowed">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-5">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M3 8.689c0-.864.933-1.406 1.683-.977l7.108 4.061a1.125 1.125 0 0 1 0 1.954l-7.108 4.061A1.125 1.125 0 0 1 3 16.811V8.69ZM12.75 8.689c0-.864.933-1.406 1.683-.977l7.108 4.061a1.125 1.125 0 0 1 0 1.954l-7.108 4.061a1.125 1.125 0 0 1-1.683-.977V8.69Z" />
                         </svg>
                     </button>
-                    <button id="currentPeriodButton" type="button" class="h-10 px-2 text-xs text-sky-300 hover:text-sky-200 underline underline-offset-2">
+                    <button id="currentPeriodButton" type="button" class="eb-btn eb-btn-ghost eb-btn-sm text-xs">
                         Jump to current
                     </button>
                     <div x-data="{ 
@@ -121,7 +74,7 @@
                         <button 
                             @click="open = !open"
                             @click.away="open = false"
-                            class="w-full h-9 px-4 text-left border border-slate-700 bg-slate-900/70 text-slate-200 rounded-full focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 flex items-center justify-between hover:bg-slate-800/80 transition-colors duration-200 text-xs">
+                            class="eb-app-toolbar-button w-full justify-between text-xs">
                             <span x-text="selectedLabel"></span>
                             <svg class="w-4 h-4 transition-transform duration-200" :class="{ 'transform rotate-180': open }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
@@ -138,13 +91,13 @@
                             x-transition:leave="transition ease-in duration-75"
                             x-transition:leave-start="opacity-100 scale-100"
                             x-transition:leave-end="opacity-0 scale-95"
-                            class="absolute z-50 w-full mt-1 bg-[#192331] border border-gray-600 rounded-md shadow-lg max-h-60 overflow-auto scrollbar_thin">
+                            class="eb-menu absolute z-50 mt-1 max-h-60 w-full overflow-auto scrollbar_thin">
                             
                             <!-- All Option -->
                             <div 
                                 @click="selected = ''; selectedLabel = 'All'; open = false; handleUsernameChange('')"
-                                class="px-3 py-2 text-gray-300 hover:bg-[#1e2937] hover:text-white cursor-pointer flex items-center"
-                                :class="{ 'bg-[#1e2937] text-white': selected === '' }">
+                                class="eb-menu-item"
+                                :class="{ 'is-active': selected === '' }">
                                 <span>All</span>
                                 <svg x-show="selected === ''" class="w-4 h-4 ml-auto text-sky-500" fill="currentColor" viewBox="0 0 20 20">
                                     <path fill-rule="evenodd" d="M16.707 5.293a1.125 1.125 0 010 1.414l-8 8a1.125 1.125 0 01-1.414 0l-4-4a1.125 1.125 0 011.414-1.414L8 12.586l7.293-7.293a1.125 1.125 0 01 1.414 0z" clip-rule="evenodd"></path>
@@ -155,8 +108,8 @@
                             {foreach from=$usernames item=username}
                             <div 
                                 @click="selected = '{$username}'; selectedLabel = '{if $username == $PRIMARY_USERNAME}Root user{else}{$username}{/if}'; open = false; handleUsernameChange('{$username}')"
-                                class="px-3 py-2 text-gray-300 hover:bg-[#1e2937] hover:text-white cursor-pointer flex items-center"
-                                :class="{ 'bg-[#1e2937] text-white': selected === '{$username}' }">
+                                class="eb-menu-item"
+                                :class="{ 'is-active': selected === '{$username}' }">
                                 <span>{if $username == $PRIMARY_USERNAME}Root user{else}{$username}{/if}</span>
                                 <svg x-show="selected === '{$username}'" class="w-4 h-4 ml-auto text-sky-500" fill="currentColor" viewBox="0 0 20 20">
                                     <path fill-rule="evenodd" d="M16.707 5.293a1.125 1.125 0 010 1.414l-8 8a1.125 1.125 0 01-1.414 0l-4-4a1.125 1.125 0 011.414-1.414L8 12.586l7.293-7.293a1.125 1.125 0 01 1.414 0z" clip-rule="evenodd"></path>
@@ -171,21 +124,21 @@
                     </div>
                     <div class="flex items-center">
                         <div x-data="{ open: false }" class="relative">
-                            <button type="button" @click="open = !open" class="h-10 px-4 rounded-lg bg-slate-700 text-white hover:bg-slate-600 focus:outline-none focus:ring-2 focus:ring-slate-500 text-sm">
+                            <button type="button" @click="open = !open" class="eb-btn eb-btn-secondary eb-btn-sm">
                                 Export...
                             </button>
                             <div 
                                 x-show="open"
                                 x-cloak
                                 @click.away="open = false"
-                                class="absolute right-0 mt-2 w-80 rounded-lg border border-slate-700 bg-[#111827] shadow-lg p-4 z-50">
+                                class="eb-menu absolute right-0 z-50 mt-2 w-80 p-4">
                                 <form method="get" action="index.php" class="space-y-3">
                                     <input type="hidden" name="m" value="cloudstorage">
                                     <input type="hidden" name="page" value="history">
                                     <input type="hidden" name="export" value="csv">
                                     <div>
-                                        <label class="text-xs text-slate-400">Tenant (optional)</label>
-                                        <select name="username" class="h-10 mt-1 w-full px-3 rounded-lg border border-gray-600 bg-[#192331] text-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500">
+                                        <label class="eb-field-label">Tenant (optional)</label>
+                                        <select name="username" class="eb-select mt-1 w-full">
                                             <option value="" {if !$smarty.get.username}selected{/if}>All</option>
                                             {foreach from=$usernames item=username}
                                                 <option value="{$username}" {if $smarty.get.username == $username}selected{/if}>
@@ -196,21 +149,21 @@
                                     </div>
                                     <div class="grid grid-cols-2 gap-2">
                                         <div>
-                                            <label for="exportStartDate" class="text-xs text-slate-400">From</label>
-                                            <input id="exportStartDate" type="date" name="start_date" value="{$startDate}" class="h-10 mt-1 w-full px-2.5 rounded-lg border border-gray-600 bg-[#192331] text-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500">
+                                            <label for="exportStartDate" class="eb-field-label">From</label>
+                                            <input id="exportStartDate" type="date" name="start_date" value="{$startDate}" class="eb-input mt-1 w-full">
                                         </div>
                                         <div>
-                                            <label for="exportEndDate" class="text-xs text-slate-400">To</label>
-                                            <input id="exportEndDate" type="date" name="end_date" value="{$endDate}" class="h-10 mt-1 w-full px-2.5 rounded-lg border border-gray-600 bg-[#192331] text-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500">
+                                            <label for="exportEndDate" class="eb-field-label">To</label>
+                                            <input id="exportEndDate" type="date" name="end_date" value="{$endDate}" class="eb-input mt-1 w-full">
                                         </div>
                                     </div>
                                     <div>
-                                        <label class="text-xs text-slate-400">Format</label>
-                                        <select name="format" class="h-10 mt-1 w-full px-3 rounded-lg border border-gray-600 bg-[#192331] text-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500">
+                                        <label class="eb-field-label">Format</label>
+                                        <select name="format" class="eb-select mt-1 w-full">
                                             <option value="csv" selected>CSV</option>
                                         </select>
                                     </div>
-                                    <button type="submit" class="h-10 w-full rounded-lg bg-blue-600 text-white hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                                    <button type="submit" class="eb-btn eb-btn-primary w-full">
                                         Download
                                     </button>
                                 </form>
@@ -363,8 +316,8 @@
 
         <!-- Usage Summary Card -->
         <div class="mb-8">
-            <div class="bg-slate-900/70 rounded-lg border border-slate-800/80 shadow-lg">
-                <div class="p-6">
+            <div class="eb-app-card">
+                <div class="eb-app-card-body">
                     <div class="grid grid-cols-1 sm:grid-cols-4 gap-6">
                         <!-- Peak Usage -->
                         <div class="flex items-start">
@@ -430,14 +383,14 @@
         <!-- Charts -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <!-- Ingress Chart -->
-            <div class="bg-slate-900/70 rounded-lg border border-slate-800/80 p-6">
+            <div class="eb-app-card">
                 <h3 class="text-lg font-semibold text-white mb-4">Ingress Over Time</h3>
                 <div id="ingressChart" class="h-80"></div>
 
             </div>
 
             <!-- Egress Chart -->
-            <div class="bg-slate-900/70 rounded-lg border border-slate-800/80 p-6">
+            <div class="eb-app-card">
                 <h3 class="text-lg font-semibold text-white mb-4">Egress Over Time</h3>
                 <div id="egressChart" class="h-80"></div>
             </div>
@@ -445,15 +398,15 @@
 
         <!-- Full Width Storage Usage Chart -->
         <div class="mb-8">
-            <div class="bg-slate-900/70 rounded-lg border border-slate-800/80 p-6 mt-8">
+            <div class="eb-app-card mt-8">
                 <h3 class="text-lg font-semibold text-white mb-4">Storage Usage Over Time</h3>
                 <div id="storageUsageChart" class="h-80"></div>
             </div>
         </div>
         {else}
         <div class="mb-8">
-            <div class="bg-slate-900/70 rounded-lg border border-slate-800/80 p-6 text-center">
-                <p class="text-slate-400">No activity in this period.</p>
+            <div class="eb-app-empty">
+                <p class="eb-app-empty-copy">No activity in this period.</p>
             </div>
         </div>
         {/if}
@@ -746,5 +699,3 @@
         storageUsageChart.render();
     }
 </script>
-
-</rewritten_file>

@@ -1,20 +1,12 @@
-<div class="min-h-screen bg-slate-950 text-gray-100 overflow-x-hidden">
-  <div class="container mx-auto max-w-full px-4 pb-8 pt-6">
-    <div x-data="{ sidebarCollapsed: localStorage.getItem('eb_ph_sidebar_collapsed') === 'true' || window.innerWidth < 1360, toggleCollapse() { this.sidebarCollapsed = !this.sidebarCollapsed; localStorage.setItem('eb_ph_sidebar_collapsed', this.sidebarCollapsed); }, handleResize() { if (window.innerWidth < 1360 && !this.sidebarCollapsed) this.sidebarCollapsed = true; } }" x-init="window.addEventListener('resize', () => handleResize())" class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)]">
-      <div class="flex">
-        {include file="modules/addons/eazybackup/templates/whitelabel/partials/sidebar_partner_hub.tpl" ebPhSidebarPage='billing-payments'}
-        <main class="flex-1 min-w-0 overflow-x-auto">
-    <div class="flex items-center justify-between border-b border-slate-800/60 px-6 py-4">
-      <div>
-        <h1 class="text-2xl font-semibold tracking-tight">New One-time Payment</h1>
-        <p class="mt-1 text-sm text-slate-400">Charge a saved card for setup fees, project work, or ad-hoc adjustments.</p>
-      </div>
-      <a href="{$modulelink}&a=ph-billing-payments" class="rounded-xl px-4 py-2 text-white/80 ring-1 ring-white/10 hover:bg-white/5">Back to Payments</a>
-    </div>
-    <div class="p-6">
-    <div class="space-y-6" x-data="{ paying: false }">
+{include file="modules/addons/eazybackup/templates/partials/_ui-tokens.tpl"}
 
-    <form id="new-payment-form" class="rounded-2xl bg-slate-900/80 border border-slate-800 shadow-[0_18px_20px_-24px_rgba(0,0,0,0.9)] px-6 py-5 space-y-6" @submit.prevent="">
+{capture assign=ebPhActions}
+  <a href="{$modulelink}&a=ph-billing-payments" class="eb-btn eb-btn-secondary eb-btn-sm">Back to Payments</a>
+{/capture}
+
+{capture assign=ebPhContent}
+  <div class="space-y-6" x-data="{ paying: false }">
+    <form id="new-payment-form" class="eb-subpanel space-y-6" @submit.prevent="">
       <input id="np-token" type="hidden" value="{$token|escape}" />
       <div class="space-y-2" x-data='{
         open: false,
@@ -43,35 +35,35 @@
           this.tenantSearch = "";
         }
       }'>
-        <label class="block text-sm font-medium text-slate-200">Client</label>
-        <p class="text-xs text-slate-400">Choose a tenant with a Stripe customer profile.</p>
+        <label class="eb-field-label">Client</label>
+        <p class="eb-field-help">Choose a tenant with a Stripe customer profile.</p>
         <input id="np-tenant" type="hidden" x-model="selectedTenantPublicId" />
         <div class="relative mt-1" @keydown.escape.window="open = false">
           <button type="button"
                   @click="open = !open; if (open) { $nextTick(() => $refs.tenantSearchInput.focus()); }"
-                  class="flex w-full items-start justify-between rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-3 pr-20 text-left text-sm text-slate-100 transition focus:outline-none focus:ring-2 focus:ring-sky-500/80 focus:border-sky-500/80">
+                  class="flex w-full items-start justify-between rounded-xl border border-[var(--eb-border-default)] bg-[var(--eb-bg-input)] px-3 py-3 pr-20 text-left text-sm text-[var(--eb-text-primary)] transition focus:outline-none focus-visible:border-[var(--eb-border-emphasis)] focus-visible:ring-2 focus-visible:ring-[var(--eb-ring)]">
             <div class="min-w-0 pr-3">
               <template x-if="selectedTenant()">
-                <div class="truncate whitespace-nowrap font-medium text-slate-100" x-text="selectedTenant().name"></div>
+                <div class="truncate whitespace-nowrap font-medium text-[var(--eb-text-primary)]" x-text="selectedTenant().name"></div>
               </template>
               <template x-if="!selectedTenant()">
-                <div class="truncate whitespace-nowrap font-medium text-slate-100">Select a client</div>
+                <div class="truncate whitespace-nowrap font-medium text-[var(--eb-text-muted)]">Select a client</div>
               </template>
             </div>
-            <span class="text-slate-400" x-text="open ? '▴' : '▾'"></span>
+            <span class="text-[var(--eb-text-muted)]" x-text="open ? '▴' : '▾'"></span>
           </button>
           <button type="button"
                   x-show="selectedTenantPublicId"
                   @click.stop="clearTenant()"
-                  class="absolute right-9 top-3 rounded-lg px-2 py-1 text-xs text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                  class="eb-btn eb-btn-ghost eb-btn-xs absolute right-9 top-3"
                   style="display: none;">Clear</button>
 
           <div x-show="open"
                x-cloak
                @click.outside="open = false"
-               class="absolute z-20 mt-2 w-full rounded-2xl border border-slate-700 bg-slate-900/95 p-3 shadow-xl">
-            <div class="flex items-center gap-3 rounded-xl border border-slate-700/70 bg-slate-950/80 px-3 py-2.5">
-              <svg class="h-4 w-4 text-slate-500" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+               class="absolute z-20 mt-2 w-full rounded-2xl border border-[var(--eb-border-default)] bg-[var(--eb-bg-raised)] p-3 shadow-xl">
+            <div class="flex items-center gap-3 rounded-xl border border-[var(--eb-border-default)] bg-[var(--eb-bg-card)] px-3 py-2.5">
+              <svg class="h-4 w-4 text-[var(--eb-text-muted)]" viewBox="0 0 20 20" fill="none" aria-hidden="true">
                 <path d="M14.167 14.166L17.5 17.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                 <circle cx="8.75" cy="8.75" r="5.625" stroke="currentColor" stroke-width="1.5"/>
               </svg>
@@ -79,7 +71,7 @@
                      type="text"
                      x-model.debounce.150ms="tenantSearch"
                      placeholder="Start typing a tenant name or email"
-                     class="w-full bg-transparent text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none">
+                     class="w-full border-0 bg-transparent text-sm text-[var(--eb-text-primary)] placeholder:text-[var(--eb-text-muted)] focus:outline-none">
             </div>
 
             <div class="mt-3 max-h-64 space-y-2 overflow-y-auto pr-1">
@@ -87,12 +79,12 @@
                 <button type="button"
                         @click="selectTenant(tenant)"
                         class="flex w-full items-start justify-between gap-4 rounded-2xl border px-4 py-3 text-left transition"
-                        :class="selectedTenantPublicId === String(tenant.public_id) ? 'border-sky-400/40 bg-sky-500/10' : 'border-slate-800 bg-slate-950/80 hover:border-slate-700 hover:bg-slate-900/80'">
+                        :class="selectedTenantPublicId === String(tenant.public_id) ? 'border-[var(--eb-primary-border)] bg-[var(--eb-primary-soft)]' : 'border-[var(--eb-border-subtle)] bg-[var(--eb-bg-card)] hover:border-[var(--eb-border-default)] hover:bg-[var(--eb-bg-hover)]'">
                   <div class="min-w-0">
-                    <div class="truncate text-sm font-semibold text-white" x-text="tenant.name"></div>
-                    <div class="mt-1 truncate text-xs text-slate-400" x-text="tenant.contact_email || 'No contact email on file'"></div>
+                    <div class="truncate text-sm font-semibold text-[var(--eb-text-primary)]" x-text="tenant.name"></div>
+                    <div class="mt-1 truncate text-xs text-[var(--eb-text-muted)]" x-text="tenant.contact_email || 'No contact email on file'"></div>
                   </div>
-                  <span class="shrink-0 rounded-full bg-slate-800/80 px-2.5 py-1 text-[11px] uppercase tracking-[0.18em] text-slate-400"
+                  <span class="eb-badge eb-badge--success shrink-0 !text-[10px] !uppercase !tracking-widest"
                         x-show="selectedTenantPublicId === String(tenant.public_id)"
                         style="display: none;">Selected</span>
                 </button>
@@ -100,81 +92,90 @@
             </div>
 
             <template x-if="filteredTenants().length === 0">
-              <div class="mt-3 rounded-2xl border border-dashed border-slate-700/70 px-4 py-5 text-sm text-slate-400">No tenants match your search.</div>
+              <div class="mt-3 rounded-2xl border border-dashed border-[var(--eb-border-default)] px-4 py-5 text-sm text-[var(--eb-text-muted)]">No tenants match your search.</div>
             </template>
           </div>
         </div>
       </div>
 
-      <div class="space-y-3 border-t border-slate-800 pt-4">
-        <div class="flex items-center justify-between">
-          <h2 class="text-sm font-medium text-slate-200">Amount &amp; fees</h2>
-          <span class="text-xs text-slate-500">Application fee will be created on the connected account.</span>
+      <div class="space-y-3 border-t border-[var(--eb-border-subtle)] pt-4">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h2 class="eb-app-card-title !text-sm">Amount &amp; Fees</h2>
+          <span class="eb-field-help">Application fee will be created on the connected account.</span>
         </div>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
           <div>
-            <label class="block text-xs font-medium text-slate-300 mb-1">Amount</label>
+            <label class="eb-field-label !text-xs">Amount</label>
             <input id="np-amount" type="hidden" value="0" />
-            <div class="mt-1 flex items-center rounded-xl overflow-hidden ring-1 ring-white/10 bg-slate-950/70 border border-slate-700 px-2"
+            <div class="mt-1 flex items-center overflow-hidden rounded-xl border border-[var(--eb-border-default)] bg-[var(--eb-bg-input)] px-2"
                  x-data="ebPriceStepper(0.01)"
                  x-init="value = Number(document.getElementById('np-amount').value||0)"
                  x-effect="document.getElementById('np-amount').value = Number(value||0)">
-              <button type="button" class="shrink-0 w-8 flex items-center justify-center py-2 text-white/80" :class="hovered==='dec' ? 'bg-white/10' : ''" @mouseenter="hovered='dec'" @mouseleave="hovered=''" @click.stop="dec">−</button>
-              <span class="px-1 text-white/70">$</span>
-              <input x-ref="input" x-model.number="value" type="number" step="0.01" class="eb-no-spinner flex-1 min-w-0 text-center bg-transparent text-slate-100 focus:outline-none focus:ring-0 py-2" />
-              <button type="button" class="shrink-0 w-8 flex items-center justify-center py-2 text-white/80" :class="hovered==='inc' ? 'bg-white/10' : ''" @mouseenter="hovered='inc'" @mouseleave="hovered=''" @click.stop="inc">+</button>
+              <button type="button" class="flex w-8 shrink-0 items-center justify-center py-2 text-[var(--eb-text-secondary)]" :class="hovered==='dec' ? 'bg-[var(--eb-bg-hover)]' : ''" @mouseenter="hovered='dec'" @mouseleave="hovered=''" @click.stop="dec">−</button>
+              <span class="px-1 text-[var(--eb-text-muted)]">$</span>
+              <input x-ref="input" x-model.number="value" type="number" step="0.01" class="eb-no-spinner min-w-0 flex-1 border-0 bg-transparent py-2 text-center text-[var(--eb-text-primary)] focus:outline-none focus:ring-0" />
+              <button type="button" class="flex w-8 shrink-0 items-center justify-center py-2 text-[var(--eb-text-secondary)]" :class="hovered==='inc' ? 'bg-[var(--eb-bg-hover)]' : ''" @mouseenter="hovered='inc'" @mouseleave="hovered=''" @click.stop="inc">+</button>
             </div>
           </div>
           <div x-data="{ open:false, opts:['USD','CAD','EUR'], value:'USD' }" x-init="document.getElementById('np-currency').value=value">
-            <label class="block text-xs font-medium text-slate-300 mb-1">Currency</label>
+            <label class="eb-field-label !text-xs">Currency</label>
             <input id="np-currency" type="hidden" value="USD" />
             <div class="relative mt-1">
-              <button type="button" @click="open=!open" class="w-full text-left rounded-xl bg-slate-950/70 border border-slate-700 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500/80 focus:border-sky-500/80 flex items-center justify-between">
+              <button type="button" @click="open=!open" class="flex w-full items-center justify-between rounded-xl border border-[var(--eb-border-default)] bg-[var(--eb-bg-input)] px-3 py-2 text-left text-sm text-[var(--eb-text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--eb-ring)]">
                 <span x-text="value"></span>
-                <span class="text-slate-400">▾</span>
+                <span class="text-[var(--eb-text-muted)]">▾</span>
               </button>
-              <div x-show="open" @click.outside="open=false" class="absolute z-10 mt-1 w-full rounded-xl bg-slate-900/90 border border-slate-700 shadow-xl p-1">
+              <div x-show="open" @click.outside="open=false" class="eb-dropdown-menu absolute z-10 mt-1 w-full overflow-hidden !min-w-0 p-1" style="display: none;">
                 <template x-for="opt in opts" :key="opt">
-                  <button type="button" class="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-800 text-slate-200"
+                  <button type="button" class="eb-menu-item w-full justify-start !rounded-[var(--eb-radius-md)]"
                           @click="value=opt; document.getElementById('np-currency').value=opt; open=false" x-text="opt"></button>
                 </template>
               </div>
             </div>
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-300 mb-1">Application fee</label>
+            <label class="eb-field-label !text-xs">Application fee</label>
             <input id="np-fee" type="hidden" value="0" />
-            <div class="mt-1 flex items-center rounded-xl overflow-hidden ring-1 ring-white/10 bg-slate-950/70 border border-slate-700 px-2"
+            <div class="mt-1 flex items-center overflow-hidden rounded-xl border border-[var(--eb-border-default)] bg-[var(--eb-bg-input)] px-2"
                  x-data="ebPriceStepper(0.01)"
                  x-init="value = Number(document.getElementById('np-fee').value||0)"
                  x-effect="document.getElementById('np-fee').value = Number(value||0)">
-              <button type="button" class="shrink-0 w-8 flex items-center justify-center py-2 text-white/80" :class="hovered==='dec' ? 'bg-white/10' : ''" @mouseenter="hovered='dec'" @mouseleave="hovered=''" @click.stop="dec">−</button>
-              <span class="px-1 text-white/70">$</span>
-              <input x-ref="input" x-model.number="value" type="number" step="0.01" class="eb-no-spinner flex-1 min-w-0 text-center bg-transparent text-slate-100 focus:outline-none focus:ring-0 py-2" />
-              <button type="button" class="shrink-0 w-8 flex items-center justify-center py-2 text-white/80" :class="hovered==='inc' ? 'bg-white/10' : ''" @mouseenter="hovered='inc'" @mouseleave="hovered=''" @click.stop="inc">+</button>
+              <button type="button" class="flex w-8 shrink-0 items-center justify-center py-2 text-[var(--eb-text-secondary)]" :class="hovered==='dec' ? 'bg-[var(--eb-bg-hover)]' : ''" @mouseenter="hovered='dec'" @mouseleave="hovered=''" @click.stop="dec">−</button>
+              <span class="px-1 text-[var(--eb-text-muted)]">$</span>
+              <input x-ref="input" x-model.number="value" type="number" step="0.01" class="eb-no-spinner min-w-0 flex-1 border-0 bg-transparent py-2 text-center text-[var(--eb-text-primary)] focus:outline-none focus:ring-0" />
+              <button type="button" class="flex w-8 shrink-0 items-center justify-center py-2 text-[var(--eb-text-secondary)]" :class="hovered==='inc' ? 'bg-[var(--eb-bg-hover)]' : ''" @mouseenter="hovered='inc'" @mouseleave="hovered=''" @click.stop="inc">+</button>
             </div>
-            <p class="mt-1 text-[11px] text-slate-500">Optional fee retained by your platform.</p>
+            <p class="eb-field-help mt-1 !text-[11px]">Optional fee retained by your platform.</p>
           </div>
         </div>
       </div>
 
-      <div class="space-y-2 border-t border-slate-800 pt-4">
-        <label class="block text-sm font-medium text-slate-200">Card</label>
-        <p class="text-xs text-slate-400">Select a saved card or enter new details. Stripe will create a Payment Intent.</p>
-        <div id="card-element" class="rounded-xl bg-slate-950/70 border border-slate-700 px-3 py-3"></div>
+      <div class="space-y-2 border-t border-[var(--eb-border-subtle)] pt-4">
+        <label class="eb-field-label">Card</label>
+        <p class="eb-field-help">Enter card details. Stripe will create a Payment Intent.</p>
+        <div id="card-element" class="rounded-xl border border-[var(--eb-border-default)] bg-[var(--eb-bg-input)] px-3 py-3"></div>
       </div>
 
-      <div class="flex items-center justify-between border-t border-slate-800 pt-4 mt-2">
-        <div class="flex gap-3 text-xs text-slate-500">
+      <div class="mt-2 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--eb-border-subtle)] pt-4">
+        <div class="eb-type-caption max-w-xl">
           <span>Charges are processed via Stripe on the connected account.</span>
         </div>
         <div class="flex gap-2">
-          <a href="{$modulelink}&a=ph-billing-payments" class="px-4 py-2 text-sm rounded-xl border border-slate-700 text-slate-300 hover:bg-slate-800">Cancel</a>
-          <button id="np-submit" type="button" class="px-4 py-2 text-sm font-semibold rounded-xl bg-gradient-to-r from-emerald-500 to-sky-500 text-slate-950 shadow-md shadow-emerald-900/60 hover:brightness-110 transition" @click="paying=true">Create and Pay</button>
+          <a href="{$modulelink}&a=ph-billing-payments" class="eb-btn eb-btn-secondary eb-btn-sm">Cancel</a>
+          <button id="np-submit" type="button" class="eb-btn eb-btn-primary eb-btn-sm" @click="paying=true">Create and Pay</button>
         </div>
       </div>
     </form>
   </div>
+{/capture}
+
+{include file="modules/addons/eazybackup/templates/whitelabel/partials/partner_hub_shell.tpl"
+  ebPhSidebarPage='billing-payments'
+  ebPhTitle='New One-time Payment'
+  ebPhDescription='Charge a card for setup fees, project work, or ad-hoc adjustments.'
+  ebPhActions=$ebPhActions
+  ebPhContent=$ebPhContent
+}
 
   <script src="https://js.stripe.com/v3"></script>
   <script>
@@ -249,12 +250,4 @@
     });
   });
   </script>
-    </div>
-    </div>
-        </main>
-      </div>
-    </div>
-  </div>
-</div>
-
 
