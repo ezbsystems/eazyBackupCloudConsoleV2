@@ -1,5 +1,5 @@
 {include file="modules/addons/eazybackup/templates/partials/_ui-tokens.tpl"}
-<div class="min-h-screen bg-slate-950 text-gray-100 overflow-x-hidden">
+<div class="min-h-screen eb-bg-page eb-text-primary overflow-x-hidden">
   <div class="container mx-auto max-w-full px-4 pb-8 pt-6">
     <div x-data="{ sidebarCollapsed: localStorage.getItem('eb_ph_sidebar_collapsed') === 'true' || window.innerWidth < 1360, toggleCollapse() { this.sidebarCollapsed = !this.sidebarCollapsed; localStorage.setItem('eb_ph_sidebar_collapsed', this.sidebarCollapsed); }, handleResize() { if (window.innerWidth < 1360 && !this.sidebarCollapsed) this.sidebarCollapsed = true; } }" x-init="window.addEventListener('resize', () => handleResize())" class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)]">
       <div class="flex">
@@ -45,7 +45,7 @@
     {assign var=pendingVerificationCount value=$status.pendingVerification|@count}
 
 <!-- Stripe Connect: Status Cards (updated typography + contrast) -->
-<div class="mb-4 rounded-2xl border border-slate-800/80 bg-slate-900/60 p-4">
+<div class="mb-4 rounded-2xl eb-bg-card ring-1 ring-white/10 p-4">
   <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
     <!-- Charges -->
     <div class="rounded-2xl border border-white/10 bg-white/5 p-4">

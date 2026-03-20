@@ -47,6 +47,7 @@
               <tr class="text-left">
                 <th class="px-4 py-3 font-medium">Country</th>
                 <th class="px-4 py-3 font-medium">Region</th>
+                <th class="px-4 py-3 font-medium">Stripe Type</th>
                 <th class="px-4 py-3 font-medium">Registration #</th>
                 <th class="px-4 py-3 font-medium">Legal name</th>
                 <th class="px-4 py-3 text-right font-medium">Actions</th>
@@ -54,7 +55,7 @@
             </thead>
             <tbody id="tx-reg-tbody" class="divide-y divide-slate-800">
               {foreach from=$registrations item=r}
-              <tr class="hover:bg-slate-800/50" data-id="{$r.id}"><td class="px-4 py-3">{$r.country|escape}</td><td class="px-4 py-3">{$r.region|default:'-'|escape}</td><td class="px-4 py-3">{$r.registration_number|escape}</td><td class="px-4 py-3">{$r.legal_name|default:'-'|escape}</td><td class="px-4 py-3 text-right"><button type="button" class="tx-del inline-flex items-center rounded-lg border border-slate-600 bg-slate-800/80 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-700">Delete</button></td></tr>
+              <tr class="hover:bg-slate-800/50" data-id="{$r.id}"><td class="px-4 py-3">{$r.country|escape}</td><td class="px-4 py-3">{$r.region|default:'-'|escape}</td><td class="px-4 py-3">{$r.stripe_registration_type_label|default:'Auto'|escape}</td><td class="px-4 py-3">{$r.registration_number|escape}</td><td class="px-4 py-3">{$r.legal_name|default:'-'|escape}</td><td class="px-4 py-3 text-right"><button type="button" class="tx-del inline-flex items-center rounded-lg border border-slate-600 bg-slate-800/80 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-700">Delete</button></td></tr>
               {/foreach}
             </tbody>
           </table>
@@ -119,6 +120,19 @@
           <input type="hidden" id="tx-reg-id" value="" />
           <label class="block"><span class="text-sm text-slate-400">Country</span><input id="tx-reg-country" placeholder="CA" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 placeholder:text-gray-400 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700 uppercase" /></label>
           <label class="block"><span class="text-sm text-slate-400">Region</span><input id="tx-reg-region" placeholder="ON" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 placeholder:text-gray-400 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700 uppercase" /></label>
+          <label class="block"><span class="text-sm text-slate-400">Stripe registration type</span>
+            <select id="tx-reg-stripe-type" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700 transition">
+              <option value="">Auto (by country / region)</option>
+              <option value="standard">Standard</option>
+              <option value="simplified">Simplified</option>
+              <option value="province_standard">Canada — provincial (PST / RST / QST)</option>
+              <option value="state_sales_tax">United States — state sales tax</option>
+              <option value="ioss">EU — IOSS</option>
+              <option value="oss_union">EU — OSS (union scheme)</option>
+              <option value="oss_non_union">EU — OSS (non-union scheme)</option>
+            </select>
+            <span class="mt-1 block text-xs text-slate-500">Auto now defaults to Standard for Canada and requires a state for US registrations. Wrong types are rejected by Stripe and the row is still saved locally.</span>
+          </label>
           <label class="block"><span class="text-sm text-slate-400">Registration #</span><input id="tx-reg-number" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700 transition" /></label>
           <label class="block"><span class="text-sm text-slate-400">Legal name (optional)</span><input id="tx-reg-legal" class="mt-2 w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 placeholder:text-gray-400 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700 transition" /></label>
         </div>

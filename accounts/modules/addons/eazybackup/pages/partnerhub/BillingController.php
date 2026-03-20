@@ -276,6 +276,72 @@ function eb_ph_billing_create_payment(array $vars): void
     }
 }
 
+function eb_ph_billing_refund_payment(array $vars): void
+{
+    header('Content-Type: application/json');
+    if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) {
+        echo json_encode(['status' => 'error', 'message' => 'auth']);
+        return;
+    }
+    if (!eb_ph_tenants_require_csrf_or_json_error((string)($_POST['token'] ?? ''))) {
+        return;
+    }
+    try {
+        $clientId = (int)$_SESSION['uid'];
+        $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id', $clientId)->first();
+        if (!$msp || (string)($msp->stripe_connect_id ?? '') === '') {
+            echo json_encode(['status' => 'error', 'message' => 'no_account']);
+            return;
+        }
+        $paymentIntentId = trim((string)($_POST['payment_intent_id'] ?? ''));
+        if ($paymentIntentId === '') {
+            echo json_encode(['status' => 'error', 'message' => 'missing_payment_intent']);
+            return;
+        }
+
+        $cached = Capsule::table('eb_payment_cache as p')
+            ->join('eb_tenants as t', 't.id', '=', 'p.tenant_id')
+            ->where('p.stripe_payment_intent_id', $paymentIntentId)
+            ->where('t.msp_id', (int)$msp->id)
+            ->first(['p.status', 'p.amount']);
+
+        if (!$cached) {
+            echo json_encode(['status' => 'error', 'message' => 'payment_not_found']);
+            return;
+        }
+        $st = strtolower(trim((string)($cached->status ?? '')));
+        if ($st !== 'succeeded') {
+            echo json_encode(['status' => 'error', 'message' => 'invalid_status']);
+            return;
+        }
+
+        $amountMinor = null;
+        $rawAmt = trim((string)($_POST['amount'] ?? ''));
+        if ($rawAmt !== '') {
+            $amountMinor = (int)$rawAmt;
+            if ($amountMinor <= 0) {
+                echo json_encode(['status' => 'error', 'message' => 'invalid_amount']);
+                return;
+            }
+            $cachedAmt = (int)($cached->amount ?? 0);
+            if ($cachedAmt > 0 && $amountMinor > $cachedAmt) {
+                echo json_encode(['status' => 'error', 'message' => 'amount_exceeds_payment']);
+                return;
+            }
+        }
+
+        $acct = (string)$msp->stripe_connect_id;
+        $svc = new \PartnerHub\StripeService();
+        $refund = $svc->createRefund($paymentIntentId, $amountMinor, $acct);
+        echo json_encode([
+            'status' => 'success',
+            'refund_id' => (string)($refund['id'] ?? ''),
+        ]);
+    } catch (\Throwable $e) {
+        echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
+    }
+}
+
 function eb_ph_billing_payment_methods(array $vars): void
 {
     header('Content-Type: application/json');

@@ -56,9 +56,9 @@
   }
 
   // Registrations UI
-  function openReg(){ q('tx-reg-id').value=''; q('tx-reg-country').value=''; q('tx-reg-region').value=''; q('tx-reg-number').value=''; q('tx-reg-legal').value=''; q('tx-reg-modal').classList.remove('hidden'); }
+  function openReg(){ q('tx-reg-id').value=''; q('tx-reg-country').value=''; q('tx-reg-region').value=''; q('tx-reg-number').value=''; q('tx-reg-legal').value=''; var st=q('tx-reg-stripe-type'); if(st){ st.value=''; } q('tx-reg-modal').classList.remove('hidden'); }
   function closeReg(){ q('tx-reg-modal').classList.add('hidden'); }
-  function refreshRegs(){ fetch('index.php?m=eazybackup&a=ph-tax-registrations').then(function(r){ return r.json(); }).then(function(j){ if(!j||j.status!=='success') return; var tb=document.getElementById('tx-reg-tbody'); if(!tb) return; tb.innerHTML=''; (j.data||[]).forEach(function(r){ var tr=document.createElement('tr'); tr.className='hover:bg-white/5'; tr.setAttribute('data-id', r.id); tr.innerHTML='<td class="px-4 py-3">'+(r.country||'')+'</td><td class="px-4 py-3">'+(r.region||'-')+'</td><td class="px-4 py-3">'+(r.registration_number||'')+'</td><td class="px-4 py-3">'+(r.legal_name||'-')+'</td><td class="px-4 py-3 text-right"><button class="tx-del rounded-lg px-3 py-1.5 ring-1 ring-white/10 hover:bg-white/10">Delete</button></td>'; tb.appendChild(tr); }); }); }
+  function refreshRegs(){ fetch('index.php?m=eazybackup&a=ph-tax-registrations').then(function(r){ return r.json(); }).then(function(j){ if(!j||j.status!=='success') return; var tb=document.getElementById('tx-reg-tbody'); if(!tb) return; tb.innerHTML=''; (j.data||[]).forEach(function(r){ var tr=document.createElement('tr'); tr.className='hover:bg-white/5'; tr.setAttribute('data-id', r.id); tr.innerHTML='<td class="px-4 py-3">'+(r.country||'')+'</td><td class="px-4 py-3">'+(r.region||'-')+'</td><td class="px-4 py-3">'+(r.stripe_registration_type_label||'Auto')+'</td><td class="px-4 py-3">'+(r.registration_number||'')+'</td><td class="px-4 py-3">'+(r.legal_name||'-')+'</td><td class="px-4 py-3 text-right"><button class="tx-del rounded-lg px-3 py-1.5 ring-1 ring-white/10 hover:bg-white/10">Delete</button></td>'; tb.appendChild(tr); }); }); }
   function upsertReg(){
     var token=(q('eb-token')?.value)||'';
     var body=new URLSearchParams();
@@ -68,6 +68,8 @@
     body.set('region', (q('tx-reg-region').value||'').toUpperCase());
     body.set('registration_number', q('tx-reg-number').value||'');
     body.set('legal_name', q('tx-reg-legal').value||'');
+    var stripeTypeEl=q('tx-reg-stripe-type');
+    body.set('stripe_registration_type', (stripeTypeEl && stripeTypeEl.value) ? stripeTypeEl.value : '');
     fetch('index.php?m=eazybackup&a=ph-tax-registration-upsert', { method:'POST', headers:{ 'Content-Type':'application/x-www-form-urlencoded' }, body: body.toString() })
       .then(function(r){ return r.json(); }).then(function(j){ if(j && j.status==='success'){ toast('Saved.'); closeReg(); refreshRegs(); } else { toast((j && (j.message||'Save failed')) || 'Save failed'); } })
       .catch(function(){ toast('Network error.'); });

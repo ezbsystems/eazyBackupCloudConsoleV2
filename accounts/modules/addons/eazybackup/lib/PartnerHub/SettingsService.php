@@ -175,6 +175,7 @@ class SettingsService
             'region' => strtoupper((string)($reg['region'] ?? '')) ?: null,
             'registration_number' => (string)($reg['registration_number'] ?? ''),
             'legal_name' => (string)($reg['legal_name'] ?? '') ?: null,
+            'stripe_registration_type' => (string)($reg['stripe_registration_type'] ?? '') ?: null,
             'stripe_registration_id' => (string)($reg['stripe_registration_id'] ?? '') ?: null,
             'source' => (string)($reg['source'] ?? 'local') === 'stripe' ? 'stripe' : 'local',
             'is_active' => (int)($reg['is_active'] ?? 1) ? 1 : 0,

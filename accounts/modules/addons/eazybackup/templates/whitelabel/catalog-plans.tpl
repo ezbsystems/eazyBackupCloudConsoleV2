@@ -671,13 +671,18 @@
               <div id="eb-subs-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-950/70 backdrop-blur-sm">
                 <div class="relative w-full max-w-3xl rounded-xl border border-slate-700 bg-slate-900 shadow-2xl max-h-[80vh] flex flex-col">
                   <div class="px-6 py-5 flex items-center justify-between border-b border-slate-700">
-                    <h3 class="text-lg font-semibold text-slate-100">Active Subscriptions</h3>
+                    <div>
+                      <h3 class="text-lg font-semibold text-slate-100" x-text="subscriptionEditor.open ? 'Edit Subscription' : 'Active Subscriptions'">Active Subscriptions</h3>
+                      <p class="mt-1 text-xs text-slate-400" x-show="subscriptionEditor.open && subscriptionEditor.subscription" x-text="subscriptionEditor.subscription ? (subscriptionEditor.subscription.tenant_name + ' • ' + subscriptionEditor.subscription.comet_user_id) : ''"></p>
+                    </div>
                     <button type="button" class="text-slate-400 hover:text-white" @click="closeSubs()">&#10005;</button>
                   </div>
                   <div class="flex-1 overflow-y-auto px-6 py-4">
-                    <template x-if="subsLoading"><div class="text-center py-8 text-slate-400">Loading...</div></template>
-                    <template x-if="!subsLoading && subscriptions.length===0"><div class="text-center py-8 text-slate-500">No active subscriptions.</div></template>
-                    <template x-if="!subsLoading && subscriptions.length > 0">
+                    <template x-if="!subscriptionEditor.open">
+                      <div>
+                        <template x-if="subsLoading"><div class="text-center py-8 text-slate-400">Loading...</div></template>
+                        <template x-if="!subsLoading && subscriptions.length===0"><div class="text-center py-8 text-slate-500">No active subscriptions.</div></template>
+                        <template x-if="!subsLoading && subscriptions.length > 0">
                       <table class="w-full text-xs">
                         <thead><tr class="text-slate-400"><th class="px-3 py-2 text-left">Tenant</th><th class="px-3 py-2 text-left">eazyBackup User</th><th class="px-3 py-2 text-left">Status</th><th class="px-3 py-2 text-left">Created</th><th class="px-3 py-2 text-right">Actions</th></tr></thead>
                         <tbody>
@@ -688,12 +693,95 @@
                               <td class="px-3 py-2"><span class="px-2 py-0.5 rounded-full text-xs" :class="sub.status==='active' ? 'bg-emerald-500/15 text-emerald-300' : (sub.status==='trialing' ? 'bg-sky-500/15 text-sky-300' : 'bg-slate-500/15 text-slate-400')" x-text="sub.status"></span></td>
                               <td class="px-3 py-2 text-slate-400" x-text="sub.created_at ? sub.created_at.substring(0,10) : ''"></td>
                               <td class="px-3 py-2 text-right">
-                                <button type="button" x-show="sub.status==='active' || sub.status==='trialing'" class="text-xs text-rose-400 hover:text-rose-300" @click="cancelSubscription(sub.id)">Cancel</button>
+                                <div class="inline-flex items-center gap-3">
+                                  <button type="button" class="text-xs text-sky-300 hover:text-sky-200" @click="openSubscriptionEditor(sub.id)">Edit</button>
+                                  <button type="button" x-show="sub.status==='active' || sub.status==='trialing'" class="text-xs text-amber-300 hover:text-amber-200" @click="pauseSubscription(sub.id)">Pause</button>
+                                  <button type="button" x-show="sub.status==='paused'" class="text-xs text-emerald-300 hover:text-emerald-200" @click="resumeSubscription(sub.id)">Resume</button>
+                                  <button type="button" x-show="sub.status==='active' || sub.status==='trialing'" class="text-xs text-rose-400 hover:text-rose-300" @click="cancelSubscription(sub.id)">Cancel</button>
+                                </div>
                               </td>
                             </tr>
                           </template>
                         </tbody>
                       </table>
+                        </template>
+                      </div>
+                    </template>
+                    <template x-if="subscriptionEditor.open">
+                      <div class="space-y-4">
+                        <div class="eb-card-raised rounded-2xl border border-[var(--eb-border-subtle)] bg-[var(--eb-bg-card)] p-4">
+                          <div class="flex items-center justify-between gap-4">
+                            <div>
+                              <div class="text-sm font-semibold text-[var(--eb-text-primary)]" x-text="subscriptionEditor.subscription ? subscriptionEditor.subscription.plan_name : 'Subscription'"></div>
+                              <div class="mt-1 text-xs text-[var(--eb-text-secondary)]">Adjust quantities, remove recurring items, swap to another active plan, then preview proration before saving.</div>
+                            </div>
+                            <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" @click="subscriptionEditor.open = false">Back to list</button>
+                          </div>
+                        </div>
+
+                        <template x-if="subscriptionEditor.loading">
+                          <div class="py-8 text-center text-slate-400">Loading subscription editor...</div>
+                        </template>
+
+                        <template x-if="!subscriptionEditor.loading">
+                          <div class="space-y-4">
+                            <label class="block">
+                              <span class="text-xs font-medium uppercase tracking-wide text-[var(--eb-text-secondary)]">Swap Plan</span>
+                              <select class="eb-input mt-2" :value="subscriptionEditor.swapPlanId" @change="applySwapPlan($event.target.value)">
+                                <option value="">Keep current plan</option>
+                                <template x-for="plan in subscriptionEditor.availablePlans" :key="'swap-' + plan.id">
+                                  <option :value="plan.id" x-text="plan.name + ' (' + plan.currency + ' / ' + plan.billing_interval + ')'"></option>
+                                </template>
+                              </select>
+                            </label>
+
+                            <div class="space-y-3">
+                              <template x-for="(item, idx) in subscriptionEditor.items" :key="'editor-item-' + idx + '-' + item.plan_component_id + '-' + item.price_id">
+                                <div class="eb-card-raised rounded-2xl border border-[var(--eb-border-subtle)] bg-[var(--eb-bg-card)] p-4">
+                                  <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                                    <div>
+                                      <div class="text-sm font-semibold text-[var(--eb-text-primary)]" x-text="item.price_name"></div>
+                                      <div class="mt-1 text-xs text-[var(--eb-text-secondary)]" x-text="metricLabel(item.metric_code) + ' • ' + billingLabel(item.kind === 'metered' ? 'metered' : 'per_unit')"></div>
+                                      <div class="mt-2 text-xs text-[var(--eb-text-secondary)]" x-text="formatMoneyCents(item.unit_amount, item.currency) + (item.unit_label ? ' / ' + item.unit_label : '')"></div>
+                                    </div>
+                                    <button type="button" x-show="item.removable" class="eb-btn eb-btn-danger eb-btn-xs" @click="subscriptionEditor.items[idx].remove = !subscriptionEditor.items[idx].remove" x-text="subscriptionEditor.items[idx].remove ? 'Restore' : 'Remove'"></button>
+                                  </div>
+                                  <div class="mt-4 grid gap-4 md:grid-cols-2" :class="item.remove ? 'opacity-50' : ''">
+                                    <label class="block">
+                                      <span class="text-xs font-medium uppercase tracking-wide text-[var(--eb-text-secondary)]">Quantity</span>
+                                      <input class="eb-input mt-2" type="number" min="0" x-model.number="subscriptionEditor.items[idx].quantity" :disabled="!item.editable_quantity || item.remove" />
+                                    </label>
+                                    <div class="rounded-xl border border-[var(--eb-border-subtle)] bg-[var(--eb-surface-elevated)] px-4 py-3 text-xs text-[var(--eb-text-secondary)]">
+                                      Included by plan: <span class="font-medium text-[var(--eb-text-primary)]" x-text="item.default_qty"></span>
+                                    </div>
+                                  </div>
+                                </div>
+                              </template>
+                            </div>
+
+                            <template x-if="subscriptionEditor.error">
+                              <div class="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200" x-text="subscriptionEditor.error"></div>
+                            </template>
+
+                            <template x-if="subscriptionEditor.preview">
+                              <div class="eb-card-raised rounded-2xl border border-[var(--eb-border-subtle)] bg-[var(--eb-bg-card)] p-4">
+                                <div class="text-sm font-semibold text-[var(--eb-text-primary)]">Proration Preview</div>
+                                <div class="mt-3 grid gap-3 md:grid-cols-4 text-sm">
+                                  <div><div class="text-[var(--eb-text-secondary)]">Amount Due</div><div class="font-semibold text-[var(--eb-text-primary)]" x-text="formatMoneyCents(subscriptionEditor.preview.amount_due, subscriptionEditor.preview.currency)"></div></div>
+                                  <div><div class="text-[var(--eb-text-secondary)]">Subtotal</div><div class="font-semibold text-[var(--eb-text-primary)]" x-text="formatMoneyCents(subscriptionEditor.preview.subtotal, subscriptionEditor.preview.currency)"></div></div>
+                                  <div><div class="text-[var(--eb-text-secondary)]">Total</div><div class="font-semibold text-[var(--eb-text-primary)]" x-text="formatMoneyCents(subscriptionEditor.preview.total, subscriptionEditor.preview.currency)"></div></div>
+                                  <div><div class="text-[var(--eb-text-secondary)]">Invoice Lines</div><div class="font-semibold text-[var(--eb-text-primary)]" x-text="subscriptionEditor.preview.line_count"></div></div>
+                                </div>
+                              </div>
+                            </template>
+
+                            <div class="flex flex-wrap items-center justify-end gap-3">
+                              <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" @click="previewSubscriptionChanges()" x-text="subscriptionEditor.previewLoading ? 'Previewing...' : 'Preview Changes'"></button>
+                              <button type="button" class="eb-btn eb-btn-primary eb-btn-sm" @click="saveSubscriptionChanges()" x-text="subscriptionEditor.saving ? 'Saving...' : 'Save Changes'"></button>
+                            </div>
+                          </div>
+                        </template>
+                      </div>
                     </template>
                   </div>
                 </div>
