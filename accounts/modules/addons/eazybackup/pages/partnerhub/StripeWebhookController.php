@@ -3,6 +3,172 @@
 use WHMCS\Database\Capsule;
 use PartnerHub\StripeService;
 
+function eb_ph_webhook_account_id(array $event, array $obj): string
+{
+    $acctId = (string)($event['account'] ?? '');
+    if ($acctId !== '') {
+        return $acctId;
+    }
+
+    $candidate = $obj['account'] ?? '';
+    if (is_string($candidate) && $candidate !== '') {
+        return $candidate;
+    }
+
+    return '';
+}
+
+function eb_ph_webhook_msp_id_for_account(string $acctId): int
+{
+    if ($acctId === '') {
+        return 0;
+    }
+
+    return (int)(Capsule::table('eb_msp_accounts')->where('stripe_connect_id', $acctId)->value('id') ?? 0);
+}
+
+function eb_ph_webhook_tenant_for_customer(string $stripeCustomerId): ?object
+{
+    if ($stripeCustomerId === '') {
+        return null;
+    }
+
+    $tenant = Capsule::table('eb_tenants')->where('stripe_customer_id', $stripeCustomerId)->first();
+    return $tenant ?: null;
+}
+
+function eb_ph_store_trial_notice(int $mspId, ?int $tenantId, string $stripeCustomerId, string $subscriptionId, string $tenantName, int $trialEnd): void
+{
+    if ($mspId <= 0 || $subscriptionId === '') {
+        return;
+    }
+
+    $noticeKey = 'trial_will_end:' . $subscriptionId . ':' . max(0, $trialEnd);
+    $now = date('Y-m-d H:i:s');
+    $effectiveAt = $trialEnd > 0 ? date('Y-m-d H:i:s', $trialEnd) : null;
+    $tenantLabel = trim($tenantName) !== '' ? trim($tenantName) : 'A customer';
+    $message = $tenantLabel . "'s trial subscription ends soon.";
+    if ($trialEnd > 0) {
+        $message .= ' Review the subscription before ' . date('M j, Y', $trialEnd) . '.';
+    }
+
+    $existing = Capsule::table('eb_partnerhub_notices')
+        ->where('msp_id', $mspId)
+        ->where('notice_key', $noticeKey)
+        ->first();
+
+    $payload = [
+        'tenant_id' => $tenantId ?: null,
+        'notice_type' => 'trial_will_end',
+        'title' => 'Trial ending soon',
+        'message' => $message,
+        'stripe_customer_id' => $stripeCustomerId !== '' ? $stripeCustomerId : null,
+        'stripe_subscription_id' => $subscriptionId,
+        'action_url' => 'index.php?m=eazybackup&a=ph-billing-subscriptions',
+        'action_label' => 'Review subscription',
+        'effective_at' => $effectiveAt,
+        'resolved_at' => null,
+        'updated_at' => $now,
+    ];
+
+    if ($existing) {
+        Capsule::table('eb_partnerhub_notices')->where('id', (int)$existing->id)->update($payload);
+        return;
+    }
+
+    $payload['msp_id'] = $mspId;
+    $payload['notice_key'] = $noticeKey;
+    $payload['dismissed_at'] = null;
+    $payload['created_at'] = $now;
+    Capsule::table('eb_partnerhub_notices')->insert($payload);
+}
+
+function eb_ph_resolve_trial_notice(int $mspId, string $subscriptionId): void
+{
+    if ($mspId <= 0 || $subscriptionId === '') {
+        return;
+    }
+
+    Capsule::table('eb_partnerhub_notices')
+        ->where('msp_id', $mspId)
+        ->where('notice_type', 'trial_will_end')
+        ->where('stripe_subscription_id', $subscriptionId)
+        ->whereNull('resolved_at')
+        ->update([
+            'resolved_at' => date('Y-m-d H:i:s'),
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+}
+
+function eb_ph_touch_payment_method_state(string $stripeCustomerId): void
+{
+    if ($stripeCustomerId === '') {
+        return;
+    }
+
+    $now = date('Y-m-d H:i:s');
+    Capsule::table('eb_tenants')
+        ->where('stripe_customer_id', $stripeCustomerId)
+        ->update(['updated_at' => $now]);
+
+    Capsule::table('eb_customers')
+        ->where('stripe_customer_id', $stripeCustomerId)
+        ->update(['updated_at' => $now]);
+}
+
+function eb_ph_clear_deleted_customer(string $stripeCustomerId): void
+{
+    if ($stripeCustomerId === '') {
+        return;
+    }
+
+    $now = date('Y-m-d H:i:s');
+
+    Capsule::table('eb_tenants')
+        ->where('stripe_customer_id', $stripeCustomerId)
+        ->update([
+            'stripe_customer_id' => null,
+            'updated_at' => $now,
+        ]);
+
+    Capsule::table('eb_customers')
+        ->where('stripe_customer_id', $stripeCustomerId)
+        ->update([
+            'stripe_customer_id' => null,
+            'updated_at' => $now,
+        ]);
+
+    Capsule::table('eb_partnerhub_notices')
+        ->where('stripe_customer_id', $stripeCustomerId)
+        ->whereNull('resolved_at')
+        ->update([
+            'resolved_at' => $now,
+            'updated_at' => $now,
+        ]);
+}
+
+function eb_ph_mark_account_deauthorized(string $acctId): void
+{
+    if ($acctId === '') {
+        return;
+    }
+
+    Capsule::table('eb_msp_accounts')
+        ->where('stripe_connect_id', $acctId)
+        ->update([
+            'stripe_connect_id' => null,
+            'charges_enabled' => 0,
+            'payouts_enabled' => 0,
+            'connect_capabilities' => null,
+            'connect_requirements' => json_encode([
+                'deauthorized' => true,
+                'account_id' => $acctId,
+            ]),
+            'last_verification_check' => date('Y-m-d H:i:s'),
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+}
+
 function eb_ph_stripe_webhook(): void
 {
     $payload = file_get_contents('php://input');
@@ -47,7 +213,7 @@ function eb_ph_stripe_webhook(): void
     }
     $type = (string)($event['type'] ?? '');
     $obj  = $event['data']['object'] ?? [];
-    $acctId = (string)($event['account'] ?? ''); // present for Connect events
+    $acctId = eb_ph_webhook_account_id($event, is_array($obj) ? $obj : []);
 
     // Idempotency: skip if event already processed
     $eid = (string)($event['id'] ?? '');
@@ -80,6 +246,9 @@ function eb_ph_stripe_webhook(): void
                         'updated_at' => date('Y-m-d H:i:s'),
                     ]);
                 }
+                break;
+            case 'account.application.deauthorized':
+                eb_ph_mark_account_deauthorized($acctId);
                 break;
             case 'capability.updated':
                 if ($acctId !== '') {
@@ -114,12 +283,38 @@ function eb_ph_stripe_webhook(): void
             case 'customer.subscription.deleted':
                 $subId = (string)($obj['id'] ?? '');
                 $status = (string)($obj['status'] ?? '');
+                $customerId = (string)($obj['customer'] ?? '');
+                $mspId = eb_ph_webhook_msp_id_for_account($acctId);
                 if ($subId !== '') {
                     Capsule::table('eb_subscriptions')->where('stripe_subscription_id',$subId)->update([
                         'stripe_status' => $status,
                         'updated_at' => date('Y-m-d H:i:s'),
                     ]);
+                    if ($mspId > 0 && $status !== 'trialing') {
+                        eb_ph_resolve_trial_notice($mspId, $subId);
+                    }
                 }
+                if ($type === 'customer.subscription.deleted' && $mspId > 0 && $subId !== '') {
+                    eb_ph_resolve_trial_notice($mspId, $subId);
+                }
+                break;
+            case 'customer.subscription.trial_will_end':
+                $subId = (string)($obj['id'] ?? '');
+                $trialEnd = (int)($obj['trial_end'] ?? 0);
+                $customerId = (string)($obj['customer'] ?? '');
+                $tenant = eb_ph_webhook_tenant_for_customer($customerId);
+                $mspId = eb_ph_webhook_msp_id_for_account($acctId);
+                if ($mspId <= 0 && $tenant) {
+                    $mspId = (int)($tenant->msp_id ?? 0);
+                }
+                eb_ph_store_trial_notice(
+                    $mspId,
+                    $tenant ? (int)($tenant->id ?? 0) : null,
+                    $customerId,
+                    $subId,
+                    $tenant ? (string)($tenant->name ?? '') : '',
+                    $trialEnd
+                );
                 break;
             case 'payout.created':
             case 'payout.updated':
@@ -180,6 +375,7 @@ function eb_ph_stripe_webhook(): void
             case 'invoice.updated':
             case 'invoice.paid':
             case 'invoice.payment_failed':
+            case 'invoice.voided':
                 $invId = (string)($obj['id'] ?? '');
                 if ($invId !== '') {
                     $stripeCustomer = (string)($obj['customer'] ?? '');
@@ -225,6 +421,10 @@ function eb_ph_stripe_webhook(): void
                     );
                 }
                 break;
+            case 'payment_method.attached':
+            case 'payment_method.detached':
+                eb_ph_touch_payment_method_state((string)($obj['customer'] ?? ''));
+                break;
             case 'payment_intent.succeeded':
             case 'payment_intent.payment_failed':
                 $pi = (string)($obj['id'] ?? '');
@@ -246,6 +446,9 @@ function eb_ph_stripe_webhook(): void
                         ]
                     );
                 }
+                break;
+            case 'customer.deleted':
+                eb_ph_clear_deleted_customer((string)($obj['id'] ?? ''));
                 break;
             default:
                 break;

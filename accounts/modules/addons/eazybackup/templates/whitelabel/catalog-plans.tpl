@@ -706,17 +706,18 @@
                           </div>
                         </div>
                         <div class="relative min-w-0">
-                          <span class="eb-field-label">eazyBackup user</span>
+                          <span class="eb-field-label" x-text="assignPlanRequiresCometUser() ? 'eazyBackup user' : 'Storage assignment'">eazyBackup user</span>
                           <button
                             type="button"
                             class="eb-input relative mt-2 flex w-full cursor-pointer items-center justify-between gap-2 pr-10 text-left disabled:cursor-not-allowed disabled:opacity-50"
-                            @click="assignData.tenant_id && toggleAssignUserDropdown()"
-                            :disabled="!assignData.tenant_id"
+                            @click="assignData.tenant_id && assignPlanRequiresCometUser() && toggleAssignUserDropdown()"
+                            :disabled="!assignData.tenant_id || !assignPlanRequiresCometUser()"
                             :aria-expanded="assignUserOpen"
                           >
-                            <span class="min-w-0 truncate" :class="assignData.comet_user_id ? 'text-[var(--eb-text-primary)]' : 'text-[var(--eb-text-muted)]'" x-text="assignData.comet_user_id || (assignData.tenant_id ? 'Select user…' : 'Select a customer first')"></span>
+                            <span class="min-w-0 truncate" :class="assignData.comet_user_id ? 'text-[var(--eb-text-primary)]' : 'text-[var(--eb-text-muted)]'" x-text="assignData.comet_user_id || assignUserPlaceholder()"></span>
                             <svg class="pointer-events-none absolute right-3 top-1/2 h-4 w-4 shrink-0 -translate-y-1/2 text-[var(--eb-text-muted)] transition-transform" :class="assignUserOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
                           </button>
+                          <p x-show="assignData.tenant_id && !assignPlanRequiresCometUser()" class="mt-2 text-xs text-[var(--eb-text-muted)]">Storage-based plans bill at the tenant level and do not require an eazyBackup user.</p>
                           <div
                             x-show="assignUserOpen"
                             x-transition
@@ -735,14 +736,14 @@
                               />
                             </div>
                             <div class="max-h-52 overflow-y-auto p-1">
-                              <template x-for="u in filteredAssignUsers()" :key="u.comet_username">
+                              <template x-for="u in filteredAssignUsers()" :key="u.comet_user_id || u.comet_username">
                                 <button
                                   type="button"
                                   class="eb-menu-item w-full flex-col !items-stretch gap-0.5"
-                                  :class="assignData.comet_user_id === u.comet_username ? 'is-active' : ''"
-                                  @click="selectAssignUser(u.comet_username)"
+                                  :class="assignData.comet_user_id === (u.comet_user_id || u.comet_username) ? 'is-active' : ''"
+                                  @click="selectAssignUser(u.comet_user_id || u.comet_username)"
                                 >
-                                  <span class="truncate text-left font-medium" x-text="u.comet_username"></span>
+                                  <span class="truncate text-left font-medium" x-text="u.comet_username || u.comet_user_id"></span>
                                   <span class="truncate text-left text-xs text-[var(--eb-text-muted)]" x-text="u.tenant_name || u.tenant_public_id || ''"></span>
                                 </button>
                               </template>
@@ -905,6 +906,7 @@
 }
 
 <script type="application/json" id="eb-plan-catalog-json">{$catalog_products_json nofilter}</script>
+<script type="application/json" id="eb-assign-plans-json">{$assign_plans_json|default:'[]' nofilter}</script>
 <script type="application/json" id="eb-assign-tenants-json">{$assign_tenants_json|default:'[]' nofilter}</script>
-<script type="application/json" id="eb-comet-accounts-json">[{foreach from=$comet_accounts item=ca name=ca_loop}{ldelim}"tenant_public_id":"{$ca.tenant_public_id|escape:'javascript'}","comet_username":"{$ca.comet_username|escape:'javascript'}","tenant_name":"{$ca.tenant_name|escape:'javascript'}"{rdelim}{if !$smarty.foreach.ca_loop.last},{/if}{/foreach}]</script>
+<script type="application/json" id="eb-comet-accounts-json">{$comet_accounts_json|default:'[]' nofilter}</script>
 <script src="modules/addons/eazybackup/assets/js/catalog-plans.js"></script>
