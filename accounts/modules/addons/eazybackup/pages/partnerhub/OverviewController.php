@@ -3,6 +3,54 @@
 use WHMCS\Database\Capsule;
 use PartnerHub\StripeService;
 
+function eb_ph_overview_notice_dismiss(array $vars): void
+{
+    header('Content-Type: application/json');
+
+    if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) {
+        echo json_encode(['status' => 'error', 'message' => 'auth']);
+        return;
+    }
+
+    require_once __DIR__ . '/TenantsController.php';
+
+    try {
+        [, $msp] = eb_ph_tenants_require_context($vars);
+    } catch (\Throwable $e) {
+        echo json_encode(['status' => 'error', 'message' => 'context']);
+        return;
+    }
+
+    $token = trim((string)($_POST['token'] ?? $_POST['csrf'] ?? ''));
+    if (function_exists('check_token')) {
+        try {
+            if (!check_token('plain', $token)) {
+                echo json_encode(['status' => 'error', 'message' => 'csrf']);
+                return;
+            }
+        } catch (\Throwable $__) {
+            echo json_encode(['status' => 'error', 'message' => 'csrf']);
+            return;
+        }
+    }
+
+    $noticeKey = trim((string)($_POST['notice_key'] ?? ''));
+    if ($noticeKey === '') {
+        echo json_encode(['status' => 'error', 'message' => 'notice_key']);
+        return;
+    }
+
+    Capsule::table('eb_partnerhub_notices')
+        ->where('msp_id', (int)($msp->id ?? 0))
+        ->where('notice_key', $noticeKey)
+        ->update([
+            'dismissed_at' => date('Y-m-d H:i:s'),
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+
+    echo json_encode(['status' => 'success']);
+}
+
 function eb_ph_overview_index(array $vars)
 {
     require_once __DIR__ . '/TenantsController.php';
@@ -176,6 +224,41 @@ function eb_ph_overview_index(array $vars)
         }
     } catch (\Throwable $__) {}
 
+    $partnerHubNotices = [];
+    try {
+        if (Capsule::schema()->hasTable('eb_partnerhub_notices')) {
+            $rows = Capsule::table('eb_partnerhub_notices')
+                ->where('msp_id', $mspId)
+                ->whereNull('dismissed_at')
+                ->whereNull('resolved_at')
+                ->orderByRaw('CASE WHEN effective_at IS NULL THEN 1 ELSE 0 END ASC')
+                ->orderBy('effective_at', 'asc')
+                ->orderBy('created_at', 'desc')
+                ->limit(6)
+                ->get([
+                    'notice_key',
+                    'notice_type',
+                    'title',
+                    'message',
+                    'action_url',
+                    'action_label',
+                    'effective_at',
+                ]);
+
+            foreach ($rows as $row) {
+                $partnerHubNotices[] = [
+                    'notice_key' => (string)($row->notice_key ?? ''),
+                    'notice_type' => (string)($row->notice_type ?? 'info'),
+                    'title' => (string)($row->title ?? 'Notice'),
+                    'message' => (string)($row->message ?? ''),
+                    'action_url' => (string)($row->action_url ?? ''),
+                    'action_label' => (string)($row->action_label ?? 'Review'),
+                    'effective_at' => (string)($row->effective_at ?? ''),
+                ];
+            }
+        }
+    } catch (\Throwable $__) {}
+
     // --- Setup Wizard ---
     $stripeConnected = $connect['chargesEnabled'];
     $setup = [
@@ -206,10 +289,12 @@ function eb_ph_overview_index(array $vars)
             'modulelink' => $baseLink,
             'msp' => (array)$msp,
             'token' => function_exists('generate_token') ? generate_token('plain') : '',
+            'partnerhub_notice_dismiss_url' => $baseLink . '&a=ph-overview-notice-dismiss',
             'setup' => $setup,
             'connect' => $connect,
             'connect_due' => $connectDue,
             'connect_id_masked' => $connectIdMasked,
+            'partnerhub_notices' => $partnerHubNotices,
             'counts' => [
                 'tenants' => $tenantCount,
                 'active_subscriptions' => $activeSubCount,

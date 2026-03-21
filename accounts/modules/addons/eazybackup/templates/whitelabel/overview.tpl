@@ -5,9 +5,31 @@
 {capture assign=ebPhContent}
   <div x-data="{
       setupDismissed: localStorage.getItem('eb_ph_setup_dismissed') === 'true',
+      noticeDismissUrl: '{$partnerhub_notice_dismiss_url|default:''|escape:'javascript'}',
+      csrfToken: '{$token|default:''|escape:'javascript'}',
+      dismissedNotices: {},
       dismissSetup() {
         this.setupDismissed = true;
         localStorage.setItem('eb_ph_setup_dismissed', 'true');
+      },
+      async dismissNotice(noticeKey) {
+        if (!noticeKey || !this.noticeDismissUrl) {
+          return;
+        }
+        const body = new URLSearchParams();
+        body.set('token', this.csrfToken);
+        body.set('notice_key', noticeKey);
+        const response = await fetch(this.noticeDismissUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+          credentials: 'same-origin',
+          body: body.toString()
+        });
+        const data = await response.json();
+        if (!data || data.status !== 'success') {
+          throw new Error((data && data.message) ? data.message : 'notice-dismiss-failed');
+        }
+        this.dismissedNotices[noticeKey] = true;
       }
     }">
     <div class="space-y-6">
@@ -124,6 +146,37 @@
               <div class="eb-alert eb-alert--info text-sm">
                 You can resume Stripe onboarding at any time. If setup is complete, continue to <a class="underline" href="{$modulelink}&a=ph-stripe-manage">Manage Account</a>.
               </div>
+            {/if}
+            {if isset($partnerhub_notices) && $partnerhub_notices|@count > 0}
+              {foreach $partnerhub_notices as $notice}
+                <section
+                  x-show="!dismissedNotices['{$notice.notice_key|escape:'javascript'}']"
+                  data-eb-notice-dismiss="{$notice.notice_key|escape}"
+                  class="eb-alert {if $notice.notice_type eq 'trial_will_end'}eb-alert--warning{elseif $notice.notice_type eq 'danger'}eb-alert--danger{else}eb-alert--info{/if} flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"
+                >
+                  <div class="min-w-0">
+                    <div class="font-medium text-[var(--eb-text-primary)]">
+                      {if $notice.notice_type eq 'trial_will_end'}Trial ending soon{else}{$notice.title|escape}{/if}
+                    </div>
+                    {if $notice.message neq ''}
+                      <p class="mt-1 text-sm text-[var(--eb-text-secondary)]">{$notice.message|escape}</p>
+                    {/if}
+                    {if $notice.effective_at neq ''}
+                      <p class="mt-2 text-xs uppercase tracking-[0.18em] text-[var(--eb-text-muted)]">Effective {$notice.effective_at|date_format:'%b %e, %Y'}</p>
+                    {/if}
+                  </div>
+                  <div class="flex shrink-0 items-center gap-2">
+                    {if $notice.action_url neq ''}
+                      <a href="{$notice.action_url|escape}" class="eb-btn eb-btn-outline eb-btn-xs">{$notice.action_label|default:'Review'|escape}</a>
+                    {/if}
+                    <button
+                      type="button"
+                      class="eb-btn eb-btn-ghost eb-btn-xs"
+                      @click="dismissNotice('{$notice.notice_key|escape:'javascript'}').catch(() => {})"
+                    >Dismiss</button>
+                  </div>
+                </section>
+              {/foreach}
             {/if}
 
             {* --- 2. Stripe Connect Status --- *}

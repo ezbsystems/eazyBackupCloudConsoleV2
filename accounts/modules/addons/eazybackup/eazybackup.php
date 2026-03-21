@@ -1888,6 +1888,44 @@ function eazybackup_migrate_schema(): void {
         });
     }
 
+    if (!$schema->hasTable('eb_partnerhub_notices')) {
+        $schema->create('eb_partnerhub_notices', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->bigInteger('msp_id')->index();
+            $t->bigInteger('tenant_id')->nullable()->index();
+            $t->string('notice_key', 191);
+            $t->string('notice_type', 64)->default('info');
+            $t->string('title', 191);
+            $t->text('message')->nullable();
+            $t->string('stripe_customer_id', 255)->nullable()->index();
+            $t->string('stripe_subscription_id', 255)->nullable()->index();
+            $t->string('action_url', 255)->nullable();
+            $t->string('action_label', 64)->nullable();
+            $t->timestamp('effective_at')->nullable();
+            $t->timestamp('dismissed_at')->nullable();
+            $t->timestamp('resolved_at')->nullable();
+            $t->timestamp('created_at')->nullable()->useCurrent();
+            $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
+            $t->unique(['msp_id', 'notice_key'], 'uq_partnerhub_notice_key');
+        });
+    } else {
+        eb_add_column_if_missing('eb_partnerhub_notices', 'tenant_id', fn(Blueprint $t) => $t->bigInteger('tenant_id')->nullable()->index());
+        eb_add_column_if_missing('eb_partnerhub_notices', 'notice_type', fn(Blueprint $t) => $t->string('notice_type', 64)->default('info'));
+        eb_add_column_if_missing('eb_partnerhub_notices', 'title', fn(Blueprint $t) => $t->string('title', 191)->default('Notice'));
+        eb_add_column_if_missing('eb_partnerhub_notices', 'message', fn(Blueprint $t) => $t->text('message')->nullable());
+        eb_add_column_if_missing('eb_partnerhub_notices', 'stripe_customer_id', fn(Blueprint $t) => $t->string('stripe_customer_id', 255)->nullable()->index());
+        eb_add_column_if_missing('eb_partnerhub_notices', 'stripe_subscription_id', fn(Blueprint $t) => $t->string('stripe_subscription_id', 255)->nullable()->index());
+        eb_add_column_if_missing('eb_partnerhub_notices', 'action_url', fn(Blueprint $t) => $t->string('action_url', 255)->nullable());
+        eb_add_column_if_missing('eb_partnerhub_notices', 'action_label', fn(Blueprint $t) => $t->string('action_label', 64)->nullable());
+        eb_add_column_if_missing('eb_partnerhub_notices', 'effective_at', fn(Blueprint $t) => $t->timestamp('effective_at')->nullable());
+        eb_add_column_if_missing('eb_partnerhub_notices', 'dismissed_at', fn(Blueprint $t) => $t->timestamp('dismissed_at')->nullable());
+        eb_add_column_if_missing('eb_partnerhub_notices', 'resolved_at', fn(Blueprint $t) => $t->timestamp('resolved_at')->nullable());
+        eb_add_column_if_missing('eb_partnerhub_notices', 'created_at', fn(Blueprint $t) => $t->timestamp('created_at')->nullable()->useCurrent());
+        eb_add_column_if_missing('eb_partnerhub_notices', 'updated_at', fn(Blueprint $t) => $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate());
+    }
+    eb_require_index('eb_partnerhub_notices', 'uq_partnerhub_notice_key', "CREATE UNIQUE INDEX uq_partnerhub_notice_key ON eb_partnerhub_notices (msp_id, notice_key)", ['msp_id', 'notice_key'], true);
+    eb_require_index('eb_partnerhub_notices', 'idx_partnerhub_notice_effective', "CREATE INDEX idx_partnerhub_notice_effective ON eb_partnerhub_notices (msp_id, dismissed_at, resolved_at, effective_at)", ['msp_id', 'dismissed_at', 'resolved_at', 'effective_at'], false);
+
     // Payouts cache (per MSP)
     if (!$schema->hasTable('eb_payouts')) {
         $schema->create('eb_payouts', function (Blueprint $t) {
@@ -4179,6 +4217,9 @@ function eazybackup_clientarea(array $vars)
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-overview') {
         require_once __DIR__ . '/pages/partnerhub/OverviewController.php';
         return eb_ph_overview_index($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-overview-notice-dismiss') {
+        require_once __DIR__ . '/pages/partnerhub/OverviewController.php';
+        eb_ph_overview_notice_dismiss($vars); exit;
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-clients') {
         require_once __DIR__ . '/pages/partnerhub/TenantsController.php';
         return eb_ph_tenants_legacy_clients_redirect($vars);

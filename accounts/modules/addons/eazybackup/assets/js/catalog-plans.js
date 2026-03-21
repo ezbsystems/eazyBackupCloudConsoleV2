@@ -71,6 +71,7 @@
   }
 
   var catalogProducts = parseJsonScript('eb-plan-catalog-json');
+  var assignPlans = parseJsonScript('eb-assign-plans-json');
   var cometAccounts = parseJsonScript('eb-comet-accounts-json');
   var assignTenants = parseJsonScript('eb-assign-tenants-json');
 
@@ -837,9 +838,39 @@
         var list = this.filteredCometAccounts;
         if (!q) return list;
         return list.filter(function(u){
-          return String(u.comet_username || '').toLowerCase().indexOf(q) >= 0 ||
+          return String(u.comet_username || u.comet_user_id || '').toLowerCase().indexOf(q) >= 0 ||
+            String(u.comet_user_id || '').toLowerCase().indexOf(q) >= 0 ||
             String(u.tenant_name || '').toLowerCase().indexOf(q) >= 0;
         });
+      },
+
+      assignPlanMeta(){
+        var id = String(this.assignPlanId || '');
+        for (var i = 0; i < assignPlans.length; i++) {
+          if (String(assignPlans[i].id || '') === id) {
+            return assignPlans[i];
+          }
+        }
+        return { assignment_mode: { mode: 'backup_user', requires_comet_user: true, primary_metric: 'GENERIC', metrics: [] } };
+      },
+
+      assignPlanRequiresCometUser(){
+        var meta = this.assignPlanMeta();
+        return !meta || !meta.assignment_mode ? true : !!meta.assignment_mode.requires_comet_user;
+      },
+
+      assignUserLabel(){
+        return this.assignPlanRequiresCometUser() ? 'eazyBackup user' : 'Storage assignment';
+      },
+
+      assignUserPlaceholder(){
+        if (!this.assignData.tenant_id) {
+          return 'Select a customer first';
+        }
+        if (!this.assignPlanRequiresCometUser()) {
+          return 'Tenant-level storage assignment';
+        }
+        return 'Select user...';
       },
 
       assignTenantLabel(){
@@ -862,8 +893,8 @@
         this.filteredCometAccounts = cometAccounts.filter(function(a){
           return String(a.tenant_public_id || '') === tenantPublicId;
         });
-        this.assignData.comet_user_id = this.filteredCometAccounts.length === 1
-          ? this.filteredCometAccounts[0].comet_username
+        this.assignData.comet_user_id = this.assignPlanRequiresCometUser() && this.filteredCometAccounts.length === 1
+          ? String(this.filteredCometAccounts[0].comet_user_id || this.filteredCometAccounts[0].comet_username || '')
           : '';
       },
 
@@ -874,8 +905,8 @@
       },
 
       async submitAssign(){
-        if (!this.assignData.tenant_id || !this.assignData.comet_user_id) {
-          safeToast('Select a customer and eazyBackup user.', 'warning');
+        if (!this.assignData.tenant_id || (this.assignPlanRequiresCometUser() && !this.assignData.comet_user_id)) {
+          safeToast(this.assignPlanRequiresCometUser() ? 'Select a customer and eazyBackup user.' : 'Select a customer.', 'warning');
           return;
         }
         this.isSaving = true;
@@ -883,9 +914,11 @@
           var body = new URLSearchParams({
             token: token,
             plan_id: String(this.assignPlanId),
-            tenant_id: String(this.assignData.tenant_id),
-            comet_user_id: this.assignData.comet_user_id
+            tenant_id: String(this.assignData.tenant_id)
           });
+          if (this.assignData.comet_user_id) {
+            body.set('comet_user_id', String(this.assignData.comet_user_id));
+          }
           var res = await fetch(modulelink + '&a=ph-plan-assign', { method:'POST', credentials:'include', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: body });
           var out = await res.json();
           if (out.status === 'success') {

@@ -220,28 +220,75 @@ function eb_ph_catalog_plans_index(array $vars)
 
     // eazyBackup users for assignment picker
     $cometAccounts = [];
+    $cometAccountIndex = [];
     try {
-        $ca = Capsule::table('eb_tenant_comet_accounts as tca')
-            ->join('eb_tenants as t','t.id','=','tca.tenant_id')
-            ->where('t.msp_id',(int)$msp->id)
-            ->where('t.status','!=','deleted')
-            ->get(['t.public_id as tenant_public_id', 'tca.comet_username', 'tca.comet_server', 't.name as tenant_name']);
-        foreach ($ca as $r) { $cometAccounts[] = (array)$r; }
+        if (Capsule::schema()->hasTable('eb_tenant_comet_accounts')) {
+            $ca = Capsule::table('eb_tenant_comet_accounts as tca')
+                ->join('eb_tenants as t','t.id','=','tca.tenant_id')
+                ->where('t.msp_id',(int)$msp->id)
+                ->where('t.status','!=','deleted')
+                ->get(['t.public_id as tenant_public_id', 'tca.comet_username', 'tca.comet_user_id', 't.name as tenant_name']);
+            foreach ($ca as $row) {
+                $r = (array)$row;
+                $identifier = trim((string)($r['comet_user_id'] ?? $r['comet_username'] ?? ''));
+                $display = trim((string)($r['comet_username'] ?? $r['comet_user_id'] ?? ''));
+                $tenantPublicId = trim((string)($r['tenant_public_id'] ?? ''));
+                if ($tenantPublicId === '' || $identifier === '') {
+                    continue;
+                }
+                $key = $tenantPublicId . '|' . $identifier;
+                $cometAccountIndex[$key] = [
+                    'tenant_public_id' => $tenantPublicId,
+                    'comet_user_id' => $identifier,
+                    'comet_username' => $display !== '' ? $display : $identifier,
+                    'tenant_name' => (string)($r['tenant_name'] ?? ''),
+                ];
+            }
+        }
     } catch (\Throwable $__) {}
+    try {
+        if (Capsule::schema()->hasTable('eb_service_links')) {
+            $links = Capsule::table('eb_service_links as sl')
+                ->join('eb_tenants as t', 't.id', '=', 'sl.tenant_id')
+                ->where('sl.msp_id', (int)$msp->id)
+                ->where('t.status', '!=', 'deleted')
+                ->whereNotNull('sl.comet_user_id')
+                ->where('sl.comet_user_id', '!=', '')
+                ->get(['t.public_id as tenant_public_id', 'sl.comet_user_id', 't.name as tenant_name']);
+            foreach ($links as $row) {
+                $r = (array)$row;
+                $identifier = trim((string)($r['comet_user_id'] ?? ''));
+                $tenantPublicId = trim((string)($r['tenant_public_id'] ?? ''));
+                if ($tenantPublicId === '' || $identifier === '') {
+                    continue;
+                }
+                $key = $tenantPublicId . '|' . $identifier;
+                if (!isset($cometAccountIndex[$key])) {
+                    $cometAccountIndex[$key] = [
+                        'tenant_public_id' => $tenantPublicId,
+                        'comet_user_id' => $identifier,
+                        'comet_username' => $identifier,
+                        'tenant_name' => (string)($r['tenant_name'] ?? ''),
+                    ];
+                }
+            }
+        }
+    } catch (\Throwable $__) {}
+    $cometAccounts = array_values($cometAccountIndex);
 
     // Normalize to arrays for Smarty
     $plansArr = [];
-    foreach ((array)$plans as $r) {
+    foreach ($plans as $r) {
         $row = (array)$r;
         $row['active_subs'] = $subCounts[(int)$row['id']] ?? 0;
         $plansArr[] = $row;
     }
-    $componentsArr = []; foreach ((array)$components as $r) { $componentsArr[] = (array)$r; }
-    $pricesArr = []; foreach ((array)$prices as $r) { $pricesArr[] = (array)$r; }
-    $tenantsArr = []; foreach ((array)$tenants as $r) { $tenantsArr[] = (array)$r; }
+    $componentsArr = []; foreach ($components as $r) { $componentsArr[] = (array)$r; }
+    $pricesArr = []; foreach ($prices as $r) { $pricesArr[] = (array)$r; }
+    $tenantsArr = []; foreach ($tenants as $r) { $tenantsArr[] = (array)$r; }
 
     $catalogByProduct = [];
-    foreach ((array)$products as $row) {
+    foreach ($products as $row) {
         $arr = (array)$row;
         $catalogByProduct[(int)$arr['id']] = [
             'id' => (int)$arr['id'],
@@ -276,6 +323,22 @@ function eb_ph_catalog_plans_index(array $vars)
         ];
     }
     $catalogProducts = array_values($catalogByProduct);
+    $componentsByPlan = [];
+    foreach ($componentsArr as $row) {
+        $componentsByPlan[(int)($row['plan_id'] ?? 0)][] = $row;
+    }
+    $assignPlans = [];
+    foreach ($plansArr as $planRow) {
+        $planId = (int)($planRow['id'] ?? 0);
+        if ($planId <= 0) {
+            continue;
+        }
+        $assignPlans[] = [
+            'id' => $planId,
+            'name' => (string)($planRow['name'] ?? ''),
+            'assignment_mode' => eb_ph_plan_assignment_mode($planId, $componentsByPlan[$planId] ?? []),
+        ];
+    }
 
     return [
         'pagetitle' => 'Catalog — Plans',
@@ -292,6 +355,7 @@ function eb_ph_catalog_plans_index(array $vars)
             'catalog_products_json' => json_encode($catalogProducts, JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT),
             'tenants' => $tenantsArr,
             'customers' => $tenantsArr,
+            'assign_plans_json' => json_encode($assignPlans, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT),
             'assign_tenants_json' => json_encode(array_values(array_map(static function (array $t): array {
                 return [
                     'public_id' => (string) ($t['public_id'] ?? ''),
@@ -299,6 +363,7 @@ function eb_ph_catalog_plans_index(array $vars)
                 ];
             }, $tenantsArr)), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT),
             'comet_accounts' => $cometAccounts,
+            'comet_accounts_json' => json_encode($cometAccounts, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT),
             'modulelink' => $vars['modulelink'] ?? ('index.php?m=eazybackup'),
             'token' => function_exists('generate_token') ? generate_token('plain') : '',
         ],
@@ -317,6 +382,55 @@ function eb_ph_catalog_plans_resolve_tenant_for_msp(int $mspId, string $tenantPu
         ->where('msp_id', $mspId)
         ->where('status', '!=', 'deleted')
         ->first(['id', 'public_id', 'name']);
+}
+
+function eb_ph_plan_assignment_mode(int $planId, ?array $planComponents = null): array
+{
+    $metrics = [];
+    if ($planComponents === null) {
+        $rows = Capsule::table('eb_plan_components as pc')
+            ->leftJoin('eb_catalog_prices as pr', 'pr.id', '=', 'pc.price_id')
+            ->leftJoin('eb_catalog_products as p', 'p.id', '=', 'pr.product_id')
+            ->where('pc.plan_id', $planId)
+            ->get([
+                'pc.metric_code',
+                'pr.metric_code as price_metric',
+                'p.base_metric_code as product_base_metric',
+            ]);
+        $planComponents = [];
+        foreach ($rows as $row) {
+            $planComponents[] = (array)$row;
+        }
+    }
+
+    foreach ($planComponents as $component) {
+        $metric = strtoupper(trim((string)($component['price_metric'] ?? $component['metric_code'] ?? $component['product_base_metric'] ?? '')));
+        if ($metric !== '') {
+            $metrics[] = $metric;
+        }
+    }
+
+    $metrics = array_values(array_unique($metrics));
+    $isStorageOnly = !empty($metrics) && count(array_filter($metrics, static function (string $metric): bool {
+        return $metric !== 'STORAGE_TB';
+    })) === 0;
+
+    return [
+        'mode' => $isStorageOnly ? 'tenant_storage' : 'backup_user',
+        'requires_comet_user' => !$isStorageOnly,
+        'metrics' => $metrics,
+        'primary_metric' => $metrics[0] ?? 'GENERIC',
+    ];
+}
+
+function eb_ph_plan_storage_assignment_key($tenant): string
+{
+    $publicId = trim((string)($tenant->public_id ?? ''));
+    if ($publicId !== '') {
+        return 'storage:' . $publicId;
+    }
+
+    return 'storage:' . (int)($tenant->id ?? 0);
 }
 
 function eb_ph_plan_template_create(array $vars): void
@@ -408,7 +522,7 @@ function eb_ph_plan_assign(array $vars): void
     $planId = (int)($_POST['plan_id'] ?? 0);
     $feePercent = isset($_POST['application_fee_percent']) && $_POST['application_fee_percent'] !== '' ? (float)$_POST['application_fee_percent'] : null;
 
-    if ($tenantPublicId === '' || $planId <= 0 || $cometUserId === '') { echo json_encode(['status'=>'error','message'=>'invalid']); return; }
+    if ($tenantPublicId === '' || $planId <= 0) { echo json_encode(['status'=>'error','message'=>'invalid']); return; }
 
     $plan = Capsule::table('eb_plan_templates')->where('id',$planId)->first();
     if (!$plan || (int)$plan->msp_id !== (int)$msp->id) { echo json_encode(['status'=>'error','message'=>'scope']); return; }
@@ -418,17 +532,40 @@ function eb_ph_plan_assign(array $vars): void
     $tenant = eb_ph_catalog_plans_resolve_tenant_for_msp((int)$msp->id, $tenantPublicId);
     if (!$tenant) { echo json_encode(['status'=>'error','message'=>'tenant_not_found']); return; }
     $tenantId = (int)$tenant->id;
-    $ownedCometAccount = Capsule::table('eb_tenant_comet_accounts as tca')
-        ->join('eb_tenants as t', 't.id', '=', 'tca.tenant_id')
-        ->where('t.id', $tenantId)
-        ->where('t.msp_id', (int)$msp->id)
-        ->where('t.status', '!=', 'deleted')
-        ->where(function ($query) use ($cometUserId) {
-            $query->where('tca.comet_user_id', $cometUserId)
-                ->orWhere('tca.comet_username', $cometUserId);
-        })
-        ->first(['tca.id']);
-    if (!$ownedCometAccount) { echo json_encode(['status'=>'error','message'=>'comet_user_not_found']); return; }
+    $assignmentMode = eb_ph_plan_assignment_mode((int)$plan->id);
+    if ($assignmentMode['requires_comet_user'] && $cometUserId === '') { echo json_encode(['status'=>'error','message'=>'invalid']); return; }
+    if (!$assignmentMode['requires_comet_user']) {
+        $cometUserId = eb_ph_plan_storage_assignment_key($tenant);
+    }
+
+    $ownedCometAccount = true;
+    if ($assignmentMode['requires_comet_user']) {
+        $ownedCometAccount = null;
+        try {
+            if (Capsule::schema()->hasTable('eb_tenant_comet_accounts')) {
+                $ownedCometAccount = Capsule::table('eb_tenant_comet_accounts as tca')
+                    ->join('eb_tenants as t', 't.id', '=', 'tca.tenant_id')
+                    ->where('t.id', $tenantId)
+                    ->where('t.msp_id', (int)$msp->id)
+                    ->where('t.status', '!=', 'deleted')
+                    ->where(function ($query) use ($cometUserId) {
+                        $query->where('tca.comet_user_id', $cometUserId)
+                            ->orWhere('tca.comet_username', $cometUserId);
+                    })
+                    ->first(['tca.id']);
+            }
+        } catch (\Throwable $__) {}
+        if (!$ownedCometAccount) {
+            $ownedCometAccount = Capsule::table('eb_service_links as sl')
+                ->join('eb_tenants as t', 't.id', '=', 'sl.tenant_id')
+                ->where('t.id', $tenantId)
+                ->where('t.msp_id', (int)$msp->id)
+                ->where('t.status', '!=', 'deleted')
+                ->where('sl.comet_user_id', $cometUserId)
+                ->first(['sl.id']);
+        }
+        if (!$ownedCometAccount) { echo json_encode(['status'=>'error','message'=>'comet_user_not_found']); return; }
+    }
     $components = Capsule::table('eb_plan_components')->where('plan_id',$planId)->get();
     if (count($components) === 0) { echo json_encode(['status'=>'error','message'=>'no_components']); return; }
 
