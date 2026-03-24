@@ -374,6 +374,7 @@ Note: Email template tables are also created/maintained automatically by `eazyba
   - Additional routes: `a=ph-plans`
   - `a=ph-stripe-onboard`, `a=ph-stripe-setupintent`, `a=ph-stripe-subscribe`, `a=ph-stripe-webhook` (POST).
   - `a=ph-invoices-refresh` (per-tenant JSON refresh), `a=ph-services-link` (service ↔ Comet user, tenant_id), `a=ph-usage-push` (usage ledger by tenant_id + usage record).
+  - `a=ph-usage-dashboard` (MSP-wide usage dashboard), `a=ph-usage-dashboard-stripe-live` (row-scoped JSON Stripe summary check), `a=ph-usage-dashboard-push-now` (row-scoped JSON resend using the latest ledger raw usage for one metered line item).
   - `a=ph-client-profile-update` (tenant profile save: updates `eb_tenants` contact/address fields).
 
 - Public:
