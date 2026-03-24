@@ -406,6 +406,30 @@ Legacy behavior:
 - All Admin Ops calls prefer `ceph_uid` and fall back to `username` for older installs.
 - Legacy users whose RGW uid contains `@` or `.` are looked up via the legacy path but the WHMCS product username is updated to the sanitized form.
 
+### Legacy non-tenanted user compatibility
+
+Some early customers were provisioned **without tenanting** — their `s3_users` rows have `tenant_id = NULL`, `ceph_uid = NULL`, and `username` may contain `@` or `.` characters (email-format). These users exist in the RGW **global namespace** rather than under a tenant.
+
+All module operations now handle both tenanted and non-tenanted users:
+
+- **Ceph identity resolution**: code consistently uses the pattern:
+  ```php
+  $cephUsername = !empty($user->tenant_id) ? ($user->tenant_id . '$' . $baseUid) : $baseUid;
+  ```
+  Where `$baseUid` is resolved via `HelperController::resolveCephBaseUid()` (prefers `ceph_uid`, falls back to `username`).
+
+- **Access key rotation** (`api/rollkey.php`): works for both tenanted and non-tenanted root users. `BucketController::updateUserAccessKey()` probes multiple identity forms against RGW to find the correct one.
+
+- **Sub-user (tenant) creation** (`Tenant::addTenant()`): when the parent has `tenant_id = NULL`, new sub-users are also created without tenanting in RGW. `AdminOps::createUser()` omits the `tenant` query param when it is null (PHP `isset()` returns false for null values).
+
+- **Sub-user key management** (`Tenant::createTenantAccessKey()`, `deleteTenantAccessKey()`): already handles non-tenanted users via the `!empty($tenant->tenant_id)` fallback.
+
+- **Sub-user deletion** (`Tenant::deleteTenant()`): constructs the correct Ceph identity for non-tenanted users.
+
+- **UI**: `access_keys.tpl` and `users_v2.tpl` display "—" when `tenant_id` is absent instead of showing a blank Account ID.
+
+**Risk note**: Non-tenanted sub-users live in the RGW global namespace, which means username collisions are possible if two different customers both create a user with the same name. Tenanted customers are isolated by their tenant namespace and do not have this risk.
+
 ### 1) Access key lifecycle (Option B)
 
 #### Provisioning behavior

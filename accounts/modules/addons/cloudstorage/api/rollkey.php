@@ -76,11 +76,10 @@
     $username = $product->username;
     $user = DBController::getUser($username);
     
-    // Get the tenant ID for constructing the full Ceph username
-    if (is_null($user) || empty($user->tenant_id)) {
+    if (is_null($user)) {
         $jsonData = [
             'status' => 'fail',
-            'message' => 'User tenant information not found.'
+            'message' => 'Storage user not found.'
         ];
 
         $response = new JsonResponse($jsonData, 200);
@@ -88,12 +87,12 @@
         exit();
     }
     
-    // Construct the full Ceph username with tenant prefix (prefer RGW-safe ceph_uid)
+    // Construct the Ceph username: tenanted users use "tenant$uid", legacy non-tenanted users use bare uid.
     $baseUid = \WHMCS\Module\Addon\CloudStorage\Client\HelperController::resolveCephBaseUid($user);
     if (empty($baseUid)) {
-        $baseUid = $username; // legacy fallback
+        $baseUid = $username;
     }
-    $cephUsername = $user->tenant_id . '$' . $baseUid;
+    $cephUsername = !empty($user->tenant_id) ? ($user->tenant_id . '$' . $baseUid) : $baseUid;
     
     $module = DBController::getResult('tbladdonmodules', [
         ['module', '=', 'cloudstorage']

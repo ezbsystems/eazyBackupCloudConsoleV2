@@ -388,10 +388,12 @@ function eb_ph_usage_dashboard_push_now(array $vars): void
         Capsule::table('eb_usage_ledger')->updateOrInsert(
             ['idempotency_key' => $idempotencyKey],
             [
+                'customer_id' => (int)($row->tenant_id ?? 0),
                 'tenant_id' => (int)($row->tenant_id ?? 0),
                 'plan_instance_item_id' => (int)($row->plan_instance_item_id ?? 0),
                 'metric' => (string)($row->metric_code ?? ''),
                 'qty' => $billableQty,
+                'raw_qty' => $rawQty,
                 'period_start' => gmdate('Y-m-d H:i:s', $periodStartTs),
                 'period_end' => gmdate('Y-m-d H:i:s', $periodEndTs),
                 'source' => 'dashboard',

@@ -53,7 +53,12 @@
             Tenant saved locally, but the Stripe customer profile could not be updated. Billing details in Stripe may be temporarily out of sync.
           </div>
         {/if}
-        {if $error neq '' && $error neq 'stripe_sync_warning'}
+        {if $error eq 'portal_admin_password_short'}
+          <div class="rounded-xl bg-amber-500/10 ring-1 ring-amber-400/30 px-4 py-3 text-sm text-amber-100">
+            Tenant created, but the portal admin was not added. Passwords must be at least 8 characters.
+          </div>
+        {/if}
+        {if $error neq '' && $error neq 'stripe_sync_warning' && $error neq 'portal_admin_password_short'}
           <div class="rounded-xl bg-rose-500/10 ring-1 ring-rose-400/20 px-4 py-3 text-sm text-rose-200">
             Unable to process the request ({$error|escape}).
           </div>
@@ -375,28 +380,84 @@
         {if $billing_error|default:'' neq ''}
           <div class="px-6 pb-5 text-sm text-rose-200">Unable to load some billing data ({$billing_error|escape}).</div>
         {/if}
-        <section class="rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden mt-4 mx-6 mb-6"
-                 x-data="{
+        <div x-data="{
                    assignOpen: false,
                    assignSaving: false,
                    assignMessage: '',
                    paymentMethodMessage: '',
                    selectedPlanId: '',
                    selectedCometUserId: '',
-                   plans: {$billing_assignable_plans|default:array()|@json_encode nofilter},
-                   cometUsers: {$billing_tenant_comet_users|default:array()|@json_encode nofilter},
+                   assignPlanOpen: false,
+                   assignPlanSearch: '',
+                   assignCometUserOpen: false,
+                   assignCometUserSearch: '',
+                   plans: {$billing_assignable_plans|default:array()|@json_encode|escape:'html'},
+                   cometUsers: {$billing_tenant_comet_users|default:array()|@json_encode|escape:'html'},
                    tenantPublicId: '{$billing_tenant.public_id|default:$tenant.public_id|escape:'javascript'}',
                    token: '{$token|escape:'javascript'}',
                    selectedPlan() {
                      return this.plans.find((plan) => String(plan.id || '') === String(this.selectedPlanId || '')) || null;
                    },
+                   filteredAssignablePlans() {
+                     const query = String(this.assignPlanSearch || '').trim().toLowerCase();
+                     if (!query) {
+                       return this.plans;
+                     }
+                     return this.plans.filter((plan) => {
+                       return String(plan.name || '').toLowerCase().includes(query)
+                         || String(plan.description || '').toLowerCase().includes(query)
+                         || String(plan.id || '').toLowerCase().includes(query);
+                     });
+                   },
+                   selectedPlanLabel() {
+                     const plan = this.selectedPlan();
+                     if (!plan) {
+                       return 'Select a plan';
+                     }
+                     return String(plan.name || '').trim() || ('Plan #' + String(plan.id || ''));
+                   },
                    requiresCometUser() {
                      const plan = this.selectedPlan();
                      return plan ? !!plan.requires_comet_user : true;
                    },
+                   filteredCometUsers() {
+                     const query = String(this.assignCometUserSearch || '').trim().toLowerCase();
+                     if (!query) {
+                       return this.cometUsers;
+                     }
+                     return this.cometUsers.filter((user) => {
+                       return String(user.comet_user_id || '').toLowerCase().includes(query);
+                     });
+                   },
+                   selectedCometUserLabel() {
+                     if (!this.selectedCometUserId) {
+                       return this.requiresCometUser() ? 'Select a backup user' : 'Tenant-level storage assignment';
+                     }
+                     const user = this.cometUsers.find((row) => String(row.comet_user_id || '') === String(this.selectedCometUserId || '')) || null;
+                     return user ? String(user.comet_user_id || '').trim() : String(this.selectedCometUserId || '');
+                   },
+                   selectAssignPlan(planId) {
+                     this.selectedPlanId = String(planId || '');
+                     this.assignPlanOpen = false;
+                     this.assignPlanSearch = '';
+                     if (!this.requiresCometUser()) {
+                       this.selectedCometUserId = '';
+                     } else if (!this.selectedCometUserId && this.cometUsers.length === 1) {
+                       this.selectedCometUserId = String(this.cometUsers[0].comet_user_id || '');
+                     }
+                   },
+                   selectAssignCometUser(cometUserId) {
+                     this.selectedCometUserId = String(cometUserId || '');
+                     this.assignCometUserOpen = false;
+                     this.assignCometUserSearch = '';
+                   },
                    openAssignModal() {
                      this.assignOpen = true;
                      this.assignMessage = '';
+                     this.assignPlanOpen = false;
+                     this.assignPlanSearch = '';
+                     this.assignCometUserOpen = false;
+                     this.assignCometUserSearch = '';
                      if (!this.selectedPlanId && this.plans.length) {
                        this.selectedPlanId = String(this.plans[0].id || '');
                      }
@@ -465,6 +526,7 @@
                      }
                    }
                  }">
+        <section class="rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden mt-4 mx-6 mb-6">
           <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800">
             <h2 class="text-lg font-medium text-slate-100">Active Plans</h2>
             <div class="flex flex-wrap items-center gap-2">
@@ -517,12 +579,47 @@
               <div class="space-y-4 px-6 py-5">
                 <label class="block text-sm">
                   <span class="mb-1 block text-slate-300">Plan</span>
-                  <select class="eb-input" x-model="selectedPlanId">
-                    <option value="">Select a plan</option>
-                    <template x-for="plan in plans" :key="'billing-plan-' + String(plan.id || '')">
-                      <option :value="String(plan.id || '')" x-text="plan.name || ('Plan #' + String(plan.id || ''))"></option>
-                    </template>
-                  </select>
+                  <div class="relative" @click.outside="assignPlanOpen = false">
+                    <button
+                      type="button"
+                      class="eb-input relative flex w-full cursor-pointer items-center justify-between gap-2 pr-10 text-left"
+                      @click="assignPlanOpen = !assignPlanOpen; if (assignPlanOpen) { assignCometUserOpen = false; }"
+                      :aria-expanded="assignPlanOpen"
+                    >
+                      <span class="min-w-0 truncate" :class="selectedPlanId ? 'text-[var(--eb-text-primary)]' : 'text-[var(--eb-text-muted)]'" x-text="selectedPlanLabel()"></span>
+                      <svg class="pointer-events-none absolute right-3 top-1/2 h-4 w-4 shrink-0 -translate-y-1/2 text-[var(--eb-text-muted)] transition-transform" :class="assignPlanOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
+                    </button>
+                    <div
+                      x-show="assignPlanOpen"
+                      x-transition
+                      class="absolute left-0 right-0 z-[100] mt-2 max-h-72 overflow-hidden rounded-[var(--eb-radius-lg)] border border-[var(--eb-border-default)] bg-[var(--eb-bg-raised)] shadow-[var(--eb-shadow-lg)]"
+                      style="display: none;"
+                    >
+                      <div class="border-b border-[var(--eb-border-subtle)] p-2">
+                        <input
+                          type="search"
+                          x-model="assignPlanSearch"
+                          placeholder="Search plans..."
+                          class="eb-toolbar-search w-full rounded-[var(--eb-radius-md)] !py-2 text-sm"
+                          @click.stop
+                        />
+                      </div>
+                      <div class="max-h-52 overflow-y-auto p-1">
+                        <template x-for="plan in filteredAssignablePlans()" :key="'billing-plan-' + String(plan.id || '')">
+                          <button
+                            type="button"
+                            class="eb-menu-item w-full flex-col !items-stretch gap-0.5"
+                            :class="String(selectedPlanId || '') === String(plan.id || '') ? 'is-active' : ''"
+                            @click="selectAssignPlan(plan.id)"
+                          >
+                            <span class="min-w-0 truncate text-left font-medium" x-text="plan.name || ('Plan #' + String(plan.id || ''))"></span>
+                            <span class="truncate text-left text-xs text-[var(--eb-text-muted)]" x-text="plan.description || (plan.requires_comet_user ? 'Requires an eazyBackup user.' : 'Tenant-level storage assignment.')"></span>
+                          </button>
+                        </template>
+                        <div x-show="filteredAssignablePlans().length === 0" class="px-3 py-4 text-center text-xs text-[var(--eb-text-muted)]">No matching plans.</div>
+                      </div>
+                    </div>
+                  </div>
                 </label>
                 <template x-if="selectedPlan()">
                   <div class="rounded-xl border border-slate-800 bg-slate-950/40 px-4 py-3 text-sm text-slate-300">
@@ -533,12 +630,47 @@
                 <div x-show="requiresCometUser()">
                   <label class="block text-sm">
                     <span class="mb-1 block text-slate-300">Backup User</span>
-                    <select class="eb-input" x-model="selectedCometUserId">
-                      <option value="">Select a backup user</option>
-                      <template x-for="user in cometUsers" :key="'tenant-comet-user-' + String(user.comet_user_id || '')">
-                        <option :value="String(user.comet_user_id || '')" x-text="user.comet_user_id || '-'"></option>
-                      </template>
-                    </select>
+                    <div class="relative" @click.outside="assignCometUserOpen = false">
+                      <button
+                        type="button"
+                        class="eb-input relative flex w-full cursor-pointer items-center justify-between gap-2 pr-10 text-left disabled:cursor-not-allowed disabled:opacity-50"
+                        @click="if (requiresCometUser() && cometUsers.length) { assignCometUserOpen = !assignCometUserOpen; if (assignCometUserOpen) { assignPlanOpen = false; } }"
+                        :disabled="!requiresCometUser() || cometUsers.length === 0"
+                        :aria-expanded="assignCometUserOpen"
+                      >
+                        <span class="min-w-0 truncate" :class="selectedCometUserId ? 'text-[var(--eb-text-primary)]' : 'text-[var(--eb-text-muted)]'" x-text="selectedCometUserLabel()"></span>
+                        <svg class="pointer-events-none absolute right-3 top-1/2 h-4 w-4 shrink-0 -translate-y-1/2 text-[var(--eb-text-muted)] transition-transform" :class="assignCometUserOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
+                      </button>
+                      <div
+                        x-show="assignCometUserOpen"
+                        x-transition
+                        class="absolute left-0 right-0 z-[100] mt-2 max-h-72 overflow-hidden rounded-[var(--eb-radius-lg)] border border-[var(--eb-border-default)] bg-[var(--eb-bg-raised)] shadow-[var(--eb-shadow-lg)]"
+                        style="display: none;"
+                      >
+                        <div class="border-b border-[var(--eb-border-subtle)] p-2">
+                          <input
+                            type="search"
+                            x-model="assignCometUserSearch"
+                            placeholder="Search backup users..."
+                            class="eb-toolbar-search w-full rounded-[var(--eb-radius-md)] !py-2 text-sm"
+                            @click.stop
+                          />
+                        </div>
+                        <div class="max-h-52 overflow-y-auto p-1">
+                          <template x-for="user in filteredCometUsers()" :key="'tenant-comet-user-' + String(user.comet_user_id || '')">
+                            <button
+                              type="button"
+                              class="eb-menu-item w-full"
+                              :class="String(selectedCometUserId || '') === String(user.comet_user_id || '') ? 'is-active' : ''"
+                              @click="selectAssignCometUser(user.comet_user_id)"
+                            >
+                              <span class="min-w-0 flex-1 truncate text-left" x-text="user.comet_user_id || '-'"></span>
+                            </button>
+                          </template>
+                          <div x-show="filteredCometUsers().length === 0" class="px-3 py-4 text-center text-xs text-[var(--eb-text-muted)]">No matching backup users.</div>
+                        </div>
+                      </div>
+                    </div>
                   </label>
                   <p class="mt-2 text-xs text-slate-500" x-show="cometUsers.length === 0">No linked backup users were found for this tenant.</p>
                 </div>
@@ -588,6 +720,7 @@
             <div class="px-6 py-8 text-sm text-slate-400">No saved payment methods were found for this tenant.</div>
           {/if}
         </section>
+        </div>
       </section>
     {elseif $activeTab eq 'white_label'}
       <section class="rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden">

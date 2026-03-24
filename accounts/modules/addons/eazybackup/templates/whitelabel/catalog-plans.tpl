@@ -324,35 +324,91 @@
                                 <span class="eb-field-label">Description</span>
                                 <textarea x-model="planData.description" rows="3" class="eb-textarea mt-2"></textarea>
                               </label>
-                              <label class="block">
+                              <div class="block" x-data="{ open: false, search: '' }" @click.outside="open = false">
                                 <span class="eb-field-label">Billing interval</span>
-                                <select x-model="planData.billing_interval" class="eb-select mt-2">
-                                  <option value="month">Monthly</option>
-                                  <option value="year">Yearly</option>
-                                </select>
-                              </label>
-                              <label class="block">
+                                <div class="relative mt-2">
+                                  <button
+                                    type="button"
+                                    class="eb-input relative flex w-full items-center justify-between gap-2 pr-10 text-left"
+                                    @click="open = !open"
+                                    :aria-expanded="open"
+                                  >
+                                    <span x-text="({ month: 'Monthly', year: 'Yearly' }[planData.billing_interval] || 'Monthly')"></span>
+                                    <svg class="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--eb-text-muted)] transition-transform" :class="open ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
+                                  </button>
+                                  <div x-show="open" x-transition class="absolute left-0 right-0 z-[90] mt-2 overflow-hidden rounded-[var(--eb-radius-lg)] border border-[var(--eb-border-default)] bg-[var(--eb-bg-raised)] shadow-[var(--eb-shadow-lg)]" style="display: none;">
+                                    <div class="border-b border-[var(--eb-border-subtle)] p-2">
+                                      <input type="search" x-model="search" placeholder="Search billing intervals..." class="eb-toolbar-search w-full rounded-[var(--eb-radius-md)] !py-2 text-sm" @click.stop />
+                                    </div>
+                                    <div class="max-h-52 overflow-y-auto p-1">
+                                      <template x-for="option in [{ value: 'month', label: 'Monthly' }, { value: 'year', label: 'Yearly' }].filter((option) => !search || option.label.toLowerCase().includes(search.toLowerCase()))" :key="'billing-interval-' + option.value">
+                                        <button type="button" class="eb-menu-item w-full" :class="planData.billing_interval === option.value ? 'is-active' : ''" @click="planData.billing_interval = option.value; open = false; search = ''">
+                                          <span class="min-w-0 flex-1 truncate text-left" x-text="option.label"></span>
+                                        </button>
+                                      </template>
+                                      <div x-show="[{ value: 'month', label: 'Monthly' }, { value: 'year', label: 'Yearly' }].filter((option) => !search || option.label.toLowerCase().includes(search.toLowerCase())).length === 0" class="px-3 py-4 text-center text-xs text-[var(--eb-text-muted)]">No billing intervals match your search.</div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                              <div class="block" x-data="{ open: false, search: '' }" @click.outside="open = false">
                                 <span class="eb-field-label">Currency</span>
-                                <select x-model="planData.currency" class="eb-select mt-2">
-                                  <option value="CAD">CAD</option>
-                                  <option value="USD">USD</option>
-                                  <option value="EUR">EUR</option>
-                                  <option value="GBP">GBP</option>
-                                  <option value="AUD">AUD</option>
-                                </select>
-                              </label>
+                                <div class="relative mt-2">
+                                  <button
+                                    type="button"
+                                    class="eb-input relative flex w-full items-center justify-between gap-2 pr-10 text-left"
+                                    @click="open = !open"
+                                    :aria-expanded="open"
+                                  >
+                                    <span x-text="planData.currency || 'CAD'"></span>
+                                    <svg class="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--eb-text-muted)] transition-transform" :class="open ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
+                                  </button>
+                                  <div x-show="open" x-transition class="absolute left-0 right-0 z-[90] mt-2 overflow-hidden rounded-[var(--eb-radius-lg)] border border-[var(--eb-border-default)] bg-[var(--eb-bg-raised)] shadow-[var(--eb-shadow-lg)]" style="display: none;">
+                                    <div class="border-b border-[var(--eb-border-subtle)] p-2">
+                                      <input type="search" x-model="search" placeholder="Search currencies..." class="eb-toolbar-search w-full rounded-[var(--eb-radius-md)] !py-2 text-sm" @click.stop />
+                                    </div>
+                                    <div class="max-h-52 overflow-y-auto p-1">
+                                      <template x-for="option in ['CAD', 'USD', 'EUR', 'GBP', 'AUD'].filter((option) => !search || option.toLowerCase().includes(search.toLowerCase()))" :key="'plan-currency-' + option">
+                                        <button type="button" class="eb-menu-item w-full" :class="planData.currency === option ? 'is-active' : ''" @click="planData.currency = option; open = false; search = ''">
+                                          <span class="min-w-0 flex-1 truncate text-left" x-text="option"></span>
+                                        </button>
+                                      </template>
+                                      <div x-show="['CAD', 'USD', 'EUR', 'GBP', 'AUD'].filter((option) => !search || option.toLowerCase().includes(search.toLowerCase())).length === 0" class="px-3 py-4 text-center text-xs text-[var(--eb-text-muted)]">No currencies match your search.</div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
                               <label class="block">
                                 <span class="eb-field-label">Trial days</span>
                                 <input x-model.number="planData.trial_days" type="number" min="0" class="eb-input mt-2" />
                               </label>
-                              <label class="block">
+                              <div class="block" x-data="{ open: false, search: '' }" @click.outside="open = false">
                                 <span class="eb-field-label">Status</span>
-                                <select x-model="planData.status" class="eb-select mt-2">
-                                  <option value="draft">Draft</option>
-                                  <option value="active">Published</option>
-                                  <option value="archived">Archived</option>
-                                </select>
-                              </label>
+                                <div class="relative mt-2">
+                                  <button
+                                    type="button"
+                                    class="eb-input relative flex w-full items-center justify-between gap-2 pr-10 text-left"
+                                    @click="open = !open"
+                                    :aria-expanded="open"
+                                  >
+                                    <span x-text="({ draft: 'Draft', active: 'Published', archived: 'Archived' }[planData.status] || 'Draft')"></span>
+                                    <svg class="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--eb-text-muted)] transition-transform" :class="open ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
+                                  </button>
+                                  <div x-show="open" x-transition class="absolute left-0 right-0 z-[90] mt-2 overflow-hidden rounded-[var(--eb-radius-lg)] border border-[var(--eb-border-default)] bg-[var(--eb-bg-raised)] shadow-[var(--eb-shadow-lg)]" style="display: none;">
+                                    <div class="border-b border-[var(--eb-border-subtle)] p-2">
+                                      <input type="search" x-model="search" placeholder="Search statuses..." class="eb-toolbar-search w-full rounded-[var(--eb-radius-md)] !py-2 text-sm" @click.stop />
+                                    </div>
+                                    <div class="max-h-52 overflow-y-auto p-1">
+                                      <template x-for="option in [{ value: 'draft', label: 'Draft' }, { value: 'active', label: 'Published' }, { value: 'archived', label: 'Archived' }].filter((option) => !search || option.label.toLowerCase().includes(search.toLowerCase()))" :key="'plan-status-' + option.value">
+                                        <button type="button" class="eb-menu-item w-full" :class="planData.status === option.value ? 'is-active' : ''" @click="planData.status = option.value; open = false; search = ''">
+                                          <span class="min-w-0 flex-1 truncate text-left" x-text="option.label"></span>
+                                        </button>
+                                      </template>
+                                      <div x-show="[{ value: 'draft', label: 'Draft' }, { value: 'active', label: 'Published' }, { value: 'archived', label: 'Archived' }].filter((option) => !search || option.label.toLowerCase().includes(search.toLowerCase())).length === 0" class="px-3 py-4 text-center text-xs text-[var(--eb-text-muted)]">No statuses match your search.</div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -368,17 +424,30 @@
                             </div>
                             <div class="mt-2 flex flex-col gap-3 md:flex-row">
                               <input x-model="catalogSearch" type="text" placeholder="Search products or prices" class="eb-toolbar-search w-full md:flex-1 rounded-full">
-                              <select x-model="catalogTypeFilter" class="eb-select w-full rounded-full md:w-56">
-                                <option value="all">All Types</option>
-                                <option value="STORAGE_TB">Storage</option>
-                                <option value="DEVICE_COUNT">Devices</option>
-                                <option value="DISK_IMAGE">Disk Image</option>
-                                <option value="HYPERV_VM">Hyper-V</option>
-                                <option value="PROXMOX_VM">Proxmox</option>
-                                <option value="VMWARE_VM">VMware</option>
-                                <option value="M365_USER">Microsoft 365</option>
-                                <option value="GENERIC">Generic Service</option>
-                              </select>
+                              <div class="relative w-full md:w-56" x-data="{ open: false, search: '' }" @click.outside="open = false">
+                                <button
+                                  type="button"
+                                  class="eb-input relative flex w-full items-center justify-between gap-2 rounded-full pr-10 text-left"
+                                  @click="open = !open"
+                                  :aria-expanded="open"
+                                >
+                                  <span x-text="({ all: 'All Types', STORAGE_TB: 'Storage', DEVICE_COUNT: 'Devices', DISK_IMAGE: 'Disk Image', HYPERV_VM: 'Hyper-V', PROXMOX_VM: 'Proxmox', VMWARE_VM: 'VMware', M365_USER: 'Microsoft 365', GENERIC: 'Generic Service' }[catalogTypeFilter] || 'All Types')"></span>
+                                  <svg class="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--eb-text-muted)] transition-transform" :class="open ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
+                                </button>
+                                <div x-show="open" x-transition class="absolute left-0 right-0 z-[90] mt-2 overflow-hidden rounded-[var(--eb-radius-lg)] border border-[var(--eb-border-default)] bg-[var(--eb-bg-raised)] shadow-[var(--eb-shadow-lg)]" style="display: none;">
+                                  <div class="border-b border-[var(--eb-border-subtle)] p-2">
+                                    <input type="search" x-model="search" placeholder="Search product types..." class="eb-toolbar-search w-full rounded-[var(--eb-radius-md)] !py-2 text-sm" @click.stop />
+                                  </div>
+                                  <div class="max-h-52 overflow-y-auto p-1">
+                                    <template x-for="option in [{ value: 'all', label: 'All Types' }, { value: 'STORAGE_TB', label: 'Storage' }, { value: 'DEVICE_COUNT', label: 'Devices' }, { value: 'DISK_IMAGE', label: 'Disk Image' }, { value: 'HYPERV_VM', label: 'Hyper-V' }, { value: 'PROXMOX_VM', label: 'Proxmox' }, { value: 'VMWARE_VM', label: 'VMware' }, { value: 'M365_USER', label: 'Microsoft 365' }, { value: 'GENERIC', label: 'Generic Service' }].filter((option) => !search || option.label.toLowerCase().includes(search.toLowerCase()))" :key="'catalog-type-' + option.value">
+                                      <button type="button" class="eb-menu-item w-full" :class="catalogTypeFilter === option.value ? 'is-active' : ''" @click="catalogTypeFilter = option.value; open = false; search = ''">
+                                        <span class="min-w-0 flex-1 truncate text-left" x-text="option.label"></span>
+                                      </button>
+                                    </template>
+                                    <div x-show="[{ value: 'all', label: 'All Types' }, { value: 'STORAGE_TB', label: 'Storage' }, { value: 'DEVICE_COUNT', label: 'Devices' }, { value: 'DISK_IMAGE', label: 'Disk Image' }, { value: 'HYPERV_VM', label: 'Hyper-V' }, { value: 'PROXMOX_VM', label: 'Proxmox' }, { value: 'VMWARE_VM', label: 'VMware' }, { value: 'M365_USER', label: 'Microsoft 365' }, { value: 'GENERIC', label: 'Generic Service' }].filter((option) => !search || option.label.toLowerCase().includes(search.toLowerCase())).length === 0" class="px-3 py-4 text-center text-xs text-[var(--eb-text-muted)]">No product types match your search.</div>
+                                  </div>
+                                </div>
+                              </div>
                             </div>
 
                             <div class="mt-5 space-y-4" x-show="filteredCatalogProducts().length > 0">
@@ -463,14 +532,34 @@
                                       <input x-model.number="comp.default_qty" type="number" min="0" class="eb-input mt-1 !text-xs" />
                                       <p class="eb-field-help">This plan includes <span class="text-[var(--eb-text-primary)]" x-text="includedLabel(comp)"></span> before the overage rule is applied.</p>
                                     </label>
-                                    <label class="block">
+                                    <div class="block" x-data="{ open: false, search: '' }" @click.outside="open = false">
                                       <span class="eb-field-label !text-xs">Overage behavior</span>
-                                      <select x-model="comp.overage_mode" class="eb-select mt-1 !text-xs">
-                                        <option value="bill_all">Charge for all usage above included amount</option>
-                                        <option value="cap_at_default">Do not bill usage above included amount</option>
-                                      </select>
+                                      <div class="relative mt-1">
+                                        <button
+                                          type="button"
+                                          class="eb-input relative flex w-full items-center justify-between gap-2 pr-10 text-left !text-xs"
+                                          @click="open = !open"
+                                          :aria-expanded="open"
+                                        >
+                                          <span x-text="({ bill_all: 'Charge for all usage above included amount', cap_at_default: 'Do not bill usage above included amount' }[comp.overage_mode] || 'Charge for all usage above included amount')"></span>
+                                          <svg class="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--eb-text-muted)] transition-transform" :class="open ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
+                                        </button>
+                                        <div x-show="open" x-transition class="absolute left-0 right-0 z-[90] mt-2 overflow-hidden rounded-[var(--eb-radius-lg)] border border-[var(--eb-border-default)] bg-[var(--eb-bg-raised)] shadow-[var(--eb-shadow-lg)]" style="display: none;">
+                                          <div class="border-b border-[var(--eb-border-subtle)] p-2">
+                                            <input type="search" x-model="search" placeholder="Search overage rules..." class="eb-toolbar-search w-full rounded-[var(--eb-radius-md)] !py-2 text-sm" @click.stop />
+                                          </div>
+                                          <div class="max-h-52 overflow-y-auto p-1">
+                                            <template x-for="option in [{ value: 'bill_all', label: 'Charge for all usage above included amount' }, { value: 'cap_at_default', label: 'Do not bill usage above included amount' }].filter((option) => !search || option.label.toLowerCase().includes(search.toLowerCase()))" :key="'overage-mode-' + option.value">
+                                              <button type="button" class="eb-menu-item w-full" :class="comp.overage_mode === option.value ? 'is-active' : ''" @click="comp.overage_mode = option.value; open = false; search = ''">
+                                                <span class="min-w-0 flex-1 truncate text-left" x-text="option.label"></span>
+                                              </button>
+                                            </template>
+                                            <div x-show="[{ value: 'bill_all', label: 'Charge for all usage above included amount' }, { value: 'cap_at_default', label: 'Do not bill usage above included amount' }].filter((option) => !search || option.label.toLowerCase().includes(search.toLowerCase())).length === 0" class="px-3 py-4 text-center text-xs text-[var(--eb-text-muted)]">No overage rules match your search.</div>
+                                          </div>
+                                        </div>
+                                      </div>
                                       <p class="eb-field-help" x-text="overageExample(comp)"></p>
-                                    </label>
+                                    </div>
                                   </div>
                                 </div>
                               </template>
@@ -917,7 +1006,7 @@
 <script type="application/json" id="eb-comet-accounts-smarty-data">
 [
 {foreach from=$comet_accounts item=ca name=cometAccounts}
-  {"tenant_public_id":"{$ca.tenant_public_id|escape:'javascript'}","comet_user_id":"{$ca.comet_user_id|escape:'javascript'}","tenant_name":"{$ca.tenant_name|escape:'javascript'}"}{if !$smarty.foreach.cometAccounts.last},{/if}
+  {ldelim}"tenant_public_id":"{$ca.tenant_public_id|escape:'javascript'}","comet_user_id":"{$ca.comet_user_id|escape:'javascript'}","tenant_name":"{$ca.tenant_name|escape:'javascript'}"{rdelim}{if !$smarty.foreach.cometAccounts.last},{/if}
 {/foreach}
 ]
 </script>

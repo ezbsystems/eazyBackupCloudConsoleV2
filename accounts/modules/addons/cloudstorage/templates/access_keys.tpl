@@ -56,7 +56,7 @@
                                     <span class="text-sm text-white">Root user</span>
                                 </td>
                                 <td>
-                                    <span class="text-sm text-white font-mono">{$user->tenant_id}</span>
+                                    <span class="text-sm text-white font-mono">{if $user->tenant_id}{$user->tenant_id}{else}—{/if}</span>
                                 </td>
                                 <td class="relative">
                                     <input type="text"
