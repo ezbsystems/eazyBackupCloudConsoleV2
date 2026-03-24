@@ -59,6 +59,20 @@
                 <span x-show="!sidebarCollapsed" x-transition.opacity>Storage Users (e3)</span>
             </button>
 
+            <button type="button" @click="window.location.href='{$WEB_ROOT}/index.php?m=eazybackup&amp;a=ph-user-assignments'" class="eb-sidebar-link w-full cursor-pointer text-left {if $ebPhSidebarPage eq 'user-assignments'}is-active{/if}" :class="sidebarCollapsed && 'justify-center px-4'" :title="sidebarCollapsed ? 'User Assignments' : ''">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.75 1.03m-3.75-1.03a9.094 9.094 0 0 1-3.75 1.03m7.5-1.03a9.094 9.094 0 0 0-7.5 0m7.5 0A9.094 9.094 0 0 0 12 15.75a9.094 9.094 0 0 0-3.75 2.97m0 0A9.094 9.094 0 0 1 4.5 19.75m3.75-1.03a9.094 9.094 0 0 0-3.75-1.03m3.75 1.03A9.094 9.094 0 0 1 12 15.75m0 0a3.75 3.75 0 1 0 0-7.5 3.75 3.75 0 0 0 0 7.5Z" />
+                </svg>
+                <span x-show="!sidebarCollapsed" x-transition.opacity>User Assignments</span>
+            </button>
+
+            <button type="button" @click="window.location.href='{$WEB_ROOT}/index.php?m=eazybackup&amp;a=ph-usage-dashboard'" class="eb-sidebar-link w-full cursor-pointer text-left {if $ebPhSidebarPage eq 'usage-dashboard'}is-active{/if}" :class="sidebarCollapsed && 'justify-center px-4'" :title="sidebarCollapsed ? 'Usage' : ''">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 3v18h18M7.5 15.75l3-3 2.25 2.25 4.5-6" />
+                </svg>
+                <span x-show="!sidebarCollapsed" x-transition.opacity>Usage</span>
+            </button>
+
             {if !isset($eb_ph_show_catalog) || $eb_ph_show_catalog}
             <div x-data="{ catalogOpen: {if $catalogGroupActive}true{else}false{/if} }" class="space-y-0">
                 <button type="button" @click="catalogOpen = !catalogOpen" class="eb-sidebar-link w-full cursor-pointer text-left {if $catalogGroupActive}is-active{/if}" :class="sidebarCollapsed && 'justify-center px-4'" :title="sidebarCollapsed ? 'Catalog' : ''">
@@ -68,7 +82,7 @@
                     <span x-show="!sidebarCollapsed" x-transition.opacity class="min-w-0 flex-1">Catalog</span>
                     <svg x-show="!sidebarCollapsed" x-transition.opacity class="eb-sidebar-chevron transition-transform duration-200" :class="catalogOpen && 'rotate-180'" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
                 </button>
-                <div x-show="catalogOpen" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100" x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0" class="transition-all duration-300" :class="sidebarCollapsed ? 'eb-sidebar-subnav--collapsed' : 'eb-sidebar-subnav'">
+                <div x-show="catalogOpen" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100" x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0" class="mt-2 space-y-1 transition-all duration-300" :class="sidebarCollapsed ? 'px-0' : 'ml-4 pl-4 border-l border-slate-700/50'">
                     <button type="button" @click="window.location.href='{$WEB_ROOT}/index.php?m=eazybackup&amp;a=ph-catalog-products'" class="eb-sidebar-sublink w-full min-w-0 cursor-pointer text-left {if $ebPhSidebarPage eq 'catalog-products'}is-active{/if}" :class="sidebarCollapsed && 'justify-center px-2'" :title="sidebarCollapsed ? 'Products' : ''">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" d="m21 7.5-9-5.25L3 7.5m18 0-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" />
@@ -94,7 +108,7 @@
                     <span x-show="!sidebarCollapsed" x-transition.opacity class="min-w-0 flex-1">Billing</span>
                     <svg x-show="!sidebarCollapsed" x-transition.opacity class="eb-sidebar-chevron transition-transform duration-200" :class="billingOpen && 'rotate-180'" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
                 </button>
-                <div x-show="billingOpen" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100" x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0" class="transition-all duration-300" :class="sidebarCollapsed ? 'eb-sidebar-subnav--collapsed' : 'eb-sidebar-subnav'">
+                <div x-show="billingOpen" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100" x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0" class="mt-2 space-y-1 transition-all duration-300" :class="sidebarCollapsed ? 'px-0' : 'ml-4 pl-4 border-l border-slate-700/50'">
                     <button type="button" @click="window.location.href='{$WEB_ROOT}/index.php?m=eazybackup&amp;a=ph-billing-subscriptions'" class="eb-sidebar-sublink w-full min-w-0 cursor-pointer text-left {if $ebPhSidebarPage eq 'billing-subscriptions'}is-active{/if}" :class="sidebarCollapsed && 'justify-center px-2'" :title="sidebarCollapsed ? 'Subscriptions' : ''">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
@@ -126,7 +140,7 @@
                     <span x-show="!sidebarCollapsed" x-transition.opacity class="min-w-0 flex-1">Money</span>
                     <svg x-show="!sidebarCollapsed" x-transition.opacity class="eb-sidebar-chevron transition-transform duration-200" :class="moneyOpen && 'rotate-180'" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
                 </button>
-                <div x-show="moneyOpen" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100" x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0" class="transition-all duration-300" :class="sidebarCollapsed ? 'eb-sidebar-subnav--collapsed' : 'eb-sidebar-subnav'">
+                <div x-show="moneyOpen" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100" x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0" class="mt-2 space-y-1 transition-all duration-300" :class="sidebarCollapsed ? 'px-0' : 'ml-4 pl-4 border-l border-slate-700/50'">
                     <button type="button" @click="window.location.href='{$WEB_ROOT}/index.php?m=eazybackup&amp;a=ph-money-payouts'" class="eb-sidebar-sublink w-full min-w-0 cursor-pointer text-left {if $ebPhSidebarPage eq 'money-payouts'}is-active{/if}" :class="sidebarCollapsed && 'justify-center px-2'" :title="sidebarCollapsed ? 'Payouts' : ''">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
@@ -158,7 +172,7 @@
                     <span x-show="!sidebarCollapsed" x-transition.opacity class="min-w-0 flex-1">Stripe Account</span>
                     <svg x-show="!sidebarCollapsed" x-transition.opacity class="eb-sidebar-chevron transition-transform duration-200" :class="stripeOpen && 'rotate-180'" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
                 </button>
-                <div x-show="stripeOpen" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100" x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0" class="transition-all duration-300" :class="sidebarCollapsed ? 'eb-sidebar-subnav--collapsed' : 'eb-sidebar-subnav'">
+                <div x-show="stripeOpen" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100" x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0" class="mt-2 space-y-1 transition-all duration-300" :class="sidebarCollapsed ? 'px-0' : 'ml-4 pl-4 border-l border-slate-700/50'">
                     <button type="button" @click="window.location.href='{$WEB_ROOT}/index.php?m=eazybackup&amp;a=ph-stripe-connect'" class="eb-sidebar-sublink w-full min-w-0 cursor-pointer text-left {if $ebPhSidebarPage eq 'stripe-connect'}is-active{/if}" :class="sidebarCollapsed && 'justify-center px-2'" :title="sidebarCollapsed ? 'Connect & Status' : ''">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" />
@@ -184,7 +198,7 @@
                     <span x-show="!sidebarCollapsed" x-transition.opacity class="min-w-0 flex-1">Settings</span>
                     <svg x-show="!sidebarCollapsed" x-transition.opacity class="eb-sidebar-chevron transition-transform duration-200" :class="settingsOpen && 'rotate-180'" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
                 </button>
-                <div x-show="settingsOpen" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100" x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0" class="transition-all duration-300" :class="sidebarCollapsed ? 'eb-sidebar-subnav--collapsed' : 'eb-sidebar-subnav'">
+                <div x-show="settingsOpen" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100" x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0" class="mt-2 space-y-1 transition-all duration-300" :class="sidebarCollapsed ? 'px-0' : 'ml-4 pl-4 border-l border-slate-700/50'">
                     <button type="button" @click="window.location.href='{$WEB_ROOT}/index.php?m=eazybackup&amp;a=ph-settings-checkout'" class="eb-sidebar-sublink w-full min-w-0 cursor-pointer text-left {if $ebPhSidebarPage eq 'settings-checkout'}is-active{/if}" :class="sidebarCollapsed && 'justify-center px-2'" :title="sidebarCollapsed ? 'Checkout & Dunning' : ''">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 0 0-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 0 0-16.536-1.84M7.5 14.25 5 10.5h14.25" />

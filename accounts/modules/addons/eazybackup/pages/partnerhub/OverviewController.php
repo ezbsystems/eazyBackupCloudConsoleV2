@@ -85,18 +85,19 @@ function eb_ph_overview_index(array $vars)
     } catch (\Throwable $__) {}
 
     try {
-        if (Capsule::schema()->hasTable('eb_plans')) {
-            $planCount = (int)Capsule::table('eb_plans')
+        if (Capsule::schema()->hasTable('eb_plan_templates')) {
+            $planCount = (int)Capsule::table('eb_plan_templates')
                 ->where('msp_id', $mspId)
+                ->whereIn('status', ['active', 'draft'])
                 ->count();
         }
     } catch (\Throwable $__) {}
 
     try {
-        if (Capsule::schema()->hasTable('eb_subscriptions')) {
-            $activeSubCount = (int)Capsule::table('eb_subscriptions')
+        if (Capsule::schema()->hasTable('eb_plan_instances')) {
+            $activeSubCount = (int)Capsule::table('eb_plan_instances')
                 ->where('msp_id', $mspId)
-                ->whereIn('stripe_status', ['active', 'trialing'])
+                ->whereIn('status', ['active', 'trialing'])
                 ->count();
         }
     } catch (\Throwable $__) {}

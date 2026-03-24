@@ -909,4 +909,16 @@
 <script type="application/json" id="eb-assign-plans-json">{$assign_plans_json|default:'[]' nofilter}</script>
 <script type="application/json" id="eb-assign-tenants-json">{$assign_tenants_json|default:'[]' nofilter}</script>
 <script type="application/json" id="eb-comet-accounts-json">{$comet_accounts_json|default:'[]' nofilter}</script>
+<select id="eb-assign-tenant-smarty-data" class="hidden" aria-hidden="true">
+{foreach from=$assign_tenants item=c}
+  <option value="{$c.public_id|escape}">{$c.name|escape}</option>
+{/foreach}
+</select>
+<script type="application/json" id="eb-comet-accounts-smarty-data">
+[
+{foreach from=$comet_accounts item=ca name=cometAccounts}
+  {"tenant_public_id":"{$ca.tenant_public_id|escape:'javascript'}","comet_user_id":"{$ca.comet_user_id|escape:'javascript'}","tenant_name":"{$ca.tenant_name|escape:'javascript'}"}{if !$smarty.foreach.cometAccounts.last},{/if}
+{/foreach}
+]
+</script>
 <script src="modules/addons/eazybackup/assets/js/catalog-plans.js"></script>

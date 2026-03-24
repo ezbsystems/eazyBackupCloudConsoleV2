@@ -4241,6 +4241,12 @@ function eazybackup_clientarea(array $vars)
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenant-billing') {
         require_once __DIR__ . '/pages/partnerhub/TenantBillingController.php';
         return eb_ph_tenant_billing($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-usage-dashboard') {
+        require_once __DIR__ . '/pages/partnerhub/UsageDashboardController.php';
+        return eb_ph_usage_dashboard($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-user-assignments') {
+        require_once __DIR__ . '/pages/partnerhub/UserAssignmentsController.php';
+        return eb_ph_user_assignments($vars);
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenant-whitelabel') {
         require_once __DIR__ . '/pages/partnerhub/TenantWhiteLabelController.php';
         return eb_ph_tenant_whitelabel($vars);
@@ -4310,6 +4316,9 @@ function eazybackup_clientarea(array $vars)
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-billing-payment-methods') {
         require_once __DIR__ . '/pages/partnerhub/BillingController.php';
         eb_ph_billing_payment_methods($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-stripe-payment-method-detach') {
+        require_once __DIR__ . '/pages/partnerhub/BillingController.php';
+        eb_ph_stripe_payment_method_detach($vars); exit;
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-money-payouts') {
         require_once __DIR__ . '/pages/partnerhub/BillingController.php';
         return eb_ph_money_payouts($vars);
@@ -4476,6 +4485,12 @@ function eazybackup_clientarea(array $vars)
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-usage-push') {
         require_once __DIR__ . '/pages/partnerhub/UsageController.php';
         eb_ph_usage_push($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-usage-dashboard-stripe-live') {
+        require_once __DIR__ . '/pages/partnerhub/UsageDashboardController.php';
+        eb_ph_usage_dashboard_stripe_live($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-usage-dashboard-push-now') {
+        require_once __DIR__ . '/pages/partnerhub/UsageDashboardController.php';
+        eb_ph_usage_dashboard_push_now($vars); exit;
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-invoices-refresh') {
         require_once __DIR__ . '/pages/partnerhub/BackfillController.php';
         eb_ph_invoices_refresh($vars); exit;

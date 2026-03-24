@@ -355,6 +355,12 @@ function eb_ph_catalog_plans_index(array $vars)
             'catalog_products_json' => json_encode($catalogProducts, JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT),
             'tenants' => $tenantsArr,
             'customers' => $tenantsArr,
+            'assign_tenants' => array_values(array_map(static function (array $t): array {
+                return [
+                    'public_id' => (string) ($t['public_id'] ?? ''),
+                    'name' => (string) ($t['name'] ?? ''),
+                ];
+            }, $tenantsArr)),
             'assign_plans_json' => json_encode($assignPlans, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT),
             'assign_tenants_json' => json_encode(array_values(array_map(static function (array $t): array {
                 return [
@@ -919,7 +925,11 @@ function eb_ph_plan_subscription_find_instance(int $mspId, int $instanceId)
         ->where('pi.msp_id', $mspId)
         ->where('pi.id', $instanceId)
         ->first([
-            'pi.*',
+            'pi.id', 'pi.msp_id', 'pi.tenant_id', 'pi.comet_user_id',
+            'pi.plan_id', 'pi.plan_version', 'pi.stripe_account_id',
+            'pi.stripe_customer_id', 'pi.stripe_subscription_id',
+            'pi.anchor_date', 'pi.status', 'pi.cancelled_at',
+            'pi.cancel_reason', 'pi.created_at', 'pi.updated_at',
             't.name as tenant_name',
             't.public_id as tenant_public_id',
             'pt.name as plan_name',
@@ -1362,6 +1372,8 @@ function eb_ph_plan_subscription_cancel(array $vars): void
         $svc->cancelSubscription((string)$instance->stripe_subscription_id, (string)$instance->stripe_account_id);
     } catch (\Throwable $e) {
         try { if (function_exists('logModuleCall')) { @logModuleCall('eazybackup','ph-plan-sub-cancel-error',['instance'=>$instanceId],$e->getMessage()); } } catch (\Throwable $__) {}
+        echo json_encode(['status'=>'error','message'=>'stripe_cancel_failed']);
+        return;
     }
 
     Capsule::table('eb_plan_instances')->where('id',$instanceId)->update([

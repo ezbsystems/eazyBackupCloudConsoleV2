@@ -375,6 +375,219 @@
         {if $billing_error|default:'' neq ''}
           <div class="px-6 pb-5 text-sm text-rose-200">Unable to load some billing data ({$billing_error|escape}).</div>
         {/if}
+        <section class="rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden mt-4 mx-6 mb-6"
+                 x-data="{
+                   assignOpen: false,
+                   assignSaving: false,
+                   assignMessage: '',
+                   paymentMethodMessage: '',
+                   selectedPlanId: '',
+                   selectedCometUserId: '',
+                   plans: {$billing_assignable_plans|default:array()|@json_encode nofilter},
+                   cometUsers: {$billing_tenant_comet_users|default:array()|@json_encode nofilter},
+                   tenantPublicId: '{$billing_tenant.public_id|default:$tenant.public_id|escape:'javascript'}',
+                   token: '{$token|escape:'javascript'}',
+                   selectedPlan() {
+                     return this.plans.find((plan) => String(plan.id || '') === String(this.selectedPlanId || '')) || null;
+                   },
+                   requiresCometUser() {
+                     const plan = this.selectedPlan();
+                     return plan ? !!plan.requires_comet_user : true;
+                   },
+                   openAssignModal() {
+                     this.assignOpen = true;
+                     this.assignMessage = '';
+                     if (!this.selectedPlanId && this.plans.length) {
+                       this.selectedPlanId = String(this.plans[0].id || '');
+                     }
+                     if (!this.selectedCometUserId && this.cometUsers.length) {
+                       this.selectedCometUserId = String(this.cometUsers[0].comet_user_id || '');
+                     }
+                   },
+                   async submitAssignPlan() {
+                     if (!this.selectedPlanId) {
+                       this.assignMessage = 'Select a plan first.';
+                       return;
+                     }
+                     if (this.requiresCometUser() && !this.selectedCometUserId) {
+                       this.assignMessage = 'Select a backup user first.';
+                       return;
+                     }
+                     this.assignSaving = true;
+                     this.assignMessage = '';
+                     try {
+                       const payload = new URLSearchParams({
+                         plan_id: String(this.selectedPlanId || ''),
+                         tenant_id: String(this.tenantPublicId || ''),
+                         comet_user_id: this.requiresCometUser() ? String(this.selectedCometUserId || '') : '',
+                         token: this.token
+                       });
+                       const res = await fetch('{$modulelink}&a=ph-plan-assign', {
+                         method: 'POST',
+                         credentials: 'same-origin',
+                         headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+                         body: payload.toString()
+                       });
+                       const data = await res.json();
+                       if (data.status === 'success') {
+                         window.location.reload();
+                         return;
+                       }
+                       this.assignMessage = data.message || 'Unable to assign plan.';
+                     } catch (error) {
+                       this.assignMessage = 'Unable to assign plan.';
+                     } finally {
+                       this.assignSaving = false;
+                     }
+                   },
+                   async removePaymentMethod(paymentMethodId) {
+                     this.paymentMethodMessage = '';
+                     try {
+                       const payload = new URLSearchParams({
+                         payment_method_id: String(paymentMethodId || ''),
+                         tenant_id: String(this.tenantPublicId || ''),
+                         token: this.token
+                       });
+                       const res = await fetch('{$modulelink}&a=ph-stripe-payment-method-detach', {
+                         method: 'POST',
+                         credentials: 'same-origin',
+                         headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+                         body: payload.toString()
+                       });
+                       const data = await res.json();
+                       if (data.status === 'success') {
+                         window.location.reload();
+                         return;
+                       }
+                       this.paymentMethodMessage = data.message || 'Unable to remove payment method.';
+                     } catch (error) {
+                       this.paymentMethodMessage = 'Unable to remove payment method.';
+                     }
+                   }
+                 }">
+          <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800">
+            <h2 class="text-lg font-medium text-slate-100">Active Plans</h2>
+            <div class="flex flex-wrap items-center gap-2">
+              <button type="button" class="eb-btn eb-btn-primary eb-btn-sm" @click="openAssignModal()" {if $billing_assignable_plans|default:array()|count eq 0}disabled{/if}>Assign Plan</button>
+              <a href="{$modulelink}&a=ph-catalog-plans" class="eb-btn eb-btn-secondary eb-btn-sm">Manage Plans</a>
+            </div>
+          </div>
+          {if $billing_plan_instances|default:array()|count > 0}
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm text-left">
+                <thead class="bg-slate-800/40 text-xs uppercase tracking-wider text-slate-400">
+                  <tr>
+                    <th class="px-6 py-3">Plan</th>
+                    <th class="px-6 py-3">Backup User</th>
+                    <th class="px-6 py-3">Status</th>
+                    <th class="px-6 py-3">Since</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-800/50">
+                  {foreach from=$billing_plan_instances item=pi}
+                  <tr class="hover:bg-slate-800/30">
+                    <td class="px-6 py-3 text-slate-200">{$pi.plan_name|default:'Unknown Plan'|escape}</td>
+                    <td class="px-6 py-3 font-mono text-slate-300">{$pi.comet_user_id|default:'-'|escape}</td>
+                    <td class="px-6 py-3">
+                      <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold {if $pi.status eq 'active'}bg-emerald-500/15 text-emerald-200{elseif $pi.status eq 'trialing'}bg-sky-500/15 text-sky-200{elseif $pi.status eq 'past_due'}bg-amber-500/15 text-amber-200{elseif $pi.status eq 'paused'}bg-slate-500/15 text-slate-300{else}bg-rose-500/15 text-rose-200{/if}">
+                        <span class="h-1.5 w-1.5 rounded-full {if $pi.status eq 'active'}bg-emerald-400{elseif $pi.status eq 'trialing'}bg-sky-400{elseif $pi.status eq 'past_due'}bg-amber-400{elseif $pi.status eq 'paused'}bg-slate-400{else}bg-rose-400{/if}"></span>
+                        {$pi.status|default:'unknown'|escape}
+                      </span>
+                    </td>
+                    <td class="px-6 py-3 text-slate-400">{if $pi.created_at|default:'' neq ''}{$pi.created_at|date_format:'%Y-%m-%d'}{else}-{/if}</td>
+                  </tr>
+                  {/foreach}
+                </tbody>
+              </table>
+            </div>
+          {else}
+            <div class="px-6 py-8 text-center text-sm text-slate-400">
+              No active billing plans. <a href="{$modulelink}&a=ph-catalog-plans" class="text-[var(--eb-primary)] hover:underline">Assign a plan from Catalog &rarr; Plans</a>.
+            </div>
+          {/if}
+          <div x-show="assignOpen" x-cloak class="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/70 px-4" @click.self="assignOpen = false">
+            <div class="w-full max-w-lg rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl">
+              <div class="flex items-center justify-between border-b border-slate-800 px-6 py-4">
+                <div>
+                  <h3 class="text-lg font-semibold text-slate-100">Assign Plan</h3>
+                  <p class="mt-1 text-sm text-slate-400">Create a plan assignment for this tenant using the existing Partner Hub billing flow.</p>
+                </div>
+                <button type="button" class="eb-btn eb-btn-secondary eb-btn-xs" @click="assignOpen = false">Close</button>
+              </div>
+              <div class="space-y-4 px-6 py-5">
+                <label class="block text-sm">
+                  <span class="mb-1 block text-slate-300">Plan</span>
+                  <select class="eb-input" x-model="selectedPlanId">
+                    <option value="">Select a plan</option>
+                    <template x-for="plan in plans" :key="'billing-plan-' + String(plan.id || '')">
+                      <option :value="String(plan.id || '')" x-text="plan.name || ('Plan #' + String(plan.id || ''))"></option>
+                    </template>
+                  </select>
+                </label>
+                <template x-if="selectedPlan()">
+                  <div class="rounded-xl border border-slate-800 bg-slate-950/40 px-4 py-3 text-sm text-slate-300">
+                    <div class="font-medium text-slate-100" x-text="selectedPlan().name || 'Selected plan'"></div>
+                    <div class="mt-1" x-text="selectedPlan().description || 'No description provided.'"></div>
+                  </div>
+                </template>
+                <div x-show="requiresCometUser()">
+                  <label class="block text-sm">
+                    <span class="mb-1 block text-slate-300">Backup User</span>
+                    <select class="eb-input" x-model="selectedCometUserId">
+                      <option value="">Select a backup user</option>
+                      <template x-for="user in cometUsers" :key="'tenant-comet-user-' + String(user.comet_user_id || '')">
+                        <option :value="String(user.comet_user_id || '')" x-text="user.comet_user_id || '-'"></option>
+                      </template>
+                    </select>
+                  </label>
+                  <p class="mt-2 text-xs text-slate-500" x-show="cometUsers.length === 0">No linked backup users were found for this tenant.</p>
+                </div>
+                <template x-if="assignMessage">
+                  <div class="rounded-xl border border-rose-800/70 bg-rose-950/40 px-4 py-3 text-sm text-rose-200" x-text="assignMessage"></div>
+                </template>
+              </div>
+              <div class="flex items-center justify-end gap-3 border-t border-slate-800 px-6 py-4">
+                <button type="button" class="eb-btn eb-btn-secondary" @click="assignOpen = false">Cancel</button>
+                <button type="button" class="eb-btn eb-btn-primary" :disabled="assignSaving" @click="submitAssignPlan()" x-text="assignSaving ? 'Assigning...' : 'Assign Plan'"></button>
+              </div>
+            </div>
+          </div>
+        </section>
+        <section class="rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden mt-4 mx-6 mb-6">
+          <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800">
+            <h2 class="text-lg font-medium text-slate-100">Saved Payment Methods</h2>
+            <span class="text-sm text-slate-400">{$billing_payment_methods|default:array()|count} on file</span>
+          </div>
+          {if $billing_tenant.stripe_customer_id|default:'' eq ''}
+            <div class="px-6 py-8 text-sm text-slate-400">This tenant does not have a Stripe customer yet, so there are no saved payment methods to manage.</div>
+          {elseif $billing_payment_methods|default:array()|count > 0}
+            <div class="grid grid-cols-1 gap-4 px-6 py-5 md:grid-cols-2">
+              {foreach from=$billing_payment_methods item=pm}
+                <article class="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+                  <div class="flex items-start justify-between gap-3">
+                    <div>
+                      <div class="text-sm uppercase tracking-[0.2em] text-slate-500">{$pm.brand|default:'card'|escape}</div>
+                      <div class="mt-2 text-lg font-semibold text-slate-100">•••• {$pm.last4|default:'----'|escape}</div>
+                      <div class="mt-1 text-sm text-slate-400">Expires {$pm.exp_month|string_format:'%02d'}/{$pm.exp_year|escape}</div>
+                    </div>
+                    {if $pm.is_default|default:false}
+                      <span class="eb-badge eb-badge--success">Default</span>
+                    {else}
+                      <button type="button" class="eb-btn eb-btn-secondary eb-btn-xs" @click="removePaymentMethod('{$pm.id|escape:'javascript'}')">Remove</button>
+                    {/if}
+                  </div>
+                </article>
+              {/foreach}
+            </div>
+            <template x-if="paymentMethodMessage">
+              <div class="px-6 pb-5">
+                <div class="rounded-xl border border-rose-800/70 bg-rose-950/40 px-4 py-3 text-sm text-rose-200" x-text="paymentMethodMessage"></div>
+              </div>
+            </template>
+          {else}
+            <div class="px-6 py-8 text-sm text-slate-400">No saved payment methods were found for this tenant.</div>
+          {/if}
+        </section>
       </section>
     {elseif $activeTab eq 'white_label'}
       <section class="rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden">

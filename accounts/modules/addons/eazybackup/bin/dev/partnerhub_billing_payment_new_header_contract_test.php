@@ -20,10 +20,10 @@ if ($source === false) {
 }
 
 $requiredMarkers = [
-    'shared page header' => 'class="flex items-center justify-between border-b border-slate-800/60 px-6 py-4"',
-    'header title' => '<h1 class="text-2xl font-semibold tracking-tight">New One-time Payment</h1>',
+    'shared shell include' => 'partials/partner_hub_shell.tpl',
+    'header title' => "ebPhTitle='New One-time Payment'",
     'header helper text' => 'Charge a saved card for setup fees, project work, or ad-hoc adjustments.',
-    'header back action' => 'href="{$modulelink}&a=ph-billing-payments"',
+    'header back action' => '&a=ph-billing-payments',
 ];
 
 $forbiddenMarkers = [

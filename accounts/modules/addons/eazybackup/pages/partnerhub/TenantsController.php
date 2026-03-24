@@ -502,6 +502,7 @@ function eb_ph_tenants_index(array $vars)
                 $adminName = trim((string)($post['admin_name'] ?? ''));
                 $autoPasswordFlag = (string)($post['auto_password'] ?? '1');
                 $adminPassword = (string)($post['admin_password'] ?? '');
+                $adminPasswordShort = false;
 
                 if (
                     $createAdminRequested
@@ -519,6 +520,8 @@ function eb_ph_tenants_index(array $vars)
                         if ($autoPasswordFlag === '0') {
                             if (strlen($adminPassword) >= 8) {
                                 $plainPassword = $adminPassword;
+                            } else {
+                                $adminPasswordShort = true;
                             }
                         } else {
                             try {
@@ -566,9 +569,17 @@ function eb_ph_tenants_index(array $vars)
             }
 
             if ($tenantPublicId !== '') {
-                eb_ph_tenant_redirect($vars, $tenantPublicId, 'notice=created');
+                $redirectQuery = 'notice=created';
+                if (!empty($adminPasswordShort)) {
+                    $redirectQuery .= '&error=portal_admin_password_short';
+                }
+                eb_ph_tenant_redirect($vars, $tenantPublicId, $redirectQuery);
             }
-            eb_ph_tenants_redirect($vars, 'notice=created');
+            $redirectQuery = 'notice=created';
+            if (!empty($adminPasswordShort)) {
+                $redirectQuery .= '&error=portal_admin_password_short';
+            }
+            eb_ph_tenants_redirect($vars, $redirectQuery);
         } catch (\Throwable $__) {
             eb_ph_tenants_redirect($vars, 'error=create_failed');
         }

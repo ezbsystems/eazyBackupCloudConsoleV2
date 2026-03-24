@@ -178,7 +178,7 @@
                               data-currency="{$row.currency|upper|default:'USD'|escape}"
                               data-reason="{$row.reason|default:'-'|escape}"
                               data-status="{$st|escape}"
-                              data-evidence="{$row.evidence_due_by|default:0|escape}"
+                              data-evidence="{if $row.evidence_due_by > 0}{$row.evidence_due_by}{else}0{/if}"
                               data-charge="{$row.charge_id|default:'-'|escape}">
                             <td class="eb-table-mono">{$row.stripe_dispute_id|default:'-'}</td>
                             <td>{$row.amount/100|string_format:'%.2f'}</td>
@@ -187,7 +187,7 @@
                             <td>
                               <span class="eb-badge eb-badge--dot {if $st=='won'}eb-badge--success{elseif $st=='needs_response' || $st=='warning_needs_response'}eb-badge--warning{elseif $st=='lost'}eb-badge--danger{else}eb-badge--default{/if}">{$st}</span>
                             </td>
-                            <td>{$row.evidence_due_by|default:0}</td>
+                            <td>{if $row.evidence_due_by > 0}{$row.evidence_due_by|date_format:'%Y-%m-%d %H:%M'}{else}&mdash;{/if}</td>
                             <td class="eb-table-mono">{$row.charge_id|default:'-'}</td>
                             <td>
                               {assign var=acct value=$msp.stripe_connect_id|default:''}
