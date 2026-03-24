@@ -67,9 +67,9 @@
     {/if}
 
     {if $activeTab eq 'profile'}
-      <section class="rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden">
-        <div class="px-6 py-5 border-b border-slate-800">
-          <h2 class="text-lg font-medium text-slate-100">Edit Customer Tenant</h2>
+      <section class="eb-card-raised !p-0 overflow-hidden">
+        <div class="px-6 py-5 border-b border-[var(--eb-border-subtle)]">
+          <h2 class="eb-card-title text-lg font-semibold">Edit Customer Tenant</h2>
         </div>
         <form method="post" action="{$modulelink}&a=ph-tenant&id={$tenant.public_id|escape:'url'}" class="px-6 py-6" x-data="{ portalAdminPasswordMode: '{if $portal_admin.exists}keep{else}manual{/if}' }">
           <input type="hidden" name="tenant_id" value="{$tenant.public_id|escape}" />
@@ -80,23 +80,23 @@
 
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div class="space-y-6">
-              <div class="rounded-2xl border border-slate-800 bg-slate-950/50 p-5">
+              <div class="eb-card">
                 <div class="mb-4">
-                  <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Organization</h3>
-                  <p class="mt-1 text-sm text-slate-400">Core tenant identity and Partner Hub status.</p>
+                  <h3 class="eb-type-eyebrow">Organization</h3>
+                  <p class="mt-1 eb-type-caption">Core tenant identity and Partner Hub status.</p>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <label class="md:col-span-2 block">
-                    <span class="text-sm text-slate-400">Company Name</span>
-                    <input name="name" value="{$tenant.name|escape}" required class="mt-2 w-full rounded-lg bg-slate-800 px-3 py-2.5 text-sm text-white outline-1 -outline-offset-1 outline-white/10 transition focus-within:-outline-offset-2 focus-within:outline-2 focus-within:outline-sky-700" />
+                    <span class="eb-field-label">Company Name</span>
+                    <input name="name" value="{$tenant.name|escape}" required class="eb-input mt-2 w-full" />
                   </label>
                   <label class="block">
-                    <span class="text-sm text-slate-400">Slug</span>
-                    <input name="slug" value="{$tenant.slug|escape}" required class="mt-2 w-full rounded-lg bg-slate-800 px-3 py-2.5 font-mono text-sm text-white outline-1 -outline-offset-1 outline-white/10 transition focus-within:-outline-offset-2 focus-within:outline-2 focus-within:outline-sky-700" />
+                    <span class="eb-field-label">Slug</span>
+                    <input name="slug" value="{$tenant.slug|escape}" required class="eb-input eb-type-mono mt-2 w-full" />
                   </label>
                   <label class="block">
-                    <span class="text-sm text-slate-400">Status</span>
-                    <select name="status" class="mt-2 w-full rounded-lg bg-slate-800 px-3 py-2.5 text-sm text-white outline-1 -outline-offset-1 outline-white/10 transition focus-within:-outline-offset-2 focus-within:outline-2 focus-within:outline-sky-700">
+                    <span class="eb-field-label">Status</span>
+                    <select name="status" class="eb-select mt-2 w-full">
                       {foreach from=$statuses item=s}
                         <option value="{$s|escape}" {if $tenant.status == $s}selected{/if}>{$s|escape}</option>
                       {/foreach}
@@ -105,169 +105,169 @@
                 </div>
               </div>
 
-              <div class="rounded-2xl border border-slate-800 bg-slate-950/50 p-5">
+              <div class="eb-card">
                 <div class="mb-4">
-                  <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Contact Details</h3>
-                  <p class="mt-1 text-sm text-slate-400">Primary billing and customer contact information.</p>
+                  <h3 class="eb-type-eyebrow">Contact Details</h3>
+                  <p class="mt-1 eb-type-caption">Primary billing and customer contact information.</p>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <label class="md:col-span-2 block">
-                    <span class="text-sm text-slate-400">Contact Email</span>
-                    <input type="email" name="contact_email" value="{$tenant.contact_email|default:''|escape}" class="mt-2 w-full rounded-lg bg-slate-800 px-3 py-2.5 text-sm text-white outline-1 -outline-offset-1 outline-white/10 transition focus-within:-outline-offset-2 focus-within:outline-2 focus-within:outline-sky-700" />
+                    <span class="eb-field-label">Contact Email</span>
+                    <input type="email" name="contact_email" value="{$tenant.contact_email|default:''|escape}" class="eb-input mt-2 w-full" />
                   </label>
                   <label class="block">
-                    <span class="text-sm text-slate-400">Contact Name</span>
-                    <input type="text" name="contact_name" value="{$tenant.contact_name|default:''|escape}" class="mt-2 w-full rounded-lg bg-slate-800 px-3 py-2.5 text-sm text-white outline-1 -outline-offset-1 outline-white/10 transition focus-within:-outline-offset-2 focus-within:outline-2 focus-within:outline-sky-700" />
+                    <span class="eb-field-label">Contact Name</span>
+                    <input type="text" name="contact_name" value="{$tenant.contact_name|default:''|escape}" class="eb-input mt-2 w-full" />
                   </label>
                   <label class="block">
-                    <span class="text-sm text-slate-400">Phone Number</span>
-                    <input type="text" name="contact_phone" value="{$tenant.contact_phone|default:''|escape}" class="mt-2 w-full rounded-lg bg-slate-800 px-3 py-2.5 text-sm text-white outline-1 -outline-offset-1 outline-white/10 transition focus-within:-outline-offset-2 focus-within:outline-2 focus-within:outline-sky-700" />
+                    <span class="eb-field-label">Phone Number</span>
+                    <input type="text" name="contact_phone" value="{$tenant.contact_phone|default:''|escape}" class="eb-input mt-2 w-full" />
                   </label>
                 </div>
               </div>
 
-              <div class="rounded-2xl border border-slate-800 bg-slate-950/50 p-5">
+              <div class="eb-card">
                 <div class="mb-4 flex items-start justify-between gap-4">
                   <div>
-                    <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Portal Admin</h3>
-                    <p class="mt-1 text-sm text-slate-400">Manage the primary tenant admin who can sign in to the portal.</p>
+                    <h3 class="eb-type-eyebrow">Portal Admin</h3>
+                    <p class="mt-1 eb-type-caption">Manage the primary tenant admin who can sign in to the portal.</p>
                   </div>
                   {if $portal_admin.exists}
-                    <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-medium {if $portal_admin.status eq 'active'}bg-emerald-500/15 text-emerald-200 ring-1 ring-emerald-400/30{else}bg-slate-800 text-slate-300 ring-1 ring-slate-700{/if}">{$portal_admin.status|escape}</span>
+                    <span class="eb-badge {if $portal_admin.status eq 'active'}eb-badge--success{else}eb-badge--neutral{/if}">{$portal_admin.status|escape}</span>
                   {else}
-                    <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-medium bg-amber-500/15 text-amber-100 ring-1 ring-amber-400/30">Not yet created</span>
+                    <span class="eb-badge eb-badge--warning">Not yet created</span>
                   {/if}
                 </div>
 
                 {if !$portal_admin.available}
-                  <div class="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                  <div class="eb-alert eb-alert--warning !mb-0">
                     Portal admin editing is unavailable because the tenant members table is not present in this environment.
                   </div>
                 {else}
                   <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <label class="block">
-                      <span class="text-sm text-slate-400">Admin Email</span>
-                      <input type="email" name="portal_admin_email" value="{$portal_admin.email|default:''|escape}" class="mt-2 w-full rounded-lg bg-slate-800 px-3 py-2.5 text-sm text-white outline-1 -outline-offset-1 outline-white/10 transition focus-within:-outline-offset-2 focus-within:outline-2 focus-within:outline-sky-700" />
+                      <span class="eb-field-label">Admin Email</span>
+                      <input type="email" name="portal_admin_email" value="{$portal_admin.email|default:''|escape}" class="eb-input mt-2 w-full" />
                     </label>
                     <label class="block">
-                      <span class="text-sm text-slate-400">Admin Name</span>
-                      <input type="text" name="portal_admin_name" value="{$portal_admin.name|default:''|escape}" class="mt-2 w-full rounded-lg bg-slate-800 px-3 py-2.5 text-sm text-white outline-1 -outline-offset-1 outline-white/10 transition focus-within:-outline-offset-2 focus-within:outline-2 focus-within:outline-sky-700" />
+                      <span class="eb-field-label">Admin Name</span>
+                      <input type="text" name="portal_admin_name" value="{$portal_admin.name|default:''|escape}" class="eb-input mt-2 w-full" />
                     </label>
                     <label class="block">
-                      <span class="text-sm text-slate-400">Admin Status</span>
-                      <select name="portal_admin_status" class="mt-2 w-full rounded-lg bg-slate-800 px-3 py-2.5 text-sm text-white outline-1 -outline-offset-1 outline-white/10 transition focus-within:-outline-offset-2 focus-within:outline-2 focus-within:outline-sky-700">
+                      <span class="eb-field-label">Admin Status</span>
+                      <select name="portal_admin_status" class="eb-select mt-2 w-full">
                         <option value="active" {if $portal_admin.status|default:'active' eq 'active'}selected{/if}>active</option>
                         <option value="disabled" {if $portal_admin.status eq 'disabled'}selected{/if}>disabled</option>
                       </select>
                     </label>
                     <div class="block">
-                      <span class="text-sm text-slate-400">Password</span>
-                      <div class="mt-2 space-y-2 rounded-lg border border-slate-700 bg-slate-800/60 p-3">
+                      <span class="eb-field-label">Password</span>
+                      <div class="mt-2 space-y-2 rounded-lg border border-[var(--eb-border-default)] bg-[var(--eb-bg-surface)] p-3">
                         {if $portal_admin.exists}
-                          <label class="flex items-center gap-2 text-sm text-slate-300">
-                            <input type="radio" name="portal_admin_password_mode" value="keep" x-model="portalAdminPasswordMode" class="border-slate-600 bg-slate-900 text-sky-500 focus:ring-sky-500" checked />
+                          <label class="flex items-center gap-2 eb-type-body">
+                            <input type="radio" name="portal_admin_password_mode" value="keep" x-model="portalAdminPasswordMode" class="size-4 shrink-0 rounded-full border-[var(--eb-border-emphasis)] bg-[var(--eb-bg-input)] text-[var(--eb-primary)] focus:ring-2 focus:ring-[var(--eb-primary)]" checked />
                             Keep existing password
                           </label>
                         {/if}
-                        <label class="flex items-center gap-2 text-sm text-slate-300">
-                          <input type="radio" name="portal_admin_password_mode" value="manual" x-model="portalAdminPasswordMode" class="border-slate-600 bg-slate-900 text-sky-500 focus:ring-sky-500" {if !$portal_admin.exists}checked{/if} />
+                        <label class="flex items-center gap-2 eb-type-body">
+                          <input type="radio" name="portal_admin_password_mode" value="manual" x-model="portalAdminPasswordMode" class="size-4 shrink-0 rounded-full border-[var(--eb-border-emphasis)] bg-[var(--eb-bg-input)] text-[var(--eb-primary)] focus:ring-2 focus:ring-[var(--eb-primary)]" {if !$portal_admin.exists}checked{/if} />
                           {if $portal_admin.exists}Set a new password manually{else}Set initial password manually{/if}
                         </label>
                       </div>
                     </div>
                     <label class="md:col-span-2 block" x-show="portalAdminPasswordMode === 'manual'" style="display: none;">
-                      <span class="text-sm text-slate-400">Manual Password</span>
-                      <input type="password" name="portal_admin_password" class="mt-2 w-full rounded-lg bg-slate-800 px-3 py-2.5 text-sm text-white outline-1 -outline-offset-1 outline-white/10 transition focus-within:-outline-offset-2 focus-within:outline-2 focus-within:outline-sky-700" placeholder="Minimum 8 characters" />
+                      <span class="eb-field-label">Manual Password</span>
+                      <input type="password" name="portal_admin_password" class="eb-input mt-2 w-full" placeholder="Minimum 8 characters" />
                     </label>
                   </div>
-                  <div class="mt-4 grid grid-cols-1 gap-2 text-sm text-slate-400 sm:grid-cols-2">
-                    <div>Last login: <span class="text-slate-200">{$portal_admin.last_login_at|default:'-'|escape}</span></div>
-                    <div>Record updated: <span class="text-slate-200">{$portal_admin.updated_at|default:'-'|escape}</span></div>
+                  <div class="mt-4 grid grid-cols-1 gap-2 eb-type-caption sm:grid-cols-2">
+                    <div>Last login: <span class="text-[var(--eb-text-primary)]">{$portal_admin.last_login_at|default:'-'|escape}</span></div>
+                    <div>Record updated: <span class="text-[var(--eb-text-primary)]">{$portal_admin.updated_at|default:'-'|escape}</span></div>
                   </div>
                 {/if}
               </div>
             </div>
 
             <div class="space-y-6">
-              <div class="rounded-2xl border border-slate-800 bg-slate-950/50 p-5">
+              <div class="eb-card">
                 <div class="mb-4">
-                  <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Billing Address</h3>
-                  <p class="mt-1 text-sm text-slate-400">Street address and regional details used for billing records.</p>
+                  <h3 class="eb-type-eyebrow">Billing Address</h3>
+                  <p class="mt-1 eb-type-caption">Street address and regional details used for billing records.</p>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <label class="md:col-span-2 block">
-                    <span class="text-sm text-slate-400">Address Line 1</span>
-                    <input type="text" name="address_line1" value="{$tenant.address_line1|default:''|escape}" class="mt-2 w-full rounded-lg bg-slate-800 px-3 py-2.5 text-sm text-white outline-1 -outline-offset-1 outline-white/10 transition focus-within:-outline-offset-2 focus-within:outline-2 focus-within:outline-sky-700" />
+                    <span class="eb-field-label">Address Line 1</span>
+                    <input type="text" name="address_line1" value="{$tenant.address_line1|default:''|escape}" class="eb-input mt-2 w-full" />
                   </label>
                   <label class="md:col-span-2 block">
-                    <span class="text-sm text-slate-400">Address Line 2</span>
-                    <input type="text" name="address_line2" value="{$tenant.address_line2|default:''|escape}" class="mt-2 w-full rounded-lg bg-slate-800 px-3 py-2.5 text-sm text-white outline-1 -outline-offset-1 outline-white/10 transition focus-within:-outline-offset-2 focus-within:outline-2 focus-within:outline-sky-700" />
+                    <span class="eb-field-label">Address Line 2</span>
+                    <input type="text" name="address_line2" value="{$tenant.address_line2|default:''|escape}" class="eb-input mt-2 w-full" />
                   </label>
                   <label class="block">
-                    <span class="text-sm text-slate-400">City</span>
-                    <input type="text" name="city" value="{$tenant.city|default:''|escape}" class="mt-2 w-full rounded-lg bg-slate-800 px-3 py-2.5 text-sm text-white outline-1 -outline-offset-1 outline-white/10 transition focus-within:-outline-offset-2 focus-within:outline-2 focus-within:outline-sky-700" />
+                    <span class="eb-field-label">City</span>
+                    <input type="text" name="city" value="{$tenant.city|default:''|escape}" class="eb-input mt-2 w-full" />
                   </label>
                   <label class="block">
-                    <span class="text-sm text-slate-400">State / Province</span>
-                    <input type="text" name="state" value="{$tenant.state|default:''|escape}" class="mt-2 w-full rounded-lg bg-slate-800 px-3 py-2.5 text-sm text-white outline-1 -outline-offset-1 outline-white/10 transition focus-within:-outline-offset-2 focus-within:outline-2 focus-within:outline-sky-700" />
+                    <span class="eb-field-label">State / Province</span>
+                    <input type="text" name="state" value="{$tenant.state|default:''|escape}" class="eb-input mt-2 w-full" />
                   </label>
                   <label class="block">
-                    <span class="text-sm text-slate-400">Postal Code</span>
-                    <input type="text" name="postal_code" value="{$tenant.postal_code|default:''|escape}" class="mt-2 w-full rounded-lg bg-slate-800 px-3 py-2.5 text-sm text-white outline-1 -outline-offset-1 outline-white/10 transition focus-within:-outline-offset-2 focus-within:outline-2 focus-within:outline-sky-700" />
+                    <span class="eb-field-label">Postal Code</span>
+                    <input type="text" name="postal_code" value="{$tenant.postal_code|default:''|escape}" class="eb-input mt-2 w-full" />
                   </label>
                   <label class="block">
-                    <span class="text-sm text-slate-400">Country Code</span>
-                    <input type="text" name="country" value="{$tenant.country|default:''|escape}" maxlength="2" class="mt-2 w-full rounded-lg bg-slate-800 px-3 py-2.5 uppercase text-sm text-white outline-1 -outline-offset-1 outline-white/10 transition focus-within:-outline-offset-2 focus-within:outline-2 focus-within:outline-sky-700" placeholder="CA" />
-                    <p class="mt-2 text-xs text-slate-500">Use a 2-letter ISO country code such as CA or US.</p>
+                    <span class="eb-field-label">Country Code</span>
+                    <input type="text" name="country" value="{$tenant.country|default:''|escape}" maxlength="2" class="eb-input mt-2 w-full uppercase" placeholder="CA" />
+                    <p class="eb-field-help">Use a 2-letter ISO country code such as CA or US.</p>
                   </label>
                 </div>
               </div>
 
-              <div class="rounded-2xl border border-slate-800 bg-slate-950/50 p-5">
+              <div class="eb-card">
                 <div class="mb-4">
-                  <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Record Details</h3>
-                  <p class="mt-1 text-sm text-slate-400">Canonical tenant metadata for quick reference.</p>
+                  <h3 class="eb-type-eyebrow">Record Details</h3>
+                  <p class="mt-1 eb-type-caption">Canonical tenant metadata for quick reference.</p>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <label class="block">
-                    <span class="text-sm text-slate-400">Tenant ID</span>
-                    <input value="{$tenant.public_id|escape}" disabled class="mt-2 w-full cursor-not-allowed rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-2.5 font-mono text-sm text-slate-400 opacity-90" />
+                    <span class="eb-field-label">Tenant ID</span>
+                    <input value="{$tenant.public_id|escape}" disabled class="eb-input eb-type-mono mt-2 w-full cursor-not-allowed opacity-90" />
                   </label>
                   <label class="block">
-                    <span class="text-sm text-slate-400">Canonical Status</span>
-                    <input value="{$tenant.status|default:'active'|escape}" disabled class="mt-2 w-full cursor-not-allowed rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-2.5 text-sm text-slate-400 opacity-90" />
+                    <span class="eb-field-label">Canonical Status</span>
+                    <input value="{$tenant.status|default:'active'|escape}" disabled class="eb-input mt-2 w-full cursor-not-allowed opacity-90" />
                   </label>
                   <label class="block">
-                    <span class="text-sm text-slate-400">Created</span>
-                    <input value="{$tenant.created_at|default:'-'|escape}" disabled class="mt-2 w-full cursor-not-allowed rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-2.5 text-sm text-slate-400 opacity-90" />
+                    <span class="eb-field-label">Created</span>
+                    <input value="{$tenant.created_at|default:'-'|escape}" disabled class="eb-input mt-2 w-full cursor-not-allowed opacity-90" />
                   </label>
                   <label class="block">
-                    <span class="text-sm text-slate-400">Last Updated</span>
-                    <input value="{$tenant.updated_at|default:'-'|escape}" disabled class="mt-2 w-full cursor-not-allowed rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-2.5 text-sm text-slate-400 opacity-90" />
+                    <span class="eb-field-label">Last Updated</span>
+                    <input value="{$tenant.updated_at|default:'-'|escape}" disabled class="eb-input mt-2 w-full cursor-not-allowed opacity-90" />
                   </label>
                 </div>
               </div>
             </div>
           </div>
 
-          <div class="mt-6 flex justify-end border-t border-slate-800 pt-5">
-            <button type="submit" class="rounded-lg bg-sky-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 focus:ring-offset-slate-900">Save Customer Tenant</button>
+          <div class="mt-6 flex justify-end border-t border-[var(--eb-border-subtle)] pt-5">
+            <button type="submit" class="eb-btn eb-btn-primary">Save Customer Tenant</button>
           </div>
         </form>
       </section>
 
-      <section class="mt-6 rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden">
-        <div class="px-6 py-5 border-b border-slate-800">
-          <h2 class="text-lg font-medium text-slate-100">Canonical Tenant Status</h2>
+      <section class="mt-6 eb-card-raised !p-0 overflow-hidden">
+        <div class="px-6 py-5 border-b border-[var(--eb-border-subtle)]">
+          <h2 class="eb-card-title text-lg font-semibold">Canonical Tenant Status</h2>
         </div>
         <div class="px-6 py-5">
-          <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-medium bg-slate-800 text-slate-200 ring-1 ring-slate-700">{$tenant.status|default:'active'|escape}</span>
+          <span class="eb-badge eb-badge--neutral">{$tenant.status|default:'active'|escape}</span>
         </div>
       </section>
 
-      <section class="mt-6 rounded-2xl border border-rose-500/30 bg-rose-500/5 overflow-hidden">
-        <div class="px-6 py-5 border-b border-rose-500/20">
-          <h2 class="text-lg font-medium text-rose-200">Danger Zone</h2>
+      <section class="mt-6 eb-card-raised !p-0 overflow-hidden !border-[var(--eb-danger-border)] !bg-[var(--eb-danger-soft)]">
+        <div class="px-6 py-5 border-b border-[var(--eb-danger-border)]">
+          <h2 class="eb-card-title text-lg font-semibold text-[var(--eb-danger-text)]">Danger Zone</h2>
         </div>
         <form method="post" action="{$modulelink}&a=ph-tenant&id={$tenant.public_id|escape:'url'}" class="px-6 py-6 flex items-center justify-between gap-4">
           <input type="hidden" name="tenant_id" value="{$tenant.public_id|escape}" />
@@ -275,116 +275,155 @@
           {if isset($token) && $token ne ''}
             <input type="hidden" name="token" value="{$token}" />
           {/if}
-          <p class="text-sm text-slate-300">Delete this customer tenant (marks canonical status as deleted when safe).</p>
-          <button type="submit" class="rounded-lg px-4 py-2.5 text-sm font-medium text-white bg-rose-600 hover:bg-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-500 focus:ring-offset-2 focus:ring-offset-slate-900" onclick="return confirm('Delete this customer tenant?');">Delete Customer Tenant</button>
+          <p class="eb-type-body">Delete this customer tenant (marks canonical status as deleted when safe).</p>
+          <button type="submit" class="eb-btn eb-btn-danger-solid" onclick="return confirm('Delete this customer tenant?');">Delete Customer Tenant</button>
         </form>
       </section>
     {elseif $activeTab eq 'members'}
-      <section class="rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden">
-        <div class="px-6 py-5 border-b border-slate-800 flex items-center justify-between">
-          <h2 class="text-lg font-medium text-slate-100">Tenant Members</h2>
-          <span class="text-sm text-slate-400">{$members|@count} total</span>
+      <section class="eb-card-raised !p-0 overflow-hidden">
+        <div class="flex items-center justify-between gap-4 border-b border-[var(--eb-border-subtle)] px-6 py-5">
+          <h2 class="eb-card-title text-lg font-semibold">Tenant Members</h2>
+          <span class="eb-badge eb-badge--default">{$members|@count} total</span>
         </div>
         {if $members_error|default:'' neq ''}
-          <div class="px-6 py-5 text-sm text-rose-200">Unable to load tenant members ({$members_error|escape}).</div>
+          <div class="px-6 py-5">
+            <div class="eb-alert eb-alert--danger !mb-0">Unable to load tenant members ({$members_error|escape}).</div>
+          </div>
         {elseif $members|@count eq 0}
-          <div class="px-6 py-5 text-sm text-slate-400">No tenant members found.</div>
+          <div class="px-6 py-5">
+            <div class="eb-alert eb-alert--info !mb-0">No tenant members found.</div>
+          </div>
         {else}
-          <div class="overflow-x-auto rounded-lg border border-slate-800">
-            <table class="min-w-full divide-y divide-slate-800 text-sm">
-              <thead class="bg-slate-900/80 text-slate-300">
-                <tr>
-                  <th class="px-4 py-3 text-left font-medium">Name</th>
-                  <th class="px-4 py-3 text-left font-medium">Email</th>
-                  <th class="px-4 py-3 text-left font-medium">Role</th>
-                  <th class="px-4 py-3 text-left font-medium">Status</th>
-                  <th class="px-4 py-3 text-left font-medium">Last Login</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-slate-800">
-                {foreach from=$members item=member}
-                  <tr class="hover:bg-slate-800/50">
-                    <td class="px-4 py-3 text-left font-medium text-slate-100">{$member.name|default:'-'|escape}</td>
-                    <td class="px-4 py-3 text-left text-slate-300">{$member.email|default:'-'|escape}</td>
-                    <td class="px-4 py-3 text-left"><span class="inline-flex rounded-full px-2 py-0.5 text-xs font-medium bg-slate-700 text-slate-300">{$member.role|default:'user'|escape}</span></td>
-                    <td class="px-4 py-3 text-left"><span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold {if $member.status eq 'active'}bg-emerald-500/15 text-emerald-200{else}bg-slate-700 text-slate-300{/if}"><span class="h-1.5 w-1.5 rounded-full {if $member.status eq 'active'}bg-emerald-400{else}bg-slate-500{/if}"></span><span>{$member.status|default:'disabled'|escape}</span></span></td>
-                    <td class="px-4 py-3 text-left text-slate-300">{$member.last_login_at|default:'-'|escape}</td>
+          <div class="px-6 py-5">
+            <div class="eb-table-shell">
+              <table class="eb-table">
+                <thead>
+                  <tr>
+                    <th class="px-4 py-3 text-left font-medium">Name</th>
+                    <th class="px-4 py-3 text-left font-medium">Email</th>
+                    <th class="px-4 py-3 text-left font-medium">Role</th>
+                    <th class="px-4 py-3 text-left font-medium">Status</th>
+                    <th class="px-4 py-3 text-left font-medium">Last Login</th>
                   </tr>
-                {/foreach}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {foreach from=$members item=member}
+                    <tr>
+                      <td class="px-4 py-3 text-left font-medium text-[var(--eb-text-primary)]">{$member.name|default:'-'|escape}</td>
+                      <td class="px-4 py-3 text-left text-[var(--eb-text-secondary)]">{$member.email|default:'-'|escape}</td>
+                      <td class="px-4 py-3 text-left"><span class="eb-badge eb-badge--neutral">{$member.role|default:'user'|escape}</span></td>
+                      <td class="px-4 py-3 text-left"><span class="eb-badge {if $member.status eq 'active'}eb-badge--success{else}eb-badge--neutral{/if}">{$member.status|default:'disabled'|escape}</span></td>
+                      <td class="px-4 py-3 text-left text-[var(--eb-text-secondary)]">{$member.last_login_at|default:'-'|escape}</td>
+                    </tr>
+                  {/foreach}
+                </tbody>
+              </table>
+            </div>
           </div>
         {/if}
       </section>
     {elseif $activeTab eq 'storage_users'}
-      <section class="rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden">
-        <div class="px-6 py-5 border-b border-slate-800 flex items-center justify-between">
-          <h2 class="text-lg font-medium text-slate-100">Storage Users</h2>
-          <span class="text-sm text-slate-400">{$storage_users|@count} total</span>
+      <section class="eb-card-raised !p-0 overflow-hidden">
+        <div class="flex items-center justify-between gap-4 border-b border-[var(--eb-border-subtle)] px-6 py-5">
+          <h2 class="eb-card-title text-lg font-semibold">Storage Users</h2>
+          <span class="eb-badge eb-badge--default">{$storage_users|@count} total</span>
         </div>
         {if $storage_users_error|default:'' neq ''}
-          <div class="px-6 py-5 text-sm text-rose-200">Unable to load storage users ({$storage_users_error|escape}).</div>
+          <div class="px-6 py-5">
+            <div class="eb-alert eb-alert--danger !mb-0">Unable to load storage users ({$storage_users_error|escape}).</div>
+          </div>
         {elseif $storage_users|@count eq 0}
-          <div class="px-6 py-5 text-sm text-slate-400">No storage users linked to this tenant.</div>
+          <div class="px-6 py-5">
+            <div class="eb-alert eb-alert--info !mb-0">No storage users linked to this tenant.</div>
+          </div>
         {else}
-          <div class="overflow-x-auto rounded-lg border border-slate-800">
-            <table class="min-w-full divide-y divide-slate-800 text-sm">
-              <thead class="bg-slate-900/80 text-slate-300">
-                <tr>
-                  <th class="px-4 py-3 text-left font-medium">Username</th>
-                  <th class="px-4 py-3 text-left font-medium">Email</th>
-                  <th class="px-4 py-3 text-left font-medium">Status</th>
-                  <th class="px-4 py-3 text-left font-medium">Updated</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-slate-800">
-                {foreach from=$storage_users item=user}
-                  <tr class="hover:bg-slate-800/50">
-                    <td class="px-4 py-3 text-left font-medium text-slate-100 font-mono">{$user.username|default:'-'|escape}</td>
-                    <td class="px-4 py-3 text-left text-slate-300">{$user.email|default:'-'|escape}</td>
-                    <td class="px-4 py-3 text-left"><span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold {if $user.status eq 'active'}bg-emerald-500/15 text-emerald-200{else}bg-slate-700 text-slate-300{/if}"><span class="h-1.5 w-1.5 rounded-full {if $user.status eq 'active'}bg-emerald-400{else}bg-slate-500{/if}"></span><span>{$user.status|default:'disabled'|escape}</span></span></td>
-                    <td class="px-4 py-3 text-left text-slate-300">{$user.updated_at|default:'-'|escape}</td>
+          <div class="px-6 py-5">
+            <div class="eb-table-shell">
+              <table class="eb-table">
+                <thead>
+                  <tr>
+                    <th class="px-4 py-3 text-left font-medium">Username</th>
+                    <th class="px-4 py-3 text-left font-medium">Email</th>
+                    <th class="px-4 py-3 text-left font-medium">Status</th>
+                    <th class="px-4 py-3 text-left font-medium">Updated</th>
                   </tr>
-                {/foreach}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {foreach from=$storage_users item=user}
+                    <tr>
+                      <td class="px-4 py-3 text-left font-medium text-[var(--eb-text-primary)] eb-type-mono">{$user.username|default:'-'|escape}</td>
+                      <td class="px-4 py-3 text-left text-[var(--eb-text-secondary)]">{$user.email|default:'-'|escape}</td>
+                      <td class="px-4 py-3 text-left"><span class="eb-badge {if $user.status eq 'active'}eb-badge--success{else}eb-badge--neutral{/if}">{$user.status|default:'disabled'|escape}</span></td>
+                      <td class="px-4 py-3 text-left text-[var(--eb-text-secondary)]">{$user.updated_at|default:'-'|escape}</td>
+                    </tr>
+                  {/foreach}
+                </tbody>
+              </table>
+            </div>
           </div>
         {/if}
       </section>
     {elseif $activeTab eq 'billing'}
-      <section class="rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden">
-        <div class="px-6 py-5 border-b border-slate-800"><h2 class="text-lg font-medium text-slate-100">Billing Overview</h2></div>
-        <div class="px-6 py-5 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-          <div class="rounded-xl border border-slate-700 bg-slate-800/50 p-4">
-            <div class="text-slate-400">Tenant Billing</div>
+      <section class="eb-card-raised !p-0 overflow-hidden">
+        <div class="border-b border-[var(--eb-border-subtle)] px-6 py-5">
+          <h2 class="eb-card-title text-lg font-semibold">Billing Overview</h2>
+        </div>
+        <div class="grid grid-cols-1 gap-4 px-6 py-5 text-sm md:grid-cols-2">
+          <div class="eb-card !p-4">
+            <h3 class="eb-card-title">Tenant Billing</h3>
+            <p class="eb-card-subtitle">Current Stripe customer linkage and local billing status for this tenant.</p>
             {if $billing_tenant}
-              <div class="mt-2 font-mono text-slate-200">Tenant ID {$billing_tenant.public_id|escape}</div>
-              <div class="mt-1 text-slate-300">Stripe Customer: {$billing_tenant.stripe_customer_id|default:'-'|escape}</div>
-              <div class="mt-1 text-slate-300">Status: {$billing_tenant.status|default:'-'|escape}</div>
+              <div class="mt-4 space-y-3">
+                <label class="block">
+                  <span class="eb-field-label">Tenant ID</span>
+                  <input value="{$billing_tenant.public_id|escape}" disabled class="eb-input eb-type-mono mt-2 w-full cursor-not-allowed opacity-90" />
+                </label>
+                <label class="block">
+                  <span class="eb-field-label">Stripe Customer</span>
+                  <input value="{$billing_tenant.stripe_customer_id|default:'-'|escape}" disabled class="eb-input mt-2 w-full cursor-not-allowed opacity-90" />
+                </label>
+                <label class="block">
+                  <span class="eb-field-label">Status</span>
+                  <input value="{$billing_tenant.status|default:'-'|escape}" disabled class="eb-input mt-2 w-full cursor-not-allowed opacity-90" />
+                </label>
+              </div>
             {else}
-              <div class="mt-2 text-slate-400">No billing data for this tenant.</div>
+              <div class="eb-alert eb-alert--info mt-4 !mb-0">No billing data for this tenant.</div>
             {/if}
           </div>
-          <div class="rounded-xl border border-slate-700 bg-slate-800/50 p-4">
-            <div class="text-slate-400">Quick Totals</div>
-            <div class="mt-2 text-slate-200">Subscriptions: {$billing_subscriptions_count|default:0|escape}</div>
-            <div class="mt-1 text-slate-300">Usage Metrics: {$billing_usage_metrics_count|default:0|escape}</div>
-            <div class="mt-1 text-slate-300">Invoices Cached: {$billing_invoices_count|default:0|escape}</div>
+          <div class="eb-card !p-4">
+            <h3 class="eb-card-title">Quick Totals</h3>
+            <p class="eb-card-subtitle">Subscription, usage, and invoice counts cached for this tenant.</p>
+            <div class="mt-4 grid grid-cols-1 gap-3">
+              <label class="block">
+                <span class="eb-field-label">Subscriptions</span>
+                <input value="{$billing_subscriptions_count|default:0|escape}" disabled class="eb-input mt-2 w-full cursor-not-allowed opacity-90" />
+              </label>
+              <label class="block">
+                <span class="eb-field-label">Usage Metrics</span>
+                <input value="{$billing_usage_metrics_count|default:0|escape}" disabled class="eb-input mt-2 w-full cursor-not-allowed opacity-90" />
+              </label>
+              <label class="block">
+                <span class="eb-field-label">Invoices Cached</span>
+                <input value="{$billing_invoices_count|default:0|escape}" disabled class="eb-input mt-2 w-full cursor-not-allowed opacity-90" />
+              </label>
+            </div>
           </div>
         </div>
         {if $billing_error|default:'' neq ''}
-          <div class="px-6 pb-5 text-sm text-rose-200">Unable to load some billing data ({$billing_error|escape}).</div>
+          <div class="px-6 pb-5">
+            <div class="eb-alert eb-alert--warning !mb-0">Unable to load some billing data ({$billing_error|escape}).</div>
+          </div>
         {/if}
-        <section class="rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden mt-4 mx-6 mb-6"
-                 x-data="{
+        <div x-data="{
                    assignOpen: false,
                    assignSaving: false,
                    assignMessage: '',
                    paymentMethodMessage: '',
                    selectedPlanId: '',
                    selectedCometUserId: '',
-                   plans: {$billing_assignable_plans|default:array()|@json_encode nofilter},
-                   cometUsers: {$billing_tenant_comet_users|default:array()|@json_encode nofilter},
+                   plans: {$billing_assignable_plans|default:array()|@json_encode|escape:'html'},
+                   cometUsers: {$billing_tenant_comet_users|default:array()|@json_encode|escape:'html'},
                    tenantPublicId: '{$billing_tenant.public_id|default:$tenant.public_id|escape:'javascript'}',
                    token: '{$token|escape:'javascript'}',
                    selectedPlan() {
@@ -464,45 +503,48 @@
                        this.paymentMethodMessage = 'Unable to remove payment method.';
                      }
                    }
-                 }">
-          <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800">
-            <h2 class="text-lg font-medium text-slate-100">Active Plans</h2>
+                 }"
+             class="mx-6 mb-6 mt-4">
+          <section class="eb-card-raised !p-0 overflow-hidden">
+          <div class="flex items-center justify-between border-b border-[var(--eb-border-subtle)] px-6 py-4">
+            <h2 class="eb-card-title text-lg font-semibold">Active Plans</h2>
             <div class="flex flex-wrap items-center gap-2">
               <button type="button" class="eb-btn eb-btn-primary eb-btn-sm" @click="openAssignModal()" {if $billing_assignable_plans|default:array()|count eq 0}disabled{/if}>Assign Plan</button>
               <a href="{$modulelink}&a=ph-catalog-plans" class="eb-btn eb-btn-secondary eb-btn-sm">Manage Plans</a>
             </div>
           </div>
           {if $billing_plan_instances|default:array()|count > 0}
-            <div class="overflow-x-auto">
-              <table class="w-full text-sm text-left">
-                <thead class="bg-slate-800/40 text-xs uppercase tracking-wider text-slate-400">
-                  <tr>
-                    <th class="px-6 py-3">Plan</th>
-                    <th class="px-6 py-3">Backup User</th>
-                    <th class="px-6 py-3">Status</th>
-                    <th class="px-6 py-3">Since</th>
-                  </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-800/50">
-                  {foreach from=$billing_plan_instances item=pi}
-                  <tr class="hover:bg-slate-800/30">
-                    <td class="px-6 py-3 text-slate-200">{$pi.plan_name|default:'Unknown Plan'|escape}</td>
-                    <td class="px-6 py-3 font-mono text-slate-300">{$pi.comet_user_id|default:'-'|escape}</td>
-                    <td class="px-6 py-3">
-                      <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold {if $pi.status eq 'active'}bg-emerald-500/15 text-emerald-200{elseif $pi.status eq 'trialing'}bg-sky-500/15 text-sky-200{elseif $pi.status eq 'past_due'}bg-amber-500/15 text-amber-200{elseif $pi.status eq 'paused'}bg-slate-500/15 text-slate-300{else}bg-rose-500/15 text-rose-200{/if}">
-                        <span class="h-1.5 w-1.5 rounded-full {if $pi.status eq 'active'}bg-emerald-400{elseif $pi.status eq 'trialing'}bg-sky-400{elseif $pi.status eq 'past_due'}bg-amber-400{elseif $pi.status eq 'paused'}bg-slate-400{else}bg-rose-400{/if}"></span>
-                        {$pi.status|default:'unknown'|escape}
-                      </span>
-                    </td>
-                    <td class="px-6 py-3 text-slate-400">{if $pi.created_at|default:'' neq ''}{$pi.created_at|date_format:'%Y-%m-%d'}{else}-{/if}</td>
-                  </tr>
-                  {/foreach}
-                </tbody>
-              </table>
+            <div class="px-6 py-5">
+              <div class="eb-table-shell">
+                <table class="eb-table">
+                  <thead>
+                    <tr>
+                      <th class="px-6 py-3">Plan</th>
+                      <th class="px-6 py-3">Backup User</th>
+                      <th class="px-6 py-3">Status</th>
+                      <th class="px-6 py-3">Since</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {foreach from=$billing_plan_instances item=pi}
+                    <tr>
+                      <td class="px-6 py-3 text-[var(--eb-text-primary)]">{$pi.plan_name|default:'Unknown Plan'|escape}</td>
+                      <td class="px-6 py-3 eb-type-mono text-[var(--eb-text-secondary)]">{$pi.comet_user_id|default:'-'|escape}</td>
+                      <td class="px-6 py-3">
+                        <span class="eb-badge {if $pi.status eq 'active'}eb-badge--success{elseif $pi.status eq 'trialing'}eb-badge--info{elseif $pi.status eq 'past_due'}eb-badge--warning{elseif $pi.status eq 'paused'}eb-badge--neutral{else}eb-badge--danger{/if}">{$pi.status|default:'unknown'|escape}</span>
+                      </td>
+                      <td class="px-6 py-3 text-[var(--eb-text-secondary)]">{if $pi.created_at|default:'' neq ''}{$pi.created_at|date_format:'%Y-%m-%d'}{else}-{/if}</td>
+                    </tr>
+                    {/foreach}
+                  </tbody>
+                </table>
+              </div>
             </div>
           {else}
-            <div class="px-6 py-8 text-center text-sm text-slate-400">
-              No active billing plans. <a href="{$modulelink}&a=ph-catalog-plans" class="text-[var(--eb-primary)] hover:underline">Assign a plan from Catalog &rarr; Plans</a>.
+            <div class="px-6 py-5">
+              <div class="eb-alert eb-alert--info !mb-0 text-center">
+                No active billing plans. <a href="{$modulelink}&a=ph-catalog-plans" class="text-[var(--eb-primary)] hover:underline">Assign a plan from Catalog &rarr; Plans</a>.
+              </div>
             </div>
           {/if}
           <div x-show="assignOpen" x-cloak class="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/70 px-4" @click.self="assignOpen = false">
@@ -525,7 +567,7 @@
                   </select>
                 </label>
                 <template x-if="selectedPlan()">
-                  <div class="rounded-xl border border-slate-800 bg-slate-950/40 px-4 py-3 text-sm text-slate-300">
+                  <div class="eb-card !p-4">
                     <div class="font-medium text-slate-100" x-text="selectedPlan().name || 'Selected plan'"></div>
                     <div class="mt-1" x-text="selectedPlan().description || 'No description provided.'"></div>
                   </div>
@@ -543,7 +585,7 @@
                   <p class="mt-2 text-xs text-slate-500" x-show="cometUsers.length === 0">No linked backup users were found for this tenant.</p>
                 </div>
                 <template x-if="assignMessage">
-                  <div class="rounded-xl border border-rose-800/70 bg-rose-950/40 px-4 py-3 text-sm text-rose-200" x-text="assignMessage"></div>
+                  <div class="eb-alert eb-alert--danger !mb-0" x-text="assignMessage"></div>
                 </template>
               </div>
               <div class="flex items-center justify-end gap-3 border-t border-slate-800 px-6 py-4">
@@ -552,18 +594,21 @@
               </div>
             </div>
           </div>
-        </section>
-        <section class="rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden mt-4 mx-6 mb-6">
-          <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800">
-            <h2 class="text-lg font-medium text-slate-100">Saved Payment Methods</h2>
-            <span class="text-sm text-slate-400">{$billing_payment_methods|default:array()|count} on file</span>
+          </section>
+        </div>
+        <section class="mx-6 mb-6 mt-4 eb-card-raised !p-0 overflow-hidden">
+          <div class="flex items-center justify-between border-b border-[var(--eb-border-subtle)] px-6 py-4">
+            <h2 class="eb-card-title text-lg font-semibold">Saved Payment Methods</h2>
+            <span class="eb-badge eb-badge--default">{$billing_payment_methods|default:array()|count} on file</span>
           </div>
           {if $billing_tenant.stripe_customer_id|default:'' eq ''}
-            <div class="px-6 py-8 text-sm text-slate-400">This tenant does not have a Stripe customer yet, so there are no saved payment methods to manage.</div>
+            <div class="px-6 py-5">
+              <div class="eb-alert eb-alert--info !mb-0">This tenant does not have a Stripe customer yet, so there are no saved payment methods to manage.</div>
+            </div>
           {elseif $billing_payment_methods|default:array()|count > 0}
             <div class="grid grid-cols-1 gap-4 px-6 py-5 md:grid-cols-2">
               {foreach from=$billing_payment_methods item=pm}
-                <article class="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+                <article class="eb-card !p-4">
                   <div class="flex items-start justify-between gap-3">
                     <div>
                       <div class="text-sm uppercase tracking-[0.2em] text-slate-500">{$pm.brand|default:'card'|escape}</div>
@@ -581,25 +626,37 @@
             </div>
             <template x-if="paymentMethodMessage">
               <div class="px-6 pb-5">
-                <div class="rounded-xl border border-rose-800/70 bg-rose-950/40 px-4 py-3 text-sm text-rose-200" x-text="paymentMethodMessage"></div>
+                <div class="eb-alert eb-alert--danger !mb-0" x-text="paymentMethodMessage"></div>
               </div>
             </template>
           {else}
-            <div class="px-6 py-8 text-sm text-slate-400">No saved payment methods were found for this tenant.</div>
+            <div class="px-6 py-5">
+              <div class="eb-alert eb-alert--info !mb-0">No saved payment methods were found for this tenant.</div>
+            </div>
           {/if}
         </section>
       </section>
     {elseif $activeTab eq 'white_label'}
-      <section class="rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden">
-        <div class="px-6 py-5 border-b border-slate-800"><h2 class="text-lg font-medium text-slate-100">White Label Mapping</h2></div>
+      <section class="eb-card-raised !p-0 overflow-hidden">
+        <div class="border-b border-[var(--eb-border-subtle)] px-6 py-5"><h2 class="eb-card-title text-lg font-semibold">White Label Mapping</h2></div>
         <div class="px-6 py-5 text-sm">
           {if $whitelabel_error|default:'' neq ''}
-            <div class="text-rose-200">Unable to load white-label data ({$whitelabel_error|escape}).</div>
+            <div class="eb-alert eb-alert--danger !mb-0">Unable to load white-label data ({$whitelabel_error|escape}).</div>
           {elseif !$whitelabel_tenant}
-            <div class="rounded-xl border border-slate-700 bg-slate-800/50 p-4">
-              <div class="font-medium text-slate-100">Status: Not enabled</div>
-              <div class="mt-1 text-slate-400">No white-label tenant is mapped to this canonical tenant yet.</div>
-              <div class="mt-1 text-slate-400">Mapping State: {$whitelabel_mapping_state|default:'not_mapped'|escape}</div>
+            <div class="eb-card">
+              <h3 class="eb-card-title">White Label Status</h3>
+              <p class="eb-card-subtitle">No white-label tenant is mapped to this canonical tenant yet.</p>
+              <div class="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
+                <label class="block">
+                  <span class="eb-field-label">Status</span>
+                  <input value="Not enabled" disabled class="eb-input mt-2 w-full cursor-not-allowed opacity-90" />
+                </label>
+                <label class="block">
+                  <span class="eb-field-label">Mapping State</span>
+                  <input value="{$whitelabel_mapping_state|default:'not_mapped'|escape}" disabled class="eb-input mt-2 w-full cursor-not-allowed opacity-90" />
+                </label>
+              </div>
+              <div class="eb-alert eb-alert--info mt-5 !mb-0">Enable white label to provision the related mapping and infrastructure records.</div>
             </div>
             <form method="post" action="{$whitelabel_enable_action|escape}" class="mt-4">
               <input type="hidden" name="tenant_id" value="{$tenant.public_id|escape}" />
@@ -607,28 +664,66 @@
               {if isset($token) && $token ne ''}
                 <input type="hidden" name="token" value="{$token}" />
               {/if}
-              <button type="submit" class="rounded-lg px-5 py-2.5 text-sm font-semibold text-white bg-sky-600 hover:bg-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 focus:ring-offset-slate-900">
+              <button type="submit" class="eb-btn eb-btn-primary">
                 Enable White Label
               </button>
             </form>
           {else}
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div class="rounded-xl border border-slate-700 bg-slate-800/50 p-4">
-                <div class="text-slate-200">Status: {$whitelabel_tenant.status|default:'-'|escape}</div>
-                <div class="mt-1 text-slate-300">FQDN: {$whitelabel_tenant.fqdn|default:'-'|escape}</div>
-                <div class="mt-1 text-slate-300">Subdomain: {$whitelabel_tenant.subdomain|default:'-'|escape}</div>
-                <div class="mt-1 text-slate-300">Custom Domain: {$whitelabel_tenant.custom_domain|default:'-'|escape}</div>
-                <div class="mt-1 text-slate-300">Custom Domain State: {$whitelabel_tenant.custom_domain_status|default:'-'|escape}</div>
+              <div class="eb-card">
+                <h3 class="eb-card-title">Tenant Mapping</h3>
+                <p class="eb-card-subtitle">Current mapped white-label tenant identity and domain state.</p>
+                <div class="mt-5 grid grid-cols-1 gap-4">
+                  <label class="block">
+                    <span class="eb-field-label">Status</span>
+                    <input value="{$whitelabel_tenant.status|default:'-'|escape}" disabled class="eb-input mt-2 w-full cursor-not-allowed opacity-90" />
+                  </label>
+                  <label class="block">
+                    <span class="eb-field-label">FQDN</span>
+                    <input value="{$whitelabel_tenant.fqdn|default:'-'|escape}" disabled class="eb-input mt-2 w-full cursor-not-allowed opacity-90" />
+                  </label>
+                  <label class="block">
+                    <span class="eb-field-label">Subdomain</span>
+                    <input value="{$whitelabel_tenant.subdomain|default:'-'|escape}" disabled class="eb-input mt-2 w-full cursor-not-allowed opacity-90" />
+                  </label>
+                  <label class="block">
+                    <span class="eb-field-label">Custom Domain</span>
+                    <input value="{$whitelabel_tenant.custom_domain|default:'-'|escape}" disabled class="eb-input mt-2 w-full cursor-not-allowed opacity-90" />
+                  </label>
+                  <label class="block">
+                    <span class="eb-field-label">Custom Domain State</span>
+                    <input value="{$whitelabel_tenant.custom_domain_status|default:'-'|escape}" disabled class="eb-input mt-2 w-full cursor-not-allowed opacity-90" />
+                  </label>
+                </div>
               </div>
-              <div class="rounded-xl border border-slate-700 bg-slate-800/50 p-4">
-                <div class="text-slate-200">Enabled: Yes</div>
-                <div class="mt-1 text-slate-300">Mapping State: {$whitelabel_mapping_state|default:'mapped'|escape}</div>
-                <div class="text-slate-300">Custom Domains: {$whitelabel_custom_domains|@count}</div>
-                <div class="mt-1 text-slate-300">Asset Types: {$whitelabel_assets_by_type|@count}</div>
-                <div class="mt-1 text-slate-300">Org ID: {$whitelabel_tenant.org_id|default:'-'|escape}</div>
+              <div class="eb-card">
+                <h3 class="eb-card-title">Provisioning Summary</h3>
+                <p class="eb-card-subtitle">White-label mapping counts and internal organization identifiers.</p>
+                <div class="mt-5 grid grid-cols-1 gap-4">
+                  <label class="block">
+                    <span class="eb-field-label">Enabled</span>
+                    <input value="Yes" disabled class="eb-input mt-2 w-full cursor-not-allowed opacity-90" />
+                  </label>
+                  <label class="block">
+                    <span class="eb-field-label">Mapping State</span>
+                    <input value="{$whitelabel_mapping_state|default:'mapped'|escape}" disabled class="eb-input mt-2 w-full cursor-not-allowed opacity-90" />
+                  </label>
+                  <label class="block">
+                    <span class="eb-field-label">Custom Domains</span>
+                    <input value="{$whitelabel_custom_domains|@count}" disabled class="eb-input mt-2 w-full cursor-not-allowed opacity-90" />
+                  </label>
+                  <label class="block">
+                    <span class="eb-field-label">Asset Types</span>
+                    <input value="{$whitelabel_assets_by_type|@count}" disabled class="eb-input mt-2 w-full cursor-not-allowed opacity-90" />
+                  </label>
+                  <label class="block">
+                    <span class="eb-field-label">Org ID</span>
+                    <input value="{$whitelabel_tenant.org_id|default:'-'|escape}" disabled class="eb-input mt-2 w-full cursor-not-allowed opacity-90" />
+                  </label>
+                </div>
               </div>
             </div>
-            <div class="mt-4 text-slate-400">White-label infrastructure IDs are managed internally and are not editable here.</div>
+            <div class="eb-alert eb-alert--info mt-4 !mb-0">White-label infrastructure IDs are managed internally and are not editable here.</div>
           {/if}
         </div>
       </section>
