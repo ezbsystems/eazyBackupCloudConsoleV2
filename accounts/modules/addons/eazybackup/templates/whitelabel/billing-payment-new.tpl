@@ -172,7 +172,7 @@
 {include file="modules/addons/eazybackup/templates/whitelabel/partials/partner_hub_shell.tpl"
   ebPhSidebarPage='billing-payments'
   ebPhTitle='New One-time Payment'
-  ebPhDescription='Charge a card for setup fees, project work, or ad-hoc adjustments.'
+  ebPhDescription='Charge a saved card for setup fees, project work, or ad-hoc adjustments.'
   ebPhActions=$ebPhActions
   ebPhContent=$ebPhContent
 }

@@ -100,6 +100,80 @@ function eb_ph_resolve_trial_notice(int $mspId, string $subscriptionId): void
         ]);
 }
 
+function eb_ph_store_billing_notice(int $mspId, ?int $tenantId, string $noticeType, string $tenantName, string $referenceId): void
+{
+    $noticeType = trim($noticeType);
+    $referenceId = trim($referenceId);
+    if ($mspId <= 0 || $noticeType === '' || $referenceId === '') {
+        return;
+    }
+
+    $noticeKey = 'billing_' . $noticeType . '_' . $referenceId;
+    $tenantLabel = trim($tenantName) !== '' ? trim($tenantName) : 'A customer';
+    $now = date('Y-m-d H:i:s');
+    $title = 'Billing notice';
+    $message = $tenantLabel . ' has a billing event that needs review.';
+    $actionUrl = 'index.php?m=eazybackup&a=ph-billing-payments';
+    $actionLabel = 'Review billing';
+
+    if ($noticeType === 'payment_failed') {
+        $title = 'Payment failed';
+        $message = $tenantLabel . ' has a failed payment that needs follow-up.';
+        $actionUrl = 'index.php?m=eazybackup&a=ph-billing-invoices';
+        $actionLabel = 'Review invoice';
+    } elseif ($noticeType === 'dispute_opened') {
+        $title = 'Dispute opened';
+        $message = 'A Stripe dispute was opened and needs review.';
+        $actionUrl = 'index.php?m=eazybackup&a=ph-money-disputes';
+        $actionLabel = 'Review dispute';
+    }
+
+    $payload = [
+        'tenant_id' => $tenantId ?: null,
+        'notice_type' => $noticeType,
+        'title' => $title,
+        'message' => $message,
+        'action_url' => $actionUrl,
+        'action_label' => $actionLabel,
+        'resolved_at' => null,
+        'updated_at' => $now,
+    ];
+
+    $existing = Capsule::table('eb_partnerhub_notices')
+        ->where('msp_id', $mspId)
+        ->where('notice_key', $noticeKey)
+        ->first();
+
+    if ($existing) {
+        Capsule::table('eb_partnerhub_notices')->where('id', (int)$existing->id)->update($payload);
+        return;
+    }
+
+    $payload['msp_id'] = $mspId;
+    $payload['notice_key'] = $noticeKey;
+    $payload['dismissed_at'] = null;
+    $payload['created_at'] = $now;
+    Capsule::table('eb_partnerhub_notices')->insert($payload);
+}
+
+function eb_ph_resolve_billing_notice(int $mspId, string $noticeType, string $referenceId): void
+{
+    $noticeType = trim($noticeType);
+    $referenceId = trim($referenceId);
+    if ($mspId <= 0 || $noticeType === '' || $referenceId === '') {
+        return;
+    }
+
+    Capsule::table('eb_partnerhub_notices')
+        ->where('msp_id', $mspId)
+        ->where('notice_key', 'billing_' . $noticeType . '_' . $referenceId)
+        ->whereNull('resolved_at')
+        ->update([
+            'resolved_at' => date('Y-m-d H:i:s'),
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+}
+
 function eb_ph_touch_payment_method_state(string $stripeCustomerId): void
 {
     if ($stripeCustomerId === '') {
@@ -290,6 +364,16 @@ function eb_ph_stripe_webhook(): void
                         'stripe_status' => $status,
                         'updated_at' => date('Y-m-d H:i:s'),
                     ]);
+                    if (Capsule::schema()->hasTable('eb_plan_instances')) {
+                        $instanceUpdate = ['status' => $status, 'updated_at' => date('Y-m-d H:i:s')];
+                        if ($type === 'customer.subscription.deleted') {
+                            $instanceUpdate['status'] = 'canceled';
+                            $instanceUpdate['cancelled_at'] = date('Y-m-d H:i:s');
+                        }
+                        Capsule::table('eb_plan_instances')
+                            ->where('stripe_subscription_id', $subId)
+                            ->update($instanceUpdate);
+                    }
                     if ($mspId > 0 && $status !== 'trialing') {
                         eb_ph_resolve_trial_notice($mspId, $subId);
                     }
@@ -363,6 +447,12 @@ function eb_ph_stripe_webhook(): void
                                     'updated_at' => date('Y-m-d H:i:s'),
                                 ]
                             );
+                            if ($type === 'charge.dispute.created' && $mspId > 0) {
+                                eb_ph_store_billing_notice((int)$mspId, null, 'dispute_opened', '', $did);
+                            }
+                            if ($type === 'charge.dispute.closed' && $mspId > 0) {
+                                eb_ph_resolve_billing_notice((int)$mspId, 'dispute_opened', $did);
+                            }
                         }
                     }
                 }
@@ -380,8 +470,13 @@ function eb_ph_stripe_webhook(): void
                 if ($invId !== '') {
                     $stripeCustomer = (string)($obj['customer'] ?? '');
                     $tenantId = null;
+                    $mspId = eb_ph_webhook_msp_id_for_account($acctId);
                     if ($stripeCustomer !== '') {
-                        $tenantId = Capsule::table('eb_tenants')->where('stripe_customer_id',$stripeCustomer)->value('id');
+                        $tenant = Capsule::table('eb_tenants')->where('stripe_customer_id',$stripeCustomer)->first(['id', 'msp_id', 'name']);
+                        $tenantId = (int)($tenant->id ?? 0);
+                        if ($mspId <= 0) {
+                            $mspId = (int)($tenant->msp_id ?? 0);
+                        }
                     }
                     Capsule::table('eb_invoice_cache')->updateOrInsert(
                         ['stripe_invoice_id' => $invId],
@@ -396,6 +491,10 @@ function eb_ph_stripe_webhook(): void
                             'updated_at' => date('Y-m-d H:i:s'),
                         ]
                     );
+                    if ($type === 'invoice.payment_failed' && $mspId > 0) {
+                        $tenantName = isset($tenant) ? (string)($tenant->name ?? '') : 'A customer';
+                        eb_ph_store_billing_notice((int)$mspId, $tenantId ?: null, 'payment_failed', $tenantName, $invId);
+                    }
                 }
                 break;
             case 'charge.succeeded':

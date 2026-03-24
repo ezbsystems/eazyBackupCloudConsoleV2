@@ -402,6 +402,55 @@ function eb_ph_billing_payment_methods(array $vars): void
     }
 }
 
+function eb_ph_stripe_payment_method_detach(array $vars): void
+{
+    header('Content-Type: application/json');
+    if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { echo json_encode(['status' => 'error', 'message' => 'auth']); return; }
+    if (!eb_ph_tenants_require_csrf_or_json_error((string)($_POST['token'] ?? ''))) { return; }
+
+    try {
+        $clientId = (int)$_SESSION['uid'];
+        $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id', $clientId)->first();
+        if (!$msp || (string)($msp->stripe_connect_id ?? '') === '') {
+            echo json_encode(['status' => 'error', 'message' => 'no_account']);
+            return;
+        }
+
+        $paymentMethodId = trim((string)($_POST['payment_method_id'] ?? ''));
+        $tenantPublicId = trim((string)($_POST['tenant_id'] ?? ''));
+        if ($paymentMethodId === '' || $tenantPublicId === '') {
+            echo json_encode(['status' => 'error', 'message' => 'invalid']);
+            return;
+        }
+
+        $tenant = eb_ph_billing_resolve_tenant_for_msp((int)$msp->id, $tenantPublicId);
+        if (!$tenant) {
+            echo json_encode(['status' => 'error', 'message' => 'tenant_not_found']);
+            return;
+        }
+        if (trim((string)($tenant->stripe_customer_id ?? '')) === '') {
+            echo json_encode(['status' => 'error', 'message' => 'no_customer']);
+            return;
+        }
+
+        $svc = new \PartnerHub\StripeService();
+        $acct = (string)$msp->stripe_connect_id;
+        $customer = $svc->retrieveCustomer((string)$tenant->stripe_customer_id, $acct);
+        $defaultPaymentMethodId = (string)($customer['invoice_settings']['default_payment_method'] ?? '');
+        if ($defaultPaymentMethodId !== '' && $defaultPaymentMethodId === $paymentMethodId) {
+            echo json_encode(['status' => 'error', 'message' => 'default_payment_method']);
+            return;
+        }
+
+        $svc->detachPaymentMethod($paymentMethodId, $acct);
+        echo json_encode(['status' => 'success']);
+        return;
+    } catch (\Throwable $e) {
+        echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
+        return;
+    }
+}
+
 function eb_ph_money_payouts(array $vars)
 {
     if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { header('Location: clientarea.php'); exit; }

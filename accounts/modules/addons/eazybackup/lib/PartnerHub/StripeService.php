@@ -286,6 +286,15 @@ class StripeService
         ], null, $stripeAccount);
     }
 
+    public function detachPaymentMethod(string $paymentMethodId, ?string $stripeAccount = null): array
+    {
+        $paymentMethodId = trim($paymentMethodId);
+        if ($paymentMethodId === '') {
+            throw new \RuntimeException('Missing payment method id');
+        }
+        return $this->request('POST', '/v1/payment_methods/' . rawurlencode($paymentMethodId) . '/detach', [], null, $stripeAccount);
+    }
+
     public function createCustomerBasic(string $name, string $email, ?string $stripeAccount = null): array
     {
         return $this->request('POST','/v1/customers',[ 'name' => $name, 'email' => $email ], null, $stripeAccount);
@@ -367,6 +376,17 @@ class StripeService
             'timestamp' => $timestamp,
             'action' => 'set',
         ], null, $stripeAccount, $headers);
+    }
+
+    public function listUsageRecordSummaries(string $subscriptionItemId, int $limit = 12, ?string $stripeAccount = null): array
+    {
+        $subscriptionItemId = trim($subscriptionItemId);
+        if ($subscriptionItemId === '') {
+            throw new \RuntimeException('Missing Stripe subscription item id');
+        }
+        return $this->request('GET', '/v1/subscription_items/'.$subscriptionItemId.'/usage_record_summaries', [
+            'limit' => max(1, min(100, $limit)),
+        ], null, $stripeAccount);
     }
 
     public function createPaymentIntentOneTime(string $mspAccountId, array $params): array

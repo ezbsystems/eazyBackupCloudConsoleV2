@@ -26,7 +26,7 @@ $targets = [
             'tenant detail route marker' => "\$_REQUEST['a']) && \$_REQUEST['a'] === 'ph-tenant'",
             'tenant management entry route marker' => "\$_REQUEST['a']) && \$_REQUEST['a'] === 'ph-tenants-manage'",
             'tenants controller include marker' => "require_once __DIR__ . '/pages/partnerhub/TenantsController.php';",
-            'tenant list handler marker' => 'return eb_ph_tenants_index($vars);',
+            'tenant list handler marker' => 'return eb_ph_tenants_redirect($vars);',
             'tenant detail handler marker' => 'return eb_ph_tenant_detail($vars);',
             'tenant management entry handler marker' => 'return eb_ph_tenants_management_entry($vars);',
         ],
@@ -37,32 +37,32 @@ $targets = [
             'context helper marker' => 'function eb_ph_tenants_require_context(array $vars): array',
             'reseller gate marker' => "Capsule::table('tbladdonmodules')",
             'msp lookup marker' => "Capsule::table('eb_msp_accounts')->where('whmcs_client_id', \$clientId)->first();",
-            'csrf helper marker' => 'function eb_ph_tenants_require_csrf_or_redirect(array $vars, string $token, ?int $tenantId = null): void',
+            'csrf helper marker' => 'function eb_ph_tenants_require_csrf_or_redirect(array $vars, string $token, ?string $tenantPublicId = null): void',
             'csrf validation marker' => "check_token('plain', \$token)",
             'csrf fail-closed marker' => 'error=csrf',
             'management entry function marker' => 'function eb_ph_tenants_management_entry(array $vars)',
             'list function marker' => 'function eb_ph_tenants_index(array $vars)',
             'list create post marker' => "if (\$_SERVER['REQUEST_METHOD'] === 'POST' && isset(\$_POST['eb_create_tenant']))",
-            'list create canonical insert marker' => "Capsule::table('eb_whitelabel_tenants')->insertGetId([",
-            'list canonical owner marker' => "'client_id' => \$clientId",
-            'list idempotency marker' => "'idempotency_key' =>",
-            'list canonical fetch marker' => "Capsule::table('eb_whitelabel_tenants')->where('client_id', \$clientId)",
+            'list create canonical insert marker' => "Capsule::table('eb_tenants')->insertGetId(\$insert);",
+            'list canonical owner marker' => "'msp_id' => (int)\$msp->id,",
+            'list idempotency marker' => 'function eb_ph_tenants_generate_idempotency_key(): string',
+            'list canonical fetch marker' => "\$rowsCol = Capsule::table('eb_tenants')->where('msp_id', (int)\$msp->id)",
             'list template marker' => "'templatefile' => 'whitelabel/tenants'",
             'detail function marker' => 'function eb_ph_tenant_detail(array $vars)',
-            'detail canonical fetch marker' => "Capsule::table('eb_whitelabel_tenants')->where('id', \$tenantId)->where('client_id', \$clientId)->first();",
+            'detail canonical fetch marker' => "->where('public_id', \$tenantPublicId)",
             'detail save marker' => "if (\$_SERVER['REQUEST_METHOD'] === 'POST' && isset(\$_POST['eb_save_tenant']))",
-            'detail update marker' => "Capsule::table('eb_whitelabel_tenants')->where('id', \$tenantId)->where('client_id', \$clientId)->update([",
+            'detail update marker' => "Capsule::table('eb_tenants')->where('id', \$tenantId)->where('msp_id', (int)\$msp->id)->update(\$update);",
             'detail delete marker' => "if (\$_SERVER['REQUEST_METHOD'] === 'POST' && isset(\$_POST['eb_delete_tenant']))",
-            'detail delete canonical ref guard marker' => "Capsule::table('eb_customers')->where('tenant_id', \$tenantId)->exists();",
+            'detail delete canonical ref guard marker' => "eb_ph_tenants_delete_blockers(\$tenantId);",
             'detail delete canonical ref error marker' => 'error=tenant_in_use',
-            'detail delete canonical marker' => "Capsule::table('eb_whitelabel_tenants')->where('id', \$tenantId)->where('client_id', \$clientId)->delete();",
+            'detail delete canonical marker' => "Capsule::table('eb_tenants')->where('id', \$tenantId)->where('msp_id', (int)\$msp->id)->update([",
             'detail template marker' => "'templatefile' => 'whitelabel/tenant-detail'",
         ],
     ],
     'tenants list template file' => [
         'path' => $listTemplateFile,
         'markers' => [
-            'tenants heading marker' => 'Tenant Management',
+            'tenants heading marker' => 'Customer Tenants',
             'create tenant hidden marker' => 'name="eb_create_tenant"',
             'create tenant csrf hidden marker' => 'name="token"',
             'manage tenant action marker' => '&a=ph-tenant&id=',
@@ -74,7 +74,7 @@ $targets = [
             'save tenant hidden marker' => 'name="eb_save_tenant"',
             'delete tenant hidden marker' => 'name="eb_delete_tenant"',
             'tenant detail csrf hidden marker' => 'name="token"',
-            'back to list marker' => '&a=ph-tenants',
+            'back to list marker' => '&a=ph-tenants-manage',
         ],
     ],
     'cloudstorage tenants page file' => [
@@ -82,7 +82,7 @@ $targets = [
         'markers' => [
             'auth check marker' => '$ca->isLoggedIn()',
             'msp check marker' => 'MspController::isMspClient($loggedInUserId)',
-            'partner hub redirect marker' => "header('Location: index.php?m=eazybackup&a=ph-tenants-manage');",
+            'partner hub redirect marker' => "\$targetUrl = 'index.php?m=eazybackup&a=ph-tenants-manage&legacy=e3-tenants';",
         ],
     ],
 ];
@@ -117,8 +117,8 @@ if ($controllerSource === false) {
         $failures[] = 'FAIL: missing create/update/delete csrf enforcement calls';
     }
 
-    $guardPos = strpos($controllerSource, "Capsule::table('eb_customers')->where('tenant_id', \$tenantId)->exists();");
-    $deletePos = strpos($controllerSource, "Capsule::table('eb_whitelabel_tenants')->where('id', \$tenantId)->where('client_id', \$clientId)->delete();");
+    $guardPos = strpos($controllerSource, "eb_ph_tenants_delete_blockers(\$tenantId);");
+    $deletePos = strpos($controllerSource, "Capsule::table('eb_tenants')->where('id', \$tenantId)->where('msp_id', (int)\$msp->id)->update([");
     if ($guardPos === false || $deletePos === false) {
         $failures[] = 'FAIL: missing delete guard ordering markers';
     } elseif ($guardPos > $deletePos) {
