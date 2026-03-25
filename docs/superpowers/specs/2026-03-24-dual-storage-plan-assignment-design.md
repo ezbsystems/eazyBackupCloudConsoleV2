@@ -79,13 +79,13 @@ Key change: `STORAGE_TB`-only plans now require Comet user selection (no more sy
 
 #### Mixed-metric constraint
 
-Plans must not contain both `STORAGE_TB` and `E3_STORAGE_GIB` components. These storage types use different usage sources and different user entity types, so combining them in a single plan is not meaningful. Enforce this at plan creation/publish time in the plan builder validation logic (`CatalogPlansController`). If a plan contains both metric types, reject with a clear error message: "A plan cannot mix eazyBackup Cloud Storage and e3 Object Storage components."
+`E3_STORAGE_GIB` components must not be mixed with any other metric type in a single plan. An e3 Object Storage plan contains only `E3_STORAGE_GIB` components — it cannot be bundled with `STORAGE_TB`, `DEVICE`, `VM`, or other metrics because e3 plans require an S3 user while all other metrics require a Comet user. Enforce this at plan creation/publish time in the plan builder validation logic (`CatalogPlansController`). If a plan contains `E3_STORAGE_GIB` alongside any other metric, reject with a clear error message: "e3 Object Storage components cannot be combined with other metric types in the same plan."
 
 #### Backwards compatibility
 
-Existing `eb_plan_instances` rows with `comet_user_id = 'storage:{...}'` continue to work. The current `partnerhub_usage_job.php` queries `eb_storage_daily WHERE username = comet_user_id` — for `storage:` keys this returns zero rows, producing $0 billed. Tenant-level storage billing for these legacy instances is handled by `stripe_tenant_usage_rollup.php`, which resolves usernames through `eb_tenant_storage_links` independently of the `comet_user_id` value.
+Existing `eb_plan_instances` rows with `comet_user_id = 'storage:{...}'` continue to work unchanged. Their billing is handled exclusively by `stripe_tenant_usage_rollup.php`, which resolves usernames through `eb_tenant_storage_links` independently of the `comet_user_id` value. The `partnerhub_usage_job.php` skips `storage:` keys for `STORAGE_TB` items (they return zero rows from `eb_storage_daily` and the new code explicitly skips them).
 
-No migration of existing `storage:` keys is required. As MSPs assign new plans, they will select specific Comet users, and the `storage:` pattern will naturally age out. The `stripe_tenant_usage_rollup.php` path remains unchanged and continues to handle any active legacy tenant-level subscriptions.
+No migration of existing `storage:` keys is required. As MSPs assign new plans, they will select specific Comet users, and the `storage:` pattern will naturally age out. The `stripe_tenant_usage_rollup.php` path remains unchanged and continues to handle any active legacy tenant-level subscriptions. There is no double-billing risk because the two jobs operate on disjoint sets of plan instances.
 
 ### 2. S3 User Discovery
 
@@ -207,10 +207,11 @@ New branch for `E3_STORAGE_GIB` metered items:
 For each active eb_plan_instances row:
   For each metered subscription item:
     ├── STORAGE_TB:
-    │   ├── comet_user_id starts with 'storage:' → legacy tenant-level
-    │   │   aggregation (backwards compat)
+    │   ├── comet_user_id starts with 'storage:' → SKIP (do nothing).
+    │   │   These legacy tenant-level instances are billed exclusively
+    │   │   by stripe_tenant_usage_rollup.php, not this job.
     │   └── Otherwise → read eb_storage_daily for that username
-    │       (per-user Comet vault billing)
+    │       (per-user Comet vault billing, new behavior)
     │
     └── E3_STORAGE_GIB:
         ├── Parse s3_user_id from comet_user_id ('e3:{id}' → integer)
@@ -228,7 +229,19 @@ For each active eb_plan_instances row:
 
 #### `stripe_tenant_usage_rollup.php`
 
-No e3 branch needed. E3 plans have per-instance (per-S3-user) billing handled entirely by `partnerhub_usage_job.php`.
+No changes needed.
+
+- **Legacy `storage:` instances:** This job continues to handle tenant-level `STORAGE_TB` billing for existing `storage:{tenant_id}` plan instances, exactly as it does today. It resolves usernames via `eb_tenant_storage_links` → `s3_backup_users` → Comet usernames, sums `eb_storage_daily.bytes_total` for `client_id` + those usernames over the billing period, converts to GB, and pushes to Stripe. No code changes required.
+- **E3 plans:** Not handled here. E3 plans have per-instance billing via `partnerhub_usage_job.php`.
+- **New per-user `STORAGE_TB` instances:** These have a real Comet username in `comet_user_id` (not `storage:` prefix) and are handled by `partnerhub_usage_job.php`. This job does not process them — no double-billing risk because this job only activates for instances resolved through `eb_tenant_storage_links`, which are the legacy path.
+
+**Billing ownership summary:**
+
+| `comet_user_id` pattern | `STORAGE_TB` billed by | `E3_STORAGE_GIB` billed by |
+|---|---|---|
+| `storage:{tenant_id}` (legacy) | `stripe_tenant_usage_rollup.php` | N/A |
+| Plain Comet username (new) | `partnerhub_usage_job.php` | N/A |
+| `e3:{s3_user_id}` | N/A | `partnerhub_usage_job.php` |
 
 #### Usage ledger
 
