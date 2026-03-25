@@ -110,6 +110,22 @@ function eb_ph_tenant_billing(array $vars)
                 ->toArray();
         }
 
+        $whmcsCometUsernames = eb_ph_discover_msp_comet_usernames((int)($msp->whmcs_client_id ?? 0));
+        if ($whmcsCometUsernames !== []) {
+            $existingIds = array_map(
+                static fn(array $r): string => (string)($r['comet_user_id'] ?? ''),
+                $tenantCometUsers
+            );
+            foreach ($whmcsCometUsernames as $username) {
+                if (!in_array($username, $existingIds, true)) {
+                    $tenantCometUsers[] = ['comet_user_id' => $username];
+                }
+            }
+            usort($tenantCometUsers, static fn(array $a, array $b): int =>
+                strcasecmp((string)($a['comet_user_id'] ?? ''), (string)($b['comet_user_id'] ?? ''))
+            );
+        }
+
         $stripeCustomerId = trim((string)($tenant->stripe_customer_id ?? ''));
         $stripeConnectId = trim((string)($msp->stripe_connect_id ?? ''));
         if ($stripeCustomerId !== '' && $stripeConnectId !== '') {

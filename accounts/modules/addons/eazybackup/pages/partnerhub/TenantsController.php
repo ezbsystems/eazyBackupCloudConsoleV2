@@ -286,6 +286,40 @@ function eb_ph_tenants_require_csrf_or_json_error(string $token): bool
     return true;
 }
 
+function eb_ph_discover_msp_comet_usernames(int $clientId): array
+{
+    if ($clientId <= 0) {
+        return [];
+    }
+
+    $excludeProductgroupIds = [2, 11];
+    try {
+        $productIds = Capsule::table('tblproducts')
+            ->whereNotIn('gid', $excludeProductgroupIds)
+            ->pluck('id')
+            ->toArray();
+    } catch (\Throwable $__) {
+        return [];
+    }
+    if ($productIds === []) {
+        return [];
+    }
+
+    try {
+        return Capsule::table('tblhosting')
+            ->where('domainstatus', 'Active')
+            ->where('userid', $clientId)
+            ->whereIn('packageid', $productIds)
+            ->where('username', '!=', '')
+            ->pluck('username')
+            ->unique()
+            ->values()
+            ->toArray();
+    } catch (\Throwable $__) {
+        return [];
+    }
+}
+
 function eb_ph_tenants_management_entry(array $vars)
 {
     return eb_ph_tenants_index($vars);

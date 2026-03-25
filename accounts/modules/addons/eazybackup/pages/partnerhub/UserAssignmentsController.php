@@ -28,7 +28,6 @@ function eb_ph_user_assignments_sort_rows(array &$rows, string $sort, string $di
 function eb_ph_user_assignments(array $vars)
 {
     [$clientId, $msp] = eb_ph_tenants_require_context($vars);
-    unset($clientId);
 
     $q = trim((string)($_GET['q'] ?? ''));
     $sort = strtolower(trim((string)($_GET['sort'] ?? 'username')));
@@ -92,20 +91,100 @@ function eb_ph_user_assignments(array $vars)
         $unassignedRows[] = (array)$row;
     }
 
+    $whmcsCometUsernames = eb_ph_discover_msp_comet_usernames($clientId);
+    if ($whmcsCometUsernames !== []) {
+        $assignedCometIds = array_map(
+            static fn(array $r): string => (string)($r['comet_user_id'] ?? ''),
+            $assignedRows
+        );
+        $existingUnassignedIds = array_map(
+            static fn(array $r): string => (string)($r['comet_user_id'] ?? ''),
+            $unassignedRows
+        );
+        $knownIds = array_merge($assignedCometIds, $existingUnassignedIds);
+
+        foreach ($whmcsCometUsernames as $username) {
+            if (in_array($username, $knownIds, true)) {
+                continue;
+            }
+            if ($q !== '' && stripos($username, $q) === false) {
+                continue;
+            }
+            $unassignedRows[] = [
+                'comet_user_id' => $username,
+                'comet_username' => $username,
+                'tenant_name' => '',
+                'tenant_public_id' => '',
+            ];
+        }
+    }
+
     eb_ph_user_assignments_sort_rows($assignedRows, $sort, $dir);
     eb_ph_user_assignments_sort_rows($unassignedRows, $sort, $dir);
 
+    $baseLink = eb_ph_tenants_base_link($vars);
     foreach ($assignedRows as &$row) {
-        $row['tenant_url'] = eb_ph_tenants_base_link($vars) . '&a=ph-tenant&id=' . rawurlencode((string)($row['tenant_public_id'] ?? ''));
-        $row['plans_url'] = eb_ph_tenants_base_link($vars) . '&a=ph-catalog-plans';
+        $row['tenant_url'] = $baseLink . '&a=ph-tenant&id=' . rawurlencode((string)($row['tenant_public_id'] ?? ''));
+        $row['plans_url'] = $baseLink . '&a=ph-catalog-plans';
     }
     unset($row);
 
     foreach ($unassignedRows as &$row) {
-        $row['tenant_url'] = eb_ph_tenants_base_link($vars) . '&a=ph-tenant&id=' . rawurlencode((string)($row['tenant_public_id'] ?? ''));
-        $row['plans_url'] = eb_ph_tenants_base_link($vars) . '&a=ph-catalog-plans';
+        $row['tenant_url'] = $baseLink . '&a=ph-tenant&id=' . rawurlencode((string)($row['tenant_public_id'] ?? ''));
+        $row['plans_url'] = $baseLink . '&a=ph-catalog-plans';
     }
     unset($row);
+
+    $mspId = (int)($msp->id ?? 0);
+    $assignTenants = [];
+    try {
+        $assignTenants = Capsule::table('eb_tenants')
+            ->where('msp_id', $mspId)
+            ->where('status', '!=', 'deleted')
+            ->orderBy('name', 'asc')
+            ->get(['public_id', 'name'])
+            ->map(fn($r) => (array)$r)
+            ->toArray();
+    } catch (\Throwable $__) {}
+
+    $assignPlans = [];
+    try {
+        if (Capsule::schema()->hasTable('eb_plan_templates')) {
+            $planRows = Capsule::table('eb_plan_templates')
+                ->where('msp_id', $mspId)
+                ->where('status', 'active')
+                ->orderBy('name', 'asc')
+                ->get(['id', 'name', 'description'])
+                ->map(fn($r) => (array)$r)
+                ->toArray();
+
+            $metricsByPlan = [];
+            if ($planRows !== [] && Capsule::schema()->hasTable('eb_plan_components')) {
+                $rows = Capsule::table('eb_plan_components as pc')
+                    ->leftJoin('eb_catalog_prices as pr', 'pr.id', '=', 'pc.price_id')
+                    ->leftJoin('eb_catalog_products as p', 'p.id', '=', 'pr.product_id')
+                    ->whereIn('pc.plan_id', array_map(static fn(array $r): int => (int)($r['id'] ?? 0), $planRows))
+                    ->get(['pc.plan_id', 'pr.metric_code as price_metric', 'p.base_metric_code as product_base_metric'])
+                    ->map(fn($r) => (array)$r)
+                    ->toArray();
+                foreach ($rows as $c) {
+                    $pid = (int)($c['plan_id'] ?? 0);
+                    $metric = strtoupper(trim((string)($c['price_metric'] ?? $c['product_base_metric'] ?? '')));
+                    if ($pid > 0 && $metric !== '') {
+                        $metricsByPlan[$pid][$metric] = true;
+                    }
+                }
+            }
+
+            foreach ($planRows as $planRow) {
+                $pid = (int)($planRow['id'] ?? 0);
+                $metrics = array_keys($metricsByPlan[$pid] ?? []);
+                $nonStorage = array_filter($metrics, static fn(string $m): bool => $m !== 'STORAGE_TB');
+                $planRow['requires_comet_user'] = count($metrics) === 0 ? true : count($nonStorage) > 0;
+                $assignPlans[] = $planRow;
+            }
+        }
+    } catch (\Throwable $__) {}
 
     return [
         'pagetitle' => 'User Assignments',
@@ -121,6 +200,9 @@ function eb_ph_user_assignments(array $vars)
             'dir' => $dir,
             'assigned_rows' => $assignedRows,
             'unassigned_rows' => $unassignedRows,
+            'assign_tenants' => $assignTenants,
+            'assign_plans' => $assignPlans,
+            'token' => function_exists('generate_token') ? generate_token('plain') : '',
         ],
     ];
 }
