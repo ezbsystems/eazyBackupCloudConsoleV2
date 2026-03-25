@@ -77,9 +77,15 @@ Decision table:
 
 Key change: `STORAGE_TB`-only plans now require Comet user selection (no more synthetic `storage:{tenant_id}` key).
 
+#### Mixed-metric constraint
+
+Plans must not contain both `STORAGE_TB` and `E3_STORAGE_GIB` components. These storage types use different usage sources and different user entity types, so combining them in a single plan is not meaningful. Enforce this at plan creation/publish time in the plan builder validation logic (`CatalogPlansController`). If a plan contains both metric types, reject with a clear error message: "A plan cannot mix eazyBackup Cloud Storage and e3 Object Storage components."
+
 #### Backwards compatibility
 
-Existing `eb_plan_instances` rows with `comet_user_id = 'storage:{...}'` continue to work. The billing pipeline falls back to tenant-level aggregation when it encounters this prefix.
+Existing `eb_plan_instances` rows with `comet_user_id = 'storage:{...}'` continue to work. The current `partnerhub_usage_job.php` queries `eb_storage_daily WHERE username = comet_user_id` — for `storage:` keys this returns zero rows, producing $0 billed. Tenant-level storage billing for these legacy instances is handled by `stripe_tenant_usage_rollup.php`, which resolves usernames through `eb_tenant_storage_links` independently of the `comet_user_id` value.
+
+No migration of existing `storage:` keys is required. As MSPs assign new plans, they will select specific Comet users, and the `storage:` pattern will naturally age out. The `stripe_tenant_usage_rollup.php` path remains unchanged and continues to handle any active legacy tenant-level subscriptions.
 
 ### 2. S3 User Discovery
 
@@ -127,7 +133,7 @@ Both pickers use the same UX pattern: searchable dropdown with button trigger.
 - Add S3 user picker that appears when selected plan is `e3_storage` mode
 - When S3 picker is active, hide Comet user field
 - The "Assign Plan" button in the unassigned Comet users table remains as-is (opens modal with Comet user pre-filled)
-- Consider a top-level "Assign e3 Storage Plan" button for initiating e3 assignments
+- Add an "Assign e3 Storage Plan" button above the unassigned table (or in the page header) that opens the same modal with no Comet user pre-filled and mode forced to allow S3 user selection once an e3 plan is chosen
 
 **catalog-plans.tpl:**
 - Existing modal has Comet picker that shows/hides based on `assignPlanRequiresCometUser()`
@@ -140,9 +146,23 @@ Both pickers use the same UX pattern: searchable dropdown with button trigger.
 - Add `s3Users` data property populated from controller
 - Switch between Comet/S3 pickers based on plan mode
 
+#### Display rendering of synthetic keys
+
+Tables that display `comet_user_id` (assigned users list, plan instances, billing tab) must render synthetic keys as human-readable labels:
+
+- `e3:{id}` → resolve `s3_users` row by ID and display: "S3: {username}" (or "{name}" if set). Controllers should join/resolve this when building display rows.
+- `storage:{tenant_id}` → display: "Tenant-level (legacy)". This tells the MSP this is an old assignment pattern.
+- Plain string → display as-is (Comet username, current behavior)
+
+Each controller that builds rows for display (assigned users in `UserAssignmentsController`, plan instances in `TenantBillingController`) should detect the prefix and resolve the label server-side before passing to the template.
+
 #### Controller data requirements
 
-All three controllers call `eb_ph_discover_msp_s3_users($clientId)` and pass the result as a JSON-encoded template variable (`s3_users_json` or similar). The `assign_plans` data includes the full `assignment_mode` object with `requires_s3_user`.
+All three controllers (`UserAssignmentsController`, `TenantBillingController`, `CatalogPlansController`) must:
+
+1. Call `eb_ph_discover_msp_s3_users($clientId)` and pass the result as a JSON-encoded template variable (e.g. `s3_users_json`)
+2. Build plan data using `eb_ph_plan_assignment_mode()` (the shared function) rather than inline metric computation. Currently `UserAssignmentsController` and `TenantBillingController` compute `requires_comet_user` with their own inline metric logic — both must switch to calling the shared function.
+3. Pass plans with the full nested `assignment_mode` object (not a flat `requires_comet_user` boolean). All three templates use the same shape: `plan.assignment_mode.mode`, `plan.assignment_mode.requires_comet_user`, `plan.assignment_mode.requires_s3_user`.
 
 ### 4. Backend Assignment Handler
 
@@ -234,10 +254,10 @@ The `s3_backup_users` product is not ready for the Partner Hub.
 |---|---|
 | `eazybackup.php` | ALTER TABLE for metric ENUMs (migration block) |
 | `pages/partnerhub/TenantsController.php` | New `eb_ph_discover_msp_s3_users()` helper |
-| `pages/partnerhub/CatalogPlansController.php` | Update `eb_ph_plan_assignment_mode()`, update `eb_ph_plan_assign()` validation |
-| `pages/partnerhub/UserAssignmentsController.php` | Pass S3 users + updated assignment_mode to template |
-| `pages/partnerhub/TenantBillingController.php` | Pass S3 users + updated assignment_mode to template |
-| `templates/whitelabel/user-assignments.tpl` | Add S3 user picker to inline modal |
+| `pages/partnerhub/CatalogPlansController.php` | Update `eb_ph_plan_assignment_mode()`, update `eb_ph_plan_assign()` validation, add mixed-metric constraint to plan builder validation |
+| `pages/partnerhub/UserAssignmentsController.php` | Replace inline metric logic with `eb_ph_plan_assignment_mode()`, pass S3 users + nested `assignment_mode` to template, resolve `e3:`/`storage:` display labels for assigned rows |
+| `pages/partnerhub/TenantBillingController.php` | Replace inline metric logic with `eb_ph_plan_assignment_mode()`, pass S3 users + nested `assignment_mode` to template, resolve synthetic key display labels for plan instances |
+| `templates/whitelabel/user-assignments.tpl` | Add S3 user picker to inline modal, add "Assign e3 Storage Plan" button |
 | `templates/whitelabel/catalog-plans.tpl` | Add S3 user picker, three-state mode switching |
 | `assets/js/catalog-plans.js` | S3 picker methods, mode-aware logic |
 | `templates/whitelabel/tenant-detail.tpl` | Add S3 user picker to billing tab modal, hide Storage Users tab |
